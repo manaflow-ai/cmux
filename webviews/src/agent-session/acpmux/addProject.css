@@ -46,4 +46,3 @@
 .acpmux-add-project-actions button { padding: 4px 7px; }
 .acpmux-add-project .acpmux-add-project-submit { background: var(--agent-control); }
 .acpmux-add-project-footer { grid-row: 7; display: flex; justify-content: space-between; align-items: end; gap: 6px; border-top: 1px solid var(--agent-border); color: var(--agent-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
-.acpmux-add-project kbd { font: inherit; opacity: .8; }
