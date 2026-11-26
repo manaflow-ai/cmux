@@ -1171,7 +1171,7 @@ class NotifyNeverLost(unittest.TestCase):
         self.assertIn("name: cmux-next-tree-notify-pending", text)
         manifests = text.split("\n  sweep-commit-manifests:\n", 1)[1].split("\n  sweep-pending-tree-notify:", 1)[0]
         self.assertNotIn("--sweep-pending", manifests)
-        sweep = text.split("\n  sweep-pending-tree-notify:\n", 1)[1].split("\n  point-machine-channel-early:", 1)[0]
+        sweep = text.split("\n  sweep-pending-tree-notify:\n", 1)[1].split("\n  # Cloud machines keep their cmux-tui", 1)[0]
         self.assertIn("cmux_next_tree_notify.py --repo \"$GITHUB_REPOSITORY\" --sweep-pending", sweep)
         self.assertIn("pull-requests: read", sweep)
         # Overlapping sweeps claim a record by deleting it (sweep_pending), not by a concurrency group: GitHub

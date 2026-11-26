@@ -96,4 +96,31 @@ import Testing
         #expect(bindings.map(\.keys) == [[Shortcut("r", modifiers: [.option, .shift])], [Shortcut(" ", modifiers: [.control])]])
         #expect(KeyBindingLoader(Self.registry()).loadApp(bindings).isEmpty)
     }
+
+    /// `contributes.keybindings` (keybindings.json form) joins the app layer: an own op as the
+    /// daemon sent it (`app.command.run`), a cmux action with its arguments, a two-stroke key.
+    @Test func contributedKeybindingsJoinTheAppLayer() throws {
+        let record = try #require(AppRecord(json: [
+            "id": "local/branchy", "installed": true,
+            "manifest": ["manifestVersion": 2, "id": "local/branchy", "name": "Branchy", "version": "1.0.0"],
+            "keybindings": [
+                ["key": "cmd+shift+b", "command": "app.command.run", "when": "terminalFocused",
+                 "args": ["app": "local/branchy", "command": "local.branchy.copy_branch"]],
+                ["key": "ctrl+k s", "command": "newTab", "args": ["name": "scratch", "focus": true]],
+                ["key": "hyper+b", "command": "newTab"],
+            ],
+        ]))
+        let again = try #require(AppRecord(json: record.json))
+        #expect(again.keybindings == record.keybindings)
+        let bindings = AppKeyBindings.bindings([again])
+        #expect(bindings.count == 2)
+        #expect(bindings[0].keys == [Shortcut("b", modifiers: [.command, .shift])])
+        #expect(bindings[0].command == "app.command.run")
+        #expect(bindings[0].arguments == ["app": .string("local/branchy"), "command": .string("local.branchy.copy_branch")])
+        #expect(bindings[0].when?.text == "terminalFocused")
+        #expect(bindings[1].keys == [Shortcut("k", modifiers: [.control]), Shortcut("s", modifiers: [])])
+        #expect(bindings[1].command == "newTab")
+        #expect(bindings[1].arguments == ["name": .string("scratch"), "focus": .bool(true)])
+        #expect(bindings.allSatisfy { $0.source == .app })
+    }
 }

@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.compactShortTurns" : {
+      "comment" : "Settings > Chat > Compact Summary for Short Turns: the title of the toggle that shows a short turn as a one-line summary instead of Worked for",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compact Summary for Short Turns"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
