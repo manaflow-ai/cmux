@@ -9,10 +9,11 @@ export type ComposerAttachmentState = {
   /// `loading`: still read or uploaded (a send waits for it); `failed`: could not be attached;
   /// `staged`: goes with the next send.
   state: "loading" | "failed" | "staged";
-  /// A failed tile's reason (its tooltip).
+  /// A failed tile's reason (its tooltip), or a still-trying one's (its words and the host's).
   reason?: string;
-  /// Whether a failed tile offers Retry.
-  retry?: boolean;
+  /// A loading tile whose upload failed and has been asked again on its own for the house deadline
+  /// (composer/uploadRetry.ts): it says "Still trying to upload…".
+  stillTrying?: boolean;
   /// How much of a loading tile's upload reached the host, 0 to 100, once one streams.
   percent?: number;
 };
@@ -26,12 +27,12 @@ export function composerAttachmentsState(root: ParentNode = document): ComposerA
     const loading = !failed && tile.getAttribute("aria-busy") === "true";
     const state = failed ? "failed" : loading ? "loading" : "staged";
     const progress = loading ? tile.querySelector<HTMLProgressElement>("progress") : null;
+    const stillTrying = loading && tile.hasAttribute("data-still-trying");
     return {
       name: tile.getAttribute("aria-label") ?? tile.getAttribute("title") ?? "",
       state,
-      ...(failed
-        ? { reason: tile.getAttribute("title") ?? "", retry: tile.querySelector(".acpmux-attachment-retry") !== null }
-        : {}),
+      ...(failed ? { reason: tile.getAttribute("title") ?? "" } : {}),
+      ...(stillTrying ? { reason: tile.getAttribute("title") ?? "", stillTrying: true } : {}),
       ...(progress ? { percent: Number(progress.value) } : {}),
     };
   });
