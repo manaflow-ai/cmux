@@ -118,6 +118,7 @@ export function useTrustHeldPrompts({
   putBack,
   refusedForTrust,
   keptElsewhere,
+  resent,
 }: {
   /// The chat shown: its session, undefined for a new chat before its start.
   chat: string | undefined;
@@ -137,10 +138,17 @@ export function useTrustHeldPrompts({
   refusedForTrust(error: unknown): boolean;
   /// Whether a refused prompt stays in the chat (its failed row with Retry): it is not given back.
   keptElsewhere?(error: unknown): boolean;
+  /// A send a dropped connection lost before acpmux answered (lostPrompt.ts): the host's journal
+  /// sends it again, under its own promptId, on the next connection. Settles with the session it
+  /// showed in once it did (it counts as taken, and the flush goes on), or undefined when it never
+  /// shows, or the failure was no loss: only then is it given back. Without this, a lost prompt and
+  /// every one behind it went back into the composer joined while acpmux ran it from the journal,
+  /// and the composer's copy was sent again (Leo, 2026-11-25: "that message got split up and queued").
+  resent?(error: unknown): Promise<string | undefined>;
 }) {
   const [held, setHeld] = useState<TrustHeldPrompt[]>([]);
-  const latest = useRef({ send, putBack, refusedForTrust, keptElsewhere });
-  latest.current = { send, putBack, refusedForTrust, keptElsewhere };
+  const latest = useRef({ send, putBack, refusedForTrust, keptElsewhere, resent });
+  latest.current = { send, putBack, refusedForTrust, keptElsewhere, resent };
   // What a flush reads before each prompt: a prompt removed or edited meanwhile, another chat
   // shown, or the folder held again counts.
   const now = useRef({ held, chat, cwd, holds });
@@ -177,7 +185,13 @@ export function useTrustHeldPrompts({
         if (chat === undefined) starting.current = true;
         going.current = entry;
         try {
-          const started = await latest.current.send(entry);
+          const started = await latest.current.send(entry).catch(async (error: unknown) => {
+            // Lost on a dropped connection: it waits, first in line, for the host's resend, as the
+            // composer's own send does (PaneComposer `resentAfterLoss`). None behind it goes first.
+            const shownIn = await latest.current.resent?.(error);
+            if (shownIn === undefined) throw error;
+            return entry.chat ?? shownIn;
+          });
           going.current = undefined;
           if (released.current.has(entry.id)) break;
           // A new chat's other prompts in that folder follow it into the session its start made,
