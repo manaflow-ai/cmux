@@ -65,3 +65,47 @@ fn startup_deadline_waits_for_ssh_authentication() {
     // One authentication, and no retry that would prompt again.
     assert_eq!(fs::read_to_string(&log).unwrap(), "master\n");
 }
+
+/// Cancelling a reconnect must also cancel a master awaiting authentication.
+#[tokio::test]
+async fn reconnect_authentication_stops_on_shutdown() {
+    let directory = tempfile::tempdir().unwrap();
+    let script = directory.path().join("ssh");
+    write_executable(&script, "#!/bin/sh\nexec sleep 30\n".to_string());
+    let endpoint = Url::parse("ssh://person@password-host").unwrap();
+    let mut options = reconnect_test_options(vec![test_route(endpoint.as_str())]);
+    options.ssh = SshProviderConfig {
+        ssh_binary: script.to_string_lossy().into_owned(),
+        connection_share: cmux_remote::ssh_control::SshConnectionShare::new(),
+        ..SshProviderConfig::default()
+    };
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let prepared = [AtomicBool::new(true)];
+    let attempt = RuntimeReconnectRouteAttempt {
+        options: &options,
+        prepared_ssh: &prepared,
+        shutdown: Some(shutdown_rx),
+    };
+    let connect = attempt.connect(
+        0,
+        ConnectRequest {
+            endpoint,
+            session: options.session,
+            lane_policy: options.lane_policy,
+            routing: BTreeMap::new(),
+        },
+        AuthKind::Carrier,
+    );
+    tokio::pin!(connect);
+    tokio::select! {
+        result = &mut connect => panic!("authentication unexpectedly finished: {:?}", result.err()),
+        () = tokio::time::sleep(Duration::from_millis(100)) => {}
+    }
+    shutdown_tx.send(true).unwrap();
+    let error = tokio::time::timeout(Duration::from_secs(2), connect)
+        .await
+        .expect("shutdown must interrupt authentication")
+        .err()
+        .expect("cancelled reconnect must fail");
+    assert!(error.to_string().contains("SSH reconnect interrupted"), "{error}");
+}
