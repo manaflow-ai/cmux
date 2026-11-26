@@ -60,6 +60,9 @@ final class LayoutViewContext {
     var applyInputAtEvent: () -> Bool = { false }
     /// A drag's input landed at its event since the window's last frame tick: the next event waits for the tick.
     var inputLandedSinceTick = false
+    /// Whether a divider drag's first event of a display frame lays out at once (``LayoutRootView/inputLandsAtEvent``,
+    /// `CMUX_NEXT_DIVIDER_INPUT_AT_EVENT=1`); tests set it per layout.
+    var inputLandsAtEvent = LayoutRootView.inputLandsAtEvent
     /// The window's frame tick applies its input now (`LayoutFrameInput`): a screen's presentation and the overlay
     /// sync wait for the frame's one pass, after its springs step.
     var holdsPresentations = false
