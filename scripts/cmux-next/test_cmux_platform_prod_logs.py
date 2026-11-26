@@ -148,7 +148,7 @@ class GuardTests(unittest.TestCase):
         query.assert_not_called()
 
     def test_only_the_listed_workers_are_read(self):
-        for service in ("", "cmux-api", "cmux-platform-development", "cmux-vm-preview", PROD + " ", "cmux-platform-*"):
+        for service in ("", "cmux-api", "cmux-platform-dev", "cmux-vm-preview", PROD + " ", "cmux-platform-*"):
             with self.subTest(service=service):
                 code, _, query, _ = run_main(["--from", "2026-11-11T13:20:00Z", "--service", service, "--id", TEAM,
                                               "--needles", LISTED])
