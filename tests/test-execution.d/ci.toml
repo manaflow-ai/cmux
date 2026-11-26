@@ -594,6 +594,10 @@ path = "tests/test_ci_piece_swap.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pool_make_room.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pool_snapshot_job_cache.py"
 lane = "linux-guard"
 
