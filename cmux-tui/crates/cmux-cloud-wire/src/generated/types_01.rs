@@ -660,6 +660,10 @@ pub struct CloudMachine {
     pub paused_by: Option<LitSpendCap>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spend_cap_pause_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<CloudMachineOrigin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<i64>,
     pub revision: Revision,
 }
 
@@ -687,6 +691,30 @@ wire_enum! {
         NoReport = "no_report",
         ProviderStopped = "provider_stopped",
         ProviderPaused = "provider_paused",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CloudMachineOrigin {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<CloudMachineOriginKind>,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lane: Option<String>,
+}
+
+wire_enum! {
+    CloudMachineOriginKind {
+        Workflow = "workflow",
+        Lane = "lane",
+        Agent = "agent",
+        Person = "person",
     }
 }
 
@@ -858,37 +886,3 @@ wire_enum! {
         Following = "following",
     }
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct CloudSessionView {
-    pub key: String,
-    pub team: TeamId,
-    pub vm: CloudSessionVm,
-    pub session: CloudSessionId,
-    pub kind: CloudSessionKind,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<CloudSessionId>,
-    pub title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub harness: Option<String>,
-    pub owner: UserId,
-    pub owner_name: Option<String>,
-    pub assignee: UserId,
-    pub assignee_name: Option<String>,
-    pub machine_state: CloudSessionMachineState,
-    pub activity: CloudSessionActivity,
-    pub last_activity_at: i64,
-    pub created_at: i64,
-    pub archived: bool,
-    pub followers: Vec<UserId>,
-    pub follower_count: i64,
-    pub following: bool,
-    pub assigned_to_you: bool,
-    pub viewers: Vec<UserId>,
-    pub can_reassign: bool,
-    pub can_archive: bool,
-    pub link: String,
-}
-
-/// The Cloud machine the session runs on.
-pub type CloudSessionVm = String;
