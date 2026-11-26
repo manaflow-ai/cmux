@@ -26,6 +26,7 @@ use cmux_palette_ranker::{Entry, RankRequest, filter};
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
 
+use super::internal::mux_sidebar;
 use super::{GlobalArgs, OutputMode};
 
 const USAGE: &str = "\
@@ -564,7 +565,6 @@ fn sidebar_and_scrollback(
                 handles: Vec::new(),
                 found: true,
                 record: json!({
-                    "surface": terminal.surface,
                     "terminal_id": terminal.terminal_id,
                     "workspace": terminal.workspace,
                     "tab": terminal.title,
@@ -597,13 +597,13 @@ fn sidebar_rows(tree: &Value) -> (Vec<Row>, Vec<TerminalRef>) {
         let name = first_text(workspace, &["title", "name", "key", "id"]);
         let group = text(workspace, "group");
         let mut handles = Vec::new();
-        for key in ["short_id", "id", "resource_id", "key"] {
+        for key in ["id", "resource_id", "key"] {
             if let Some(handle) = workspace.get(key).and_then(value_text) {
                 handles.push(handle);
             }
         }
         let mut record = Map::new();
-        for key in ["id", "resource_id", "key", "short_id", "name", "title", "group", "active"] {
+        for key in ["id", "resource_id", "key", "name", "title", "group", "active"] {
             if let Some(value) = workspace.get(key) {
                 record.insert(key.into(), value.clone());
             }
@@ -637,23 +637,15 @@ fn sidebar_rows(tree: &Value) -> (Vec<Row>, Vec<TerminalRef>) {
                 .collect::<Vec<_>>()
                 .join(" · ");
             let mut handles = Vec::new();
-            for key in ["short_id", "tab_resource_id", "terminal_id"] {
+            for key in ["tab_resource_id", "terminal_id"] {
                 if let Some(handle) = tab.get(key).and_then(value_text) {
                     handles.push(handle);
                 }
             }
             let mut record = Map::new();
-            for key in [
-                "surface",
-                "tab_resource_id",
-                "terminal_id",
-                "short_id",
-                "name",
-                "title",
-                "cwd",
-                "git_branch",
-                "url",
-            ] {
+            for key in
+                ["tab_resource_id", "terminal_id", "name", "title", "cwd", "git_branch", "url"]
+            {
                 if let Some(value) = tab.get(key).filter(|value| !value.is_null()) {
                     record.insert(key.into(), value.clone());
                 }
@@ -674,11 +666,9 @@ fn sidebar_rows(tree: &Value) -> (Vec<Row>, Vec<TerminalRef>) {
                 record: Value::Object(record),
             });
             let live = tab.get("dead").and_then(Value::as_bool) != Some(true);
-            if let (Some(surface), Some(terminal_id), true) = (
-                tab.get("surface").and_then(Value::as_u64),
-                tab.get("terminal_id").and_then(Value::as_str),
-                live,
-            ) {
+            if let (Some(surface), Some(terminal_id), true) =
+                (mux_sidebar::tab_number(tab), tab.get("terminal_id").and_then(Value::as_str), live)
+            {
                 let terminal = TerminalRef {
                     surface,
                     terminal_id: terminal_id.to_owned(),
@@ -692,11 +682,11 @@ fn sidebar_rows(tree: &Value) -> (Vec<Row>, Vec<TerminalRef>) {
     (rows, terminals)
 }
 
-/// Every tab under `node` (screens, panes and tab lists): an object with a numeric `surface`.
+/// Every tab under `node` (screens, panes and tab lists): an object the mux numbers.
 fn collect_tabs(node: &Value, tabs: &mut Vec<Value>) {
     match node {
         Value::Object(object) => {
-            if object.get("surface").is_some_and(Value::is_u64) {
+            if mux_sidebar::tab_number(node).is_some() {
                 tabs.push(node.clone());
                 return;
             }
@@ -715,7 +705,7 @@ fn collect_tabs(node: &Value, tabs: &mut Vec<Value>) {
 fn tab_title(tab: &Value) -> String {
     let title = first_text(tab, &["name", "title", "cwd"]);
     if title.is_empty() {
-        format!("tab {}", tab.get("surface").and_then(Value::as_u64).unwrap_or(0))
+        format!("tab {}", mux_sidebar::tab_number(tab).unwrap_or(0))
     } else {
         title
     }
@@ -748,12 +738,7 @@ fn terminal_matches(
     let mut before = Value::Null;
     let mut epoch = Value::Null;
     for _ in 0..SCROLLBACK_PAGES {
-        let mut request = json!({
-            "cmd": "terminal-find",
-            "surface": surface,
-            "query": query,
-            "max_matches": MATCHES_PER_TERMINAL,
-        });
+        let mut request = mux_sidebar::terminal_find_request(surface, query, MATCHES_PER_TERMINAL);
         if let (false, Some(object)) = (before.is_null(), request.as_object_mut()) {
             object.insert("before".into(), before.clone());
             object.insert("epoch".into(), epoch.clone());

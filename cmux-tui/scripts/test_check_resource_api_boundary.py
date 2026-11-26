@@ -322,6 +322,30 @@ class PublicBoundaryScanTests(unittest.TestCase):
             self.assertEqual(diagnostics, [])
             self.assertEqual(scanned, 1)
 
+    def test_rust_sibling_test_modules_are_tests_only_when_cfg_test(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            cli = tui / "crates/cmux-tui/src/cli"
+            write(
+                cli / "search.rs",
+                'fn run() {}\n#[cfg(test)]\n#[path = "search_tests.rs"]\nmod tests;\n',
+            )
+            write(cli / "search_tests.rs", 'let tab = json!({"surface": 7, "short_id": "a1"});\n')
+            write(cli / "group/tests.rs", '#[path = "direct_tests.rs"]\nmod direct;\n')
+            write(cli / "group/direct_tests.rs", 'let target = "workspace:3";\n')
+            # Declared without cfg(test): compiled into the product, so still public.
+            write(cli / "shipped.rs", '#[path = "shipped_tests.rs"]\nmod helpers;\n')
+            write(cli / "shipped_tests.rs", 'let key = "surface";\n')
+            # Declared nowhere: the name alone proves nothing.
+            write(cli / "orphan_tests.rs", 'let key = "short_id";\n')
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(
+                sorted({item.path.name for item in diagnostics}),
+                ["orphan_tests.rs", "shipped_tests.rs"],
+            )
+
     def test_public_leaks_report_precise_file_and_line(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)

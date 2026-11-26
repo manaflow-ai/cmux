@@ -11,6 +11,7 @@ manifests.  Raw and internal directories must say so in their path.
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import re
@@ -3515,6 +3516,53 @@ def _is_test_or_example(path: Path) -> bool:
     )
 
 
+# A Rust module declaration with its attributes: `#[cfg(test)] #[path = "x_tests.rs"] mod tests;`.
+RUST_MOD_DECL_RE = re.compile(
+    r"(?P<attrs>(?:#\[[^\]]*\]\s*)+)(?:pub(?:\([^)]*\))?\s+)?mod\s+\w+\s*;"
+)
+RUST_PATH_ATTR_RE = re.compile(r'#\[\s*path\s*=\s*"(?P<path>[^"]+)"\s*\]')
+RUST_CFG_TEST_RE = re.compile(r"#\[\s*cfg\s*\(\s*test\s*\)\s*\]")
+
+
+@functools.lru_cache(maxsize=None)
+def _rust_sources(directory: Path) -> tuple[tuple[Path, str], ...]:
+    """Each readable `*.rs` file directly in `directory`, read once per run."""
+    sources = []
+    for includer in sorted(directory.glob("*.rs")):
+        try:
+            sources.append((includer, includer.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return tuple(sources)
+
+
+def _is_rust_test_module(path: Path) -> bool:
+    """A `NAME_tests.rs` file that compiles only into tests.
+
+    The sibling-file convention (`#[cfg(test)] #[path = "search_tests.rs"] mod tests;`) puts a
+    module's tests next to it.  The name alone proves nothing, so the file counts as a test
+    only when a Rust file in its directory or the one above declares it with `#[path]`, and
+    that declaration is `#[cfg(test)]` or sits in a file that is itself a test.  A
+    `*_tests.rs` built into the product is still scanned.
+    """
+    if path.suffix != ".rs" or not path.name.endswith("_tests.rs"):
+        return False
+    target = path.resolve()
+    for directory in {path.parent, path.parent.parent}:
+        for includer, text in _rust_sources(directory):
+            if includer.resolve() == target or path.name not in text:
+                continue
+            includer_is_test = _is_test_or_example(includer)
+            for declaration in RUST_MOD_DECL_RE.finditer(text):
+                attrs = declaration.group("attrs")
+                attr = RUST_PATH_ATTR_RE.search(attrs)
+                if attr is None or (includer.parent / attr.group("path")).resolve() != target:
+                    continue
+                if includer_is_test or RUST_CFG_TEST_RE.search(attrs):
+                    return True
+    return False
+
+
 def _files_for_rule(tui: Path, rule: ScanRule) -> Iterator[Path]:
     root = tui / rule.path
     if root.is_file():
@@ -3692,7 +3740,11 @@ def scan_public_boundaries(tui: Path) -> tuple[list[Diagnostic], int]:
             resolved = path.resolve()
             if resolved in scanned or resolved in generated:
                 continue
-            if _is_raw_or_internal(path, tui) or _is_test_or_example(path):
+            if (
+                _is_raw_or_internal(path, tui)
+                or _is_test_or_example(path)
+                or _is_rust_test_module(path)
+            ):
                 continue
             scanned.add(resolved)
             text = _read(path, diagnostics)
