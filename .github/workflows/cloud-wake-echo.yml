@@ -14,7 +14,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: cloud-wake-echo-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  # An edit that leaves the body as it was skips, in a group of its own, so it never replaces a pending real run.
+  group: cloud-wake-echo-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}${{ github.event.action == 'edited' && github.event.changes.body == null && format('-noop-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
