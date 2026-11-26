@@ -138,7 +138,6 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
           )}
         </section>
       )}
-      <p className="cloud-muted cloud-store-note">{t(L.storeNote)}</p>
       {/* Sign-out, team switch and usage stay reachable from the storefront (an empty team has no list). */}
       {signedIn && (
         <div className="cloud-store-account">

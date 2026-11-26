@@ -3282,127 +3282,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter needs a long-lived token. Run claude setup-token, then paste it here. It goes to CodeRouter only; Cloud chats use Settings > Cloud."
+            "value": "Run claude setup-token, then paste the token here."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter には長期間有効なトークンが必要です。claude setup-token を実行して、トークンをここに貼り付けてください。トークンは CodeRouter にだけ送られます。Cloud のチャットは「設定 > Cloud」を使います。"
+            "state": "needs_review",
+            "value": "claude setup-token を実行し、表示されたトークンをここに貼り付けてください。"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يحتاج CodeRouter إلى رمز طويل الأمد. شغّل claude setup-token، ثم الصقه هنا. يذهب إلى CodeRouter فقط؛ تستخدم محادثات Cloud الإعدادات > Cloud."
+            "state": "needs_review",
+            "value": "شغّل claude setup-token ثم الصق الرمز هنا."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter treba dugotrajni token. Pokreni claude setup-token, pa ga zalijepi ovdje. Ide samo u CodeRouter; Cloud chatovi koriste Postavke > Cloud."
+            "state": "needs_review",
+            "value": "Pokrenite claude setup-token, pa zalijepite token ovdje."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter skal bruge et langtidsholdbart token. Kør claude setup-token, og indsæt det her. Det går kun til CodeRouter; Cloud-chats bruger Indstillinger > Cloud."
+            "state": "needs_review",
+            "value": "Kør claude setup-token, og indsæt tokenet her."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter braucht ein langlebiges Token. Führe claude setup-token aus und füge es hier ein. Es geht nur an CodeRouter; Cloud-Chats nutzen Einstellungen > Cloud."
+            "state": "needs_review",
+            "value": "Führe claude setup-token aus und füge das Token hier ein."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter necesita un token de larga duración. Ejecuta claude setup-token y pégalo aquí. Solo va a CodeRouter; los chats de Cloud usan Ajustes > Cloud."
+            "state": "needs_review",
+            "value": "Ejecuta claude setup-token y pega aquí el token."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter a besoin d’un jeton longue durée. Exécutez claude setup-token, puis collez-le ici. Il va uniquement à CodeRouter ; les conversations Cloud utilisent Réglages > Cloud."
+            "state": "needs_review",
+            "value": "Exécutez claude setup-token, puis collez le jeton ici."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter ha bisogno di un token di lunga durata. Esegui claude setup-token, poi incollalo qui. Va solo a CodeRouter; le chat Cloud usano Impostazioni > Cloud."
+            "state": "needs_review",
+            "value": "Esegui claude setup-token, poi incolla qui il token."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter ត្រូវការថូខឹនដែលប្រើបានយូរ។ ដំណើរការ claude setup-token រួចបិទភ្ជាប់វានៅទីនេះ។ វាទៅ CodeRouter តែប៉ុណ្ណោះ។ ការជជែក Cloud ប្រើ ការកំណត់ > Cloud។"
+            "state": "needs_review",
+            "value": "CodeRouter ត្រូវការថូខឹនរយៈពេលវែង។ ដំណើរការ claude setup-token រួចបិទភ្ជាប់ថូខឹននៅទីនេះ។ វាត្រូវបានផ្ញើទៅ CodeRouter តែប៉ុណ្ណោះ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter에는 오래 유지되는 토큰이 필요합니다. claude setup-token을 실행한 다음 여기에 붙여 넣으세요. 토큰은 CodeRouter로만 전송되며, Cloud 채팅은 설정 > Cloud를 사용합니다."
+            "state": "needs_review",
+            "value": "claude setup-token을 실행한 뒤 토큰을 여기에 붙여 넣으세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter trenger et langvarig token. Kjør claude setup-token, og lim det inn her. Det går bare til CodeRouter; Cloud-chatter bruker Innstillinger > Cloud."
+            "state": "needs_review",
+            "value": "Kjør claude setup-token, og lim inn tokenet her."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter potrzebuje długoterminowego tokenu. Uruchom claude setup-token, a potem wklej go tutaj. Trafia tylko do CodeRouter; czaty Cloud używają Ustawienia > Cloud."
+            "state": "needs_review",
+            "value": "Uruchom claude setup-token, a potem wklej tu token."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "O CodeRouter precisa de um token de longa duração. Execute claude setup-token e cole-o aqui. Ele vai só para o CodeRouter; os chats do Cloud usam Ajustes > Cloud."
+            "state": "needs_review",
+            "value": "Execute claude setup-token e cole o token aqui."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter нужен долгоживущий токен. Выполните claude setup-token и вставьте его сюда. Он передаётся только в CodeRouter; чаты Cloud используют «Настройки > Cloud»."
+            "state": "needs_review",
+            "value": "Выполните claude setup-token и вставьте токен сюда."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter ต้องใช้โทเค็นที่ใช้ได้นาน เรียกใช้ claude setup-token แล้ววางที่นี่ โทเค็นจะส่งไปที่ CodeRouter เท่านั้น ส่วนแชท Cloud ใช้ การตั้งค่า > Cloud"
+            "state": "needs_review",
+            "value": "CodeRouter ต้องใช้โทเค็นแบบใช้ได้นาน ให้รัน claude setup-token แล้ววางโทเค็นที่นี่ โทเค็นจะส่งไปที่ CodeRouter เท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter uzun ömürlü bir token gerektirir. claude setup-token komutunu çalıştırın, ardından token'ı buraya yapıştırın. Yalnızca CodeRouter'a gider; Cloud sohbetleri Ayarlar > Cloud'u kullanır."
+            "state": "needs_review",
+            "value": "claude setup-token komutunu çalıştırın ve belirteci buraya yapıştırın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter потрібен довготривалий токен. Виконайте claude setup-token і вставте його сюди. Він передається лише в CodeRouter; чати Cloud використовують «Налаштування > Cloud»."
+            "state": "needs_review",
+            "value": "Виконайте claude setup-token і вставте токен сюди."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter cần một token dùng lâu dài. Chạy claude setup-token, rồi dán nó vào đây. Token chỉ được gửi đến CodeRouter; các cuộc trò chuyện Cloud dùng Cài đặt > Cloud."
+            "state": "needs_review",
+            "value": "Chạy claude setup-token rồi dán token vào đây."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter 需要一个长期有效的令牌。运行 claude setup-token，然后把它粘贴到这里。它只会发送给 CodeRouter；Cloud 聊天使用“设置 > Cloud”。"
+            "state": "needs_review",
+            "value": "运行 claude setup-token，然后将令牌粘贴到这里。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CodeRouter 需要一個長期有效的權杖。執行 claude setup-token，然後把它貼到這裡。它只會傳送給 CodeRouter；Cloud 聊天使用「設定 > Cloud」。"
+            "state": "needs_review",
+            "value": "執行 claude setup-token，然後將權杖貼到這裡。"
           }
         }
       }
@@ -8653,127 +8653,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "You are not in a team yet. Create one to share Cloud machines and settings."
+            "value": "You are not in a team yet."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Du bist noch in keinem Team. Erstelle eines, um Cloud-Maschinen und Einstellungen zu teilen."
+            "state": "needs_review",
+            "value": "Du bist noch in keinem Team."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vous ne faites encore partie d'aucune équipe. Créez-en une pour partager des machines Cloud et des réglages."
+            "state": "needs_review",
+            "value": "Vous ne faites encore partie d'aucune équipe."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "لست في أي فريق بعد. أنشئ فريقًا لمشاركة أجهزة السحابة والإعدادات."
+            "state": "needs_review",
+            "value": "لست في أي فريق بعد."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Aún no estás en ningún equipo. Crea uno para compartir máquinas en la nube y ajustes."
+            "state": "needs_review",
+            "value": "Aún no estás en ningún equipo."
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "你還不在任何團隊中。建立一個團隊即可共用雲端機器與設定。"
+            "state": "needs_review",
+            "value": "你還不在任何團隊中。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "你还不在任何团队中。创建一个团队即可共享云端机器和设置。"
+            "state": "needs_review",
+            "value": "你还不在任何团队中。"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "아직 속한 팀이 없습니다. 팀을 만들어 클라우드 머신과 설정을 공유하세요."
+            "state": "needs_review",
+            "value": "아직 속한 팀이 없습니다."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "まだチームに参加していません。チームを作成すると、クラウドマシンと設定を共有できます。"
+            "state": "needs_review",
+            "value": "まだチームに参加していません。"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Non fai ancora parte di un team. Creane uno per condividere macchine Cloud e impostazioni."
+            "state": "needs_review",
+            "value": "Non fai ancora parte di un team."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Du er ikke med i et team endnu. Opret et for at dele Cloud-maskiner og indstillinger."
+            "state": "needs_review",
+            "value": "Du er ikke med i et team endnu."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Nie należysz jeszcze do żadnego zespołu. Utwórz zespół, aby udostępniać maszyny w chmurze i ustawienia."
+            "state": "needs_review",
+            "value": "Nie należysz jeszcze do żadnego zespołu."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Вы пока не состоите в команде. Создайте её, чтобы делиться облачными машинами и настройками."
+            "state": "needs_review",
+            "value": "Вы пока не состоите в команде."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Još niste ni u jednom timu. Kreirajte tim da dijelite Cloud mašine i postavke."
+            "state": "needs_review",
+            "value": "Još niste ni u jednom timu."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Du er ikke med i et team ennå. Opprett et for å dele Cloud-maskiner og innstillinger."
+            "state": "needs_review",
+            "value": "Du er ikke med i et team ennå."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Você ainda não está em uma equipe. Crie uma para compartilhar máquinas na nuvem e configurações."
+            "state": "needs_review",
+            "value": "Você ainda não está em uma equipe."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "คุณยังไม่ได้อยู่ในทีมใด สร้างทีมเพื่อแชร์เครื่อง Cloud และการตั้งค่า"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Henüz bir ekipte değilsiniz. Bulut makinelerini ve ayarları paylaşmak için bir ekip oluşturun."
+            "state": "needs_review",
+            "value": "Henüz bir ekipte değilsiniz."
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "អ្នកមិនទាន់នៅក្នុងក្រុមណាមួយនៅឡើយទេ។ បង្កើតក្រុមមួយដើម្បីចែករំលែកម៉ាស៊ីន Cloud និងការកំណត់។"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ви ще не в команді. Створіть її, щоб ділитися хмарними машинами й налаштуваннями."
+            "state": "needs_review",
+            "value": "Ви ще не в команді."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Bạn chưa ở trong nhóm nào. Hãy tạo một nhóm để chia sẻ máy Cloud và cài đặt."
+            "state": "needs_review",
+            "value": "Bạn chưa ở trong nhóm nào."
           }
         }
       }

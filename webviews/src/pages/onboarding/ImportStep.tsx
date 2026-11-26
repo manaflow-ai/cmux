@@ -327,7 +327,7 @@ function ConsentExplainer({
         <Lock size={16} className="onb-explainer-lock" />
         {strings.t("onboarding.unlock.title")}
       </h2>
-      <p>{keychainLine(strings, consent.keychainItems, consent.includesFirefox)}</p>
+      <p>{keychainLine(strings, consent.keychainItems)}</p>
       <output className="onb-explainer-note" data-shown={consent.denied ? "" : undefined}>
         {consent.denied ? strings.t("onboarding.passwords.authDenied") : ""}
       </output>

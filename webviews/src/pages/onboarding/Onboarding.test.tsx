@@ -28,7 +28,7 @@ describe("agents", () => {
     const html = render(agentsState("mixed"));
     const words = text(html);
     expect(words).toContain("Sign In to Your Agents");
-    expect(words).toContain("Sign in to the agent CLIs you use. You can also do this later in Settings.");
+    expect(words).toContain("Sign in to the agent CLIs you use.");
     for (const line of ["Signed in", "Not signed in", "Sign-in expired", "Sign-in not checked"])
       expect(words).toContain(line);
     expect(html).toContain('aria-label="Sign In to Codex"');

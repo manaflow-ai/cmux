@@ -7,8 +7,8 @@ import {
   keychainLine,
   keyIntent,
   primaryLabel,
-  primaryLabels,
   quotedList,
+  primaryLabels,
   skipLabel,
   windowTitle,
 } from "./text";
@@ -42,15 +42,15 @@ describe("counts line", () => {
 
 describe("keychain line", () => {
   test("names each item in quotation marks as a list", () => {
-    expect(keychainLine(en, ["A Safe Storage", "B Safe Storage"], false)).toBe(
+    expect(keychainLine(en, ["A Safe Storage", "B Safe Storage"])).toBe(
       "Some data is encrypted, so macOS will ask for your computer password to let cmux use “A Safe Storage” and “B Safe Storage” and bring it in securely.",
     );
   });
-  test("adds the primary password line when the choice includes Firefox", () => {
-    expect(keychainLine(en, ["A Safe Storage"], true)).toEndWith(en.t("onboarding.passwords.firefoxPrimary"));
+  test("a choice with Firefox adds no primary-password line: Firefox's own prompt asks", () => {
+    expect(keychainLine(en, ["A Safe Storage"])).not.toContain("primary password");
   });
   test("Firefox alone asks for no Keychain item", () => {
-    expect(keychainLine(en, [], true)).toBe(en.t("onboarding.passwords.firefoxOnly"));
+    expect(keychainLine(en, [])).toBe(en.t("onboarding.passwords.firefoxOnly"));
   });
   test("quotation marks and list words follow the language", () => {
     expect(quotedList(["A", "B"], "de")).toBe("„A“ und „B“");

@@ -9,7 +9,7 @@ extension OnboardingStrings {
     }
     static var agentsBody: String {
         String(localized: "onboarding.agents.body",
-               defaultValue: "Sign in to the agent CLIs you use. You can also do this later in Settings.", bundle: .localizedModule)
+               defaultValue: "Sign in to the agent CLIs you use.", bundle: .localizedModule)
     }
     static var agentsChecking: String { String(localized: "onboarding.agents.checking", defaultValue: "Checking…", bundle: .localizedModule) }
     static var agentsNone: String {

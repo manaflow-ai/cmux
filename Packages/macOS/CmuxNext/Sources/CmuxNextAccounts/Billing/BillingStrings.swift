@@ -22,7 +22,7 @@ extension BillingStrings {
     }
 
     package static var welcomeDetail: String {
-        String(localized: "billing.welcome.detail", defaultValue: "Your plan is active. Start a Cloud machine, or see your usage and invoices on the billing page.", table: "Billing", bundle: .localizedModule)
+        String(localized: "billing.welcome.detail", defaultValue: "Your plan is active.", table: "Billing", bundle: .localizedModule)
     }
 
     package static var welcomeStart: String { String(localized: "billing.welcome.start", defaultValue: "New Cloud Workspace", table: "Billing", bundle: .localizedModule) }

@@ -8,9 +8,6 @@ nonisolated enum BrowserFileImportStrings {
     }
 
     static var title: String { t("import.files.title", "Import from Another Browser") }
-    static var message: String {
-        t("import.files.message", "cmux imports the files a browser exports: passwords as a CSV file, bookmarks as an HTML file. Which browser are they in?")
-    }
     static var browserLabel: String { t("import.files.browser", "Browser:") }
     static func stepsTitle(_ browser: String) -> String {
         String(format: t("import.files.stepsTitle", "Export from %@"), browser)

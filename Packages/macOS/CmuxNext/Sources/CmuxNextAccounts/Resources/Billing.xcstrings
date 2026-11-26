@@ -924,128 +924,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "خطتك نشطة. شغّل جهاز Cloud، أو اطّلع على استخدامك وفواتيرك في صفحة الفوترة."
+            "state": "needs_review",
+            "value": "خطتك نشطة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vaš plan je aktivan. Pokrenite Cloud mašinu ili pogledajte potrošnju i račune na stranici za naplatu."
+            "state": "needs_review",
+            "value": "Vaš plan je aktivan."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Din plan er aktiv. Start en Cloud-maskine, eller se dit forbrug og dine fakturaer på faktureringssiden."
+            "state": "needs_review",
+            "value": "Din plan er aktiv."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Dein Plan ist aktiv. Starte eine Cloud-Maschine oder sieh dir Nutzung und Rechnungen auf der Abrechnungsseite an."
+            "state": "needs_review",
+            "value": "Dein Plan ist aktiv."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your plan is active. Start a Cloud machine, or see your usage and invoices on the billing page."
+            "value": "Your plan is active."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Tu plan está activo. Inicia una máquina Cloud o consulta tu uso y tus facturas en la página de facturación."
+            "state": "needs_review",
+            "value": "Tu plan está activo."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Votre forfait est actif. Démarrez une machine Cloud, ou consultez votre utilisation et vos factures sur la page de facturation."
+            "state": "needs_review",
+            "value": "Votre forfait est actif."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Il tuo piano è attivo. Avvia una macchina Cloud oppure consulta utilizzo e fatture nella pagina di fatturazione."
+            "state": "needs_review",
+            "value": "Il tuo piano è attivo."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "プランが有効になりました。Cloud マシンを起動するか、請求ページで利用状況と請求書を確認できます。"
+            "state": "needs_review",
+            "value": "プランが有効になりました。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "គម្រោងរបស់អ្នកដំណើរការហើយ។ ចាប់ផ្តើមម៉ាស៊ីន Cloud ឬមើលការប្រើប្រាស់ និងវិក្កយបត្ររបស់អ្នកនៅទំព័រវិក្កយបត្រ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "플랜이 활성화되었습니다. Cloud 머신을 시작하거나 결제 페이지에서 사용량과 청구서를 확인하세요."
+            "state": "needs_review",
+            "value": "플랜이 활성화되었습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Planen din er aktiv. Start en Cloud-maskin, eller se forbruk og fakturaer på faktureringssiden."
+            "state": "needs_review",
+            "value": "Planen din er aktiv."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Twój plan jest aktywny. Uruchom maszynę Cloud albo sprawdź zużycie i faktury na stronie rozliczeń."
+            "state": "needs_review",
+            "value": "Twój plan jest aktywny."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Seu plano está ativo. Inicie uma máquina Cloud ou veja seu uso e suas faturas na página de cobrança."
+            "state": "needs_review",
+            "value": "Seu plano está ativo."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ваш план активен. Запустите машину Cloud или посмотрите расход и счета на странице оплаты."
+            "state": "needs_review",
+            "value": "Ваш план активен."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "แผนของคุณใช้งานได้แล้ว เริ่มเครื่อง Cloud หรือดูการใช้งานและใบแจ้งหนี้ในหน้าการเรียกเก็บเงิน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Planınız etkin. Bir Cloud makinesi başlatın veya kullanımınızı ve faturalarınızı faturalandırma sayfasında görün."
+            "state": "needs_review",
+            "value": "Planınız etkin."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Ваш план активний. Запустіть машину Cloud або перегляньте використання й рахунки на сторінці оплати."
+            "state": "needs_review",
+            "value": "Ваш план активний."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Gói của bạn đã hoạt động. Khởi động một máy Cloud, hoặc xem mức sử dụng và hóa đơn trên trang thanh toán."
+            "state": "needs_review",
+            "value": "Gói của bạn đã hoạt động."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "你的套餐已生效。启动一台 Cloud 机器，或在账单页面查看用量和发票。"
+            "state": "needs_review",
+            "value": "你的套餐已生效。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "你的方案已生效。啟動一台 Cloud 機器，或在帳單頁面查看用量和發票。"
+            "state": "needs_review",
+            "value": "你的方案已生效。"
           }
         }
       }

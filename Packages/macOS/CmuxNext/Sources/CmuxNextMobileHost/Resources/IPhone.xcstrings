@@ -400,127 +400,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces. No cmux on your iPhone yet? It’s in beta: get it through TestFlight."
+            "value": "Install cmux on your iPhone and sign in with the same account as this Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه المستخدم على هذا الـ Mac. سيظهر هذا الـ Mac بعدها ضمن مساحات العمل. ليس لديك cmux على iPhone بعد؟ إنه في مرحلة تجريبية: احصل عليه عبر TestFlight."
+            "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه المستخدم على هذا الـ Mac."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instalirajte cmux na iPhone i prijavite se istim računom kao na ovom Macu. Ovaj Mac će se zatim pojaviti pod Radnim prostorima. Još nemate cmux na iPhoneu? U beta je fazi: preuzmite ga putem TestFlighta."
+            "value": "Instalirajte cmux na iPhone i prijavite se istim računom kao na ovom Macu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installer cmux på din iPhone, og log ind med samme konto som på denne Mac. Denne Mac vises derefter under Arbejdsområder. Har du ikke cmux på din iPhone endnu? Den er i beta: hent den via TestFlight."
+            "value": "Installer cmux på din iPhone, og log ind med samme konto som på denne Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto wie auf diesem Mac an. Dieser Mac erscheint dann unter „Arbeitsbereiche“. Noch kein cmux auf deinem iPhone? Es ist in der Beta: Hol es dir über TestFlight."
+            "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto wie auf diesem Mac an."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta que en este Mac. Este Mac aparecerá en Espacios de trabajo. ¿Aún no tienes cmux en tu iPhone? Está en beta: consíguelo con TestFlight."
+            "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta que en este Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte que sur ce Mac. Ce Mac apparaît alors dans Espaces de travail. Pas encore cmux sur votre iPhone ? Il est en bêta : obtenez-le via TestFlight."
+            "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte que sur ce Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account di questo Mac. Questo Mac comparirà quindi in Spazi di lavoro. Non hai ancora cmux sul tuo iPhone? È in beta: scaricalo con TestFlight."
+            "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account di questo Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone に cmux をインストールし、この Mac と同じアカウントでサインインしてください。すると、この Mac がワークスペースに表示されます。iPhoneにまだcmuxがない場合は、ベータ版をTestFlightで入手できます。"
+            "value": "iPhone に cmux をインストールし、この Mac と同じアカウントでサインインしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលដោយប្រើគណនីដូចគ្នានឹង Mac នេះ។ បន្ទាប់មក Mac នេះនឹងបង្ហាញនៅក្រោមកន្លែងធ្វើការ។ មិនទាន់មាន cmux នៅលើ iPhone របស់អ្នកទេ? វាស្ថិតក្នុងកំណែ beta៖ ទាញយកវាតាម TestFlight។"
+            "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលដោយប្រើគណនីដូចគ្នានឹង Mac នេះ។ បន្ទាប់មក Mac នេះនឹងបង្ហាញនៅក្រោមកន្លែងធ្វើការ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone에 cmux를 설치하고 이 Mac과 같은 계정으로 로그인하세요. 그러면 이 Mac이 작업 공간에 표시됩니다. iPhone에 아직 cmux가 없나요? 베타 버전을 TestFlight로 받으세요."
+            "value": "iPhone에 cmux를 설치하고 이 Mac과 같은 계정으로 로그인하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installer cmux på iPhonen og logg på med samme konto som på denne Macen. Denne Macen vises da under Arbeidsområder. Har du ikke cmux på iPhonen ennå? Den er i beta: hent den via TestFlight."
+            "value": "Installer cmux på iPhonen og logg på med samme konto som på denne Macen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zainstaluj cmux na iPhonie i zaloguj się tym samym kontem co na tym Macu. Ten Mac pojawi się wtedy w obszarach roboczych. Nie masz jeszcze cmux na iPhonie? Jest w wersji beta: pobierz go przez TestFlight."
+            "value": "Zainstaluj cmux na iPhonie i zaloguj się tym samym kontem co na tym Macu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instale o cmux no seu iPhone e entre com a mesma conta deste Mac. Este Mac aparecerá em Espaços de trabalho. Ainda não tem o cmux no iPhone? Ele está em beta: baixe pelo TestFlight."
+            "value": "Instale o cmux no seu iPhone e entre com a mesma conta deste Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Установите cmux на iPhone и войдите в ту же учётную запись, что и на этом Mac. После этого Mac появится в разделе «Рабочие пространства». Ещё нет cmux на iPhone? Он в бета-версии: установите его через TestFlight."
+            "value": "Установите cmux на iPhone и войдите в ту же учётную запись, что и на этом Mac."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ติดตั้ง cmux บน iPhone แล้วลงชื่อเข้าใช้ด้วยบัญชีเดียวกับ Mac เครื่องนี้ จากนั้น Mac เครื่องนี้จะแสดงในพื้นที่ทำงาน ยังไม่มี cmux บน iPhone ใช่ไหม แอปอยู่ในช่วงเบต้า: ดาวน์โหลดผ่าน TestFlight"
+            "value": "ติดตั้ง cmux บน iPhone แล้วลงชื่อเข้าใช้ด้วยบัญชีเดียวกับ Mac เครื่องนี้ จากนั้น Mac เครื่องนี้จะแสดงในพื้นที่ทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone’unuza cmux’i yükleyin ve bu Mac’teki hesapla giriş yapın. Bu Mac daha sonra Çalışma Alanları altında görünür. iPhone’unda henüz cmux yok mu? Beta aşamasında: TestFlight üzerinden edin."
+            "value": "iPhone’unuza cmux’i yükleyin ve bu Mac’teki hesapla giriş yapın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Установіть cmux на iPhone і увійдіть у той самий обліковий запис, що й на цьому Mac. Після цього Mac з’явиться в розділі «Робочі простори». Ще немає cmux на iPhone? Він у бета-версії: установіть його через TestFlight."
+            "value": "Установіть cmux на iPhone і увійдіть у той самий обліковий запис, що й на цьому Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cài cmux trên iPhone và đăng nhập bằng cùng tài khoản với máy Mac này. Sau đó máy Mac này sẽ xuất hiện trong mục Không gian làm việc. Chưa có cmux trên iPhone? Ứng dụng đang ở bản beta: tải qua TestFlight."
+            "value": "Cài cmux trên iPhone và đăng nhập bằng cùng tài khoản với máy Mac này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在 iPhone 上安装 cmux，并使用与这台 Mac 相同的账户登录。之后这台 Mac 会显示在“工作区”中。iPhone 上还没有 cmux？它正在测试中：可通过 TestFlight 获取。"
+            "value": "在 iPhone 上安装 cmux，并使用与这台 Mac 相同的账户登录。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在 iPhone 上安裝 cmux，並使用與這台 Mac 相同的帳號登入。之後這台 Mac 會顯示在「工作區」中。iPhone 上還沒有 cmux？它正在測試中：可透過 TestFlight 取得。"
+            "value": "在 iPhone 上安裝 cmux，並使用與這台 Mac 相同的帳號登入。"
           }
         }
       }
@@ -1186,55 +1186,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "It is your Mac, signed in as %@. Once allowed, it can see this Mac’s name and what it may do here, nothing more: it cannot see your work until you choose what it may do in Settings > Devices. Remove it there to stop it at once."
+            "value": "It is your Mac, signed in as %@."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "%@ でサインインしているあなたの Mac です。許可すると、この Mac の名前と、ここで許可された操作だけを確認できます。「設定 > デバイス」で許可を選ぶまで、作業内容は見えません。そこで削除するとすぐに止まります。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إنه جهاز Mac الخاص بك، مسجّل الدخول باسم %@. بعد السماح له، يمكنه رؤية اسم هذا الـ Mac وما يُسمح له بفعله هنا، لا أكثر: لا يمكنه رؤية عملك حتى تختار ما يُسمح له بفعله في الإعدادات > الأجهزة. أزِله من هناك لإيقافه فورًا."
+            "value": "إنه جهاز Mac الخاص بك، مسجّل الدخول باسم %@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovo je vaš Mac, prijavljen kao %@. Kada ga dozvolite, može vidjeti naziv ovog Maca i šta smije raditi ovdje, ništa više: ne može vidjeti vaš rad dok ne odaberete šta smije raditi u Postavke > Uređaji. Uklonite ga tamo da ga odmah zaustavite."
+            "value": "Ovo je vaš Mac, prijavljen kao %@."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Det er din Mac, logget ind som %@. Når den er tilladt, kan den se denne Macs navn og hvad den må gøre her, intet andet: den kan ikke se dit arbejde, før du vælger, hvad den må gøre, i Indstillinger > Enheder. Fjern den der for at stoppe den med det samme."
+            "value": "Det er din Mac, logget ind som %@."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Das ist dein Mac, angemeldet als %@. Sobald er erlaubt ist, sieht er den Namen dieses Macs und was er hier tun darf, sonst nichts: Deine Arbeit sieht er erst, wenn du unter Einstellungen > Geräte auswählst, was er tun darf. Entferne ihn dort, um ihn sofort zu stoppen."
+            "value": "Das ist dein Mac, angemeldet als %@."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Es tu Mac, con la sesión iniciada como %@. Una vez permitido, puede ver el nombre de este Mac y lo que puede hacer aquí, nada más: no puede ver tu trabajo hasta que elijas lo que puede hacer en Ajustes > Dispositivos. Quítalo allí para detenerlo al instante."
+            "value": "Es tu Mac, con la sesión iniciada como %@."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "C’est votre Mac, connecté en tant que %@. Une fois autorisé, il peut voir le nom de ce Mac et ce qu’il a le droit de faire ici, rien de plus : il ne peut pas voir votre travail tant que vous n’avez pas choisi ce qu’il peut faire dans Réglages > Appareils. Retirez-le là-bas pour l’arrêter aussitôt."
+            "value": "C’est votre Mac, connecté en tant que %@."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "È il tuo Mac, con accesso eseguito come %@. Una volta consentito, può vedere il nome di questo Mac e cosa può fare qui, nient’altro: non può vedere il tuo lavoro finché non scegli cosa può fare in Impostazioni > Dispositivi. Rimuovilo da lì per fermarlo subito."
+            "value": "È il tuo Mac, con accesso eseguito come %@."
           }
         },
         "km": {
@@ -1252,25 +1252,25 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Det er din Mac, logget på som %@. Når den er tillatt, kan den se navnet på denne Macen og hva den kan gjøre her, ikke noe mer: den kan ikke se arbeidet ditt før du velger hva den kan gjøre i Innstillinger > Enheter. Fjern den der for å stoppe den med en gang."
+            "value": "Det er din Mac, logget på som %@."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "To Twój Mac, zalogowany jako %@. Po zezwoleniu widzi nazwę tego Maca i to, co może tu robić, nic więcej: nie widzi Twojej pracy, dopóki nie wybierzesz, co może robić, w Ustawienia > Urządzenia. Usuń go tam, aby od razu go zatrzymać."
+            "value": "To Twój Mac, zalogowany jako %@."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "É o seu Mac, com sessão iniciada como %@. Depois de permitido, ele pode ver o nome deste Mac e o que pode fazer aqui, nada mais: ele não pode ver seu trabalho até você escolher o que ele pode fazer em Ajustes > Dispositivos. Remova-o lá para pará-lo na hora."
+            "value": "É o seu Mac, com sessão iniciada como %@."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Это ваш Mac, вход выполнен как %@. После разрешения он видит имя этого Mac и то, что ему можно здесь делать, и ничего больше: вашу работу он не увидит, пока вы не выберете, что ему можно делать, в разделе «Настройки» > «Устройства». Удалите его там, чтобы сразу остановить."
+            "value": "Это ваш Mac, вход выполнен как %@."
           }
         },
         "th": {
@@ -1282,31 +1282,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu, %@ olarak oturum açmış Mac’iniz. İzin verildiğinde bu Mac’in adını ve burada neler yapabileceğini görebilir, fazlasını değil: Ayarlar > Aygıtlar’da neler yapabileceğini seçene kadar çalışmanızı göremez. Hemen durdurmak için onu oradan kaldırın."
+            "value": "Bu, %@ olarak oturum açmış Mac’iniz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Це ваш Mac, вхід виконано як %@. Після дозволу він бачить назву цього Mac і те, що йому дозволено тут робити, і більше нічого: вашої роботи він не бачить, доки ви не виберете, що йому можна робити, у «Налаштування» > «Пристрої». Вилучіть його там, щоб одразу зупинити."
+            "value": "Це ваш Mac, вхід виконано як %@."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đây là máy Mac của bạn, đã đăng nhập với tên %@. Khi được cho phép, nó có thể thấy tên của máy Mac này và những gì nó được làm ở đây, không gì hơn: nó không thể thấy công việc của bạn cho đến khi bạn chọn những gì nó được làm trong Cài đặt > Thiết bị. Gỡ nó ở đó để dừng ngay lập tức."
+            "value": "Đây là máy Mac của bạn, đã đăng nhập với tên %@."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "这是你的 Mac，以 %@ 身份登录。允许后，它只能看到这台 Mac 的名称以及它在这里可以做什么，仅此而已：在你于“设置 > 设备”中选择它可以做什么之前，它看不到你的工作。在那里移除它即可立即停止。"
+            "value": "这是你的 Mac，以 %@ 身份登录。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "這是你的 Mac，以 %@ 身分登入。允許後，它只能看到這台 Mac 的名稱以及它在這裡可以做什麼，僅此而已：在你於「設定 > 裝置」中選擇它可以做什麼之前，它看不到你的工作。在那裡移除它即可立即停止。"
+            "value": "這是你的 Mac，以 %@ 身分登入。"
           }
         }
       }
@@ -4723,55 +4723,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Waiting for the login keychain to unlock. iPhones connect once it does."
+            "value": "Waiting for the login keychain to unlock."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "في انتظار فتح سلسلة مفاتيح تسجيل الدخول. تتصل أجهزة iPhone بعد ذلك."
+            "value": "في انتظار فتح سلسلة مفاتيح تسجيل الدخول."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Čeka se otključavanje login keychaina. iPhone uređaji se tada povezuju."
+            "value": "Čeka se otključavanje login keychaina."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Venter på, at login-nøgleringen låses op. iPhones forbinder derefter."
+            "value": "Venter på, at login-nøgleringen låses op."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Warten auf das Entsperren des Anmeldeschlüsselbunds. Danach verbinden sich iPhones."
+            "value": "Warten auf das Entsperren des Anmeldeschlüsselbunds."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esperando a que se desbloquee el llavero de inicio de sesión. Los iPhone se conectarán entonces."
+            "value": "Esperando a que se desbloquee el llavero de inicio de sesión."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En attente du déverrouillage du trousseau de session. Les iPhone se connecteront ensuite."
+            "value": "En attente du déverrouillage du trousseau de session."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "In attesa dello sblocco del portachiavi di login. Poi gli iPhone si collegheranno."
+            "value": "In attesa dello sblocco del portachiavi di login."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ログインキーチェーンのロック解除を待っています。解除されると iPhone が接続します。"
+            "value": "ログインキーチェーンのロック解除を待っています。"
           }
         },
         "km": {
@@ -4783,31 +4783,31 @@
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "로그인 키체인 잠금 해제를 기다리는 중입니다. 해제되면 iPhone이 연결됩니다."
+            "value": "로그인 키체인 잠금 해제를 기다리는 중입니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Venter på at påloggingsnøkkelringen låses opp. Deretter kobler iPhone til."
+            "value": "Venter på at påloggingsnøkkelringen låses opp."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oczekiwanie na odblokowanie pęku kluczy logowania. Potem iPhone’y się połączą."
+            "value": "Oczekiwanie na odblokowanie pęku kluczy logowania."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aguardando o desbloqueio das chaves de login. Os iPhones se conectam em seguida."
+            "value": "Aguardando o desbloqueio das chaves de login."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ожидание разблокировки связки ключей входа. После этого iPhone подключатся."
+            "value": "Ожидание разблокировки связки ключей входа."
           }
         },
         "th": {
@@ -4819,31 +4819,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Giriş anahtar zincirinin kilidinin açılması bekleniyor. Ardından iPhone’lar bağlanır."
+            "value": "Giriş anahtar zincirinin kilidinin açılması bekleniyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Очікування розблокування в’язки ключів входу. Після цього iPhone під’єднаються."
+            "value": "Очікування розблокування в’язки ключів входу."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đang chờ mở khóa chuỗi khóa đăng nhập. Sau đó iPhone sẽ kết nối."
+            "value": "Đang chờ mở khóa chuỗi khóa đăng nhập."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在等待登录钥匙串解锁。解锁后 iPhone 即可连接。"
+            "value": "正在等待登录钥匙串解锁。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "正在等待登入鑰匙圈解鎖。解鎖後 iPhone 即可連線。"
+            "value": "正在等待登入鑰匙圈解鎖。"
           }
         }
       }
@@ -5378,55 +5378,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Removes this phone from your account's devices and ends its connection. A phone still signed in adds itself again when it reconnects."
+            "value": "Removes this phone from your account's devices and ends its connection."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يزيل هذا الهاتف من أجهزة حسابك وينهي اتصاله. الهاتف الذي لا يزال مسجّل الدخول يضيف نفسه مجددًا عند إعادة الاتصال."
+            "value": "يزيل هذا الهاتف من أجهزة حسابك وينهي اتصاله."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uklanja ovaj telefon s uređaja vašeg računa i prekida njegovu vezu. Telefon koji je i dalje prijavljen ponovo se dodaje kada se ponovo poveže."
+            "value": "Uklanja ovaj telefon s uređaja vašeg računa i prekida njegovu vezu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fjerner telefonen fra kontoens enheder og afbryder dens forbindelse. En telefon, der stadig er logget ind, tilføjer sig selv igen, når den forbinder igen."
+            "value": "Fjerner telefonen fra kontoens enheder og afbryder dens forbindelse."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Entfernt dieses Telefon aus den Geräten deines Kontos und beendet seine Verbindung. Ein noch angemeldetes Telefon fügt sich beim nächsten Verbinden wieder hinzu."
+            "value": "Entfernt dieses Telefon aus den Geräten deines Kontos und beendet seine Verbindung."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Elimina este teléfono de los dispositivos de tu cuenta y termina su conexión. Un teléfono que siga con la sesión iniciada se vuelve a añadir al reconectarse."
+            "value": "Elimina este teléfono de los dispositivos de tu cuenta y termina su conexión."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Supprime ce téléphone des appareils de votre compte et met fin à sa connexion. Un téléphone toujours connecté au compte se rajoute lorsqu’il se reconnecte."
+            "value": "Supprime ce téléphone des appareils de votre compte et met fin à sa connexion."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rimuove questo telefono dai dispositivi del tuo account e ne termina la connessione. Un telefono ancora connesso all’account si aggiunge di nuovo quando si riconnette."
+            "value": "Rimuove questo telefono dai dispositivi del tuo account e ne termina la connessione."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "この電話をアカウントのデバイスから削除し、接続を終了します。サインインしたままの電話は、再接続時に自動で再追加されます。"
+            "value": "この電話をアカウントのデバイスから削除し、接続を終了します。"
           }
         },
         "km": {
@@ -5438,31 +5438,31 @@
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 휴대폰을 계정의 기기에서 제거하고 연결을 끊습니다. 계속 로그인된 휴대폰은 다시 연결할 때 자신을 다시 추가합니다."
+            "value": "이 휴대폰을 계정의 기기에서 제거하고 연결을 끊습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fjerner telefonen fra kontoens enheter og avslutter tilkoblingen. En telefon som fortsatt er pålogget, legger seg til igjen når den kobler til på nytt."
+            "value": "Fjerner telefonen fra kontoens enheter og avslutter tilkoblingen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usuwa ten telefon z urządzeń konta i kończy jego połączenie. Telefon, który nadal jest zalogowany, doda się ponownie przy następnym połączeniu."
+            "value": "Usuwa ten telefon z urządzeń konta i kończy jego połączenie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Remove este telefone dos dispositivos da sua conta e encerra a conexão. Um telefone que continua conectado à conta se adiciona de novo ao reconectar."
+            "value": "Remove este telefone dos dispositivos da sua conta e encerra a conexão."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Удаляет телефон из устройств учётной записи и разрывает его подключение. Телефон, на котором вы всё ещё вошли, снова добавится при переподключении."
+            "value": "Удаляет телефон из устройств учётной записи и разрывает его подключение."
           }
         },
         "th": {
@@ -5474,31 +5474,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu telefonu hesabınızın cihazlarından kaldırır ve bağlantısını sonlandırır. Oturumu hâlâ açık olan bir telefon yeniden bağlandığında kendini tekrar ekler."
+            "value": "Bu telefonu hesabınızın cihazlarından kaldırır ve bağlantısını sonlandırır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Видаляє телефон із пристроїв облікового запису й розриває його підключення. Телефон, на якому ви досі ввійшли, знову додасться під час повторного підключення."
+            "value": "Видаляє телефон із пристроїв облікового запису й розриває його підключення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Xóa điện thoại này khỏi thiết bị của tài khoản và ngắt kết nối. Điện thoại vẫn đăng nhập sẽ tự thêm lại khi kết nối lại."
+            "value": "Xóa điện thoại này khỏi thiết bị của tài khoản và ngắt kết nối."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "从账户的设备中移除此手机并断开其连接。仍处于登录状态的手机重新连接时会再次添加自己。"
+            "value": "从账户的设备中移除此手机并断开其连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "從帳號的裝置中移除此手機並中斷其連線。仍保持登入的手機重新連線時會再次加入自己。"
+            "value": "從帳號的裝置中移除此手機並中斷其連線。"
           }
         }
       }
@@ -5902,55 +5902,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac was removed from your account's devices, so your iPhone can't reach it. Choose Allow Again to let your iPhone connect."
+            "value": "This Mac was removed from your account's devices, so your iPhone can't reach it."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أُزيل هذا الـ Mac من أجهزة حسابك، لذا لا يمكن لجهاز iPhone الوصول إليه. اختر «السماح مجددًا» للسماح لجهاز iPhone بالاتصال."
+            "value": "أُزيل هذا الـ Mac من أجهزة حسابك، لذا لا يمكن لجهاز iPhone الوصول إليه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj Mac je uklonjen s uređaja vašeg računa, pa mu iPhone ne može pristupiti. Odaberite Ponovo dozvoli da biste dozvolili iPhoneu da se poveže."
+            "value": "Ovaj Mac je uklonjen s uređaja vašeg računa, pa mu iPhone ne može pristupiti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne Mac blev fjernet fra kontoens enheder, så din iPhone kan ikke nå den. Vælg Tillad igen for at lade din iPhone forbinde."
+            "value": "Denne Mac blev fjernet fra kontoens enheder, så din iPhone kan ikke nå den."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dieser Mac wurde aus den Geräten deines Kontos entfernt, daher kann dein iPhone ihn nicht erreichen. Wähle „Wieder erlauben“, damit sich dein iPhone verbinden kann."
+            "value": "Dieser Mac wurde aus den Geräten deines Kontos entfernt, daher kann dein iPhone ihn nicht erreichen."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este Mac se eliminó de los dispositivos de tu cuenta, así que tu iPhone no puede acceder a él. Elige Volver a permitir para que tu iPhone se conecte."
+            "value": "Este Mac se eliminó de los dispositivos de tu cuenta, así que tu iPhone no puede acceder a él."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ce Mac a été supprimé des appareils de votre compte, votre iPhone ne peut donc pas y accéder. Choisissez Autoriser à nouveau pour que votre iPhone se connecte."
+            "value": "Ce Mac a été supprimé des appareils de votre compte, votre iPhone ne peut donc pas y accéder."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questo Mac è stato rimosso dai dispositivi del tuo account, quindi il tuo iPhone non può raggiungerlo. Scegli Consenti di nuovo per permettere al tuo iPhone di connettersi."
+            "value": "Questo Mac è stato rimosso dai dispositivi del tuo account, quindi il tuo iPhone non può raggiungerlo."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "この Mac はアカウントのデバイスから削除されたため、iPhone から接続できません。iPhone から接続できるようにするには「再度許可」を選んでください。"
+            "value": "この Mac はアカウントのデバイスから削除されたため、iPhone から接続できません。"
           }
         },
         "km": {
@@ -5962,31 +5962,31 @@
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 Mac이 계정의 기기에서 제거되어 iPhone에서 연결할 수 없습니다. iPhone에서 연결하려면 다시 허용을 선택하세요."
+            "value": "이 Mac이 계정의 기기에서 제거되어 iPhone에서 연결할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne Macen ble fjernet fra kontoens enheter, så iPhonen din når den ikke. Velg Tillat igjen for å la iPhonen koble til."
+            "value": "Denne Macen ble fjernet fra kontoens enheter, så iPhonen din når den ikke."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ten Mac został usunięty z urządzeń Twojego konta, więc iPhone nie może się z nim połączyć. Wybierz Zezwól ponownie, aby iPhone mógł się połączyć."
+            "value": "Ten Mac został usunięty z urządzeń Twojego konta, więc iPhone nie może się z nim połączyć."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Este Mac foi removido dos dispositivos da sua conta, então seu iPhone não consegue acessá-lo. Escolha Permitir novamente para que seu iPhone se conecte."
+            "value": "Este Mac foi removido dos dispositivos da sua conta, então seu iPhone não consegue acessá-lo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот Mac удалён из устройств вашей учётной записи, поэтому iPhone не может к нему подключиться. Выберите «Разрешить снова», чтобы iPhone смог подключиться."
+            "value": "Этот Mac удалён из устройств вашей учётной записи, поэтому iPhone не может к нему подключиться."
           }
         },
         "th": {
@@ -5998,31 +5998,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu Mac hesabınızın cihazlarından kaldırıldı, bu yüzden iPhone’unuz ona erişemiyor. iPhone’unuzun bağlanması için Yeniden izin ver’i seçin."
+            "value": "Bu Mac hesabınızın cihazlarından kaldırıldı, bu yüzden iPhone’unuz ona erişemiyor."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Цей Mac видалено з пристроїв облікового запису, тож iPhone не може до нього підключитися. Виберіть «Дозволити знову», щоб iPhone зміг підключитися."
+            "value": "Цей Mac видалено з пристроїв облікового запису, тож iPhone не може до нього підключитися."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy Mac này đã bị xóa khỏi thiết bị của tài khoản nên iPhone không thể truy cập. Chọn Cho phép lại để iPhone kết nối được."
+            "value": "Máy Mac này đã bị xóa khỏi thiết bị của tài khoản nên iPhone không thể truy cập."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "这台 Mac 已从你账户的设备中移除，因此 iPhone 无法访问它。选择“再次允许”即可让 iPhone 连接。"
+            "value": "这台 Mac 已从你账户的设备中移除，因此 iPhone 无法访问它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "這台 Mac 已從你帳號的裝置中移除，因此 iPhone 無法存取它。選擇「再次允許」即可讓 iPhone 連線。"
+            "value": "這台 Mac 已從你帳號的裝置中移除，因此 iPhone 無法存取它。"
           }
         }
       }

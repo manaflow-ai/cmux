@@ -74,7 +74,7 @@ struct BrowserFileImport {
         let sources = menu.rows
         guard let first = menu.selected else { return nil }
         let spec = CmuxDialogSpec(usesTransientMaterial: true,
-            title: BrowserFileImportStrings.title, lines: [BrowserFileImportStrings.message],
+            title: BrowserFileImportStrings.title, lines: [],
             fields: [.choice(id: browserField, label: BrowserFileImportStrings.browserLabel,
                              options: sources.map { CmuxDialogOption(label: $0.name, value: $0.id) }, selected: first.id)],
             buttons: [CmuxDialogButton(id: "cancel", title: PasswordCSVGuideStrings.cancel, role: .cancel),

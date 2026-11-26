@@ -178,13 +178,9 @@ public struct CloudWorkspaceSetupWizard {
             CmuxDialogOption(label: CloudWorkspaceSetupWizardStrings.repositoryChoice, value: Source.repository.rawValue, isEnabled: supportsRepository),
         ]
         var fields: [CmuxDialogField] = []
-        let summary: String
         if supportsEnvironments {
             options += environments.map { CmuxDialogOption(label: CloudWorkspaceSetupWizardStrings.environmentChoice($0.name), value: environmentPrefix + $0.id) }
             options.append(CmuxDialogOption(label: CloudWorkspaceSetupWizardStrings.newEnvironmentChoice, value: Source.newEnvironment.rawValue))
-            summary = CloudWorkspaceSetupWizardStrings.environmentSummary
-        } else {
-            summary = supportsRepository ? CloudWorkspaceSetupWizardStrings.setupSummary : CloudWorkspaceSetupWizardStrings.emptyOnlySummary
         }
         let usable = (source == .repository && !supportsRepository) || source == .environment || (source == .newEnvironment && !supportsEnvironments) ? Source.empty : source
         let preselected = supportsEnvironments ? selectedEnvironment.flatMap { id in environments.contains { $0.id == id } ? environmentPrefix + id : nil } : nil
@@ -197,7 +193,7 @@ public struct CloudWorkspaceSetupWizard {
         if let size = sizeField(sizes, autosized: autosized) { fields.append(size) }
         return CmuxDialogSpec(
             title: CloudWorkspaceSetupWizardStrings.title,
-            lines: [summary, CloudWorkspaceSetupWizardStrings.modelRouteNote],
+            lines: [CloudWorkspaceSetupWizardStrings.modelRouteNote],
             fields: fields,
             buttons: [
                 .cancel(CloudWorkspaceSetupWizardStrings.cancel),
@@ -229,8 +225,6 @@ public struct CloudWorkspaceSetupWizard {
 
 private enum CloudWorkspaceSetupWizardStrings {
     nonisolated static let title = String(localized: "cloud.workspaceSetup.title", defaultValue: "New Cloud Workspace", table: "Cloud", bundle: .localizedModule)
-    nonisolated static let setupSummary = String(localized: "cloud.workspaceSetup.summary", defaultValue: "Start a new project on an empty VM, or clone a GitHub repository into ~/work.", table: "Cloud", bundle: .localizedModule)
-    nonisolated static let emptyOnlySummary = String(localized: "cloud.workspaceSetup.emptyOnlySummary", defaultValue: "Start a new project on an empty VM. Repository setup is not available with this Cloud connection.", table: "Cloud", bundle: .localizedModule)
     nonisolated static let sourceLabel = String(localized: "cloud.workspaceSetup.sourceLabel", defaultValue: "Start with", table: "Cloud", bundle: .localizedModule)
     nonisolated static let emptyChoice = String(localized: "cloud.workspaceSetup.emptyChoice", defaultValue: "Empty VM — start a new project", table: "Cloud", bundle: .localizedModule)
     nonisolated static let repositoryChoice = String(localized: "cloud.workspaceSetup.repositoryChoice", defaultValue: "From repository", table: "Cloud", bundle: .localizedModule)
@@ -241,9 +235,8 @@ private enum CloudWorkspaceSetupWizardStrings {
     /// The VM's agents use the Cloud service's model route: no login moves from this Mac, team machine or not.
     nonisolated static let modelRouteNote = String(localized: "cloud.workspaceSetup.modelRoute", defaultValue: "Claude and Codex on the VM reach models through the Cloud service. No login moves from this Mac.", table: "Cloud", bundle: .localizedModule)
     nonisolated static let repositoryInvalid = String(localized: "cloud.workspaceSetup.repositoryInvalid", defaultValue: "Enter a GitHub repository as owner/name or a GitHub URL.", table: "Cloud", bundle: .localizedModule)
-    nonisolated static let repositoryCredentials = String(localized: "cloud.workspaceSetup.repositoryCredentials", defaultValue: "Remove the username or password from the repository URL. cmux never saves URL credentials on the VM.", table: "Cloud", bundle: .localizedModule)
+    nonisolated static let repositoryCredentials = String(localized: "cloud.workspaceSetup.repositoryCredentials", defaultValue: "Remove the username or password from the repository URL.", table: "Cloud", bundle: .localizedModule)
     nonisolated static let repositoryRefInvalid = String(localized: "cloud.workspaceSetup.repositoryRefInvalid", defaultValue: "The branch, tag, or commit name is not supported.", table: "Cloud", bundle: .localizedModule)
-    nonisolated static let environmentSummary = String(localized: "cloud.workspaceSetup.environmentSummary", defaultValue: "Start empty, start in one of your environments, or save a GitHub repository as a new environment. An environment clones the repository and runs its setup; once built, new machines start from it in about a second.", table: "Cloud", bundle: .localizedModule)
     nonisolated static func environmentChoice(_ name: String) -> String {
         String(format: String(localized: "cloud.workspaceSetup.environmentChoice", defaultValue: "Environment: %@", table: "Cloud", bundle: .localizedModule), name)
     }

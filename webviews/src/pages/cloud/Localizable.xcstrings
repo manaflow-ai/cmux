@@ -2648,55 +2648,55 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "جميع الأجهزة الـ{limit} التي تشغّلها خطة {plan} في وقت واحد قيد التشغيل ({used}). لإفساح المجال، يوقف cmux مؤقتًا أحد أجهزتك الخاملة. الجهاز المتوقف مؤقتًا يحتفظ بملفاته وعملياته."
+            "value": "جميع الأجهزة الـ{limit} التي تشغّلها خطة {plan} في وقت واحد قيد التشغيل ({used}). لإفساح المجال، يوقف cmux مؤقتًا أحد أجهزتك الخاملة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Svih {limit} mašina koje plan {plan} pokreće istovremeno radi ({used}). Da napravi mjesta, cmux pauzira vašu neaktivnu mašinu. Pauzirana mašina zadržava svoje datoteke i procese."
+            "value": "Svih {limit} mašina koje plan {plan} pokreće istovremeno radi ({used}). Da napravi mjesta, cmux pauzira vašu neaktivnu mašinu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} maskiner, som {plan}-abonnementet kører samtidig, kører ({used}). For at gøre plads sætter cmux en af dine inaktive maskiner på pause. En maskine på pause beholder sine filer og processer."
+            "value": "Alle {limit} maskiner, som {plan}-abonnementet kører samtidig, kører ({used}). For at gøre plads sætter cmux en af dine inaktive maskiner på pause."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} Maschinen, die der Tarif {plan} gleichzeitig ausführt, laufen ({used}). Um Platz zu schaffen, pausiert cmux eine deiner inaktiven Maschinen. Eine pausierte Maschine behält ihre Dateien und Prozesse."
+            "value": "Alle {limit} Maschinen, die der Tarif {plan} gleichzeitig ausführt, laufen ({used}). Um Platz zu schaffen, pausiert cmux eine deiner inaktiven Maschinen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "All {limit} machines the {plan} plan runs at once are running ({used}). To make room, cmux pauses an idle machine of yours. A paused machine keeps its files and processes."
+            "value": "All {limit} machines the {plan} plan runs at once are running ({used}). To make room, cmux pauses an idle machine of yours."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las {limit} máquinas que el plan {plan} ejecuta a la vez están en ejecución ({used}). Para hacer sitio, cmux pausa una de tus máquinas inactivas. Una máquina en pausa conserva sus archivos y procesos."
+            "value": "Las {limit} máquinas que el plan {plan} ejecuta a la vez están en ejecución ({used}). Para hacer sitio, cmux pausa una de tus máquinas inactivas."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les {limit} machines que le forfait {plan} fait tourner en même temps sont en marche ({used}). Pour faire de la place, cmux met en pause l’une de vos machines inactives. Une machine en pause conserve ses fichiers et ses processus."
+            "value": "Les {limit} machines que le forfait {plan} fait tourner en même temps sont en marche ({used}). Pour faire de la place, cmux met en pause l’une de vos machines inactives."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tutte le {limit} macchine che il piano {plan} esegue contemporaneamente sono in esecuzione ({used}). Per fare spazio, cmux mette in pausa una tua macchina inattiva. Una macchina in pausa conserva file e processi."
+            "value": "Tutte le {limit} macchine che il piano {plan} esegue contemporaneamente sono in esecuzione ({used}). Per fare spazio, cmux mette in pausa una tua macchina inattiva."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} プランで同時に稼働できる {limit} 台がすべて稼働中です（{used}）。空きを作るため、cmux はアイドル状態のあなたのマシンを一時停止します。一時停止したマシンのファイルとプロセスは保持されます。"
+            "value": "{plan} プランで同時に稼働できる {limit} 台がすべて稼働中です（{used}）。空きを作るため、cmux はアイドル状態のあなたのマシンを一時停止します。"
           }
         },
         "km": {
@@ -2708,31 +2708,31 @@
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 요금제에서 동시에 실행할 수 있는 머신 {limit}대가 모두 실행 중입니다({used}). 자리를 만들기 위해 cmux가 유휴 상태인 내 머신을 일시 정지합니다. 일시 정지된 머신은 파일과 프로세스를 그대로 유지합니다."
+            "value": "{plan} 요금제에서 동시에 실행할 수 있는 머신 {limit}대가 모두 실행 중입니다({used}). 자리를 만들기 위해 cmux가 유휴 상태인 내 머신을 일시 정지합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alle {limit} maskiner som {plan}-abonnementet kjører samtidig, kjører ({used}). For å gjøre plass setter cmux en av dine inaktive maskiner på pause. En maskin på pause beholder filene og prosessene sine."
+            "value": "Alle {limit} maskiner som {plan}-abonnementet kjører samtidig, kjører ({used}). For å gjøre plass setter cmux en av dine inaktive maskiner på pause."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Działają wszystkie maszyny, które plan {plan} uruchamia jednocześnie: {limit} ({used}). Aby zrobić miejsce, cmux wstrzymuje Twoją bezczynną maszynę. Wstrzymana maszyna zachowuje pliki i procesy."
+            "value": "Działają wszystkie maszyny, które plan {plan} uruchamia jednocześnie: {limit} ({used}). Aby zrobić miejsce, cmux wstrzymuje Twoją bezczynną maszynę."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Todas as {limit} máquinas que o plano {plan} executa ao mesmo tempo estão em execução ({used}). Para abrir espaço, o cmux pausa uma máquina sua que esteja ociosa. Uma máquina pausada mantém seus arquivos e processos."
+            "value": "Todas as {limit} máquinas que o plano {plan} executa ao mesmo tempo estão em execução ({used}). Para abrir espaço, o cmux pausa uma máquina sua que esteja ociosa."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Работают все машины, которые тариф {plan} запускает одновременно: {limit} ({used}). Чтобы освободить место, cmux приостановит вашу простаивающую машину. Приостановленная машина сохраняет файлы и процессы."
+            "value": "Работают все машины, которые тариф {plan} запускает одновременно: {limit} ({used}). Чтобы освободить место, cmux приостановит вашу простаивающую машину."
           }
         },
         "th": {
@@ -2744,31 +2744,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} planının aynı anda çalıştırdığı {limit} makinenin tümü çalışıyor ({used}). Yer açmak için cmux boştaki bir makinenizi duraklatır. Duraklatılan makine dosyalarını ve işlemlerini korur."
+            "value": "{plan} planının aynı anda çalıştırdığı {limit} makinenin tümü çalışıyor ({used}). Yer açmak için cmux boştaki bir makinenizi duraklatır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Працюють усі машини, які тариф {plan} запускає одночасно: {limit} ({used}). Щоб звільнити місце, cmux призупинить вашу неактивну машину. Призупинена машина зберігає файли та процеси."
+            "value": "Працюють усі машини, які тариф {plan} запускає одночасно: {limit} ({used}). Щоб звільнити місце, cmux призупинить вашу неактивну машину."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cả {limit} máy mà gói {plan} chạy cùng lúc đều đang chạy ({used}). Để lấy chỗ, cmux tạm dừng một máy đang rảnh của bạn. Máy tạm dừng vẫn giữ tệp và tiến trình."
+            "value": "Cả {limit} máy mà gói {plan} chạy cùng lúc đều đang chạy ({used}). Để lấy chỗ, cmux tạm dừng một máy đang rảnh của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 套餐可同时运行的 {limit} 台机器都在运行（{used}）。为腾出位置，cmux 会暂停你的一台空闲机器。暂停的机器会保留文件和进程。"
+            "value": "{plan} 套餐可同时运行的 {limit} 台机器都在运行（{used}）。为腾出位置，cmux 会暂停你的一台空闲机器。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{plan} 方案可同時執行的 {limit} 台機器都在執行中（{used}）。為了騰出位置，cmux 會暫停你的一台閒置機器。暫停的機器會保留檔案和處理程序。"
+            "value": "{plan} 方案可同時執行的 {limit} 台機器都在執行中（{used}）。為了騰出位置，cmux 會暫停你的一台閒置機器。"
           }
         }
       }
@@ -8455,128 +8455,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "يعمل عند بدء جلسة جديدة، قبل تشغيل الوكيل. يتم تخزين النتيجة مؤقتًا لتبدأ الجلسات المستقبلية بسرعة."
+            "state": "needs_review",
+            "value": "يعمل عند بدء جلسة جديدة، قبل تشغيل الوكيل."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Pokreće se kada se pokrene nova sesija, prije pokretanja agenta. Rezultat se kešira kako bi se buduće sesije brzo pokrenule."
+            "state": "needs_review",
+            "value": "Pokreće se kada se pokrene nova sesija, prije pokretanja agenta."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Køres, når en ny session startes, før agenten startes. Resultatet cachelagres, så fremtidige sessioner starter hurtigt."
+            "state": "needs_review",
+            "value": "Køres, når en ny session startes, før agenten startes."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Wird beim Start einer neuen Sitzung ausgeführt, bevor der Agent gestartet wird. Das Ergebnis wird zwischengespeichert, damit zukünftige Sitzungen schnell starten."
+            "state": "needs_review",
+            "value": "Wird beim Start einer neuen Sitzung ausgeführt, bevor der Agent gestartet wird."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Runs when a new session is started, before the agent launches. The result is cached so future sessions start quickly."
+            "value": "Runs when a new session is started, before the agent launches."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Se ejecuta al iniciar una sesión nueva, antes de que se inicie el agente. El resultado se almacena en caché para que las sesiones futuras se inicien rápidamente."
+            "state": "needs_review",
+            "value": "Se ejecuta al iniciar una sesión nueva, antes de que se inicie el agente."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "S’exécute au démarrage d’une nouvelle session, avant le lancement de l’agent. Le résultat est mis en cache pour accélérer les prochaines sessions."
+            "state": "needs_review",
+            "value": "S’exécute au démarrage d’une nouvelle session, avant le lancement de l’agent."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Viene eseguito all’avvio di una nuova sessione, prima dell’avvio dell’agente. Il risultato viene memorizzato nella cache per avviare rapidamente le sessioni future."
+            "state": "needs_review",
+            "value": "Viene eseguito all’avvio di una nuova sessione, prima dell’avvio dell’agente."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "新しいセッションの開始時にエージェントの起動前に実行されます。結果はキャッシュされるため、次回以降のセッションをすばやく開始できます。"
+            "state": "needs_review",
+            "value": "新しいセッションの開始時にエージェントの起動前に実行されます。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ដំណើរការនៅពេលចាប់ផ្តើមសម័យថ្មី មុនភ្នាក់ងារចាប់ផ្តើម។ លទ្ធផលត្រូវបានរក្សាទុកក្នុងឃ្លាំងសម្ងាត់ ដើម្បីឱ្យសម័យបន្ទាប់ចាប់ផ្តើមបានលឿន។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "새 세션이 시작될 때 에이전트가 실행되기 전에 실행됩니다. 결과가 캐시되므로 이후 세션은 빠르게 시작됩니다."
+            "state": "needs_review",
+            "value": "새 세션이 시작될 때 에이전트가 실행되기 전에 실행됩니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kjøres når en ny økt startes, før agenten startes. Resultatet bufres slik at fremtidige økter starter raskt."
+            "state": "needs_review",
+            "value": "Kjøres når en ny økt startes, før agenten startes."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Uruchamiany przy rozpoczynaniu nowej sesji, przed uruchomieniem agenta. Wynik jest buforowany, aby przyszłe sesje uruchamiały się szybko."
+            "state": "needs_review",
+            "value": "Uruchamiany przy rozpoczynaniu nowej sesji, przed uruchomieniem agenta."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Executado quando uma nova sessão é iniciada, antes do agente ser iniciado. O resultado é armazenado em cache para que as sessões futuras iniciem rapidamente."
+            "state": "needs_review",
+            "value": "Executado quando uma nova sessão é iniciada, antes do agente ser iniciado."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Запускается при начале нового сеанса до запуска агента. Результат кэшируется, чтобы будущие сеансы запускались быстрее."
+            "state": "needs_review",
+            "value": "Запускается при начале нового сеанса до запуска агента."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ทำงานเมื่อเริ่มเซสชันใหม่ ก่อนเอเจนต์จะเริ่มทำงาน ผลลัพธ์จะถูกแคชเพื่อให้เซสชันถัดไปเริ่มได้อย่างรวดเร็ว"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Yeni bir oturum başlatıldığında, aracı başlatmadan önce çalışır. Sonuç önbelleğe alınır; böylece sonraki oturumlar hızlı başlar."
+            "state": "needs_review",
+            "value": "Yeni bir oturum başlatıldığında, aracı başlatmadan önce çalışır."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Запускається під час початку нового сеансу, перед запуском агента. Результат кешується, щоб майбутні сеанси запускалися швидко."
+            "state": "needs_review",
+            "value": "Запускається під час початку нового сеансу, перед запуском агента."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chạy khi bắt đầu phiên mới, trước khi tác nhân khởi chạy. Kết quả được lưu vào bộ nhớ đệm để các phiên sau bắt đầu nhanh chóng."
+            "state": "needs_review",
+            "value": "Chạy khi bắt đầu phiên mới, trước khi tác nhân khởi chạy."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "新会话启动时、代理启动前运行。结果会缓存，因此后续会话可以快速启动。"
+            "state": "needs_review",
+            "value": "新会话启动时、代理启动前运行。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "在新工作階段開始時、代理程式啟動前執行。結果會快取，因此之後的工作階段可以快速啟動。"
+            "state": "needs_review",
+            "value": "在新工作階段開始時、代理程式啟動前執行。"
           }
         }
       }
@@ -9115,128 +9115,128 @@
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "قيم الأسرار للكتابة فقط. اترك القيمة فارغة للاحتفاظ بالسر الحالي."
+            "state": "needs_review",
+            "value": "اترك القيمة فارغة للاحتفاظ بالسر الحالي."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Vrijednosti tajni mogu se samo upisivati. Ostavite vrijednost praznom da zadržite postojeću tajnu."
+            "state": "needs_review",
+            "value": "Ostavite vrijednost praznom da zadržite postojeću tajnu."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Værdier for hemmeligheder kan kun skrives. Lad en værdi være tom for at beholde den eksisterende hemmelighed."
+            "state": "needs_review",
+            "value": "Lad en værdi være tom for at beholde den eksisterende hemmelighed."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Geheimniswerte sind nur zum Schreiben. Lass einen Wert leer, um das vorhandene Geheimnis beizubehalten."
+            "state": "needs_review",
+            "value": "Lass einen Wert leer, um das vorhandene Geheimnis beizubehalten."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Secret values are write-only. Leave a value empty to keep the existing secret."
+            "value": "Leave a value empty to keep the existing secret."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Los valores de los secretos son de solo escritura. Deja un valor vacío para conservar el secreto existente."
+            "state": "needs_review",
+            "value": "Deja un valor vacío para conservar el secreto existente."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Les valeurs des secrets sont accessibles en écriture uniquement. Laissez une valeur vide pour conserver le secret existant."
+            "state": "needs_review",
+            "value": "Laissez une valeur vide pour conserver le secret existant."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "I valori dei segreti sono di sola scrittura. Lascia vuoto un valore per mantenere il segreto esistente."
+            "state": "needs_review",
+            "value": "Lascia vuoto un valore per mantenere il segreto esistente."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "シークレットの値は書き込み専用です。既存のシークレットを保持するには値を空のままにしてください。"
+            "state": "needs_review",
+            "value": "既存のシークレットを保持するには値を空のままにしてください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "តម្លៃសម្ងាត់អាចសរសេរបានតែប៉ុណ្ណោះ។ ទុកតម្លៃឱ្យទទេ ដើម្បីរក្សាសម្ងាត់ដែលមានស្រាប់។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "비밀 값은 쓰기 전용입니다. 기존 비밀을 유지하려면 값을 비워 두세요."
+            "state": "needs_review",
+            "value": "기존 비밀을 유지하려면 값을 비워 두세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Verdier for hemmeligheter kan bare skrives. La en verdi stå tom for å beholde den eksisterende hemmeligheten."
+            "state": "needs_review",
+            "value": "La en verdi stå tom for å beholde den eksisterende hemmeligheten."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Wartości sekretów są tylko do zapisu. Pozostaw puste, aby zachować istniejący sekret."
+            "state": "needs_review",
+            "value": "Pozostaw puste, aby zachować istniejący sekret."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Os valores dos segredos são somente para gravação. Deixe um valor vazio para manter o segredo existente."
+            "state": "needs_review",
+            "value": "Deixe um valor vazio para manter o segredo existente."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Значения секретов доступны только для записи. Оставьте поле пустым, чтобы сохранить существующий секрет."
+            "state": "needs_review",
+            "value": "Оставьте поле пустым, чтобы сохранить существующий секрет."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
+            "state": "needs_review",
             "value": "ค่าข้อมูลลับเขียนได้เท่านั้น เว้นค่าว่างไว้เพื่อเก็บข้อมูลลับเดิม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Gizli bilgi değerleri yalnızca yazılabilir. Mevcut gizli bilgiyi korumak için değeri boş bırakın."
+            "state": "needs_review",
+            "value": "Mevcut gizli bilgiyi korumak için değeri boş bırakın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Значення секретів доступні лише для запису. Залиште значення порожнім, щоб зберегти наявний секрет."
+            "state": "needs_review",
+            "value": "Залиште значення порожнім, щоб зберегти наявний секрет."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Giá trị bí mật chỉ được ghi. Để trống giá trị để giữ bí mật hiện có."
+            "state": "needs_review",
+            "value": "Để trống giá trị để giữ bí mật hiện có."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "密钥值仅可写入。要保留现有密钥，请将值留空。"
+            "state": "needs_review",
+            "value": "要保留现有密钥，请将值留空。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "密碼值只能寫入。若要保留現有密碼，請將值留空。"
+            "state": "needs_review",
+            "value": "若要保留現有密碼，請將值留空。"
           }
         }
       }
@@ -24956,55 +24956,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A cloud machine runs agents, builds and tests beside your Mac. Close the lid and the work goes on; open it in a workspace like any other machine."
+            "value": "A cloud machine runs agents, builds and tests beside your Mac."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يشغّل جهاز السحابة الوكلاء وعمليات البناء والاختبارات إلى جانب جهاز Mac. أغلق الغطاء ويستمر العمل، وافتحه في مساحة عمل مثل أي جهاز آخر."
+            "value": "يشغّل جهاز السحابة الوكلاء وعمليات البناء والاختبارات إلى جانب جهاز Mac."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mašina u oblaku pokreće agente, buildove i testove uz vaš Mac. Zatvorite poklopac i posao se nastavlja; otvorite je u radnom prostoru kao bilo koju drugu mašinu."
+            "value": "Mašina u oblaku pokreće agente, buildove i testove uz vaš Mac."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En cloudmaskine kører agenter, builds og tests ved siden af din Mac. Luk låget, og arbejdet fortsætter; åbn den i et arbejdsområde som enhver anden maskine."
+            "value": "En cloudmaskine kører agenter, builds og tests ved siden af din Mac."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eine Cloud-Maschine führt Agenten, Builds und Tests neben Ihrem Mac aus. Klappen Sie ihn zu, die Arbeit geht weiter; öffnen Sie sie in einem Workspace wie jede andere Maschine."
+            "value": "Eine Cloud-Maschine führt Agenten, Builds und Tests neben Ihrem Mac aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Una máquina en la nube ejecuta agentes, compilaciones y pruebas junto a tu Mac. Cierra la tapa y el trabajo sigue; ábrela en un espacio de trabajo como cualquier otra máquina."
+            "value": "Una máquina en la nube ejecuta agentes, compilaciones y pruebas junto a tu Mac."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Une machine cloud exécute agents, builds et tests à côté de votre Mac. Refermez l'écran, le travail continue ; ouvrez-la dans un espace de travail comme n'importe quelle machine."
+            "value": "Une machine cloud exécute agents, builds et tests à côté de votre Mac."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Una macchina cloud esegue agenti, build e test accanto al tuo Mac. Chiudi il coperchio e il lavoro continua; aprila in uno spazio di lavoro come qualsiasi altra macchina."
+            "value": "Una macchina cloud esegue agenti, build e test accanto al tuo Mac."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "クラウドマシンは、Mac と並んでエージェント、ビルド、テストを実行します。蓋を閉じても作業は続き、ほかのマシンと同じようにワークスペースで開けます。"
+            "value": "クラウドマシンは、Mac と並んでエージェント、ビルド、テストを実行します。"
           }
         },
         "km": {
@@ -25016,31 +25016,31 @@
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "클라우드 머신은 Mac 옆에서 에이전트, 빌드, 테스트를 실행합니다. 덮개를 닫아도 작업은 계속되며, 다른 머신처럼 워크스페이스에서 열 수 있습니다."
+            "value": "클라우드 머신은 Mac 옆에서 에이전트, 빌드, 테스트를 실행합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "En skymaskin kjører agenter, bygg og tester ved siden av Mac-en din. Lukk lokket, så fortsetter arbeidet; åpne den i et arbeidsområde som enhver annen maskin."
+            "value": "En skymaskin kjører agenter, bygg og tester ved siden av Mac-en din."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maszyna w chmurze uruchamia agentów, kompilacje i testy obok Twojego Maca. Zamknij pokrywę, a praca trwa dalej; otwórz ją w obszarze roboczym jak każdą inną maszynę."
+            "value": "Maszyna w chmurze uruchamia agentów, kompilacje i testy obok Twojego Maca."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uma máquina na nuvem executa agentes, builds e testes ao lado do seu Mac. Feche a tampa e o trabalho continua; abra-a em um espaço de trabalho como qualquer outra máquina."
+            "value": "Uma máquina na nuvem executa agentes, builds e testes ao lado do seu Mac."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Облачная машина запускает агентов, сборки и тесты рядом с вашим Mac. Закройте крышку — работа продолжится; открывайте её в рабочем пространстве, как любую другую машину."
+            "value": "Облачная машина запускает агентов, сборки и тесты рядом с вашим Mac."
           }
         },
         "th": {
@@ -25052,31 +25052,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bulut makinesi ajanları, derlemeleri ve testleri Mac'inizin yanında çalıştırır. Kapağı kapatın, iş sürsün; onu diğer makineler gibi bir çalışma alanında açın."
+            "value": "Bulut makinesi ajanları, derlemeleri ve testleri Mac'inizin yanında çalıştırır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Хмарна машина запускає агентів, збірки й тести поруч із вашим Mac. Закрийте кришку — робота триватиме; відкривайте її в робочому просторі, як будь-яку іншу машину."
+            "value": "Хмарна машина запускає агентів, збірки й тести поруч із вашим Mac."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy đám mây chạy tác tử, bản dựng và kiểm thử bên cạnh máy Mac của bạn. Gập máy lại, công việc vẫn tiếp tục; mở nó trong không gian làm việc như mọi máy khác."
+            "value": "Máy đám mây chạy tác tử, bản dựng và kiểm thử bên cạnh máy Mac của bạn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "云端机器在 Mac 之外运行智能体、构建和测试。合上屏幕，工作照常进行；像其他机器一样在工作区中打开它。"
+            "value": "云端机器在 Mac 之外运行智能体、构建和测试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "雲端機器在 Mac 之外執行代理程式、建置與測試。闔上螢幕，工作照常進行；像其他機器一樣在工作區中開啟它。"
+            "value": "雲端機器在 Mac 之外執行代理程式、建置與測試。"
           }
         }
       }
@@ -25341,138 +25341,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "你的帳號還沒有 Cloud 方案。"
-          }
-        }
-      }
-    },
-    "store.note": {
-      "comment": "Storefront footnote: what happens when you get a machine",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "You confirm each machine before it's created, and you can pause or delete it at any time."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تؤكد كل جهاز قبل إنشائه، ويمكنك إيقافه مؤقتًا أو حذفه في أي وقت."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Svaku mašinu potvrđujete prije kreiranja i možete je pauzirati ili obrisati u bilo kojem trenutku."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du bekræfter hver maskine, før den oprettes, og du kan sætte den på pause eller slette den når som helst."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Sie bestätigen jede Maschine, bevor sie erstellt wird, und können sie jederzeit pausieren oder löschen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Confirmas cada máquina antes de crearla y puedes pausarla o eliminarla en cualquier momento."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vous confirmez chaque machine avant sa création, et vous pouvez la mettre en pause ou la supprimer à tout moment."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Confermi ogni macchina prima che venga creata e puoi metterla in pausa o eliminarla in qualsiasi momento."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "マシンは作成前に毎回確認され、いつでも一時停止や削除ができます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "អ្នកបញ្ជាក់ម៉ាស៊ីននីមួយៗមុនពេលបង្កើត ហើយអាចផ្អាក ឬលុបវាបានគ្រប់ពេល។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "머신은 만들기 전에 매번 확인하며, 언제든지 일시 정지하거나 삭제할 수 있습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Du bekrefter hver maskin før den opprettes, og du kan sette den på pause eller slette den når som helst."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Każdą maszynę potwierdzasz przed utworzeniem i możesz ją w każdej chwili wstrzymać lub usunąć."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Você confirma cada máquina antes de ela ser criada e pode pausá-la ou excluí-la a qualquer momento."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вы подтверждаете каждую машину перед созданием и можете приостановить или удалить её в любой момент."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "คุณยืนยันทุกเครื่องก่อนสร้าง และหยุดชั่วคราวหรือลบได้ทุกเมื่อ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Her makineyi oluşturulmadan önce onaylarsınız; istediğiniz zaman duraklatabilir veya silebilirsiniz."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ви підтверджуєте кожну машину перед створенням і можете призупинити чи видалити її будь-коли."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bạn xác nhận từng máy trước khi tạo, và có thể tạm dừng hoặc xóa bất cứ lúc nào."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每台机器创建前都需你确认，并可随时暂停或删除。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "每台機器建立前都需你確認，並可隨時暫停或刪除。"
           }
         }
       }
@@ -34592,127 +34460,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Machines nobody uses for {days} days are deleted after one heads-up {headsUp} days before; their disks are archived first. Failed creates go after {failed} h, never-used machines after {never} h."
+            "value": "Machines nobody uses for {days} days are deleted after one heads-up {headsUp} days before; their disks are archived first."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تُحذف الأجهزة التي لا يستخدمها أحد لمدة {days} يومًا بعد تنبيه واحد قبلها بـ {headsUp} يومًا، وتُؤرشف أقراصها أولًا. تُزال عمليات الإنشاء الفاشلة بعد {failed} س، والأجهزة غير المستخدمة بعد {never} س."
+            "value": "تُحذف الأجهزة التي لا يستخدمها أحد لمدة {days} يومًا بعد تنبيه واحد قبلها بـ {headsUp} يومًا، وتُؤرشف أقراصها أولًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mašine koje niko ne koristi {days} dana brišu se nakon jednog upozorenja {headsUp} dana ranije; diskovi se prvo arhiviraju. Neuspjela kreiranja nestaju nakon {failed} h, nekorištene mašine nakon {never} h."
+            "value": "Mašine koje niko ne koristi {days} dana brišu se nakon jednog upozorenja {headsUp} dana ranije; diskovi se prvo arhiviraju."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maskiner, som ingen bruger i {days} dage, slettes efter én besked {headsUp} dage før; diskene arkiveres først. Mislykkede oprettelser fjernes efter {failed} t, ubrugte maskiner efter {never} t."
+            "value": "Maskiner, som ingen bruger i {days} dage, slettes efter én besked {headsUp} dage før; diskene arkiveres først."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maschinen, die {days} Tage niemand nutzt, werden nach einem Hinweis {headsUp} Tage vorher gelöscht; ihre Festplatten werden zuerst archiviert. Fehlgeschlagene Erstellungen gehen nach {failed} h, unbenutzte Maschinen nach {never} h."
+            "value": "Maschinen, die {days} Tage niemand nutzt, werden nach einem Hinweis {headsUp} Tage vorher gelöscht; ihre Festplatten werden zuerst archiviert."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las máquinas que nadie usa durante {days} días se eliminan tras un aviso {headsUp} días antes; sus discos se archivan primero. Las creaciones fallidas se quitan tras {failed} h; las máquinas sin usar, tras {never} h."
+            "value": "Las máquinas que nadie usa durante {days} días se eliminan tras un aviso {headsUp} días antes; sus discos se archivan primero."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les machines que personne n’utilise pendant {days} jours sont supprimées après un avis {headsUp} jours avant ; leurs disques sont d’abord archivés. Les créations échouées partent après {failed} h, les machines jamais utilisées après {never} h."
+            "value": "Les machines que personne n’utilise pendant {days} jours sont supprimées après un avis {headsUp} jours avant ; leurs disques sont d’abord archivés."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le macchine che nessuno usa per {days} giorni vengono eliminate dopo un avviso {headsUp} giorni prima; i dischi vengono prima archiviati. Le creazioni non riuscite vanno via dopo {failed} h, le macchine mai usate dopo {never} h."
+            "value": "Le macchine che nessuno usa per {days} giorni vengono eliminate dopo un avviso {headsUp} giorni prima; i dischi vengono prima archiviati."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "{days} 日間誰も使っていないマシンは、{headsUp} 日前に一度お知らせしたうえで削除されます。ディスクは先にアーカイブされます。作成に失敗したものは {failed} 時間後、一度も使われていないマシンは {never} 時間後に削除されます。"
+            "state": "needs_review",
+            "value": "Machines nobody uses for {days} days are deleted after one heads-up {headsUp} days before; their disks are archived first."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីនដែលគ្មាននរណាប្រើរយៈពេល {days} ថ្ងៃ ត្រូវលុបបន្ទាប់ពីការជូនដំណឹងមួយដង {headsUp} ថ្ងៃមុន ហើយថាសត្រូវរក្សាទុកជាមុន។ ការបង្កើតដែលបរាជ័យត្រូវដកចេញបន្ទាប់ពី {failed} ម៉ោង ម៉ាស៊ីនមិនបានប្រើបន្ទាប់ពី {never} ម៉ោង។"
+            "value": "Machines nobody uses for {days} days are deleted after one heads-up {headsUp} days before; their disks are archived first."
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{days}일 동안 아무도 사용하지 않은 머신은 {headsUp}일 전에 한 번 알린 뒤 삭제되며, 디스크는 먼저 보관됩니다. 만들기에 실패한 머신은 {failed}시간 후, 사용하지 않은 머신은 {never}시간 후 삭제됩니다."
+            "value": "{days}일 동안 아무도 사용하지 않은 머신은 {headsUp}일 전에 한 번 알린 뒤 삭제되며, 디스크는 먼저 보관됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maskiner ingen bruker på {days} dager, slettes etter ett varsel {headsUp} dager før; diskene arkiveres først. Mislykkede opprettelser fjernes etter {failed} t, ubrukte maskiner etter {never} t."
+            "value": "Maskiner ingen bruker på {days} dager, slettes etter ett varsel {headsUp} dager før; diskene arkiveres først."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maszyny, których nikt nie używa przez {days} dni, są usuwane po jednym ostrzeżeniu {headsUp} dni wcześniej; ich dyski są najpierw archiwizowane. Nieudane utworzenia znikają po {failed} h, nieużywane maszyny po {never} h."
+            "value": "Maszyny, których nikt nie używa przez {days} dni, są usuwane po jednym ostrzeżeniu {headsUp} dni wcześniej; ich dyski są najpierw archiwizowane."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máquinas que ninguém usa por {days} dias são excluídas após um aviso {headsUp} dias antes; os discos são arquivados primeiro. Criações com falha saem após {failed} h; máquinas nunca usadas, após {never} h."
+            "value": "Máquinas que ninguém usa por {days} dias são excluídas após um aviso {headsUp} dias antes; os discos são arquivados primeiro."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Машины, которыми никто не пользуется {days} дн., удаляются после одного предупреждения за {headsUp} дн.; диски сначала архивируются. Неудачные создания удаляются через {failed} ч, неиспользованные машины — через {never} ч."
+            "value": "Машины, которыми никто не пользуется {days} дн., удаляются после одного предупреждения за {headsUp} дн.; диски сначала архивируются."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่องที่ไม่มีใครใช้ {days} วันจะถูกลบหลังแจ้งเตือนหนึ่งครั้งล่วงหน้า {headsUp} วัน โดยเก็บถาวรดิสก์ก่อน การสร้างที่ล้มเหลวจะถูกลบหลัง {failed} ชม. เครื่องที่ไม่มีใครใช้หลัง {never} ชม."
+            "value": "Machines nobody uses for {days} days are deleted after one heads-up {headsUp} days before; their disks are archived first."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{days} gün kimsenin kullanmadığı makineler, {headsUp} gün önce bir kez haber verildikten sonra silinir; diskleri önce arşivlenir. Başarısız oluşturmalar {failed} sa, hiç kullanılmamış makineler {never} sa sonra kaldırılır."
+            "value": "{days} gün kimsenin kullanmadığı makineler, {headsUp} gün önce bir kez haber verildikten sonra silinir; diskleri önce arşivlenir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Машини, якими ніхто не користується {days} дн., видаляються після одного попередження за {headsUp} дн.; диски спершу архівуються. Невдалі створення видаляються через {failed} год, невикористані машини — через {never} год."
+            "value": "Машини, якими ніхто не користується {days} дн., видаляються після одного попередження за {headsUp} дн.; диски спершу архівуються."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy không ai dùng trong {days} ngày sẽ bị xóa sau một lần báo trước {headsUp} ngày; ổ đĩa được lưu trữ trước. Lần tạo thất bại bị xóa sau {failed} giờ, máy chưa ai dùng sau {never} giờ."
+            "value": "Máy không ai dùng trong {days} ngày sẽ bị xóa sau một lần báo trước {headsUp} ngày; ổ đĩa được lưu trữ trước."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{days} 天无人使用的机器会在提前 {headsUp} 天提醒一次后删除，磁盘会先归档。创建失败的在 {failed} 小时后移除，从未使用的机器在 {never} 小时后移除。"
+            "value": "{days} 天无人使用的机器会在提前 {headsUp} 天提醒一次后删除，磁盘会先归档。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "{days} 天無人使用的機器會在提前 {headsUp} 天提醒一次後刪除，磁碟會先封存。建立失敗的在 {failed} 小時後移除，從未使用的機器在 {never} 小時後移除。"
+            "value": "{days} 天無人使用的機器會在提前 {headsUp} 天提醒一次後刪除，磁碟會先封存。"
           }
         }
       }
@@ -36572,13 +36440,13 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تتوقف الأجهزة العاملة مؤقتًا عند {time} ما لم يُرفع الحد. لن يُفقد أي شيء عليها."
+            "value": "تتوقف الأجهزة العاملة مؤقتًا عند {time} ما لم يُرفع الحد."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pokrenute mašine se pauziraju u {time} ako se ograničenje ne povisi. Ništa na njima se ne gubi."
+            "value": "Pokrenute mašine se pauziraju u {time} ako se ograničenje ne povisi."
           }
         },
         "da": {
@@ -36590,37 +36458,37 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Laufende Maschinen pausieren um {time}, wenn die Grenze nicht erhöht wird. Nichts darauf geht verloren."
+            "value": "Laufende Maschinen pausieren um {time}, wenn die Grenze nicht erhöht wird."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Running machines pause at {time} unless the cap is raised. Nothing on them is lost."
+            "value": "Running machines pause at {time} unless the cap is raised."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Las máquinas en marcha se pausan a las {time} si no se sube el límite. No se pierde nada de ellas."
+            "value": "Las máquinas en marcha se pausan a las {time} si no se sube el límite."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Les machines actives se mettent en pause à {time} si le plafond n'est pas relevé. Rien n'y est perdu."
+            "value": "Les machines actives se mettent en pause à {time} si le plafond n'est pas relevé."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le macchine attive vanno in pausa alle {time} se il limite non viene alzato. Non si perde nulla."
+            "value": "Le macchine attive vanno in pausa alle {time} se il limite non viene alzato."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "上限が引き上げられない場合、実行中のマシンは {time} に一時停止します。データは失われません。"
+            "value": "上限が引き上げられない場合、実行中のマシンは {time} に一時停止します。"
           }
         },
         "km": {
@@ -36632,7 +36500,7 @@
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "한도를 올리지 않으면 실행 중인 머신이 {time}에 일시 중지됩니다. 머신의 내용은 사라지지 않습니다."
+            "value": "한도를 올리지 않으면 실행 중인 머신이 {time}에 일시 중지됩니다."
           }
         },
         "nb": {
@@ -36644,19 +36512,19 @@
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Działające maszyny zostaną wstrzymane o {time}, jeśli limit nie zostanie podniesiony. Nic na nich nie przepadnie."
+            "value": "Działające maszyny zostaną wstrzymane o {time}, jeśli limit nie zostanie podniesiony."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "As máquinas em execução são pausadas às {time}, a menos que o limite seja aumentado. Nada nelas é perdido."
+            "value": "As máquinas em execução são pausadas às {time}, a menos que o limite seja aumentado."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Работающие машины приостановятся в {time}, если лимит не поднимут. Ничего на них не потеряется."
+            "value": "Работающие машины приостановятся в {time}, если лимит не поднимут."
           }
         },
         "th": {
@@ -36668,31 +36536,31 @@
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sınır yükseltilmezse çalışan makineler {time} saatinde duraklatılır. Üzerlerindeki hiçbir şey kaybolmaz."
+            "value": "Sınır yükseltilmezse çalışan makineler {time} saatinde duraklatılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Запущені машини призупиняться о {time}, якщо ліміт не підвищать. Нічого на них не втратиться."
+            "value": "Запущені машини призупиняться о {time}, якщо ліміт не підвищать."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Các máy đang chạy sẽ tạm dừng lúc {time} nếu hạn mức không được nâng. Không mất dữ liệu nào trên máy."
+            "value": "Các máy đang chạy sẽ tạm dừng lúc {time} nếu hạn mức không được nâng."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "除非提高上限，运行中的机器将在 {time} 暂停。机器上的内容不会丢失。"
+            "value": "除非提高上限，运行中的机器将在 {time} 暂停。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "除非提高上限，執行中的機器將在 {time} 暫停。機器上的內容不會遺失。"
+            "value": "除非提高上限，執行中的機器將在 {time} 暫停。"
           }
         }
       }

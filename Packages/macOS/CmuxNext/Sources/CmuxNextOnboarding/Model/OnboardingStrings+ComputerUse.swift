@@ -54,7 +54,7 @@ extension OnboardingStrings {
     /// Computer Use is off, so its grants are unknown until Allow turns it on.
     static var computerUseOff: String {
         String(localized: "onboarding.computerUse.off",
-               defaultValue: "Computer Use is off. Allow turns it on, then shows its permissions here.", bundle: .localizedModule)
+               defaultValue: "Computer Use is off.", bundle: .localizedModule)
     }
     /// The helper does not speak this build's protocol.
     static var computerUseHelperVersionMismatch: String {

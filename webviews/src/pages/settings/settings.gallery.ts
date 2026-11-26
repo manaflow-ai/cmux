@@ -11,7 +11,7 @@ import type {
   ProviderAccount,
 } from "./ops";
 import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
-import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
+import { minutesAgo, GALLERY_NOW } from "../../gallery/clock";
 import { categories, categoryOf, defaultCategory, isCategory } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
@@ -2013,7 +2013,7 @@ variants["github-connect-empty"] = variant("accounts", {
         ...githubConnection,
         connections: [],
         canConnect: true,
-        detail: "Connect the cmux GitHub App. Choose repositories and review permissions in GitHub.",
+        detail: "Connect the cmux GitHub App.",
       },
     },
   ),

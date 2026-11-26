@@ -37,7 +37,7 @@ struct CloudWorkspaceSetupWizardTests {
     @Test(arguments: [true, false])
     func theSetupDialogNamesTheModelRouteAndOffersNoLoginStep(supportsEnvironments: Bool) {
         let spec = CloudWorkspaceSetupWizard.setupDialogSpec(supportsEnvironments: supportsEnvironments)
-        #expect(spec.lines.count == 2)
+        #expect(spec.lines.count == 1)
         #expect(spec.lines.last?.contains("Cloud service") == true)
         #expect(spec.lines.last?.contains("No login moves from this Mac") == true)
         #expect(!spec.lines.joined().contains("setup-token"))

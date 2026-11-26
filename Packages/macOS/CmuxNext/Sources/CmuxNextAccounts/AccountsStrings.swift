@@ -85,7 +85,7 @@ enum AccountsStrings {
     }
     static var pasteClaudeTitle: String { text("accounts.paste.claudeTitle", "Connect Claude Code") }
     static var pasteClaudeBody: String {
-        text("accounts.paste.claudeBody", "CodeRouter needs a long-lived token. Run claude setup-token, then paste it here. It goes to CodeRouter only; Cloud chats use Settings > Cloud.")
+        text("accounts.paste.claudeBody", "Run claude setup-token, then paste the token here.")
     }
     static var pasteKeyBody: String {
         text("accounts.paste.keyBody", "The key goes to the macOS Keychain or to CodeRouter. cmux never writes it to cmux.json.")
