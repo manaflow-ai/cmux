@@ -43,4 +43,3 @@ public struct ImportBookmarksRequest: DaemonRequest {
         try MutationFields(identity: mutation).encode(to: encoder)
     }
 }
-

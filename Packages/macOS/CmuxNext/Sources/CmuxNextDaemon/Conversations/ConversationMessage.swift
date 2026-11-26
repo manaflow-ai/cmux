@@ -24,4 +24,3 @@ public enum ConversationReactionKind: Codable, Sendable, Hashable {
         }
     }
 }
-

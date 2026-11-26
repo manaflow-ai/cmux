@@ -49,4 +49,3 @@ public struct ConversationParticipant: Codable, Sendable, Hashable {
         case leftAt = "left_at"
     }
 }
-
