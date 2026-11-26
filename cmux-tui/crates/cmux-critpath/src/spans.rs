@@ -60,8 +60,8 @@ fn build(label: String, spans: Vec<Value>) -> Graph {
     let mut placed = vec![false; spans.len()];
     loop {
         let mut progressed = false;
-        for (i, v) in spans.iter().enumerate() {
-            if placed[i] {
+        for ((v, id), placed) in spans.iter().zip(&ids).zip(placed.iter_mut()) {
+            if *placed {
                 continue;
             }
             let follows: Vec<&str> = v
@@ -72,21 +72,20 @@ fn build(label: String, spans: Vec<Value>) -> Graph {
             if !follows.iter().all(|f| index.contains_key(*f)) {
                 continue;
             }
-            let name =
-                v.get("name").and_then(Value::as_str).or(ids[i].as_deref()).unwrap_or("span");
+            let name = v.get("name").and_then(Value::as_str).or(id.as_deref()).unwrap_or("span");
             let node = Node {
                 name: name.to_string(),
                 cat: v.get("cat").and_then(Value::as_str).unwrap_or(name).to_string(),
                 state: State::parse(v.get("state").and_then(Value::as_str).unwrap_or("wait")),
                 start: ms(v, "start").unwrap_or(0),
                 end: ms(v, "end").unwrap_or(0),
-                deps: follows.iter().map(|f| index[*f]).collect(),
+                deps: follows.iter().filter_map(|f| index.get(*f).copied()).collect(),
             };
             let at = g.push(node);
-            if let Some(id) = &ids[i] {
+            if let Some(id) = id {
                 index.insert(id.clone(), at);
             }
-            placed[i] = true;
+            *placed = true;
             progressed = true;
         }
         if !progressed {
@@ -94,8 +93,8 @@ fn build(label: String, spans: Vec<Value>) -> Graph {
         }
     }
     // A cycle of follows: what is left goes in as roots, so nothing is dropped.
-    for (i, v) in spans.iter().enumerate() {
-        if !placed[i] {
+    for (v, placed) in spans.iter().zip(&placed) {
+        if !placed {
             let name = v.get("name").and_then(Value::as_str).unwrap_or("span");
             g.push(Node {
                 name: name.to_string(),

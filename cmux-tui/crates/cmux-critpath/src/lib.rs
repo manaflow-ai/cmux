@@ -105,7 +105,7 @@ impl Graph {
     fn gaps(&self) -> Vec<i64> {
         self.nodes
             .iter()
-            .map(|n| match n.deps.iter().map(|&d| self.nodes[d].end).max() {
+            .map(|n| match n.deps.iter().filter_map(|&d| self.nodes.get(d)).map(|p| p.end).max() {
                 Some(ready) => (n.start - ready).max(0),
                 None => 0,
             })
@@ -117,16 +117,18 @@ impl Graph {
     /// ends plus its own gap.
     pub fn makespan_with(&self, zero: impl Fn(usize, &Node) -> bool) -> i64 {
         let gaps = self.gaps();
-        let mut ends = vec![0i64; self.nodes.len()];
+        let mut ends: Vec<i64> = Vec::with_capacity(self.nodes.len());
         let origin = self.origin();
         let mut last = origin;
-        for (i, n) in self.nodes.iter().enumerate() {
-            let begin = match n.deps.iter().map(|&d| ends[d]).max() {
-                Some(ready) => ready + gaps[i],
+        for ((i, n), gap) in self.nodes.iter().enumerate().zip(gaps) {
+            // Every dependency is lower than `i` (`push` checks it), so its end is already in.
+            let begin = match n.deps.iter().filter_map(|&d| ends.get(d)).max() {
+                Some(&ready) => ready + gap,
                 None => n.start,
             };
-            ends[i] = begin + if zero(i, n) { 0 } else { n.dur() };
-            last = last.max(ends[i]);
+            let end = begin + if zero(i, n) { 0 } else { n.dur() };
+            ends.push(end);
+            last = last.max(end);
         }
         last
     }
@@ -142,15 +144,15 @@ impl Graph {
 
     /// The critical path, first segment first.
     pub fn critical_path(&self) -> Vec<Segment> {
-        let Some(mut at) = (0..self.nodes.len()).max_by_key(|&i| (self.nodes[i].end, i)) else {
+        let end_of = |i: usize| self.nodes.get(i).map_or(i64::MIN, |n| n.end);
+        let Some(mut at) = (0..self.nodes.len()).max_by_key(|&i| (end_of(i), i)) else {
             return Vec::new();
         };
         let gaps = self.gaps();
         let mut path = Vec::new();
-        loop {
-            let n = &self.nodes[at];
-            path.push(Segment { node: at, gap: gaps[at], dur: n.dur() });
-            match n.deps.iter().copied().max_by_key(|&d| (self.nodes[d].end, d)) {
+        while let Some(n) = self.nodes.get(at) {
+            path.push(Segment { node: at, gap: gaps.get(at).copied().unwrap_or(0), dur: n.dur() });
+            match n.deps.iter().copied().max_by_key(|&d| (end_of(d), d)) {
                 Some(waker) => at = waker,
                 None => break,
             }
@@ -164,7 +166,9 @@ impl Graph {
         let full = self.makespan_with(|_, _| false);
         let mut on_path: BTreeMap<&str, i64> = BTreeMap::new();
         for seg in self.critical_path() {
-            *on_path.entry(self.nodes[seg.node].cat.as_str()).or_default() += seg.dur;
+            if let Some(n) = self.nodes.get(seg.node) {
+                *on_path.entry(n.cat.as_str()).or_default() += seg.dur;
+            }
         }
         on_path
             .into_iter()
@@ -191,7 +195,9 @@ impl Graph {
     pub fn path_by_state(&self) -> BTreeMap<State, i64> {
         let mut out = BTreeMap::new();
         for seg in self.critical_path() {
-            *out.entry(self.nodes[seg.node].state).or_default() += seg.dur;
+            if let Some(n) = self.nodes.get(seg.node) {
+                *out.entry(n.state).or_default() += seg.dur;
+            }
             *out.entry(State::Wait).or_default() += seg.gap;
         }
         out
@@ -240,8 +246,10 @@ pub fn quantiles(values: &mut [i64]) -> (i64, i64, i64, i64) {
         return (0, 0, 0, 0);
     }
     values.sort_unstable();
-    let at = |q: f64| values[((q * values.len() as f64) as usize).min(values.len() - 1)];
-    (at(0.5), at(0.9), at(0.99), values[values.len() - 1])
+    let last = values.len() - 1;
+    let at =
+        |q: f64| values.get(((q * values.len() as f64) as usize).min(last)).copied().unwrap_or(0);
+    (at(0.5), at(0.9), at(0.99), values.last().copied().unwrap_or(0))
 }
 
 /// Chrome/Perfetto trace-event JSON (ui.perfetto.dev opens it): one track per graph, a slice per
@@ -261,8 +269,8 @@ pub fn perfetto(graphs: &[Graph]) -> serde_json::Value {
                 "args": {"state": n.state.as_str(), "critical": path.contains(&i)},
             }));
             for &d in &n.deps {
+                let Some(from) = g.nodes.get(d) else { continue };
                 flow += 1;
-                let from = &g.nodes[d];
                 events.push(json!({"ph": "s", "id": flow, "pid": 1, "tid": tid, "ts": from.end * 1000, "name": "wake", "cat": "wake"}));
                 events.push(json!({"ph": "f", "bp": "e", "id": flow, "pid": 1, "tid": tid, "ts": n.start * 1000, "name": "wake", "cat": "wake"}));
             }
@@ -278,7 +286,7 @@ pub fn folded(graphs: &[Graph], by_run: bool) -> String {
     for g in graphs {
         let head = if by_run { format!("{};", sanitize(&g.label)) } else { String::new() };
         for seg in g.critical_path() {
-            let n = &g.nodes[seg.node];
+            let Some(n) = g.nodes.get(seg.node) else { continue };
             if seg.gap > 0 {
                 *stacks.entry(format!("{head}wait;until:{}", sanitize(&n.cat))).or_default() +=
                     seg.gap;
@@ -299,6 +307,12 @@ pub fn folded(graphs: &[Graph], by_run: bool) -> String {
         out.push_str(&format!("{k} {v}\n"));
     }
     out
+}
+
+/// `v[key]` without the panic lint: a missing key (or a `v` that is not an object) reads as null.
+pub fn field<'a>(v: &'a serde_json::Value, key: &str) -> &'a serde_json::Value {
+    static NULL: serde_json::Value = serde_json::Value::Null;
+    v.get(key).unwrap_or(&NULL)
 }
 
 fn sanitize(text: &str) -> String {

@@ -102,19 +102,15 @@ struct Tool {
 /// `{"seq":N,"at":N,"dir":"D","kind":"K"` without a full parse: most lines are streamed chunks
 /// whose bodies the analysis never reads.
 fn header(line: &str) -> Option<(i64, &str, &str)> {
-    let at_pos = line.get(..64)?.find("\"at\":")? + 5;
-    let rest = &line[at_pos..];
+    line.get(..64)?.find("\"at\":")?;
+    let (_, rest) = line.split_once("\"at\":")?;
     let at_end = rest.find(|c: char| !c.is_ascii_digit())?;
-    let at: i64 = rest[..at_end].parse().ok()?;
-    let rest = &rest[at_end..];
-    let dir_pos = rest.find("\"dir\":\"")? + 7;
-    let rest = &rest[dir_pos..];
-    let dir_end = rest.find('"')?;
-    let dir = &rest[..dir_end];
-    let rest = &rest[dir_end..];
-    let kind_pos = rest.find("\"kind\":\"")? + 8;
-    let rest = &rest[kind_pos..];
-    let kind = &rest[..rest.find('"')?];
+    let (at, rest) = rest.split_at_checked(at_end)?;
+    let at: i64 = at.parse().ok()?;
+    let (_, rest) = rest.split_once("\"dir\":\"")?;
+    let (dir, rest) = rest.split_once('"')?;
+    let (_, rest) = rest.split_once("\"kind\":\"")?;
+    let (kind, _) = rest.split_once('"')?;
     Some((at, dir, kind))
 }
 
@@ -171,7 +167,8 @@ pub fn command_word(command: &str) -> Option<String> {
 
 impl Turn {
     fn finish(mut self, end: i64, report: &mut Report) {
-        let label = format!("{} {}", &self.session[..self.session.len().min(8)], self.prompt_id);
+        let label =
+            format!("{} {}", self.session.get(..8).unwrap_or(&self.session), self.prompt_id);
         let mut g = Graph { label, nodes: Vec::new() };
         let mut prev: Option<usize> = None;
         let chain = |g: &mut Graph,
@@ -267,15 +264,16 @@ impl Turn {
         self.tools.sort_by_key(|t| t.start);
         let mut cursor = first;
         let mut joins: Vec<usize> = prev.into_iter().collect();
-        let mut i = 0;
-        while i < self.tools.len() {
-            let c_start = self.tools[i].start;
-            let mut c_end = self.tools[i].end.unwrap_or(end).min(end).max(c_start);
-            let mut j = i + 1;
-            while j < self.tools.len() && self.tools[j].start < c_end {
-                c_end = c_end.max(self.tools[j].end.unwrap_or(end).min(end));
+        let mut rest = self.tools.as_slice();
+        while let Some(first_tool) = rest.first() {
+            let c_start = first_tool.start;
+            let mut c_end = first_tool.end.unwrap_or(end).min(end).max(c_start);
+            let mut j = 1;
+            while let Some(next) = rest.get(j).filter(|t| t.start < c_end) {
+                c_end = c_end.max(next.end.unwrap_or(end).min(end));
                 j += 1;
             }
+            let (cluster, after) = rest.split_at(j);
             let model = g.push(Node {
                 name: "model".into(),
                 cat: "model".into(),
@@ -285,7 +283,7 @@ impl Turn {
                 deps: joins.clone(),
             });
             joins.clear();
-            for t in &self.tools[i..j] {
+            for t in cluster {
                 let cat = match &t.detail {
                     Some(d) => format!("tool:{}:{d}", t.name),
                     None => format!("tool:{}", t.name),
@@ -302,7 +300,7 @@ impl Turn {
                 }));
             }
             cursor = c_end.max(cursor);
-            i = j;
+            rest = after;
         }
         g.push(Node {
             name: "model".into(),
@@ -350,21 +348,25 @@ fn read_session(dir: &Path, session: &str, since_ms: i64, since: SystemTime, rep
             let full = || serde_json::from_str::<Value>(&line).ok();
             match (dir, kind) {
                 ("mux", "queued") => {
-                    if let Some(id) =
-                        full().and_then(|v| v["msg"]["promptId"].as_str().map(str::to_string))
-                    {
+                    if let Some(id) = full().and_then(|v| {
+                        v.pointer("/msg/promptId").and_then(Value::as_str).map(str::to_string)
+                    }) {
                         queued.insert(id, at);
                     }
                 }
                 ("mux", "dequeued") => {
                     let id = full()
-                        .and_then(|v| v["msg"]["promptId"].as_str().map(str::to_string))
+                        .and_then(|v| {
+                            v.pointer("/msg/promptId").and_then(Value::as_str).map(str::to_string)
+                        })
                         .unwrap_or_default();
                     dequeued = Some((id, at));
                 }
                 ("mux", "turn_started") => {
                     let id = full()
-                        .and_then(|v| v["msg"]["promptId"].as_str().map(str::to_string))
+                        .and_then(|v| {
+                            v.pointer("/msg/promptId").and_then(Value::as_str).map(str::to_string)
+                        })
                         .unwrap_or_default();
                     let deq =
                         dequeued.take().filter(|(d, _)| d == &id || id.is_empty()).map(|(_, t)| t);
@@ -408,14 +410,17 @@ fn read_session(dir: &Path, session: &str, since_ms: i64, since: SystemTime, rep
                     }
                     if kind == "tool_call" || kind == "tool_call_update" {
                         let Some(v) = full() else { continue };
-                        let u = &v["msg"]["params"]["update"];
-                        let Some(id) = u["toolCallId"].as_str() else { continue };
+                        let u = v.pointer("/msg/params/update").unwrap_or(&Value::Null);
+                        let Some(id) = u.get("toolCallId").and_then(Value::as_str) else {
+                            continue;
+                        };
                         let at_index = match t.tool_index.get(id) {
                             Some(&i) => i,
                             None => {
-                                let name = u["_meta"]["claude"]["tool"]
-                                    .as_str()
-                                    .or(u["title"].as_str())
+                                let name = u
+                                    .pointer("/_meta/claude/tool")
+                                    .and_then(Value::as_str)
+                                    .or(u.get("title").and_then(Value::as_str))
                                     .unwrap_or("tool");
                                 t.tools.push(Tool {
                                     name: name.chars().take(40).collect(),
@@ -427,14 +432,17 @@ fn read_session(dir: &Path, session: &str, since_ms: i64, since: SystemTime, rep
                                 t.tools.len() - 1
                             }
                         };
-                        let tool = &mut t.tools[at_index];
+                        let Some(tool) = t.tools.get_mut(at_index) else { continue };
                         if tool.detail.is_none()
-                            && let Some(cmd) = u["rawInput"]["command"].as_str()
+                            && let Some(cmd) =
+                                u.pointer("/rawInput/command").and_then(Value::as_str)
                         {
                             tool.detail = command_word(cmd);
                         }
-                        if matches!(u["status"].as_str(), Some("completed" | "failed"))
-                            && tool.end.is_none()
+                        if matches!(
+                            u.get("status").and_then(Value::as_str),
+                            Some("completed" | "failed")
+                        ) && tool.end.is_none()
                         {
                             tool.end = Some(at);
                         }
@@ -468,7 +476,7 @@ pub fn session_name(root: &Path, session: &str) -> String {
     fs::read(root.join(session).join("session.json"))
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .and_then(|v| v["name"].as_str().map(str::to_string))
+        .and_then(|v| v.get("name").and_then(Value::as_str).map(str::to_string))
         .unwrap_or_else(|| session.chars().take(8).collect())
 }
 
@@ -535,9 +543,9 @@ pub fn summary(report: &Report, root: &Path, host: &str, hours: f64, at_ms: i64)
     let pw = &stages.get("prompt_write").cloned().unwrap_or(Value::Null);
     let finding = format!(
         "acpmux prompt write (turn_started -> session/prompt): speed of light {SOL_PROMPT_WRITE_MS} ms, measured p50 {} ms, p99 {} ms, max {} s. {} stalls (>= {} s with nothing running) held prompts {} s in {:.0} h, longest {} s; {} of them ({} s) were released within {RELEASE_MS} ms of an unrelated event (a lost wakeup)",
-        pw["p50_ms"],
-        pw["p99_ms"],
-        pw["max_ms"].as_i64().unwrap_or(0) / 1000,
+        crate::field(pw, "p50_ms"),
+        crate::field(pw, "p99_ms"),
+        crate::field(pw, "max_ms").as_i64().unwrap_or(0) / 1000,
         stalls.len(),
         STALL_MS / 1000,
         stall_sum / 1000,

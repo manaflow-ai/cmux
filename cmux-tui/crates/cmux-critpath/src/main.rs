@@ -5,7 +5,7 @@
 //! critpath spans FILE [--json] [--perfetto F] [--folded F]
 //! ```
 
-use cmux_critpath::{Graph, Rollup, acpmux, folded, perfetto, spans};
+use cmux_critpath::{Graph, Rollup, acpmux, field, folded, perfetto, spans};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::SystemTime;
@@ -139,21 +139,21 @@ fn run(a: Args) -> Result<(), String> {
                 a.hours
             );
             println!("stages (ms): n p50 p90 p99 max | speed of light | excess s");
-            for (name, s) in doc["stages"].as_object().into_iter().flatten() {
+            for (name, s) in field(&doc, "stages").as_object().into_iter().flatten() {
                 println!(
                     "  {name:24} {:>5} {:>7} {:>7} {:>8} {:>8} | {:>6} | {}",
-                    s["n"],
-                    s["p50_ms"],
-                    s["p90_ms"],
-                    s["p99_ms"],
-                    s["max_ms"],
-                    s["sol_ms"],
-                    s["excess_over_sol_s"]
+                    field(s, "n"),
+                    field(s, "p50_ms"),
+                    field(s, "p90_ms"),
+                    field(s, "p99_ms"),
+                    field(s, "max_ms"),
+                    field(s, "sol_ms"),
+                    field(s, "excess_over_sol_s")
                 );
             }
             print_rollup(&report.graphs);
-            println!("stalls: {}", doc["stalls"]);
-            println!("finding: {}", doc["finding"].as_str().unwrap_or(""));
+            println!("stalls: {}", field(&doc, "stalls"));
+            println!("finding: {}", field(&doc, "finding").as_str().unwrap_or(""));
             Ok(())
         }
         "spans" => {
@@ -166,7 +166,7 @@ fn run(a: Args) -> Result<(), String> {
                 let runs: Vec<_> = graphs
                     .iter()
                     .map(|g| {
-                        let path: Vec<_> = g.critical_path().iter().map(|s| serde_json::json!({"name": g.nodes[s.node].name, "cat": g.nodes[s.node].cat, "gap_ms": s.gap, "ms": s.dur})).collect();
+                        let path: Vec<_> = g.critical_path().iter().filter_map(|s| g.nodes.get(s.node).map(|n| serde_json::json!({"name": n.name, "cat": n.cat, "gap_ms": s.gap, "ms": s.dur}))).collect();
                         let drag: Vec<_> = g.drag_by_cat().into_iter().map(|(c, d, p)| serde_json::json!({"cat": c, "drag_ms": d, "path_ms": p})).collect();
                         serde_json::json!({"run": g.label, "elapsed_ms": g.elapsed(), "path": path, "drag": drag})
                     })
@@ -180,7 +180,7 @@ fn run(a: Args) -> Result<(), String> {
             for g in &graphs {
                 println!("{}: {} ms elapsed", g.label, g.elapsed());
                 for seg in g.critical_path() {
-                    let n = &g.nodes[seg.node];
+                    let Some(n) = g.nodes.get(seg.node) else { continue };
                     println!(
                         "  {:>8} ms (+{:>6} wait) {:5} {} [{}]",
                         seg.dur,
