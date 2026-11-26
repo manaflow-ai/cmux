@@ -79,8 +79,11 @@ SEED_LOCK_WAIT_SECONDS = 900
 # A slow GitHub response must end and be retried instead of holding a worker for the full transfer timeout.
 # Keep these aligned with the nightly network helpers: a healthy release asset can be large, but a transfer
 # below 1 KB/s for two minutes is a stalled upstream, not useful progress.
-GIT_HTTP_LOW_SPEED_LIMIT = "1000"
+DOWNLOAD_LOW_SPEED_BYTES = "1000"
 GIT_HTTP_LOW_SPEED_TIME = "120"
+# A git fetch ends only on no byte at all: while GitHub builds a pack it sends only keepalives, and a 1 KB/s floor
+# kills a fetch that is working (hq#29032).
+GIT_HTTP_LOW_SPEED_LIMIT = "1"
 
 
 def warn(message: str) -> None:
@@ -325,7 +328,7 @@ def sha256(path: Path) -> str:
 def curl_download(url: str, destination: Path) -> None:
     subprocess.run(["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "4",
                     "--retry-all-errors", "--connect-timeout", "30", "--max-time", "1800",
-                    "--speed-limit", GIT_HTTP_LOW_SPEED_LIMIT, "--speed-time", GIT_HTTP_LOW_SPEED_TIME,
+                    "--speed-limit", DOWNLOAD_LOW_SPEED_BYTES, "--speed-time", GIT_HTTP_LOW_SPEED_TIME,
                     "--output", str(destination), url],
                    check=True, timeout=1800)
 

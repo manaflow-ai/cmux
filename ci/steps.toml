@@ -440,6 +440,8 @@ about = "every acpmux method and param key the Swift app names is in the acpmux 
 inputs = [
   "Packages/macOS/CmuxNext/Sources/**",
   "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+  "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+  "scripts/cmux-next/gen-agent-pane-policy-swift.py",
   "scripts/ci/check-swift-acpmux-protocol.py",
   "scripts/ci/swift-acpmux-protocol-allowlist.txt",
   "tests/test_check_swift_acpmux_protocol.py",
@@ -2440,6 +2442,7 @@ inputs = [
   "Packages/Shared/CmuxEgress/**",
   "Packages/Shared/CmuxGhosttyKit/**",
   "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxLiveCode/**",
   "Packages/Shared/CmuxScreenKit/**",
   "Packages/Shared/CmuxSpinner/**",
   "Packages/Shared/CmuxTheme/**",
