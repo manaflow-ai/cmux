@@ -504,6 +504,13 @@ class GreenReuse(FixtureRepo):
         data = json.loads(out.read_text(encoding="utf-8"))
         self.assertEqual(data["tree"], self.before)
 
+    def test_record_keeps_the_steps_the_side_by_side_runner_passed(self):
+        import json
+        steps = {"setup-tooling-run": {"outcome": "failure", "outputs": {"ran": "true", "passed": " tt-b "}},
+                 "tt-a": {"outcome": "skipped"}, "tt-b": {"outcome": "skipped"}, "tt-c": {"outcome": "skipped"}}
+        out = self.root / "out" / "tooling-passed.json"
+        self.assertEqual(self.reuse.record(WORKFLOW, "tooling-tests", self.root, json.dumps(steps), out, "1"), ["tt-b"])
+
     def test_audit_is_stable_per_run_and_near_its_percent(self):
         self.assertEqual(self.reuse.audited("123", 10), self.reuse.audited("123", 10))
         hits = sum(self.reuse.audited(str(n), 10) for n in range(2000))
@@ -523,6 +530,59 @@ class RealDeclarations(unittest.TestCase):
         job = yaml.safe_load((ROOT / workflow).read_text(encoding="utf-8"))["jobs"]["tooling-tests"]
         ids = {s.get("id") for s in job["steps"] if "run" in s}
         self.assertLessEqual(set(declared), ids)
+
+    def test_the_checkers_run_for_their_inputs_and_skip_product_code(self):
+        # tt-test-registry and tt-swift-test-coverage name a checker, not a test: their declared inputs (read off a
+        # traced run) decide them. A tests/ or a CmuxNext test change runs each; a web or Rust change runs neither.
+        workflow = ".github/workflows/cmux-next-guards.yml"
+        declared = tooling_steps.load_declared(ROOT, workflow, "tooling-tests")
+        registry, coverage = declared["tt-test-registry"], declared["tt-swift-test-coverage"]
+        self.assertTrue(tooling_steps.declared_hit(registry, {"tests/test_new.py"}))
+        self.assertTrue(tooling_steps.declared_hit(registry, {"tests/test-execution.d/ci.toml"}))
+        self.assertTrue(tooling_steps.declared_hit(coverage, {"Packages/macOS/CmuxNext/Package.swift"}))
+        self.assertTrue(tooling_steps.declared_hit(coverage, {"Packages/macOS/CmuxNext/Tests/ATests/A.swift"}))
+        for path in ("webviews/src/App.tsx", "cmux-tui/crates/cmux-core/src/lib.rs"):
+            self.assertIsNone(tooling_steps.declared_hit(registry, {path}))
+            self.assertIsNone(tooling_steps.declared_hit(coverage, {path}))
+
+
+class SpelledOutNames(unittest.TestCase):
+    """The last rule of judge_step: an input that spells a changed file's path or name. A path word counts only when
+    the changed path ends with it; a bare file name counts per the input's kind (tooling_steps.names_path)."""
+
+    def names(self, text, input_path, changed):
+        return tooling_steps.names_path(text, input_path, changed)
+
+    def test_a_path_that_ends_another_files_path_names_nothing(self):
+        crate = "cmux-tui/crates/cmux-core/src/lib.rs"
+        self.assertEqual(self.names("  - cmux-tui/crates/cmux-launch-record/src/lib.rs\n", "w.yml", crate), "")
+        self.assertEqual(self.names("path = $(SRCROOT)/Native/DiffSidecar/src/lib.rs;", "p.pbxproj", crate), "")
+        self.assertEqual(self.names("see plans/next/README.md", "w.yml", "docs/README.md"), "")
+        self.assertEqual(self.names("see docs/README.md", "w.yml", "README.md"), "")
+
+    def test_a_path_the_changed_path_ends_with_names_it(self):
+        crate = "cmux-tui/crates/cmux-core/src/lib.rs"
+        self.assertTrue(self.names(f"  - {crate}\n", "w.yml", crate))
+        self.assertTrue(self.names('p = f"{root}/src/lib.rs"', "a.py", crate))
+        self.assertTrue(self.names("cat **/lib.rs", "w.yml", crate))
+        self.assertTrue(self.names('include_str!("../README.md")', "docs/x/a.rs", "docs/README.md"))
+
+    def test_a_longer_name_is_another_file(self):
+        self.assertEqual(self.names("glib.rs README.md.tmpl lib.rs/", "a.sh", "x/lib.rs"), "")
+        self.assertEqual(self.names("x README.md.tmpl", "a.sh", "docs/README.md"), "")
+
+    def test_a_bare_name_counts_by_the_inputs_kind(self):
+        crate = "cmux-tui/crates/cmux-core/src/lib.rs"
+        # Code: only a string literal, never its prose.
+        self.assertTrue(self.names('COMMON = {"lib.rs", "main.rs"}', "a.py", crate))
+        self.assertEqual(self.names("# a mod.rs, lib.rs or main.rs owns its modules", "a.py", crate), "")
+        # Data: a file in its folder or below, or a top-level one.
+        self.assertEqual(self.names('readme = "README.md"', "crates/a/Cargo.toml", "docs/README.md"), "")
+        self.assertTrue(self.names('readme = "README.md"', "crates/a/Cargo.toml", "crates/a/README.md"))
+        self.assertTrue(self.names('readme = "README.md"', "crates/a/Cargo.toml", "README.md"))
+        # Shell, a workflow or a file of no known kind: any folder may hold it.
+        self.assertTrue(self.names("cat lib.rs", "a.sh", crate))
+        self.assertTrue(self.names("run: cat README.md", "w.yml", "docs/README.md"))
 
 
 class RealWorkflow(unittest.TestCase):
@@ -546,7 +606,8 @@ class RealWorkflow(unittest.TestCase):
                 self.assertNotIn("outputs.tooling_", str(step.get("if", "")), name)
                 continue
             self.assertTrue(key.startswith("tt-"), f"{name}: give it `id: tt-<slug>` and the selection `if:`")
-            selection = (f"(steps.setup-tooling-route.outputs.tooling_all != 'false' || "
+            selection = (f"steps.setup-tooling-run.outputs.ran != 'true' && "
+                         f"(steps.setup-tooling-route.outputs.tooling_all != 'false' || "
                          f"contains(steps.setup-tooling-route.outputs.tooling_steps, ' {key} '))")
             self.assertIn(step.get("if"), (f"${{{{ success() && {selection} }}}}",
                                            f"${{{{ !cancelled() && {selection} }}}}"), name)
@@ -566,6 +627,26 @@ class RealWorkflow(unittest.TestCase):
         step = next(s for s in decision.steps if s.key == "tt-ios-placeholder-bounds")
         self.assertTrue(step.run, step.reason)
 
+    def test_the_runner_step_runs_after_every_setup_and_before_every_step_it_runs(self):
+        steps = self.job["steps"]
+        index = next(i for i, s in enumerate(steps) if s.get("id") == "setup-tooling-run")
+        step = steps[index]
+        self.assertIn("scripts/ci/tooling_steps.py run --workflow .github/workflows/cmux-next-guards.yml", step["run"])
+        self.assertIn('--selection "$RUNNER_TEMP/tooling.out"', step["run"])
+        self.assertIn('--github-output "$GITHUB_OUTPUT"', step["run"])
+        tt = [i for i, s in enumerate(steps) if str(s.get("id") or "").startswith("tt-")]
+        self.assertLess(index, min(tt))
+        last_tt = max(tt)  # after the steps, only post-run actions (tooling_reuse's upload) may be actions
+        self.assertTrue(all("run" in s for s in steps[index:last_tt + 1]), "every setup action comes before the runner")
+        for other in (steps[i] for i in tt):  # an expression env reaches the runner as the same expression
+            for key, value in (other.get("env") or {}).items():
+                if "${{" in str(value):
+                    self.assertEqual((step.get("env") or {}).get(key), value, f"{other['id']}: mirror {key} on the runner step")
+        # It plans the real job: every tt- step's env, shell and timeout this runner can give it.
+        environ = {k: str(v) for k, v in (step.get("env") or {}).items()}
+        planned = tooling_steps.plan_run(ROOT, ".github/workflows/cmux-next-guards.yml", "tooling-tests", None, environ)
+        self.assertEqual([s.key for s in planned], [steps[i]["id"] for i in tt])
+
     def test_the_route_step_runs_the_router_before_every_selected_step(self):
         steps = self.job["steps"]
         index = next(i for i, s in enumerate(steps) if s.get("id") == "setup-tooling-route")
@@ -584,6 +665,107 @@ class RealWorkflow(unittest.TestCase):
         self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red"])
         self.assertNotIn("portable-placement", self.document["jobs"])
         self.assertIn("(!cancelled() && needs.coalesce.outputs.run != 'false')", self.job["if"])  # after the draft tier
+
+
+class SideBySide(unittest.TestCase):
+    """tooling_steps.py run: the selected tt- steps at once, each with its own env, shell and timeout."""
+
+    WORKFLOW = textwrap.dedent("""\
+        on: push
+        jobs:
+          t:
+            timeout-minutes: 5
+            steps:
+              - uses: actions/checkout@v4
+              - id: setup-x
+                run: exit 3
+              - id: tt-slow-a
+                if: ${{ success() }}
+                env:
+                  WHO: a
+                  EVENT_NAME: ${{ github.event_name }}
+                run: |
+                  sleep 1
+                  echo "$WHO $EVENT_NAME"
+              - id: tt-slow-b
+                run: sleep 1; echo b
+              - id: tt-fails
+                name: The failing one
+                run: echo broken; exit 7
+              - id: tt-slow-py
+                shell: python
+                timeout-minutes: 0.02
+                run: |
+                  import time
+                  time.sleep(30)
+        """)
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, True)
+        (self.root / "w.yml").write_text(self.WORKFLOW, encoding="utf-8")
+
+    def plan(self, selection=None, environ=None):
+        return tooling_steps.plan_run(self.root, "w.yml", "t", selection, environ or {"EVENT_NAME": "pull_request"})
+
+    def test_plan_keeps_the_tt_steps_the_selection_keeps(self):
+        self.assertEqual([s.key for s in self.plan()], ["tt-slow-a", "tt-slow-b", "tt-fails", "tt-slow-py"])
+        self.assertEqual([s.key for s in self.plan({"tt-slow-b"})], ["tt-slow-b"])
+        steps = self.plan()
+        self.assertEqual(steps[0].env, {"WHO": "a", "EVENT_NAME": "pull_request"})
+        self.assertEqual(steps[3].shell[0], "python3")
+        self.assertAlmostEqual(steps[3].timeout, 1.2)
+        self.assertEqual(steps[1].timeout, 300)
+
+    def test_an_expression_env_the_runner_step_lacks_falls_back(self):
+        with self.assertRaisesRegex(ValueError, "EVENT_NAME"):
+            tooling_steps.plan_run(self.root, "w.yml", "t", None, {})
+
+    def test_the_selection_file(self):
+        out = self.root / "tooling.out"
+        self.assertIsNone(tooling_steps.read_selection(out))
+        out.write_text("tooling_steps= tt-a tt-b \ntooling_all=false\n", encoding="utf-8")
+        self.assertEqual(tooling_steps.read_selection(out), {"tt-a", "tt-b"})
+        out.write_text("tooling_all=true\ntooling_steps=\n", encoding="utf-8")
+        self.assertIsNone(tooling_steps.read_selection(out))
+
+    def test_steps_run_at_once_and_every_failure_is_named(self):
+        import io
+        import time
+        buf = io.StringIO()
+        started = time.monotonic()
+        results = tooling_steps.run_steps(self.plan(), 4, dict(os.environ, EVENT_NAME="push"), buf)
+        wall = time.monotonic() - started
+        self.assertLess(wall, 1.9, "the two 1 s steps ran side by side")
+        self.assertEqual([r.step.key for r in results], ["tt-slow-a", "tt-slow-b", "tt-fails", "tt-slow-py"])
+        codes = {r.step.key: r.code for r in results}
+        self.assertEqual(codes, {"tt-slow-a": 0, "tt-slow-b": 0, "tt-fails": 7, "tt-slow-py": 124})
+        text = buf.getvalue()
+        self.assertIn("a pull_request", text)  # the step's own env, not the runner's EVENT_NAME
+        self.assertIn("::group::The failing one (", text)
+        self.assertIn("::error title=tooling-tests tt-fails::The failing one failed (exit 7)", text)
+        self.assertIn("tt-slow-py: timed out after 1 s", text)
+        summary = io.StringIO()
+        tooling_steps.write_run_summary(results, wall, None, summary)
+        self.assertIn("2 failed", summary.getvalue())
+        self.assertIn("FAILED tt-fails", summary.getvalue())
+
+    def test_main_marks_ran_and_fails_on_a_red_step(self):
+        out = self.root / "out"
+        sel = self.root / "sel"
+        args = ["run", "--root", str(self.root), "--workflow", "w.yml", "--job", "t", "--selection", str(sel)]
+        sel.write_text("tooling_steps= tt-slow-b \ntooling_all=false\n", encoding="utf-8")
+        self.assertEqual(tooling_steps.main([*args, "--github-output", str(out)]), 0)
+        self.assertEqual(out.read_text(encoding="utf-8"), "ran=true\npassed= tt-slow-b \n")
+        sel.write_text("tooling_steps= tt-fails \ntooling_all=false\n", encoding="utf-8")
+        self.assertEqual(tooling_steps.main(args), 1)
+
+    def test_main_leaves_the_steps_one_by_one_when_it_cannot_plan(self):
+        out = self.root / "out"
+        code = tooling_steps.main(["run", "--root", str(self.root), "--workflow", "w.yml", "--job", "missing",
+                                   "--github-output", str(out)])
+        self.assertEqual(code, 0)
+        self.assertFalse(out.exists(), "no ran=true: each step's own if: runs it")
 
 
 if __name__ == "__main__":

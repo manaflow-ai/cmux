@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.remote.endSharingOnQuit.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عند الإيقاف: يبقى هذا الـ Mac متاحًا لأجهزتك أثناء إنهاء cmux."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Isključeno: ovaj Mac ostaje dostupan vašim uređajima dok je cmux zatvoren."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fra: denne Mac forbliver tilgængelig for dine enheder, mens cmux er afsluttet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aus: Dieser Mac bleibt für deine Geräte verfügbar, während cmux beendet ist."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off: this Mac stays available to your devices while cmux is quit."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desactivado: este Mac sigue disponible para tus dispositivos con cmux cerrado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Désactivé : ce Mac reste disponible pour vos appareils lorsque cmux est fermé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disattivato: questo Mac resta disponibile per i tuoi dispositivi mentre cmux è chiuso."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "オフ: cmux の終了中も、このMacをお使いのデバイスから利用できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បិទ៖ Mac នេះនៅតែអាចប្រើបានសម្រាប់ឧបករណ៍របស់អ្នក ពេល cmux ត្រូវបានបិទ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "끄면 cmux가 종료된 동안에도 이 Mac을 내 기기에서 사용할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Av: denne Macen forblir tilgjengelig for enhetene dine mens cmux er avsluttet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wyłączone: ten Mac pozostaje dostępny dla Twoich urządzeń, gdy cmux jest zamknięty."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desativado: este Mac continua disponível para seus dispositivos enquanto o cmux está encerrado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выкл.: этот Mac остаётся доступным вашим устройствам, пока cmux закрыт."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ปิด: อุปกรณ์ของคุณยังใช้ Mac เครื่องนี้ได้ขณะที่ออกจาก cmux แล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kapalı: cmux kapalıyken bu Mac cihazlarınızın kullanımına açık kalır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Якщо вимкнено, цей Mac лишається доступним для ваших пристроїв, поки cmux закрито."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tắt: máy Mac này vẫn sẵn sàng cho các thiết bị của bạn khi cmux đã thoát."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "关闭：退出 cmux 后，你的设备仍可使用这台 Mac。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "關閉：結束 cmux 後，你的裝置仍可使用這台 Mac。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

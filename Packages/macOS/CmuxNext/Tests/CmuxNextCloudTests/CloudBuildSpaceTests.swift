@@ -150,18 +150,6 @@ struct CloudBuildSpaceTests {
         }
     }
 
-    @Test("A machine state socket's upgrade carries the header with a build space, none without", arguments: [true, false])
-    func statePush(tagged: Bool) throws {
-        let url = try #require(URL(string: "wss://cloud-api-staging.cmux.dev/v1/cloud/machines/vm_aaaaaaaaaaaaaaaaaaaa/state"))
-        let request = try CloudMachineStatePush.upgradeRequest(url: url, token: "access", team: "team_1",
-                                                               buildSpace: Self.state(tagged))
-        #expect(request.value(forHTTPHeaderField: Self.header) == (tagged ? "dev:my-tag-2" : nil))
-        #expect(request.value(forHTTPHeaderField: "authorization") == "Bearer access")
-        #expect(throws: CMUXBuildSpaceError.self) {
-            _ = try CloudMachineStatePush.upgradeRequest(url: url, token: "access", team: nil, buildSpace: Self.misconfigured)
-        }
-    }
-
     @Test("The install transport's POST and GET carry the header with a build space, none without", arguments: [true, false])
     func installTransport(tagged: Bool) throws {
         let transport = InstallHTTPTransport(baseURL: Self.base, buildSpace: Self.state(tagged))

@@ -43,6 +43,7 @@
       },
       "tt-swift-test-coverage": {
         "inputs": [
+          "scripts/ci/swift_test_coverage.py",
           "Packages/*/*/Package.swift",
           "Packages/macOS/CmuxNext/ci-target-graph.json",
           "Packages/macOS/CmuxNext/Tests/**",
@@ -54,6 +55,38 @@
           "AGENTS.md"
         ],
         "why": "its run text names a checker, not a test, so the walker resolves no test for it; traced, swift_test_coverage.py reads every Packages/*/*/Package.swift, CmuxNext's ci-target-graph.json and test folders, the workflows its registry names, its registry, the Linux package list, package-test-lane.sh and fast-tier.json; its git reads are CmuxNext's Package.swift at the base and the files added under CmuxNext/Tests"
+      },
+      "tt-pr-red-checks-comment": {
+        "inputs": [
+          "scripts/**",
+          ".github/**",
+          "tests/fleet_test_host.py",
+          "tests/git_fixture_env.py"
+        ],
+        "why": "traced: the red-checks test reads its script, the workflows and two fixture helpers; nothing else in the tree",
+        "traced": true
+      },
+      "tt-fast-gates": {
+        "inputs": [
+          "scripts/**",
+          ".github/**",
+          "docs/ci/**",
+          "plans/cmux-next/sidebar-owner.md",
+          "plans/cmux-next/sidebar-owner/**",
+          "tests/fleet_test_host.py",
+          "tests/git_fixture_env.py",
+          "tests/process_gone.py",
+          "cmux-next-ios/verify",
+          "cmux-next-ios/verify/**",
+          "schemas/settings/source/agent-policy.json",
+          "webviews/package.json",
+          "webviews/tsconfig.json",
+          "webviews/**/*.test.*",
+          "webviews/**/*.spec.*",
+          "cmux-tui/frontends/web/package.json"
+        ],
+        "why": "traced: the fast-gates tests read scripts/ci, the workflows, the CI notes, the sidebar-owner plan, the parity notes, webviews' tsconfig and package.json, and `git ls-files -- webviews` filtered to *.test.*/*.spec.*; every git history read is in fixture repos",
+        "traced": true
       }
     }
   }
