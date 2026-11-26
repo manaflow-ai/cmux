@@ -1,4 +1,6 @@
+#if canImport(os)
 internal import os
+#endif
 
 /// Counts the observation trackings a change wakes, for one task: a test sets a counter for the task that makes the
 /// change, and every will-set that reaches an `ObservationStream`, a `SingleArmedTracking` or the Browser's
@@ -56,7 +58,7 @@ public struct ObservationSite: Sendable {
         self.line = line
     }
 
-    #if DEBUG || CMUX_BENCH_HOOKS
+    #if (DEBUG || CMUX_BENCH_HOOKS) && canImport(os)
     /// The `observation` signposts of DEBUG and bench builds (subsystem `com.cmuxterm.app.next`): an `observation.wake`
     /// event when a tracking made here wakes, and an `observation.track` interval around each evaluation that re-registers
     /// what it reads, both with the site as the message. A bench sums them by site inside a key's turn: the time an
@@ -66,7 +68,7 @@ public struct ObservationSite: Sendable {
 
     /// Runs `body` (a tracking's evaluation) inside an `observation.track` interval (DEBUG and bench builds).
     package func tracking<T>(_ body: () -> T) -> T {
-        #if DEBUG || CMUX_BENCH_HOOKS
+        #if (DEBUG || CMUX_BENCH_HOOKS) && canImport(os)
         let signposter = Self.signposter
         let state = signposter.beginInterval("observation.track", "\(fileID.description, privacy: .public):\(line, privacy: .public)")
         defer { signposter.endInterval("observation.track", state) }
@@ -76,7 +78,7 @@ public struct ObservationSite: Sendable {
 
     /// An `observation.wake` event (DEBUG and bench builds): a value a tracking made here read is about to change.
     package func woke() {
-        #if DEBUG || CMUX_BENCH_HOOKS
+        #if (DEBUG || CMUX_BENCH_HOOKS) && canImport(os)
         Self.signposter.emitEvent("observation.wake", "\(fileID.description, privacy: .public):\(line, privacy: .public)")
         #endif
     }
