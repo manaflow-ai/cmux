@@ -48,9 +48,13 @@ const FULL_SCREEN_SINCE: &str = "2.1.320";
 const KEEP_TURNS: usize = 200;
 /// A transcript bigger than this, met for the first time, is folded from its newest part only.
 const FIRST_READ_BYTES: u64 = 64 << 20;
-/// An unended line held longer than this is dropped up to its end: no record Claude Code writes
-/// is near it, and a runaway one must not grow the daemon.
-const MAX_PARTIAL_BYTES: usize = 16 << 20;
+/// An unended line held longer than this is dropped up to its end, so a runaway one cannot grow
+/// the daemon. It is the whole reader's window ([`FIRST_READ_BYTES`], acpmux's `MAX_BYTES`):
+/// every record that reader parsed, this one parses too.
+const MAX_PARTIAL_BYTES: usize = FIRST_READ_BYTES as usize;
+/// The last bytes folded, read again before each fold: a file rewritten in place (same inode,
+/// as long or longer) differs there and is folded from its start.
+const SEAM_BYTES: usize = 64;
 
 /// One viewer's Claude Code drawn at its grid.
 pub(super) struct PhoneGrid {
@@ -67,6 +71,8 @@ pub(super) struct PhoneGrid {
     skipping: bool,
     /// The file read (device, inode): another file at the path is another transcript.
     file_id: Option<(u64, u64)>,
+    /// The last [`SEAM_BYTES`] folded, ending at `offset`.
+    seam: Vec<u8>,
 }
 
 /// The transcript of the Claude Code session `session_id`, under the login's Claude home.
@@ -88,6 +94,7 @@ impl PhoneGrid {
             partial: Vec::new(),
             skipping: false,
             file_id: None,
+            seam: Vec::new(),
         })
     }
 
@@ -117,12 +124,13 @@ impl PhoneGrid {
         let Ok(meta) = file.metadata() else { return };
         let len = meta.len();
         let id = file_id(&meta);
-        if len < self.offset || id != self.file_id {
+        if len < self.offset || id != self.file_id || !self.seam_holds(&mut file) {
             self.fold = Fold::new("claude", true);
             self.offset = 0;
             self.partial.clear();
             self.skipping = false;
             self.file_id = id;
+            self.seam.clear();
         }
         if len == self.offset {
             return;
@@ -141,6 +149,9 @@ impl PhoneGrid {
             return;
         }
         self.offset += bytes.len() as u64;
+        let keep = self.seam.len().saturating_sub(SEAM_BYTES.saturating_sub(bytes.len()));
+        self.seam.drain(..keep);
+        self.seam.extend_from_slice(&bytes[bytes.len().saturating_sub(SEAM_BYTES)..]);
         let mut rest = bytes.as_slice();
         while let Some(end) = rest.iter().position(|&b| b == b'\n') {
             if std::mem::take(&mut self.skipping) {
@@ -162,6 +173,17 @@ impl PhoneGrid {
         }
         // Older turns never change again: let them go, so memory stays bounded too.
         self.fold.settle(KEEP_TURNS);
+    }
+
+    /// The file still holds, just before `offset`, the bytes last folded there.
+    fn seam_holds(&self, file: &mut std::fs::File) -> bool {
+        if self.seam.is_empty() {
+            return true;
+        }
+        let mut now = vec![0; self.seam.len()];
+        file.seek(SeekFrom::Start(self.offset - self.seam.len() as u64)).is_ok()
+            && file.read_exact(&mut now).is_ok()
+            && now == self.seam
     }
 
     /// Bytes held for a line not yet ended (at most [`MAX_PARTIAL_BYTES`]).

@@ -195,8 +195,8 @@ fn a_runaway_unended_line_is_bounded_and_skipped() {
     let path = dir.join("transcript.jsonl");
     std::fs::write(&path, b"").unwrap();
     let mut phone = PhoneGrid::new(50, 34, path.clone()).unwrap();
-    let chunk = vec![b'x'; 4 << 20];
-    for _ in 0..6 {
+    let chunk = vec![b'x'; 8 << 20];
+    for _ in 0..9 {
         let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
         std::io::Write::write_all(&mut f, &chunk).unwrap();
         phone.refresh();
@@ -208,6 +208,56 @@ fn a_runaway_unended_line_is_bounded_and_skipped() {
     phone.refresh();
     assert_eq!(phone.partial_len(), 0);
     let full = acpmux::adopt_replay::read("claude", &fixture().join("transcript.jsonl"));
+    assert_eq!(phone.turns(), full.as_slice());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A record bigger than the old 16 MiB guess (a pasted screenshot's base64, a long tool output)
+/// still folds, as the whole reader folds it.
+#[test]
+fn a_large_valid_record_folds_as_the_whole_reader_folds_it() {
+    let whole = std::fs::read(fixture().join("transcript.jsonl")).unwrap();
+    let dir = std::env::temp_dir().join(format!("cmux-phone-grid-big-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("transcript.jsonl");
+    let big = serde_json::json!({
+        "type": "user", "timestamp": "2026-11-25T10:00:00.000Z",
+        "message": {"role": "user", "content": format!("big {}", "y".repeat(20 << 20))},
+    });
+    let mut bytes = serde_json::to_vec(&big).unwrap();
+    bytes.push(b'\n');
+    bytes.extend_from_slice(&whole);
+    std::fs::write(&path, b"").unwrap();
+    let mut phone = PhoneGrid::new(50, 34, path.clone()).unwrap();
+    for piece in bytes.chunks(3 << 20) {
+        let mut f = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        std::io::Write::write_all(&mut f, piece).unwrap();
+        phone.refresh();
+    }
+    let reread = acpmux::adopt_replay::read("claude", &path);
+    assert_eq!(phone.turns(), reread.as_slice());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// The same file rewritten in place, as long or longer, is folded from its start: the bytes
+/// last folded are not there any more.
+#[test]
+fn a_file_rewritten_in_place_is_folded_from_its_start() {
+    let whole = std::fs::read(fixture().join("transcript.jsonl")).unwrap();
+    let dir = std::env::temp_dir().join(format!("cmux-phone-grid-inplace-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("transcript.jsonl");
+    let half = whole.len() / 2;
+    let half = whole[..half].iter().rposition(|&b| b == b'\n').unwrap() + 1;
+    std::fs::write(&path, &whole[half..]).unwrap();
+    let mut phone = PhoneGrid::new(50, 34, path.clone()).unwrap();
+    phone.refresh();
+    // Same inode, truncated and written again with the whole session (longer than before).
+    let mut f = std::fs::OpenOptions::new().write(true).truncate(true).open(&path).unwrap();
+    std::io::Write::write_all(&mut f, &whole).unwrap();
+    drop(f);
+    phone.refresh();
+    let full = acpmux::adopt_replay::read("claude", &path);
     assert_eq!(phone.turns(), full.as_slice());
     std::fs::remove_dir_all(&dir).unwrap();
 }
