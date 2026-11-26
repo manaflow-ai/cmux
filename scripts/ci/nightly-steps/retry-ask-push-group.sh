@@ -17,5 +17,20 @@ if [ "$head" != "$SHA" ]; then
   echo "nightly-next moved to $head: its push run takes the group's pending place, so no retry"
   exit 0
 fi
+# A retry of a commit feat-cmux-next has moved past rebuilds a source the tip may already have fixed (run 45589863477
+# rebuilt 92c8d92d9, whose Cargo.toml the tip had fixed, while 6c8931ce2 waited). So when feat-cmux-next moved, ask
+# main's tick to promote the newest buildable commit instead: its push run takes the group's pending place and builds
+# it. Only a failed commit that is still the tip (likely a flake) is retried as itself. An unread tip, or a tick that
+# cannot be asked, retries as before.
+tip=$(bash "$(dirname "${BASH_SOURCE[0]}")/../timeout.sh" "${GH_CALL_SECONDS:-30}" \
+  gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/feat-cmux-next" --jq .object.sha 2>/dev/null || true)
+if [[ "$tip" =~ ^[0-9a-f]{40}$ && "$tip" != "$SHA" ]]; then
+  if bash "$(dirname "${BASH_SOURCE[0]}")/../timeout.sh" "${GH_CALL_SECONDS:-30}" \
+      gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main; then
+    echo "feat-cmux-next moved to $tip: no retry of $SHA; asked main's tick to promote the newest buildable commit"
+    exit 0
+  fi
+  echo "::warning::could not ask main's nightly-next tick; retrying $SHA as before"
+fi
 echo "retry $tries of 2 after run $RUN_ID attempt $RUN_ATTEMPT: build the nightly-next head again"
 gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref nightly-next -f nightly_next_loop_retry="$tries"
