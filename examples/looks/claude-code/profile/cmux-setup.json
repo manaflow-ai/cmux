@@ -1,0 +1,109 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/claude-code-profile",
+  "name": "Claude Code app profile",
+  "description": "The whole Claude Code app in one install: its look (the whole look) with every Claude Code feature look's settings, actions and keys, Claude's slash commands in the composer, and the app's send pop.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "screenshots": [
+    "screenshots/source.png"
+  ],
+  "cmuxProfile": 1,
+  "settings": {
+    // The look (claude-code/whole: theme, sidebar, transcript, composer).
+    "appearance.themeFile": "claude-code-app",
+    "sidebar.groupBy": "folder",
+    "sidebar.sessionTree": true,
+    "sidebar.groupHeader.background": "sections",
+    "sidebar.groupHeader.memberCount": false,
+    "sidebar.groupHeader.unreadCount": false,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.showColors": false,
+    "sidebar.showTimestamps": false,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.showSpaces": false,
+    "sidebar.cards.tips": false,
+    "sidebar.showProjects": true,
+    "sidebar.showChats": true,
+    // The app has no Home or App Store rows above its sessions: hide cmux's top section (Settings and the account stay in the bottom row).
+    "sidebar.sections.hidden": ["sec_top"],
+    "sidebar.controlsOnHover": true,
+    "appearance.metrics.sidebarWidth": 284,
+    "tabs.hideLoneChatTab": true,
+    "agentPane.display.presentation": "transcript",
+    "agentPane.display.transcriptView": "normal",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.font.preset": "system",
+    // whole's 800 wins over claude-code/transcript-width's 640: the Code tab's column.
+    "agentPane.display.width": 800,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact",
+    "agentPane.showContextUsage": true,
+    "agentPane.composerRing": "context",
+    "sidebar.showNewWorkspaceChooser": true,
+    "tabs.newTabApp": "local/customize",
+
+    // Feature sets (one line per feature look).
+    // claude-code/notification-levels: a banner when Claude needs permission, a badge for a question.
+    "notifications.delivery.permissionRequest": "banner",
+    "notifications.delivery.question": "badge",
+    "notifications.delivery.taskComplete": "off",
+    // claude-code/session-worktree: worktrees in <project>/.claude/worktrees/, where Claude Code keeps its own.
+    "agentPane.sessionWorktrees": "project",
+    // claude-code/inactive-archive: inactive chats move to the archive after seven days.
+    "agents.chats.archiveInactive": "7d",
+    // claude-code/open-in-editor: a file citation opens its line in your editor.
+    "agentPane.links.openCitationsInEditor": true,
+
+    // Motion: the app's sent-message entrance (claude-code/send-pop, now a shipped switch).
+    "agentPane.display.sendPop": true
+  },
+  "actions": {
+    // claude-code/agents
+    "claude-code-agents": {
+      "type": "agent",
+      "agent": "claude",
+      "title": "Open Claude Agents View",
+      "target": "newTabInCurrentPane",
+      "args": "agents"
+    },
+    // claude-code/cli
+    "claude-code-start": {
+      "type": "agent",
+      "agent": "claude",
+      "title": "Start Claude Code CLI",
+      "target": "newTabInCurrentPane"
+    },
+    "claude-code-resume": {
+      "type": "agent",
+      "agent": "claude",
+      "title": "Resume Claude Code CLI Session…",
+      "target": "newTabInCurrentPane",
+      "args": "--resume"
+    },
+    // claude-code/cloud
+    "claude-code-desktop-continue": {
+      "type": "agent",
+      "agent": "claude",
+      "title": "Open Latest Local CLI Session in Claude Desktop",
+      "target": "newTabInCurrentPane",
+      "args": "--desktop --continue"
+    },
+    "claude-code-teleport": {
+      "type": "agent",
+      "agent": "claude",
+      "title": "Resume Claude Cloud Session in CLI…",
+      "target": "newTabInCurrentPane",
+      "args": "--teleport"
+    },
+    // claude-code/modes
+    "claude-code-plan": {
+      "type": "agent",
+      "agent": "claude",
+      "title": "Start Claude Code CLI in Plan Mode",
+      "target": "newTabInCurrentPane",
+      "args": "--permission-mode plan"
+    }
+  }
+}

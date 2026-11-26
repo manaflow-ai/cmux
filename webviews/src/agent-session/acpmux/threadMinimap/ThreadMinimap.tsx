@@ -11,8 +11,8 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
-import { useT, type StringKey } from "../i18n";
 import { useCountedRender } from "../perfRender";
+import { useT, type StringKey } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { trailingTimer } from "../../../ui/trailingTimer";
@@ -25,9 +25,9 @@ import {
   highlightBubble,
   MOTION_SCROLL_EVENT,
   reducedMotion,
-  scrollRunning,
   settleScroll,
   stopScroll,
+  scrollRunning,
 } from "./scrollMotion";
 import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
 import { wheelPixels } from "../wheelPassThrough";
@@ -429,12 +429,11 @@ function ThreadMinimapView({
   );
   // A run of other chats' messages next to each other draws as one tick (model.ts `foldIncoming`):
   // the rail's jumps, hover, keys and bookmarks all read the folded lists. The full-height map keeps
-  // a mark per prompt (`loadedTurns`), drawing those its rail has the px for (mapGeometry.ts
-  // mapMarks). A rail showing anything but every prompt draws each entry it keeps as its own tick
-  // (model.ts `railEntries`), and falls back to every prompt when it would keep none, so the rail
-  // and its menu stay. The indexed prompts (`read.earlier`) come before the held ones as rows of the
-  // rail's own (railRows.ts). The index names no sender and no reply, so they are the person's
-  // prompts: `keepsIndexed` says which choices keep them.
+  // a mark per prompt (`loadedTurns`). A rail showing anything but every prompt draws each entry it
+  // keeps as its own tick (model.ts `railEntries`), and falls back to every prompt when it would keep
+  // none, so the rail and its menu stay. The indexed prompts (`read.earlier`) come before the held
+  // ones as rows of the rail's own (railRows.ts). The index names no sender and no reply, so they are
+  // the person's prompts: `keepsIndexed` says which choices keep them.
   const named = useMemo(() => {
     const indexed = read.earlier ?? PromptHeads.EMPTY;
     const newer = read.later ?? PromptHeads.EMPTY;
@@ -661,10 +660,7 @@ function ThreadMinimapView({
   /// One height for a fixed arm; the others are never shorter than the prompts on screen (railHeight).
   const heightConfig = railHeightConfig(heightArm);
   const rowPitch = heightConfig.pitch ?? ROW_PITCH;
-  /// The first row in the list's view, for a tick's entrance place (Tick `place`). The list reads
-  /// it only as a tick mounts, which a change of `ranges` brings, so it is read through a ref: as a
-  /// prop it changed on every row of the list's scroll and rendered the list each time, past the
-  /// window's 6-row steps (tickWindow.ts).
+  /// Keep the first visible row in a ref so a scroll within one virtual range does not rerender rows.
   const listFirst = useRef(0);
   listFirst.current = Math.floor(listTop / rowPitch);
   const boxRail = railHeight(
@@ -2051,8 +2047,8 @@ const TickList = memo(function TickList({
   /// The band: the prompts on screen.
   first: number;
   last: number;
-  /// The first row in the list's view, read as a tick mounts: its entrance place counts from it
-  /// (Tick `place`). A ref, so the list's scroll renders the list only when `ranges` moves.
+  /// The first row in the list's view: a tick's entrance place counts from it (Tick `place`). It
+  /// moves with the list's scroll, as `ranges` does, so it renders the list no more often.
   listFirst: React.RefObject<number>;
   /// The row the open card describes.
   described: number | undefined;
