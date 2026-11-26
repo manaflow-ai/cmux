@@ -4035,6 +4035,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [snapshot.sessionId],
   );
+  // The frames dock's saved-window key, read once per chat: parsing the page URL on every pane render
+  // was 325 ms of the pane's render under replay (bench/replay-under-load.bench.ts --trace).
+  const framesPane = useMemo(() => framesPaneKey(snapshot.sessionId), [snapshot.sessionId]);
   // A wrap-up card's Try it on, Keep and Revert run through the chat's acpmux.
   useEffect(() => {
     setCustomizeRunner({
@@ -11024,7 +11027,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   const framesDock = quick ? undefined : (
     <FramesDock
-      pane={framesPaneKey(snapshot.sessionId)}
+      pane={framesPane}
       latest={latestFrame}
       working={snapshot.isWorking === true}
       onOpen={openImage}
