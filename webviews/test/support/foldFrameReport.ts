@@ -47,6 +47,11 @@ export type FoldCost = {
   layoutsPerFrame?: number;
   /// The most layout objects one Layout pass touched (`totalObjects`), and their sum.
   layoutObjectsMax?: number;
+  /// The most layout objects one Layout pass found dirty (`dirtyObjects`): what it laid out again.
+  layoutDirtyMax?: number;
+  /// Paint passes (`Paint` events) and the area they repainted, px² summed (each clip's bounding box).
+  paints?: number;
+  paintArea?: number;
   /// Style recalculations, and the most elements one restyled.
   styleRecalcs?: number;
   styleElementsMax?: number;
@@ -163,7 +168,11 @@ type TraceEvent = {
   dur?: number;
   tid: number;
   pid: number;
-  args?: { beginData?: { totalObjects?: number; dirtyObjects?: number }; elementCount?: number };
+  args?: {
+    beginData?: { totalObjects?: number; dirtyObjects?: number };
+    elementCount?: number;
+    data?: { clip?: number[]; layerId?: number; nodeName?: string };
+  };
 };
 
 /// Script tasks a Layout inside of was forced by script, not run by the frame's rendering step.
@@ -216,6 +225,11 @@ function traceCost(events: TraceEvent[]) {
     layouts: layouts.length,
     forcedLayouts: layouts.filter(inScript).length,
     layoutObjectsMax: Math.max(0, ...layouts.map((event) => event.args?.beginData?.totalObjects ?? 0)),
+    layoutDirtyMax: Math.max(0, ...layouts.map((event) => event.args?.beginData?.dirtyObjects ?? 0)),
+    paints: onMain.filter((event) => event.name === "Paint").length,
+    paintArea: onMain
+      .filter((event) => event.name === "Paint")
+      .reduce((sum, event) => sum + clipArea(event.args?.data?.clip), 0),
     styleRecalcs: styles.length,
     styleElementsMax: Math.max(0, ...styles.map((event) => event.args?.elementCount ?? 0)),
     layoutMs: layouts.reduce((sum, event) => sum + (event.dur ?? 0), 0) / 1000,
@@ -223,6 +237,14 @@ function traceCost(events: TraceEvent[]) {
     scriptMs: topTasks.reduce((sum, event) => sum + (event.dur ?? 0), 0) / 1000,
     paintMs: paints.reduce((sum, event) => sum + (event.dur ?? 0), 0) / 1000,
   };
+}
+
+/// A paint clip's bounding box area, px² (its quad: x0 y0 x1 y1 x2 y2 x3 y3).
+function clipArea(quad: number[] | undefined): number {
+  if (!quad || quad.length < 8) return 0;
+  const xs = [quad[0]!, quad[2]!, quad[4]!, quad[6]!];
+  const ys = [quad[1]!, quad[3]!, quad[5]!, quad[7]!];
+  return (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
 }
 
 const r1 = (value: number) => Math.round(value * 10) / 10;

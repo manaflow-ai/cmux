@@ -485,6 +485,14 @@ type BurstResult = {
     rowRenders: number;
     contentRenders: number;
     layoutObjects: number;
+    /// The most of them one pass found dirty, and layout, style and paint ms per record from the trace.
+    layoutDirty: number;
+    layoutMs: number;
+    styleMs: number;
+    paintMs: number;
+    /// Paint passes per record and the area they repainted per record, in viewports (900x700).
+    paints: number;
+    paintViewports: number;
     styled: number;
   };
 };
@@ -716,6 +724,12 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
           rowRenders: per(sum("row:")),
           contentRenders: per(sum("content:")),
           layoutObjects: cost.layoutObjectsMax ?? 0,
+          layoutDirty: cost.layoutDirtyMax ?? 0,
+          layoutMs: per(cost.layoutMs ?? 0),
+          styleMs: per(cost.styleMs ?? 0),
+          paintMs: per(cost.paintMs ?? 0),
+          paints: per(cost.paints ?? 0),
+          paintViewports: per((cost.paintArea ?? 0) / (900 * 700)),
           styled: cost.styleElementsMax ?? 0,
         };
       } else if (INVALIDATIONS) {
@@ -1176,7 +1190,9 @@ if (import.meta.main) {
               (burst.probe
                 ? ` probe per record: reads ${burst.probe.reads} forced ${burst.probe.forced} row renders ` +
                   `${burst.probe.rowRenders} content renders ${burst.probe.contentRenders}; most layout objects ` +
-                  `${burst.probe.layoutObjects} restyled ${burst.probe.styled}`
+                  `${burst.probe.layoutObjects} (${burst.probe.layoutDirty} dirty) restyled ${burst.probe.styled}; ms per record ` +
+                  `layout ${burst.probe.layoutMs} style ${burst.probe.styleMs} paint ${burst.probe.paintMs} ` +
+                  `(${burst.probe.paints} paints, ${burst.probe.paintViewports} viewports)`
                 : ""),
           );
         // PROFILE_JSON=FILE writes every profiled burst's self and total times, for comparing two runs.
