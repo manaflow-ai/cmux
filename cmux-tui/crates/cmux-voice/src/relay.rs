@@ -168,32 +168,31 @@ pub fn reduce(mut state: RelayState, event: RelayEvent) -> Transition {
             state.last_audio_ms = None;
             state.speech_started_ms = None;
         }
-        RelayEvent::AudioActivity { generation: g, level, atMs } if live(g) => {
-            if level > 0.02 {
-                state.last_audio_ms = Some(atMs);
-                state.speech_started_ms.get_or_insert(atMs);
-                // VAD is owned here so native clients cannot accidentally read
-                // over a person's first spoken word.
-                if let Some(current) = state.current.take() {
-                    state.interrupted = Some(current);
-                    state.phase = Phase::Interrupted;
-                    effects.push(Effect::StopSpeaking);
-                }
+        RelayEvent::AudioActivity { generation: g, level, atMs } if live(g) && level > 0.02 => {
+            state.last_audio_ms = Some(atMs);
+            state.speech_started_ms.get_or_insert(atMs);
+            // VAD is owned here so native clients cannot accidentally read
+            // over a person's first spoken word.
+            if let Some(current) = state.current.take() {
+                state.interrupted = Some(current);
+                state.phase = Phase::Interrupted;
+                effects.push(Effect::StopSpeaking);
             }
         }
-        RelayEvent::Tick { generation: g, atMs } if live(g) => {
-            if !matches!(
-                state.phase,
-                Phase::Idle | Phase::Connecting | Phase::Finalizing | Phase::Error
-            ) && state.speech_started_ms.is_some()
+        RelayEvent::Tick { generation: g, atMs }
+            if live(g)
+                && !matches!(
+                    state.phase,
+                    Phase::Idle | Phase::Connecting | Phase::Finalizing | Phase::Error
+                )
+                && state.speech_started_ms.is_some()
                 && state
                     .last_audio_ms
                     .map(|x| atMs.saturating_sub(x) >= SILENCE_MS)
-                    .unwrap_or(false)
-            {
-                state.phase = Phase::Finalizing;
-                effects.push(Effect::StopListening);
-            }
+                    .unwrap_or(false) =>
+        {
+            state.phase = Phase::Finalizing;
+            effects.push(Effect::StopListening);
         }
         RelayEvent::Transcript { generation: g, id, text }
             if live(g) && !state.sent_utterance_ids.contains(&id) =>
@@ -242,13 +241,13 @@ pub fn reduce(mut state: RelayState, event: RelayEvent) -> Transition {
                 }
             }
         }
-        RelayEvent::SpeechFinished { generation: g, id } if live(g) => {
-            if state.current.as_ref().map(|x| x.id.as_str()) == Some(id.as_str()) {
-                state.current = None;
-                speak_next(&mut state, &mut effects);
-                if state.current.is_none() {
-                    state.phase = Phase::Thinking;
-                }
+        RelayEvent::SpeechFinished { generation: g, id }
+            if live(g) && state.current.as_ref().map(|x| x.id.as_str()) == Some(id.as_str()) =>
+        {
+            state.current = None;
+            speak_next(&mut state, &mut effects);
+            if state.current.is_none() {
+                state.phase = Phase::Thinking;
             }
         }
         RelayEvent::UserSpeechStarted { generation: g } if live(g) => {
@@ -258,13 +257,13 @@ pub fn reduce(mut state: RelayState, event: RelayEvent) -> Transition {
                 state.phase = Phase::Interrupted;
             }
         }
-        RelayEvent::UserSpeechStopped { generation: g } if live(g) => {
-            if state.phase == Phase::Interrupted {
-                state.phase = Phase::Listening;
-                if let Some(item) = state.interrupted.take() {
-                    state.queue.push_front(item);
-                    speak_next(&mut state, &mut effects);
-                }
+        RelayEvent::UserSpeechStopped { generation: g }
+            if live(g) && state.phase == Phase::Interrupted =>
+        {
+            state.phase = Phase::Listening;
+            if let Some(item) = state.interrupted.take() {
+                state.queue.push_front(item);
+                speak_next(&mut state, &mut effects);
             }
         }
         RelayEvent::Cancel => {
@@ -294,19 +293,17 @@ pub fn reduce(mut state: RelayState, event: RelayEvent) -> Transition {
                 effects.push(Effect::StopSpeaking);
             }
         }
-        RelayEvent::KeyRemoved => {
-            if state.phase != Phase::Idle {
-                state.phase = Phase::Error;
-                state.error = Some("keyMissing".into());
-                effects.push(Effect::StopListening);
-                effects.push(Effect::StopSpeaking);
-            }
+        RelayEvent::KeyRemoved if state.phase != Phase::Idle => {
+            state.phase = Phase::Error;
+            state.error = Some("keyMissing".into());
+            effects.push(Effect::StopListening);
+            effects.push(Effect::StopSpeaking);
         }
         RelayEvent::Restart { configured } => {
             effects.push(Effect::StopListening);
             effects.push(Effect::StopSpeaking);
             let next = RelayEvent::Start { providerRevision: state.provider_revision, configured };
-            state = RelayState { generation: generation, ..Default::default() };
+            state = RelayState { generation, ..Default::default() };
             return reduce(state, next);
         }
         RelayEvent::Error { generation: g, code } if live(g) => {
@@ -320,12 +317,12 @@ pub fn reduce(mut state: RelayState, event: RelayEvent) -> Transition {
     Transition { state, effects }
 }
 fn speak_next(state: &mut RelayState, effects: &mut Vec<Effect>) {
-    if state.current.is_none() {
-        if let Some(item) = state.queue.pop_front() {
-            effects.push(Effect::Speak { id: item.id.clone(), text: item.text.clone() });
-            state.current = Some(item);
-            state.phase = Phase::Speaking;
-        }
+    if state.current.is_none()
+        && let Some(item) = state.queue.pop_front()
+    {
+        effects.push(Effect::Speak { id: item.id.clone(), text: item.text.clone() });
+        state.current = Some(item);
+        state.phase = Phase::Speaking;
     }
 }
 
