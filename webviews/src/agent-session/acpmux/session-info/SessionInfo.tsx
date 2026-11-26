@@ -385,6 +385,7 @@ export function SessionInfo({
   sections,
   onSection,
   onOpenSourceFile,
+  onRemoveFolder,
   onOpenUrl,
   onOpenImage,
   readPromptImage,
@@ -480,6 +481,8 @@ export function SessionInfo({
   sections?: SessionInfoSections;
   onSection?: (id: SessionInfoSectionId, open: boolean) => void;
   onOpenSourceFile?: (path: string) => unknown;
+  /// Removes one of the chat's additional directories and restarts it with the remaining folders.
+  onRemoveFolder?: (path: string) => Promise<unknown> | unknown;
   onOpenUrl?: (url: string) => void;
   onOpenImage?: (src: string, alt: string, path?: string) => void;
   /// A pasted image's bytes by its id, for its Sources row (direct.ts `promptImage`).
@@ -809,6 +812,7 @@ export function SessionInfo({
         folders={folders}
         cwd={summary?.cwd}
         onOpenFile={onOpenSourceFile}
+        onRemoveFolder={onRemoveFolder}
         onOpenBeside={onOpenUrl}
         onOpenImage={onOpenImage}
         readImage={readPromptImage}

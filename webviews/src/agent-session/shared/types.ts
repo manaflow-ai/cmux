@@ -37,6 +37,10 @@ export type AgentSessionTheme = {
   borders?: "default" | "none";
   /// Whether keyboard focus outlines, including transcript response rows, are shown.
   focusRingEnabled?: boolean;
+  /// appearance.agentSignature (off by default): each agent's dot glyph from its session id before
+  /// the running line's words (acpmux conversation/agentSignatureModel.ts). Absent or false draws nothing
+  /// and asks acpmux for nothing.
+  agentSignature?: boolean;
   /// A collapsed tool run's look (acpmux toolRunLook.ts): `kind` (absent), `pencil`, `quiet` or
   /// `quiet-pencil`. Only the gallery sends it, for the versions it keeps beside the default.
   toolRunLook?: string;
