@@ -250,6 +250,13 @@ pending_newer() {
       return 1
     fi
   fi
+  # Both workflows check out the feat-cmux-next tip. When it has this release's FFI inputs, every release run still
+  # building is for a commit with those inputs or for a push after this checkout, which re-pins on its own: nothing to
+  # hold for, and no read of the runs list, which the installation rate limit refused on 2026-11-25 (HTTP 403).
+  if same_inputs "$(git rev-parse HEAD)" "$pin_sha"; then
+    echo "feat-cmux-next's tip has $TAG's FFI inputs: no newer release run holds its re-pin" >&2
+    return 1
+  fi
   if ! runs="$(read_runs \
       "repos/$GITHUB_REPOSITORY/actions/workflows/app-ffi-release.yml/runs?branch=feat-cmux-next&per_page=100" \
       --jq '.workflow_runs[] | select(.status != "completed")
@@ -302,14 +309,48 @@ fi
 # changed headers, no BASE_TOKEN, a dry run (BASE_PIN_ENABLED is not true) or
 # any failure there fall through to the pull request, as before.
 start="$(git rev-parse HEAD)"
-: > "$RUNNER_TEMP/pin-base.out"
-base_result=""
-if base_out="$(TOKEN="${BASE_TOKEN:-}" ENABLED="$([[ "${BASE_PIN_ENABLED:-}" == true && -n "${BASE_TOKEN:-}" ]] && echo true)" \
-    GITHUB_OUTPUT="$RUNNER_TEMP/pin-base.out" bash scripts/cmux-next/pin-app-ffi-on-base.sh "$pin_sha" "$CHECKSUM" 2>&1)"; then
-  base_result="$(sed -n 's/^result=//p' "$RUNNER_TEMP/pin-base.out" | tail -n 1)"
+pin_on_base() { # pin_on_base SHA CHECKSUM [PROVEN_PIN]: sets base_result
+  : > "$RUNNER_TEMP/pin-base.out"
+  base_result=""
+  if base_out="$(PROVEN_PIN="${3:-}" TOKEN="${BASE_TOKEN:-}" ENABLED="$([[ "${BASE_PIN_ENABLED:-}" == true && -n "${BASE_TOKEN:-}" ]] && echo true)" \
+      GITHUB_OUTPUT="$RUNNER_TEMP/pin-base.out" bash scripts/cmux-next/pin-app-ffi-on-base.sh "$1" "$2" 2>&1)"; then
+    base_result="$(sed -n 's/^result=//p' "$RUNNER_TEMP/pin-base.out" | tail -n 1)"
+  fi
+  echo "$base_out"
+  git checkout --quiet --force "$start"
+}
+# The re-pin PR's head proves its pin when the build fleet's compile of that head passed (the tip check's Release
+# compile, scripts/ci/fleet_compile_result.py: no GitHub quota, and no --pr, which would submit a compile) and its
+# cmux-next fast tier, which runs HandlerCoverageTests, succeeded with none of its jobs failed. The PR's whole rollup
+# is not the proof: on 2026-11-25 release b6be67e4 changed a declaration over the pin (run 45645816280), went to
+# #55633, whose rollup never went green on infra reds while base merges restarted its CI, and the pin sat about 11
+# hours behind. A head that pins the base's own pin proves nothing new.
+proven_pr_pin() {
+  local verdict runs
+  [[ -n "$pr_pin" && "$pr_pin" != "$current" && -n "$previous" ]] || return 1
+  verdict="$(python3 -I scripts/ci/fleet_compile_result.py --sha "$previous" --repo "$GITHUB_REPOSITORY" \
+    --wait 45 --no-record 0)" || verdict=none
+  if [[ "$verdict" != pass ]]; then
+    echo "the re-pin branch's head ${previous:0:12} has no passing app compile (${verdict:-none}); its pin stays on the pull request"
+    return 1
+  fi
+  runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
+    gh_retry python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs")" || return 1
+  if ! jq -e '[.[] | select(.name | startswith("cmux-next fast tier"))]
+      | any(.conclusion == "success") and all(.conclusion == "success" or .conclusion == "skipped")' <<<"$runs" >/dev/null; then
+    echo "the re-pin branch's head ${previous:0:12} has no passing cmux-next fast tier yet; its pin stays on the pull request"
+    return 1
+  fi
+}
+pin_on_base "$pin_sha" "$CHECKSUM"
+if [[ "$base_result" == pr ]] && proven_pr_pin; then
+  # The head may pin an older release than the picked one: that one lands now, and the base's pin push starts
+  # app-ffi-repin.yml, which re-pins the newer release from there.
+  echo "the re-pin branch's head ${previous:0:12} passed its app compile and fast tier: pinning ${pr_pin:0:12} on feat-cmux-next"
+  pin_on_base "$pr_pin" "$pr_sum" "$pr_pin"
+  [[ "$base_result" == pinned || "$base_result" == already ]] && TAG="cmux-app-ffi-$pr_pin"
 fi
-echo "$base_out"
-git checkout --quiet --force "$start"
+rate_limit_gate
 case "$base_result" in
   pinned|already)
     echo "feat-cmux-next pins $TAG ($base_result); no re-pin pull request"
@@ -483,8 +524,20 @@ else
   pr_number="${url##*/}"
 fi
 [[ "$pr_number" =~ ^[0-9]+$ ]] || { echo "::error::no re-pin PR number" >&2; exit 1; }
-gh_retry gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$RUNNER_TEMP/repin-pr.json"
-jq -e --arg sha "$pin_commit" --arg branch "$branch" \
-  '.state == "open" and .base.ref == "feat-cmux-next" and .head.ref == $branch and .head.sha == $sha' \
-  "$RUNNER_TEMP/repin-pr.json" >/dev/null || { echo "::error::re-pin PR is not open at the published head" >&2; exit 1; }
-echo "verified open re-pin pull request #$pr_number at $pin_commit"
+# GitHub syncs a pull request's head some time after a push: on 2026-11-25 the PR still read 4910b844 after the
+# force-push to 38e0d0d2, and the job failed here though the branch held the new pin (and its failure step spent the
+# rate-limited quota on a dispatch). The PR is re-read a few times; an open PR on this branch whose branch GitHub
+# serves at the published commit is published, and a head that still lags is a warning. A closed PR, another base or
+# another branch still fails.
+for attempt in 1 2 3 4; do
+  gh_retry gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$RUNNER_TEMP/repin-pr.json"
+  jq -e --arg branch "$branch" '.state == "open" and .base.ref == "feat-cmux-next" and .head.ref == $branch' \
+    "$RUNNER_TEMP/repin-pr.json" >/dev/null || { echo "::error::re-pin PR is not open at the published head" >&2; exit 1; }
+  if jq -e --arg sha "$pin_commit" '.head.sha == $sha' "$RUNNER_TEMP/repin-pr.json" >/dev/null; then
+    echo "verified open re-pin pull request #$pr_number at $pin_commit"
+    exit 0
+  fi
+  (( attempt < 4 )) && sleep $((attempt * 15))
+done
+[[ "$(remote_head "$branch")" == "$pin_commit" ]] || { echo "::error::re-pin PR is not open at the published head" >&2; exit 1; }
+echo "::warning title=Re-pin::#$pr_number is open, and $branch is at ${pin_commit:0:12}, but GitHub still reads the pull request's head as $(jq -r '.head.sha[:12]' "$RUNNER_TEMP/repin-pr.json"); its head sync lags the push"

@@ -64,12 +64,29 @@ jobs:
             scripts/ci
             cmux-next-ios/project.yml
             cmux-next-ios/CmuxMobileKit/Package.swift
+            .gitmodules
           sparse-checkout-cone-mode: false
+
+      # The trigger's own quota (2026-11-25 21:35Z and 21:38Z: the repository's shared GITHUB_TOKEN quota was
+      # spent and two decides skipped). The bot App token reads and dispatches; the workflow token is the
+      # fallback, so one spent quota never skips a build. No App configured: the workflow token alone.
+      - name: Mint the trigger's own token
+        id: app-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
 
       - name: Decide
         id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           head="$(git rev-parse HEAD)"
@@ -83,12 +100,23 @@ jobs:
         if: steps.plan.outputs.build == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
           HEAD_SHA: ${{ steps.plan.outputs.head }}
           BASE_SHA: ${{ steps.plan.outputs.base }}
         run: |
           set -euo pipefail
-          gh workflow run ios-internal-nightly.yml --repo "$GITHUB_REPOSITORY" --ref rc/cnx-ios-builder \
-            -f sha="$HEAD_SHA" -f base="$BASE_SHA"
+          dispatch() {
+            gh workflow run ios-internal-nightly.yml --repo "$GITHUB_REPOSITORY" --ref rc/cnx-ios-builder \
+              -f sha="$HEAD_SHA" -f base="$BASE_SHA"
+          }
+          # The workflow token first (a dispatch from it starts a run), then the App token, then backoff.
+          ok=""
+          for wait in 0 20 60; do
+            sleep "$wait"
+            if dispatch; then ok=1; break; fi
+            if [ -n "$APP_TOKEN" ] && GH_TOKEN="$APP_TOKEN" dispatch; then ok=1; break; fi
+          done
+          [ -n "$ok" ] || { echo "::error title=cmux INTERNAL trigger::could not dispatch $HEAD_SHA with either token"; exit 1; }
           echo "dispatched cmux-next-ios INTERNAL $HEAD_SHA (base ${BASE_SHA:-none})" | tee -a "$GITHUB_STEP_SUMMARY"
 
   # iPhone YOLO: feat-cmux-next plus the named PRs, built by the INTERNAL builder like a nightly.
