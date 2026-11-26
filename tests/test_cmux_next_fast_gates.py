@@ -505,9 +505,16 @@ class WorkflowShape(unittest.TestCase):
         # Fork pull requests have no write token: resolve says post=false, the gates still pass or fail.
         self.assertIn("needs.resolve.outputs.post == 'true'", poster["if"])
         self.assertIn('"$PR_REPO" == "$GITHUB_REPOSITORY"', step_named(job(doc, "resolve")["steps"], "Resolve")["run"])
-        self.assertEqual(len(poster["steps"]), 1, "post checks nothing out and runs no repository code")
-        post = poster["steps"][0]
+        # post checks nothing out and runs no repository code: one App token mint, then the post.
+        self.assertEqual([s["name"] for s in poster["steps"]],
+                         ["Mint the status token", "Post the cmux-next/fast-gates status"])
+        mint = poster["steps"][0]
+        self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
+        self.assertEqual(mint["with"]["permission-statuses"], "write")
+        self.assertIs(mint["continue-on-error"], True)
+        post = poster["steps"][1]
         self.assertNotIn("uses", post)
+        self.assertEqual(post["env"]["APP_TOKEN"], "${{ steps.status-token.outputs.token }}")
         self.assertEqual(post["env"]["CONTEXT"], "cmux-next/fast-gates")
         # Head and base come from resolve, never from anything the gates job wrote.
         self.assertIn("needs.resolve.outputs.head_sha", post["env"]["HEAD_SHA"])
@@ -521,7 +528,8 @@ class WorkflowShape(unittest.TestCase):
         # one output (fast_check_route.py from the merge) only counts when the gates were skipped, and post runs only
         # for a same-repository pull request (resolve's post), whose author can already push to the base.
         self.assertNotIn("outputs.", json.dumps(post["env"]).replace("needs.resolve.outputs.", "")
-                         .replace("needs.receipt.outputs.", "").replace("needs.resolve.outputs.fast_gates", ""))
+                         .replace("needs.receipt.outputs.", "").replace("needs.resolve.outputs.fast_gates", "")
+                         .replace("steps.status-token.outputs.token", ""))
         self.assertIn("github.run_id", post["env"]["TARGET_URL"])
         self.assertIn("github.token", post["env"]["GH_TOKEN"])
         body = post["run"]
@@ -559,7 +567,7 @@ class WorkflowShape(unittest.TestCase):
             env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}", "HEAD_SHA": "a" * 40, "BASE": "b" * 40,
                    "GATES": gates, "RATCHET": ratchet, "ROUTED_OUT": "false", "CONTEXT": "cmux-next/fast-gates",
                    "TARGET_URL": "https://example.invalid/run", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-                   "GITHUB_STEP_SUMMARY": str(root / "summary")}
+                   "GITHUB_STEP_SUMMARY": str(root / "summary"), "GH_TOKEN": "job"}
             done = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr)
             args = (root / "args").read_text().splitlines()
@@ -592,45 +600,64 @@ class WorkflowShape(unittest.TestCase):
         self.assertIs(cache["with"]["save-if"], False)
         self.assertEqual(ratchet["env"]["GHOSTTY_ZIG_SOURCE"], "ghostty-next")
 
-    def test_status_api_rate_limit_is_advisory_instead_of_a_second_red(self):
-        """A GitHub installation-limit refusal is infrastructure, not a gate verdict."""
-        post = step_named(job(workflow(), "post")["steps"], "Post the cmux-next/fast-gates status")
+    def test_a_rate_limited_status_post_heals_instead_of_ending_green_unposted(self):
+        """2026-11-25: run 45554419892 judged cmux#46179 green, its post was refused for the spent installation
+        budget and the job ended green; nothing posted it again and the land waited 5.3 h on "not posted yet"."""
+        poster = job(workflow(), "post")
+        post = step_named(poster["steps"], "Post the cmux-next/fast-gates status")
         body = post["run"]
-        self.assertRegex(body, r"rate limit exceeded|secondary rate limit|too many requests|HTTP 429")
-        self.assertIn("::warning title=GitHub API budget::", body)
-        self.assertIn("status could not be posted", body)
-        self.assertIn("exit 0", body)
-        self.assertNotIn("sleep ", body, "status posting must not burn more quota with in-job retries")
+        wait = int(post["env"]["POST_WAIT_SECONDS"])
+        # The longest wait for a reset fits the job's limit with a minute to spare.
+        self.assertLessEqual(wait + 60, poster["timeout-minutes"] * 60)
 
-        def run_post(message: str) -> subprocess.CompletedProcess[str]:
+        def run_post(script: str, **extra: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
             with tempfile.TemporaryDirectory(prefix="fast-gates-status-") as tmp:
                 root = Path(tmp)
                 fake = root / "gh"
-                fake.write_text(f"#!/bin/sh\nprintf '%s\\n' {message!r} >&2\nexit 1\n")
+                # Each call logs "<token> <args>"; the script decides per call what GitHub answers.
+                fake.write_text(f"#!/bin/bash\necho \"$GH_TOKEN $*\" >> {root}/calls\n{script}\n")
                 fake.chmod(0o755)
-                summary = root / "summary"
-                env = {
-                    **os.environ,
-                    "PATH": f"{root}:{os.environ['PATH']}",
-                    "HEAD_SHA": "a" * 40,
-                    "BASE": "b" * 40,
-                    "GATES": "success",
-                    "RATCHET": "skipped",
-                    "ROUTED_OUT": "false",
-                    "CONTEXT": "cmux-next/fast-gates",
-                    "TARGET_URL": "https://example.invalid/run",
-                    "GITHUB_REPOSITORY": "manaflow-ai/cmux",
-                    "GITHUB_STEP_SUMMARY": str(summary),
-                }
-                return subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True)
+                env = {**os.environ, "PATH": f"{root}:{os.environ['PATH']}", "HEAD_SHA": "a" * 40, "BASE": "b" * 40,
+                       "GATES": "success", "RATCHET": "skipped", "ROUTED_OUT": "false",
+                       "CONTEXT": "cmux-next/fast-gates", "TARGET_URL": "https://example.invalid/run",
+                       "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_STEP_SUMMARY": str(root / "summary"),
+                       "GH_TOKEN": "job", "APP_TOKEN": "app", "POST_MIN_GAP_SECONDS": "0", **extra}
+                done = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True, timeout=20)
+                calls = (root / "calls").read_text().splitlines()
+                return done, [c for c in calls if "/statuses/" in c]
 
-        limited = run_post("gh: API rate limit exceeded for installation")
-        self.assertEqual(limited.returncode, 0, limited.stderr)
-        self.assertIn("installation API budget is exhausted", limited.stdout)
-
-        other = run_post("gh: HTTP 404 Not Found")
-        self.assertEqual(other.returncode, 1)
-        self.assertIn("HTTP 404", other.stderr)
+        limited = "echo 'gh: API rate limit exceeded for installation (HTTP 403)' >&2; exit 1"
+        # The App token posts; the repository's budget is never touched.
+        done, posts = run_post('[[ "$*" == *statuses/* ]] && exit 0; exit 1')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([p.split()[0] for p in posts], ["app"])
+        # A spent App budget moves the post to GITHUB_TOKEN at once.
+        done, posts = run_post(f'[[ "$*" == *statuses/* && "$GH_TOKEN" == job ]] && exit 0\n'
+                               f'[[ "$*" == *statuses/* ]] && {{ {limited}; }}\necho 0')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([p.split()[0] for p in posts], ["app", "job"])
+        # Both spent: wait for the reset, then post (the second round's App post goes through).
+        done, posts = run_post(f'n=$(grep -c statuses/ "$(dirname "$0")/calls")\n'
+                               f'[[ "$*" == *statuses/* && $n -ge 3 ]] && exit 0\n'
+                               f'[[ "$*" == *statuses/* ]] && {{ {limited}; }}\ndate +%s')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(len(posts), 3)
+        self.assertIn("posting again", done.stdout)
+        # Both spent past the bound: the job fails, named, so a re-run posts it; never green with nothing posted.
+        done, posts = run_post(f'[[ "$*" == *statuses/* ]] && {{ {limited}; }}\necho $(( $(date +%s) + 3000 ))')
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("::error title=GitHub API budget::", done.stdout)
+        self.assertIn("re-run this failed job", done.stdout)
+        self.assertEqual(len(posts), 2)
+        # No App token (a fork, no app configured): GITHUB_TOKEN alone.
+        done, posts = run_post('[[ "$*" == *statuses/* ]] && exit 0; exit 1', APP_TOKEN="")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual([p.split()[0] for p in posts], ["job"])
+        # Any other API failure is red at once, with GitHub's words.
+        done, posts = run_post("echo 'gh: HTTP 404 Not Found' >&2; exit 1")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("HTTP 404", done.stderr)
+        self.assertEqual(len(posts), 1)
 
     def test_web_tools_install_only_for_web_changes_or_the_webviews_checks(self):
         steps = job(workflow())["steps"]
