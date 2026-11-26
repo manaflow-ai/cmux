@@ -68,6 +68,45 @@ class RouterTests(unittest.TestCase):
                          ["cheap.yml", "heavy.yml"])
         self.assertEqual(pr_router.route(event(True), self.CALLEES, ["a.py"], "0")[0], ["cheap.yml", "heavy.yml"])
 
+    SWIFT = {"swift.yml": {"types": ["opened", "synchronize", "ready_for_review", "labeled"],
+                           "paths": ["Packages/**"]}}
+
+    def test_full_ci_still_routes_by_paths(self) -> None:
+        # cmux#58044: a lane VM's land handoff adds full-ci to every PR; it started every callee whatever the paths.
+        for action, added in (("synchronize", ""), ("labeled", "full-ci")):
+            ev = event(False, ("full-ci",), action)
+            if added:
+                ev["label"] = {"name": added}
+            start, why = pr_router.route(ev, self.SWIFT, ["scripts/ci/a.py"])
+            self.assertEqual(start, [], action)
+            self.assertIn("path filter", why["swift.yml"])
+            self.assertEqual(pr_router.route(ev, self.SWIFT, ["Packages/A/b.swift"])[0], ["swift.yml"], action)
+
+    def test_full_ci_with_unknown_files_starts_everything(self) -> None:
+        self.assertEqual(pr_router.route(event(False, ("full-ci",)), self.SWIFT, None)[0], ["swift.yml"])
+
+    def test_a_callees_own_label_still_starts_it_whatever_the_paths(self) -> None:
+        callees = {"swift.yml": dict(self.SWIFT["swift.yml"], labels=["swift-ci"])}
+        ev = event(False, ("swift-ci",), "labeled")
+        ev["label"] = {"name": "swift-ci"}
+        self.assertEqual(pr_router.route(ev, callees, ["scripts/ci/a.py"])[0], ["swift.yml"])
+
+    def test_full_ci_beats_fast_track(self) -> None:
+        old = os.environ.get("CMUX_FAST_TRACK")
+        try:
+            os.environ["CMUX_FAST_TRACK"] = "1"
+            files = ["docs/a.md"]
+            if not pr_router.fast_track.classify(files)[0]:
+                self.skipTest("fast-track does not classify docs/a.md here")
+            heavy = {"heavy.yml": self.CALLEES["heavy.yml"]}
+            self.assertEqual(pr_router.route(event(False), heavy, files)[0], [])
+            self.assertEqual(pr_router.route(event(False, ("full-ci",)), heavy, files)[0], ["heavy.yml"])
+        finally:
+            if old is None:
+                os.environ.pop("CMUX_FAST_TRACK", None)
+            else:
+                os.environ["CMUX_FAST_TRACK"] = old
+
     def test_every_real_callee_that_skips_drafts_listens_to_ready_for_review(self) -> None:
         for name, config in pr_router.load_manifest().items():
             if not config.get("draft"):
