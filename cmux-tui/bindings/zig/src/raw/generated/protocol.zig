@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "904084da7c7269d2c068894336d66cb1aa68bb6f467a7992efd2ee435a2ad886";
+pub const ir_sha256 = "6ca9835c2b5e897aea083c0a9ef5399cfceec848d825d37fd4bc0d69db6cfd89";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -2107,6 +2107,7 @@ pub const ServerStatsConnections = struct {
 };
 
 pub const ServerStatsDisk = struct {
+    checkpoints: wire.Field(ServerStatsDiskCheckpoints) = .absent,
     @"error": wire.Nullable([]const u8),
     files: []const ServerStatsDiskFile,
     files_truncated: bool,
@@ -2119,6 +2120,14 @@ pub const ServerStatsDisk = struct {
     segments: wire.Nullable(ServerStatsDiskSegments),
     shm_bytes: u64,
     wal_bytes: u64,
+};
+
+pub const ServerStatsDiskCheckpoints = struct {
+    budget_bytes: u64,
+    bytes: u64,
+    checkpoints: u64,
+    largest_bytes: u64,
+    over_budget: bool,
 };
 
 pub const ServerStatsDiskFile = struct {
@@ -10180,6 +10189,7 @@ pub const SetWorkspaceMetadataRequest = struct {
     expected_generation: wire.Field([]const u8) = .absent,
     expected_revision: wire.Field(u64) = .absent,
     icon: wire.Field([]const u8) = .absent,
+    keep_awake: wire.Field(bool) = .absent,
     key: wire.Field([]const u8) = .absent,
     marked_unread: wire.Field(bool) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
@@ -10200,6 +10210,7 @@ pub fn setWorkspaceMetadata(client: anytype, request: SetWorkspaceMetadataReques
             .since = 12,
             .capability = "workspace-metadata-v1",
             .fields = &.{
+                .{ .name = "keep_awake", .since = 12, .capability = "workspace-keep-awake-v1" },
                 .{ .name = "marked_unread", .since = 12, .capability = "notification-mark-unread-v1" },
                 .{ .name = "pinned", .since = 12, .capability = "workspace-pin-v1" },
             },

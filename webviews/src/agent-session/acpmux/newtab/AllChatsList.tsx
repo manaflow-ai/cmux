@@ -532,6 +532,9 @@ export function AllChatsList({
   // With every project folded nothing scrolls the loader away: it would fetch page after page.
   const pages = view === "chats" || entries.some((entry) => entry.kind === "chat");
   const count = entries.length + (nextCursor && pages ? 1 : 0);
+  // The rows' aria-setsize: unknown (-1, as ARIA has it) while another page may come, then the total.
+  // A count that grew with each page drew every mounted row again per page, and was never the total.
+  const setSize = nextCursor && pages ? -1 : entries.length;
   const loadMore = useCallback(
     (element: HTMLElement | null) => {
       if (element && nextCursor) fetchPage(state.query, nextCursor);
@@ -563,7 +566,7 @@ export function AllChatsList({
           chats={project.rows.length}
           open={open}
           index={index}
-          setSize={count}
+          setSize={setSize}
           style={style}
           onToggle={toggleProject}
         />
@@ -579,7 +582,7 @@ export function AllChatsList({
         cwd={row.cwd}
         updatedAt={row.updatedAt}
         index={index}
-        setSize={count}
+        setSize={setSize}
         style={style}
         showProject={state.design !== "quiet" && view === "chats"}
         showAge={state.design !== "quiet"}
