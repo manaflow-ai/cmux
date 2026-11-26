@@ -3,6 +3,7 @@ import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
+import CmuxSpinner
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
@@ -727,7 +728,7 @@ struct ChatComposer: View {
                 }
                 if preparingVideos > 0 {
                     HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
+                        CmuxSpinner().controlSize(.small)
                         Text(preparingVideos == 1 ? "Preparing video…" : "Preparing \(preparingVideos) videos…")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
