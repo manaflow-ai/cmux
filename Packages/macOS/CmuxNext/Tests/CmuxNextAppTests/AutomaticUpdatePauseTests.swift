@@ -20,8 +20,8 @@ import Testing
         return updater
     }
 
-    @Test func theAppsUpdaterIsPaused() {
-        #expect(AutomaticUpdatePause.app)
+    @Test func theAppsUpdaterIsNotPaused() {
+        #expect(!AutomaticUpdatePause.app, "the Automatic Updates switch cannot turn on while paused")
     }
 
     @Test func pausedSettingsCheckDownloadAndInstallNothingByThemselves() {

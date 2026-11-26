@@ -6,5 +6,6 @@ public struct AutomaticUpdatePause {
     public init() {}
     /// The app's updater (AppServices), except in a restart loop, which still fetches its fix (LaunchRecovery).
     /// Tests build theirs unpaused unless they pass it.
-    public static let app = true
+    /// Off again (Lawrence, 2026-11-25: "automatic updates is broken fix"): while paused the card's switch could not turn on.
+    public static let app = false
 }
