@@ -272,6 +272,9 @@ export type SessionAuthQuery =
   | { target: { harness: string; host?: string; routeId?: string; cwd?: string } };
 export type ReadSessionAuth = (query: SessionAuthQuery, refresh?: boolean) => Promise<unknown>;
 
+/// How many chats' last sign-in answers a pane keeps (useSessionAuth `answered`).
+const ANSWERS_KEPT = 32;
+
 export function useSessionAuth(
   query: SessionAuthQuery | undefined,
   read: ReadSessionAuth | undefined,
@@ -290,6 +293,13 @@ export function useSessionAuth(
     refreshEpoch,
   });
   const [result, setResult] = useState<{ selection: typeof selection; auth: SessionAuth }>();
+  /// Each chat's last answer, so a chat shown again draws its sign-in state at once rather than
+  /// "Checking…": its probe still runs, and an answer that says the same thing renders nothing (a
+  /// chat switch rendered the whole pane once more for it before its first frame painted).
+  const answered = useRef<{ read: typeof read; byKey: Map<string, SessionAuth> }>({ read, byKey: new Map() });
+  if (answered.current.read !== read) answered.current = { read, byKey: new Map() };
+  const answerKey = JSON.stringify([key, epoch]);
+  const known = answered.current.byKey.get(answerKey);
   useEffect(() => {
     if (!read || !selected) return;
     let live = true;
@@ -316,7 +326,17 @@ export function useSessionAuth(
             setResult((previous) => (previous?.selection === selection ? previous : { selection, auth: UNKNOWN_AUTH }));
             return;
           }
-          setResult({ selection, auth });
+          const kept = answered.current.byKey;
+          const before = kept.get(answerKey);
+          kept.delete(answerKey);
+          kept.set(answerKey, auth);
+          if (kept.size > ANSWERS_KEPT) kept.delete(kept.keys().next().value as string);
+          // The chat drawn from its last answer, and this one says the same: nothing changes on screen.
+          setResult((previous) =>
+            previous?.selection !== selection && before && JSON.stringify(before) === JSON.stringify(auth)
+              ? previous
+              : { selection, auth },
+          );
         },
         () => {
           if (live)
@@ -329,11 +349,13 @@ export function useSessionAuth(
       live = false;
       cancel?.();
     };
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- answerKey is key and epoch, which selection holds.
   }, [read, selected, selection, refresh, refreshEpoch, version]);
   const recheck = useCallback(() => setRefresh((n) => n + 1), []);
+  const current = result?.selection === selection ? result.auth : known;
   return {
-    auth: result?.selection === selection ? result.auth : UNKNOWN_AUTH,
-    pending: Boolean(read && selected) && result?.selection !== selection,
+    auth: current ?? UNKNOWN_AUTH,
+    pending: Boolean(read && selected) && current === undefined,
     recheck,
   };
 }
