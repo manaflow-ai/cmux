@@ -950,6 +950,9 @@ impl Translator {
                 }
                 // The turn's dedupe counts, on its result while the feature is on.
                 let dedupe_counts = Some(self.dedupe.turn_ended()).filter(|_| dedupe::enabled());
+                // The turn's cache misses by cause (RFD 0158 §1); the hub drops them when the
+                // alarm is off (`hub/cache_alarm.rs`).
+                let cache_misses = self.cache.take_turn_misses().to_json();
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -979,8 +982,15 @@ impl Translator {
                         claude.set("carried", next.clone());
                     }
                     let mut meta = json!({"claude": claude});
+                    let mut hm = serde_json::Map::new();
                     if let Some(dedupe) = dedupe_counts {
-                        meta.set("harnessMagic", json!({"dedupe": dedupe.to_json()}));
+                        hm.insert("dedupe".into(), dedupe.to_json());
+                    }
+                    if let Some(misses) = cache_misses {
+                        hm.insert("cacheAlarm".into(), misses);
+                    }
+                    if !hm.is_empty() {
+                        meta.set("harnessMagic", Value::Object(hm));
                     }
                     Ok(json!({"stopReason": stop, "_meta": meta}))
                 };
