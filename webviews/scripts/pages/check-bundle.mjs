@@ -33,7 +33,6 @@ const expectedPages = new Set([
   "chief-views",
   "cloud",
   "cloud-progress",
-  "coderouter",
   "cookie-import",
   "debug-settings",
   "feed",
