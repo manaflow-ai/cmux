@@ -74,6 +74,7 @@ import { withoutFrames } from "./composer/videoPrompt";
 import { isBehindSend, sendBehind, settleAllBehindSend } from "./composer/sendBehind";
 import { PeerStateEvents } from "./peerStateEvents";
 import {
+  peerAgentLoginFromStatus,
   peerConnectedFromStatus,
   peerKindsFromStatus,
   peerLinksFromStatus,
@@ -271,6 +272,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { afterNextPaint } from "./afterNextPaint";
 import { PromptHeads, type PromptHead } from "./promptHeads";
 import { ADMISSION_WAITING_METHOD, PLACE_CHAT_METHOD } from "./autoWhereModel";
 import {
@@ -922,6 +924,7 @@ const knownCommands = new Map<string, SlashCommand[]>();
 function rememberCommands(sessionId: string, commands: SlashCommand[]) {
   knownCommands.delete(sessionId);
   knownCommands.set(sessionId, commands);
+  // ends: each pass deletes the oldest key, so the map shrinks to 32
   while (knownCommands.size > 32) knownCommands.delete(knownCommands.keys().next().value!);
 }
 /// What a chat's last read left, so opening it again draws it on the frame the open lands instead
@@ -2076,6 +2079,9 @@ export class AcpmuxDirectClient {
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
   private peerConnected: Record<string, boolean> = {};
+  /// Each peer's `agentLogin` (environments.ts peerAgentLoginFromStatus): a chat there gets the
+  /// sign-in card only when that peer runs the login (cloudAgentLogin.ts agentLoginSupported).
+  peerAgentLogin: Readonly<Record<string, boolean>> = {};
   private peerStates: Record<string, string> = {};
   /// Each peer's whole link state as acpmux said it (linkState.ts), from a daemon that sends it.
   private peerLinks: Record<string, PeerLinkDetail> = {};
@@ -5551,6 +5557,7 @@ export class AcpmuxDirectClient {
   async listProcessCalls(sessionId: string, calls: readonly string[]): Promise<unknown[]> {
     const processes: unknown[] = [];
     let from = 0;
+    // ends: `from` moves up by at least 1 each pass (a reply answering none throws), to calls.length
     while (from < calls.length) {
       const asked = calls.slice(from, from + PROCESS_LIST_PAGE);
       const reply = (await this.request("_acpmux/process/list", { sessionId, calls: asked })) as
@@ -6790,6 +6797,9 @@ export class AcpmuxDirectClient {
       this.earlyAttach = undefined;
     }
     const result = await sent.attaching;
+    // A switch drew the chat's kept tail: its frame paints before the reply's page renders, which
+    // a local daemon's reply would otherwise beat. What came live meanwhile is held (`copyLive`).
+    if (keptThrough > 0) await new Promise<void>((resolve) => afterNextPaint(resolve));
     this.syncView();
     if (!current()) return [];
     // The row changed while the attach was out to name another session than the reply's (another
@@ -8796,6 +8806,7 @@ export class AcpmuxDirectClient {
     if (cut > 0)
       for (const agent of this.subagents.all())
         if (agent.state === "running" || (agent.endedAt ?? -Infinity) >= this.events[cut]!.at) named.add(agent.id);
+    // ends: a pass whose `next` is not below `cut` breaks, so `cut` falls each pass, to 0 at most
     while (cut > 0) {
       const { seq } = this.events[cut]!;
       for (; read > cut; read -= 1) {
@@ -10792,8 +10803,17 @@ export class AcpmuxDirectClient {
       if (!text && assistantPhase && priorRows?.length) {
         for (const rowId of priorRows) {
           const prior = this.rows.get(rowId);
-          if (prior && prior.assistantPhase !== assistantPhase)
+          if (!prior) continue;
+          if (prior.assistantPhase !== assistantPhase)
             this.rows.set(rowId, { ...prior, assistantPhase, version: prior.version + 1 });
+          // Codex stamps a message's phase twice: once on `item/started`, before its first delta,
+          // and again on `item/completed`, when its text is whole (its deltas carry no phase,
+          // codex_app_server/message_phases.rs). The echo of a phase the row already has is that
+          // completion: `textComplete`, which is what the ask inside a final answer waits for
+          // (turns.ts `answerComplete`). The row keeps streaming until its turn ends, so what it
+          // draws (`keepsReplyRoom`, the tail's safe boundary) is unchanged here.
+          else if (prior.textComplete !== true)
+            this.rows.set(rowId, { ...prior, textComplete: true, version: prior.version + 1 });
         }
         return;
       }
@@ -10876,6 +10896,9 @@ export class AcpmuxDirectClient {
         ...((assistantPhase ?? existing?.assistantPhase) && {
           assistantPhase: assistantPhase ?? existing?.assistantPhase,
         }),
+        // A chunk that carries its phase together with its text is a whole message, never a delta:
+        // a watched Codex rollout's reply and a replayed history message come that way, complete.
+        ...(((text && assistantPhase) || existing?.textComplete === true) && { textComplete: true }),
         streaming: true,
       });
       this.streamingAssistant = id;
@@ -11130,15 +11153,18 @@ export class AcpmuxDirectClient {
       // that steer: the note never lands over the steer and pushes it down (Leo, 2026-11-25: "the
       // animation for compaction and a message sent/steered during compaction is weird ... layout
       // shifts and awkward looking animations"). One look over the rows since it started (a few).
-      else if (
-        compaction.state !== "running" &&
-        running?.seq !== undefined &&
-        this.rows
-          .rowsFrom(running.seq + 1)
-          .some((row) => row.kind === "user" && !row.incoming && !row.received && row.from === undefined)
-      )
+      else if (compaction.state !== "running" && running && this.ownSteerBelow(running.id))
         this.rows.placeAfterCurrent(id);
     }
+  }
+
+  /// Whether the person's own steer sorts after compaction row `id` (they steered while it ran).
+  /// One look over the rows since it (a few). False once the row already went under the steer
+  /// (`settleCompactions` moved it at the steer's turn start), so it moves at most once.
+  private ownSteerBelow(id: string): boolean {
+    return this.rows
+      .rowsFrom(this.rows.orderOf(id))
+      .some((row) => row.kind === "user" && !row.incoming && !row.received && row.from === undefined);
   }
 
   /// Puts a background shell's update on the call that started it, and says whether it found the
@@ -11267,6 +11293,7 @@ export class AcpmuxDirectClient {
     let at = rows.length;
     if (below !== undefined) {
       let low = 0;
+      // ends: binary search: each pass halves at - low
       while (low < at) {
         const middle = (low + at) >>> 1;
         if (this.rows.orderOf(rows[middle]!.id) < below) low = middle + 1;
@@ -11276,6 +11303,7 @@ export class AcpmuxDirectClient {
     // A steer goes on with its turn: the turn's time and calls run from the prompt that opened it.
     let user: AcpmuxRow | undefined;
     let toolCount = 0;
+    // ends: `at` falls by one each pass, to 0 at most
     while (at > 0) {
       const row = rows[(at -= 1)]!;
       if (row.pending || row.failed || (below !== undefined && this.rows.orderOf(row.id) >= below)) continue;
@@ -11449,6 +11477,11 @@ export class AcpmuxDirectClient {
           version: row.version + 1,
           compaction: { ...row.compaction, state: "failed", inferred: true },
         });
+        // The turn a steer sent while the compaction ran starts: its note goes under that steer now,
+        // where its live line stood, so its end only swaps the words and never moves it there later
+        // (74.8 px stray in chat-flow-shift-budget's compaction-steer on a chat with earlier
+        // compactions; Leo, 2026-11-25: "layout shifts and awkward looking animations").
+        if (mayGoOn && this.ownSteerBelow(row.id)) this.rows.placeAfterCurrent(row.id);
       }
   }
 
@@ -12521,6 +12554,7 @@ export class AcpmuxDirectClient {
     ({ text: input, attachments } = liftInlineImages(input, attachments));
     // A chat opening (a switch) is drawn first: the prompt goes to it once it shows, never while the
     // pane still draws the chat before.
+    // ends: each pass waits out a hold, and every hold ends by its limit (holdSnapshots' timer) or on close
     while (this.snapshotHold && this.shownSessionId !== this.selectedSessionId) await this.snapshotHold.released;
     // A handoff not read yet (the pane draws the composer meanwhile) is read now; one that cannot be
     // read is a connection problem, not a continuation to review.
@@ -15133,6 +15167,7 @@ export class AcpmuxDirectClient {
   /// Whether `sessionId` is the chat on screen and attached, once a switch's hold has let it draw:
   /// an action that reads the drawn chat (Stop, Fork) then reaches it and never the chat before.
   async shownAndAttached(sessionId: string): Promise<boolean> {
+    // ends: each pass waits out a hold, and every hold ends by its limit (holdSnapshots' timer) or on close
     while (this.snapshotHold && this.shownSessionId !== this.selectedSessionId) await this.snapshotHold.released;
     return (
       this.selectedSessionId === sessionId && this.actingSessionId === sessionId && this.attachedSession() === sessionId
@@ -15196,6 +15231,7 @@ export class AcpmuxDirectClient {
     if (this.closed || sessionId === this.selectedSessionId) return;
     this.shareOnRead.delete(sessionId);
     this.shareOnRead.add(sessionId);
+    // ends: each pass deletes the oldest key, so the map shrinks to HOVER_RECENT
     while (this.shareOnRead.size > HOVER_RECENT) this.shareOnRead.delete(this.shareOnRead.keys().next().value!);
     this.queueReadAhead([sessionId], true);
     // Nothing to read: this page holds a tail of the chat it counts as current, so that one goes,
@@ -15294,6 +15330,7 @@ export class AcpmuxDirectClient {
   }
 
   private pumpReadAhead(): void {
+    // ends: each pass shifts one chat off readAheadQueue
     while (!this.closed && this.readingAhead.size < READ_AHEAD_LANES && this.readAheadQueue.length > 0) {
       const sessionId = this.readAheadQueue.shift()!;
       if (sessionId === this.selectedSessionId || this.listedCold(sessionId)) continue;
@@ -16567,6 +16604,7 @@ export class AcpmuxDirectClient {
       : [];
     this.peerKinds = peerKindsFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
+    this.peerAgentLogin = peerAgentLoginFromStatus(status);
     this.peerStates = peerStatesFromStatus(status);
     this.peerLinks = peerLinksFromStatus(status);
     this.peerResources = peerResourcesFromStatus(status);
@@ -16796,6 +16834,7 @@ export class AcpmuxDirectClient {
     this.indexedPages.set(key, read);
     // Keep only a small neighborhood. The target stays first in the map until the adjacent reads
     // settle, while old drag targets cannot grow this cache with a whole chat's pages.
+    // ends: each pass deletes the oldest key or breaks
     while (this.indexedPages.size > INDEXED_PAGE_CACHE_LIMIT) {
       const oldest = this.indexedPages.keys().next().value;
       if (oldest === undefined || oldest === key) break;
@@ -16954,6 +16993,8 @@ export class AcpmuxDirectClient {
       drawn += 1;
     };
     if (!sessionId) return "done";
+    // ends: each pass drops the gap in front or moves its `after` past every record it read (page holds only seqs above
+    // it); a read awaits between passes
     while (!stale()) {
       const gap = this.indexedGaps[0];
       if (!gap) {
@@ -17041,6 +17082,7 @@ export class AcpmuxDirectClient {
     // Each loadOlder call publishes one bounded page (or a rail jump's window), so keep walking
     // until the target is held. A fixed iteration cap here would make a far minimap jump fail once a
     // long chat spans more than that many pages.
+    // ends: a step that leaves `firstSeq` where it was returns; a read awaits between passes
     for (;;) {
       const from = this.firstSeq;
       if (held()) return true;
@@ -17208,6 +17250,7 @@ export class AcpmuxDirectClient {
     const takeSlot = (result: any) => {
       if (records(result?.events).some((event) => event.seq < before)) take(result);
     };
+    // ends: the round's first slot is `before` itself, whose take moves `before` below it or ends `more`
     while (more && before > through && before > 1) {
       const slots: number[] = [];
       // Down to the first slot that starts at or below `through`: its page holds the records just
@@ -17220,6 +17263,7 @@ export class AcpmuxDirectClient {
       if (stale()) return undefined;
       for (let slot = 0; slot < slots.length && more; slot++) {
         // The page above ended short of this slot (its byte cap): read the gap page by page.
+        // ends: `take` moves `before` below itself (it keeps only seqs under it) or ends `more`
         while (more && before > slots[slot]!) {
           const result = await this.olderPage(sessionId, before, pagingEpoch);
           if (stale()) return undefined;

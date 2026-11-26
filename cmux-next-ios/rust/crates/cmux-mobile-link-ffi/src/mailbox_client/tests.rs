@@ -180,8 +180,12 @@ fn the_tracker_trusts_the_hosts_ack_signature_and_nothing_else() {
 
 #[test]
 fn the_exported_router_and_availability() {
-    let input =
-        |link_up, presence, mailbox_available| MailboxRouteInput { link_up, presence, mailbox_available };
+    let input = |link_up, presence, mailbox_available| MailboxRouteInput {
+        link_up,
+        presence,
+        mailbox_available,
+        cloud_holder: false,
+    };
     assert_eq!(mailbox_route(input(true, MailboxPresence::Online, true)), MailboxRoute::Link);
     assert_eq!(mailbox_route(input(true, MailboxPresence::Offline, true)), MailboxRoute::Mailbox);
     assert_eq!(mailbox_route(input(false, MailboxPresence::Online, true)), MailboxRoute::Mailbox);
@@ -193,4 +197,24 @@ fn the_exported_router_and_availability() {
         mailbox_trusted_box_key(MAC.into(), Some(field(&vectors(), "macBoxKey")), None, None),
         Err(MailboxError::UntrustedBoxKey)
     );
+}
+
+#[test]
+fn a_cloud_held_chat_routes_to_its_inbox_with_the_same_id() {
+    let held = MailboxRouteInput {
+        link_up: true,
+        presence: MailboxPresence::Online,
+        mailbox_available: true,
+        cloud_holder: true,
+    };
+    assert_eq!(mailbox_route(held), MailboxRoute::CloudInbox);
+    assert_eq!(
+        mailbox_route_for("0D9F5E2C-7B3A-4E61-8F20-5C4B3A291807".into(), held),
+        MailboxRoute::CloudInbox
+    );
+    assert_eq!(mailbox_route_for("not ok".into(), held), MailboxRoute::Fail);
+    let post =
+        mailbox_inbox_post("c1".into(), "0D9F5E2C-7B3A-4E61-8F20-5C4B3A291807".into(), "hi".into()).unwrap();
+    assert_eq!(post[0], "/v1/auto-sessions/c1/inbox");
+    assert!(post[1].contains("\"id\":\"0d9f5e2c-7b3a-4e61-8f20-5c4b3a291807\""));
 }
