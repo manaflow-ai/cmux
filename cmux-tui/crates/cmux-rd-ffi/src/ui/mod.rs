@@ -16,6 +16,7 @@
 //! localized in Swift: an answer names which string (a key), never its words.
 
 mod actions;
+mod agents;
 mod buttons;
 mod card;
 mod home_sharing;
@@ -47,6 +48,7 @@ pub fn call(request: &[u8]) -> Value {
     let (area, name) = op.split_once('.').unwrap_or((op, ""));
     let answer = match area {
         "remote" => remote::handle(name, &args),
+        "agents" => agents::handle(name, &args),
         "toolbar" => toolbar::handle(name, &args),
         "buttons" => buttons::handle(name, &args),
         "pane" => pane::handle(name, &args),
