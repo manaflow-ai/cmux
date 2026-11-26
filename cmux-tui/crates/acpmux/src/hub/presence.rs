@@ -400,7 +400,7 @@ impl Presence {
         let mut people: BTreeMap<String, Record> = BTreeMap::new();
         for (chat, entries) in &state.chats {
             let Some(&epoch) = state.revisions.get(chat) else { continue };
-            for person in participants(Some(entries)) {
+            for person in participants(Some(entries), &state.follows) {
                 let record = person.record(chat, epoch);
                 let better = |old: &Record| {
                     (record.doing == Doing::Typing, record.epoch)
