@@ -260,14 +260,21 @@ class PairSharePhone(ScreenProofPhone):
             except Exception:  # noqa: BLE001 - the text below is the diagnostic; the image is extra
                 pass
             nodes = self.ui.find(lambda node: True)
+            settings_ids = sorted({str(node.get("AXIdentifier") or node.get("AXUniqueId") or "") for node in nodes}
+                                  - {""})
+            settings_ids = [i for i in settings_ids if i.startswith("settings.")]
             raise PairShareFailure("Settings showed no Screen Sharing row in 90 s, so the app built no "
-                                   f"Screen Sharing service ({len(nodes)} nodes{_screen_summary(nodes)})")
+                                   f"Screen Sharing service ({len(nodes)} nodes; settings rows: "
+                                   f"{', '.join(settings_ids) or 'none'}{_screen_summary(nodes)})")
         self.ui.tap(row)
 
     def _screen_sharing_row(self):
+        # The row's identifier can sit on the link and on its label (run 45768668186 matched no
+        # single node): tap the first visible one, a Button when there is one.
         rows = self.ui.find(lambda node: "settings.screenSharing" in (node.get("AXIdentifier"),
                                                                       node.get("AXUniqueId")))
-        return rows[0] if len(rows) == 1 else None
+        buttons = [row for row in rows if row.get("type") == "Button"]
+        return (buttons or rows or [None])[0]
 
     def request_share(self, name, device_id):
         # The hub and the share host may spell the same id in different case; the phone itself

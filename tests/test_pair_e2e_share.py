@@ -172,6 +172,27 @@ class MacRowTests(unittest.TestCase):
             with self.assertRaisesRegex(PairShareFailure, "no Screen Sharing row in 90 s.*headings: Settings"):
                 phone.launch()
 
+    def test_launch_taps_a_screen_sharing_row_its_label_repeats(self):
+        phone = PairSharePhone.__new__(PairSharePhone)
+        label = {"type": "StaticText", "AXUniqueId": "settings.screenSharing"}
+        button = {"type": "Button", "AXUniqueId": "settings.screenSharing"}
+        phone.ui = FakeUI([label, button])
+        phone.ui.launch = lambda args: None
+        tapped = []
+        phone.ui.tap = tapped.append
+        phone.launch()
+        self.assertEqual(tapped, [button])
+
+    def test_launch_with_no_row_lists_the_settings_rows_it_saw(self):
+        phone = PairSharePhone.__new__(PairSharePhone)
+        phone.ui = FakeUI([{"type": "Button", "AXUniqueId": "settings.devices"}])
+        phone.ui.launch = lambda args: None
+        phone.screenshot = lambda name: None
+        with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 100]), \
+                patch("cmux_next_pair_share_phone.time.sleep"):
+            with self.assertRaisesRegex(PairShareFailure, "settings rows: settings.devices"):
+                phone.launch()
+
     def test_a_missing_row_says_what_the_page_showed(self):
         phone = PairSharePhone.__new__(PairSharePhone)
         phone.ui = FakeUI([{"AXIdentifier": "screenSharing.failed"}])
