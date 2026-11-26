@@ -351,10 +351,12 @@ fn at_the_bound_a_pass_writes_nothing_and_reads_only_what_changed() {
 fn a_damaged_or_oversized_saved_copy_is_left_out() {
     let text = index();
     text.update(&[chat("a", 1)], &|_| Some(vec![turn("x", "kept")]));
-    let saved = std::fs::read_to_string(&text.path).expect("saved");
+    let mut saved = std::fs::read(&text.path).expect("saved");
     // A message that starts past its text: that doc is left out, the rest of the copy is read.
-    let damaged = saved.replacen("\"start\":0", "\"start\":999", 1);
-    std::fs::write(&text.path, damaged).expect("write");
+    // (Same length, so the metadata still parses: `"start":0` becomes `"start":9`.)
+    let at = saved.windows(9).position(|w| w == b"\"start\":0").expect("a message at 0");
+    saved[at + 8] = b'9';
+    std::fs::write(&text.path, saved).expect("write");
     let again = ChatText::new(text.path.clone());
     again.load();
     assert_eq!(again.held().0, 0);
@@ -476,7 +478,7 @@ fn a_held_save_interrupted_before_its_rename_leaves_the_old_copy() {
         module_path!(),
         "a_held_save_interrupted_before_its_rename_leaves_the_old_copy",
         |home| {
-            let path = home.join("chat-index").join("text-v1.json");
+            let path = home.join("chat-index").join("text-v2.bin");
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, "old").unwrap();
             crate::config::hold_home();
@@ -492,7 +494,7 @@ fn a_held_save_interrupted_before_its_rename_leaves_the_old_copy() {
                 stdout.contains("held-before-rename"),
                 "the save never stopped at a synced copy before its rename: {stdout}"
             );
-            let kept = std::fs::read_to_string(home.join("chat-index").join("text-v1.json"));
+            let kept = std::fs::read_to_string(home.join("chat-index").join("text-v2.bin"));
             assert_eq!(kept.unwrap(), "old", "an interrupted save changed the old copy");
         },
     );
@@ -530,4 +532,68 @@ fn a_pass_over_much_text_on_many_threads_finds_what_one_thread_finds() {
     assert_eq!(many, one);
     // Below the bound the pass stays on this thread and still finds every doc.
     assert_eq!(par_filter_map(&refs[..26], find).len(), 2);
+}
+
+/// Whether every held doc's text is served from the saved copy.
+fn all_mapped(text: &ChatText) -> bool {
+    lock(&text.inner).docs.values().all(|doc| doc.text.is_mapped())
+}
+
+#[test]
+fn saved_text_is_served_from_the_file_not_the_heap() {
+    let text = index();
+    let read = |entry: &ChatEntry| {
+        Some(vec![turn(&format!("prompt of {}", entry.session_id), "answer words")])
+    };
+    text.update(&[chat("a", 1), chat("b", 1)], &read);
+    assert_eq!(text.saves().0, 1, "the first fill is saved");
+    assert!(all_mapped(&text), "once saved, the held text is the file's");
+    assert!(text.search(&needle("prompt of a")).contains_key("codex:a"));
+    // Read back in a new run: served from the file, and found.
+    let again = ChatText::new(text.path.clone());
+    again.load();
+    assert_eq!(again.held().0, 2);
+    assert!(all_mapped(&again), "a loaded copy is not copied to the heap");
+    assert!(again.search(&needle("prompt of b")).contains_key("codex:b"));
+    // A chat whose stamp moved but whose text did not stays served from the file.
+    again.update(&[chat("a", 2), chat("b", 1)], &read);
+    assert!(all_mapped(&again), "an unchanged reread keeps the file's text");
+    // A changed chat is copied, edited, and still found; the other is not copied.
+    again.update(&[chat("a", 3), chat("b", 1)], &|entry: &ChatEntry| {
+        Some(vec![turn(&format!("changed {}", entry.session_id), "new words")])
+    });
+    {
+        let inner = lock(&again.inner);
+        assert!(!inner.docs["codex:a"].text.is_mapped(), "a changed chat holds its own text");
+        assert!(inner.docs["codex:b"].text.is_mapped());
+    }
+    assert!(again.search(&needle("changed a")).contains_key("codex:a"));
+    assert!(again.search(&needle("prompt of a")).is_empty());
+    let _ = std::fs::remove_file(&text.path);
+}
+
+#[test]
+fn an_older_builds_json_copy_is_read_then_written_anew_and_removed() {
+    let dir = std::env::temp_dir().join(format!("acpmux-text-legacy-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (path, legacy) = (dir.join("text-v2.bin"), dir.join("text-v1.json"));
+    // What an older build saved: JSON, the text inline.
+    let old = ChatText::new(dir.join("unused"));
+    old.update(&[chat("a", 1)], &|_| Some(vec![turn("legacy prompt", "legacy answer")]));
+    let docs: Vec<(String, Doc)> =
+        lock(&old.inner).docs.iter().map(|(key, doc)| (key.clone(), Doc::clone(doc))).collect();
+    let json = serde_json::json!({"schema": SCHEMA, "docs": docs});
+    std::fs::write(&legacy, serde_json::to_vec(&json).unwrap()).unwrap();
+    let text = ChatText::with_legacy(path.clone(), legacy.clone());
+    text.load();
+    assert!(text.search(&needle("legacy prompt")).contains_key("codex:a"), "the old copy is read");
+    // The first pass writes the copy anew (nothing changed), and the old one leaves the disk.
+    text.update(&[chat("a", 1)], &|_| panic!("an unchanged chat is not read again"));
+    assert_eq!(text.saves().0, 1, "the old copy is written anew");
+    assert!(!legacy.exists(), "the old copy is removed");
+    assert!(all_mapped(&text));
+    let again = ChatText::with_legacy(path, legacy);
+    again.load();
+    assert!(again.search(&needle("legacy answer")).contains_key("codex:a"));
+    let _ = std::fs::remove_dir_all(&dir);
 }
