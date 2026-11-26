@@ -293,7 +293,7 @@ struct ClassicMigrationTests {
 
     /// The cmux Classic card in Settings › Import runs the action's own import as a tracked job:
     /// progress that moves with each classic workspace, then "Imported N sessions". Run again,
-    /// the migration ledger opens nothing twice and the card says "Imported 0 sessions".
+    /// the migration ledger opens nothing twice and the card says "Done".
     @Test func theClassicCardImportsAsAJobAndASecondRunOpensNothing() async throws {
         let mac = try Mac()
         let runs = CardRuns()
@@ -322,7 +322,7 @@ struct ClassicMigrationTests {
         }
         let first = try #require(runs.opened.first ?? nil)
         #expect(first >= 3 && runs.opened.count == 2 && runs.opened.last == 0, "\(runs.opened)")
-        #expect(runs.statuses == ["Imported \(first) sessions", "Imported 0 sessions"], "\(runs.statuses)")
+        #expect(runs.statuses == ["Imported \(first) sessions", "Done"], "\(runs.statuses)") // a run that opens nothing says Done (#53730)
         // Progress moved up as each workspace was handled, to the whole run.
         #expect(runs.progress.count >= first && runs.progress == runs.progress.sorted() && runs.progress.last == 1, "\(runs.progress)")
         let classic = tree.names.filter(Self.classicNames.contains).sorted()
