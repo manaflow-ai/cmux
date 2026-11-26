@@ -716,7 +716,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .process("Resources/AttentionTabs.xcstrings"),
                 .copy("Resources/agent-pane"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings,
+            plugins: [.plugin(name: "AgentPanePolicyPlugin")]
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
@@ -818,6 +819,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [
                 .process("Localizable.xcstrings"),
@@ -1189,6 +1191,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
@@ -2789,6 +2792,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
             plugins: [.plugin(name: "SettingsSchemaPlugin"), .plugin(name: "StringCatalogsPlugin")]
         ),
+        // Runs scripts/cmux-next/gen-agent-pane-policy-swift.py --swift-out into its work directory.
+        .plugin(name: "AgentPanePolicyPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
         .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
         // Runs scripts/cmux-next/string_catalogs.py build-target: a target's <Table>.xcstrings.d directories (one file

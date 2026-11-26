@@ -288,6 +288,7 @@ class DecideTests(unittest.TestCase):
         state["part_stored"] = {"chat-anim": {"at": cron.iso(at(1))}, "motion": {"at": cron.iso(T0)}}
         t = at(cron.PART_STALE_HOURS + 2)
         self.assertEqual(cron.PART_BY_NAME["chat-anim"].get("goal"), "typing-latency")
+        self.assertEqual(cron.PART_BY_NAME["web-ui-god"].get("goal"), "god-chat-ratios")
         state["last"] = {"rows": {"sidebar.400.scroll.frame@host": {"p95": 1}}}  # sidebar: no stored rows, a row read
         self.assertEqual(cron.part_order(state, ["build", "motion", "sidebar", "fresh", "chat-anim"], t),
                          ["build", "fresh", "chat-anim", "sidebar", "motion"],
@@ -485,6 +486,23 @@ class RegressionTests(unittest.TestCase):
         regs = cron.find_regressions({"perf_gate.tabs.failed_checks": row(1, "checks", 0.5)},
                                      {"perf_gate.tabs.failed_checks": row(0, "checks", 0.5)}, None, None, budgets_mod)
         self.assertEqual(len(regs), 1)
+
+    def test_a_wakeup_row_regresses_by_the_timer_that_woke_it(self):
+        """shadow-leo on goal idle-cpu-wakeups: "make a new idle timer fail the PR that adds it" by name. The bench's
+        rest_wakeups row carries its sources (perfRow.ts); the regression and the issue cell name them."""
+        named = ["3x timeouts: armRequestCheck < noteRequest @ 10,2010,4010 ms", "1x frames: frameTally | x"]
+        rows = cron.webui_rows([{"name": "chat_switch.god.unread.rest_wakeups", "p95": 4, "unit": "count",
+                                 "target": 0, "floor": 0.5, "sources": named + [7, ""]}])
+        now = rows["webui.chat_switch.god.unread.rest_wakeups"]
+        self.assertEqual(now["sources"], named, "strings only, busiest first")
+        regs = cron.find_regressions(rows, {"webui.chat_switch.god.unread.rest_wakeups": {**now, "p95": 1}},
+                                     None, None, budgets_mod)
+        self.assertEqual(regs[0]["sources"], named)
+        cell = cron.sources_note(regs[0])
+        self.assertIn("woken by: 3x timeouts: armRequestCheck", cell)
+        self.assertIn("frameTally \\| x", cell, "a pipe is escaped: it never splits the issue table")
+        self.assertEqual(cron.sources_note({"name": "a"}), "", "a row with no sources keeps its cell")
+        self.assertNotIn("sources", cron.webui_rows([{"name": "a.b", "p95": 1}])["webui.a.b"])
 
     def test_no_baseline_no_regression(self):
         self.assertEqual(cron.find_regressions({"a": row(9.0)}, {}, None, None, budgets_mod), [])
@@ -1323,9 +1341,31 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.linux_job_minutes("infinite-items"), 70)
         self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
         self.assertEqual(cron.linux_job_minutes("web-ui"), 60)  # the suite\'s shared builds, then its benches
-        # web-ui-god's paired rounds stop starting at GOD_PAIRED_DEADLINE_S, and the last may run one round more.
+        # web-ui-god's paired rounds build the pane once, stop starting at GOD_PAIRED_DEADLINE_S, the last may run one
+        # round more, and the suite runs after them under its own cap.
         self.assertGreaterEqual(cron.linux_job_minutes("web-ui-god") * 60,
-                                cron.GOD_PAIRED_DEADLINE_S + cron.GOD_PAIRED_ROUND_TIMEOUT_S)
+                                cron.GOD_PAIRED_PANE_BUILD_S + cron.GOD_PAIRED_DEADLINE_S
+                                + cron.GOD_PAIRED_ROUND_TIMEOUT_S + cron.linux_run_seconds("web-ui-god"))
+
+    def test_the_paired_god_rounds_run_first_and_fit_their_minimum(self):
+        # 2026-11-21..25: the suite ran first and the paired rounds' deadline left room for one 600 s round, cut at
+        # 600 s, so no run reached GOD_PAIRED_MIN_ROUNDS and god_chat_replay_ratio_max read nothing.
+        self.assertEqual(list(cron.linux_bench_runs("/r", "web-ui-god")), ["paired", "suite"])
+        self.assertGreaterEqual(cron.GOD_PAIRED_DEADLINE_S,
+                                (cron.GOD_PAIRED_MIN_ROUNDS - 1) * cron.GOD_PAIRED_ROUND_TIMEOUT_S * 3 // 4,
+                                "MIN rounds of three quarters of the cut each start before the deadline")
+
+    def test_the_paired_rounds_share_one_pane_build(self):
+        with tempfile.TemporaryDirectory() as out:
+            def built(argv, **kw):
+                open(os.path.join(argv[-1], ".shared-build-done"), "w").close()
+                return mock.Mock(returncode=0)
+            env, line = cron.paired_pane_build("/r", {}, out, run=built)
+            self.assertEqual(env, {"CMUX_BENCH_PANE_DIR": out})
+            self.assertIn("paired pane build", line)
+        env, line = cron.paired_pane_build("/r", {}, "/nonexistent", run=lambda argv, **kw: mock.Mock(returncode=1))
+        self.assertEqual(env, {}, "a failed build leaves each round to build its own")
+        self.assertIn("each round builds its own", line)
 
     def test_every_web_ui_bench_times_out_inside_its_part_run_cap(self):
         # chat-100k-flat's suite timeout (1200 s) killed it in long_x20, and the grown run timed out at 1770 s against a
@@ -1796,11 +1836,12 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual((len(got["rounds"]), got["stopped"]), (cron.GOD_PAIRED_MIN_ROUNDS, "settled"))
         self.assertEqual(len(got["rounds"][0]["rows"]), 6)
         now[0] = 0.0
-        run, calls = run_with([1.0, 1.5, 0.9, 1.6, 1.0, 1.4, 0.8, 1.7, 1.1, 1.3, 0.9, 1.6], 300)
+        run, calls = run_with([1.0, 1.5, 0.9, 1.6, 1.0, 1.4, 0.8, 1.7, 1.1, 1.3, 0.9, 1.6], 600)
         with contextlib.redirect_stdout(io.StringIO()):
-            got = cron.run_paired_rounds(["bun"], "/r", {"PAIRED": "1"}, -900.0, clock=clock, run=run)
+            got = cron.run_paired_rounds(["bun"], "/r", {"PAIRED": "1"}, 0.0, clock=clock, run=run)
         self.assertEqual(got["stopped"], "deadline", "a noisy run stops at the deadline, inside the job's cap")
-        self.assertLessEqual(900 + 300 * len(got["rounds"]), cron.GOD_PAIRED_DEADLINE_S)
+        self.assertLessEqual(600 * len(got["rounds"]), cron.GOD_PAIRED_DEADLINE_S)
+        self.assertGreaterEqual(len(got["rounds"]), cron.GOD_PAIRED_MIN_ROUNDS, "600 s rounds still reach MIN")
 
     def test_a_regression_of_a_webui_row(self):
         name = "webui.chat_switch.unread.latest@linux"
