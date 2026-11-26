@@ -13,11 +13,13 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import signal
 from pathlib import Path
 import plistlib
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -2268,7 +2270,43 @@ class TryScriptTests(unittest.TestCase):
         self.assertIn('[[ "$OUTCOME" == built ]]', verdict)
         fleet = flow[:flow.index('  verdict:')]
         self.assertEqual(fleet.count('outcome=built'), 1)
-        self.assertIn('if [[ "$status" -eq 0 ]]; then echo "outcome=built"', fleet)
+        self.assertIn('if [[ "$state" == done ]]; then echo "outcome=built"', fleet)
+        # Only events that bring a new head: a second run at one head cancelled the first one's step (a0a4b2d1).
+        self.assertIn('types: [opened, synchronize]\n', flow)
+
+    def test_the_fleet_job_reads_its_verdict_from_the_steps_own_state(self):
+        # 2026-11-26, a0a4b2d1: the controller refused the submit (HTTP 409, client exit 1, no step) and the job
+        # said the device app did not build. The outcome comes from the step's state and exit code alone.
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        start = flow.index('        run: |\n', flow.index('id: fleet')) + len('        run: |\n')
+        body = textwrap.dedent(flow[start:flow.index('\n\n  verdict:')])
+        step = '0123456789abcdef01234567'
+        cases = [  # client run output, run exit, status JSON -> outcome, job exit
+            ('cmux-ci: controller HTTP 409: step_key already names a different step', 1, '', '', 0),
+            (f'cmux-ci: step {step} queued', 0, '{"state": "done", "exit_code": 0}', 'built', 0),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "failed", "exit_code": 1}', 'failed', 1),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "failed", "exit_code": 3}', '', 0),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "cancelled"}', '', 0),
+            (f'cmux-ci: step {step} queued', 1, '', '', 0),  # status unreadable
+        ]
+        for out, rc, status, outcome, code in cases:
+            with self.subTest(out=out, status=status), tempfile.TemporaryDirectory() as temp:
+                t = Path(temp)
+                client = t / 'cmux-ci'
+                (t / 'status.json').write_text(status)
+                client.write_text(f"""#!/bin/bash
+if [ "$1" = status ]; then [ "$2" = {step} ] && cat "{t}/status.json"; exit 0; fi
+echo {shlex.quote(out)} >&2; exit {rc}
+""")
+                client.chmod(0o755)
+                (t / 'out').write_text('')
+                env = dict(os.environ, CMUX_CI_CLIENT=str(client), HEAD_SHA='a0a4b2d1fcdb7450ec0bc2078a3e27fb0d70434c',
+                           PR='51721', RUNNER_TEMP=temp, RUNNER_NAME='r', GITHUB_OUTPUT=str(t / 'out'),
+                           GITHUB_STEP_SUMMARY=str(t / 'summary'))
+                r = subprocess.run(['bash', '-c', body], env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+                self.assertEqual((t / 'out').read_text(), f'outcome={outcome}\n' if outcome else '')
+                self.assertEqual('Built ahead' in (t / 'summary').read_text(), outcome == 'built')
 
 if __name__ == '__main__':
     unittest.main()
