@@ -1,0 +1,14 @@
+/* The gallery stage of a theme file's menu and popover look: the menu's trigger on the left, the
+   usage popover on the right, where the composer draws it. */
+.menu-look-keys-stage {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px;
+}
+.menu-look-keys-two-line {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}

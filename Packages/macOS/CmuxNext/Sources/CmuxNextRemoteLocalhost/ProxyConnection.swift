@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxNextWakeups
 import Foundation
 import Network
@@ -183,7 +184,8 @@ final class ProxyConnection: Sendable {
         tcp.connectionTimeout = 15
         tcp.noDelay = true
         guard let port = NWEndpoint.Port(rawValue: head.port) else { return }
-        let upstream = NWConnection(host: proxy.directHost(head.host), port: port, using: NWParameters(tls: nil, tcp: tcp))
+        CmuxEgress.allowNamed(head.host)   // the page the person is browsing through the remote machine's proxy
+        let upstream = CmuxEgress.connection(host: proxy.directHost(head.host), port: port, using: NWParameters(tls: nil, tcp: tcp), site: "CmuxNextRemoteLocalhost.ProxyConnection")
         defer { upstream.cancel() }
         guard await upstream.ready(on: proxy.queue) else {
             proxy.count(\.failures)

@@ -3,7 +3,7 @@
 // transcript records (acpmux `_acpmux/event` params) in the middle of a turn: the owner's prompt,
 // the agent's reasoning, a test run with its output, and a second run, either still going or
 // waiting on the owner's answer. `fakeRoom` plays frames to the page as the room would.
-import type { EventRecord } from "../../acpmux/direct";
+import type { EventRecord } from "../../acpmux/eventRecord";
 import { AVATAR_PNG, GUEST_INITIALS, GUEST_WITH_AVATAR } from "../../acpmux/multiplayer/people.fixtures";
 import type { GuestPrompt } from "../guestPrompts";
 import type { ShareSocketLike } from "../shareSocket";

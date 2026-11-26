@@ -24,9 +24,13 @@ The pick, in order:
    alone, which is exactly the routing before this script (one group, either Mac).
 
 Reads, all bounded and none waiting on a rate limit: vars.CI_RUNNER_STATE (the runner census runner-heal publishes
-every two minutes, no API call), then with the job's GITHUB_TOKEN (actions: read, no other secret) one listing of
-nightly.yml's runs on nightly-next and one jobs listing for each open loop run (at most MAX_RUNS). Each request has
-a READ_TIMEOUT and is never retried. The script never fails the job.
+every two minutes, no API call), then one listing of nightly.yml's runs on nightly-next and one jobs listing for
+each open loop run (at most MAX_RUNS). Each request has a READ_TIMEOUT and is never retried with the same token. The
+reads go first as SPARE_READ_TOKEN (the glaeda-route App's read-only token decide already mints: its own hourly
+budget) and, on a 403 or 429 or with no spare, as the job's GITHUB_TOKEN (actions: read). With the GITHUB_TOKEN alone
+the shared budget ran dry and the pick fell back (run 45575194160, 2026-11-25: "HTTP Error 403: Forbidden"), so
+both builds took cmux15 and the second waited 10.5 min at the slot. Leo (ask-c0123d25e8): "why so long that they
+didnt publish either tho cuz it's been 5h". The script never fails the job.
 
 usage: nightly_next_signer_pick.py   (env: GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_TOKEN, CI_RUNNER_STATE)
 Writes host=..., pin=... and reason=... to $GITHUB_OUTPUT.
@@ -38,6 +42,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -174,13 +179,23 @@ def pick(runners: Sequence[Mapping[str, Any]], holders: Sequence[Mapping[str, An
                                          "the signer label alone, as before")
 
 
-def api_get(repo: str, token: str) -> Callable[[str], Any]:
+def api_get(repo: str, tokens: Sequence[str]) -> Callable[[str], Any]:
+    """A reader that sends each request as the first token that still has budget: a 403 or 429 moves to the next."""
+    remaining = [token for token in tokens if token]
+
     def get(path: str) -> Any:
-        request = urllib.request.Request(f"https://api.github.com/repos/{repo}/{path}", headers={
-            "Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-nightly-next-signer-pick"})
-        _, body, _ = deadline_http.request(request, READ_TIMEOUT, follow_redirects=False, raise_errors=True)
-        return json.loads(body)
+        while True:
+            request = urllib.request.Request(f"https://api.github.com/repos/{repo}/{path}", headers={
+                "Accept": "application/vnd.github+json", "Authorization": f"Bearer {remaining[0]}",
+                "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-nightly-next-signer-pick"})
+            try:
+                _, body, _ = deadline_http.request(request, READ_TIMEOUT, follow_redirects=False, raise_errors=True)
+            except urllib.error.HTTPError as error:
+                if error.code in (403, 429) and len(remaining) > 1:
+                    remaining.pop(0)
+                    continue
+                raise
+            return json.loads(body)
     return get
 
 
@@ -195,10 +210,10 @@ def evaluate(env: Mapping[str, str], get: Callable[[str], Any] | None = None,
             raise LookupError("vars.CI_RUNNER_STATE is missing, stale or not a complete census")
         runners = pool.census_runners(document)
         if get is None:
-            token = env.get("GITHUB_TOKEN", "")
-            if not token:
-                raise LookupError("no GITHUB_TOKEN to read the open nightly-next runs")
-            get = api_get(repo, token)
+            tokens = [token for token in (env.get("SPARE_READ_TOKEN", ""), env.get("GITHUB_TOKEN", "")) if token]
+            if not tokens:
+                raise LookupError("no SPARE_READ_TOKEN or GITHUB_TOKEN to read the open nightly-next runs")
+            get = api_get(repo, tokens)
         own = str(env.get("GITHUB_RUN_ID") or "")
         listing = get("actions/workflows/nightly.yml/runs?" + urllib.parse.urlencode(
             {"branch": "nightly-next", "per_page": 30}))

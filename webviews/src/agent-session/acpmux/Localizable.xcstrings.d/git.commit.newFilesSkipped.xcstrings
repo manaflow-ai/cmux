@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.commit.newFilesSkipped" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} ملفات جديدة أخرى غير معروضة. نفّذ الالتزام بها في الطرفية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Još {n} novih datoteka nije izlistano. Commitajte ih u terminalu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} nye filer mere vises ikke. Commit dem i en terminal."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} weitere neue Dateien sind nicht aufgelistet. Committe sie im Terminal."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{n} more new files aren't listed. Commit them in a terminal."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} archivos nuevos más no aparecen. Haz commit de ellos en una terminal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} autres nouveaux fichiers ne sont pas listés. Commitez-les dans un terminal."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Altri {n} nuovi file non sono elencati. Fai il commit in un terminale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ほかに {n} 個の新しいファイルが一覧にありません。ターミナルでコミットしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឯកសារថ្មី {n} ទៀតមិនត្រូវបានរាយទេ។ សូម commit ពួកវានៅក្នុង terminal។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "새 파일 {n}개가 더 목록에 없습니다. 터미널에서 커밋하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} nye filer til vises ikke. Commit dem i en terminal."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolejne nowe pliki ({n}) nie są wyświetlone. Zatwierdź je w terminalu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mais {n} arquivos novos não aparecem. Faça o commit deles em um terminal."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ещё {n} новых файлов не показаны. Закоммитьте их в терминале."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไฟล์ใหม่อีก {n} ไฟล์ไม่ได้แสดงในรายการ คอมมิตไฟล์เหล่านั้นในเทอร์มินัล"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{n} yeni dosya daha listelenmedi. Onları bir terminalde commit edin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ще {n} нових файлів не показано. Закомітьте їх у терміналі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Còn {n} tệp mới chưa được liệt kê. Hãy commit chúng trong terminal."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "另有 {n} 个新文件未列出。请在终端中提交它们。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "另有 {n} 個新檔案未列出。請在終端機中提交它們。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

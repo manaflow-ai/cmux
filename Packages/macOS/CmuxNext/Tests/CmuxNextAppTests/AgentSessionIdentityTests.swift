@@ -82,6 +82,36 @@ struct AgentSessionIdentityTests {
         #expect(renamed == "Release", "the person's workspace rename wins")
     }
 
+    /// Leo, 2026-11-24: "if it wasn't manually adjusted and forecd by the user or agent to be a particular way, can
+    /// keep being like... the main one's name. which can change." A workspace its launcher named after the agent
+    /// (`claude-sr2-coord`, revision 0) follows the agent's rename to Mango, and its next rename to Kiwi.
+    @Test func aLauncherNamedWorkspaceFollowsItsAgentsRenames() {
+        let toMango = SidebarMapping.agentRowTitle(workspaceTitle: "claude-sr2-coord", workspaceName: "claude-sr2-coord",
+                                                   workspaceNameSource: .user, sessionName: "mango", displayName: "Mango",
+                                                   formerSessionNames: ["claude-sr2-coord"], chatTitle: nil, taskSummary: nil)
+        #expect(toMango == "Mango", "the old launcher name is the agent's, not a forced name")
+        let toKiwi = SidebarMapping.agentRowTitle(workspaceTitle: "claude-sr2-coord", workspaceName: "claude-sr2-coord",
+                                                  workspaceNameSource: .user, sessionName: "kiwi", displayName: "Kiwi",
+                                                  formerSessionNames: ["claude-sr2-coord", "mango"], chatTitle: nil,
+                                                  taskSummary: nil)
+        #expect(toKiwi == "Kiwi", "it keeps following each rename")
+        let peerQualified = SidebarMapping.agentRowTitle(workspaceTitle: "coord", workspaceName: "coord",
+                                                         workspaceNameSource: .user, sessionName: "cosmic-gray/mango",
+                                                         displayName: "Mango", formerSessionNames: ["cosmic-gray/coord"],
+                                                         chatTitle: nil, taskSummary: nil)
+        #expect(peerQualified == "Mango", "a peer-qualified former name matches its short form")
+        let forced = SidebarMapping.agentRowTitle(workspaceTitle: "claude-sr2-coord", workspaceName: "claude-sr2-coord",
+                                                  workspaceNameSource: .user, workspaceNameRevision: 1, sessionName: "mango",
+                                                  displayName: "Mango", formerSessionNames: ["claude-sr2-coord"],
+                                                  chatTitle: nil, taskSummary: nil)
+        #expect(forced == "claude-sr2-coord", "a rename by a person or agent stays forced")
+        let unrelated = SidebarMapping.agentRowTitle(workspaceTitle: "Release", workspaceName: "Release",
+                                                     workspaceNameSource: .user, sessionName: "mango", displayName: "Mango",
+                                                     formerSessionNames: ["claude-sr2-coord"], chatTitle: nil, taskSummary: nil)
+        #expect(unrelated == "Release", "a name the agent never had is not its launcher's")
+        #expect(!SidebarMapping.isSessionNamed("", sessionName: nil, formerSessionNames: [""]))
+    }
+
     @Test func theHoverCardNamesTheFormerName() {
         let turns = Self.store()
         turns.apply(session: "mango", state: nil, lastMessage: nil, muted: false, title: "Mango",

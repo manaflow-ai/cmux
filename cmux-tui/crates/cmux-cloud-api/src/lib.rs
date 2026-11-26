@@ -17,7 +17,8 @@
 //! cmux-platform's `/v1/machines/{id}/chat-access` and `/v1/machines/{id}/chat-grants/{user}`
 //! (who may start app chats on a team machine, and Share with Me; [`chat`]); a `stack` call is
 //! refused before any request. `vm.scp_endpoint` is cmux-platform's
-//! `/v1/cloud/machines/{id}/ssh-endpoint` (a `stack` call is refused before any request).
+//! `/v1/cloud/machines/{id}/ssh-endpoint` and `machine.setup_desktop` its
+//! `/v1/cloud/machines/{id}/desktop` (a `stack` call of either is refused before any request).
 //!
 //! Classic cmux.com's `/api/vm` is gone from NEXT: the tunnel and firewall calls
 //! ([`NOT_ON_THIS_CLOUD`]) have no cmux-platform route yet, so each answers a 501
@@ -26,11 +27,17 @@
 //! `owner.acpmux_keyed_start` takes the person key as raw bytes beside the request (exactly
 //! `args.key_length` of them), so the key is never part of a JSON value here.
 //!
+//! `machine.fork` is cmux-platform's `POST /v1/machines/{id}/fork`: a running copy of a Cloud
+//! machine, memory and disk, that a new session or sub-agent is placed on ([`machine_fork`]).
+//!
 //! `machine.chief_resize` moves a Chief's own machine up the Chief ladder over cmux-platform's
 //! `cloud.machine.resize` ([`chief_resize`]).
 //!
 //! `owner.fork_run` is cmux-platform's fork runs (`args.verb`: `start`, `get` or `select`;
 //! [`fork_runs`]): one machine captured once, one copy-on-write child per harness, one kept.
+//!
+//! [`auto_sessions`] is not a call of [`perform`]: it is Auto mode's store as the owner, a typed
+//! client (`cmux_auto_session::AutoCloud`) the acpmux daemon holds while a chat has Auto on.
 //!
 //! `owner.turn_checkpoint`, `owner.turn_rewind` and `owner.turns` are a Cloud chat's "back to
 //! before this turn": whole-machine turn checkpoints on cmux-platform (`turns.rs`).
@@ -52,14 +59,19 @@
 
 #![cfg(unix)]
 
+pub mod auto_sessions;
 pub mod background;
 mod chat;
 pub mod chief_machine;
 pub mod chief_resize;
+pub mod chief_turn;
 mod fork_runs;
 mod http;
 mod machine;
+pub mod machine_destroy;
+pub mod machine_fork;
 pub mod machine_io;
+pub mod machine_resume;
 mod network;
 mod owner;
 mod previews;
@@ -119,13 +131,14 @@ pub fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
 
 /// Runs one call.
 pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Value, Failure> {
-    // The GitHub App status and repository list send Authorization alone: their team is in the
-    // query. Connect GitHub names its team in the team header, as every op does.
+    // The GitHub App status, repository list and clone token send Authorization alone: their team
+    // is in the query or the body. Connect GitHub names its team in the team header, as every op
+    // does: `team` when given, else the request's.
     let http = match request.call.as_str() {
-        "owner.github_app" | "owner.github_repos" => {
+        "owner.github_app" | "owner.github_repos" | "owner.github_clone_token" => {
             Http::new(&Request { team: None, ..request.clone() })?
         }
-        "owner.github_connect" => {
+        "owner.github_connect" if request.args.contains_key("team") => {
             let team = owner::team_id(text(&request.args, "team")?)?;
             Http::new(&Request { team: Some(team.to_owned()), ..request.clone() })?
         }
@@ -135,14 +148,17 @@ pub async fn perform(request: &Request, tail: Zeroizing<Vec<u8>>) -> Result<Valu
     match request.call.as_str() {
         "machine.io" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.io")),
         "machine.io" => machine::worker(request).await,
-        "machine.chief_start" => chief_machine::perform(request, &http).await,
+        "machine.chief_start" => chief_machine::perform(request, &http, &tail).await,
         "machine.chief_resize" => chief_resize::perform(request, &http).await,
+        "machine.fork" if request.auth == Auth::Stack => Err(not_on_this_cloud("machine.fork")),
+        "machine.fork" => machine_fork::fork_machine(request, args).await,
         call if chat::CALLS.contains(&call) && request.auth == Auth::Stack => {
             Err(not_on_this_cloud(call))
         }
         call if chat::CALLS.contains(&call) => chat::run(request, call, args).await,
         "vm.networks" => network::networks(&http, request.auth).await,
         "vm.scp_endpoint" => machine::scp_endpoint(&http, args).await,
+        "machine.setup_desktop" => machine::setup_desktop(&http, args).await,
         call if previews::PUBLICATION_CALLS.contains(&call) => {
             previews::publications(request, call, args).await
         }
@@ -193,7 +209,7 @@ pub fn answer_line(result: &Result<Value, Failure>) -> String {
 }
 
 /// Every call [`perform`] answers.
-pub const CALLS: [&str; 43] = [
+pub const CALLS: [&str; 48] = [
     "vm.scp_endpoint",
     "vm.tunnel_enroll",
     "vm.tunnel_revoke",
@@ -226,6 +242,9 @@ pub const CALLS: [&str; 43] = [
     "owner.github_app",
     "owner.github_repos",
     "owner.github_connect",
+    "owner.github_complete",
+    "owner.github_list",
+    "owner.github_clone_token",
     "owner.turn_checkpoint",
     "owner.turn_rewind",
     "owner.turns",
@@ -237,6 +256,8 @@ pub const CALLS: [&str; 43] = [
     "machine.share_chat",
     "machine.chief_start",
     "machine.chief_resize",
+    "machine.setup_desktop",
+    "machine.fork",
 ];
 
 /// A bound past every fixed deadline of a call (the longest, a staged machine read's, is about

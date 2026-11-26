@@ -13,7 +13,9 @@ import CmuxNextDesign
 /// toast names closes it. An agent or a hand edit that writes the file past
 /// `cmux settings set` no longer fails silently. The app turns it on with
 /// `SettingsController.start(announcingDiagnostics: true)`; Debug Settings
-/// `settings.diagnosticToast` keeps it up until closed or turns it off.
+/// `settings.diagnosticToast` shows it for 12 seconds or until closed. Off by default (Leo
+/// 2026-11-25: "make it stop showing the customization not applied/reviewd and shit popup
+/// tosts"): the refused value is shown inline at its Settings row, not popped.
 @MainActor
 final class SettingsDiagnosticToasts {
     static let toastID = "settings-diagnostics"
@@ -129,7 +131,7 @@ nonisolated enum SettingsDiagnosticToastStyle: String, Sendable, CaseIterable, T
     static let tunable = Tunable<SettingsDiagnosticToastStyle>.choice(
         "settings.diagnosticToast", SettingsPresentation.tunableSection, "Ignored cmux-next.json values",
         help: "How the app tells the person about a cmux-next.json value this build refuses.",
-        default: .toast, code: "SettingsDiagnosticToastStyle.tunable")
+        default: .off, code: "SettingsDiagnosticToastStyle.tunable")
 }
 
 enum SettingsDiagnosticStrings {

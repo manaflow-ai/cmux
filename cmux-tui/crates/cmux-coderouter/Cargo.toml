@@ -10,6 +10,7 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+cmux-egress.workspace = true
 cmux-json.workspace = true
 anyhow.workspace = true
 axum.workspace = true
@@ -39,4 +40,5 @@ zeroize.workspace = true
 cmux-link.workspace = true
 
 [dev-dependencies]
+cmux-egress = { workspace = true, features = ["capture"] }
 tempfile = "3"

@@ -31,15 +31,22 @@ function nodes(host: FakeHost, mount: string): Array<[string, Node]> {
 
 const texts = (host: FakeHost, m: string) => nodes(host, m).filter(([, n]) => n.type === "Text").map(([, n]) => String(n.props.text))
 
-/** The row (HStack with a tap) that holds the text `label`. */
+/** The clickable row (the nearest HStack with a pointer cursor) that holds the text `label`. */
 function rowOf(host: FakeHost, m: string, label: string): string {
   const all = nodes(host, m)
   const text = all.find(([, n]) => n.type === "Text" && n.props.text === label)?.[0]
   if (!text) throw new Error(`no text ${label}; shown: ${texts(host, m).join(" | ")}`)
-  const row = all.find(([, n]) => n.type === "HStack" && n.children.includes(text))?.[0]
-  if (!row) throw new Error(`no row for ${label}`)
-  return row
+  const parent = new Map<string, string>()
+  for (const [id, n] of all) for (const child of n.children) parent.set(child, id)
+  for (let id = parent.get(text); id; id = parent.get(id)) {
+    const n = host.tree(m).nodes.get(id)!
+    if (n.type === "HStack" && n.props.cursor === "pointer") return id
+  }
+  throw new Error(`no row for ${label}`)
 }
+
+/** The text node that shows `label`. */
+const textOf = (host: FakeHost, m: string, label: string) => nodes(host, m).find(([, n]) => n.type === "Text" && n.props.text === label)?.[1]
 
 const field = (host: FakeHost, m: string) => host.findNode(m, (n) => n.type === "TextField")!
 
@@ -49,11 +56,6 @@ async function type(device: Device, m: string, text: string) {
   await device.host.settle(10)
 }
 
-/** Fires every pending one-shot timer (the check-off settle). */
-async function fireTimers(host: FakeHost) {
-  for (const id of [...host.timers.keys()]) host.global.__cmuxAppTimer(id)
-  await host.settle(10)
-}
 
 const stored = (storage: Storage) => [...storage.data.values()] as Item[]
 
@@ -93,37 +95,39 @@ describe("cmux/todo widget", () => {
     expect(d.storage.data.size).toBe(1)
   })
 
-  test("clicking a row checks it: the circle fills and the row fades, then it leaves the list", async () => {
+  test("clicking a row checks it: it slides out of the list into Completed, struck through with a filled checkbox", async () => {
     const d = launch(source, new Storage({ "item:a": item("a", "Call the dentist", 10), "item:b": item("b", "Water the plants", 5) }))
     mount(d, "w", "large")
     await d.host.settle(10)
     expect(texts(d.host, "w")[0]).toBe("2")
     const row = rowOf(d.host, "w", "Call the dentist")
+    // Rows slide in and out (RowList); the host animates the leave. No timer of the widget's own.
+    expect(d.host.tree("w").nodes.get(row)!.props.transition).toBe("slide")
     d.host.dispatch("w", row, "tap")
     await d.host.settle(10)
-    // Still there, checked and faded; the count already says one is left.
-    const n = d.host.tree("w").nodes.get(row)!
-    expect(n.props.opacity).toBe(0.45)
-    expect(nodes(d.host, "w").some(([, n]) => n.type === "Circle" && n.props.fill === "accent")).toBe(true)
+    expect(d.host.timers.size).toBe(0)
     expect(texts(d.host, "w")[0]).toBe("1")
-    expect(stored(d.storage).find((i) => i.id === "a")).toMatchObject({ done: true, doneAt: AT })
-    await fireTimers(d.host)
-    // Settled: out of the open rows, folded into "1 Completed".
     expect(texts(d.host, "w")).not.toContain("Call the dentist")
     expect(texts(d.host, "w")).toContain("1 Completed")
+    expect(stored(d.storage).find((i) => i.id === "a")).toMatchObject({ done: true, doneAt: AT })
+    // Open Completed: the done row is struck through and dimmed, its checkbox filled with the list's blue.
+    d.host.dispatch("w", rowOf(d.host, "w", "1 Completed"), "tap")
+    await d.host.settle(10)
+    expect(textOf(d.host, "w", "Call the dentist")!.props).toMatchObject({ strikethrough: true, color: "secondary" })
+    expect(textOf(d.host, "w", "Water the plants")!.props.strikethrough).toBe(false)
+    expect(nodes(d.host, "w").filter(([, n]) => n.type === "Circle" && n.props.fill === "#007AFF")).toHaveLength(1)
   })
 
-  test("a click while the row is still fading un-checks it", async () => {
-    const d = launch(source, new Storage({ "item:a": item("a", "Call the dentist", 10) }))
-    mount(d, "w", "medium")
-    await d.host.settle(10)
-    d.host.dispatch("w", rowOf(d.host, "w", "Call the dentist"), "tap")
-    await d.host.settle(10)
-    d.host.dispatch("w", rowOf(d.host, "w", "Call the dentist"), "tap")
-    await d.host.settle(10)
-    await fireTimers(d.host)
-    expect(texts(d.host, "w")).toContain("Call the dentist")
-    expect(stored(d.storage)[0]!.done).toBe(false)
+  test("the list color is a hex: a named Reminders color, a typed hex, or blue", async () => {
+    for (const [color, hex] of [["orange", "#FF9500"], ["#5ac8fa", "#5AC8FA"], ["", "#007AFF"], ["nope", "#007AFF"]] as const) {
+      const d = launch(source, new Storage({ "item:a": item("a", "Send the invoice", 10, true) }))
+      mount(d, "w", "large", { color })
+      await d.host.settle(10)
+      expect(textOf(d.host, "w", "To Do")!.props.color).toBe(hex)
+      d.host.dispatch("w", rowOf(d.host, "w", "1 Completed"), "tap")
+      await d.host.settle(10)
+      expect(nodes(d.host, "w").some(([, n]) => n.type === "Circle" && n.props.fill === hex)).toBe(true)
+    }
   })
 
   test("large: the Completed row opens the done items, which un-check on a click", async () => {
@@ -249,7 +253,7 @@ describe("sync across two devices", () => {
     mac.host.dispatch("w", rowOf(mac.host, "w", "Buy milk"), "tap")
     await type(phone, "w", "Pay rent")
     phone.host.dispatch("w", rowOf(phone.host, "w", "Call mom"), "menu", { path: [1] })
-    await Promise.all([mac.host.settle(10), phone.host.settle(10), fireTimers(mac.host)])
+    await Promise.all([mac.host.settle(10), phone.host.settle(10)])
     syncAll(mac, phone)
     await Promise.all([mac.host.settle(10), phone.host.settle(10)])
     for (const d of [mac, phone]) {
@@ -268,7 +272,7 @@ describe("sync across two devices", () => {
     await Promise.all([mac.host.settle(10), phone.host.settle(10)])
     mac.host.dispatch("w", rowOf(mac.host, "w", "Call the dentist"), "tap") // checks it at +1 s
     phone.host.dispatch("w", rowOf(phone.host, "w", "Call the dentist"), "menu", { path: [1] }) // deletes it at +2 s
-    await Promise.all([mac.host.settle(10), phone.host.settle(10), fireTimers(mac.host)])
+    await Promise.all([mac.host.settle(10), phone.host.settle(10)])
     syncAll(mac, phone)
     await Promise.all([mac.host.settle(10), phone.host.settle(10)])
     for (const d of [mac, phone]) {
@@ -298,7 +302,6 @@ describe("sync across two devices", () => {
     d.host.handlers["app.storage.get"] = get
     for (const answer of answers) answer()
     await d.host.settle(10)
-    await fireTimers(d.host)
     expect(texts(d.host, "w")).toContain("0")
     expect(stored(d.storage)[0]).toMatchObject({ done: true })
   })
@@ -311,7 +314,7 @@ describe("sync across two devices", () => {
     await Promise.all([mac.host.settle(10), phone.host.settle(10)])
     mac.host.dispatch("w", rowOf(mac.host, "w", "Call the dentist"), "menu", { path: [1] }) // deletes it at +2 s
     phone.host.dispatch("w", rowOf(phone.host, "w", "Call the dentist"), "tap") // checks it at +1 s
-    await Promise.all([mac.host.settle(10), phone.host.settle(10), fireTimers(phone.host)])
+    await Promise.all([mac.host.settle(10), phone.host.settle(10)])
     // The phone's older check reaches the server last, so the server keeps it.
     syncLastArrival(mac, phone)
     await Promise.all([mac.host.settle(10), phone.host.settle(10)])
@@ -350,8 +353,10 @@ describe("sync across two devices", () => {
   })
 
   test("quick changes to one item are stored newest last, even when storage answers out of order", async () => {
-    const d = launch(source, new Storage({ "item:a": item("a", "Call the dentist", 10) }))
-    mount(d, "w", "medium")
+    const d = launch(source, new Storage({ "item:a": item("a", "Call the dentist", 10), "item:z": item("z", "Old", 1, true) }))
+    mount(d, "w", "large")
+    await d.host.settle(10)
+    d.host.dispatch("w", rowOf(d.host, "w", "1 Completed"), "tap") // open Completed, so the checked row stays clickable
     await d.host.settle(10)
     // Storage that applies each write when it answers, and answers whenever the test says.
     const held: Array<() => void> = []
@@ -365,7 +370,7 @@ describe("sync across two devices", () => {
     const row = () => rowOf(d.host, "w", "Call the dentist")
     d.host.dispatch("w", row(), "tap") // check
     await d.host.settle(10)
-    d.host.dispatch("w", row(), "tap") // un-check while settling
+    d.host.dispatch("w", row(), "tap") // un-check it from Completed before the first save answered
     await d.host.settle(10)
     // Answer every write held so far, newest first, until none is left.
     while (held.length > 0) {
@@ -379,21 +384,22 @@ describe("sync across two devices", () => {
     expect(texts(restarted.host, "w")).toContain("1")
   })
 
-  test("Clear removes only the Completed section, not an item checked a moment ago", async () => {
-    const d = launch(source, new Storage({ "item:a": item("a", "Send the invoice", 10, true), "item:b": item("b", "Call the dentist", 11) }))
+  test("Clear removes the Completed items and leaves the open ones", async () => {
+    const d = launch(source, new Storage({ "item:a": item("a", "Send the invoice", 10, true), "item:b": item("b", "Call the dentist", 11), "item:c": item("c", "Renew passport", 12) }))
     mount(d, "w", "large")
     await d.host.settle(10)
-    const completed = rowOf(d.host, "w", "1 Completed")
-    d.host.dispatch("w", completed, "tap")
+    d.host.dispatch("w", rowOf(d.host, "w", "Call the dentist"), "tap") // checked: now in Completed too
     await d.host.settle(10)
-    d.host.dispatch("w", rowOf(d.host, "w", "Call the dentist"), "tap") // checked, still settling
+    d.host.dispatch("w", rowOf(d.host, "w", "2 Completed"), "tap")
     await d.host.settle(10)
     const clear = nodes(d.host, "w").find(([, n]) => n.type === "Button" && n.props.title === "Clear")?.[0]
     expect(clear).toBeDefined()
     d.host.dispatch("w", clear!, "tap")
     await d.host.settle(10)
     expect(d.storage.data.get("item:a")).toMatchObject({ deleted: true })
-    expect(d.storage.data.get("item:b")).toMatchObject({ done: true })
-    expect(d.storage.data.get("item:b")).not.toHaveProperty("deleted")
+    expect(d.storage.data.get("item:b")).toMatchObject({ deleted: true })
+    expect(d.storage.data.get("item:c")).not.toHaveProperty("deleted")
+    expect(texts(d.host, "w")).toEqual(expect.arrayContaining(["1", "Renew passport"]))
+    expect(texts(d.host, "w").some((t) => t.endsWith("Completed"))).toBe(false)
   })
 })

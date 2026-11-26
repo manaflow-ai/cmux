@@ -54,7 +54,7 @@ struct AgentChatFindBar: View {
         .padding(.leading, 14)
         .padding(.trailing, 16)
         .frame(minHeight: 44)
-        .glassEffect(.regular, in: .capsule)
+        .cmuxMobileFloatingGlass(in: .capsule)
         .padding(.horizontal, 12)
         .onAppear { focused = surface.findFieldFocused }
         .onChange(of: surface.findFieldFocused) { _, wanted in if wanted != focused { focused = wanted } }

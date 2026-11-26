@@ -35,6 +35,8 @@ struct AgentPaneAppLinkTests {
         #expect(AgentPaneNavigation.isCmuxAppLink(workspace))
         #expect(AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux-dev-tag://session/abc")!))
         #expect(!AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux://auth-callback")!))
+        #expect(AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux-nightly://settings/connections/github")!))
+        #expect(AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux://settings")!))
         #expect(!AgentPaneNavigation.isCmuxAppLink(URL(string: "cmux://u:p@workspace/ws_x")!))
         #expect(!AgentPaneNavigation.isCmuxAppLink(URL(string: "https://workspace/ws_x")!))
     }

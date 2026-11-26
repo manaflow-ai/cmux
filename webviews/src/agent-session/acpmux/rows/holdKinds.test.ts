@@ -35,6 +35,7 @@ test("a hold carries no log read, and the page builds none whose kinds fail the 
     eventStream: true,
     kinds: [...HOLD_KINDS],
     visible: true,
+    attending: true,
   });
   expect(holdAttach("chat-1", true, ["transcript"])).toBeUndefined();
   expect(holdAttach("chat-1", true, ["usage_update", "all"])).toBeUndefined();

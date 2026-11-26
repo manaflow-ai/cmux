@@ -1,24 +1,18 @@
 name: risk tier tests
 
 # Unit tests for the risk classifier. Kept out of risk-tier.yml so a pull_request run never
-# reports a skipped `risk evidence` check on the head commit.
+# reports a skipped `risk evidence` check on the head commit. A pull request into feat-cmux-next
+# runs them as ci/steps.toml's risk-tier-tests step in pr-pipeline.yml's linux job; this workflow
+# ran on those pull requests only, so it keeps a dispatch run.
 
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    paths:
-      - scripts/ci/risk_tier.py
-      - tests/test_risk_tier.py
-      - tests/git_fixture_env.py
-      - tests/fleet_test_host.py
-      - .github/workflows/risk-tier.yml
-      - .github/workflows/risk-tier-tests.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: risk-tier-tests-${{ github.event.pull_request.number }}
+  group: risk-tier-tests-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -28,7 +22,7 @@ env:
 jobs:
   tests:
     name: risk tier tests
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }} # read-only unit tests
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }} # read-only unit tests
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -39,6 +33,6 @@ jobs:
             tests/test_risk_tier.py
             tests/git_fixture_env.py
             tests/fleet_test_host.py
-            .github/workflows/risk-tier.yml
+            .gitmodules
           sparse-checkout-cone-mode: false
       - run: python3 tests/test_risk_tier.py -v

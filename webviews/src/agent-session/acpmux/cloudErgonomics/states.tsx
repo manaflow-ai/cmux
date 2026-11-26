@@ -55,6 +55,7 @@ const inPlace =
 function cloudStartHandlers(record: Recorder) {
   return {
     onAnswer: inPlace(record, "answer the start's question"),
+    // retry-prompt-ok: CloudStartView's Retry sends the start prompt again and starts a billed Cloud machine.
     onRetry: inPlace(record, "retry the start"),
     // cloudSignInRetry: the browser sign-in, then the same start goes again by itself.
     onSignIn: inPlace(record, "sign in, then the start goes again"),
@@ -120,7 +121,8 @@ const HOST_ANSWERS: readonly HostAnswer[] = [
     retryable: true,
     from: "copying",
   },
-  // CloudStartChat: any other error (CloudMoveStrings.moveFailed).
+  // CloudStartChat: any other error (CloudMoveStrings.moveFailed). The host's own words; its "Try again" is the
+  // move's Retry (retry-prompt-ok: moving a chat starts a billed Cloud machine and copies the folder again).
   {
     id: "cloud_start_failed.other",
     code: "cloud_start_failed",
@@ -252,6 +254,7 @@ function cloudSignIn(record: Recorder): CloudSignIn {
 /// retries turns and signs agents in (`agent_login`), whose agent lists /compact.
 function cloudChatActions(record: Recorder, route: FailureRoute): TurnActions {
   return {
+    // retry-prompt-ok: both send a paid model request again.
     retry: inPlace(record, "send the prompt again"),
     retryFailed: inPlace(record, "retry the turn"),
     resume: inPlace(record, "continue the turn"),
@@ -306,6 +309,8 @@ const TURN_FAILURES: readonly TurnFailureFixture[] = [
     error: "Error loading SSO Token: The SSO session associated with this profile has expired or is otherwise invalid.",
   },
   { id: "rate-limited", kind: "rate-limited", error: "API Error: 529 overloaded_error" },
+  { id: "usage-limit", kind: "usage-limit", error: "You've hit your weekly limit · resets Nov 27, 7am (UTC)" },
+  { id: "account-disabled", kind: "account-disabled", error: "API Error: 400 This organization has been disabled." },
   { id: "unreachable", kind: "unreachable", error: "API Error: Connection error." },
   { id: "invalid-key", kind: "invalid-key", error: "invalid x-api-key" },
   { id: "subscription-login", kind: "subscription-login", error: "Not logged in · Please run /login" },
@@ -368,6 +373,8 @@ export const KINDS: { [kind in FailureKind]: true } = {
   "no-credit": true,
   "cloud-auth-expired": true,
   "rate-limited": true,
+  "usage-limit": true,
+  "account-disabled": true,
   unreachable: true,
   "invalid-key": true,
   "subscription-login": true,

@@ -73,7 +73,7 @@ pub(crate) fn is_prompt_cache_key(key: &str) -> bool {
 /// (`session_env.rs`). Per-session acpmux values
 /// (`ACPMUX_*`, `CMUX_AGENT_SESSION`) are set again for each agent in
 /// `agent/command.rs`; these have no per-agent value, so they are removed.
-pub(crate) const TURN_SCOPED_ENV: [&str; 8] = [
+pub(crate) const TURN_SCOPED_ENV: [&str; 10] = [
     // `sr claude proxy` sends it as X-Subrouter-Session: one sticky account.
     "SUBROUTER_SESSION_KEY",
     // Its opt-in for acpmux to send that header itself (subrouter_session.rs).
@@ -92,6 +92,12 @@ pub(crate) const TURN_SCOPED_ENV: [&str; 8] = [
     // must not hold it over the live setting. A chat another Mac started gets its own in its
     // session env, applied after (`hub/cmux_tools_answer.rs`).
     "CMUX_AGENT_TOOLS_ANSWER",
+    // A tool call's bound (leo-workspace tools/proc_env.py, glaeda-gh): the epoch second the call
+    // and all it started should be gone, and the tool that set it. The fleet's orphan reaper ends a
+    // process past it (exit 143), so a daemon a bounded command started handed it to every agent and
+    // terminal, which died minutes later, also after a relaunch kept them.
+    "CMUX_DEADLINE",
+    "CMUX_DEADLINE_OWNER",
 ];
 
 /// Whether `key` belongs to the daemon starter's turn or session alone: the

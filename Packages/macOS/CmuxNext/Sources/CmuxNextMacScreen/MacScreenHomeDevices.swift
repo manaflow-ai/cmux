@@ -128,7 +128,7 @@ struct MacScreenHomeSnapshot: Equatable {
                                     setup: source.setup.row(id: device.id, isMac: device.platform != .ios, online: device.online))
                     })
                 }
-                if hub.thisDevice != nil {
+                if hub.thisDevice != nil || hub.status == .ready {
                     let hubHost = source.hubHost
                     sharing = Sharing(isSharing: hubHost.isSharing, busy: hubHost.busy,
                                       screenRecordingGranted: home.host.screenRecordingGranted,
@@ -208,7 +208,7 @@ extension MacScreenHomeView {
         case let .signedOut(text):
             let signIn = SignInButton { [weak self] in self?.actions.signIn() }
             signIn.setAccessibilityIdentifier("macScreen.home.signIn")
-            content = MacScreenStack.make(.vertical, spacing: 8, alignment: .leading, [MacScreenHomeParts.note(text), signIn])
+            content = MacScreenStack.make(.vertical, spacing: 8, alignment: .leading, [MacScreenHomeParts.note(text), signIn.withBackendLine(actions.signInBackend)])
         case let .list(list):
             let rows = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
             let views = look == .classic ? list.map { classicRow($0, placement: placement) } : quietRows(list, look: look)

@@ -75,7 +75,8 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 # are glaeda-* labels and the repository variables that name them.
 MACOS_HINT = re.compile(
     r"macos|glaeda-|MACOS_RUNNER|CI_SIDE_LANE_RUNNER|CI_LIGHT_LANE_RUNNER"
-    r"|CI_NEXT_[A-Z_]*POOL|CI_SEED_TRUSTED_POOL|NIGHTLY_[A-Z_]*(RUNNER|POOL)"
+    # inputs.nightly_runner is a boolean (cmux-tui-build-package.yml: take the nightly Linux pool), not a label.
+    r"|CI_NEXT_[A-Z_]*POOL|CI_SEED_TRUSTED_POOL|(?<!inputs\.)NIGHTLY_[A-Z_]*(RUNNER|POOL)"
     r"|pr_[a-z_]*runner|macos_runner|mini_runner|pick-nightly-build-runner\.outputs\.helper"
     r"|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
     re.IGNORECASE,
@@ -517,7 +518,7 @@ FORK_PR_BLACKSMITH = re.compile(
     r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
     r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
 # The CI_TRUSTED_RUNNER selector (main's scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
-# secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
+# declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
 TRUSTED_SELECTOR_TAIL = [
     "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
     "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER",
@@ -646,9 +647,11 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             hosted_forms = (hosted, track_hosted, always_hosted) if nightly else (hosted, track_hosted)
             hosted_terms = [part for part in alternatives if part in hosted_forms]
             pool = "fromJSON(vars.RUNNER_POOLS).linux_2" if bootstrap else "fromJSON(vars.RUNNER_POOLS).linux"
-            secretless_tail = (alternatives[-1] == pool or alternatives[-2:] == TRUSTED_SELECTOR_TAIL) and not used
+            # Our own pool takes a job whether or not it holds a secret: forks never reach it (FORK_WRAPPED_POOL_READ,
+            # tests/test_ci_fork_runner_routing.py), and the rest is our own code (Leo, 2026-11-19).
+            pool_tail = alternatives[-1] == pool or alternatives[-2:] == TRUSTED_SELECTOR_TAIL
             ours = nightly and (alternatives[-1:] == [always_hosted] or alternatives[-2:] == owned_tail)
-            if len(hosted_terms) != 1 or (not ours and alternatives[-1] not in paid and not secretless_tail):
+            if len(hosted_terms) != 1 or (not ours and alternatives[-1] not in paid and not pool_tail):
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
             hosted_term = hosted_terms[0]
@@ -670,11 +673,11 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 tail = tail[1:]
             switched = (len(tail) == 2 and tail[1] in paid and tail[0].startswith("vars.CI_CLOUD_OVERFLOW_SAVED && ")
                         and tail[0].split(" && ", 1)[1] in paid)
-            # Or, for a job that holds no secret, the reconciled Linux pool's live member.
-            pooled = tail == [pool] and not used
-            # Or, for a secretless job in a reusable workflow (which must not fromJSON a variable),
-            # the reviewed CI_TRUSTED_RUNNER selector: its own allowlist, else one ephemeral label.
-            trusted = tail == TRUSTED_SELECTOR_TAIL and not used
+            # Or the reconciled Linux pool's live member.
+            pooled = tail == [pool]
+            # Or, in a reusable workflow (which must not fromJSON a variable), the reviewed CI_TRUSTED_RUNNER
+            # selector: its own allowlist, else one ephemeral label.
+            trusted = tail == TRUSTED_SELECTOR_TAIL
             owned = nightly and (tail == [] and hosted_term == always_hosted or tail == owned_tail and hosted_term != always_hosted)
             if not (len(tail) == 1 and tail[0] in paid or switched or pooled or trusted or owned
                     or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]

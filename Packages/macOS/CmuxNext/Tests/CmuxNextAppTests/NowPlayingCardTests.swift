@@ -152,6 +152,8 @@ import Testing
         let pip = h.card.pictureInPictureButton
         #expect(!pip.isHidden && !pip.frame.isEmpty && h.card.bounds.contains(pip.frame), "Picture in Picture at \(pip.frame) is not on the card")
         #expect(pip.frame.minX > h.card.nextButton.frame.maxX, "Picture in Picture is not past Next")
+        let play = h.card.playPauseButton.frame
+        #expect(abs(play.midX - h.card.bounds.midX) <= 0.5, "Play \(play) moved off the card's center for a video")
         #expect(pip.accessibilityLabel() == "Picture in Picture")
         _ = pip.sendAction(pip.action, to: pip.target)
         #expect(h.source.commands.last == .pictureInPicture, "the source got \(h.source.commands)")

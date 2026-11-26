@@ -16,9 +16,9 @@ struct CloudHandoffTurnOpenerTests {
     }
 
     /// Runs the opener against a scripted store: `made` answers the create, `begun` each begin in turn.
-    private func open(_ made: CloudHandoffTurn, begun: [CloudHandoffTurn] = []) async throws -> (opened: CloudHandoffTurnOpener.Opened, begins: [Int]) {
+    private func open(_ made: CloudHandoffTurn, begun: [CloudHandoffTurn] = []) async throws -> (opened: CloudHandoffTurn.Opened, begins: [Int]) {
         var begins: [Int] = []
-        let opened = try await CloudHandoffTurnOpener.open(session: "s-1", machine: "vm_a", make: { _, _ in made }, begin: { _, after in
+        let opened = try await CloudHandoffTurn.open(session: "s-1", machine: "vm_a", make: { _, _ in made }, begin: { _, after in
             begins.append(after)
             return try #require(begun.count >= begins.count ? begun[begins.count - 1] : nil)
         })

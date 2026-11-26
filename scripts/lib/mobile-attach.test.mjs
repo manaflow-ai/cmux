@@ -100,9 +100,17 @@ test("shared dev-tag validator rejects every spelling that sanitizes to default"
 });
 
 test("shared dev-tag validator permits non-sentinel tags", () => {
-  for (const tag of ["future-one", "default-2", "de fault"]) {
+  for (const tag of ["future-one", "default-2", "de-fault"]) {
     const result = validate(tag);
     assert.equal(result.status, 0, `${tag}: ${result.stderr}`);
+  }
+});
+
+test("shared dev-tag validator refuses every spelling but the slug, so no two tags share a build space", () => {
+  for (const [tag, slug] of [["de fault", "de-fault"], ["foo_bar", "foo-bar"], ["Foo-Bar", "foo-bar"], ["foo--bar", "foo-bar"]]) {
+    const result = validate(tag);
+    assert.notEqual(result.status, 0, `${tag} unexpectedly passed`);
+    assert.match(result.stderr, new RegExp(`is not a canonical tag.*--tag ${slug}`));
   }
 });
 

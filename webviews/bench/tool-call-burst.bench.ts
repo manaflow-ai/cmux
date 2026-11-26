@@ -24,6 +24,7 @@ import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { loadTurn, sourceFile } from "../src/agent-session/acpmux/loadFixture";
 import { perfRow, TARGET_MS } from "./perfRow";
 import { toRecord, type Step } from "./replayLogs";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -427,14 +428,18 @@ if (import.meta.main) {
       },
     });
     releases.push(() => daemon.stop(true));
-    const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "tool-call-burst-bench-"));
-    releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+    // Under bench/web-ui-suite.ts, the suite's one pane build of the run (bench/support/sharedBuilds.ts).
+    const variant = Boolean(PROFILE);
+    const shared = sharedPaneDir({ variant });
+    const out = shared ?? fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "tool-call-burst-bench-"));
+    if (!shared) releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
     const { build } = await import("vite");
-    await build({
-      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
-      logLevel: "error",
-    });
+    if (!shared)
+      await build({
+        configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+        build: { outDir: out, emptyOutDir: true, ...(variant ? { minify: false } : {}) },
+        logLevel: "error",
+      });
     const statics = Bun.serve({
       port: 0,
       hostname: "127.0.0.1",

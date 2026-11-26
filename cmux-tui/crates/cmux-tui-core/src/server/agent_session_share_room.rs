@@ -357,7 +357,7 @@ pub(super) async fn call(
     body: Option<&Value>,
     timeout: Duration,
 ) -> Option<(u16, Value)> {
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui_core::server::agent_session_share_room")
         .default_headers(cmux_build_space::headers().ok()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeout)
@@ -825,7 +825,12 @@ async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> R
     let config = tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(MAX_HOST_FRAME_BYTES))
         .max_frame_size(Some(MAX_HOST_FRAME_BYTES));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui_core::server::agent_session_share_room",
+    );
     match tokio::time::timeout(timeout, connect).await {
         Ok(Ok((socket, _))) => Ok(socket),
         Ok(Err(tungstenite::Error::Http(reply))) => Err(match reply.status().as_u16() {
@@ -1350,3 +1355,7 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
 #[cfg(test)]
 #[path = "agent_session_share_room_tests.rs"]
 pub(super) mod tests;
+
+#[cfg(test)]
+#[path = "agent_session_share_room_seeded_tests.rs"]
+mod seeded_tests;

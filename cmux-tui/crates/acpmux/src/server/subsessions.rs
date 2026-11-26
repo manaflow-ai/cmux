@@ -6,7 +6,7 @@
 //!   (a)): a unix socket connection whose `initialize` carried a matching
 //!   `callerSession`. A request field never names the caller. `send` reaches
 //!   a descendant or the caller's own parent; `get` and `stop` a descendant.
-//! - `start {parent?, prompt, name?, harness?, model?, effort?, cwd?, worktree?}`: `parent`
+//! - `start {parent?, prompt, name?, harness?, model?, effort?, cwd?, worktree?, fork?}`: `parent`
 //!   (`acpmux new|run --parent`) names the session the child starts under, of any harness
 //!   family. A caller names itself or a descendant it may write to
 //!   (`Hub::subsession_write_target`, as `send` and `stop`); the person (the app's proof) names
@@ -140,7 +140,7 @@ async fn handle(
         // Weighed before anything starts: a refused placement makes no child.
         let placed = super::place::subsession_host(hub, str_param(params, "host")).await?;
         let text = |k: &str| str_param(params, k).map(str::to_owned);
-        let req = StartRequest {
+        let mut req = StartRequest {
             prompt: text("prompt").unwrap_or_default(),
             name: text("name"),
             harness: text("harness"),
@@ -156,9 +156,52 @@ async fn handle(
             local: super::remote_guard::control_of(conn.origin, conn.auth, params)
                 != crate::hub::Control::Web,
         };
+        // Only inherit the history of the agent making the call. A named descendant or
+        // person-started child still receives just its brief unless the caller requests a fork.
+        if params.get("fork").is_none()
+            && conn.caller() == Some(parent.id.as_str())
+            && req.own_launch_option().is_none()
+        {
+            let meta = parent.meta();
+            let has_history =
+                meta.agent_session_id.is_some() && (meta.turn_count > 0 || parent.turn().is_some());
+            req.fork = has_history
+                && (meta
+                    .agent_capabilities
+                    .as_ref()
+                    .is_some_and(|caps| crate::hub::offers_fork(Some(caps)))
+                    || hub.forks_any_turn(&meta) == Some(true));
+        }
+        // RFD 0144 piece 7: a working sub-agent on a fork of this Cloud machine, only with the
+        // hidden `cloud.autoCloud` key on (`placement/sub_fork.rs`); off, nothing here runs.
+        let sub_fork = crate::placement::sub_fork::start_plan(
+            crate::placement::sub_fork::enabled(),
+            req.worktree,
+            crate::placement::sub_fork::this_machine().as_deref(),
+        );
+        let checkout = req.cwd.clone().unwrap_or_else(|| parent.meta().cwd.clone());
+        let fork_outcome = crate::placement::sub_fork::on_start(
+            &sub_fork,
+            &req.prompt,
+            req.model.as_deref(),
+            &checkout,
+        )
+        .await;
+        // Ran on a fork: its files are back in the checkout; nothing starts here.
+        if let Some(outcome) = fork_outcome.as_ref().filter(|o| !o.runs_here()) {
+            let mut answer = serde_json::Map::new();
+            answer.insert("subFork".into(), json!(outcome));
+            if let Some(placed) = placed {
+                answer.insert("placed".into(), json!(placed));
+            }
+            return Ok(Value::Object(answer));
+        }
         let mut started = hub.start_subsession(&parent, req).await?;
         if let Some(placed) = placed {
             started.set("placed", json!(placed));
+        }
+        if let Some(outcome) = fork_outcome {
+            started.set("subFork", json!(outcome));
         }
         return Ok(started);
     }

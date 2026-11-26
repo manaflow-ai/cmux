@@ -127,6 +127,7 @@ async fn a_20k_row_list_reaches_a_peer_every_row_once_compressed_or_plain() {
         let (tx, mut notices) = mpsc::channel(64);
         let url = format!("ws://127.0.0.1:{port}");
         let peer = Peer::new("fleet", &url, Some(TOKEN.into()), None, tx);
+        peer.refuse_early(); // the paging server is a plain tungstenite accept, as before the early request
         let started = std::time::Instant::now();
         let link = tokio::spawn(peer.clone().run());
         let mut listed = None;
@@ -236,6 +237,7 @@ async fn a_compressed_frame_that_is_not_json_rpc_ends_the_link() {
     });
     let (tx, mut notices) = mpsc::channel(64);
     let peer = Peer::new("bad", &format!("ws://127.0.0.1:{port}"), Some(TOKEN.into()), None, tx);
+    peer.refuse_early(); // the server is a plain tungstenite accept, as before the early request
     let link = tokio::spawn(peer.clone().run());
     let why = loop {
         let (_, _, notice) = tokio::time::timeout(Duration::from_secs(10), notices.recv())
