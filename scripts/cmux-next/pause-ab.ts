@@ -106,6 +106,25 @@ const argValue = (flag: string, argv: string[]): string | undefined => {
 export const TURN_END_CAPABILITY = "activity-turn-end";
 export const NAME_PREFIX = "pause-ab-";
 
+/**
+ * The guest capability an arm's policy needs before it differs from another arm. Pause.ts gives turn_end its 5 s
+ * window only to a report advertising activity-turn-end (cmux#54684); without it the arm runs aggressive's 60 s and
+ * the A/B measures one policy twice. Run 45829884458 did exactly that: staging's boot list ended at
+ * cloud-native-auto-67d01201 (cmux-tui before #54684) because the 6fde033d roll was rolled back at 04:09Z and
+ * re-appended only at 13:37Z, and the guest updater applies the channel build only to an idle, unattached machine,
+ * which a driven machine never is. So an arm on a guest without its capability fails the run, naming the build.
+ */
+export const ARM_NEEDS: Record<string, string> = { turn_end: TURN_END_CAPABILITY };
+
+/** Machines whose arm needs a capability their guest did not advertise at the first turn's end. */
+export function missingCapability(results: Pick<MachineResult, "arm" | "name" | "capabilities" | "daemon_version">[]): string[] {
+  return results.flatMap((r) => {
+    const need = ARM_NEEDS[r.arm];
+    if (!need || r.capabilities?.includes(need)) return [];
+    return [`${r.name}: arm ${r.arm} needs ${need}, guest daemon ${r.daemon_version ?? "unknown"} advertised ${r.capabilities ? r.capabilities.join(",") || "none" : "nothing readable"}`];
+  });
+}
+
 /** mulberry32: a small seeded PRNG, so every run with the same seed draws the same gaps. */
 export function seededRandom(seed: number): () => number {
   let a = seed >>> 0;
@@ -732,7 +751,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       step: "idle decision per gap", status: "pass", ms: 0,
       detail: results.map((r) => `${r.name}: ${r.turns.map((t) => `gap ${t.turn} (${t.gap_s} s) ${t.kept ?? "n/a"}${t.listeners ? ` [listeners ${t.listeners}]` : ""}${t.report ? ` [${t.report}]` : ""}`).join(" / ")} / tail ${r.tail_kept ?? "n/a"}`).join(" || "),
     });
-    J.record({ step: "result", status: results.every((r) => r.turns_ok === r.turns.length) ? "pass" : "fail", ms: windowEnd - windowStart, detail: markdownTable(aggregate(results, arms)).split("\n").slice(2).join(" ") });
+    const missing = missingCapability(results);
+    const table = markdownTable(aggregate(results, arms)).split("\n").slice(2).join(" ");
+    J.record({
+      step: "result",
+      status: results.every((r) => r.turns_ok === r.turns.length) && missing.length === 0 ? "pass" : "fail",
+      ms: windowEnd - windowStart,
+      detail: missing.length ? `${table} :: arm not under its policy: ${missing.join(" | ")}` : table,
+    });
   } catch {
     // The failed step is recorded; cleanup below.
   } finally {

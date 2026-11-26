@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
-import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, parseReportState, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, parseGuestUpdate, parseReportState, missingCapability, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -226,5 +226,16 @@ describe("parseReportState", () => {
     const r = parseReportState("cat: /run/cmux-vm-agent/state.json: No such file or directory\n@@acpmux\n");
     expect(r.capabilities).toBeNull();
     expect(reportLine(r)).toBe("report state unreadable: cat: /run/cmux-vm-agent/state.json: No such file or directory; acpmux none");
+  });
+});
+
+describe("missingCapability", () => {
+  test("a turn_end machine without activity-turn-end fails the run, naming its build; aggressive needs none", () => {
+    const out = missingCapability([
+      { arm: "turn_end", name: "t1", capabilities: ["activity", "activity-turns"], daemon_version: "1.0.0+67d01201b152" },
+      { arm: "turn_end", name: "t2", capabilities: ["activity-turns", "activity-turn-end"], daemon_version: "1.0.0+6fde033d9d34" },
+      { arm: "aggressive", name: "a1", capabilities: null, daemon_version: null },
+    ]);
+    expect(out).toEqual(["t1: arm turn_end needs activity-turn-end, guest daemon 1.0.0+67d01201b152 advertised activity,activity-turns"]);
   });
 });
