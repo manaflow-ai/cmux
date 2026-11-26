@@ -104,6 +104,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-cloud-start-core",
                     # Which hidden browser tabs freeze, are discarded or are kept (cmux-tab-discard).
                     "cmux-tab-discard",
+                    # The browser pane's link placement and window rules (cmux-browser-rules).
+                    "cmux-browser-rules",
                     # NEXT Cloud's configuration rules (cmux-cloud-config).
                     "cmux-cloud-config",
                     # The launch's Cloud environment read, through cmux-daemon-launch-core (CMUX-571).
@@ -136,6 +138,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-sdk-ffi",
                     # Predictive local echo for remote terminals (cmux-terminal-prediction).
                     "cmux-terminal-prediction",
+                    # The browser's address bar resolver, BrowserURLResolver step A (cmux-url-input, #57119).
+                    "cmux-url-input",
                     # The window handlers' rules (cmux-window-rules).
                     "cmux-window-rules",
                 ]
