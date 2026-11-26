@@ -98,6 +98,13 @@ const ALLOWED: &[(&str, &str, &str, &str)] = &[
      harness memory folder the user names to the memory mount, right after `home_fs::rename` moved \
      the old folder aside.",
     ),
+    (
+        "src/hypervisor/libvirt.rs",
+        "LibvirtDriver::*",
+        "fs::*",
+        "The VM images folder and domain XML are read by libvirt's qemu user, not only this one: \
+     `home_fs` makes folders 0700 and files 0600, which would lock qemu out of the overlays.",
+    ),
 ];
 
 /// Whether `pattern` (an `ALLOWED` field) matches `value`.
