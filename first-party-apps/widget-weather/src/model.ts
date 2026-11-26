@@ -146,14 +146,14 @@ export const SKY_COLORS: Record<Sky, string> = {
 
 /** Apple's sky treatment uses a subtle vertical gradient rather than a flat fill. */
 export const SKY_GRADIENTS: Record<Sky, readonly string[]> = {
-  "clear-day": ["#2F7FD6", "#69A8E8"],
+  "clear-day": ["#235C9B", "#3076B4"],
   "clear-night": ["#0B1A3A", "#253B6E", "#3A4E86"],
-  "cloudy-day": ["#526B82", "#9BAFC0"],
+  "cloudy-day": ["#526B82", "#607589"],
   "cloudy-night": ["#1D2636", "#3C485C"],
-  "rain-day": ["#354D63", "#7590A8"],
+  "rain-day": ["#354D63", "#566F85"],
   "rain-night": ["#151D2B", "#2E3C50"],
-  snow: ["#7392AD", "#C4D5E4"],
-  fog: ["#657481", "#AEB9C2"],
+  snow: ["#425B73", "#60758A"],
+  fog: ["#435661", "#5C707C"],
   storm: ["#24283A", "#5A5874"]
 }
 

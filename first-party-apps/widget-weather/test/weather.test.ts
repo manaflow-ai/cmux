@@ -157,7 +157,7 @@ describe("the widget", () => {
     expect(fetched(h)).toEqual(["https://get.geojs.io/v1/ip/geo.json", expect.stringContaining("https://api.open-meteo.com/v1/forecast?latitude=37.323&longitude=-122.032")])
     expect(storage.get("reading")).toMatchObject({ key: "", place: { name: "Cupertino" } })
     // The sky behind it is the clear day's blue.
-    expect(drawn(h, "s")[0]!.props.background).toEqual({ linear: { colors: ["#2F7FD6", "#69A8E8"], angle: 180 } })
+    expect(drawn(h, "s")[0]!.props.background).toEqual({ linear: { colors: ["#235C9B", "#3076B4"], angle: 180 } })
     expect(drawn(h, "s").find((n) => n.type === "Icon" && n.props.symbol === "sun.max.fill")!.props.symbolRendering).toBe("multicolor")
   })
 
@@ -184,7 +184,7 @@ describe("the widget", () => {
     expect(texts(h, "s")).toEqual(["Lisbon", "14°", "Rain", "H:16° L:11°"])
     expect(symbols(h, "s")).toEqual(["cloud.rain.fill"])
     expect(fetched(h)[0]).toBe("https://geocoding-api.open-meteo.com/v1/search?count=1&name=Lisbon")
-    expect(drawn(h, "s")[0]!.props.background).toEqual({ linear: { colors: ["#354D63", "#7590A8"], angle: 180 } })
+    expect(drawn(h, "s")[0]!.props.background).toEqual({ linear: { colors: ["#354D63", "#566F85"], angle: 180 } })
   })
 
   test("the Units setting overrides; a night sky is navy; 24-hour clocks outside the US", async () => {
@@ -201,13 +201,19 @@ describe("the widget", () => {
     await h.settle(20)
     expect(drawn(h, "s")[0]!.props.background ?? null).toBeNull()
     expect(drawn(h, "s").find((n) => n.type === "Text")!.props.color).toBe("primary")
+    expect(drawn(h, "s").filter((n) => n.type === "Icon").every((n) => n.props.symbolRendering == null)).toBe(true)
   })
 
-  test("the widget locale overrides the app locale for units", async () => {
+  test("the widget locale overrides app units and hourly labels independently per mount", async () => {
     const { h } = host({ locale: "en-US" })
-    h.mount("s", "renderWeather", ctx("small", "newtab", "en-GB"))
+    h.mount("s", "renderWeather", ctx("medium", "newtab", "en-GB"))
+    h.mount("us", "renderWeather", ctx("medium", "newtab", "en-US"))
     await h.settle(20)
     expect(texts(h, "s").slice(0, 2)).toEqual(["Cupertino", "21°"])
+    expect(texts(h, "s").slice(4, 6)).toEqual(["10", "25°"])
+    expect(texts(h, "us").slice(0, 2)).toEqual(["Cupertino", "70°"])
+    expect(texts(h, "us").slice(4, 6)).toEqual(["10 AM", "77°"])
+    expect(fetched(h)).toHaveLength(2)
   })
 
   test("a kept reading draws before any network read, and a young one is not read again", async () => {

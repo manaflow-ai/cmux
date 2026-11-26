@@ -291,7 +291,7 @@ const drawWeather = widget((ctx: Partial<WidgetContext> = {}): View => {
     const units = unitsFor(ctx.locale || cmux.app.locale || "en", s.units, shownReading()?.place.country ?? "")
     return s.look === "plain"
       ? { sky: false, text: cmux.theme.text.primary, secondary: cmux.theme.text.secondary, units }
-      : { sky: true, text: "#FFFFFF", secondary: "#FFFFFFB3", units }
+      : { sky: true, text: "#FFFFFF", secondary: "#FFFFFF", units }
   })
   const sky = computed(() => {
     if (!look().sky) return null
