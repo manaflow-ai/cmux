@@ -28,7 +28,7 @@ enum ChiefUpload {
         var description: String {
             switch self {
             case let .stalled(hop, sent, seconds): "attachment.stalled: \(hop) sent no bytes for \(seconds) s (after \(sent) bytes)"
-            case let .timedOut(hop, seconds): "attachment.timed_out: \(hop) did not answer in \(seconds) s"
+            case let .timedOut(hop, seconds): "attachment.timed_out: no reply from \(hop) within \(seconds) s"
             }
         }
 
@@ -38,7 +38,7 @@ enum ChiefUpload {
             case let .stalled(hop, _, seconds):
                 String(format: String(localized: "The attachment stopped uploading: nothing moved for %1$d seconds (%2$@). Try again."), seconds, hop)
             case let .timedOut(hop, seconds):
-                String(format: String(localized: "The attachment couldn't upload: %1$@ didn't answer in %2$d seconds. Try again."), hop, seconds)
+                String(format: String(localized: "The attachment couldn't upload: %1$@ sent no reply for %2$d seconds. Try again."), hop, seconds)
             }
         }
     }

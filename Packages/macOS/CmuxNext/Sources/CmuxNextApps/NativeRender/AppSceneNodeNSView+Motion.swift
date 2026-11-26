@@ -305,7 +305,8 @@ extension AppSceneNodeNSView {
     func playTransition(entering: Bool, completion: (@MainActor () -> Void)? = nil) -> Bool {
         guard playsSDKTransition, let transition = node.transition, let layer, window != nil, Motion.canAnimate(in: self) else { return false }
         let animations = Motion.appScenes.sceneTransition(transition, entering: entering, opacity: layer.opacity,
-                                                          in: SceneTransformSpace(layer: layer), window: window)
+                                                          in: SceneTransformSpace(layer: layer), window: window,
+                                                          motion: node.transitionMotion)
         guard !animations.isEmpty else { return false }
         CATransaction.begin()
         if let completion {
