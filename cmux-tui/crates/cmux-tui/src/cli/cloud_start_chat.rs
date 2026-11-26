@@ -2812,8 +2812,9 @@ fn first_output_ms(records: &[Value]) -> Option<u64> {
         record.get("dir").and_then(Value::as_str) == Some("mux")
             && record.get("kind").and_then(Value::as_str) == Some("user_message")
     })?;
-    let from = at(&records[prompt])?;
-    let first = records[prompt + 1..].iter().find(|record| {
+    let mut after = records.iter().skip(prompt);
+    let from = at(after.next()?)?;
+    let first = after.find(|record| {
         record.get("dir").and_then(Value::as_str) == Some("in") && is_agent_output(record)
     })?;
     at(first).map(|to| to.saturating_sub(from))
