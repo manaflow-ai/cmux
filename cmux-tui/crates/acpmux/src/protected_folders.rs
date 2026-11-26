@@ -143,7 +143,9 @@ pub fn refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
 
 /// Whether git started in `cwd` takes the home folder's own repository for
 /// its work tree: `cwd` is below a home folder that has a `.git`, and no
-/// folder between them has one. As spelled and with symlinks resolved, on
+/// folder between them has one. Git climbs from the resolved folder (its
+/// `getcwd`) and follows a `.git` link, so the resolved spellings decide; a
+/// folder that does not resolve (not made yet) is judged as spelled, on
 /// either spelling of the home folder. Only stats: no folder's contents are
 /// read. Called once `refusal_in` passed, so no guarded folder is looked in.
 fn in_home_repository(cwd: &Path, home: Option<&Path>) -> Option<&'static str> {
@@ -154,19 +156,18 @@ fn in_home_repository(cwd: &Path, home: Option<&Path>) -> Option<&'static str> {
         }
         let mut folder = path;
         while folder != home {
-            if std::fs::symlink_metadata(folder.join(".git")).is_ok() {
+            if std::fs::metadata(folder.join(".git")).is_ok() {
                 return false;
             }
             let Some(parent) = folder.parent() else { return false };
             folder = parent;
         }
-        std::fs::symlink_metadata(home.join(".git")).is_ok()
+        std::fs::metadata(home.join(".git")).is_ok()
     };
-    let resolved_home = std::fs::canonicalize(home).ok();
-    let resolved = std::fs::canonicalize(cwd).ok();
-    let hit = held(cwd, home)
-        || resolved_home.as_deref().is_some_and(|h| held(cwd, h))
-        || resolved.as_deref().zip(resolved_home.as_deref()).is_some_and(|(c, h)| held(c, h));
+    let hit = match (std::fs::canonicalize(cwd), std::fs::canonicalize(home)) {
+        (Ok(cwd), Ok(home)) => held(&cwd, &home),
+        (_, resolved_home) => held(cwd, home) || resolved_home.is_ok_and(|h| held(cwd, &h)),
+    };
     hit.then_some("in the home folder's git repository")
 }
 
@@ -386,6 +387,20 @@ mod home_repository_tests {
         let downloads = home.join("Downloads/x");
         std::fs::create_dir_all(&downloads).unwrap();
         assert!(spare_refusal_in(&downloads, home_ref, false).is_some());
+        // Git climbs from the resolved folder and follows a `.git` link: a link out of the home
+        // folder is not in its repository, a link into it is, and a broken `.git` link hides
+        // nothing.
+        let outside = home.with_extension("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, home.join("linked-out")).unwrap();
+        std::os::unix::fs::symlink(&tools, outside.join("linked-in")).unwrap();
+        assert_eq!(unasked_refusal_in(&home.join("linked-out"), home_ref), None);
+        assert!(unasked_refusal_in(&outside.join("linked-in"), home_ref).is_some());
+        let broken = home.join("broken");
+        std::fs::create_dir_all(&broken).unwrap();
+        std::os::unix::fs::symlink(home.join("missing"), broken.join(".git")).unwrap();
+        assert!(unasked_refusal_in(&broken, home_ref).is_some(), "a broken .git link");
+        let _ = std::fs::remove_dir_all(&outside);
         // The unattended folder moves to this user's own folder in the temp dir.
         let moved = unattended_cwd_in(&acpmux_home, home_ref);
         assert_eq!(Some(moved.clone()), private_temp("acpmux-unattended"));
