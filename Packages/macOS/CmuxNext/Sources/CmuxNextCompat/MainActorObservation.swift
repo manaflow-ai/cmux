@@ -34,9 +34,13 @@ public final class MainActorObservation {
         _ handler: @escaping @MainActor () -> Void
     ) {
         self.center = center
-        token = center.addObserver(forName: name, object: object, queue: .main) { _ in
+        token = center.addObserver(forName: name, object: object, queue: MainQueueDelivery.queue) { _ in
+            #if canImport(Darwin)
             // main-proof: the observer is registered on the main queue (queue: .main).
             MainActor.assumeIsolated { handler() }
+            #else
+            MainQueueDelivery.deliver { handler() }
+            #endif
         }
     }
 
@@ -70,12 +74,22 @@ public final class MainActorObservation {
         _ handler: @escaping @MainActor (Value) -> Void
     ) {
         self.center = center
-        token = center.addObserver(forName: name, object: object, queue: atOnce ? nil : .main) { note in
+        token = center.addObserver(forName: name, object: object, queue: atOnce ? nil : MainQueueDelivery.queue) { note in
+            #if canImport(Darwin)
             guard Thread.isMainThread else { return } // main-proof: drops a post off the main thread (only `atOnce` can see one)
             // crash-allow: the center delivers on the main thread (queue: .main, or `atOnce` with the check above) and the notification is read only inside the assumeIsolated below, on this same delivery, so it never crosses actors.
             nonisolated(unsafe) let note = note
             // main-proof: delivered on the main thread: the main queue (queue: .main), or `atOnce` after the Thread.isMainThread check above.
             MainActor.assumeIsolated { handler(read(note)) }
+            #else
+            // crash-allow: the notification is read only inside the main-queue delivery below, on this same delivery.
+            nonisolated(unsafe) let note = note
+            if atOnce {
+                MainQueueDelivery.ifOnMain { handler(read(note)) } // drops a post off the main queue, as on Darwin
+            } else {
+                MainQueueDelivery.deliver { handler(read(note)) }
+            }
+            #endif
         }
     }
 
@@ -88,3 +102,52 @@ public final class MainActorObservation {
         center.removeObserver(token)
     }
 }
+
+extension MainQueueDelivery {
+    /// The queue a main-actor observer registers on: the main queue on Darwin; none (the posting thread,
+    /// handed to the main queue by `deliver`) on the non-Darwin Foundation, where a `.main` observer deadlocks.
+    static var queue: OperationQueue? {
+        #if canImport(Darwin)
+        .main
+        #else
+        nil
+        #endif
+    }
+}
+
+#if canImport(Darwin)
+enum MainQueueDelivery {}
+#else
+/// Main-queue delivery for the non-Darwin Foundation, where `addObserver(queue: .main)` deadlocks a post
+/// made on the main actor: the main actor there can run on a thread that is not the main thread while it
+/// drains the main queue, so the center sees another queue, enqueues on the main queue and waits for it.
+/// A post made on the main queue runs the handler in the poster's call, as on Darwin; a post from elsewhere
+/// runs it on the main queue after the post (this type's documented "on the main queue, after the post").
+enum MainQueueDelivery {
+    private static let key: DispatchSpecificKey<Bool> = {
+        let key = DispatchSpecificKey<Bool>()
+        DispatchQueue.main.setSpecific(key: key, value: true)
+        return key
+    }()
+
+    static var isOnMainQueue: Bool { DispatchQueue.getSpecific(key: key) == true }
+
+    static func deliver(_ body: @escaping @MainActor () -> Void) {
+        if isOnMainQueue {
+            // main-proof: running on the main queue (the specific key set on it above).
+            MainActor.assumeIsolated { body() }
+        } else {
+            // Off the main queue: hand it to the main queue, after the post (no wait, so no main-queue deadlock).
+            // main-async-allow: the non-Darwin NotificationCenter forces it: its `queue: .main` deadlocks a main-actor post, and MainDelivery sits in CmuxNextWakeups, above this module.
+            // main-proof: DispatchQueue.main.async runs the block on the main queue.
+            DispatchQueue.main.async { MainActor.assumeIsolated { body() } }
+        }
+    }
+
+    static func ifOnMain(_ body: @MainActor () -> Void) {
+        guard isOnMainQueue else { return }
+        // main-proof: running on the main queue (the specific key set on it above).
+        MainActor.assumeIsolated { body() }
+    }
+}
+#endif
