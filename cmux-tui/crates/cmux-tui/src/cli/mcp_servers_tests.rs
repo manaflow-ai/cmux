@@ -134,6 +134,23 @@ fn the_catalog_is_shaped_in_rank_order_with_one_button_each() {
 }
 
 #[test]
+fn a_connection_carries_when_its_sign_in_lapses_only_as_a_plain_instant() {
+    let body = json!({"entries": [
+        {"name": "linear", "title": "Linear", "auth": "dcr", "rank": 1, "available": true,
+         "connection": {"id": "mcs_1", "status": "ready", "toolCount": 2, "expiresAt": "2026-12-01T09:00:00Z"}},
+        {"name": "sentry", "title": "Sentry", "auth": "dcr", "rank": 2, "available": true,
+         "connection": {"id": "mcs_2", "status": "ready", "toolCount": 2, "expiresAt": "<b>soon</b>"}},
+        {"name": "exa", "title": "Exa", "auth": "key", "rank": 3, "available": true,
+         "connection": {"id": "mcs_3", "status": "ready", "toolCount": 2}},
+        {"name": "notion", "title": "Notion", "auth": "dcr", "rank": 4, "available": true, "connection": null}
+    ]});
+    let view = answer(&Verb::Catalog, 200, &body);
+    let at: Vec<_> =
+        view["entries"].as_array().unwrap().iter().map(|e| e["expiresAt"].clone()).collect();
+    assert_eq!(at, [json!("2026-12-01T09:00:00Z"), Value::Null, Value::Null, Value::Null]);
+}
+
+#[test]
 fn connect_answers_a_sign_in_page_or_connects_at_once() {
     let connect = parse_ok("connect linear");
     let page =
@@ -223,4 +240,39 @@ fn a_loopback_server_is_marked_and_asked_again_with_its_port() {
                "loopback_port": 47215})
     );
     assert_eq!(with_loopback_port(None, 47215), json!({"loopback_port": 47215}));
+}
+
+/// Seeded secrets on the wire (cmux_egress::capture): the bearer rides only in `Authorization`, a
+/// server's API key only in the connect body, and the team only in `x-cmux-team` and the query.
+/// tests/egress_seeded.json names this test for `cmux_tui::cli::mcp_servers`.
+#[tokio::test]
+async fn seeded_secrets_ride_only_where_the_platform_needs_them() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDmcpBearer-0d47";
+    let team = "SEEDmcpTeam-a2f9";
+    let key = "SEEDmcpServerKey-61bc";
+    let common = Common {
+        platform: Some(cmux_cloud_environment::PRODUCTION_PLATFORM.to_owned()),
+        team: Some(team.to_owned()),
+        token: TokenSource::Command(format!("printf %s {token}")),
+    };
+    let connect = Verb::Connect { name: "seeded".into(), owner: None, return_to: None, key: true };
+    let _ = run(&common, &connect, Some(Zeroizing::new(key.to_owned()))).await;
+    let sent = cmux_egress::capture::requests_to("cmux-platform-production.debussy.workers.dev");
+    assert!(sent.iter().any(|r| r.target.starts_with("/v1/mcp-servers/connect")), "{sent:?}");
+    let places = cmux_egress::capture::leaks(token);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+    let places = cmux_egress::capture::leaks(key);
+    assert!(!places.is_empty(), "{sent:?}");
+    assert!(
+        places.iter().all(|p| p.contains("/v1/mcp-servers/connect") && p.ends_with(": body")),
+        "{places:?}"
+    );
+    let places = cmux_egress::capture::leaks(team);
+    assert!(
+        places.iter().all(|p| p.ends_with(": header x-cmux-team") || p.ends_with(": target")),
+        "{places:?}"
+    );
 }
