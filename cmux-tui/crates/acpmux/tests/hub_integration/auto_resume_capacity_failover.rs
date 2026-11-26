@@ -136,10 +136,10 @@ async fn a_chat_already_on_sonnet_stays_on_it() {
 async fn a_chat_left_on_its_fallback_goes_back_when_switching_is_off() {
     let (hub, mut c, id) = chat_on(SONNET, 0).await;
     let session = hub.resolve(&id).unwrap();
-    session.set_capacity_fallback_for_tests(Some(acpmux::store::CapacityFallback {
+    session.leave_on_capacity_fallback_for_tests(acpmux::store::CapacityFallback {
         from: OPUS.to_owned(),
         to: SONNET.to_owned(),
-    }));
+    });
     overload(&hub, &mut c, &id).await;
 
     assert!(records(&hub, &id, "capacity_failover").is_empty());
