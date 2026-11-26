@@ -217,8 +217,10 @@ public struct LiveAPI: Sendable {
 
     /// `/v1/me/agent-call…` (PROTOCOL.md "Agent calls"): the phone-call settings and their code and test calls.
     /// The reply is passed through as is; Settings decodes it (`AgentCallState`).
-    public func agentCall(_ method: String, _ subpath: String = "", body: [String: Any]? = nil) async throws -> Data {
-        try await call(method, "v1/me/agent-call\(subpath)", body: body)
+    /// `body` is the JSON object's bytes (Sendable, so it crosses from the main actor).
+    public func agentCall(_ method: String, _ subpath: String = "", body: Data? = nil) async throws -> Data {
+        let object = try body.map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] ?? [:] }
+        return try await call(method, "v1/me/agent-call\(subpath)", body: object)
     }
 
     /// `DELETE /v1/devices/:id` (owner only).

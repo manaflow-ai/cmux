@@ -459,7 +459,8 @@ extension LiveDeviceDirectory: AgentCallService {
     private func agentCallData(_ method: String, _ subpath: String = "", body: [String: Any]? = nil) async throws -> Data {
         guard let live else { throw NotSignedIn() }
         do {
-            return try await live.agentCall(method, subpath, body: body)
+            let json = try body.map { try JSONSerialization.data(withJSONObject: $0) }
+            return try await live.agentCall(method, subpath, body: json)
         } catch let failure as LiveAPI.Failure {
             throw AgentCallFailure(code: failure.code, message: failure.message)
         }
