@@ -28,11 +28,14 @@ With --phase app-debug it reads the pull request app compile's own check instead
 `--app` compile of a same-repository pull request head, configuration "debug"): the controller submits it
 when that job is queued or when this read names the pull request, and it never stands for the land Release.
 With --phase test-compile --packages A,B it reads the pull request's test-target compile of those packages
-(`swift build --build-tests`, configuration "test-compile"); the read submits it.
+(`swift build --build-tests`, configuration "test-compile"); the read submits it. With --phase ios-ffi it
+reads the build fleet's CmuxMobileLinkFFI.xcframework (the pool job `cmux-ci ios-build --what ffi` submitted,
+configuration "ios-ffi"); the read submits it, and a pass carries a signed link to its out.tgz and that
+file's digest, which --artifact-out writes as JSON {"url", "digest"}.
 
 Reasons go to stderr. Usage:
-  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug|scheme-debug|test-compile
-                          [--packages A,B]] [--job-out F] [--wait 1500] [--no-record 600]
+  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug|ios-ffi|scheme-debug|test-compile
+                          [--packages A,B]] [--job-out F] [--artifact-out F] [--wait 1500] [--no-record 600]
 """
 import argparse
 import json
@@ -57,7 +60,10 @@ CONFIGURATION = "release-onone"
 # The phases a read can name, and the configuration each one's record carries.
 # scheme-debug: the whole Debug cmux DEV app (the cmux app scheme's product) built by the fleet's app recipe for a
 # feat-cmux-next push or same-repository pull request head; its job_id names the zipped app (`cmux-ci artifact`).
-PHASES = {"": CONFIGURATION, "app-debug": "debug", "test-compile": "test-compile", "scheme-debug": "scheme-debug"}
+# ios-ffi: CmuxMobileLinkFFI.xcframework built on the Linux pool for a feat-cmux-next push or same-repository pull
+# request head; the read submits it, and a pass names its out.tgz (artifact_url, artifact_digest; cmux-next-ios-kit.yml).
+PHASES = {"": CONFIGURATION, "app-debug": "debug", "test-compile": "test-compile", "scheme-debug": "scheme-debug",
+          "ios-ffi": "ios-ffi"}
 
 
 def judge(record, sha, repo, configuration=CONFIGURATION):
@@ -156,8 +162,10 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
             down_since = down_unanswered = busy_since = None
             seen_record = True
             word, last = judge(body, sha, repo, PHASES[phase])
-            if seen is not None and isinstance(body, dict) and body.get("job_id"):
-                seen["job_id"] = str(body["job_id"])
+            if seen is not None and isinstance(body, dict):
+                for field in ("job_id", "artifact_url", "artifact_digest"):
+                    if body.get(field):
+                        seen[field] = str(body[field])
             if word != "pending":
                 return word, last
             if after:
@@ -200,6 +208,8 @@ def main(argv=None):
     p.add_argument("--phase", default="", choices=sorted(PHASES))
     p.add_argument("--packages", default="", help="comma or space separated; phase test-compile only")
     p.add_argument("--job-out", default="", help="write the matching record's fleet job id to this file")
+    p.add_argument("--artifact-out", default="",
+                   help='write {"url", "digest"} of a passing record\'s output to this file ({} when none)')
     a = p.parse_args(argv)
     if len(a.sha) != 40 or any(c not in "0123456789abcdef" for c in a.sha):
         print(f"fleet compile result: bad sha {a.sha!r}", file=sys.stderr)
@@ -216,6 +226,13 @@ def main(argv=None):
     if a.job_out:
         with open(a.job_out, "w") as f:
             f.write(seen.get("job_id", "") + "\n")
+    if a.artifact_out:
+        out = {}
+        if word == "pass" and seen.get("artifact_url") and seen.get("artifact_digest"):
+            out = {"url": seen["artifact_url"], "digest": seen["artifact_digest"]}
+        with open(a.artifact_out, "w") as f:
+            json.dump(out, f)
+            f.write("\n")
     print(f"fleet compile result for {a.sha}: {word} ({why})", file=sys.stderr)
     print(word)
     return 0

@@ -277,33 +277,50 @@ jobs:
 
   # The FFI xcframework kit-tests links, built on the build fleet while kit-tests waits for a Mac (the build was
   # 3.3-5.0 min of every Mac kit run on 2026-11-24, and its Mac cache key, which names the Xcode, missed across
-  # pools). The gateway runner only hands the build to the controller (cmux-ci ios-build) and passes the result on
-  # as an Actions cache entry keyed on the inputs alone, and as this run's artifact. Never a verdict: no client,
-  # no answer or a red here is a warning, and kit-tests then builds it on the Mac as before. CI_IOS_FFI_FLEET=0
-  # turns it off.
+  # pools). The controller submits the pool build (RFD 0162, gateway stubs off Mac runners, 2026-11-26): this job ran
+  # on a gateway Mac runner (vars.CI_EVAL_STEP_GATEWAY) only to wait while cmux-ci ios-build held it, about 4.8 Mac
+  # job-h a day. It now runs on cmux-linux and reads the result with scripts/ci/fleet_compile_result.py --phase
+  # ios-ffi: that read (GET /compile-checks/v1/<sha>?phase=ios-ffi) submits the same pool job from the controller,
+  # trust-gated to a feat-cmux-next push head or a same-repository pull request head, and a pass carries a signed
+  # link to the job's out.tgz and its digest (cmuxterm-hq#28146). The result is passed on as an Actions cache entry
+  # keyed on the inputs alone, and as this run's artifact. Never a verdict: no answer, a controller without the
+  # phase or a red here is a warning, and kit-tests then builds it on the Mac as before. CI_IOS_FFI_FLEET=0 turns
+  # it off.
   link-ffi-fleet:
     name: CmuxMobileLinkFFI.xcframework (build fleet)
     needs: runner
-    if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
-    # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY }}
-    timeout-minutes: 40  # the client waits up to 600 s queued plus 1500 s running
+    if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository_owner == 'manaflow-ai' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    # A Linux runner that only reads the controller's result (the pool VM builds; this runner compiles nothing).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 45  # longer than the read's wait (2100 s) and its no-record window
     permissions:
       contents: read
     steps:
       # The key reads git objects only (scripts/ci/ios_link_ffi_key.py), so a blobless sparse checkout is enough.
+      # Depth 2 keeps a pull request merge commit's parents' trees: the pool builds the head, and only a head whose
+      # inputs key the same as the merge commit's may fill the merge commit's key.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           filter: blob:none
+          fetch-depth: 2
           sparse-checkout: scripts/ci
           persist-credentials: false
 
       - name: CmuxMobileLinkFFI.xcframework key
         id: key
         continue-on-error: true
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+          if [[ "$HEAD_SHA" != "$(git rev-parse HEAD)" ]]; then
+            head_inputs="$(python3 scripts/ci/ios_link_ffi_key.py --ref "$HEAD_SHA")"
+            if [[ "$head_inputs" != "$inputs" ]]; then
+              echo "::warning title=build fleet::the base moved this pull request's xcframework inputs; kit-tests builds it"
+              exit 0
+            fi
+          fi
           echo "key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
 
       - name: Restore CmuxMobileLinkFFI.xcframework
@@ -318,25 +335,43 @@ jobs:
           key: ${{ steps.key.outputs.key }}
           lookup-only: true
 
-      # Exit 0 is the xcframework (its bindings matched the checked-in ones), 1 a failed build, anything else no
-      # answer. Only 0 hands anything on.
+      # pass: the pool job printed `[ios-ffi verdict=pass]` and its out.tgz came with a signed link; only that,
+      # with the digest matching, hands anything on. fail, or anything else (pending past the wait, no record, the
+      # controller down or not yet deployed, a fleet fault), is a warning.
       - name: Build CmuxMobileLinkFFI.xcframework on the build fleet
         id: build
-        if: steps.restore.outputs.cache-hit != 'true'
+        if: steps.key.outputs.key != '' && steps.restore.outputs.cache-hit != 'true'
         env:
-          SHA: ${{ github.sha }}
+          REF: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR: ${{ github.event.pull_request.number }}
         run: |
           set -uo pipefail
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            echo "::warning title=build fleet::cmux-ci is not installed on runner $RUNNER_NAME; kit-tests builds the xcframework"
+          reader="$GITHUB_WORKSPACE/scripts/ci/fleet_compile_result.py"
+          if ! [[ -f "$reader" ]] || ! grep -q '"ios-ffi"' "$reader"; then
+            echo "::warning title=build fleet::the result reader at ${REF:0:12} has no ios-ffi phase; kit-tests builds the xcframework"
             exit 0
           fi
+          handoff="$RUNNER_TEMP/link-ffi.json"
+          word="$(python3 "$GITHUB_WORKSPACE/scripts/ci/fleet_compile_result.py" --sha "$REF" --repo "$GITHUB_REPOSITORY" ${PR:+--pr "$PR"} --phase ios-ffi --wait 2100 --no-record 300 --artifact-out "$handoff" 2>"$RUNNER_TEMP/fleet-result.err")" || word=none
+          why="$(sed -n 's/^fleet compile result for [0-9a-f]*: [a-z]* (\(.*\))$/\1/p' "$RUNNER_TEMP/fleet-result.err" | tail -n 1)"
+          if [[ "$word" != pass ]]; then
+            echo "::warning title=build fleet::no xcframework from the build fleet ($word${why:+: $why}); kit-tests builds it"
+            exit 0
+          fi
+          url="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("url", ""))' "$handoff" 2>/dev/null || true)"
+          digest="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("digest", ""))' "$handoff" 2>/dev/null || true)"
+          if ! [[ "$url" == https://* && "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::warning title=build fleet::the build fleet passed but handed no output over; kit-tests builds it"
+            exit 0
+          fi
+          tgz="$RUNNER_TEMP/link-ffi.tgz"
           out="$RUNNER_TEMP/link-ffi"
-          status=0
-          "$client" ios-build --what ffi --ref "$SHA" --out "$out" --timeout 1500 --queue-timeout 600 || status=$?
-          if [[ "$status" != 0 || ! -f "$out/CmuxMobileLinkFFI.xcframework/Info.plist" ]]; then
-            echo "::warning title=build fleet::no xcframework from the build fleet (exit $status); kit-tests builds it"
+          rm -rf "$out" && mkdir -p "$out"
+          if ! curl -fsS --retry 3 --max-time 300 -o "$tgz" "$url" \
+            || [[ "$(sha256sum "$tgz" | cut -c1-64)" != "${digest#sha256:}" ]] \
+            || ! tar -xzf "$tgz" -C "$out" --no-same-owner --no-same-permissions \
+            || ! [[ -f "$out/CmuxMobileLinkFFI.xcframework/Info.plist" ]]; then
+            echo "::warning title=build fleet::the build fleet's out.tgz did not download, match $digest or hold the xcframework; kit-tests builds it"
             exit 0
           fi
           dest=cmux-next-ios/CmuxMobileKit/Frameworks
@@ -454,7 +489,7 @@ jobs:
 
       - name: Wait for the fleet-built CmuxMobileLinkFFI.xcframework
         id: xcf-fleet
-        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && github.repository_owner == 'manaflow-ai' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         timeout-minutes: 6
         env:

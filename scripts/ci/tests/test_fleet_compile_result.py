@@ -257,6 +257,43 @@ class ReadTest(unittest.TestCase):
             self.assertEqual(f.main(["--sha", SHA, "--repo", REPO, "--phase", "test-compile", "--wait", "0"]), 0)
         self.assertEqual(out.getvalue().strip(), "none")
 
+    def test_the_ios_ffi_phase_hands_a_passing_outputs_link_over(self):
+        import contextlib
+        import io
+        import json
+        import tempfile
+        url = "https://store.example/artifacts/" + "e" * 64 + "?sig=x"
+        digest = "sha256:" + "e" * 64
+        answers = {"pass": rec("pass", configuration="ios-ffi", artifact_url=url, artifact_digest=digest),
+                   "fail": rec("fail", configuration="ios-ffi", reason="[ios-ffi verdict=fail reason=bindings]")}
+        for state, body in answers.items():
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as d:
+                urls = []
+
+                def fetch(url_, timeout):
+                    urls.append(url_)
+                    return 200, body
+
+                real = f.read
+                f.read = lambda *a, **k: real(*a, fetch=fetch, **k)
+                try:
+                    out, path = io.StringIO(), Path(d) / "handoff.json"
+                    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                        f.main(["--sha", SHA, "--repo", REPO, "--pr", "12", "--phase", "ios-ffi", "--wait", "60",
+                                "--artifact-out", str(path)])
+                finally:
+                    f.read = real
+                self.assertEqual(out.getvalue().strip(), state)
+                self.assertIn("phase=ios-ffi", urls[0])
+                self.assertIn("pr=12", urls[0])
+                want = {"url": url, "digest": digest} if state == "pass" else {}
+                self.assertEqual(json.loads(path.read_text()), want)
+        # Another phase's pass never answers it.
+        clock = Clock()
+        word, _ = f.read(SHA, REPO, "12", 600, 300, fetch=lambda u, t: (200, rec("pass", configuration="debug")),
+                         now=clock.now, sleep=clock.sleep, phase="ios-ffi")
+        self.assertEqual(word, "none")
+
     def test_the_workflow_skips_only_a_push_whose_head_moved(self):
         w = (Path(__file__).resolve().parents[3] / ".github/workflows/cmux-next.yml").read_text()
         i = w.index('if [[ "$word" == superseded && -z "${PR:-}" ]]; then')
