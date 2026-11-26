@@ -122,6 +122,7 @@ final class WindowManager {
     /// outside the registry, then becomes the frontmost restored window (or the window of the
     /// first workspaces). Nil once it is registered.
     var launchWindowID: String?
+    var launchFocus: LaunchFocusChoice? // what the launch window showed from the saved state: the restore keeps a pick made since
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
     private(set) var isTerminating = false
@@ -213,9 +214,7 @@ final class WindowManager {
         }
     }
 
-    func controller(for windowID: String) -> WindowController? {
-        controllers.first { $0.state.id == windowID }
-    }
+    func controller(for windowID: String) -> WindowController? { controllers.first { $0.state.id == windowID } }
 
     /// The window's state, created on first use.
     func state(for windowID: String) -> WindowState {
@@ -346,7 +345,7 @@ final class WindowManager {
            let landing = document.windows.first(where: { $0.id == front }).flatMap({ WindowRules().launchLanding(front: $0, workspace: services.workspace(id:)) }) {
             if case let .workspace(id, pane, tab) = landing, controller.state.workspaceID != id || controller.content?.workspace.id != id {
                 if let pane, let tab { controller.state.selection.select(tab, in: pane) }; select(id, in: controller.state); controller.showWorkspace(requested: id)
-            } else if landing == .home(why: "unknownWorkspace"), services.home.homeWorkspace != nil { AppActions.showHome(services) }
+            } else if landing == .home(why: "unknownWorkspace") { controller.state.watchRestore(); WindowRules().landHomeWhenReady({ [weak self, weak controller] in .init(window: front, active: self?.active?.state.id, windowOpen: self?.registry.value.window(front)?.isOpen == true, homeReady: self?.services.home.homeWorkspace != nil, moved: controller?.state.awayFromRestore ?? true, movedSinceRestore: controller?.state.restoreWatch?.left ?? true) }) { [weak self] in if let self, let state = self.controller(for: $0)?.state { AppActions.showHome(self.services, in: state) } } } // Home once listed (`launch::pending_home`), in the saved front window
         }
         // Classic cmux's session comes over once, after restore so the restored
         // registry never overwrites where its workspaces land.
@@ -398,11 +397,15 @@ final class WindowManager {
         guard let launchID = launchWindowID, let launch = controller(for: launchID),
               let front = restored.frontOpen(where: hasMirroredWorkspace),
               let record = records.first(where: { $0.id == front }) else { return nil }
+        // A workspace a person or the API picked since the launch window showed outlives the saved one (launch-TTI round 11).
+        let keptWorkspace = launchFocus?.keptWorkspace(now: launch.state.workspaceID, listed: Set(restored.window(front)?.workspaceIDs ?? []).contains)
+        launchFocus = nil
         launch.state.adopt(record)
         launchWindowID = front
         launchWindowAdopted(from: launchID, as: front)
         states[launchID] = nil
         states[front] = launch.state
+        if let keptWorkspace { select(keptWorkspace, in: launch.state) }
         launch.sidebar.container.restoreIfChanged(width: record.sidebarWidth.map { CGFloat($0) }, presentation: record.sidebarHidden ? .hidden : .shown)
         if services.environment.testWindow == nil, let frame = restored.window(front)?.frame {
             let visible = WindowPlacementFallback.visible(frame, display: restored.window(front)?.display)
@@ -452,7 +455,7 @@ final class WindowManager {
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
         // connecting state), so its first frame on screen draws it, never the backdrop alone; the
         // controller's own observer would install it a main-actor hop later.
-        controller.showWorkspace(requested: state.workspaceID)
+        DebugTimings.markLaunch("window.configured"); controller.showWorkspace(requested: state.workspaceID); DebugTimings.markLaunch("window.workspace_shown")
         // A window none of whose workspaces is mirrored yet stays off screen
         // until `contentDidAppear` (never an empty frame). The launch window
         // (no workspaces) shows the connecting state at once.
@@ -466,9 +469,7 @@ final class WindowManager {
     }
 
     /// True when a machine reports at least one of `window`'s workspaces.
-    func hasMirroredWorkspace(_ window: WindowRegistry.Window) -> Bool {
-        window.workspaceIDs.contains { services.machines.workspace(id: $0) != nil }
-    }
+    func hasMirroredWorkspace(_ window: WindowRegistry.Window) -> Bool { window.workspaceIDs.contains { services.machines.workspace(id: $0) != nil } }
 
     /// Runs `body` once `controller` next shows a workspace, if that is
     /// `workspaceID`.
@@ -607,7 +608,5 @@ final class WindowManager {
     }
 
     /// Workspace `id` hibernated: every window unmounts its parked content.
-    func releaseParked(_ id: String) {
-        for window in controllers { window.releaseParked(id) }
-    }
+    func releaseParked(_ id: String) { for window in controllers { window.releaseParked(id) } }
 }

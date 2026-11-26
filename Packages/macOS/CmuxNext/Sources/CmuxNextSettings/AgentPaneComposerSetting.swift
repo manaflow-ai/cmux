@@ -49,6 +49,9 @@ import CmuxNextDesign
 /// The New Tab page always draws its own (composerLook.ts).
 /// `emptyChatComposerPosition`: where a chat with no messages yet sits its composer, `bottom`
 /// (docked, the default) or `center` (the middle of the pane, the hero over it; styles.css).
+/// `composerPlaceholder`: the empty message box's text, empty (the default) for cmux's own; a profile
+/// sets its reference app's ("Ask for changes, send follow-ups, or attach images"). The mid-turn,
+/// Esc and stopping hints still win (Composer.tsx).
 /// `followUpMode`: what Return and Send do with a message sent while an agent that steers is
 /// mid-turn, `steer` (into the running turn, ⌘Return queues; the default, as before) or `queue`
 /// (waits until the turn ends, ⌘Return steers). The page decides (followUpMode.ts); this only
@@ -74,7 +77,11 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var newChatsIn = Self.newChatsInDefault
     public var composerLook = Self.composerLookDefault
     public var emptyChatComposerPosition = Self.emptyChatComposerPositionDefault
+    public var composerPlaceholder = Self.composerPlaceholderDefault
     public var followUpMode = Self.followUpModeDefault
+    /// `developerTools.overloadNotice` (``HostOverloadNoticeSetting``, Settings > Advanced >
+    /// Developer Tools; off by default): the chat's "This Mac is overloaded" banner.
+    public var showOverloadNotice = HostOverloadNoticeSetting.fallback
     /// `agentPane.savedPrompts`, checked here only: acpmux reads it from cmux.json at each list
     /// (crates/acpmux/src/prompts.rs) and serves it to the page, so it is not in `pageValue`.
     public var savedPrompts = Self.savedPromptsDefault
@@ -87,7 +94,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, composerVimKeys, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, followUpMode, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, composerVimKeys, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, composerPlaceholder, followUpMode, showOverloadNotice, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
@@ -104,7 +111,9 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "newChatsIn": .string(newChatsIn.rawValue),
             "composerLook": .string(composerLook.rawValue),
             "emptyChatComposerPosition": .string(emptyChatComposerPosition.rawValue),
+            "composerPlaceholder": .string(composerPlaceholder),
             "followUpMode": .string(followUpMode.rawValue),
+            "showOverloadNotice": .bool(showOverloadNotice),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
@@ -190,6 +199,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                     continue
                 }
                 setting.emptyChatComposerPosition = position
+                continue
+            }
+            if descriptor.path == composerPlaceholderPath {
+                guard descriptor.accepts(value), let text = value.stringValue else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.composerPlaceholder = text
                 continue
             }
             if descriptor.path == followUpModePath {

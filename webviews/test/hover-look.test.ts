@@ -7,9 +7,10 @@ import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { Window } from "happy-dom";
 import { setExperimentSwitches } from "../src/experiments/switches";
-import { installHoverLook, pageDrawsHover } from "../src/ui/hoverLook";
+import { installHoverLook, oneHoverSurface, pageDrawsHover } from "../src/ui/hoverLook";
 import {
   HOVER_LOOK_ATTRIBUTE,
+  HOVER_LOOK_ONE,
   HOVER_LOOK_SURFACES,
   HOVER_LOOK_SWITCH,
   hoverLook,
@@ -92,4 +93,39 @@ test("Reduce Transparency keeps the opaque tooltip: the ink inversion only appli
   expect(ink).toBeGreaterThan(0);
   expect(css.lastIndexOf("@media not (prefers-reduced-transparency: reduce)", ink)).toBeGreaterThanOrEqual(0);
   expect(css).not.toContain("!important");
+});
+
+// The One arm (Leo, 2026-11-22, softened: "multiple styles for hover previews plus bad-looking
+// translucency blur, unacceptable"): every hover surface is the tooltip's veil over the transient
+// frost at the tooltip's corner, and only it turns on one hover at a time. Off by default.
+test("the One arm: one material for every hover surface, and only it runs one hover at a time", () => {
+  expect(hoverLook.defaultArm).not.toBe(HOVER_LOOK_ONE);
+  expect(Object.keys(hoverLook.arms)).toContain(HOVER_LOOK_ONE);
+  const css = hoverCss().replace(/\/\*[\s\S]*?\*\//g, "");
+  const rule = (selector: string) => {
+    const at = css.indexOf(selector);
+    expect(at, selector).toBeGreaterThanOrEqual(0);
+    return css.slice(at, css.indexOf("}", at));
+  };
+  const all = rule(
+    ':root[data-hover-look][data-hover-look="one"]\n  :is(.ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-card, .cu-tooltip).ui-glass',
+  );
+  expect(all).toContain("--glass-tint: var(--tooltip-tint)");
+  expect(all).toContain("--glass-backdrop: blur(var(--ds-transient-web-blur))");
+  expect(rule(':root[data-hover-look][data-hover-look="one"] .ui-card.ui-glass')).toContain(
+    "border-radius: calc(var(--role-tooltip-radius)",
+  );
+
+  const doc = new Window().document as unknown as Document;
+  const stop = installHoverLook(doc);
+  expect(oneHoverSurface(doc)).toBe(false);
+  setExperimentSwitches({ [HOVER_LOOK_SWITCH]: true });
+  expect(oneHoverSurface(doc)).toBe(false);
+  stop();
+  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { [hoverLook.id]: HOVER_LOOK_ONE };
+  const stopOne = installHoverLook(doc);
+  expect(oneHoverSurface(doc)).toBe(true);
+  setExperimentSwitches({});
+  expect(oneHoverSurface(doc)).toBe(false);
+  stopOne();
 });

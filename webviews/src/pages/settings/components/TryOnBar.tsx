@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { Button } from "../../../ui/Button";
 import { useSettingsState, useStore } from "../context";
 import type { CustomizeTryOn } from "../ops";
-import { LIBRARY_KEY } from "../sectionQueries";
+import { LIBRARY_KEY, STANDUP_KEY } from "../sectionQueries";
 import { t } from "../strings";
 
 /** The gallery's three looks; `row` ships. */
@@ -77,7 +77,10 @@ export function TryOnSlot() {
       const changed = next?.generation !== shown.current?.generation;
       shown.current = next;
       setTryOn(next);
-      if (changed) void queryClient.invalidateQueries({ queryKey: LIBRARY_KEY });
+      if (changed) {
+        void queryClient.invalidateQueries({ queryKey: LIBRARY_KEY });
+        void queryClient.invalidateQueries({ queryKey: STANDUP_KEY });
+      }
     },
     [queryClient],
   );

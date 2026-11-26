@@ -39,6 +39,11 @@ pub(super) struct Record {
     /// `transfer.moving` refusal hands this token back for the move that begin made.
     #[serde(default)]
     pub begin_token: Option<String>,
+    /// The source tab's public id (its `agent-transfer-source` or begin answer): a restart of
+    /// the source daemon restores the tab in a new surface slot, so a give back, commit or
+    /// check after one names the tab by this. None from a source too old to answer it.
+    #[serde(default)]
+    pub source_tab: Option<String>,
 }
 
 /// Where the record of one chat's move is kept, locked for this run.

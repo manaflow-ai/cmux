@@ -367,7 +367,10 @@ def tested_crate_inputs(tree, crate_dir: str, features=(), references: bool = Tr
         if crate not in manifests:
             if not tree.is_file(f"{crate}/Cargo.toml"):
                 continue
-            manifests[crate] = tomllib.loads(tree.text(f"{crate}/Cargo.toml"))
+            try:
+                manifests[crate] = tomllib.loads(tree.text(f"{crate}/Cargo.toml"))
+            except tomllib.TOMLDecodeError as why:  # a ValueError still, now naming the manifest
+                raise ValueError(f"{crate}/Cargo.toml does not parse: {why}") from why
         had, had_default = built.get(crate, (None, False))
         now = (wanted | (had or frozenset()), uses_default or had_default)
         if had is not None and now == (had, had_default):

@@ -1,7 +1,7 @@
 //! The cases of Swift `ThemeFileTests` (CmuxNextSettingsTests), so both
 //! readers agree, and the render round trip.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde_json::{Value, json};
@@ -125,6 +125,65 @@ fn colors_edit_the_terminal_theme_the_file_names_and_keep_other_edits() {
     );
 }
 
+/// One look for both appearances: a `light` and a `dark` half paint only
+/// their side, over the plain colors.
+#[test]
+fn light_and_dark_halves_paint_only_their_side_of_the_theme_pair() {
+    let file = overlay(
+        r##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine",
+              "colors": { "accent": "#907aa9", "foreground": "#575279",
+                          "light": { "background": "#faf4ed", "palette": ["#f2e9e1"] },
+                          "dark": { "background": "#191724", "foreground": "#e0def4" } } }"##,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(
+        at(&root, "appearance.themeEdits"),
+        Some(&json!({
+            "Rose Pine Dawn/accent": "#907aa9", "Rose Pine Dawn/foreground": "#575279",
+            "Rose Pine Dawn/background": "#faf4ed", "Rose Pine Dawn/0": "#f2e9e1",
+            "Rose Pine/accent": "#907aa9", "Rose Pine/foreground": "#e0def4",
+            "Rose Pine/background": "#191724",
+        }))
+    );
+}
+
+/// One theme for both appearances has no sides: its halves are refused, the
+/// plain colors still apply, and a half holds no half of its own.
+#[test]
+fn halves_need_a_light_dark_pair_and_hold_no_halves() {
+    let single = overlay(
+        r##"{ "appearance.theme": "Nord", "colors": { "accent": "#88c0d0", "light": { "accent": "#5e81ac" }, "dark": { "accent": "#81a1c1" } } }"##,
+    );
+    assert_eq!(
+        single.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(),
+        ["colors.light", "colors.dark"]
+    );
+    assert!(single.diagnostics.iter().all(|d| d.message == colors::HALF_NEEDS_PAIR));
+    let root = single.applied(&json!({}), &none());
+    assert_eq!(at(&root, "appearance.themeEdits"), Some(&json!({"Nord/accent": "#88c0d0"})));
+    let nested = overlay(
+        r##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine", "colors": { "light": { "dark": {}, "accent": "blue" }, "dark": "#000000" } }"##,
+    );
+    let mut paths: Vec<&str> = nested.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    paths.sort_unstable();
+    assert_eq!(paths, ["colors.dark", "colors.light.accent", "colors.light.dark"]);
+}
+
+/// A plain `colors` map still paints both sides of a pair, as before halves.
+#[test]
+fn plain_colors_still_paint_both_sides_of_the_theme_pair() {
+    let file = overlay(
+        r##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine", "colors": { "accent": "#907aa9" } }"##,
+    );
+    assert!(file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    let root = file.applied(&json!({}), &none());
+    assert_eq!(
+        at(&root, "appearance.themeEdits"),
+        Some(&json!({"Rose Pine Dawn/accent": "#907aa9", "Rose Pine/accent": "#907aa9"}))
+    );
+}
+
 #[test]
 fn a_ghostty_block_is_read_as_a_ghostty_theme_file() {
     let file = overlay(
@@ -229,41 +288,6 @@ fn a_theme_file_sets_how_the_sidebar_rows_draw() {
     let mut refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
     refused.sort();
     assert_eq!(refused, ["sidebar.showChats", "sidebar.workspaceRow.agent.icon"]);
-}
-
-/// The app's copy of the look lists (Swift `ThemeFileOverlay`) is this one:
-/// a key one reader takes and the other refuses would apply in the app and
-/// not in the CLI's `cmux theme check`, or the other way round.
-#[test]
-fn the_look_lists_match_the_apps() {
-    let swift =
-        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../Packages/macOS/CmuxNext/Sources/CmuxNextSettings/ThemeFileOverlay.swift",
-        ))
-        .expect("ThemeFileOverlay.swift");
-    // The quoted strings of the Swift `static let NAME ... = [ ... ]` literal.
-    let literal = |name: &str| -> BTreeSet<String> {
-        let start = swift.find(&format!("static let {name}")).expect(name);
-        let body = &swift[start..];
-        let body = &body[body.find('[').expect("[") + 1..body.find(']').expect("]")];
-        // `joined(separator: ".")` is the one quoted string that is no key.
-        body.split('"').skip(1).step_by(2).filter(|s| *s != ".").map(str::to_owned).collect()
-    };
-    let set = |list: &[&str]| list.iter().map(|key| (*key).to_owned()).collect::<BTreeSet<_>>();
-    assert_eq!(literal("lookKeys"), set(&LOOK_KEYS));
-    assert_eq!(literal("lookPrefixes"), set(&LOOK_PREFIXES));
-    // Swift names the theme file's own key and its exceptions key through their settings' `configPath`.
-    let named: Vec<&str> = EXCLUDED_KEYS
-        .iter()
-        .copied()
-        .filter(|key| ![SETTING_KEY, EXCEPTIONS_KEY].contains(key))
-        .collect();
-    assert_eq!(literal("excludedKeys"), set(&named));
-    assert!(
-        swift.contains("ThemeFileSetting.configPath")
-            && swift.contains("ThemeFileExceptionsSetting.configPath")
-    );
-    assert!(swift.contains(&format!("static let rowPrefix = \"{ROW_PREFIX}\"")));
 }
 
 /// The shipped Minimal sessions file sets every key it writes, each to the
@@ -444,6 +468,7 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         "meadow",
         "lily-pond",
         "minimal-sessions",
+        "miku",
     ] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }
@@ -531,6 +556,13 @@ fn the_theme_file_schema_takes_the_shipped_files_and_flags_others() {
     }
     assert!(!validator.is_valid(&json!({"terminal.term": "xterm"})));
     assert!(!validator.is_valid(&json!({"colors": {"background": "blue"}})));
+    assert!(validator.is_valid(&json!({"colors": {
+        "accent": "#907aa9",
+        "light": {"background": "#faf4ed", "palette": ["#f2e9e1"]},
+        "dark": {"background": "#191724"},
+    }})));
+    assert!(!validator.is_valid(&json!({"colors": {"light": {"dark": {}}}})));
+    assert!(!validator.is_valid(&json!({"colors": {"dark": {"background": "blue"}}})));
 }
 
 /// The daemon's settings owner applies the active theme file: over the
@@ -627,6 +659,93 @@ fn with_no_theme_file_nothing_changes() {
     );
     assert_eq!(state.effective().root, plain.root);
     assert!(state.theme_file().is_none());
+}
+
+/// A look's proportions (Leo 2026-11-19: "the layout and proportions as well"): the header, the sidebar's width and
+/// rows, the tab bar, the toolbar buttons, the spacing grid and the chat composer are `appearance.metrics.*` keys a
+/// theme file sets, each bounded by the schema's range as `cmux settings set` bounds it; a value outside it is
+/// refused with the range, and the file's other keys still apply.
+#[test]
+fn a_theme_file_sets_the_layout_proportions() {
+    let claude = overlay(
+        r#"{ "appearance.metrics": { "titlebarHeight": 44, "sidebarWidth": 284, "sidebarRowHeight": 26,
+             "sidebarRowInset": 6, "sidebarRowPadding": 10, "sidebarRowGap": 2, "tabStripHeight": 36,
+             "toolbarButtonSize": 21.5, "toolbarButtonGap": 3, "toolbarButtonCornerRadius": 7,
+             "spacingScale": 1.25, "composerPadding": 14, "composerMinHeight": 56,
+             "sidebarRowHeightWithSubtitle": 78, "toolbarButtonActiveFill": 0.14, "headerDivider": 1 } }"#,
+    );
+    assert!(claude.diagnostics.is_empty(), "{:?}", claude.diagnostics);
+    let root = claude.applied(&json!({}), &none());
+    for (key, value) in [
+        ("titlebarHeight", json!(44)),
+        ("sidebarRowInset", json!(6)),
+        ("sidebarRowPadding", json!(10)),
+        ("sidebarRowGap", json!(2)),
+        ("toolbarButtonSize", json!(21.5)),
+        ("toolbarButtonGap", json!(3)),
+        ("toolbarButtonCornerRadius", json!(7)),
+        ("spacingScale", json!(1.25)),
+        ("composerPadding", json!(14)),
+        ("composerMinHeight", json!(56)),
+        ("sidebarRowHeightWithSubtitle", json!(78)),
+        ("toolbarButtonActiveFill", json!(0.14)),
+        ("headerDivider", json!(1)),
+    ] {
+        assert_eq!(at(&root, &format!("appearance.metrics.{key}")), Some(&value), "{key}");
+    }
+
+    for (key, bad) in [
+        ("toolbarButtonSize", "4"),
+        ("toolbarButtonGap", "40"),
+        ("toolbarButtonCornerRadius", "-1"),
+        ("sidebarRowInset", "30"),
+        ("sidebarRowPadding", "25"),
+        ("sidebarRowGap", "13"),
+        ("spacingScale", "3"),
+        ("composerPadding", "\"wide\""),
+        ("composerMinHeight", "8"),
+        ("sidebarRowHeightWithSubtitle", "120"),
+        ("toolbarButtonActiveFill", "0.9"),
+        ("headerDivider", "2"),
+    ] {
+        let file = overlay(&format!(
+            r#"{{ "appearance.metrics.{key}": {bad}, "appearance.metrics.titlebarHeight": 44 }}"#
+        ));
+        let path = format!("appearance.metrics.{key}");
+        assert!(
+            file.diagnostics.iter().any(|d| d.path == path),
+            "{key}={bad}: {:?}",
+            file.diagnostics
+        );
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, &path), None, "{key}={bad} applied");
+        assert_eq!(at(&root, "appearance.metrics.titlebarHeight"), Some(&json!(44)));
+    }
+}
+
+/// With no proportion key set, nothing changes: every new key's default is null (the density's value), so a look
+/// without them draws today's layout.
+#[test]
+fn the_layout_proportions_default_to_the_density() {
+    let schema = Schema::embedded();
+    for key in [
+        "sidebarRowInset",
+        "sidebarRowPadding",
+        "sidebarRowGap",
+        "toolbarButtonSize",
+        "toolbarButtonGap",
+        "toolbarButtonCornerRadius",
+        "spacingScale",
+        "composerPadding",
+        "composerMinHeight",
+        "sidebarRowHeightWithSubtitle",
+        "toolbarButtonActiveFill",
+        "headerDivider",
+    ] {
+        let dotted = format!("appearance.metrics.{key}");
+        let row = schema.row(&dotted).unwrap_or_else(|| panic!("{dotted} is no schema row"));
+        assert!(row.default.as_ref().is_none_or(Value::is_null), "{dotted}: {:?}", row.default);
+    }
 }
 
 /// Leo's Claude desktop menu as a theme file fragment (a dark ~#2b2b2b panel, a 12 pt corner, a
@@ -829,6 +948,69 @@ fn the_settings_owner_keeps_the_keys_changed_over_the_theme_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn a_theme_file_picks_slot_variants_and_drops_unknown_ones() {
+    let file = overlay(
+        r#"{
+  "appearance.accent": "blue",
+  "slots": {
+    "chat.thinkingIndicator": "counting-dots",
+    "chat.jumpToBottom": "no-such-variant",
+    "chat.nope": "default",
+    "chat.jumpToBottom ": 3
+  }
+}"#,
+    );
+    assert!(file.is_loaded);
+    assert_eq!(
+        file.slots,
+        BTreeMap::from([("chat.thinkingIndicator".to_string(), "counting-dots".to_string())])
+    );
+    // `slots` is no setting: the look still applies and `slots` is not refused as one.
+    assert_eq!(file.keys(), vec!["appearance.accent".to_string()]);
+    let refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(
+        refused,
+        vec!["slots.chat.jumpToBottom", "slots.chat.jumpToBottom ", "slots.chat.nope"]
+    );
+    assert!(file.diagnostics.iter().all(|d| d.kind == ThemeDiagnosticKind::InvalidValue));
+    let variant = &file.diagnostics[0];
+    assert_eq!(variant.line, Some(5), "{variant:?}");
+    assert!(variant.message.contains("nudge"), "{}", variant.message);
+    assert!(
+        file.diagnostics[2].message.contains("no such slot"),
+        "{}",
+        file.diagnostics[2].message
+    );
+}
+
+#[test]
+fn a_theme_file_slots_value_that_is_no_object_is_refused() {
+    for text in [r#"{ "slots": "pulse" }"#, r#"{ "slots": ["pulse"] }"#, r#"{ "slots": null }"#] {
+        let file = overlay(text);
+        assert!(file.slots.is_empty(), "{text}");
+        assert_eq!(file.diagnostics.len(), 1, "{text}: {:?}", file.diagnostics);
+        assert_eq!(file.diagnostics[0].path, "slots");
+        assert_eq!(file.diagnostics[0].kind, ThemeDiagnosticKind::InvalidValue);
+    }
+    let file = overlay(r#"{ "slots": {} }"#);
+    assert!(file.slots.is_empty() && file.diagnostics.is_empty(), "{:?}", file.diagnostics);
+    assert!(overlay(r#"{ "appearance.accent": "blue" }"#).slots.is_empty());
+}
+
+#[test]
+fn every_shipped_slot_has_its_variants_and_the_theme_schema_names_them() {
+    let known = slots::known();
+    assert!(
+        known.iter().any(|(id, variants)| id == "chat.thinkingIndicator"
+            && variants.iter().any(|v| v == "default"))
+    );
+    assert!(known.iter().all(|(_, variants)| !variants.is_empty()));
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let property = &schema["properties"]["slots"]["properties"]["chat.jumpToBottom"]["enum"];
+    assert!(property.as_array().is_some_and(|v| v.contains(&json!("nudge"))), "{property}");
+}
+
 /// `appearance.twoTone` is a look key: a theme file may switch the two-tone on
 /// (`theme_file::two_tone`), and a value outside the list is refused.
 #[test]
@@ -879,4 +1061,91 @@ fn a_theme_file_sets_the_tab_shape() {
     let refused =
         wobbly.diagnostics.iter().find(|d| d.path == "appearance.tabShape").expect("gooey refused");
     assert!(refused.message.starts_with("expected one of"), "{}", refused.message);
+}
+
+#[test]
+fn a_theme_file_motion_block_is_read_clamped_and_checked_against_the_tokens() {
+    let file = overlay(
+        r#"{
+  "appearance.accent": "blue",
+  "motion": {
+    "presets": { "drawer": { "duration": 0.32, "bounce": 0.1 }, "smooth": { "duration": 0.2 } },
+    "springs": { "move": { "duration": 0.2 }, "appear": { "duration": 0.01, "bounce": 5 }, "wobble": { "duration": 0.2 } },
+    "fades": { "fadeIn": 0.16, "hoverOut": 0.12, "glow": 0.2 }
+  }
+}"#,
+    );
+    assert!(file.is_loaded);
+    // `motion` is no setting: the look still applies and the block is not refused as one.
+    assert_eq!(file.keys(), vec!["appearance.accent".to_string()]);
+    let motion = &file.motion;
+    assert_eq!(motion.presets.keys().collect::<Vec<_>>(), ["drawer"]);
+    assert_eq!(motion.presets["drawer"].damping_fraction(), 0.9);
+    assert_eq!(motion.springs["move"].response(), 0.2);
+    let appear = motion.springs["appear"];
+    assert_eq!(appear.duration, cmux_app_host::motion::TIME_RANGE.0);
+    assert_eq!(appear.bounce, cmux_app_host::motion_profile::BOUNCE_RANGE.1);
+    assert!(!motion.springs.contains_key("wobble"));
+    assert_eq!(motion.fades.get("fadeIn"), Some(&0.16));
+    assert_eq!(
+        motion.fades.get("hoverOut"),
+        Some(&0.12),
+        "a design-token fade cmux-motion does not use"
+    );
+    assert!(!motion.fades.contains_key("glow"));
+    let refused: Vec<&str> = file.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    assert_eq!(refused, ["motion.presets.smooth", "motion.springs.wobble", "motion.fades.glow"]);
+    assert!(file.diagnostics.iter().all(|d| d.kind == ThemeDiagnosticKind::InvalidValue));
+    assert!(file.diagnostics[1].message.contains("move"), "{}", file.diagnostics[1].message);
+    assert_eq!(file.diagnostics[1].line, Some(5), "{:?}", file.diagnostics[1]);
+}
+
+#[test]
+fn no_motion_block_leaves_every_default() {
+    for text in [r#"{ "appearance.accent": "blue" }"#, r#"{ "motion": {} }"#, "{}"] {
+        let file = overlay(text);
+        assert!(file.motion.is_empty(), "{text}");
+        assert!(file.diagnostics.is_empty(), "{text}: {:?}", file.diagnostics);
+    }
+    // The look a file without the block applies is the look it applied before the block existed.
+    let plain = overlay(r#"{ "appearance.accent": "blue" }"#);
+    let with =
+        overlay(r#"{ "appearance.accent": "blue", "motion": { "fades": { "fadeIn": 0.2 } } }"#);
+    assert_eq!(plain.applied(&json!({}), &none()), with.applied(&json!({}), &none()));
+    let bad = overlay(r#"{ "motion": "bouncy" }"#);
+    assert!(bad.motion.is_empty());
+    assert_eq!(bad.diagnostics.iter().map(|d| d.path.as_str()).collect::<Vec<_>>(), ["motion"]);
+}
+
+#[test]
+fn a_motion_edit_reloads_and_a_half_saved_file_keeps_the_last_good_motion() {
+    let schema = Schema::embedded();
+    let domains = Domains::default();
+    let first = r#"{ "motion": { "fades": { "fadeIn": 0.16 } } }"#;
+    assert_eq!(overlay(first).motion.fades.get("fadeIn"), Some(&0.16));
+    let edited = overlay(r#"{ "motion": { "fades": { "fadeIn": 0.3 } } }"#);
+    assert_eq!(edited.motion.fades.get("fadeIn"), Some(&0.3));
+    let broken = overlay("{ \"motion\": { \"fades\": ");
+    assert!(broken.is_unparsable && broken.motion.is_empty());
+    let kept = broken.or_last_good(Some(first), &json!({}), None, schema, &domains);
+    assert_eq!(kept.motion.fades.get("fadeIn"), Some(&0.16));
+}
+
+#[test]
+fn the_theme_schema_names_the_motion_block_and_every_design_token() {
+    let (springs, fades) = motion::known();
+    assert!(springs.iter().any(|name| name == "move") && fades.iter().any(|name| name == "fadeIn"));
+    let schema = Schema::embedded().theme_file_json_schema(is_look);
+    let property = &schema["properties"]["motion"]["properties"];
+    for name in springs {
+        let bounce = &property["springs"]["properties"][name]["properties"]["bounce"]["maximum"];
+        assert_eq!(bounce, &json!(cmux_app_host::motion_profile::BOUNCE_RANGE.1), "{name}");
+    }
+    for name in fades {
+        assert!(property["fades"]["properties"][name].is_object(), "{name}");
+    }
+    assert_eq!(
+        property["presets"]["additionalProperties"]["properties"]["duration"]["maximum"],
+        json!(cmux_app_host::motion::TIME_RANGE.1)
+    );
 }

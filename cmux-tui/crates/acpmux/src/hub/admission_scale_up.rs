@@ -34,8 +34,10 @@ use super::*;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-/// No second run within this of the last start.
-pub(crate) const COOLDOWN: Duration = Duration::from_secs(10 * 60);
+/// No second run within this of the last start. 2 min, not 10: on the 2026-11-24 start-trace replay
+/// (8 seats, 6 min lead, static T=0) 10 min left 1,300 overload lane-minutes over 24 h and 2 min left
+/// 502, for +4.4 host-hours (leo-workspace `tools/lane_elastic_replay.py`).
+pub(crate) const COOLDOWN: Duration = Duration::from_secs(2 * 60);
 /// `lane_overflow.timeout_seconds` without one, and its bounds (`lane_place.py`'s).
 const BUDGET_DEFAULT: u64 = 240;
 const BUDGET_MAX: u64 = 3600;
@@ -104,6 +106,35 @@ pub(crate) fn plan(
         })
         .collect();
     (!providers.is_empty()).then(|| Plan { providers, budget: Duration::from_secs(budget) })
+}
+
+/// Whether the fleet registry gives every lane its own machine
+/// (`lane_place.one_lane_per_host`). Leo: "each guy gets their individual lil machine for now".
+pub(crate) fn one_per_host(registry: Option<&Value>) -> bool {
+    registry.and_then(|r| r.pointer("/lane_place/one_lane_per_host")).and_then(Value::as_bool)
+        == Some(true)
+}
+
+/// With [`one_per_host`], a peer pick that already runs a lane (or whose count is unknown)
+/// is no room: the verdict reads `overloaded`, so [`room_elsewhere`] finds none and an
+/// Auto start waits for a fresh machine instead of doubling up.
+pub(crate) fn solo_pick(verdict: &mut Value, registry: Option<&Value>) {
+    if !one_per_host(registry) {
+        return;
+    }
+    let Some(pick) = verdict.get("pick").and_then(Value::as_str).map(str::to_owned) else {
+        return;
+    };
+    let empty = verdict
+        .get("hosts")
+        .and_then(Value::as_array)
+        .and_then(|h| h.iter().find(|r| r.get("name").and_then(Value::as_str) == Some(&pick)))
+        .and_then(|r| r.get("live"))
+        .and_then(Value::as_u64)
+        == Some(0);
+    if !empty && let Some(v) = verdict.as_object_mut() {
+        v.insert("overloaded".into(), Value::Bool(true));
+    }
 }
 
 /// Where the placement engine's `verdict` over the connected peers would put
@@ -634,6 +665,23 @@ mod tests {
         let full = json!({"pick": "big-red", "why": "least loaded", "overloaded": true});
         assert_eq!(room_elsewhere(&full), None, "a pick with no room is nowhere: scale up");
         assert_eq!(room_elsewhere(&json!({"error": "no candidates"})), None, "no peer: scale up");
+    }
+
+    #[test]
+    fn one_lane_per_host_needs_an_empty_peer() {
+        let reg = json!({"lane_place": {"one_lane_per_host": true}});
+        let verdict = |live: Value| json!({"pick": "p", "why": "p: room", "hosts": [{"name": "p", "live": live}]});
+        let mut empty = verdict(json!(0));
+        solo_pick(&mut empty, Some(&reg));
+        assert!(room_elsewhere(&empty).is_some(), "an empty peer takes the lane");
+        for live in [json!(1), Value::Null] {
+            let mut busy = verdict(live);
+            solo_pick(&mut busy, Some(&reg));
+            assert_eq!(room_elsewhere(&busy), None, "a busy or unknown peer is no room");
+        }
+        let mut off = verdict(json!(3));
+        solo_pick(&mut off, Some(&json!({})));
+        assert!(room_elsewhere(&off).is_some(), "without the flag nothing changes");
     }
 
     #[test]

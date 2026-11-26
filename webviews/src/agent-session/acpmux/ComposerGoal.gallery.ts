@@ -15,6 +15,10 @@ import type { TaskGoal } from "./goal";
 import { goalHatPlace } from "./goalHat.experiment";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 
+// These variants check the carded head's columns (icon, time, chevron); the one-line head (trayFoldHead
+// `line`, the default since Leo, 2026-11-25) draws none while tucked, so they pin the carded `groups` head.
+const CARD_HEAD = { "subagent-tray-fold-head": "groups" } as const;
+
 const OBJECTIVE =
   "Continue splitting and landing the remaining focused cmux-next PRs from the review queue, one at a time, each with an exact-head review and a green compile, and stop when the queue is empty";
 
@@ -38,23 +42,10 @@ const agent = (name: string, minutes: number, action: string): Subagent => ({
 });
 
 /** A Codex chat with `status`'s goal; `hat` adds two running subagents and a queued prompt under it. */
-function goalChat(status: TaskGoal["status"], hat = false, objective?: string, plan = false): AcpmuxSnapshot {
+function goalChat(status: TaskGoal["status"], hat = false, objective?: string): AcpmuxSnapshot {
   const rows = [
     user("Keep going on the review queue", 34),
     assistant("Landed #38102. Splitting the next one.", 6),
-    // A plan of its own under the goal (the person, 2026-11-23, on Goal running over "0 of 3": "icons are
-    // not matching properly"): the hat then heads with the plan.
-    ...(plan
-      ? [
-          row("plan", 4, {
-            plan: [
-              { content: "Dev backend stack on the GCP VM for the build's tag", status: "in_progress" as const },
-              { content: "Build the tagged app", status: "pending" as const },
-              { content: "Verify on the MacBook", status: "pending" as const },
-            ],
-          }),
-        ]
-      : []),
     ...(hat
       ? [
           row(SUBAGENTS, 5, {
@@ -121,23 +112,23 @@ export default agentPaneEntry({
   experiment: { definition: goalHatPlace, script },
   variants: {
     stalled: {
+      experiments: CARD_HEAD,
       note: "A stalled goal alone: one line in the hat's glass, its objective cut, the time in tabular figures; the buttons fade in over the cut end on hover or focus.",
       snapshot: goalChat("stalled"),
     },
     "with-hat": {
+      experiments: CARD_HEAD,
       note: "The goal heads the hat over two running subagents and a queued prompt: one glass stack, every time and chevron in the same trailing columns.",
       snapshot: goalChat("running", true),
     },
-    "with-plan": {
-      note: "The goal over the turn's plan: the goal's dot, the plan's mark and + share one leading column, their words one start, and the chevrons and the panel button one trailing edge, at every density.",
-      snapshot: goalChat("running", false, undefined, true),
-    },
     "with-hat-open": {
+      experiments: CARD_HEAD,
       note: "Opened in place over the running lines: the objective's first line stays where it was, the rest and Updated unfold under it, the hat grows upward.",
       snapshot: goalChat("running", true),
       play: open,
     },
     hover: {
+      experiments: CARD_HEAD,
       note: "A resting pointer on the cut line: the whole goal and when it changed in a hover card over the transcript; nothing in the hat moves.",
       snapshot: goalChat("stalled", true),
       play: async (ctx) => {
@@ -146,6 +137,7 @@ export default agentPaneEntry({
       },
     },
     editing: {
+      experiments: CARD_HEAD,
       note: "Edit turns the text into a field in the same place and type; Return sends it as the new goal, Escape keeps the old.",
       snapshot: goalChat("paused", true),
       play: async (ctx) => {
@@ -155,6 +147,7 @@ export default agentPaneEntry({
       },
     },
     "rapid-toggle": {
+      experiments: CARD_HEAD,
       note: "Fifteen clicks 60 ms apart (the reference took 68 ms clicks without dropping one): each turns the fold around from where it is, and the last leaves it open.",
       snapshot: goalChat("stalled", true),
       play: async (ctx) => {
@@ -166,14 +159,17 @@ export default agentPaneEntry({
       },
     },
     paused: {
+      experiments: CARD_HEAD,
       note: "Paused: a hollow mark; Resume takes Pause's place.",
       snapshot: goalChat("paused"),
     },
     met: {
+      experiments: CARD_HEAD,
       note: "Met: the mark in the success colour, the total time, no Pause or Resume.",
       snapshot: goalChat("done"),
     },
     short: {
+      experiments: CARD_HEAD,
       note: "A goal short enough to fit: no hover card, since nothing is cut.",
       snapshot: goalChat("running", false, "Fix the flaky retry test"),
     },

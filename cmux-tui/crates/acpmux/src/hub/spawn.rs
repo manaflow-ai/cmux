@@ -679,7 +679,7 @@ impl Hub {
                 );
             }
         }
-        // Gemini and Grok on a cmux Cloud machine: the team's gateway when the person has no
+        // Gemini, Grok and Antigravity on a cmux Cloud machine: the team's gateway when the person has no
         // sign-in of their own and the gateway serves the agent (provider_cloud_auth.rs,
         // hq#11225). A bound route, or a launcher that picks the provider itself, owns it instead.
         // The probe waits at most `PROBE_DEADLINE`; any failure keeps own.
@@ -730,6 +730,12 @@ impl Hub {
                 }
             }
         }
+        // Antigravity with no key in its launch: the person's own one from `~/.gemini/.env`, where
+        // the Cloud sign-in card saves it; `agy` reads only its environment (acp_key_auth.rs).
+        let family = crate::config::derive_family(&meta.harness, &p);
+        crate::acp_key_auth::fill_key_from_gemini_dotenv(&mut p.env, &family, |k| {
+            std::env::var(k).ok()
+        });
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher
@@ -764,6 +770,19 @@ impl Hub {
             let rules =
                 crate::context_inventory::launch_args(meta.cmux_context.as_deref(), &p, &meta.cwd);
             p.argv.extend(rules);
+        }
+        // The response style and commit attribution the cmux settings choose for the agents cmux
+        // starts (`agent_launch_choices.rs`): Claude Code's `outputStyle` and `attribution` in its
+        // one `--settings`, Codex's `personality` as a `-c`. Unset passes nothing. A remote
+        // chain refuses a profile `--settings`, so a remote-origin chat keeps the agent's own.
+        if !meta.remote_origin {
+            let choices = crate::agent_launch_choices::LaunchChoices::current();
+            if profile.kind == crate::config::HarnessKind::ClaudeStdio {
+                let cwd = std::path::Path::new(&meta.cwd);
+                crate::agent_launch_choices::apply_claude(&mut p.argv, cwd, &choices);
+            } else if crate::codex_app_server::is_profile_launch(&p.argv) {
+                crate::agent_launch_choices::apply_codex(&mut p.argv, &choices);
+            }
         }
         // Claude Code defers MCP tools behind its tool search, which it turns
         // off by itself behind a router; the cmux server lists every tool

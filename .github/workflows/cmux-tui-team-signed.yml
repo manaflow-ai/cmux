@@ -68,7 +68,7 @@ jobs:
     # one-job VMs), never behind PR CI on the shared pool: the NEXT nightly's nightly-next-one job waits on
     # this workflow's tree-commit marker and gives up after 3000 s (run 44686907065's publish sat queued on
     # linux_4 behind ~3,244 PR jobs, 2026-11-20). A re-run takes the pool.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -92,28 +92,34 @@ jobs:
           path: tools
           sparse-checkout: scripts/ci
 
-      # As cmux-tui-artifacts.yml's dispatch: a gh call GitHub refuses for the installation's rate limit
-      # waits for the reset and tries again (runs 45423971003 and 45422219117 failed here with "API rate
-      # limit exceeded for installation"). At most 5 minutes, inside the job's 10.
-      - name: Wait through a rate-limited gh call
-        env:
-          GH_BUDGET_WAIT_MAX_SECONDS: '300'
-        run: bash tools/scripts/ci/gh_budget_wait.sh --install
-
+      # On feat-cmux-next: the commit is feat-cmux-next's head or behind it. Read from git, not the REST
+      # compare API: the installation's rate limit refused that call for 5 minutes and failed the plan, so the
+      # helper was never signed and the Mac live file went out without one (runs 45646188220 and 45645935931,
+      # 2026-11-25; cmux-tui/965f1485.../mac-live.json carries no screen_sharing_helper). A treeless fetch of
+      # the branch's last 60 days of commits needs no token; the commits dispatched here are minutes old.
       - name: Check the commit
         env:
           COMMIT: ${{ inputs.commit }}
-          GH_TOKEN: ${{ github.token }}
-          GH_BUDGET_WAIT_MAX_SECONDS: '300'
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # On feat-cmux-next: the commit is feat-cmux-next's head or behind it.
-          status="$(gh api "repos/$REPO/compare/$COMMIT...feat-cmux-next" --jq .status)"
-          case "$status" in
-            identical|ahead) echo "$COMMIT is on feat-cmux-next ($status)" ;;
-            *) echo "::error::$COMMIT is not on feat-cmux-next (compare: $status); only a merged commit's tree is Team-signed"; exit 1 ;;
-          esac
+          git init -q --bare onbranch
+          fetched=""
+          for try in 1 2 3; do
+            if timeout 180 git -C onbranch fetch -q --no-tags --filter=tree:0 --shallow-since="60 days ago" \
+                "https://github.com/$REPO.git" "+refs/heads/feat-cmux-next:refs/heads/feat-cmux-next"; then
+              fetched=1; break
+            fi
+            echo "::notice::fetch of feat-cmux-next failed (try $try of 3)"
+            sleep $((try * 10))
+          done
+          [[ -n "$fetched" ]] && commits="$(git -C onbranch rev-list feat-cmux-next)" && [[ -n "$commits" ]] \
+            || { echo "::error::could not read feat-cmux-next's history to check $COMMIT"; exit 1; }
+          if grep -qx "$COMMIT" <<<"$commits"; then
+            echo "$COMMIT is on feat-cmux-next"
+          else
+            echo "::error::$COMMIT is not on feat-cmux-next (or is older than 60 days); only a merged commit's tree is Team-signed"; exit 1
+          fi
 
       - name: Checkout the commit (its tree key script)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -169,6 +175,9 @@ jobs:
           ref: ${{ inputs.commit }}
           fetch-depth: 1
 
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -223,6 +232,9 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           sparse-checkout: scripts
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       # Before any secret: an owned Mac must be held whole (an ephemeral runner passes).
       - name: Claim the whole Mac for signing
@@ -309,7 +321,7 @@ jobs:
     environment:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -379,6 +391,7 @@ jobs:
           sparse-checkout: |
             scripts
             cmux-helper.entitlements
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Before any secret: an owned Mac must be held whole (an ephemeral runner passes).
@@ -449,7 +462,7 @@ jobs:
     environment:
       name: artifacts
       deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read

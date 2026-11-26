@@ -433,8 +433,17 @@ struct Queues {
     control: VecDeque<Frame>,
     input: VecDeque<Frame>,
     bulk: HashMap<u32, VecDeque<Frame>>,
-    /// Bulk channels with queued frames, in round-robin order.
+    /// Bulk channels with queued frames, in round-robin order. The channel
+    /// whose turn it is now is not in it but in `turn`.
     turns: VecDeque<u32>,
+    /// The bulk channel whose turn it is, with the bytes it may still send
+    /// in this turn. A turn is [`DATA_CHUNK`] bytes, not one frame: frames
+    /// smaller than a chunk (a terminal's echo, one key at a time) go
+    /// together in one turn, so a channel of small frames gets the same
+    /// share of the stream as a channel of full chunks. Counted by frames,
+    /// an echo got one key per 16 KiB of another channel's output, and on a
+    /// link slower than 16 KiB per key its backlog grew without end.
+    turn: Option<(u32, usize)>,
     /// Queued payload bytes per channel (input and bulk).
     bytes: HashMap<u32, usize>,
     shutdown: bool,
@@ -565,14 +574,7 @@ impl Outbox {
         }
         let frame = if let Some(frame) = queues.input.pop_front() {
             frame
-        } else if let Some(channel) = queues.turns.pop_front() {
-            let queue = queues.bulk.get_mut(&channel).expect("a turn has a queue");
-            let frame = queue.pop_front().expect("a turn has a frame");
-            if queue.is_empty() {
-                queues.bulk.remove(&channel);
-            } else {
-                queues.turns.push_back(channel);
-            }
+        } else if let Some(frame) = Self::pop_bulk(&mut queues) {
             frame
         } else if queues.shutdown {
             return Some(Next::Shutdown);
@@ -588,6 +590,36 @@ impl Outbox {
             self.room.notify_waiters();
         }
         Some(Next::Frame(frame))
+    }
+
+    /// The next bulk frame, round robin per channel by bytes: the channel
+    /// whose turn it is goes on while its next frame fits what is left of
+    /// its [`DATA_CHUNK`]; then the next channel's turn starts (its first
+    /// frame always goes).
+    fn pop_bulk(queues: &mut Queues) -> Option<Frame> {
+        if let Some((channel, left)) = queues.turn.take() {
+            let queue = queues.bulk.get_mut(&channel).expect("a turn has a queue");
+            let size = queue.front().expect("a turn has a frame").queue_bytes();
+            if size <= left {
+                let frame = queue.pop_front().expect("a turn has a frame");
+                if queue.is_empty() {
+                    queues.bulk.remove(&channel);
+                } else {
+                    queues.turn = Some((channel, left - size));
+                }
+                return Some(frame);
+            }
+            queues.turns.push_back(channel);
+        }
+        let channel = queues.turns.pop_front()?;
+        let queue = queues.bulk.get_mut(&channel).expect("a turn has a queue");
+        let frame = queue.pop_front().expect("a turn has a frame");
+        if queue.is_empty() {
+            queues.bulk.remove(&channel);
+        } else {
+            queues.turn = Some((channel, DATA_CHUNK.saturating_sub(frame.queue_bytes())));
+        }
+        Some(frame)
     }
 
     async fn next(&self, held: &AtomicBool) -> Next {
@@ -893,6 +925,10 @@ pub(crate) struct Inner {
     /// When a round trip (the app's heartbeat, the keepalive) last sent its
     /// first ping as a datagram: the foreground probe takes it for its own.
     last_datagram_ping: Mutex<Option<Instant>>,
+    /// When any datagram ping (first send, resend, probe, pre-wake) last
+    /// left. Held across [`Link::prewake`]'s check and send, so a pre-wake
+    /// never follows another ping by milliseconds.
+    ping_sent: Mutex<Option<Instant>>,
     /// Ping counts and round trips for the link's path report ([`Link::take_ping_stats`]).
     ping_stats: Mutex<PingStats>,
     closed: watch::Sender<Option<String>>,
@@ -1238,6 +1274,18 @@ impl Inner {
     /// Send one liveness datagram; `false` when there is no datagram lane
     /// or its queue is full.
     fn send_datagram(&self, kind: u8, nonce: u64, attempt: u8) -> bool {
+        if kind != DATAGRAM_PING {
+            return self.enqueue_datagram(kind, nonce, attempt);
+        }
+        let mut sent_at = self.ping_sent.lock().unwrap_or_else(PoisonError::into_inner);
+        let sent = self.enqueue_datagram(kind, nonce, attempt);
+        if sent {
+            *sent_at = Some(Instant::now());
+        }
+        sent
+    }
+
+    fn enqueue_datagram(&self, kind: u8, nonce: u64, attempt: u8) -> bool {
         let sender = self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).clone();
         sender.is_some_and(|sender| sender.try_send(liveness_datagram(kind, nonce, attempt)).is_ok())
     }
@@ -1577,6 +1625,7 @@ impl Link {
             rtt: watch::channel(None).0,
             srtt: Mutex::new(None),
             last_datagram_ping: Mutex::new(None),
+            ping_sent: Mutex::new(None),
             ping_stats: Mutex::new(PingStats::default()),
             closed: watch::channel(None).0,
             incoming: tokio::sync::Mutex::new(incoming_rx),
@@ -1956,24 +2005,31 @@ impl Link {
     /// link with no datagram pings, parked, closed or not quiet (no cost).
     pub fn prewake(&self) -> bool {
         let inner = &self.inner;
-        if !inner.datagram_pings() || inner.closed_reason().is_some() || inner.parked_until().is_some() {
+        if !inner.datagram_pings() || inner.closed_reason().is_some() {
+            return false;
+        }
+        // Held through the enqueue: a park (or its resume) that starts
+        // meanwhile waits for this send rather than following it.
+        let park = inner.park.borrow();
+        if !matches!(*park, Park::Off) {
             return false;
         }
         let now = Instant::now();
         if now.saturating_duration_since(inner.last_received()) < PREWAKE_QUIET {
             return false;
         }
-        let mut last = inner.last_datagram_ping.lock().unwrap_or_else(PoisonError::into_inner);
-        if last.is_some_and(|at| now.saturating_duration_since(at) < PREWAKE_QUIET) {
+        let mut sent_at = inner.ping_sent.lock().unwrap_or_else(PoisonError::into_inner);
+        if sent_at.is_some_and(|at| now.saturating_duration_since(at) < PREWAKE_QUIET) {
             return false;
         }
         let nonce = inner.next_nonce.fetch_add(1, Ordering::Relaxed);
-        if !inner.send_datagram(DATAGRAM_PING, nonce, 0) {
+        if !inner.enqueue_datagram(DATAGRAM_PING, nonce, 0) {
             return false;
         }
+        *sent_at = Some(now);
+        drop((sent_at, park));
         // The foreground probe takes it for its own round trip.
-        *last = Some(now);
-        drop(last);
+        *inner.last_datagram_ping.lock().unwrap_or_else(PoisonError::into_inner) = Some(now);
         inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
         true
     }
@@ -3221,18 +3277,20 @@ async fn handle_frame(
             let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
             let closed = Arc::new(AtomicBool::new(false));
             let inbox = Inbox::new(tx, inner, stream, frame.channel);
-            // Replies are sent as datagrams too only when this side
-            // also has the peer's word that it takes them.
+            // The peer asks for a delivery only when both sides listed its
+            // lane, so the request is the agreement: the channel is numbered
+            // (and a screen channel's messages carry their base) from its
+            // first message, as the peer reads it. Whether a message also
+            // goes as datagrams is decided per send (`send_numbered`): the
+            // Mac attaches its datagram lane after the link is accepted, and
+            // the phone's first opens can arrive before that. Deciding here
+            // left those channels on the stream path for their life.
             let delivery = request.delivery;
-            // A screen delivery from a peer this side did not agree it with
-            // gets the stream path only.
-            let delivery = delivery.filter(|delivery| *delivery != Delivery::Screen || inner.screen());
             let route = Route::new(inbox, &closed, delivery);
             let screen = route.screen.clone();
             inner.lock_channels().insert(frame.channel, route);
-            let mirror = delivery.filter(|_| inner.classes());
             let channel =
-                Channel::new(frame.channel, stream, class, Arc::clone(inner), rx, closed, mirror, screen);
+                Channel::new(frame.channel, stream, class, Arc::clone(inner), rx, closed, delivery, screen);
             let accepted =
                 IncomingChannel { service: request.service, args: request.args, lane: request.lane, channel };
             if incoming.send(accepted).await.is_err() {
@@ -3384,8 +3442,8 @@ pub struct ChannelSender {
     closed: Arc<AtomicBool>,
     /// Where queued payload bytes are counted, if anywhere.
     meter: Option<Arc<ByteMeter>>,
-    /// Each send is a numbered message, sent as datagrams too
-    /// (`crate::classes`).
+    /// Each send is a numbered message, also sent as datagrams while this
+    /// link has the class lane (`crate::classes`).
     mirror: Option<Delivery>,
     next_seq: AtomicU64,
     /// Present on a [`Delivery::Screen`] channel.
@@ -3440,8 +3498,9 @@ impl ChannelSender {
         self.send_numbered(data, mark).await.map(|_| ())
     }
 
-    /// Whether this channel sends screen datagrams ([`Delivery::Screen`] and
-    /// the peer agreed [`crate::classes::SCREEN_LANE`]).
+    /// Whether this is a screen channel ([`Delivery::Screen`], agreed with
+    /// the peer through [`crate::classes::SCREEN_LANE`]): its messages carry
+    /// their base and go as screen datagrams too once the lane is attached.
     pub fn screen_class(&self) -> bool {
         self.screen.is_some() && self.mirror.is_some()
     }
@@ -3484,7 +3543,14 @@ impl ChannelSender {
             return Err(LinkError::ChannelClosed);
         }
         let seq = self.mirror.map(|_| self.next_seq.fetch_add(1, Ordering::Relaxed));
+        // The lane is checked at send time: a channel accepted before this
+        // side attached its datagrams starts sending them once it has.
+        let lane = match self.screen {
+            Some(_) => self.inner.screen(),
+            None => self.inner.classes(),
+        };
         if let (Some(delivery), Some(seq)) = (self.mirror, seq)
+            && lane
             && data.len() <= crate::classes::MIRROR_MAX
             && !self.inner.writes_held.load(Ordering::Acquire)
         {
@@ -4399,6 +4465,39 @@ mod tests {
         eprintln!("one stream: input {input:?}, other {other:?}");
         assert!(input < Duration::from_millis(400), "input echo took {input:?}");
         assert!(other < Duration::from_millis(800), "other channel echo took {other:?}");
+    }
+
+    /// Bulk turns are by bytes: a channel of one-key echo frames sends all
+    /// it has queued (up to a chunk) in one turn, not one key per chunk of
+    /// another channel's output (the typing_echo lossy-3 starvation).
+    #[test]
+    fn a_bulk_turn_is_a_chunk_of_bytes_not_one_frame() {
+        let outbox = Outbox::default();
+        for _ in 0..4 {
+            outbox.push(Class::Bulk, Frame::new(1, FrameType::Data, vec![b'x'; DATA_CHUNK]));
+        }
+        for _ in 0..20 {
+            outbox.push(Class::Bulk, Frame::new(2, FrameType::Data, vec![b'k'; 8]));
+        }
+        let order: Vec<u32> = std::iter::from_fn(|| match outbox.pop(false) {
+            Some(Next::Frame(frame)) => Some(frame.channel),
+            _ => None,
+        })
+        .collect();
+        let mut expected = vec![1];
+        expected.extend([2; 20]);
+        expected.extend([1, 1, 1]);
+        assert_eq!(order, expected);
+        // Full chunks still alternate one per turn.
+        for channel in [1, 2, 1, 2] {
+            outbox.push(Class::Bulk, Frame::new(channel, FrameType::Data, vec![b'x'; DATA_CHUNK]));
+        }
+        let order: Vec<u32> = std::iter::from_fn(|| match outbox.pop(false) {
+            Some(Next::Frame(frame)) => Some(frame.channel),
+            _ => None,
+        })
+        .collect();
+        assert_eq!(order, [1, 2, 1, 2]);
     }
 
     /// With the input lane attached, input does not share the flooded
@@ -5364,6 +5463,71 @@ mod tests {
         assert!(mac.datagram_wins() >= 5 && phone.datagram_wins() >= 1);
     }
 
+    /// The Mac attaches its datagram lane after it accepts the link, so the
+    /// phone's first opens can be accepted before it. Those channels still
+    /// send class and screen datagrams once the lane is attached: before,
+    /// the accept fixed them to the stream path for their life (echo-flood
+    /// runs with `datagram_wins: 0`).
+    #[tokio::test(start_paused = true)]
+    async fn channels_accepted_before_the_lane_attaches_send_datagrams_after() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(LivenessDatagrams { classes: true, screen: true, ..phone_lane });
+        let server = tokio::spawn({
+            let mac = mac.clone();
+            async move {
+                let echo = mac.accept().await.expect("echo");
+                let screen = mac.accept().await.expect("screen");
+                (echo.channel, screen.channel)
+            }
+        });
+        let mut echo = phone.open_latest("echo", serde_json::json!({})).await.unwrap();
+        let mut screen = phone.open_screen("screen", serde_json::json!({})).await.unwrap();
+        let (mac_echo, mac_screen) = server.await.unwrap();
+        assert!(!mac.class_datagrams(), "the Mac's lane is not attached yet");
+        let (echo_tx, _echo_rx) = mac_echo.split();
+        let (screen_tx, _screen_rx) = mac_screen.split();
+        assert!(screen_tx.screen_class(), "the phone's request is the agreement");
+        // A message before the lane goes on the stream only, and arrives.
+        echo_tx.send(Bytes::from_static(b"early")).await.unwrap();
+        match tokio::time::timeout(Duration::from_millis(500), echo.recv()).await {
+            Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], b"early"),
+            other => panic!("early: {other:?}"),
+        }
+        screen_tx.send_screen(None, b"first").await.unwrap();
+        match tokio::time::timeout(Duration::from_millis(500), screen.recv()).await {
+            Ok(Some(ChannelEvent::Data(bytes))) => {
+                let message = crate::classes::screen_message(&bytes).expect("a screen message");
+                assert_eq!(&message.payload[..], b"first");
+            }
+            other => panic!("first screen: {other:?}"),
+        }
+
+        mac.attach_liveness_datagrams(LivenessDatagrams { classes: true, screen: true, ..mac_lane });
+        dark.send_replace(true);
+        echo_tx.send(Bytes::from_static(b"late")).await.unwrap();
+        match tokio::time::timeout(Duration::from_millis(100), echo.recv()).await {
+            Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], b"late"),
+            other => panic!("late echo over a dark stream: {other:?}"),
+        }
+        screen_tx.send_screen(None, b"second").await.unwrap();
+        match tokio::time::timeout(Duration::from_millis(100), screen.recv()).await {
+            Ok(Some(ChannelEvent::Data(bytes))) => {
+                let message = crate::classes::screen_message(&bytes).expect("a screen message");
+                assert_eq!(&message.payload[..], b"second");
+            }
+            other => panic!("second screen over a dark stream: {other:?}"),
+        }
+        assert!(phone.datagram_wins() >= 2);
+        dark.send_replace(false);
+        assert!(phone.ping().await.is_ok());
+        assert!(tokio::time::timeout(Duration::from_millis(200), echo.recv()).await.is_err(), "echo twice");
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err(),
+            "screen twice"
+        );
+    }
+
     /// Screen messages cross a dark stream as screen datagrams, newest wins,
     /// the receiver's acknowledgements give the sender its base, and the
     /// stream copies that follow are dropped as duplicates.
@@ -5425,6 +5589,109 @@ mod tests {
             tokio::time::timeout(Duration::from_millis(500), screen.recv()).await,
             Ok(Some(ChannelEvent::Data(_)))
         ));
+    }
+
+    /// Mixed builds (RFD 0164 row 1): a phone and a Mac of any two
+    /// generations (no class lanes; `classes` only; `classes` with
+    /// `classes-screen-v1`) agree the same lanes through
+    /// [`crate::classes::ClassLanes`], the dial's own negotiation, and
+    /// keystrokes and screen updates still arrive once each: keystrokes as
+    /// datagrams across a dark stream where both listed `classes`, on the
+    /// stream once it is back otherwise.
+    #[tokio::test(start_paused = true)]
+    async fn mixed_builds_negotiate_down_and_still_deliver() {
+        use crate::classes::ClassLanes;
+        let generations =
+            [ClassLanes::offer(false, false), ClassLanes::offer(true, false), ClassLanes::offer(true, true)];
+        for phone_offer in generations {
+            for mac_offer in generations {
+                let case = format!("phone {phone_offer:?}, mac {mac_offer:?}");
+                // The phone dials with its lanes; the Mac lists back what it agreed.
+                let mac_agreed = mac_offer.agreed(&phone_offer.lanes());
+                let phone_agreed = phone_offer.agreed(&mac_agreed.lanes());
+                let both = ClassLanes::offer(
+                    phone_offer.classes && mac_offer.classes,
+                    phone_offer.screen && mac_offer.screen,
+                );
+                assert_eq!((phone_agreed, mac_agreed), (both, both), "{case}");
+
+                let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+                let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+                phone.attach_liveness_datagrams(LivenessDatagrams {
+                    classes: phone_agreed.classes,
+                    screen: phone_agreed.screen,
+                    ..phone_lane
+                });
+                mac.attach_liveness_datagrams(LivenessDatagrams {
+                    classes: mac_agreed.classes,
+                    screen: mac_agreed.screen,
+                    ..mac_lane
+                });
+                for link in [&phone, &mac] {
+                    assert_eq!(
+                        (link.class_datagrams(), link.screen_datagrams()),
+                        (both.classes, both.screen),
+                        "{case}"
+                    );
+                }
+                let server = tokio::spawn({
+                    let mac = mac.clone();
+                    async move {
+                        let keys = mac.accept().await.expect("keys");
+                        let screen = mac.accept().await.expect("screen");
+                        (keys.channel, screen.channel)
+                    }
+                });
+                let keys = phone.open_on("keys", serde_json::json!({}), Lane::Input).await.unwrap();
+                let mut screen = phone.open_screen("screen", serde_json::json!({})).await.unwrap();
+                let (mut mac_keys, mac_screen) = server.await.unwrap();
+                assert_eq!(screen.screen_class(), both.screen, "{case}");
+
+                dark.send_replace(true);
+                for key in 0u8..3 {
+                    keys.send(Bytes::from(vec![key; 3])).await.unwrap();
+                }
+                if !both.classes {
+                    assert!(
+                        tokio::time::timeout(Duration::from_millis(100), mac_keys.recv()).await.is_err(),
+                        "{case}: a key crossed a dark stream with no class datagrams agreed"
+                    );
+                    dark.send_replace(false);
+                }
+                for key in 0u8..3 {
+                    match tokio::time::timeout(Duration::from_millis(500), mac_keys.recv()).await {
+                        Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], &[key; 3], "{case}"),
+                        other => panic!("{case}: key {key}: {other:?}"),
+                    }
+                }
+                dark.send_replace(false);
+                assert!(phone.ping().await.is_ok(), "{case}");
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(200), mac_keys.recv()).await.is_err(),
+                    "{case}: a key arrived twice"
+                );
+
+                let (mac_tx, _mac_rx) = mac_screen.split();
+                assert_eq!(mac_tx.screen_class(), both.screen, "{case}");
+                mac_tx.send_screen(None, b"state").await.unwrap();
+                match tokio::time::timeout(Duration::from_millis(500), screen.recv()).await {
+                    Ok(Some(ChannelEvent::Data(bytes))) => {
+                        let payload = if both.screen {
+                            crate::classes::screen_message(&bytes).expect("a screen message").payload.to_vec()
+                        } else {
+                            bytes.to_vec()
+                        };
+                        assert_eq!(payload, b"state", "{case}");
+                    }
+                    other => panic!("{case}: screen: {other:?}"),
+                }
+                assert!(phone.ping().await.is_ok(), "{case}");
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err(),
+                    "{case}: a screen update arrived twice"
+                );
+            }
+        }
     }
 
     /// Each side's flags are what negotiation agreed (both listed the lane),
@@ -5538,6 +5805,28 @@ mod tests {
         }
         phone.close("done");
         assert!(!phone.prewake(), "a closed link sends nothing");
+        mac.close("done");
+    }
+
+    /// Any datagram ping keeps the radio awake: a resend or probe ping that
+    /// just left holds a pre-wake back, and a resuming link sends none.
+    #[tokio::test]
+    async fn prewake_counts_every_datagram_ping_and_waits_out_a_resume() {
+        let (phone, mac) = stalled_pair();
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        tokio::time::sleep(PREWAKE_QUIET + Duration::from_millis(50)).await;
+        // A resend (attempt 1) of another round trip just left.
+        let nonce = phone.inner.next_nonce.fetch_add(1, Ordering::Relaxed);
+        assert!(phone.inner.send_datagram(DATAGRAM_PING, nonce, 1));
+        assert!(!phone.prewake(), "a ping that just left already woke the radio");
+        tokio::time::sleep(PREWAKE_QUIET + Duration::from_millis(50)).await;
+        phone.inner.park.send_replace(Park::Resuming);
+        assert!(!phone.prewake(), "a resuming link sends no pre-wake");
+        phone.inner.park.send_replace(Park::Off);
+        assert!(phone.prewake());
+        phone.close("done");
         mac.close("done");
     }
 

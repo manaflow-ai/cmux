@@ -2,6 +2,7 @@
 // header, transcript, side panels, asks, composer slot and dialogs), moved out of App.tsx as it was.
 // A plain render function AcpmuxPane calls inline for its `pane`, so React sees the same element
 // tree (no component boundary of its own); every hook stays in AcpmuxPane, and this holds no state.
+import type { HatPillPlace } from "../hatPillPlace.experiment";
 import type React from "react";
 import type { createCloudPlanSubscribe } from "../cloudPlanSubscribe";
 import type { sideChatRow } from "../header/sideChatRow";
@@ -33,6 +34,7 @@ import { historyPages } from "../queue/historyPages";
 import type { AllChatsPage } from "../newtab/allChatsListModel";
 import { newTabScreenActions } from "../newtab/screenActions";
 import { cloudSendAgent } from "../cloudModePick";
+import { cloudAgentPick } from "../cloudAgentPick";
 import { jumpSide } from "../jumpPlace";
 import { StyleSwitch } from "../newtab/StyleSwitch";
 import { screenTemplate, shownTemplate, pageStyle, pickNewTabStyle } from "../newtab/templates";
@@ -103,6 +105,7 @@ import { openOfferChat } from "../rows/rowActions";
 import { VirtualTranscript } from "../VirtualTranscript";
 import { LiveTreePill } from "../header/LiveTreePill";
 import { readFolderStatus } from "./hostBindings";
+import { chatMenuHasRows } from "./chatMenu";
 import { NewTabComposerChips } from "./ComposerChips";
 import type { AcpmuxSnapshot, paneHeader } from "../model";
 import type { AcpmuxDirectClient } from "../direct";
@@ -197,6 +200,8 @@ export type PaneBodyDeps = NewTabShown &
     previewBeside: boolean;
     jumpPlaceArm: "center" | "end" | "start" | "corner";
     trayHandle: TrayHandleSide;
+    /** The hat-pill-place arm while the tucked hat's pill shows (jumpPlace.css), else undefined. */
+    hatPill: HatPillPlace | undefined;
     chatMinimapBeside: boolean;
     hasBottomAsk: boolean;
     setPaneMain: (element: HTMLDivElement | null) => void;
@@ -278,6 +283,7 @@ export type PaneBodyDeps = NewTabShown &
     commandSession: string | undefined;
     newTabSnapshot: AcpmuxSnapshot;
     pendingCommands: SlashCommand[] | undefined;
+    readSessionCommands: (sessionId: string) => Promise<SlashCommand[]>;
     extensionCommands: readonly SlashCommand[];
     /// Computer use and browser use in the `/` and `$` menus (toolMentions.ts).
     toolCommands: readonly SlashCommand[];
@@ -342,10 +348,10 @@ export type PaneBodyDeps = NewTabShown &
     parkedVisible: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
+    /// What the header says: the chat's title, or a subagent's own pane's
+    /// title and "Subagent of <chat>" (subagents/subagentPanes.ts `paneHeading`).
+    heading: { title: string; of?: string; renamable: boolean };
     titleTrail: readonly string[] | undefined;
-    /// What the header names (subagentPanes.ts `paneHeading`): a subagent's own pane heads with the
-    /// subagent, never its chat's title and summary.
-    heading: { title: string; renamable: boolean };
     tabRowTools: (element: HTMLElement | null) => void;
     liveTreeEnabled: boolean;
     readLiveTree: () => Promise<unknown>;
@@ -513,6 +519,7 @@ export function drawPaneBody({
   previewBeside,
   jumpPlaceArm,
   trayHandle,
+  hatPill,
   chatMinimapBeside,
   hasBottomAsk,
   setPaneMain,
@@ -578,6 +585,7 @@ export function drawPaneBody({
   commandSession,
   newTabSnapshot,
   pendingCommands,
+  readSessionCommands,
   extensionCommands,
   toolCommands,
   holdsForComputerUseSetup,
@@ -828,6 +836,8 @@ export function drawPaneBody({
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
           data-jump-place={jumpPlaceArm}
           data-jump-side={jumpSide(jumpPlaceArm, trayHandle)}
+          // The tucked hat's pill and how it shares the center line with the disc (jumpPlace.css).
+          data-hat-pill={hatPill}
           data-vscode-minimap={chatMinimapBeside ? "" : undefined}
           // A question or permission card in the bottom stack (conversation.css). An attribute, not a
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
@@ -901,11 +911,15 @@ export function drawPaneBody({
                   importSandboxed={sandbox.mode === "sandboxed"}
                   // The machine the person last picked for a new chat (cmux#46019), while acpmux lists it.
                   {...(newTabStartMachine ? { startMachine: newTabStartMachine } : {})}
+                  // The deferred chat that lists the commands starts only in a folder the pane already
+                  // has: a `/` grants nothing (a grant would also trust the folder). Until it answers,
+                  // the New Tab lists the newest chat's list there (folderCommands.ts).
                   onCommands={(harness, cwd) => {
                     void callNative("chat.new", { harness, ...(cwd ? { cwd } : {}), deferred: true }).catch(
                       () => undefined,
                     );
                   }}
+                  readChatCommands={readSessionCommands}
                   key={newTabGeneration}
                   environments
                   onLeaveDraft={leaveNewTabDraft}
@@ -993,11 +1007,16 @@ export function drawPaneBody({
                               ...folder,
                               // The agent the Mode chip names and its pick: a harness with no
                               // Cloud start mode is left out, so the machine starts Claude.
-                              ...cloudSendAgent(
-                                snapshot.catalog.find((entry) => entry.id === harness)?.family,
-                                harness,
-                                model,
-                              ),
+                              // The agent picked for the machine (cloudAgentPick.ts), as the chips show it.
+                              ...(() => {
+                                const machine = cloudAgentPick();
+                                const agent = machine?.harness ?? harness;
+                                return cloudSendAgent(
+                                  snapshot.catalog.find((entry) => entry.id === agent)?.family,
+                                  agent,
+                                  machine ? machine.model : model,
+                                );
+                              })(),
                             },
                             true,
                           );
@@ -1053,8 +1072,10 @@ export function drawPaneBody({
                   template={screenTemplate(shownTemplate(newTab))}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
+                  // Until the deferred chat lists its commands, the page's own list stays: an empty one
+                  // closed the open `/` menu, and nothing opened it again.
                   snapshot={
-                    commandSession
+                    commandSession && pendingCommands?.length
                       ? {
                           ...newTabSnapshot,
                           commands: withToolCommands(
@@ -1071,6 +1092,7 @@ export function drawPaneBody({
                   lastAgent={newTab.lastAgent}
                   home={newTab.home}
                   {...(newTab.startedProject ? { startedProject: newTab.startedProject } : {})}
+                  {...(newTab.cloudStartedProject ? { cloudStartedProject: newTab.cloudStartedProject } : {})}
                   knownProjects={newTabKnownProjects}
                   {...(newTab.openTabs ? { openTabs: newTab.openTabs } : {})}
                   // The field takes keys from its first render (the host's buffer hands them over at
@@ -1316,6 +1338,15 @@ export function drawPaneBody({
                           icon={heading.renamable ? snapshot.summary?.icon : undefined}
                           formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />
+                        {/* No rolling summary beside a chat's name: the sidebar's hover card and Expanded rows show it
+                              (Leo, 2026-11-22, on the line here: "im not sure if this is useful ... it's overlapping").
+                              A subagent's own pane says whose it is there instead (Leo, 2026-11-22: "it is prob ok to
+                              somehow denote the \"subagent of\"... at the top i feel like"). */}
+                        {heading.of && (
+                          <span className="acpmux-subagent-of" data-subagent-of="">
+                            {heading.of}
+                          </span>
+                        )}
                       </span>
                     )}
                   </ChatHeaderStatus>
@@ -1364,6 +1395,7 @@ export function drawPaneBody({
                       }}
                       nativeNeedsYou={{ items: needsYou.items, mode: needsYou.mode, actions: needsYou.actions }}
                       tabTools={!quick}
+                      menuHasRows={chatMenuHasRows(quick, snapshot.sessionId)}
                       pullRequestChip={!readOnlySubagent}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}

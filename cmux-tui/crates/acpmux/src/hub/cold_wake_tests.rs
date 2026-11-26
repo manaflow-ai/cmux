@@ -57,12 +57,16 @@ fn a_large_cold_batch_compacts_first_and_its_compaction_is_acpmuxs() {
 }
 
 #[test]
-fn both_settings_are_on_by_default_and_compacting_first_needs_batching() {
+fn both_settings_are_off_by_default_and_compacting_first_needs_batching() {
     let on = |a, b| Knobs { enabled: a, compact: b, compact_above: DEFAULT_COMPACT_ABOVE_TOKENS };
-    assert_eq!(settings(None), on(true, true));
-    assert_eq!(settings(Some(&json!({}))), on(true, true));
-    let no_compact = json!({"agents": {"coldWake": {"compact": false}}});
-    assert_eq!(settings(Some(&no_compact)), on(true, false));
+    assert_eq!(settings(None), on(false, false));
+    assert_eq!(settings(Some(&json!({}))), on(false, false));
+    let both = json!({"agents": {"coldWake": {"enabled": true, "compact": true}}});
+    assert_eq!(settings(Some(&both)), on(true, true));
+    let batching = json!({"agents": {"coldWake": {"enabled": true}}});
+    assert_eq!(settings(Some(&batching)), on(true, false));
+    let compact_alone = json!({"agents": {"coldWake": {"compact": true}}});
+    assert_eq!(settings(Some(&compact_alone)), on(false, false));
     let off = json!({"agents.coldWake.enabled": false});
     assert_eq!(settings(Some(&off)), on(false, false));
 }
@@ -95,11 +99,15 @@ fn the_environment_beats_the_settings_file() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {
         move |var: &str| pairs.iter().find(|(k, _)| *k == var).map(|(_, v)| v.to_string())
     };
-    let file = json!({"agents": {"coldWake": {"enabled": false, "compactAboveTokens": 80_000}}});
+    let file = json!({"agents": {"coldWake": {
+        "enabled": false, "compact": true, "compactAboveTokens": 80_000
+    }}});
     let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "1"), (ENV_COMPACT_ABOVE, "100000")]));
     assert_eq!(k, Knobs { enabled: true, compact: true, compact_above: 100_000 });
-    let k = settings_with(None, env(&[(ENV_COMPACT, "0")]));
+    let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "1"), (ENV_COMPACT, "0")]));
     assert_eq!((k.enabled, k.compact), (true, false), "ACPMUX_COLD_WAKE_COMPACT=0");
+    let k = settings_with(None, env(&[(ENV_ENABLED, "1"), (ENV_COMPACT, "1")]));
+    assert_eq!((k.enabled, k.compact), (true, true), "both turned on in the env");
     let k = settings_with(None, env(&[(ENV_ENABLED, "off"), (ENV_COMPACT, "1")]));
     assert_eq!((k.enabled, k.compact), (false, false), "compacting first needs batching");
     let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "junk"), (ENV_COMPACT_ABOVE, "x")]));
@@ -115,8 +123,8 @@ fn the_settings_source_matches_the_daemon() {
     let doc: Value = serde_json::from_str(SOURCE).unwrap();
     let rows = doc["lists"][0]["rows"].as_array().unwrap();
     let row = |key: &str| rows.iter().find(|r| r["key"] == key).unwrap().clone();
-    assert_eq!(row(SETTING_ENABLED)["default"], json!(true));
-    assert_eq!(row(SETTING_COMPACT)["default"], json!(true));
+    assert_eq!(row(SETTING_ENABLED)["default"], json!(false));
+    assert_eq!(row(SETTING_COMPACT)["default"], json!(false));
     let line = row(SETTING_COMPACT_ABOVE);
     assert_eq!(line["default"], json!(DEFAULT_COMPACT_ABOVE_TOKENS));
     assert_eq!(line["range"]["min"], json!(COMPACT_ABOVE_RANGE.0));
@@ -146,9 +154,12 @@ fn surgery_applied_sends_no_compact() {
 
 #[test]
 fn surgery_refused_or_failed_compacts_as_before() {
-    for reason in
-        ["mid-turn", "not a stored Claude conversation", "nothing to mask", "no transcript"]
-    {
+    for reason in [
+        "mid-turn",
+        "not a stored Claude or Codex conversation",
+        "nothing to mask",
+        "no transcript",
+    ] {
         let refused = Ok(json!({"applied": false, "reason": reason}));
         assert!(!surgery_suffices(&refused, LINE), "{reason}: no dry run answer");
         assert!(!surgery_applied(&refused), "{reason}: /compact");
@@ -317,6 +328,7 @@ async fn task_and_offer_results_name_their_sender_and_join_the_window() {
             admitted: false,
             after_turn: false,
             steer_on_start: false,
+            answer_due: None,
         };
         super::super::digest::gathers(&session, &s)
     };

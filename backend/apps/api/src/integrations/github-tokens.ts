@@ -122,6 +122,16 @@ const rateLimited = (retry: number, installation: number, op: string): TokenFail
  * `installation.suspend` webhook). `installation.unsuspend` lifts only a connection with this detail.
  */
 export const GITHUB_SUSPENDED_DETAIL = "the GitHub App installation is suspended"
+/** A connection's detail once its installation no longer exists: the `installation.deleted` webhook, or GitHub's 404 on a mint. */
+export const GITHUB_UNINSTALLED_DETAIL = "the GitHub App was uninstalled"
+export const GITHUB_GONE_DETAIL = "the GitHub App installation is gone"
+/**
+ * Whether `c`'s installation is gone for good (uninstalled; GitHub answered 404). Its settings page is a 404 now, so
+ * status names none, and Connect opens the App's install page instead (cmux#55104: Connect GitHub opened
+ * github.com/settings/installations/<deleted id>, leaving the person no way back).
+ */
+export const githubInstallationGone = (c: Pick<Connection, "status" | "status_detail">): boolean =>
+  c.status === "needs_reauth" && (c.status_detail === GITHUB_UNINSTALLED_DETAIL || c.status_detail === GITHUB_GONE_DETAIL)
 
 /** The 409 a connection that needs a relink answers; a suspended installation says who can lift it, since a relink cannot. */
 const relinkFail = (c: Connection | undefined, fallback: string): TokenFail =>
@@ -140,7 +150,7 @@ const githubRefusal = async (res: Response, now: number, unauthorizedIsRelink: b
   // A rate limit is read first: taking one for a suspension would mark a working connection needs_reauth.
   const wait = rateLimitWait(res, now, message)
   if (wait !== null) return { kind: "rate", retry: wait }
-  if (res.status === 404) return { kind: "relink", detail: "the GitHub App installation is gone" }
+  if (res.status === 404) return { kind: "relink", detail: GITHUB_GONE_DETAIL }
   if (res.status === 403 && /suspend/i.test(message)) return { kind: "relink", detail: GITHUB_SUSPENDED_DETAIL }
   if (unauthorizedIsRelink && res.status === 401) return { kind: "relink", detail: "GitHub refused the App installation" }
   if (res.status === 403 || res.status === 422) return { kind: "denied" }
@@ -629,11 +639,12 @@ export const githubStatusConnection = (state: ConnectionsState, p: Principal): C
  * `configure_url` is that connection's installation page on GitHub, where repositories are added ("Add more
  * repositories"), or null when it is not known (github-connect.ts installationConfigureUrl).
  */
-export const githubStatus = (env: Env, state: ConnectionsState, p: Principal, configureUrl: string | null = null) => {
+export const githubStatus = (env: Env, state: ConnectionsState, p: Principal, configureUrl: string | null = null, appSlug: string | null = env.GITHUB_APP_SLUG ?? null) => {
   const c = githubStatusConnection(state, p)
   return {
     configured: Boolean(env.INTEGRATIONS_KEK) && github.configured(env),
-    app_slug: env.GITHUB_APP_SLUG ?? null,
+    // The slug GitHub names the App now (providers.ts githubAppSlug), so clients build its install URL after a rename.
+    app_slug: appSlug,
     // The token route's own policy check: a connection the team policy disallows mints nothing.
     allowed: providerAllowed(policyOf(state), "github"),
     connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true, configure_url: configureUrl } : null

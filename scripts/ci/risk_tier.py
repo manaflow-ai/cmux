@@ -159,6 +159,8 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # strings). CODEOWNERS is not among them.
     ("low", "docs or copy", (
         "*.md", "*.mdx", "LICENSE*", "*/LICENSE*", "*.xcstrings", "*.strings", "docs/*", "release-notes/*", "*.log",
+        # A plan stays low when its file name has an auth word (arch-exceptions/*-sign-in-*.json).
+        "plans/*",
     )),
     # Lockfiles are the package graph: never high (an auth service's package-lock), never low (a
     # swapped dependency still gets agent review).
@@ -175,14 +177,39 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("normal", "app code, UI or CI", (
         "scripts/cmux-next/media/*", NEXT + "CmuxNextUpdater/*View.swift", NEXT + "CmuxNextUpdater/Share/*",
     )),
+    # Named like a high path, but not one (the 2026-11-25 audit of open risk:high pull requests).
+    ("normal", "app code, UI or CI", (
+        # "nightly" as a schedule: measurement and test runs that sign, publish and feed nothing.
+        # Named one by one: a *-nightly.yml suffix would also catch ios-internal-nightly.yml, a release.
+        ".github/workflows/nightly-speed.yml", ".github/workflows/nightly-interaction-latency.yml",
+        ".github/workflows/billing-nightly.yml", ".github/workflows/cmux-next-ios-energy-nightly.yml",
+        ".github/workflows/webviews-sampled-nightly.yml",
+        # A measure script named for the nightly it measures; any other release word there stays high.
+        r"re:^scripts/measure/(?![^/]*(sign|notari|appcast|sparkle|release|publish|deploy|promote|rollback))[^/]*nightly[^/]*$",
+        # Publishes the docs site or the fleet's repo mirror, not the app. Named one by one.
+        ".github/workflows/docs-deploy-reusable.yml", "scripts/repo-archive/publish.sh",
+        "scripts/repo-archive/cmux-repo-archive-publish.service", "scripts/repo-archive/cmux-repo-archive-publish.timer",
+        # A star prompt and copy that live in the updater module.
+        NEXT + "CmuxNextUpdater/GitHubStar/*", NEXT + "CmuxNextUpdater/UpdaterStrings.swift",
+        # An auth test run and a health probe, a login(1) shell, and CLI message strings.
+        ".github/workflows/auth-refresh-tests.yml", ".github/workflows/vercel-auth-health.yml",
+        "*/login_shell.rs", "*/localization/*",
+        # The package graph, even inside a relay or auth crate (Cargo.lock already is).
+        "cmux-tui/crates/*/Cargo.toml", "cmux-tui/relays/*/Cargo.toml",
+        "cmux-tui/crates/*/.gitignore", "cmux-tui/relays/*/.gitignore",
+        # Moving a Chief or a setup between hosts: no stored schema is rewritten.
+        "Native/OptChat/optchat-chief/src/migrate*.rs", "cmux-tui/crates/cmux-migrate/*",
+        "cmux-tui/crates/cmux-tui/src/cli/migrate.rs",
+    )),
     # Who may sign in, and where tokens live. A bug here leaks or loses credentials, and a revert
     # doesn't un-leak a token.
     ("high", "auth or credentials", (
         "Packages/Shared/CmuxAuthRuntime/*", "Packages/Shared/CMUXAuthCore/*", "*/WebAuth/*",
-        "*/Keychain/*", "*Keychain*Store*", "*TokenStore*", "web/services/auth/*", "workers/*/src/auth/*",
+        "*/Keychain/*", "*Keychain*Store*", "*TokenStore*", "*SecureStore*", "web/services/auth/*", "workers/*/src/auth/*",
         "ios/CmuxiOS/Sources/CmuxiOSAuth/*", "*.entitlements", "web/proxy.ts", "web/middleware.ts",
         # A path segment or file-name word: dashboard-auth.ts, auth/, oauth_callback.rs, sign-in/.
-        r"re:(^|/|[-_.])(auth|oauth|sign[-_]?in|login)([-_./]|$)",
+        # Not an image: a 06-sign-in.png screenshot holds no credential.
+        r"re:^(?!.*\.(png|jpe?g|gif|webp)$)(.*[/_.-])?(auth|oauth|sign[-_]?in|login)([-_./]|$)",
     )),
     # Who may drive the app over its socket, and what a relay may forward. The app has no relay
     # policy yet (skills/cmux-socket-policy), so every relay path must stay default-deny.
@@ -307,9 +334,23 @@ GENERATED = (
 DELETES = re.compile(
     r"(\bremoveItem\s*\(\s*at|\bremove_dir_all\s*\(|\bfs::remove_(file|dir)\s*\(|\bshutil\.rmtree\b"
     r"|\brmSync\s*\(|\bfs\.(promises\.)?rm\s*\(|\brimraf\b|\bDROP\s+(TABLE|COLUMN)\b|\bTRUNCATE\s+TABLE\b"
-    r"|\bDELETE\s+FROM\b|\.trashItem\s*\(|\bdeleteAll\w*\s*\(|\b(db|tx)\.delete\s*\()")
+    r"|\bDELETE\s+FROM\b|\.trashItem\s*\(|\bdeleteAll\w*\s*\(|\b(db|tx)\.delete\s*\("
+    # A bare remove_file( after `use std::fs::remove_file` (not a method or its definition),
+    # unlink(2) and rmdir(2) through libc, Node's and Python's unlink, and a keychain item delete.
+    r"|(?<![\w.:])(?<!fn )remove_(file|dir)\s*\(|\blibc::(unlink|unlinkat|rmdir)\s*\("
+    r"|\.unlink(Sync)?\s*\(|\bSecItemDelete\b)")
+# Removing the file the same code just made: an atomic write's temp or part file on its failure
+# path, or a Swift `defer` that drops a scratch copy. It trusts the variable's name, from a closed
+# list, and the argument must be that bare name (`&temp`, `self.staged`), so `&path` still counts.
+_TEMP_NAME = r"(temp|tmp|temporary|part|partial|staged|staging|scratch)"
+OWN_TEMP = re.compile(
+    r"\b(remove_file|remove_dir_all|remove_dir|rmSync)\s*\(\s*&?(self\.)?" + _TEMP_NAME + r"\s*[,)]"
+    r"|^defer\s*\{\s*(try\?\s*)?FileManager\.\w+\.removeItem\(at:\s*(" + _TEMP_NAME[1:-1] + r"|copy)\s*\)\s*\}$")
 DELETE_SCOPE_EXCLUDED = ("scripts/*", "*/scripts/*", ".github/*", "tools/*", "dogfood/*", "Prototypes/*",
-                         "samples/*", "examples/*", ".claude/*", ".codex/*", ".agents/*", "cmux-tui/bindings/*")
+                         "samples/*", "examples/*", ".claude/*", ".codex/*", ".agents/*", "cmux-tui/bindings/*",
+                         # Benchmarks, end-to-end runs, examples, evals and simulators: harness code.
+                         "*/bench/*", "*/benches/*", "*/e2e/*", "*.bench.*", "*.e2e.*", "*/examples/*",
+                         "evals/*", "design/*", "*/coord-sim/*")
 
 # A change kind, read from the lines a workflow adds: a trigger that runs with the base's secrets
 # and a write token on a fork's pull request. A cache or checkout of the fork's code under one is
@@ -583,7 +624,7 @@ def delete_lines(patch: str, sign: str, path: str = "", source: str | None = Non
             code = " ".join(text.split())
             if code.startswith(("//", "#", "--", "*", "/*")):
                 continue
-            if DELETES.search(code):
+            if DELETES.search(OWN_TEMP.sub(" ", code)):
                 found.append(code)
     return found
 
@@ -908,9 +949,17 @@ def lower_words(line: str) -> list[str]:
     return [word.lower() for word in WORD.findall(line)]
 
 
+def close_in_length(words: list[str], other: list[str]) -> bool:
+    """Whether `other` is about as long as `words`: longer or shorter by at most
+    `max(2, len(words) // 2)` words (half its word count, but never less than two). A short
+    removed line (`let x = 1;`) is not "still said" by a long unrelated line that happens to hold its words."""
+    slack = max(2, len(words) // 2)
+    return abs(len(other) - len(words)) <= slack
+
+
 def reworded(pr_patch: str, keep_out: set[str]) -> set[str]:
     """The removed lines of three or more words the same edit replaces with a reworded line: one sharing its
-    first three words, or at least half of its words. A skills index row rewritten in place (PR #54943 rewording #53846's
+    first three words, or at least half of the longer line's distinct words, at a close length. A skills index row rewritten in place (PR #54943 rewording #53846's
     row) is an edit of the line, not a takeback of it. Added lines in `keep_out` (lines the commit replaced,
     now restored) do not count, so putting back the old wording is still a revert."""
     kept = set()
@@ -921,16 +970,18 @@ def reworded(pr_patch: str, keep_out: set[str]) -> set[str]:
             if len(words) < 3:
                 continue
             for other in candidates:
+                if not close_in_length(words, other):
+                    continue
                 shared = len(set(words) & set(other))
-                if words[:3] == other[:3] or shared * 2 >= len(words):
+                if words[:3] == other[:3] or shared * 2 >= max(len(set(words)), len(set(other))):
                     kept.add(line)
                     break
     return kept
 
 
 def still_said(pr_patch: str, keep_out: set[str]) -> set[str]:
-    """The removed lines of three or more words whose words all still appear, in order, in a line the file
-    keeps or gains anywhere in the patch: a duplicate dropped beside the entry that stays, or a comment
+    """The removed lines of three or more words whose words all still appear, in order, in a line of close
+    length the file keeps or gains anywhere in the patch: a duplicate dropped beside the entry that stays, or a comment
     folded into another one (PR #50003 dropping `cmux-deadline.workspace = true` under
     `cmux-deadline = { workspace = true, features = ["tokio"] }`). Added lines in `keep_out` do not count."""
     lines = [l[1:] for l in pr_patch.splitlines()
@@ -939,7 +990,7 @@ def still_said(pr_patch: str, keep_out: set[str]) -> set[str]:
     kept = set()
     for line in diff_lines(pr_patch)[0]:
         words = lower_words(line)
-        if len(words) >= 3 and any(in_order(words, stream) for stream in streams):
+        if len(words) >= 3 and any(close_in_length(words, stream) and in_order(words, stream) for stream in streams):
             kept.add(line)
     return kept
 
@@ -988,6 +1039,24 @@ def prefetch_blobs(repo_dir: str, base_sha: str, paths: list[str], timeout: floa
         pass
 
 
+def relaid_out(entries: list[dict]) -> frozenset[str]:
+    """Files this pull request deletes whole while it adds files in the directory that replaces them: a registry
+    split into one file per entry, `schemas/settings/source/agent-policy.json` into `.../agent-policy/<key>.json`
+    (scripts/ci/entry_logs.py ENTRY_DIRS) or `Localizable.xcstrings` into `Localizable.xcstrings.d/<key>.xcstrings`
+    (scripts/cmux-next/string_catalogs.py). Its lines move instead of going away, so deleting them takes nothing back
+    (cmux#56291 read as taking back 56 pull requests, 2026-11-25)."""
+    added = [e["filename"] for e in entries if e.get("status") == "added"]
+    moved = set()
+    for entry in entries:
+        if entry.get("status") != "removed":
+            continue
+        path = entry["filename"]
+        stem = path.rsplit(".", 1)[0] if "." in path.rsplit("/", 1)[-1] else path
+        if any(a.startswith(stem + "/") or a.startswith(path + ".d/") for a in added):
+            moved.add(path)
+    return frozenset(moved)
+
+
 def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
                    now: float | None = None, unread: list[str] | None = None,
                    budget: float = REVERT_BUDGET_SECONDS) -> dict[int, list[str]]:
@@ -1000,6 +1069,8 @@ def recent_reverts(entries: list[dict], repo_dir: str, base_sha: str, own: int,
     cutoff = (now or time.time()) - RECENT_DAYS * 86400
     found: dict[int, list[str]] = {}
     added_anywhere = frozenset(line for e in entries for line in diff_lines(e.get("patch") or "")[1])
+    moved = relaid_out(entries)
+    entries = [e for e in entries if e["filename"] not in moved]
     deadline = time.monotonic() + budget
     blamed = [entry.get("previous_filename") or entry["filename"] for entry in entries[:MAX_BLAME_FILES]
               if deleted_ranges(entry.get("patch") or "") and entry.get("status") != "added"
