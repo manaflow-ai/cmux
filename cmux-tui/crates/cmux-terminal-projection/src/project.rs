@@ -1033,8 +1033,7 @@ impl View {
             let cols = self.cols;
             let compact = self.compact;
             let mut count = 0;
-            loop {
-                let Some(last) = settled_end(term, first, compact) else { break };
+            while let Some(last) = settled_end(term, first, compact) {
                 let (bytes, rows) =
                     self.line_cache.entry(base + first as u64).or_insert_with(|| {
                         let rows: Vec<&Row> =
