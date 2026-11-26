@@ -454,15 +454,17 @@ impl ShadowLine {
     }
 }
 
-/// Names the shadow log; else `<data dir>/cmux/auto-shadow.jsonl`.
+/// Names the shadow log; else `auto-shadow.jsonl` in the build's state folder.
 pub const SHADOW_LOG_ENV: &str = "CMUX_AUTO_SHADOW_LOG";
 
-/// Where the shadow lines go.
-pub fn shadow_log_path() -> Option<PathBuf> {
+/// Where the shadow lines go: [`SHADOW_LOG_ENV`], else `auto-shadow.jsonl` in
+/// `state_dir`, the build's own state folder its caller names (the daemon's,
+/// from its build identity), so one build never writes another's log.
+pub fn shadow_log_path(state_dir: Option<&Path>) -> Option<PathBuf> {
     if let Some(path) = std::env::var_os(SHADOW_LOG_ENV).filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(path));
     }
-    dirs::data_local_dir().map(|d| d.join("cmux").join("auto-shadow.jsonl"))
+    state_dir.map(|d| d.join("auto-shadow.jsonl"))
 }
 
 /// The log stops growing at this size; the oldest half is dropped then.
