@@ -72,12 +72,14 @@ struct StallVerdictTests {
             return overloaded
         }
         #expect(watchdog.log.records().isEmpty)
-        #expect(watchdog.probeOutstanding.load(ordering: .acquiring))
+        let outstandingWhilePaused = watchdog.probeOutstanding.load(ordering: .acquiring)
+        #expect(outstandingWhilePaused)
         watchdog.lastHangUptime.store(10, ordering: .releasing)
         watchdog.probeReportQueue.resume()
         watchdog.probeReportQueue.sync {}
 
-        #expect(!watchdog.probeOutstanding.load(ordering: .acquiring))
+        let outstandingAfterReport = watchdog.probeOutstanding.load(ordering: .acquiring)
+        #expect(!outstandingAfterReport)
         let record = try #require(watchdog.log.records().first)
         #expect(record.details["verdict"] == JSONValue.string("starved"))
         #expect(record.duration == .seconds(3))
