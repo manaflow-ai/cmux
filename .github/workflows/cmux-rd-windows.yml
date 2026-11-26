@@ -1,9 +1,10 @@
 name: cmux-rd Windows host
 
-# The selftest (`host`) runs on landings, dispatch and, as an advisory check, on pull requests into feat-cmux-next
-# that touch its paths (manaflow-ai/cmuxterm-hq#10846): no ruleset requires it and its name ends "(advisory)" on a
-# pull request, so a red there is a follow-up, never a merge block. The live proof stays on landings and dispatch:
-# it needs the ios-e2e environment, which pull request events do not reach.
+# The selftest (`host`) runs on landings and dispatch (manaflow-ai/cmuxterm-hq#10846). The live proof needs the
+# ios-e2e environment.
+# CI cut 2026-11-24 (goal ci-runner-min-per-day-50k): pull requests no longer run this advisory check; it gated
+# nothing (no ruleset requires it, land-judge skips "(advisory)" names). Landings on feat-cmux-next and dispatch
+# still run it, so a red shows up on base. The "(advisory)" name and pull_request conditions below stay inert.
 on:
   push:
     branches: [feat-cmux-next]
@@ -12,18 +13,7 @@ on:
       - "cmux-tui/crates/cmux-encode/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
-      - ".github/workflows/cmux-rd-windows.yml"
-      # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
-      - "!**/README.md"
-      - "!**/COORDINATION.md"
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [feat-cmux-next]
-    paths:
-      - "cmux-tui/crates/cmux-rd-host/**"
-      - "cmux-tui/crates/cmux-encode/**"
-      - "cmux-tui/crates/cmux-rd-core/**"
-      - "cmux-tui/crates/cmux-rd-proto/**"
+      - "cmux-tui/crates/cmux-rd-link/**"
       - ".github/workflows/cmux-rd-windows.yml"
       # A README or notes file alone starts nothing here (tests/test_ci_docs_only_prs.py); no build reads them.
       - "!**/README.md"
@@ -35,7 +25,9 @@ permissions:
 
 concurrency:
   group: cmux-rd-windows-${{ github.ref }}
-  cancel-in-progress: true
+  # A feat-cmux-next push run finishes, so the base has a verdict (a newer push only replaces a queued one);
+  # a newer PR head cancels the old one.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -46,7 +38,7 @@ jobs:
     name: Windows capture and encode selftest${{ github.event_name == 'pull_request' && ' (advisory)' || '' }}
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'windows-2025' || vars.WINDOWS_RUNNER || fromJSON(vars.RUNNER_POOLS).windows }}
-    timeout-minutes: 20
+    timeout-minutes: 35
     # A runs-on expression hides the OS from actionlint; the steps are PowerShell, the Windows default.
     defaults:
       run:
@@ -64,22 +56,37 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui/crates/cmux-rd-host -> target
-          shared-key: cmux-rd-windows-host
+          shared-key: cmux-rd-windows-host-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/crates/cmux-rd-host/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Build the Windows host
+        id: build
         shell: pwsh
         working-directory: cmux-tui/crates/cmux-rd-host
         run: |
-          cargo build --release --locked --no-default-features --features bench
+          cargo build --release --locked --no-default-features --features bench,link
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cargo test --release --locked --no-default-features --features bench optional_4k_mode
+          cargo test --release --locked --no-default-features --features bench,link optional_4k_mode
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # windows-host and its shared hub client (src/screen_host/): private files under the
           # profile, sessions it cannot serve closed.
-          cargo test --release --locked --no-default-features --features bench -- windows_host screen_host
+          cargo test --release --locked --no-default-features --features bench,link -- windows_host screen_host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Windows secure-link serving and its WSAPoll UDP driver.
+          cargo test --release --locked --no-default-features --features bench,link -- windows_serve
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --release --locked --features net --manifest-path ../cmux-rd-link/Cargo.toml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --release --locked --no-default-features --features bench windows::
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # That test run relinks target\release\cmux-rd.exe without `link`; put the bench,link
+          # binary back so the selftests below have windows-serve-selftest (cached, a relink).
+          cargo build --release --locked --no-default-features --features bench,link
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Capture and encode a real desktop sample
         shell: pwsh
@@ -90,9 +97,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Windows capture selftest exited $LASTEXITCODE" }
           $json | Tee-Object -FilePath "$env:GITHUB_STEP_SUMMARY"
           $result = $json | ConvertFrom-Json
-          if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not encode a frame' }
-          if ([int]$result.frames -lt 60) { throw 'Windows host selftest captured fewer frames than requested' }
+          if (-not $result.encode_ok) { throw 'Windows host selftest did not encode a frame' }
+          if ([int]$result.frames -lt 60) { throw 'Windows host selftest encoded fewer frames than requested' }
           if ([int]$result.encoded_bytes -le 0) { throw 'Windows host selftest emitted no bytes' }
+          # A runner with no interactive desktop (session 0, no input desktop) cannot BitBlt the screen:
+          # the selftest says so and encodes generated frames instead. The desktop capture cells below
+          # (windows-host status, loopback) are skipped with that reason; the encode cell above still ran.
+          if ($result.capture -eq 'skipped') {
+            $reason = "Desktop capture skipped: $($result.capture_skipped_reason). Encode ran on generated frames; windows-host status and loopback not run."
+            Write-Output "::notice title=Windows desktop capture skipped::$reason"
+            Add-Content $env:GITHUB_STEP_SUMMARY "`n$reason"
+            exit 0
+          }
+          if (-not $result.capture_encode_ok) { throw 'Windows host selftest did not capture and encode a frame' }
           # `windows-host status` captures this desktop the way `windows-host run` does.
           $status = & .\target\release\cmux-rd.exe windows-host status
           if ($LASTEXITCODE -ne 0) { throw "windows-host status exited $LASTEXITCODE" }
@@ -112,28 +129,68 @@ jobs:
               Get-Content $motionLog, $motionError -ErrorAction SilentlyContinue
               throw "Windows motion source did not show its window within 30 seconds; exited=$($motion.HasExited)"
             }
-            foreach ($size in @(@(1920, 1080), @(3840, 2160))) {
-              foreach ($trial in 1..2) {
-                $json = & .\target\release\cmux-rd.exe windows-selftest --loopback 1 `
-                  --width $size[0] --height $size[1] --duration-s 10 --codec openh264
-                if ($LASTEXITCODE -ne 0) { throw "Windows loopback $($size[0])x$($size[1]) trial $trial exited $LASTEXITCODE; exact host error is above" }
-                $result = $json | ConvertFrom-Json
-                if ($size[0] -eq 3840 -and $result.status -eq 'not_measured' -and $result.reason -eq 'no_display_mode') {
-                  Add-Content $env:GITHUB_STEP_SUMMARY '4K: not measured, no display mode'
-                  Write-Output "WINDOWS_LOOPBACK trial=$trial $json"
-                  break
+            foreach ($backend in @('gdi', 'dxgi')) {
+              foreach ($size in @(@(1920, 1080), @(3840, 2160))) {
+                foreach ($trial in 1..2) {
+                  $json = & .\target\release\cmux-rd.exe windows-selftest --loopback 1 `
+                    --width $size[0] --height $size[1] --duration-s 10 --codec openh264 --capture $backend
+                  if ($LASTEXITCODE -ne 0) { throw "Windows loopback $($size[0])x$($size[1]) trial $trial exited $LASTEXITCODE; exact host error is above" }
+                  $result = $json | ConvertFrom-Json
+                  if ($size[0] -eq 3840 -and $result.status -eq 'not_measured' -and $result.reason -eq 'no_display_mode') {
+                    Add-Content $env:GITHUB_STEP_SUMMARY '4K: not measured, no display mode'
+                    Write-Output "WINDOWS_LOOPBACK backend=$backend trial=$trial $json"
+                    break
+                  }
+                  if (-not $result.loopback_ok -or [double]$result.first_frame_ms -le 0 -or [double]$result.fps -le 0) {
+                    throw 'Loopback did not prove a decoded frame in the viewer'
+                  }
+                  Add-Content $env:GITHUB_STEP_SUMMARY "Trial $trial`: $json"
+                  Write-Output "WINDOWS_LOOPBACK backend=$backend trial=$trial $json"
                 }
-                if (-not $result.loopback_ok -or [double]$result.first_frame_ms -le 0 -or [double]$result.fps -le 0) {
-                  throw 'Loopback did not prove a decoded frame in the viewer'
-                }
-                Add-Content $env:GITHUB_STEP_SUMMARY "Trial $trial`: $json"
-                Write-Output "WINDOWS_LOOPBACK trial=$trial $json"
               }
             }
           } finally {
             if ($motion -and -not $motion.HasExited) { Stop-Process -Id $motion.Id }
             $ready.Dispose()
           }
+
+      # One hub session served by `cmux-rd serve` (as `windows-host run` drives it) to a viewer
+      # on this runner over the secure link: media arrives and the stop ends it. Its own step,
+      # so it runs whatever the capture benchmark above says.
+      - name: Serve a session over the secure link
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($scope in @('view', 'control')) {
+            $serve = & .\target\release\cmux-rd.exe windows-serve-selftest --scope $scope --duration-s 3
+            if ($LASTEXITCODE -ne 0) { throw "windows-serve-selftest ($scope) exited $LASTEXITCODE; $serve" }
+            $serve | Tee-Object -Append -FilePath "$env:GITHUB_STEP_SUMMARY"
+            if (-not ($serve | ConvertFrom-Json).ok) { throw "windows-serve-selftest ($scope) saw no media" }
+          }
+
+      # The host as a person installs it: the secure link and the downloaded OpenH264 library,
+      # no OpenH264 built from source (that is the bench build above). Built and uploaded
+      # whenever the build passed, so a runner with no desktop still yields the exe.
+      - name: Build the installable cmux-rd.exe
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        working-directory: cmux-tui/crates/cmux-rd-host
+        run: |
+          cargo build --release --locked --no-default-features --features link,openh264
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\cmux-rd-windows" | Out-Null
+          Copy-Item .\target\release\cmux-rd.exe "$env:RUNNER_TEMP\cmux-rd-windows\cmux-rd.exe"
+
+      - name: Upload cmux-rd.exe
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-rd-windows-x86_64-${{ github.sha }}
+          path: ${{ runner.temp }}/cmux-rd-windows/cmux-rd.exe
+          if-no-files-found: error
+          retention-days: 14
 
   live-windows-host:
     name: Windows live host (tailnet)

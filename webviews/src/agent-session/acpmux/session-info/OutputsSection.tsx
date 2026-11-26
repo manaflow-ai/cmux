@@ -26,6 +26,7 @@ import { useScrollEdges } from "../summary/scrollEdges";
 import "./outputsEdge.css";
 import { OUTPUTS_SHOWN, type OutputArtifact } from "./outputsSectionModel";
 import { WindowedRows } from "./WindowedRows";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 const ROW_ICON = rowIconSize(12);
 /// One thing the chat produced: a link glyph, its short label, and its repository's name when it is not
@@ -52,18 +53,26 @@ export function ProducedRow({
     </>
   );
   return onOpen ? (
-    <button
-      type="button"
-      className="acpmux-session-info-row acpmux-session-info-row--button"
-      aria-description={link.url}
-      onClick={() => onOpen(link.url)}
-    >
-      {content}
-    </button>
+    <WithFacts facts={[{ value: link.url, code: true }]}>
+      {(facts) => (
+        <button
+          {...facts}
+          type="button"
+          className="acpmux-session-info-row acpmux-session-info-row--button"
+          onClick={() => onOpen(link.url)}
+        >
+          {content}
+        </button>
+      )}
+    </WithFacts>
   ) : (
-    <div className="acpmux-session-info-row" aria-description={link.url}>
-      {content}
-    </div>
+    <WithFacts facts={[{ value: link.url, code: true }]}>
+      {(facts) => (
+        <div {...facts} className="acpmux-session-info-row">
+          {content}
+        </div>
+      )}
+    </WithFacts>
   );
 }
 

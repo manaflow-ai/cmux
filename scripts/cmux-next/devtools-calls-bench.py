@@ -37,6 +37,7 @@ import uuid
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 LINE = 'globalThis.__cmuxPageHostResolve?.(7, {"text":"a\\\\b é \\"q\\""});\n'
 # Frames of the DevTools send path: the call itself, the JSON writer under it, the shim's parse. Not "JSONValue"
@@ -133,8 +134,10 @@ def one_call(path, method, params):
     except (RuntimeError, OSError, ValueError) as failure:
         error = str(failure)[:300]
     wall = (time.monotonic() - start) * 1000
-    time.sleep(0.3)  # bench: the watchdog records a stall after it ends
-    hangs = rpc(path, "debug.hangs", {})
+    # The watchdog records a stall after it ends: its report reads the same three times in a row, 0.1 s apart.
+    seen = wait_stable(lambda: json.dumps(rpc(path, "debug.hangs", {}), sort_keys=True), "the watchdog's report",
+                       timeout=5, interval=0.1, reads=3, raise_on_timeout=False)
+    hangs = json.loads(seen) if seen else rpc(path, "debug.hangs", {})
     stalls = [r for r in hangs.get("records", []) if r.get("kind", "stall") == "stall"]
     worst = max(stalls, key=lambda r: r.get("duration_ms", 0), default=None)
     return {

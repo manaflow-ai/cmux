@@ -3,8 +3,8 @@
 
 Leo, 2026-11-19: "only meaningful tests ... not just there for ticky tack". cmux-next guards / tooling-tests ran
 about 50 script test suites on every pull request whatever it changed: a webviews/-only change ran the App Store
-listing, Mach-O thinning and iOS simulator runtime tests, which read none of its files. portable-placement's hot-only route step runs this on the
-merge commit's diff, and each selectable step of the job runs only when this selects it.
+listing, Mach-O thinning and iOS simulator runtime tests, which read none of its files. tooling-tests' own setup-tooling-route step runs this on
+the merge commit's diff, and each selectable step of the job runs only when this selects it.
 
 A step runs when a changed file is an input of a test its run text runs (the test itself and what it imports,
 sources, runs or reads, transitively: workflow_paths_cover_inputs.Walker, the walker the path-filter coverage check
@@ -23,11 +23,21 @@ selectable.
 
 Outputs (`--github-output`): `tooling_steps= tt-a tt-b ` (selected step ids, space-padded, so a workflow tests
 `contains(..., ' tt-a ')`) and `tooling_all=true|false`. A workflow step tests both, and an empty `tooling_all` (the
-routing job did not run or failed) is != 'false', so it runs everything. `--summary` writes the verdict and one line
+routing step did not run or failed) is != 'false', so it runs everything. `--summary` writes the verdict and one line
 per skipped step with why.
 
     python3 tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \\
-        --changed-files FILE --event EVENT [--github-output F] [--summary F] [--root DIR] [--json]
+        --changed-files FILE --event EVENT [--pr-scope] [--github-output F] [--summary F] [--root DIR] [--json]
+
+`run` executes the job's selected `tt-` steps side by side, one bounded pool of processes, instead of one GitHub step
+after another (cmux#55649's head, job 139156353605: 7.3 min for about 70 steps, the longest 89 s). Each step keeps
+its own env (a `${{ }}` value is taken from the runner step's env under the same key), shell, working directory and
+timeout; its output is printed as one `::group::` block when it ends, with its time, and the job fails naming every
+step that failed. It writes `ran=true` to `--github-output` before it starts, so each step's own `if:` skips it; when
+it cannot read the job it exits before that, and the steps run one by one as before.
+
+    python3 tooling_steps.py run --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \\
+        [--selection TOOLING_OUT] [--jobs N] [--github-output F] [--summary F] [--root DIR]
 """
 from __future__ import annotations
 
@@ -35,25 +45,38 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gh_expressions  # noqa: E402
 from workflow_paths_cover_inputs import (  # noqa: E402
-    INTERPRETERS, Repo, Walker, glob_regex, is_test, literal_env, load_yaml, mapping, python_facts, run_targets,
-    shell_words,
+    INTERPRETERS, Repo, Walker, declared_runs, glob_regex, is_test, literal_env, load_yaml, mapping, python_facts,
+    rooted_run, run_targets, shell_words,
 )
 
+# Declared inputs for steps whose run text the walker cannot read whole (a shell `runs $t` loop, a run text that names
+# no test file): scripts/ci/tooling-step-inputs.json. A change to it runs every step, as a change to this router does.
+DECLARED = "scripts/ci/tooling-step-inputs.json"
 ROUTER_FILES = ("scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
-                "scripts/ci/gh_expressions.py")
+                "scripts/ci/gh_expressions.py", "scripts/ci/tooling_reuse.py", DECLARED)
 SETUP_ID = "setup-"
 # Imports no repository file can satisfy: what the job pip-installs (PyYAML, pytest) and Pillow. Any other import the
 # walker cannot resolve may be a repository module it missed, so the step runs.
 THIRD_PARTY = {"yaml", "pytest", "_pytest", "xdist", "PIL"}
 EXPR = "$__EXPR"
-POSITIONAL = re.compile(r"\$(?:[@*0-9]|\{(?:[@*0-9]|[0-9]+)\})")
+# Product source code: no tooling test reads these, and a command the tests' scripts run from a variable (`bash "$t"`,
+# a wrapper's "$candidate") is one of the repository's own tools, never a file of these. A diff made only of them leaves
+# a step whose sole unresolved inputs are such variable commands to the checks below (CI cut 2026-11-24: tooling-tests
+# was 20,693 runner-min in 24 h, most of it steps a webviews, Rust or web source change cannot fail). Data, docs,
+# string catalogs, tests and Package.swift are not here, and a push still runs every step.
+PRODUCT_SOURCE = re.compile(
+    r"^(?:webviews/src|web/(?:app|components|lib)|cmux-tui/crates/[^/]+/src|backend/(?:apps|packages)/[^/]+/src"
+    r"|Packages/[^/]+/[^/]+/Sources)/.+\.(?:tsx?|jsx?|css|rs|swift)$")
+POSITIONAL = re.compile(r"\$(?:[@*0-9]|\{(?:[@*0-9]|[0-9]+|@:[0-9]+(?::[0-9]+)?)\})")
 # `git ls-files` with no pathspec, in a Python argument list (`["git", "-C", root, "ls-files", "-z"]`) or a shell
 # command (`git ls-files | grep`): the whole tracked tree is an input.
 WHOLE_TREE_LIST = re.compile(r"""["']ls-files["']\s*(?:,\s*["']-[\w=-]+["']\s*)*[\])]"""
@@ -140,7 +163,19 @@ def reach_of(repo: Repo, walker: Walker, rel: str) -> Reach:
     directory (an os.walk, iterdir or `git ls-files DIR` reads any file below it), a shell word naming a directory,
     and a shell command run from a variable (`bash "$t"` in a `for t in DIR/*` loop)."""
     reach = Reach()
+    try:
+        own_text = Path(repo.abs(rel)).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        own_text = ""
+    declared = declared_runs(repo, own_text) is not None
+    shell = rel.endswith((".sh", ".bash")) or walker.shebang(rel) == "shell"
+    here = rel.rpartition("/")[0]
     for what in sorted(walker.unknown.get(rel, ())):
+        if what.startswith("runs ") and (declared or (shell and here)):
+            continue  # declared, or read below as reaching the script's own directory
+        if what.startswith("source $") and shell and here:
+            reach.dirs.append(here)  # a library found by a computed name, as a command run from a variable
+            continue
         if what.startswith("lists "):
             reach.globs.append(what[len("lists "):])
         elif what.split(".")[0] not in THIRD_PARTY:
@@ -164,11 +199,24 @@ def reach_of(repo: Repo, walker: Walker, rel: str) -> Reach:
             targets = list(run_targets(words))
             for index, word in enumerate(words[:-1]):
                 if word in ("source", ".", "exec") or INTERPRETERS.match(word.rsplit("/", 1)[-1]):
+                    if words[index + 1] in ("-c", "-e", "-E", "-m", "-s"):  # a module, a program in the argument or on stdin
+                        continue
                     rest = [w for w in words[index + 1:] if not w.startswith("-")]
                     targets.extend(rest[:1])
             for target in targets:
+                if "\n" in target:  # a quoted string over several lines is text, not a path
+                    continue
+                if declared or rooted_run(repo, target):
+                    continue
                 if ("$" in target or "`" in target) and not POSITIONAL.fullmatch(target):
-                    reach.unknown.append(f"runs {target}")
+                    # A command from a variable runs a system tool or a file the script finds by a computed name,
+                    # in practice a sibling (`"$dir/$name.sh"`, `bash "$t"` over `$tests/*`): it reaches the
+                    # script's own directory. A script that runs files elsewhere declares them
+                    # (`# tooling-steps runs:`); a script at the repository root stays unresolved.
+                    if here:
+                        reach.dirs.append(here)
+                    else:
+                        reach.unknown.append(f"runs {target}")
             for word in words:
                 if "$" in word or word.startswith("-"):
                     continue
@@ -188,9 +236,77 @@ def read_text(repo: Repo, rel: str) -> str:
     return "" if b"\0" in data[:8192] else data.decode("utf-8", errors="replace")
 
 
+def load_declared(root: Path, workflow: str, job: str) -> dict[str, list[str]]:
+    """{step id: input globs} for WORKFLOW's JOB from DECLARED. A missing, unreadable or malformed file declares
+    nothing: every step it would have narrowed runs, as before (fails open)."""
+    try:
+        doc = json.loads((Path(root) / DECLARED).read_text(encoding="utf-8"))
+        steps = doc[workflow][job]
+        out = {}
+        for key, entry in steps.items():
+            inputs = entry["inputs"]
+            if not isinstance(inputs, list) or not inputs or not all(isinstance(g, str) and g for g in inputs):
+                return {}
+            if not isinstance(entry.get("why"), str) or not entry["why"].strip():
+                return {}
+            out[str(key)] = list(inputs)
+        return out
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError):
+        return {}
+
+
+def load_traced(root: Path, workflow: str, job: str) -> set[str]:
+    """Step ids whose DECLARED entry says `"traced": true`: its globs and the inputs the walker resolved are every path
+    a traced run of it read (`verify` checks that), so they alone decide it. The walker's guesses past them (a folder
+    a script names, a whole-tree list, a file name spelled out) are what the trace settled, and are not consulted.
+    Only steps load_declared accepts count; anything malformed traces nothing (fails open)."""
+    declared = load_declared(root, workflow, job)
+    try:
+        steps = json.loads((Path(root) / DECLARED).read_text(encoding="utf-8"))[workflow][job]
+        return {str(k) for k, e in steps.items() if str(k) in declared and e.get("traced") is True}
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+
+
+def declared_hit(declared: list[str], changed: set[str]) -> tuple[str, str] | None:
+    """(changed path, glob) for the first changed path a declared input glob matches."""
+    regexes = [(g, glob_regex(g)) for g in declared]
+    for name in sorted(changed):
+        for pattern, regex in regexes:
+            if regex.match(name):
+                return name, pattern
+    return None
+
+
+def gate_under_test(repo: Repo, walker: Walker, tests: list[str], changed: set[str]) -> str:
+    """Why a step runs when one of its own tests spells out a changed script by its whole repository path, or ''.
+
+    A test that runs its script as a subprocess (`ROOT / "scripts/ci/package-test-lane.sh"`, `"$ROOT/scripts/..."`)
+    gives the walker no import to follow, so the script is found only by the later "names" or "reads directory"
+    reasons, and --pr-scope (narrow) defers those to the post-merge batch: the pull request that edits a gate script
+    did not run the gate's own test, and its red first showed on the base (cmux#57119's class; a sweep of
+    cmux-next-guards.yml under --pr-scope found 97 changed-script/step pairs deferred, 49 after this, among them tt-package-lane-prebuild for
+    scripts/ci/package-test-lane.sh and tt-origin-net for generate-third-party-notices.sh). This reason is not
+    BROAD_REASON's, so a pull request keeps the step. Only code that is not itself a test counts, and only the step's
+    own tests (not every file of its closure), so a registry test that lists other tests stays deferred."""
+    scripts = sorted(name for name in changed if is_code(repo, walker, name) and not is_test(name))
+    if not scripts:
+        return ""
+    for test in tests:
+        text = read_text(repo, test)
+        for name in scripts:
+            if name in text:
+                return f"its test {test} runs {name} by its path"
+    return ""
+
+
 def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], workdir: str,
-               changed: set[str]) -> tuple[bool, str]:
-    """(run, reason) for one selectable step."""
+               changed: set[str], declared: list[str] | None = None,
+               added_deleted: set[str] | None = None, traced: bool = False) -> tuple[bool, str]:
+    """(run, reason) for one selectable step. DECLARED (its tooling-step-inputs.json globs) stands in for what the
+    walker cannot resolve: with it, a step whose run text names no test or whose closure runs a file from a variable
+    runs when a changed path matches a declared glob or any input the walker did resolve, and is skipped otherwise.
+    Every other check (named files, listed globs, read directories, whole-tree lists, spelled-out names) still runs."""
     workdir = str(step.get("working-directory") or workdir)
     if "$" in workdir:
         return True, f"working directory {workdir} is not literal"
@@ -204,21 +320,39 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     if hidden:
         return True, "a ${{ }} stands where its command or script is"
     tests = list(dict.fromkeys([*walker.entries(run, cwd, env), *(p for p in named if is_test(p))]))
+    unresolved = ""
     if not tests:
-        return True, "its run text names no test the walker resolves"
+        if not declared:
+            return True, "its run text names no test the walker resolves"
+        unresolved = "its run text names no test the walker resolves"
     roots = list(dict.fromkeys([*tests, *(p for p in named if is_code(repo, walker, p))]))
     inputs: set[str] = set(named)
     for root in roots:
         inputs.update(str(p) for p in walker.closure(root, cwd))
     code = sorted(p for p in inputs if is_code(repo, walker, p))
     reaches = {p: reach_of(repo, walker, p) for p in code}
-    unknown = [(p, r.unknown) for p, r in reaches.items() if r.unknown]
+    product_only = bool(changed) and all(PRODUCT_SOURCE.match(name) for name in changed)
+    unknown = [(p, [u for u in r.unknown if not (product_only and u.startswith("runs "))])
+               for p, r in reaches.items()]
+    unknown = [(p, u) for p, u in unknown if u]
     if unknown:
         what = "; ".join(f"{p}: {', '.join(u[:3])}" for p, u in unknown[:3])
-        return True, f"unresolved inputs ({what})"
+        if not declared:
+            return True, f"unresolved inputs ({what})"
+        unresolved = unresolved or f"unresolved inputs ({what})"
+    if declared:
+        found = declared_hit(declared, changed)
+        if found:
+            return True, f"{found[0]} matches its declared input {found[1]} ({DECLARED})"
     hit = sorted(changed & inputs)
     if hit:
         return True, f"reads {hit[0]}" + (f" and {len(hit) - 1} more" if len(hit) > 1 else "")
+    gate = gate_under_test(repo, walker, tests, changed)
+    if gate:
+        return True, gate
+    if traced and declared:
+        return False, (f"none of its traced inputs changed (its declared globs {', '.join(declared[:3])}"
+                       f"{' ...' if len(declared) > 3 else ''} and {len(inputs)} resolved files; {DECLARED}, traced)")
     for path, reach in reaches.items():
         for pattern in reach.globs:
             regex = glob_regex(pattern)
@@ -231,9 +365,12 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
                     return True, f"{path} reads directory {directory}, which holds {name}"
     # A code file that lists every tracked file (`git ls-files` with no pathspec) can fail on any added, deleted or
     # renamed file: tests/test_check_paths.py checks each pattern of scripts/ci/check-paths.txt still matches one.
-    for path in code:
-        if WHOLE_TREE_LIST.search(read_text(repo, path)):
-            return True, f"{path} lists every tracked file"
+    # A diff that only edits files leaves that list as it was, so the rule needs the added and deleted files
+    # (renames are an add and a delete under --no-renames); with no such list it holds for every diff.
+    if added_deleted is None or added_deleted:
+        for path in code:
+            if WHOLE_TREE_LIST.search(read_text(repo, path)):
+                return True, f"{path} lists every tracked file"
     # A path the walker does not follow: a changed file any input of the closure spells out by path or file name,
     # a data file (scripts/ci/check-paths.txt naming a script) as much as code.
     for path in sorted(inputs):
@@ -241,10 +378,29 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
         for name in sorted(changed):
             if name in text or name.rsplit("/", 1)[-1] in text:
                 return True, f"{path} names {name.rsplit('/', 1)[-1]}"
+    if unresolved:
+        return False, (f"none of its declared inputs ({', '.join(declared[:3])}{' ...' if len(declared) > 3 else ''}; "
+                       f"{DECLARED}) nor its {len(inputs)} resolved inputs changed; declared because {unresolved}")
     return False, f"none of its {len(inputs)} inputs changed ({', '.join(tests[:2])}{' ...' if len(tests) > 2 else ''})"
 
 
-def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, event: str) -> Decision:
+# A reason that selects a step only through how wide its inputs reach: a glob a file lists, a directory it reads, a
+# whole-tree list, a file name some input spells out. Not a changed file the step's tests read, a declared input, or a
+# step the walker cannot read (those keep running on a pull request).
+BROAD_REASON = re.compile(r"^\S+ (?:lists |reads directory |names )")
+DEFERRED = "post-merge batch only (--pr-scope), not by a changed input: "
+
+
+def narrow(decision: Decision) -> Decision:
+    """The pull request's own steps: a step selected only by a broad reason is left to the post-merge batch
+    (cmux-next-tooling-tests-batch.yml runs every step at the merged tip)."""
+    steps = [StepVerdict(s.key, s.name, False, DEFERRED + s.reason) if s.run and s.key and BROAD_REASON.match(s.reason)
+             else s for s in decision.steps]
+    return Decision(decision.all, decision.reason, steps)
+
+
+def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, event: str,
+          added_deleted: list[str] | None = None, pr_scope: bool = False) -> Decision:
     repo = Repo.load(root)
     document = load_yaml(repo.root / workflow)
     job = mapping(mapping(document.get("jobs")).get(job_name))
@@ -273,15 +429,220 @@ def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, e
     workdir = str(mapping(mapping(job.get("defaults")).get("run")).get("working-directory")
                   or mapping(mapping(document.get("defaults")).get("run")).get("working-directory") or "")
     walker = Walker(repo)
+    declared = load_declared(repo.root, workflow, job_name)
+    traced = load_traced(repo.root, workflow, job_name)
     verdicts = []
     for key, step in zip(keys, steps):
         name = str(step.get("name") or key)
         if not key:
             verdicts.append(StepVerdict(key, name, True, "no id: it carries no selection and always runs"))
             continue
-        run, reason = judge_step(repo, walker, step, env, workdir, changed_set)
+        run, reason = judge_step(repo, walker, step, env, workdir, changed_set, declared.get(key),
+                                 None if added_deleted is None else set(added_deleted), key in traced)
         verdicts.append(StepVerdict(key, name, run, reason))
-    return Decision(False, f"{len(changed_set)} changed file(s)", verdicts)
+    decision = Decision(False, f"{len(changed_set)} changed file(s)", verdicts)
+    return narrow(decision) if pr_scope else decision
+
+
+STRACE_CALL = re.compile(r'^(\d+)\s+(?:<\.\.\. )?(\w+)\((.*)\)\s+=\s+(-?\d+(?: \w+)?|\?)')
+# `strace -y` prints a dirfd with its path (`openat(5</tmp/x>, "a", ...)`): a relative path is read from there.
+DIRFD = re.compile(r'^\d+(?:<([^>]*)>)?,')
+STRACE_PATH = re.compile(r'"((?:[^"\\]|\\.)*)"')
+PATH_CALLS = {"open", "openat", "openat2", "stat", "lstat", "newfstatat", "statx", "access", "faccessat", "faccessat2",
+              "execve", "readlink", "readlinkat"}
+FORKS = {"clone", "clone3", "fork", "vfork"}
+# A git command run inside the checkout that reads the tree, the index or history: no glob list can stand for it.
+GLOB_CHARS = re.compile(r"[*?\[]")
+GIT_TREE_READS = {"ls-files", "ls-tree", "grep", "log", "diff", "show", "blame", "rev-list", "cat-file", "archive",
+                  "status", "diff-index", "diff-tree", "stash"}
+
+
+@dataclass
+class Trace:
+    files: set[str] = field(default_factory=set)  # tracked files the step opened, stat'ed or ran
+    dirs: set[str] = field(default_factory=set)  # checkout folders it opened (a listing reads any file below)
+    git: list[str] = field(default_factory=list)  # git tree reads it ran inside the checkout
+    probes: set[str] = field(default_factory=set)  # checkout paths it looked for and did not find
+    exit: int = 0
+
+
+def git_tree_read(repo: Repo, cwd: str, argv: list[str]) -> str:
+    """Why a git command (argv after the program) reads the checkout's tree, index or history, or "" when it runs in
+    another repository or reads none of those. `ls-files -- A B` names its pathspecs as `ls-files A/ B/` so verify can
+    ask whether the step's inputs cover them; any other tree read is reported whole."""
+    words, where = list(argv), cwd
+    while words and words[0].startswith("-"):
+        flag = words.pop(0)
+        if flag == "-C" and words:
+            where = os.path.normpath(os.path.join(where, words.pop(0)))
+        elif flag in ("--git-dir", "--work-tree", "-c") and words:
+            if flag != "-c":
+                return ""  # another repository's git dir: a fixture's, judged by where it points
+            words.pop(0)
+        elif flag.startswith(("--git-dir=", "--work-tree=")):
+            return ""
+    if repo.rel(where) is None or not words or words[0] not in GIT_TREE_READS:
+        return ""
+    sub, rest = words[0], words[1:]
+    if sub == "ls-files":
+        specs = [w for w in rest if not w.startswith("-")]
+        if specs and not any(GLOB_CHARS.search(w) for w in specs):
+            base = repo.rel(where) or ""
+            return "ls-files " + " ".join(os.path.normpath(os.path.join(base, w)) + "/" for w in specs)
+    return f"{' '.join(words[:5])} (in {repo.rel(where) or '.'})"
+
+
+def trace_step(repo: Repo, run: str, env: dict[str, str], timeout: int = 900) -> Trace:
+    """Run a step's run text under strace -f from the checkout root and collect every checkout path it touched."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = os.path.join(tmp, "trace")
+        cmd = ["strace", "-f", "-y", "-qq", "-s", "4096", "-o", out,
+               "-e", "trace=" + ",".join(sorted(PATH_CALLS | FORKS | {"chdir", "fchdir"})),
+               "bash", "-eo", "pipefail", "-c", run]
+        full_env = {**os.environ, "GITHUB_WORKSPACE": str(repo.root), "GITHUB_EVENT_NAME": "pull_request", **env}
+        full_env.pop("BASH_ENV", None)
+        try:
+            done = subprocess.run(cmd, cwd=repo.root, env=full_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=timeout, check=False)
+            code = done.returncode
+        except subprocess.TimeoutExpired:
+            code = 124
+        lines = Path(out).read_text(encoding="utf-8", errors="replace").splitlines() if os.path.exists(out) else []
+    trace = parse_trace(repo, lines)
+    trace.exit = code
+    return trace
+
+
+def parse_trace(repo: Repo, lines: list[str]) -> Trace:
+    """What an `strace -f` log touched in the checkout. Each process's calls are read in its own order, and a child
+    starts in the folder its parent was in when its clone returned (strace may print the child's first calls before
+    that line, so the log is not read top to bottom). A process whose start is never seen is read from the root."""
+    calls: dict[str, list[tuple[str, str, str]]] = {}
+    pending: dict[str, str] = {}
+    first = None
+    for raw in lines:
+        head = raw.split(None, 1)
+        if len(head) != 2:
+            continue
+        pid, rest = head
+        if rest.endswith("<unfinished ...>"):
+            pending[pid] = rest[: -len("<unfinished ...>")]
+            continue
+        if rest.startswith("<... ") and pid in pending:
+            end = rest.find(" resumed>")
+            rest = pending.pop(pid) + (rest[end + len(" resumed>"):] if end > 0 else "")
+        match = STRACE_CALL.match(pid + " " + rest)
+        if not match:
+            continue
+        first = first or pid
+        calls.setdefault(pid, []).append(match.groups()[1:])
+    trace, root = Trace(), str(repo.root)
+    todo, seen = [(first, root)] if first else [], set()
+    while todo or len(seen) < len(calls):
+        if not todo:  # a process whose clone line was never seen: read it from the root
+            todo.append((next(p for p in calls if p not in seen), root))
+        pid, cwd = todo.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        for call, args, result in calls.get(pid, ()):
+            if call in FORKS:
+                if result.isdigit():
+                    todo.append((result, cwd))
+                continue
+            if result == "?":
+                continue
+            paths = STRACE_PATH.findall(args)
+            if result.startswith("-") and call in ("chdir", "fchdir", "execve"):
+                continue
+            if call == "chdir" and paths:
+                cwd = os.path.normpath(os.path.join(cwd, paths[0]))
+                continue
+            if call == "fchdir" or not paths:
+                continue
+            if call == "execve" and os.path.basename(paths[0]) == "git" and not result.startswith("-"):
+                read = git_tree_read(repo, cwd, paths[2:])  # paths: the program, argv[0], then its arguments
+                if read:
+                    trace.git.append(read)
+            if not paths[0]:
+                continue  # an fstat of an open fd (AT_EMPTY_PATH): its open was read already
+            dirfd = DIRFD.match(args)
+            if dirfd and not dirfd.group(1) and not paths[0].startswith("/"):
+                continue  # relative to an fd whose folder strace did not print: not a read of the checkout
+            base = dirfd.group(1) if dirfd and dirfd.group(1) else cwd
+            rel = repo.rel(os.path.normpath(os.path.join(base, paths[0])))
+            if not rel or rel == ".git" or rel.startswith(".git/"):
+                continue
+            if result.startswith("-"):
+                # A probe of a path that is not there (an exists() check, an import search): adding a file there
+                # can change the step. A folder the step lists already covers its own children.
+                if call in ("stat", "lstat", "newfstatat", "statx", "access", "faccessat", "faccessat2", "open",
+                            "openat", "openat2") and result.endswith("ENOENT"):
+                    if "/" in rel:  # a bare name at the root is a PATH search with a relative entry, not a read
+                        trace.probes.add(rel)
+                continue
+            if rel in repo.tracked:
+                trace.files.add(rel)
+            elif repo.is_dir(rel) and call in ("open", "openat", "openat2") and "O_DIRECTORY" in args:
+                trace.dirs.add(rel)
+    return trace
+
+
+def verify(root: Path, workflow: str, job_name: str, only: list[str] | None = None) -> list[str]:
+    """Problems: for each step with declared inputs (or ONLY), what its traced run touched that neither its declared
+    globs nor the inputs the walker resolved for it cover. Empty when every read is covered."""
+    repo = Repo.load(root)
+    document = load_yaml(repo.root / workflow)
+    job = mapping(mapping(document.get("jobs")).get(job_name))
+    declared = load_declared(repo.root, workflow, job_name)
+    traced = load_traced(repo.root, workflow, job_name)
+    env = {**literal_env(document.get("env")), **literal_env(job.get("env"))}
+    env.pop("BASH_ENV", None)
+    walker = Walker(repo)
+    problems = []
+    for step in job.get("steps") or []:
+        key = str(mapping(step).get("id") or "")
+        if key not in declared or (only and key not in only):
+            continue
+        run = str(step["run"])
+        if "${{" in run:
+            problems.append(f"{key}: its run text has a ${{{{ }}}} expression; it cannot be traced as written")
+            continue
+        globs = declared[key]
+        trace = trace_step(repo, run, {**env, **literal_env(step.get("env"))})
+        # Covered means the router would run the step for a change to that path alone: a declared glob matches it, or
+        # the walker resolved it (judge_step with the path as the whole change).
+        for path in sorted(trace.files):
+            if declared_hit(globs, {path}):
+                continue
+            ran, _ = judge_step(repo, walker, step, env, "", {path}, globs, traced=key in traced)
+            if not ran:
+                problems.append(f"{key}: read {path}, outside its declared inputs and its resolved inputs")
+        for folder in sorted(trace.dirs):
+            if any(f.endswith(".py") and f.rsplit("/", 1)[0] == folder for f in trace.files):
+                continue  # Python lists a folder on sys.path when it imports a module from it: the module's read counts
+            probe = folder + "/__tooling_steps_probe__"
+            if not declared_hit(globs, {probe}):
+                ran, _ = judge_step(repo, walker, step, env, "", {probe}, globs, traced=key in traced)
+                if not ran:
+                    problems.append(f"{key}: listed folder {folder}/, which its declared inputs do not cover")
+        ignored = set(subprocess.run(["git", "-C", str(repo.root), "check-ignore", "--stdin"], input="\n".join(
+            sorted(trace.probes)), capture_output=True, text=True).stdout.split()) if trace.probes else set()
+        for path in sorted(trace.probes - ignored):  # a git-ignored path (.build/) is no pull request's change
+            if not declared_hit(globs, {path}) and not any(path.startswith(d + "/") for d in trace.dirs) \
+                    and not judge_step(repo, walker, step, env, "", {path}, globs, traced=key in traced)[0]:
+                problems.append(f"{key}: looked for {path} (not there), outside its declared inputs")
+        for read in sorted(set(trace.git)):
+            if read.startswith("ls-files ") and "(in " not in read:
+                for folder in read.split()[1:]:
+                    if not declared_hit(globs, {folder + "__tooling_steps_probe__"}):
+                        problems.append(f"{key}: `git ls-files` lists {folder}, which its declared inputs do not cover")
+            else:
+                problems.append(f"{key}: ran `git {read}` on the checkout (a tree read no glob covers)")
+        if trace.exit != 0:
+            problems.append(f"{key}: exited {trace.exit} under the trace; its reads may be incomplete")
+        print(f"{key}: traced {len(trace.files)} files, {len(trace.dirs)} folders, exit {trace.exit}", file=sys.stderr)
+    return problems
 
 
 def write_outputs(decision: Decision, github_output: Path | None, summary: Path | None, job: str) -> None:
@@ -303,6 +664,156 @@ def write_outputs(decision: Decision, github_output: Path | None, summary: Path 
             stream.write("\n".join(lines) + "\n")
 
 
+RUN_PREFIX = "tt-"
+SHELLS = {
+    None: ["bash", "--noprofile", "--norc", "-eo", "pipefail"],
+    "bash": ["bash", "--noprofile", "--norc", "-eo", "pipefail"],
+    "sh": ["sh", "-e"],
+    "python": ["python3"],
+}
+
+
+@dataclass
+class RunStep:
+    key: str
+    name: str
+    run: str
+    env: dict[str, str]
+    cwd: Path
+    shell: list[str]
+    timeout: float
+
+
+@dataclass
+class RunResult:
+    step: RunStep
+    code: int
+    seconds: float
+    output: str
+
+
+def read_selection(path: Path | None) -> set[str] | None:
+    """The route step's `tooling_steps`, or None (every step) when the file is missing or says tooling_all != false."""
+    if not path or not path.is_file():
+        return None
+    values = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, sep, value = line.partition("=")
+        if sep:
+            values[key.strip()] = value
+    if values.get("tooling_all", "").strip() != "false":
+        return None
+    return set(values.get("tooling_steps", "").split())
+
+
+def plan_run(root: Path, workflow: str, job_name: str, selection: set[str] | None,
+             environ: dict[str, str]) -> list[RunStep]:
+    """The job's `tt-` run steps the selection keeps, in workflow order. Raises ValueError on a step this runner cannot
+    run as GitHub would (an unknown shell, a `${{ }}` in its run text, working directory or timeout, or an env value
+    that is an expression the runner step does not carry), so the caller falls back to the steps one by one."""
+    from workflow_paths_cover_inputs import load_yaml as _load  # noqa: PLC0415
+
+    document = _load(root / workflow)
+    job = mapping(mapping(document.get("jobs")).get(job_name))
+    if not job.get("steps"):
+        raise ValueError(f"{workflow}: no job {job_name} with steps")
+    default_timeout = float(job.get("timeout-minutes") or 360) * 60
+    planned = []
+    for step in job["steps"]:
+        if not selectable(step):
+            continue
+        key = str(step.get("id") or "")
+        if not key.startswith(RUN_PREFIX):
+            raise ValueError(f"{step.get('name')}: a selectable step without a {RUN_PREFIX} id")
+        if selection is not None and key not in selection:
+            continue
+        run = str(step["run"])
+        if gh_expressions.contents(run):
+            raise ValueError(f"{key}: a ${{{{ }}}} in its run text")
+        shell = step.get("shell")
+        if shell not in SHELLS:
+            raise ValueError(f"{key}: shell {shell!r}")
+        cwd = str(step.get("working-directory") or ".")
+        timeout = step.get("timeout-minutes")
+        if gh_expressions.contents(cwd) or gh_expressions.contents(str(timeout or "")):
+            raise ValueError(f"{key}: a ${{{{ }}}} in its working directory or timeout")
+        env = {}
+        for name, value in mapping(step.get("env")).items():
+            text = "" if value is None else str(value).lower() if isinstance(value, bool) else str(value)
+            if gh_expressions.contents(text):
+                if name not in environ:
+                    raise ValueError(f"{key}: env {name} is an expression; give the runner step the same {name}")
+                text = environ[name]
+            env[str(name)] = text
+        planned.append(RunStep(key, str(step.get("name") or key), run, env, root / cwd, SHELLS[shell],
+                               float(timeout) * 60 if timeout else default_timeout))
+    return planned
+
+
+def run_one(step: RunStep, environ: dict[str, str], scratch: Path) -> RunResult:
+    import time  # noqa: PLC0415
+
+    script = scratch / f"{step.key}.sh"
+    script.write_text(step.run, encoding="utf-8")
+    log = scratch / f"{step.key}.log"
+    started = time.monotonic()
+    with log.open("wb") as out:
+        proc = subprocess.Popen([*step.shell, str(script)], cwd=step.cwd, env={**environ, **step.env},
+                                stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            code = proc.wait(timeout=step.timeout)
+        except subprocess.TimeoutExpired:
+            import signal  # noqa: PLC0415
+
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait()
+            code = 124
+            with log.open("ab") as tail:
+                tail.write(f"\n{step.key}: timed out after {step.timeout:.0f} s\n".encode())
+    return RunResult(step, code, time.monotonic() - started, log.read_text(encoding="utf-8", errors="replace"))
+
+
+def run_steps(steps: list[RunStep], jobs: int, environ: dict[str, str], out=None) -> list[RunResult]:
+    """Runs every step, at most `jobs` at a time, printing each one's output as one group when it ends."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed  # noqa: PLC0415
+
+    out = out or sys.stdout
+    results = []
+    with tempfile.TemporaryDirectory(prefix="tooling-run-") as tmp, ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        futures = [pool.submit(run_one, step, environ, Path(tmp)) for step in steps]
+        for future in as_completed(futures):
+            result = future.result()
+            results.append(result)
+            verdict = "ok" if result.code == 0 else f"FAILED, exit {result.code}"
+            out.write(f"::group::{result.step.name} ({result.seconds:.1f} s, {verdict})\n{result.output}")
+            if result.output and not result.output.endswith("\n"):
+                out.write("\n")
+            out.write("::endgroup::\n")
+            if result.code:
+                out.write(f"::error title=tooling-tests {result.step.key}::{result.step.name} failed (exit {result.code})\n")
+            out.flush()
+    order = {step.key: i for i, step in enumerate(steps)}
+    return sorted(results, key=lambda r: order[r.step.key])
+
+
+def write_run_summary(results: list[RunResult], wall: float, summary: Path | None, out) -> None:
+    failed = [r for r in results if r.code]
+    total = sum(r.seconds for r in results)
+    head = f"{len(results)} steps side by side: {wall:.0f} s wall, {total:.0f} s of step time"
+    out.write(head + (f"; {len(failed)} failed:\n" if failed else "; all passed\n"))
+    for r in failed:
+        out.write(f"  FAILED {r.step.key}: {r.step.name} (exit {r.code})\n")
+    if summary:
+        lines = ["### tooling-tests: steps side by side", "", head + ".", ""]
+        if failed:
+            lines += ["Failed:"] + [f"- `{r.step.key}` {r.step.name} (exit {r.code})" for r in failed] + [""]
+        lines += ["| step | s | |", "|---|---:|---|"]
+        lines += [f"| {r.step.name} | {r.seconds:.1f} | {'ok' if r.code == 0 else 'failed'} |"
+                  for r in sorted(results, key=lambda r: -r.seconds)[:15]]
+        with summary.open("a", encoding="utf-8") as stream:
+            stream.write("\n".join(lines) + "\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -311,16 +822,64 @@ def main(argv: list[str] | None = None) -> int:
     cmd.add_argument("--workflow", required=True)
     cmd.add_argument("--job", required=True)
     cmd.add_argument("--changed-files", type=Path)
+    cmd.add_argument("--added-deleted", type=Path,
+                     help="the diff's added and deleted files (git diff --no-renames --diff-filter=AD); "
+                          "given, a step that lists every tracked file runs only when this list is non-empty")
     cmd.add_argument("--event", required=True)
     cmd.add_argument("--github-output", type=Path)
     cmd.add_argument("--summary", type=Path)
+    cmd.add_argument("--pr-scope", action="store_true",
+                     help="leave a step selected only by a broad reason (a listed glob, a directory read, a whole-tree "
+                          "list, a spelled-out name) to the post-merge batch")
     cmd.add_argument("--json", action="store_true")
+    ver = sub.add_parser("verify", help="trace each declared step (strace -f) and fail on a read its inputs miss")
+    ver.add_argument("--root", default=str(Path(__file__).resolve().parents[2]))
+    ver.add_argument("--workflow", required=True)
+    ver.add_argument("--job", required=True)
+    ver.add_argument("--step", action="append")
+    run = sub.add_parser("run", help="run the job's selected tt- steps side by side")
+    run.add_argument("--root", default=str(Path(__file__).resolve().parents[2]))
+    run.add_argument("--workflow", required=True)
+    run.add_argument("--job", required=True)
+    run.add_argument("--selection", type=Path, help="the route step's output file; missing: every step runs")
+    run.add_argument("--jobs", type=int, default=min(os.cpu_count() or 2, 16))
+    run.add_argument("--github-output", type=Path)
+    run.add_argument("--summary", type=Path)
     args = parser.parse_args(argv)
+    if args.command == "run":
+        import time  # noqa: PLC0415
+
+        environ = dict(os.environ)
+        try:
+            steps = plan_run(Path(args.root), args.workflow, args.job, read_selection(args.selection), environ)
+        except ValueError as error:
+            print(f"::warning title=tooling-tests side by side::{error}; the steps run one by one")
+            return 0
+        if args.github_output:
+            with args.github_output.open("a", encoding="utf-8") as stream:
+                stream.write("ran=true\n")
+        print(f"{len(steps)} steps, {args.jobs} at a time")
+        started = time.monotonic()
+        results = run_steps(steps, args.jobs, environ)
+        write_run_summary(results, time.monotonic() - started, args.summary, sys.stdout)
+        if args.github_output:  # each step's own outcome is skipped now: tooling_reuse.py record reads these
+            with args.github_output.open("a", encoding="utf-8") as stream:
+                stream.write("passed= " + " ".join(r.step.key for r in results if r.code == 0) + " \n")
+        return 1 if any(r.code for r in results) else 0
+    if args.command == "verify":
+        problems = verify(Path(args.root), args.workflow, args.job, args.step)
+        for problem in problems:
+            print(problem)
+        return 1 if problems else 0
     changed = None
     if args.changed_files and args.changed_files.is_file():
         changed = [line.strip() for line in args.changed_files.read_text(encoding="utf-8").splitlines()
                    if line.strip()]
-    decision = route(Path(args.root), args.workflow, args.job, changed, args.event)
+    added_deleted = None
+    if args.added_deleted and args.added_deleted.is_file():
+        added_deleted = [line.strip() for line in args.added_deleted.read_text(encoding="utf-8").splitlines()
+                         if line.strip()]
+    decision = route(Path(args.root), args.workflow, args.job, changed, args.event, added_deleted, args.pr_scope)
     write_outputs(decision, args.github_output, args.summary, args.job)
     if args.json:
         print(json.dumps({"all": decision.all, "reason": decision.reason,

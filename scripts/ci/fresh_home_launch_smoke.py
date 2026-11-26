@@ -75,6 +75,7 @@ import json
 import os
 import plistlib
 import re
+import select
 import shutil
 import signal
 import socket
@@ -275,7 +276,37 @@ def copy_app_from_dmg(dmg: Path, root: Path) -> Path:
             raise CannotRun(f"no app in {dmg}")
         return copy_app(apps[0], root)
     finally:
+        forget_apps(mount)  # the mounted app's record, too, before the image goes
         detach(mount)
+
+
+LSREGISTER = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+
+def forget_apps(root: Path) -> list[str]:
+    """Unregister every app bundle under ROOT (nested apps too) from LaunchServices, by path; never raises.
+
+    LaunchServices keeps the record of a copy the run launched after the run deletes it, and a later
+    `open -a "cmux NIGHTLY"` or bundle-id lookup on the Mac could pick the dead copy ("The application
+    can't be opened": cmux12s, 2026-11-16, 22 dead cmux-fresh-* NIGHTLY records). Returns the paths
+    lsregister accepted."""
+    if not os.path.exists(LSREGISTER) or not root.is_dir():
+        return []
+    forgotten = []
+    for dirpath, dirnames, _ in os.walk(root, followlinks=False):
+        for name in dirnames:
+            if not name.endswith(".app"):
+                continue
+            bundle = os.path.join(dirpath, name)
+            if os.path.islink(bundle):  # never take back, through a link, an app the run did not make
+                continue
+            try:
+                if subprocess.run([LSREGISTER, "-u", bundle], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  timeout=60).returncode == 0:
+                    forgotten.append(bundle)
+            except (OSError, subprocess.SubprocessError):
+                pass
+    return forgotten
 
 
 def detach(mount: Path) -> None:
@@ -291,14 +322,22 @@ def detach(mount: Path) -> None:
     log(f"warning: could not detach {mount}")
 
 
-def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
-    """No runner variable reaches the app (no token, no key, no CMUX_* routing): only these."""
+# The app's updater stays off in every copy a harness starts (ManagedUpdatePolicy.environmentKey, a forced
+# DisableAutoUpdate for that one process). A copy of an older build otherwise sees a newer one, downloads it, and
+# Sparkle's installer asks the unattended Mac for an administrator password (launch_tti_check's cold_install round,
+# 2026-11-22). A harness that measures a real Sparkle update passes updater=True.
+UPDATER_OFF_VARIABLE = "CMUX_DISABLE_AUTO_UPDATE"
+
+
+def fresh_env(root: Path, socket_path: Path, marks_fd: int, updater: bool = False) -> dict[str, str]:
+    """No runner variable reaches the app (no token, no key, no CMUX_* routing): only these. The app's updater is
+    off (UPDATER_OFF_VARIABLE) unless UPDATER."""
     home = root / "h"
     for sub in ("Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"):
         (home / sub).mkdir(parents=True, exist_ok=True)
     (root / "t").mkdir(exist_ok=True)
     user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
-    return {
+    env = {
         "HOME": str(home),
         "CFFIXED_USER_HOME": str(home),
         "TMPDIR": str(root / "t") + "/",
@@ -312,6 +351,9 @@ def fresh_env(root: Path, socket_path: Path, marks_fd: int) -> dict[str, str]:
         "CMUX_NEXT_NO_ACTIVATE": "1",
         "CMUX_NEXT_LAUNCH_MARKS_FD": str(marks_fd),
     }
+    if not updater:
+        env[UPDATER_OFF_VARIABLE] = "1"
+    return env
 
 
 def login_keychain(env: dict) -> None:
@@ -877,6 +919,47 @@ def own_pids(root: Path) -> list[int]:
     return sorted(set(pids_under(root)) | set(terminal_host_pids(root)) | set(terminal_host_pids(root / SEEDED)))
 
 
+LOCK_NOTE = "smoke.lock"  # under a run's root: the lock path the run held, so a later run reaps only its own kind
+
+
+def reap_stale_roots(bundle_id: str, root: Path, lock_path: str) -> list[int]:
+    """Stop what an earlier smoke of BUNDLE_ID left running under another cmux-fresh-* root beside ROOT. A smoke cut
+    off before its cleanup (a SIGKILL, a job timeout) leaves its app's daemon and terminal hosts running, and the
+    daemon keeps the channel's session socket in the account's temp dir, which every later launch of the bundle
+    shares: the next fresh launch gets server.different_state and never renders Home (cmux#48697). Called only
+    while this run holds LOCK_PATH, so no other root that held the same lock belongs to a live smoke; a root from
+    before the note existed counts as holding the default lock. Stops by exact pid, logged; leaves the folders."""
+    stopped = []
+    default_lock = os.path.join("/tmp", f"cmux-fresh-smoke-{bundle_id}.lock")
+    for other in sorted(root.parent.glob("cmux-fresh-*")):
+        if other == root or not other.is_dir():
+            continue
+        try:
+            held = (other / LOCK_NOTE).read_text().strip()
+        except OSError:
+            held = default_lock
+        if held != lock_path:
+            continue
+        same = False
+        for plist in other.glob("app/*.app/Contents/Info.plist"):
+            try:
+                with open(plist, "rb") as handle:
+                    same = plistlib.load(handle).get("CFBundleIdentifier") == bundle_id
+            except (OSError, ValueError, plistlib.InvalidFileException):
+                continue
+            if same:
+                break
+        if not same:
+            continue
+        pids = own_pids(other)
+        if pids:
+            log(f"FRESH-HOME stale: stopping {len(pids)} processes an earlier smoke of {bundle_id} left under {other}: "
+                f"{' '.join(map(str, pids))}")
+            stop(pids)
+            stopped += pids
+    return stopped
+
+
 def alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -942,6 +1025,24 @@ def screenshot(out: Path) -> str | None:
     return str(path) if ok and path.exists() else None
 
 
+# The longest the watch waits between its looks at the app (its socket, the cookie sync, the app's exit).
+WATCH_TICK = 0.25
+
+
+def wait_for_marks(marks_fd: int | None, seconds: float) -> None:
+    """Until the app writes a launch mark to MARKS_FD, at most SECONDS. Each step of the launch writes a mark (the
+    first frame, Home's first page), so the watch looks for Home as a step ends instead of up to a tick later:
+    a fixed 0.25 s sleep put up to 250 ms of the harness's own wait into each launch's time to Home. With no
+    pipe (None: it reached its end, or Home is already in) it is a plain wait."""
+    if marks_fd is None:
+        time.sleep(seconds)  # sleep-ok: the caller's poll tick when there is no mark pipe to wait on
+        return
+    try:
+        select.select([marks_fd], [], [], seconds)
+    except (OSError, ValueError):
+        time.sleep(seconds)  # sleep-ok: the caller's poll tick when the pipe cannot be selected
+
+
 def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_path: Path,
           seconds: float, startup_timeout: float, seed: dict | None = None, scan_wait: float = 0.0,
           daemon: bool = False, env: dict[str, str] | None = None) -> dict:
@@ -959,15 +1060,21 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
     host = {"cpus": os.cpu_count(), "load_at_launch": host_load(), "load_at_home": None}
     snap, rendered_at, status, scan, scanned_at = None, None, None, None, None
     ready = READY if seed is None else None
+    marks_ended = False
     with open(marks_path, "ab") as marks:
         while True:
-            try:
-                chunk = os.read(marks_fd, 1 << 16)
-                if chunk:
-                    marks.write(chunk)
-                    marks.flush()
-            except (BlockingIOError, OSError):
-                pass
+            if not marks_ended:
+                try:
+                    chunk = os.read(marks_fd, 1 << 16)
+                    if chunk:
+                        marks.write(chunk)
+                        marks.flush()
+                    else:
+                        marks_ended = True  # every writer closed it: a select on it would answer at once
+                except BlockingIOError:
+                    pass
+                except OSError:
+                    marks_ended = True
             elapsed = time.monotonic() - started
             status = process.poll()
             if status is not None:
@@ -989,7 +1096,8 @@ def watch(process: subprocess.Popen, marks_fd: int, marks_path: Path, socket_pat
                 # A seeded arm with Home up waits for the scan; without Home it ends as the first arm does.
                 if seed is None or scan is not None or rendered_at is None or elapsed >= scan_wait:
                     break
-            time.sleep(0.25)
+            # Until Home: a new mark ends the wait at once. After it the marks are only kept.
+            wait_for_marks(None if marks_ended or rendered_at is not None else marks_fd, WATCH_TICK)
     reads, app = None, Path(process.args[0]).parents[2]  # the launch's app copy
     computer_use = None
     if daemon and status is None and rendered_at is not None and ready is None:
@@ -1340,7 +1448,10 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
                        or os.path.expanduser("~/Library/Logs/DiagnosticReports"))
     if launch is not None:
         launch.update(app=app, bundle_id=bundle_id, executable=executable, diagnostics=diagnostics, out=out)
-    with DefaultsAside(bundle_id, root):
+    with DefaultsAside(bundle_id, root) as aside:
+        if aside.lock is not None:
+            (root / LOCK_NOTE).write_text(aside.lock_path)
+            report["stale_pids_stopped"] = reap_stale_roots(bundle_id, root, aside.lock_path)
         marks_read, marks_write = os.pipe()
         env = fresh_env(root, socket_path, marks_write)
         if PREPARE_HOME is not None:
@@ -1500,6 +1611,7 @@ def main(argv: list[str] | None = None) -> int:
         left = own_pids(root)
         if left:
             log(f"warning: processes still under {root}: {left}")
+        forget_apps(root)
         shutil.rmtree(root, ignore_errors=True)
     return status
 

@@ -28,12 +28,13 @@ import {
 import type { PageClient } from "../../../pages/shared/pageClient";
 import { AttachmentPreviewBoundary } from "../composer/AttachmentPreviewBoundary";
 import { Icon } from "../icons/Icon";
-import { pageHostClient } from "../pageHost";
+import { pageHostClient } from "../pageHostClient";
 import { AddWidgetGallery, type AddWidgetLook } from "./AddWidgetGallery";
 import { useNt } from "./strings";
 import { GridWidgetFrame, type WidgetEditLook } from "./WidgetEditing";
 import { moveEdit, useWidgetEditing } from "./widgetEditingModel";
 import "./widgets.css";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// The tile card: translucent material over the page (glass, macOS Sonoma's desktop widgets), an
 /// opaque card (solid, the iPad Home Screen), or the accent-tinted material (tinted, Sonoma's widgets
@@ -255,7 +256,7 @@ function TileBody({ tile, label }: { tile: WidgetTileMount; label: string }) {
   const stale = health.stale || status.state === "disconnected";
   return (
     <section
-      className="nt-widget-card"
+      className="nt-widget-card ui-glass"
       data-size={tile.placement.size}
       data-status={status.state}
       data-stale={stale || undefined}
@@ -268,9 +269,13 @@ function TileBody({ tile, label }: { tile: WidgetTileMount; label: string }) {
         <SceneRenderer store={store} dispatch={tile.mount.dispatch} resolveAsset={tile.mount.resolveAsset} />
       )}
       {stale && !failed && (
-        <output className="nt-widget-stale" aria-description={health.reason}>
-          {nt("widgets.updating")}
-        </output>
+        <WithFacts facts={[{ value: health.reason ?? "" }]}>
+          {(facts) => (
+            <output {...facts} className="nt-widget-stale">
+              {nt("widgets.updating")}
+            </output>
+          )}
+        </WithFacts>
       )}
     </section>
   );
@@ -289,7 +294,7 @@ function UnavailableNotice({ label }: { label: string }) {
 /** A tile that threw while it drew: its card, saying so, in the tile's own place. */
 function UnavailableCard({ size, label }: { size: WidgetTilePlacement["size"]; label: string }) {
   return (
-    <section className="nt-widget-card" data-size={size} data-status="failed" aria-label={label}>
+    <section className="nt-widget-card ui-glass" data-size={size} data-status="failed" aria-label={label}>
       <UnavailableNotice label={label} />
     </section>
   );

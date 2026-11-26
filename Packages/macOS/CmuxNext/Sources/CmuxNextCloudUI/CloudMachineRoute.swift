@@ -35,9 +35,12 @@ public struct CloudMachineRoute: Sendable {
     public static let timeoutMs = 60_000
 
     private let exec: Exec
+    /// The exec as given, with no start of a machine that does not run (``report()``).
+    private let plain: Exec
 
     public init(exec: @escaping Exec, start: (@Sendable () async throws -> Void)? = nil) {
         self.exec = Self.startingWhenStopped(exec, start: start)
+        plain = exec
         machineID = nil
     }
 
@@ -57,6 +60,7 @@ public struct CloudMachineRoute: Sendable {
             }
         }
         self.exec = start == nil ? started : retried
+        plain = exec
         self.machineID = machineID
     }
 
@@ -139,11 +143,25 @@ public struct CloudMachineRoute: Sendable {
     /// chat with no connection and no gateway, as acpmux launches it on that sign-in (`claude_cloud_auth.rs`: a sign-in
     /// of its own keeps own). Refusing every machine with a login on it ended those starts with "holds its own provider
     /// sign-in" (cmux#45773). A machine whose agent service is down is still refused.
-    public func prepare(serves: @MainActor () -> Bool = { true }, carriesConnection: Bool = false, family: String? = nil,
+    ///
+    /// `ahead`: the machine's report as ``report()`` read it before this start (a warm spare's, ``CloudSpareReadiness``,
+    /// which gives it to one start only, while the agent service run this app last keyed is the one it was read under).
+    /// A report that says the chat starts (``startsAhead(_:agent:carriesConnection:)``) is the check: no command runs
+    /// on the machine now (1.9 to 2.5 s of every start, 2026-11-21). Any other one is read again, so a refusal is always
+    /// the machine's answer now. The app does not see a restart it did not make: an agent service that went down since
+    /// the read ends the start at the chat's own start instead of here.
+    public func prepare(serves: @MainActor () -> Bool = { true }, carriesConnection: Bool = false, family: String? = nil, ahead: String? = nil,
                         _ update: @escaping @Sendable () async -> Void) async throws {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
         var checked: (verdict: Verdict, agent: Agent?)?
         if await serves() {
+            if let ahead {
+                let route = await Self.judged(ahead, family: family)
+                if Self.startsAhead(route.verdict, agent: route.agent, carriesConnection: carriesConnection) {
+                    logger.info("cloud start chat: \(machineID ?? "", privacy: .public) serves this start by its report read ahead (\(route.verdict.rawValue, privacy: .public), \(route.agent?.summary ?? "no agent", privacy: .public)); no update")
+                    return
+                }
+            }
             do { checked = try await read(family: family) } catch {
                 // A machine that could not be started, or stays stopped, or a cancel: its own error now, with no update first.
                 if error is StartFailed || error is CloudMoveFailure || error is CancellationError { throw Self.unwrapped(error) }
@@ -221,12 +239,17 @@ public struct CloudMachineRoute: Sendable {
             "codex": ["CODEX_API_KEY", "CODEX_ACCESS_TOKEN", "CHATGPT_ACCESS_TOKEN"],
         ]
 
-        /// `family`'s reading of the machine's output; nil for no report (as Rust's `report`: the last JSON object line
-        /// that names `agents`) or a family the report does not name.
-        public static func read(_ stdout: String, family: String) -> Agent? {
-            let report = stdout.split(whereSeparator: \.isNewline).reversed().lazy.compactMap { line in
+        /// The report in the machine's output, as Rust's `report` finds it: the last JSON object line that names `agents`.
+        static func report(in stdout: String) -> [String: Any]? {
+            stdout.split(whereSeparator: \.isNewline).reversed().lazy.compactMap { line in
                 (try? JSONSerialization.jsonObject(with: Data(line.trimmingCharacters(in: .whitespaces).utf8))) as? [String: Any]
             }.first { $0["agents"] != nil }
+        }
+
+        /// `family`'s reading of the machine's output; nil for no report (``report(in:)``) or a family the report
+        /// does not name.
+        public static func read(_ stdout: String, family: String) -> Agent? {
+            let report = report(in: stdout)
             guard let report, let agents = report["agents"] as? [String: Any], let agent = agents[family] as? [String: Any] else { return nil }
             let logins = (report["login_files"] as? [[String: Any]] ?? []).contains { $0["agent"] as? String == family }
             let variables = Set(report["credential_env"] as? [String] ?? []).intersection(credentialVariables[family] ?? []).isEmpty == false
@@ -297,9 +320,78 @@ public struct CloudMachineRoute: Sendable {
     /// in the same output. An exec that fails throws.
     func read(family: String?) async throws -> (verdict: Verdict, agent: Agent?) {
         guard let command = CloudStartCore().call("cloud_machine_route", Request(stdout: nil), as: Reply.self)?.command else { return (.invalid, nil) }
-        let ran = try await exec(command, Self.timeoutMs)
-        let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: ran.stdout), as: Reply.self)?.verdict ?? .invalid
-        return (verdict, await Self.agentReading(ran.stdout, family: family))
+        return await Self.judged(try await exec(command, Self.timeoutMs).stdout, family: family)
+    }
+
+    /// What Rust answers about `stdout`, the output of the report's command, and `family`'s ``Agent`` in it.
+    static func judged(_ stdout: String, family: String?) async -> (verdict: Verdict, agent: Agent?) {
+        let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: stdout), as: Reply.self)?.verdict ?? .invalid
+        return (verdict, await agentReading(stdout, family: family))
+    }
+
+    /// The machine's report now, for a later start's check (``prepare(serves:carriesConnection:family:ahead:_:)``): the
+    /// command's output when it holds a report (``isReport(_:)``) that says its agent service runs, else nil (the
+    /// command failed, the machine does not run, its software predates the report, or its agent service is down:
+    /// nothing a start could go on by). Never starts the machine, whatever start this route was made with.
+    public func report() async -> String? {
+        guard let command = CloudStartCore().call("cloud_machine_route", Request(stdout: nil), as: Reply.self)?.command,
+              let stdout = try? await plain(command, Self.timeoutMs).stdout else { return nil }
+        let verdict = CloudStartCore().call("cloud_machine_route", Request(stdout: stdout), as: Reply.self)?.verdict
+        guard verdict.map(Self.isReport) == true, await Self.serviceRuns(stdout) else { return nil }
+        return stdout
+    }
+
+    /// The machine-side command that makes the reserved folder of the machine's first home chat and warms an agent in it
+    /// (`cmux-tui acp --json warm-home --wait`, acpmux `hub/pool/reserved.rs`), run as the work user as ``report()``'s is.
+    /// Prints `{"accepted":true,"state":"ready",...}` once the agent is up; prints nothing when the machine's cmux-tui
+    /// predates the verb.
+    static let warmHomeCommand = "c=/home/cmux/.cmux/bin/cmux-tui; [ -x \"$c\" ] || c=cmux-tui; "
+        + "if [ \"$(id -u)\" = 0 ] && id cmux >/dev/null 2>&1; then "
+        + "set -- setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux; "
+        + "else set --; fi; \"$@\" \"$c\" acp --json warm-home --wait 2>/dev/null; true"
+
+    private struct WarmHomeRequest: Encodable { var acpmuxHome: String? }
+    private struct WarmHomeReply: Decodable { var command: String }
+
+    /// Warms the first home chat of a spare machine ahead of its claim (leo: "a cmux Cloud chat's create-to-first-text p50
+    /// <= 3000 ms"): whether its agent is ready in the folder that chat will take. Never starts the machine.
+    /// `acpmuxHome` is this Mac's acpmux home: Rust (`cloud_warm_home`, cmux-cloud-start-core `spare_shapes`) reads the
+    /// person's recent harnesses and models there and the command warms a spare of each beside the default
+    /// (ask-30d56720f6; off with `ACPMUX_SPARE_PERSONAL=0`).
+    public func warmHome(acpmuxHome: String? = nil) async -> Bool {
+        let command = CloudStartCore().call("cloud_warm_home", WarmHomeRequest(acpmuxHome: acpmuxHome), as: WarmHomeReply.self)?
+            .command ?? Self.warmHomeCommand
+        guard let stdout = try? await plain(command, Self.timeoutMs).stdout else { return false }
+        return Self.warmHomeReady(stdout)
+    }
+
+    /// Whether `stdout` is the warm-home answer of an agent that is ready.
+    nonisolated static func warmHomeReady(_ stdout: String) -> Bool {
+        guard let data = stdout.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let answer = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return answer["accepted"] as? Bool == true && answer["state"] as? String == "ready"
+    }
+
+    /// Whether the report in `stdout` says the machine's agent service runs (`daemon.running`), read off the main actor
+    /// as ``agentReading(_:family:)``. Rust names a login before a service that is down (``Verdict/holdsCredential``),
+    /// so the verdict alone does not say.
+    @concurrent nonisolated static func serviceRuns(_ stdout: String) async -> Bool {
+        (Agent.report(in: stdout)?["daemon"] as? [String: Any])?["running"] as? Bool == true
+    }
+
+    /// A verdict Rust read off a report the machine printed: never the answers for no report at all
+    /// (``Verdict/unsupported``, ``Verdict/invalid``) or for a service that is down (``Verdict/noDaemon``).
+    nonisolated static func isReport(_ verdict: Verdict) -> Bool {
+        switch verdict {
+        case .ready, .notEdge, .holdsCredential: true
+        case .unsupported, .invalid, .noDaemon: false
+        }
+    }
+
+    /// Whether a report read ahead is the start's check: a real report (``isReport(_:)``) that says the chat starts
+    /// (``starts(_:agent:carriesConnection:)``). One that says anything else is read again on the machine.
+    public nonisolated static func startsAhead(_ verdict: Verdict, agent: Agent? = nil, carriesConnection: Bool) -> Bool {
+        isReport(verdict) && starts(verdict, agent: agent, carriesConnection: carriesConnection)
     }
 
     /// `family`'s ``Agent`` in the machine's output, read off the main actor: the parse splits the whole output and

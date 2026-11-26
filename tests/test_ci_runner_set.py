@@ -21,7 +21,10 @@ import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
-POOL = "fromJSON(vars.RUNNER_POOLS).linux"
+# The one Linux label (scripts/ci/one_linux_label.py) replaced the RUNNER_POOLS linux sizes.
+POOL = "'cmux-linux'"
+# Credentialed jobs the generator leaves on the ephemeral pool ("admits only an ephemeral vendor runner").
+EPHEMERAL_POOL_JOBS = {("fast-checks.yml", "checks")}
 TARGETS = {
     "app-platform.yml": {"check"},
     "cmux-next-terminal.yml": {"rust-terminal-linux", "swift-terminal-linux"},
@@ -30,7 +33,7 @@ TARGETS = {
     # (gallery health on a fixed 16 vCPU label, web validation and PR checks' base-only on 32, the cloud
     # backend check on the capability map's fixed 4 vCPU label). Gallery health now reads the 16 vCPU pool,
     # which moves to 32 vCPU on a stall (POOL_16 below). PR checks' jobs are now one advisory job holding a
-    # write token (CI v2 step 6), on the PR control JIT label: test_pr_checks_advisory_takes_a_one_job_vm.
+    # write token (CI v2 step 6), on a one-job Blacksmith VM: test_pr_checks_advisory_takes_a_one_job_vm.
     "web-validation.yml": {"changes", "build", "tests", "database", "web-validation"},
     "pr-body-checks.yml": {"body"},
 }
@@ -45,19 +48,19 @@ def runs_on_text(job: dict, where: str) -> str:
 
 
 class RunnerSetTests(unittest.TestCase):
-    def test_secret_bearing_changes_takes_live_placement_then_ephemeral_blacksmith(self) -> None:
-        # Its credentialed body takes a live verified fleet Linux placement when available, then
-        # ephemeral Blacksmith on every attempt: GitHub-hosted Ubuntu left it queued for hours on
-        # 2026-11-18 (cmux#45735), so no attempt takes hosted Ubuntu.
-        job = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["changes"]
+    def test_changes_router_takes_the_persistent_linux_pool(self) -> None:
+        # Its App-token body (GitHub API reads, no signing or release secret) takes the persistent
+        # cmux-linux pool on every attempt, with no placement job before it; forks keep Blacksmith.
+        # GitHub-hosted Ubuntu left it queued for hours on 2026-11-18 (cmux#45735).
+        jobs = yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]
+        job = jobs["changes"]
         runs_on = runs_on_text(job, "ci.yml#changes")
-        self.assertIn("needs.portable-placement.outputs.linux_runner", runs_on)
-        self.assertIn("needs.portable-placement.outputs.placed_attempt == format('{0}', github.run_attempt)", runs_on)
+        self.assertNotIn("needs.", runs_on)
         self.assertNotIn("github.run_attempt == 1 && 'ubuntu-24.04'", runs_on)
-        self.assertTrue(runs_on.rstrip().endswith(
-            "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"), runs_on)
-        self.assertEqual(job["needs"], ["portable-placement"])
-        self.assertEqual(yaml.safe_load((WORKFLOWS / "ci.yml").read_text())["jobs"]["portable-placement"]["steps"][-1]["env"]["LINUX_ONLY"], "changes")
+        self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'", runs_on)
+        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
+        self.assertNotIn("needs", job)
+        self.assertNotIn("portable-placement", jobs)
 
     def test_light_report_jobs_run_on_blacksmith_every_attempt(self) -> None:
         # A few seconds of report or routing work each. They took hosted Ubuntu on attempt 1 until
@@ -72,8 +75,8 @@ class RunnerSetTests(unittest.TestCase):
         ephemeral = "|| vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}"
         cases = {
             ("pr-red-checks-comment.yml", "comment"): "|| 'cmux-linux' }}",
-            ("cmux-next.yml", "path_route"): ephemeral,
-            ("ci-guards.yml", "guard-status"): f"|| {POOL} }}}}",
+            ("cmux-next.yml", "path_route"): "|| 'cmux-linux' }}",
+            ("ci-guards.yml", "guard-status"): "|| 'cmux-linux' }}",
         }
         for (workflow, name), tail in cases.items():
             with self.subTest(job=f"{workflow}#{name}"):
@@ -112,6 +115,9 @@ class RunnerSetTests(unittest.TestCase):
                         self.assertTrue(runs_on.endswith("|| 'cmux-linux' }}"), runs_on)
                         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository", runs_on)
                         self.assertNotIn("needs.", runs_on)
+                    elif (workflow, name) in EPHEMERAL_POOL_JOBS:
+                        # one_linux_label.py keeps a credentialed job on the ephemeral vendor pool.
+                        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux }}", runs_on)
                     else:
                         self.assertIn(POOL, runs_on)
                     self.assertNotIn("vars.LINUX_RUNNER || 'blacksmith-", runs_on)
@@ -141,7 +147,8 @@ class RunnerSetTests(unittest.TestCase):
         # pool, never a fixed size, so a stalled 16 vCPU moves it to 32 like any pool.
         job = yaml.safe_load((WORKFLOWS / "gallery-health.yml").read_text(encoding="utf-8"))["jobs"]["health"]
         runs_on = runs_on_text(job, "gallery-health.yml#health")
-        self.assertTrue(runs_on.rstrip().endswith("|| fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
+        # One Linux label since scripts/ci/one_linux_label.py (Leo, 2026-11-20: "Just send it somewhere").
+        self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("'blacksmith-", runs_on.split("github.repository && ")[-1].split("|| ", 1)[-1])
 
@@ -194,14 +201,14 @@ class RunnerSetTests(unittest.TestCase):
 
         mac = {name for name, job in jobs.items() if can_take_a_mac(job) and name not in starts_at_once}
         self.assertTrue({"fast-tier", "swift-canary", "swift-test", "daemon-test", "generated-files", "release-compile",
-                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet"} <= mac, sorted(mac))
+                         "cmux-scheme-compile", "swift-canary-fleet", "fast-tier-fleet-mac"} <= mac, sorted(mac))
         for name in sorted(mac):
             with self.subTest(job=name):
                 self.assertIn("macos-placement", ancestors(name), f"{name} takes a Mac before the quiet period ends")
         self.assertTrue(jobs["dev-landing-place"]["if"].startswith("${{ github.event_name == 'push'"))
         self.assertEqual(needs("dev-landing-compile"), ["dev-landing-place"])
         # The Linux work starts at once: none of it waits for the sleep.
-        for name in ("portable-placement", "push-head-preflight", "path_route", "checks", "fast-tier-cargo",
+        for name in ("push-head-preflight", "path_route", "checks", "fast-tier-cargo",
                      "web-bundles", "app-compile-placement", "app-compile-fleet"):
             with self.subTest(job=name):
                 self.assertNotIn("macos-placement", ancestors(name), f"{name} waits for the quiet period")

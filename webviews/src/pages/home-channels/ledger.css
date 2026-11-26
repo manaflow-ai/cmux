@@ -41,7 +41,7 @@
   font: inherit;
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
-  color: var(--page-text-3);
+  color: var(--page-text-2);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
@@ -1727,6 +1727,7 @@
 /* The lightbox: the page dims and blurs behind one image (board principle 9). */
 .hc-lightbox-backdrop {
   background: color-mix(in srgb, var(--lg-solid) 72%, transparent);
+  /* one-material-allow: the lightbox's modal scrim (the dialog above it is the glass), not a glass surface */
   backdrop-filter: var(--surface-blur);
 }
 .hc-lightbox.ui-dialog {
@@ -1841,6 +1842,10 @@
 }
 .hc-tray-item.failed .hc-att-meta {
   color: var(--lg-warn);
+}
+/* A failed upload's Retry, after its note: the item's text gives it the room. */
+.hc-tray-retry {
+  flex: none;
 }
 .hc-tray-thumb {
   display: grid;

@@ -62,13 +62,20 @@ fn scripted_app_host() {
                     error: "SyntaxError: expecting ';' at main.js:2:12".into(),
                 });
             }
-            ToHost::Init { main, .. } => {
+            ToHost::Init { main, settings, .. } => {
                 scene_text = main
                     .split("SCENE_TEXT ")
                     .nth(1)
                     .and_then(|rest| rest.split_whitespace().next())
                     .map(String::from);
                 send(FromHost::Ready { runtime: "scripted".into() });
+                // An app with settings reports the values it loaded with.
+                if settings.as_object().is_some_and(|s| !s.is_empty()) {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("init-settings {settings}"),
+                    });
+                }
                 // Top-level code that subscribes, as `cmux.events.on(...)` does.
                 if let Some(stream) = main
                     .split("SUBSCRIBE_AT_INIT ")
@@ -183,6 +190,13 @@ fn scripted_app_host() {
                         message: format!("open {}", args["url"]),
                     });
                 }
+                if args.get("action").is_some() {
+                    // A message action (`cmux.chat.action/1`): what it was asked to run on.
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("chat-action {args}"),
+                    });
+                }
                 if let Some(gesture) = &gesture {
                     send(FromHost::Log {
                         level: "info".into(),
@@ -213,9 +227,16 @@ fn scripted_app_host() {
             ToHost::Settings { values } => {
                 if let Some(barrier) = values["test_event_barrier"].as_str() {
                     send(FromHost::Log { level: "info".into(), message: barrier.into() });
+                } else {
+                    send(FromHost::Log {
+                        level: "info".into(),
+                        message: format!("settings {values}"),
+                    });
                 }
             }
             ToHost::Unmount { .. } => {}
+            // The scripted host never watches a signal.
+            ToHost::Watch { .. } => {}
             // A widget tick: the scripted render draws the clock it got.
             ToHost::Tick { mount, now_ms } => {
                 send(FromHost::Scene {
@@ -319,6 +340,7 @@ fn write_app(root: &Path, dir: &str, id: &str, scopes: Value) {
     let name = |verb: &str| format!("{family}.{verb}");
     let mut go = op(&name("go"), "go");
     go["palette"] = json!({ "title": "Go", "when": "paneFocused:editor" });
+    go["keyboard"] = json!([{ "key": "g", "when": "browserFocused" }, { "key": "cmd+g" }]);
     let ops = [go, op(&name("crash"), "crash"), op(&name("focus"), "focusTab")];
     let catalog = json!({ "family": family, "operations": ops });
     std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
@@ -433,6 +455,8 @@ fn fixture_sources(
                 extra: vec![root.0.join("extra")],
                 local: Some(state.join("apps/local")),
                 customize: customize.clone(),
+                setups: None,
+                saved_prompts: Some(root.0.join("saved-prompts")),
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
             },
             idle_stop: idle,
@@ -869,10 +893,12 @@ fn github_changed_tells_a_new_subscriber_the_push_is_live_and_reaches_only_githu
     f.install("local/spy");
     f.supervisor.logs(CLIENT, "cmux/demo", true);
     f.mount("d", "cmux/demo", "cmux.palette.scope/1", json!({ "stream": stream }));
-    f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
+    // Before the next mount: its wait for a first scene drops every other event, and the
+    // liveness log lands while the spy's host is still starting.
     f.wait("liveness", |e| {
         e["event"] == "apps-log" && e["message"] == r#"event-body 1 {"live":true}"#
     });
+    f.mount("s", "local/spy", "cmux.palette.scope/1", json!({ "stream": stream }));
     f.supervisor.publish(stream, json!({}));
     f.wait("change", |e| e["event"] == "apps-log" && e["message"] == "event-body 1 {}");
     let heard = |app: &str| {
@@ -1120,7 +1146,9 @@ fn apps_list_lists_palette_commands_and_apps_run_runs_them() {
     let demo = app_entry(&f.supervisor.list(), "cmux/demo");
     assert_eq!(
         demo["commands"],
-        json!([{ "op": "demo.go", "title": "Go", "when": "paneFocused:editor" }])
+        json!([{ "op": "demo.go", "title": "Go", "when": "paneFocused:editor",
+                 "keys": [{ "key": "cmd+g" }], "page_keys": ["g"],
+                 "page_key_when": { "g": "browserFocused" } }])
     );
     let (tx, rx) = channel();
     f.supervisor.run(
@@ -1134,10 +1162,34 @@ fn apps_list_lists_palette_commands_and_apps_run_runs_them() {
 }
 
 #[test]
+fn page_keys_follow_the_persons_bindings_in_storage() {
+    let f = fixture();
+    f.install("cmux/demo");
+    f.mount("m1", "cmux/demo", "cmux.section/1", json!({}));
+    let keys = |f: &Fixture| {
+        app_entry(&f.supervisor.list(), "cmux/demo")["commands"][0]["page_keys"].clone()
+    };
+    let set = json!({ "key": "cmux.keys", "value": { "demo.go": ["shift+g", "/"] } });
+    assert_eq!(f.call("m1", "app.storage.set", set, false)["ok"], true);
+    assert_eq!(keys(&f), json!(["shift+g", "/"]));
+    let chord = json!({ "key": "cmux.keys", "value": { "demo.go": ["cmd+g"] } });
+    assert_eq!(f.call("m1", "app.storage.set", chord, false)["ok"], true);
+    assert_eq!(keys(&f), json!(["g"]));
+    let off = json!({ "key": "cmux.keys", "value": { "demo.go": [] } });
+    assert_eq!(f.call("m1", "app.storage.set", off, false)["ok"], true);
+    assert_eq!(keys(&f), Value::Null);
+    assert_eq!(
+        f.call("m1", "app.storage.delete", json!({ "key": "cmux.keys" }), false)["ok"],
+        true
+    );
+    assert_eq!(keys(&f), json!(["g"]));
+}
+
+#[test]
 fn the_shipped_first_party_directory_is_the_default_set() {
     let root = temp_dir();
     let first_party = root.0.join("first-party");
-    write_app(&first_party, "coderouter", "cmux/coderouter", json!({ "workspace:read": "r" }));
+    write_app(&first_party, "notes", "cmux/notes", json!({ "workspace:read": "r" }));
     write_app(&first_party, "impostor", "octo/impostor", json!({}));
     let catalog = super::catalog::load(&Sources {
         first_party: Some(first_party),
@@ -1145,10 +1197,12 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
+        saved_prompts: None,
         defaults: None,
     });
-    assert_eq!(catalog.defaults, vec!["cmux/coderouter".to_string()]);
-    assert_eq!(catalog.packages["cmux/coderouter"].source, super::mirror::Source::Default);
+    assert_eq!(catalog.defaults, vec!["cmux/notes".to_string()]);
+    assert_eq!(catalog.packages["cmux/notes"].source, super::mirror::Source::Default);
     assert!(
         !catalog.packages.contains_key("octo/impostor"),
         "only first-party apps load from there"
@@ -1160,10 +1214,12 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
+        saved_prompts: None,
         defaults: Some(vec![]),
     });
     assert!(overridden.defaults.is_empty());
-    assert_eq!(overridden.packages["cmux/coderouter"].source, super::mirror::Source::Bundled);
+    assert_eq!(overridden.packages["cmux/notes"].source, super::mirror::Source::Bundled);
 }
 
 /// Gate for the switch to the daemon supervisor: every bundled first-party
@@ -1200,6 +1256,8 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
                 extra: vec![],
                 local: None,
                 customize: None,
+                setups: None,
+                saved_prompts: None,
                 defaults: None,
             },
             idle_stop: Duration::from_secs(60),
@@ -1217,6 +1275,8 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
         extra: vec![],
         local: None,
         customize: None,
+        setups: None,
+        saved_prompts: None,
         defaults: None,
     });
     let list = supervisor.list();
@@ -1302,12 +1362,16 @@ fn apps_list_shows_scope_classes_and_elevated_grants_need_the_user() {
     assert_eq!(granted["grants"], json!(["terminal:backend", "workspace:read"]));
 }
 
+#[path = "supervisor_chat_action_tests.rs"]
+mod chat_actions;
 #[path = "supervisor_chat_widget_tests.rs"]
 mod chat_widgets;
 #[path = "supervisor_community_tests.rs"]
 mod community;
 #[path = "supervisor_composer_tests.rs"]
 mod composer;
+#[path = "supervisor_settings_tests.rs"]
+mod extension_settings;
 #[path = "supervisor_github_tests.rs"]
 mod github_gateway;
 #[path = "supervisor_inventory_demand_tests.rs"]
@@ -1316,18 +1380,30 @@ mod inventory_demand;
 mod local_reload;
 #[path = "supervisor_opener_tests.rs"]
 mod openers;
+#[path = "supervisor_overlay_tests.rs"]
+mod overlay;
+#[path = "supervisor_pane_flow_tests.rs"]
+mod pane_flow;
 #[path = "supervisor_provider_changed_tests.rs"]
 mod provider_changed;
 #[path = "supervisor_provider_tests.rs"]
 mod provider_channel;
 #[path = "supervisor_safe_mode_tests.rs"]
 mod safe_mode;
+#[path = "supervisor_safe_mode_bisect_tests.rs"]
+mod safe_mode_bisect;
 #[path = "supervisor_server_tests.rs"]
 mod servers;
+#[path = "supervisor_signal_source_tests.rs"]
+mod signal_sources;
 #[path = "supervisor_status_item_tests.rs"]
 mod status_items;
 #[path = "supervisor_subscription_tests.rs"]
 mod subscriptions;
+#[path = "supervisor_toolbar_tests.rs"]
+mod toolbar;
+#[path = "supervisor_view_state_tests.rs"]
+mod view_state;
 #[path = "supervisor_widget_tests.rs"]
 mod widget_tiles;
 
@@ -1339,6 +1415,11 @@ mod rollback_tolerance;
 
 #[path = "supervisor_budget_tests.rs"]
 mod budget;
+#[path = "supervisor_store_sections_tests.rs"]
+mod store_sections;
+
+#[path = "supervisor_meters_tests.rs"]
+mod meters;
 
 #[path = "supervisor_page_call_tests.rs"]
 mod page_calls;
@@ -1348,6 +1429,9 @@ mod activation;
 
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
+
+#[path = "supervisor_git_tests.rs"]
+mod git_installs;
 
 #[path = "supervisor_scale_tests.rs"]
 mod at_scale;

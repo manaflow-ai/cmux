@@ -14,9 +14,11 @@
 
 mod ask;
 mod dir;
+mod doctor;
 mod expire;
 mod library;
-mod pr;
+pub(super) mod pr;
+mod rebuild;
 mod render;
 mod source;
 #[cfg(test)]
@@ -40,7 +42,7 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize generations                  Every generation, newest first (`ls`)
   cmux customize show N                       What generation N changed
   cmux customize save NAME [NOTE]             Save what is live as a profile: one file to keep or share
-  cmux customize use NAME|FILE                Preview a profile, then apply or discard it
+  cmux customize use NAME|FILE                Preview a profile (or a recipe, by name), then apply or discard it
   cmux customize try [NAME|FILE] [--minutes N] Try it on: applied now, back by itself in N minutes (10)
   cmux customize keep                         Keep what you are trying on
   cmux customize revert                       Stop trying it on: put back what was there before
@@ -57,9 +59,16 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize profiles                     The saved profiles
   cmux customize recipes [--open]             Ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
+  cmux customize checklist [--has NAME]...    The customizations checklist: each step, done or not, and n of m
+                                              (--has models|mcp|github|phone: a connection the caller knows of)
+  cmux customize doctor                       What changes your customization unexpectedly: stale layers, broken,
+                                              shadowed, leftover or misplaced files, unknown keys, values off their default; `fix ID ...`, `recover`
+  cmux customize library refresh             Every code layer against what is published and this app; with
+                                              --if-app-changed only when the app's commit changed (cmux runs it at start)
 
 If a layer broke cmux (no app needed, with cmux quit too):
   cmux customize library status               Which layers are on, in one line (also in `cmux version`)
+  cmux customize library standup              Every PR, repo and recipe as one line for standup
   cmux customize library expire               Turn off layers past their bound: a merged or closed PR,
                                               a code layer on over 24 h, a hand overlay as old
   cmux customize library on web-dev-overlay   Turn an expired hand-installed overlay back on
@@ -73,6 +82,8 @@ For an agent (the customize_* MCP tools are these verbs):
   cmux customize brief 'WISH'                 Open the draft and print what to edit and how; starts no chat
   cmux customize check                        Validate what is live, and mark your turn done
   cmux customize schema [PART]                Every key you can change (settings, theme, views, extensions); --typescript, --rust
+  cmux customize tokens [list|show|test]      The design tokens and scales: list [GROUP], show NAME, test 14 [--as spacing]
+  cmux customize components [list|show|test] The web kit's components: list [TIER], show NAME, test NAME '{\"prop\":1}'
 
 Ask options:
   --harness HARNESS   The agent that does it: claude (default), codex, ...
@@ -107,11 +118,15 @@ const VERBS: &[&str] = &[
     "keep",
     "revert",
     "library",
+    "checklist",
+    "doctor",
     "paths",
     "brief",
     "check",
     "ask",
     "schema",
+    "tokens",
+    "components",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -178,11 +193,21 @@ pub(super) enum Request {
         open: bool,
     },
     Library(library::Request),
+    /// The customizations checklist, with the connections the caller
+    /// reports (`--has NAME`).
+    Checklist {
+        connected: Vec<String>,
+    },
+    Doctor(doctor::Request),
     Paths,
     Schema {
         section: Option<Section>,
         format: SchemaFormat,
     },
+    /// `tokens …`: the design tokens and scales (cmux_customize::kit).
+    Tokens(cmux_customize::kit::Request),
+    /// `components …`: the web kit's components, from its manifest.
+    Components(cmux_customize::kit::Request),
 }
 
 /// How `customize schema` answers: the schema, or the SDK types written from it.
@@ -235,6 +260,12 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "try" | "try-on" => try_of(rest),
         "library" | "lib" => library::parse(rest).map(Request::Library),
+        "tokens" | "token" => cmux_customize::kit::parse("tokens", rest).map(Request::Tokens),
+        "components" | "component" => {
+            cmux_customize::kit::parse("components", rest).map(Request::Components)
+        }
+        "checklist" => checklist_of(rest),
+        "doctor" | "dr" => doctor::parse(rest).map(Request::Doctor),
         "paths" => none(Request::Paths),
         "apply" => Ok(Request::Apply { note: (!rest.is_empty()).then(|| rest.join(" ")) }),
         "rollback" | "undo" | "switch" => match rest {
@@ -320,6 +351,26 @@ fn try_of(words: &[String]) -> Result<Request, String> {
         }
     }
     Ok(Request::Try { source, duration_ms: (minutes * 60_000.0).round() as u64 })
+}
+
+/// `checklist [--has NAME]...`: each NAME one of the checklist's connections.
+fn checklist_of(words: &[String]) -> Result<Request, String> {
+    let mut connected = Vec::new();
+    let mut iter = words.iter();
+    while let Some(word) = iter.next() {
+        if word != "--has" {
+            return Err(format!("customize checklist takes only --has NAME, got {word:?}"));
+        }
+        let name = value_of(&mut iter, word)?;
+        if !cmux_customize::checklist::facts().any(|known| known == name) {
+            let known: Vec<&str> = cmux_customize::checklist::facts().collect();
+            return Err(format!("--has takes one of {}, got {name:?}", known.join(", ")));
+        }
+        if !connected.contains(&name) {
+            connected.push(name);
+        }
+    }
+    Ok(Request::Checklist { connected })
 }
 
 /// `schema [PART] [--typescript|--rust]`.
@@ -478,6 +529,22 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         }
         return Some(0);
     }
+    // The kit reads built-in tables and the kit's manifest: no store either.
+    if let Some(answer) = kit_answer(&request) {
+        return Some(match answer {
+            Ok(answer) => {
+                if json_out {
+                    println!("{}", answer.json());
+                } else if global.output != OutputMode::Quiet {
+                    print!("{}", answer.human(now_ms()));
+                }
+                0
+            }
+            Err(failure) => {
+                super::scope_usage_failure(global.output, "customize", &failure.message, HELP)
+            }
+        });
+    }
     let chat = ask::Child { globals: child_globals(&global) };
     let result = Customize::from_env().map_err(Failure::from).and_then(|customize| {
         let answer = execute(&customize, request, "cli", now_ms(), &chat)?;
@@ -531,6 +598,9 @@ pub(super) fn run_json(
     }
     if let Request::Schema { section, format } = request {
         return Ok(render::Answer::Schema(Schema::current(), section, format).json());
+    }
+    if let Some(answer) = kit_answer(&request) {
+        return answer.map(|answer| answer.json()).map_err(|failure| failure.envelope());
     }
     let customize = Customize::from_env().map_err(|error| Failure::from(error).envelope())?;
     let answer = execute(&customize, request, origin, now_ms(), &ask::NoChat)
@@ -686,7 +756,7 @@ pub(super) fn execute(
             }
             Some(code) => pr::use_code(customize, code, origin, now_ms)?,
             None => {
-                let profile = customize.load_profile(&source)?;
+                let profile = load_profile_or_recipe(customize, &source)?;
                 let begun = customize.preview_profile(&profile, origin, now_ms)?;
                 Answer::Using { name: profile.name, begun, status: customize.status()? }
             }
@@ -700,8 +770,10 @@ pub(super) fn execute(
             Answer::Library { json: json!({ "expired": expired }), human }
         }
         Request::Try { source, duration_ms } => {
-            let profile =
-                source.as_deref().map(|source| customize.load_profile(source)).transpose()?;
+            let profile = source
+                .as_deref()
+                .map(|source| load_profile_or_recipe(customize, source))
+                .transpose()?;
             Answer::TriedOn(customize.try_on(profile.as_ref(), duration_ms, origin, now_ms)?)
         }
         Request::Keep => Answer::Settled(customize.keep()?.into_iter().collect(), "keep"),
@@ -713,9 +785,34 @@ pub(super) fn execute(
         Request::Profiles => Answer::Profiles(customize.profiles()?),
         Request::Recipes { open } => recipes(customize, open, chat)?,
         Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
+        Request::Checklist { connected } => Answer::Checklist(cmux_customize::checklist::read(
+            customize,
+            &connected.into_iter().collect(),
+        )?),
+        Request::Doctor(request) => doctor::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),
+        request @ (Request::Tokens(_) | Request::Components(_)) => kit_answer(&request)
+            .unwrap_or_else(|| Err(Failure::usage("not a kit verb".to_owned())))?,
     })
+}
+
+/// `tokens` and `components`, answered with no store (None: another verb).
+fn kit_answer(request: &Request) -> Option<Result<render::Answer, Failure>> {
+    use cmux_customize::kit;
+    let answer = match request {
+        Request::Tokens(request) => kit::tokens(request),
+        Request::Components(request) => {
+            let start = std::env::current_dir().unwrap_or_default();
+            kit::components(request, kit::manifest_path(&start).as_deref())
+        }
+        _ => return None,
+    };
+    Some(
+        answer
+            .map(|kit::Answer { json, human }| render::Answer::Library { json, human })
+            .map_err(Failure::usage),
+    )
 }
 
 /// Writes the recipes (cmux-customize-recipes) where `use` reads them, and
@@ -738,4 +835,23 @@ fn recipes(
         }
     });
     Ok(render::Answer::Recipes { written, opened })
+}
+
+/// A saved profile called `source`, else the profile at that path; when
+/// neither exists and `source` is a recipe's name, that recipe (so
+/// `cmux customize use ukiyo-e` works without `recipes` first). A saved
+/// profile of the same name wins over the recipe.
+fn load_profile_or_recipe(
+    customize: &Customize,
+    source: &str,
+) -> Result<cmux_customize::profile::Profile, Error> {
+    match customize.load_profile(source) {
+        Ok(profile) => Ok(profile),
+        Err(error) => match cmux_customize_recipes::find(source) {
+            Some(recipe) if !std::path::Path::new(source).exists() => {
+                recipe.profile().map_err(Error::Profile)
+            }
+            _ => Err(error),
+        },
+    }
 }

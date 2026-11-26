@@ -22,10 +22,12 @@ type Rgba = [number, number, number, number];
 type Look = { fill: Rgba; backdrop: string; shadow: string; ink: Rgba };
 
 await requireBrowserLane("composer-glass.test.ts", async () => {
-  // The popover level the composer is (design-scale glass popover): its own tint on each side.
-  const popover = designScale.glass.find((level) => level.name === "popover") as { tint: number; darkTint?: number };
+  // The popups' transient material the composer is (design-scale transientMaterial; one material family,
+  // Leo 2026-11-21: "our shitty multi layer glass + web view. we need to properly do that once and for
+  // all."): its web tint on each side. Before: the popover level (72%) under a 24 px blur.
+  const transient = designScale.transientMaterial;
   const popoverTint = (scheme: "light" | "dark") =>
-    (scheme === "dark" ? (popover.darkTint ?? popover.tint) : popover.tint) / 100;
+    (scheme === "dark" ? transient.webTintDark : transient.webTint) / 100;
 
   /** Parses a computed color (`rgb()`, `rgba()` or `color(srgb …)`) into 0-1 channels and alpha. */
   function parse(color: string): Rgba {
@@ -166,12 +168,12 @@ await requireBrowserLane("composer-glass.test.ts", async () => {
       });
 
   for (const colorScheme of ["light", "dark"] as const)
-    test(`${colorScheme}, the default composer uses the balanced glass level`, async () => {
+    test(`${colorScheme}, the default composer is the popups' transient material`, async () => {
       const page = await open(colorScheme, {});
       for (const id of ["composer", "strip-composer", "codex-strip-composer"]) {
         const { fill, backdrop } = await look(page, id);
-        expect(fill[3], `${id} keeps the popover level's tint`).toBeCloseTo(popoverTint(colorScheme), 2);
-        expect(backdrop, `${id} keeps the selected 24px blur`).toContain("blur(24px)");
+        expect(fill[3], `${id} takes the popups' transient tint`).toBeCloseTo(popoverTint(colorScheme), 2);
+        expect(backdrop, `${id} takes the popups' transient blur`).toContain(`blur(${transient.webBlur}px)`);
       }
       await page.close();
     });

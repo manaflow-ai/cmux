@@ -1,5 +1,15 @@
 # App health
 
+> **Current state (2026-11-24): app health has no surface at all.** There is no sidebar line, no dot, no
+> card, no toast and no Details button on the Restoring sessions card. Leo, 2026-11-22 (ask-a78f915862): "the
+> fuck is actionable about "needs a repair". if it's unactionable, get rid of it. plus the text is
+> overlapping." A part that is stuck, repairing or out of repairs is repaired by the Rust model by itself (the
+> ladder, then a fresh try once its 10-minute window lets go), and each step and each give-up is written to the
+> log by the host (`AppHealthFeeds`, the `debug.health` receipts). Nothing here asks the person for anything.
+> The sections below are the history of the surfaces that were deleted: the footer line, its web twin
+> (`webviews/src/app-health`), the native card (`AppHealthPopover`) with Repair now and Show chat, and the
+> `AppHealthPlaces` that named a chat for them.
+
 Part of the app can stop answering while the rest still works: a page whose script hangs, a web
 renderer at full CPU, a session daemon that restarts every two minutes because each start spends
 its life restoring a huge registry, an acpmux link that went quiet. Before this, the person saw
@@ -98,7 +108,14 @@ screen blank").
 
 ## Treatment
 
-Where it sits. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
+Shipped: `hidden`, and the line is gone from the app (Leo, 2026-11-22, ask-eacfb2ec1f: "i see in the
+sidebar a repair connection to agent service... which i have requested to remove a while ago. ... we
+dont need it. ever. entire classes of bullshit fucking error/status bullshit. fuck em. remove them all.").
+The sidebar draws no health line or dot; the parts repair themselves, and the popover opens only from the
+Restoring sessions card's Details (`SidebarView.onHealthDetails`). The rest of this section is the history
+of the treatments tried before.
+
+Where it sat. Native gallery: `AAAppHealthIndicatorGalleryTests` renders `a-overlay` (shipped), `b-dot`
 and `c-hidden` in six states (healthy, only slow, not responding, repairing, needs a repair, a queued
 close), and the restoring card with Details. Web gallery: `ui.app-health.footer-row` draws the sidebar's
 bottom twice per variant, at rest and with the indicator, in the same five states:

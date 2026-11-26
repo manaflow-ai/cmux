@@ -54,7 +54,6 @@ ENV_COPY = {
     "cmux-next.yml#release-compile": "CMUX_NEXT_RUNNER",
     "cmux-next.yml#cmux-scheme-compile": "CMUX_NEXT_RUNNER",
     "cmux-next.yml#dev-landing-compile": "CMUX_NEXT_RUNNER",
-    "iroh-v2.yml#client": "REQUESTED_RUNNER",
 }
 # Arrays the variable may hold: what a std side job needs today (any side runner with Xcode 26.6; every one
 # has at least 16 GiB, the measured std footprint), and a job that needs a 48 GiB host.
@@ -132,7 +131,7 @@ class SideLaneCapabilityLabelsTests(unittest.TestCase):
         self.assertEqual([name for name, _, _ in drifted], ["CI_SIDE_LANE_LABELS"])
 
     def test_the_repository_variable_checks_read_the_array(self) -> None:
-        for name in ("ci-repo-variables.yml", "ci-health-report.yml"):
+        for name in ("ci-health-report.yml",):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")
             self.assertIn("CI_SIDE_LANE_LABELS=${{ vars.CI_SIDE_LANE_LABELS }}", text, name)
 

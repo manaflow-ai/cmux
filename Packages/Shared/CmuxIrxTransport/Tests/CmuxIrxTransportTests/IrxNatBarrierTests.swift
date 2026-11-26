@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import Foundation
 import IrohLib
 import Testing
@@ -328,3 +329,4 @@ struct IrxNatBarrierTests {
         await irx.close(code: .userRequested, origin: .local)
     }
 }
+#endif

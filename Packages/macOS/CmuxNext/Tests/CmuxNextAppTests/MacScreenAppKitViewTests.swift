@@ -140,6 +140,24 @@ struct MacScreenAppKitViewTests {
         pages.tabClosed("home")
     }
 
+    /// The quiet rows keep Start cmux on NAME (Leo 2026-11-14: "agents need to be able to help set up and
+    /// propagate the app for me"): an offline Mac's one button; without the daemon's verbs, none.
+    @Test func quietOfflineRowOffersStartCmux() throws {
+        let pages = makePages()
+        pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
+        let tab = pages.makeView(for: "home")
+        let home = try #require(views(under: tab).compactMap { $0 as? MacScreenHomeView }.first)
+        let offline = MacScreenHomeSnapshot.Device(id: viewDeviceID, name: "Air Blue", isPhone: false, online: false,
+                                                    macScreenShared: true, access: MacScreenAccess(.full),
+                                                    setup: .make(isMac: true, online: false, verbs: .all, run: nil))
+        let noDaemon = MacScreenHomeSnapshot.Device(id: "other-mac", name: "Studio", isPhone: false, online: false,
+                                                     macScreenShared: true, access: MacScreenAccess(.full))
+        home.build(MacScreenHomeSnapshot(devices: .list([offline, noDaemon]), sharingLook: .list, devicesLook: .offlineLines))
+        #expect(findView("macScreen.home.start.Air Blue", under: home) != nil)
+        #expect(findView("macScreen.home.start.Studio", under: home) == nil)
+        pages.tabClosed("home")
+    }
+
     /// A usable Mac says nothing about access: name, dot and the buttons.
     @Test func askAccessSaysNothing() throws {
         let pages = makePages()
@@ -223,6 +241,26 @@ struct MacScreenAppKitViewTests {
         let (pages, home) = try homeView([device])
         #expect(findView("macScreen.home.blocked.Office", under: home) != nil)
         #expect(!texts(under: home).contains("Turn on Allow Mac Screen on Office to share its screen."))
+        pages.tabClosed("home")
+    }
+
+    /// Your Devices lists a Linux desktop and a Windows PC with their own glyphs (Leo 2026-11-16: "i dont see
+    /// windows nor linux"). Linux opens like a Mac; a Windows PC, which this Mac cannot view yet, says so with no buttons.
+    @Test func linuxAndWindowsRowsShowTheirPlatform() throws {
+        let full = MacScreenAccess(.full)
+        let linux = MacScreenHomeSnapshot.Device(id: "l", name: "Box", isPhone: false, online: true, macScreenShared: true,
+                                                  access: full, platform: .linux)
+        let windows = MacScreenHomeSnapshot.Device(id: "w", name: "PC", isPhone: false, online: true, macScreenShared: true,
+                                                    access: full, platform: .windows)
+        #expect(linux.glyph == "server.rack")
+        #expect(windows.glyph == "pc")
+        #expect(MacScreenHomeSnapshot.Device(id: "m", name: "Mac", isPhone: false, online: true, macScreenShared: true,
+                                             access: full).glyph == "desktopcomputer")
+        let (pages, home) = try homeView([linux, windows])
+        #expect((findView("macScreen.home.control.Box", under: home) as? NSButton)?.isEnabled == true)
+        #expect(findView("macScreen.home.notViewable.PC", under: home) != nil)
+        #expect(findView("macScreen.home.control.PC", under: home) == nil)
+        #expect(findView("macScreen.home.view.PC", under: home) == nil)
         pages.tabClosed("home")
     }
 

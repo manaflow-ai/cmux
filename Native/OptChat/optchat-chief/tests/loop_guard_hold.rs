@@ -276,7 +276,7 @@ fn a_silent_spawn_turn_under_the_guard_gets_no_note_until_the_person_writes() {
     h.connect();
     h.say("user_local", "start the fix");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let sp = spawner(&h);
     let started = run(&mut h, move || {
@@ -312,5 +312,195 @@ fn a_silent_spawn_turn_under_the_guard_gets_no_note_until_the_person_writes() {
     assert!(
         !chief_prompts(&h).iter().any(|t| t.contains(NO_TEXT_TAG)),
         "and no [no text] turn after it"
+    );
+}
+
+/// The guard's refusal can come after the turn ended: a send the owner held
+/// back (`agent_rate`) answers "queued", so the silent spawn turn queues its
+/// host-posted start (or, failing that, a `[no text]` note), and the outbox
+/// retry is refused (`agent_budget`) while it still waits. No `[no text]`
+/// turn runs and the ids wait for the person, like a note the hold kept from
+/// being queued.
+#[test]
+fn a_no_text_note_already_queued_when_the_guard_refuses_is_held_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let lines = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    let settings = optchat_chief::brain::Settings {
+        // Long enough that the retry comes after the turn ended.
+        agent_gap: Duration::from_millis(400),
+        ..common::settings(dir.path())
+    };
+    let owner = Arc::new(std::sync::Mutex::new(Owner {
+        summary: Some(summary()),
+        ..Owner::default()
+    }));
+    let mut h = Harness::configured(
+        dir,
+        script("done", ""),
+        owner,
+        settings,
+        Arc::new(move |l: &str| sink.lock().unwrap().push(l.to_owned())),
+    );
+    h.agents.hold(true);
+    h.connect();
+    h.say("user_local", "start the fix");
+    while h.agents.inner.lock().unwrap().prompts.is_empty() {
+        h.poll_step();
+    }
+    let sp = spawner(&h);
+    let started = run(&mut h, move || {
+        sp.spawn(vec!["Title: Fix it\n\nSUB-TASK fix it".into()], None)
+    });
+    assert!(started.is_ok(), "{started:?}");
+    {
+        let mut owner = h.owner.lock().unwrap();
+        owner.rejects.clear();
+        owner.rejects.push_back(Some("agent_rate".into()));
+        owner
+            .rejects
+            .extend(std::iter::repeat_n(Some("agent_budget".to_owned()), 50));
+    }
+    let sp = spawner(&h);
+    let queued = run(&mut h, move || sp.send(send("Started a1 on the fix.")))
+        .expect("held back, not refused yet");
+    assert!(queued.starts_with("outcome: queued"), "{queued}");
+    h.agents.hold(false);
+    h.agents.release();
+    // Step only until the turn ended and queued its note: the note's turn
+    // has not started when the retry is refused.
+    let noted = |lines: &std::sync::Mutex<Vec<String>>| {
+        lines
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|l| l.contains("posted no text") && !l.contains("loop guard"))
+    };
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !noted(&lines) {
+        assert!(
+            Instant::now() < deadline,
+            "no note: {:?}",
+            lines.lock().unwrap()
+        );
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(5)) {
+            h.brain.step(input);
+        }
+    }
+    let at = h.brain.next_timer().expect("the outbox retry is armed");
+    std::thread::sleep(at.saturating_duration_since(Instant::now()));
+    h.brain.on_timer();
+    settle_until(&mut h, |_| false);
+    let p = chief_prompts(&h);
+    assert!(
+        !p.iter().any(|t| t.contains(NO_TEXT_TAG)),
+        "the queued [no text] note was dropped under the guard: {p:?}"
+    );
+    open_guard(&h);
+    h.say("user_local", "anything new?");
+    settle_until(&mut h, |h| {
+        chief_prompts(h).iter().any(|p| p.contains("anything new?"))
+    });
+    let p = chief_prompts(&h);
+    let turn = p
+        .iter()
+        .find(|t| t.contains("anything new?"))
+        .expect("the person's turn");
+    assert!(
+        turn.contains("loop guard") && turn.contains("a1"),
+        "the person's turn names the unannounced start: {turn}"
+    );
+}
+
+/// A second agent in the Chief conversation: the owner's per-thread cap
+/// applies (`cmux_conversation` budget: two or more agents).
+fn with_second_agent(h: &Harness) {
+    let mut owner = h.owner.lock().unwrap();
+    let summary = owner.summary.as_mut().unwrap();
+    summary.participants.push(cmux_conversation::Participant {
+        id: "agent_other".into(),
+        kind: cmux_conversation::ParticipantKind::Agent,
+        display_name: "Other Chief".into(),
+        agent_class: None,
+        acp_session: None,
+        person: None,
+    });
+}
+
+/// Lawrence's Chief, 2026-11-22: a1212 finished again and again while the
+/// guard already refused the Chief's messages; each report got an
+/// `[untold]` turn and a refused `stop`, before any send of the host's own
+/// was refused in that run (a host that starts with the guard closed, after
+/// an update). The host reads the guard's count from the conversation (the
+/// owner's `thread_agent_streak` rule), so the hold starts before a refusal.
+#[test]
+fn a_guard_already_at_its_budget_when_the_host_starts_holds_without_a_refusal() {
+    let mut h = Harness::new(script(LANDED, ""));
+    with_second_agent(&h);
+    {
+        let mut owner = h.owner.lock().unwrap();
+        owner.messages.push(message(1, "user_local", "keep going"));
+        for seq in 2..=7 {
+            let author = if seq % 2 == 0 {
+                "agent_mux"
+            } else {
+                "agent_other"
+            };
+            owner.messages.push(message(seq, author, "status"));
+        }
+        owner
+            .summary
+            .as_mut()
+            .unwrap()
+            .read_cursors
+            .insert("agent_mux".into(), 7);
+    }
+    close_guard(&h);
+    report(&mut h, true);
+    let sp = spawner(&h);
+    let answer = run(&mut h, move || sp.stop_turn())
+        .unwrap_or_else(|e| panic!("stop must go through at once: {e}"));
+    assert!(answer.starts_with("outcome: done"), "{answer}");
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+    for _ in 0..3 {
+        h.brain.fire_outcome_checks_at(u64::MAX / 2);
+        h.settle_posts();
+    }
+    let p = chief_prompts(&h);
+    assert!(
+        !p.iter().any(|t| t.contains(UNTOLD_TAG)),
+        "no [untold] turn: {p:?}"
+    );
+    assert_eq!(h.brain.untold_outcomes(), vec!["a1".to_owned()], "held");
+}
+
+/// The same, with the guard's count reached live: six agent texts arrive
+/// after the person's last one.
+#[test]
+fn six_agent_texts_since_the_person_wrote_start_the_hold_live() {
+    let mut h = Harness::new(script(LANDED, ""));
+    with_second_agent(&h);
+    h.connect();
+    h.say("user_local", "keep going");
+    settle_until(&mut h, |h| !chief_prompts(h).is_empty());
+    for _ in 0..6 {
+        h.say("agent_other", "status");
+    }
+    close_guard(&h);
+    report(&mut h, true);
+    let sp = spawner(&h);
+    let answer = run(&mut h, move || sp.stop_turn())
+        .unwrap_or_else(|e| panic!("stop must go through at once: {e}"));
+    assert!(answer.starts_with("outcome: done"), "{answer}");
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+    h.brain.fire_outcome_checks_at(u64::MAX / 2);
+    h.settle_posts();
+    assert!(
+        !chief_prompts(&h).iter().any(|t| t.contains(UNTOLD_TAG)),
+        "no [untold] turn"
     );
 }

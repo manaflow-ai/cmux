@@ -6,13 +6,17 @@
 //! One flag, `--on`, whose value decides the kind of target, so it is learned once for every verb
 //! that runs something somewhere:
 //!
-//! - no `--on` (and no `CMUX_ON` and no `chat.on` setting), or `--on here`: right here, as
-//!   `cmux agents chat new` starts it (a chat tab in the app, in this machine's acpmux);
+//! - no `--on` (and no `CMUX_ON` and no `chat.on` setting), or `--on auto`: Auto
+//!   (`auto_place`): right here when acpmux's placement says this machine has room, else a new
+//!   Cloud VM when signed in with Cloud on, else here all the same;
+//! - `--on here`: right here, as `cmux agents chat new` starts it (a chat tab in the app, in
+//!   this machine's acpmux);
 //! - `--on vm`: my Cloud VM: my one VM (or the one running of several), a new one when I have
 //!   none (`my_vm`);
 //! - `--on cloud`: cmux Cloud decides where it runs (Leo, 2026-11-07: "in the future, the cloud
-//!   kind of namespace will be a bit reserved"). Today that is `--on vm`'s VM; the answer's
-//!   `placement` (`vm:ID`) names what it chose, so nothing depends on `cloud` meaning a VM;
+//!   kind of namespace will be a bit reserved"), and never asks which VM: today my most recently
+//!   used running chat VM, else a new one (`cloud_vm`); the answer's `placement` (`vm:ID`) names
+//!   what it chose, so nothing depends on `cloud` meaning a VM;
 //! - `--on vm:new`: a new Cloud VM; `--on vm:ID|NAME`: the app's existing Cloud VM with that id,
 //!   or the one VM with that title, never one made for it. Both are the run `cmux cloud
 //!   start-chat` does (cloud_start_chat.rs), which stays as that run's old name;
@@ -85,9 +89,9 @@ pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
     ours && matches!(flag, "--wait" | "--no-wait")
 }
 
-/// The `chat` verbs other modules own (chief/chat_scope.rs, chat_cd.rs and the app's `chat …` actions).
+/// The `chat` verbs other modules own (chief/chat_scope.rs, chat_cd.rs, chat_move.rs and the app's `chat …` actions).
 pub(super) const OTHER_VERBS: &[&str] =
-    &["send", "cd", "read", "wait", "list", "create", "replies", "colors"];
+    &["send", "cd", "move", "read", "wait", "list", "create", "replies", "colors"];
 
 /// The environment variable that names the target when `--on` is absent.
 pub(super) const TARGET_ENV: &str = "CMUX_ON";
@@ -116,9 +120,12 @@ usage: cmux chat [--on TARGET] [--environment ENV] [--harness HARNESS] [--model 
                  [--cwd DIR | --from-folder DIR | --no-folder] [--repo URL] [--name NAME]
                  [--attach FILE]... [-w] [--timeout DURATION] [--json] [[--prompt] TEXT]
 
-Starts an agent chat, right here unless --on names another target:
+Starts an agent chat, right here (or in Cloud when this machine is busy) unless --on
+names another target:
 
-  --on here          This machine, as a tab in the cmux app (the default)
+  --on auto          This machine when it has room, else a new Cloud VM when you are
+                     signed in and Cloud is on (the default)
+  --on here          This machine, as a tab in the cmux app
   --on cloud         Today the same as --on vm: your one VM, the one running VM of
                      several, or a new one when you have none; several and none
                      running is refused with their names
@@ -137,6 +144,13 @@ Starts an agent chat, right here unless --on names another target:
                      The answer's session_id is HOST/NAME: `cmux chat send HOST/NAME TEXT`,
                      `cmux chat wait HOST/NAME`
   CMUX_ON=TARGET names the target when --on is absent.
+  On a Pro, Max or Team plan a Cloud chat (--on cloud, vm, vm:new or vm:ID, with a
+  prompt and none of --cwd, --from-folder, --no-folder, --environment, --wait,
+  --timeout, --timings, --attach or --name) starts here at once while its
+  machine starts, then moves there between turns (log: the hybrid-start folder
+  beside cmux's sessions). CMUX_HYBRID_START=1 turns that on whatever the plan,
+  CMUX_HYBRID_START=0 off; with neither, cloud.autoCloud set to true in
+  cmux-next.json turns it on. `cmux cloud hybrid-status --json` says which.
   `cmux config set on TARGET` saves a default target (the chat.on setting),
   used when neither --on nor CMUX_ON names one; `cmux config reset on` clears it.
 
@@ -572,13 +586,14 @@ where
     if on == "here" {
         return Ok(Route::Here);
     }
-    // `cloud` is cmux Cloud's choice of place; today it is `vm`'s (module docs).
+    // `cloud` is cmux Cloud's choice of place, never a question (module docs); `vm` is my VM.
     if on == "cloud" || on == "vm" {
         if let Err(refusal) = cmux::resolve_chat_target("cloud", &Value::Null, (reads.signed_in)())
         {
             return Err(refused(&refusal));
         }
-        return my_vm(&(reads.cloud_machines)()?).map(Route::Cloud);
+        let listed = (reads.cloud_machines)()?;
+        return if on == "cloud" { cloud_vm(&listed) } else { my_vm(&listed) }.map(Route::Cloud);
     }
     if let Some(vm) = on.strip_prefix("vm:") {
         if vm == "new" {
@@ -737,22 +752,12 @@ fn retryable(mut error: Value) -> Value {
 /// The VM statuses `--on vm` does not reuse: a VM that is failing or going away.
 const NOT_REUSED: &[&str] = &["failed", "deleting", "deleted", "destroyed"];
 
-/// `--on vm`, "my VM" (Leo's CLI walkthrough, 2026-11-07; and `--on cloud` today): the one VM
+/// `--on vm`, "my VM" (Leo's CLI walkthrough, 2026-11-07): the one VM
 /// of yours the app lists, a new one when you have none, or the one running VM of several. Several VMs and not
 /// one running is refused with their names, never guessed; a paused VM resumes when the chat
 /// starts on it (the app's `start-chat --target`).
 fn my_vm(listed: &Value) -> Result<Machine, Value> {
-    if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
-        return Err(refused(&ChatTargetRefusal::SignedOut));
-    }
-    if let Some(error) = not_loaded(listed) {
-        return Err(error);
-    }
-    let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
-    let usable: Vec<&Value> = rows
-        .iter()
-        .filter(|row| !row.get_str("status").is_some_and(|status| NOT_REUSED.contains(&status)))
-        .collect();
+    let usable = usable_vms(listed)?;
     let running: Vec<&Value> =
         usable.iter().copied().filter(|row| row.get_str("status") == Some("running")).collect();
     // A VM the app is still making (`creating`, not failed) is mine too: never start a second.
@@ -786,6 +791,60 @@ fn my_vm(listed: &Value) -> Result<Machine, Value> {
         "name one with --on vm:NAME (`cmux vm ls`), or use --on vm:new",
         json!({"names": names}),
     ))
+}
+
+/// The VMs `listed` (the app's `cloud list-machines` answer) has that a chat may reuse: not
+/// failing or going away. Refused when the list says signed out, or is not loaded yet.
+fn usable_vms(listed: &Value) -> Result<Vec<&Value>, Value> {
+    if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
+        return Err(refused(&ChatTargetRefusal::SignedOut));
+    }
+    if let Some(error) = not_loaded(listed) {
+        return Err(error);
+    }
+    let rows = listed.get("machines").and_then(Value::as_array).map_or(&[][..], Vec::as_slice);
+    Ok(rows
+        .iter()
+        .filter(|row| !row.get_str("status").is_some_and(|status| NOT_REUSED.contains(&status)))
+        .collect())
+}
+
+/// The words of a VM title that mark a machine made for something other than chat: a fleet lease
+/// (`lease-…`), a probe, the Cloud dev loop's machine (`cloud-devloop`).
+const NOT_FOR_CHAT: &[&str] = &["lease", "probe", "devloop"];
+
+/// Whether a VM titled `title` was made for something other than chat: one of its words (split
+/// at anything not a letter or digit, any case) is in [`NOT_FOR_CHAT`].
+fn made_for_other_than_chat(title: &str) -> bool {
+    title
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| NOT_FOR_CHAT.iter().any(|other| word.eq_ignore_ascii_case(other)))
+}
+
+/// `--on cloud`: cmux Cloud picks the place, so the person is never asked which VM (the help:
+/// "cmux Cloud runs it; where may change"; `--on vm` may still ask). Today it is the person's
+/// most recently used running chat VM: running, not made for something else
+/// ([`made_for_other_than_chat`]), made by the signed-in person when the list names them
+/// (`account.user`), latest `last_active_at` (else `created_at`) first, the machine id breaking a
+/// tie, so the same list always picks the same VM. None of those: a new VM.
+fn cloud_vm(listed: &Value) -> Result<Machine, Value> {
+    let me = listed.pointer("/account/user").and_then(Value::as_str);
+    let chosen = usable_vms(listed)?
+        .into_iter()
+        .filter(|row| row.get_str("status") == Some("running"))
+        .filter(|row| !made_for_other_than_chat(row.get_str("title").unwrap_or("")))
+        .filter(|row| me.is_none_or(|me| row.get_str("created_by") == Some(me)))
+        .filter_map(|row| row.get_str("machine_id").map(|id| (last_used(row), id)))
+        .max_by(|(left_at, left), (right_at, right)| {
+            left_at.cmp(right_at).then_with(|| right.cmp(left))
+        });
+    Ok(chosen.map_or(Machine::New, |(_, id)| Machine::Target(id.to_owned())))
+}
+
+/// When VM `row` was last used: its `last_active_at`, else its `created_at`. The list's times are
+/// one fixed form (`2026-11-10T23:56:32Z`), so their text sorts as they do.
+fn last_used(row: &Value) -> Option<&str> {
+    row.get_str("last_active_at").or_else(|| row.get_str("created_at"))
 }
 
 /// The app's existing Cloud VM with machine id `id`, else the one VM titled `name`, from its
@@ -877,9 +936,12 @@ where
     }
     let first = first();
     let (Some(selector), Err(error)) = (on, &first) else { return first };
+    // No cmux session to read a catalog from (`daemon.unreachable`) is no answer about the
+    // name: a machine `cmux device add` joined is still found through acpmux and the account,
+    // which need no app (the line device add prints: `cmux chat --on NAME --prompt …`).
     let fallback = matches!(
         error.get("code").and_then(Value::as_str),
-        Some("chat_target.unknown_device" | "chat_target.no_route")
+        Some("chat_target.unknown_device" | "chat_target.no_route" | "daemon.unreachable")
     );
     if !fallback {
         return first;
@@ -890,7 +952,11 @@ where
     }
 }
 
-fn run(global: &GlobalArgs, start: Start) -> i32 {
+fn run(global: &GlobalArgs, mut start: Start) -> i32 {
+    // `--on auto` asks by name for what a start naming no target gets (auto_place.rs).
+    if start.on.as_deref().is_some_and(|on| on.trim().eq_ignore_ascii_case(auto_place::AUTO)) {
+        start.on = None;
+    }
     let reads = Reads {
         catalog: || read_catalog(global),
         signed_in: || cloud_start_chat::app_signed_in(global),
@@ -909,6 +975,10 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
     let route = match in_environment(&start, route) {
         Ok(route) => route,
         Err(error) => return usage_failure(&error, global.output),
+    };
+    let route = match route {
+        Route::Here => auto_place::route(global, &start),
+        route => route,
     };
     if route == Route::Here && start.from_folder.is_some() {
         return usage_failure(&UsageError::new(FROM_FOLDER_CLOUD_ONLY), global.output);
@@ -967,21 +1037,10 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             },
             Err(error) => usage_failure(&error, global.output),
         },
-        Route::Cloud(machine) => match cloud_words(&start, &machine) {
-            Ok(words) => {
-                let parsed = cloud_start_chat::parse(&words, read_stdin);
-                match parsed {
-                    Ok(cloud_start_chat::Parsed::Run(request)) => {
-                        cloud_start_chat::start(global, &request)
-                    }
-                    Ok(cloud_start_chat::Parsed::Help) => {
-                        print!("{USAGE}");
-                        0
-                    }
-                    Err(error) => usage_failure(&error, global.output),
-                }
-            }
-            Err(error) => usage_failure(&error, global.output),
+        // Leo, 2026-11-23: "start them all in parallel, in tandem": here at once, then Cloud.
+        Route::Cloud(machine) => match hybrid_start::start(global, &start, &machine) {
+            Some(code) => code,
+            None => cloud_start(global, &start, &machine),
         },
         // As a chat here starts, with the peer named; its tab shows here.
         Route::Peer(peer) => match peer_words(&global_words(global), &start, &peer) {
@@ -989,6 +1048,21 @@ fn run(global: &GlobalArgs, start: Start) -> i32 {
             Err(error) => usage_failure(&error, global.output),
         },
         Route::Joined(machine) => joined::run(global, &start, &machine),
+    }
+}
+
+/// The Cloud start, as `cloud start-chat` runs it.
+fn cloud_start(global: &GlobalArgs, start: &Start, machine: &Machine) -> i32 {
+    match cloud_words(start, machine) {
+        Ok(words) => match cloud_start_chat::parse(&words, read_stdin) {
+            Ok(cloud_start_chat::Parsed::Run(request)) => cloud_start_chat::start(global, &request),
+            Ok(cloud_start_chat::Parsed::Help) => {
+                print!("{USAGE}");
+                0
+            }
+            Err(error) => usage_failure(&error, global.output),
+        },
+        Err(error) => usage_failure(&error, global.output),
     }
 }
 
@@ -1312,6 +1386,8 @@ fn usage_failure(error: &UsageError, output: OutputMode) -> i32 {
     super::app::failure("usage.invalid", &format!("cmux: {}\n{USAGE}", error.0), output, 2)
 }
 
+mod auto_place;
+pub(super) mod hybrid_start;
 pub(super) mod joined;
 
 #[cfg(test)]

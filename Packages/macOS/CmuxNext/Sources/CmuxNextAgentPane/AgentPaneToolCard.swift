@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
 
@@ -52,17 +53,7 @@ public nonisolated struct AgentPaneToolCard: Hashable, Sendable {
         }
     }
 
-    /// What the person typed in a card's field: its description, debug description and mirror never
-    /// show it, so no log line, reply or `String(describing:)` of a request can carry it.
-    public struct Entered: Sendable, Equatable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-        public let text: String
-
-        public init(_ text: String) { self.text = text }
-
-        public var description: String { "<entered>" }
-        public var debugDescription: String { "<entered>" }
-        public var customMirror: Mirror { Mirror(self, children: [:]) }
-    }
+    public typealias Entered = EnteredText
 
     public var id: String
     public var state: State
