@@ -483,6 +483,21 @@ class GuardTest(unittest.TestCase):
         self.assertTrue(pmb.merged_by_teammate("o/r", "7", api=unreadable))
         self.assertTrue(pmb.TEAMMATE_HOLD.format(login="x").startswith("HOLD: "))
 
+    def test_an_agents_revert_is_handed_to_autoland_and_a_teammates_is_not(self) -> None:
+        # Goal base-batch-reverts-culprit: "reverts it with no person". The label is next_autoland's hand-off.
+        calls = []
+        line = pmb.hand_off("o/r", 12, "", api=lambda path, **kw: calls.append((path, kw)))
+        self.assertEqual(calls, [("repos/o/r/issues/12/labels", {"method": "POST", "fields": {"labels": ["ready-to-land"]}})])
+        self.assertIn("ready-to-land", line)
+        calls.clear()
+        self.assertIn("Held for lucasr1b", pmb.hand_off("o/r", 12, "lucasr1b", api=lambda path, **kw: calls.append(path)))
+        self.assertEqual(calls, [])
+
+        def refused(path, **kw):
+            raise RuntimeError("gh api: 403")
+
+        self.assertIn("normal landing", pmb.hand_off("o/r", 12, "", api=refused))
+
 
 class PushTest(unittest.TestCase):
     """GitHub's workflow-scope check timing out is retried; any other refusal is not."""
@@ -616,3 +631,44 @@ class PushTokenTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DispatchProbeRetryTests(unittest.TestCase):
+    probe = pmb.Probe("web", "web / Web tests (2/4)", "web-tests", "f" * 40, "a" * 40, "b" * 40, "1")
+    title = f"probe web web-tests at {'f' * 40}"
+
+    def fake(self, answers: list, listed: list[dict] | None = None):
+        calls: list[str] = []
+
+        def api(path, method="GET", **_):
+            calls.append(method)
+            if method == "GET":
+                return {"workflow_runs": listed or []}
+            answer = answers.pop(0)
+            if answer:
+                raise RuntimeError(f"gh api POST {path}: {answer}")
+            return None
+        return api, calls
+
+    def test_a_5xx_is_retried_until_the_dispatch_goes_through(self) -> None:
+        api, calls = self.fake(["gh: Failed to run workflow dispatch (HTTP 500)", "gh: Server Error (HTTP 502)", None])
+        waits: list[float] = []
+        with unittest.mock.patch("sys.stderr"):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=waits.append)
+        self.assertEqual((calls, waits), (["POST", "GET", "POST", "GET", "POST"], [15, 45]))
+
+    def test_a_5xx_whose_run_started_is_not_dispatched_again(self) -> None:
+        api, calls = self.fake(["gh: Server Error (HTTP 502)"], listed=[{"display_title": self.title, "status": "queued"}])
+        with unittest.mock.patch("sys.stderr"):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
+        self.assertEqual(calls, ["POST", "GET"])
+
+    def test_other_errors_and_a_lasting_5xx_raise(self) -> None:
+        api, calls = self.fake(["gh: Not Found (HTTP 404)"])
+        with self.assertRaises(RuntimeError):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
+        self.assertEqual(calls, ["POST"])
+        api, calls = self.fake(["gh: Server Error (HTTP 502)"] * 3)
+        with self.assertRaises(RuntimeError), unittest.mock.patch("sys.stderr"):
+            pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
+        self.assertEqual(calls.count("POST"), 3)
