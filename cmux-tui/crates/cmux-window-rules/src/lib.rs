@@ -22,6 +22,9 @@
 //!   asks, space defaults, description and status, screen moves).
 //! - [`restore`]: which saved windows a launch makes before its front window
 //!   is live (only the front one; the others follow, one per turn).
+//! - [`right_column`]: what opens on the right of a pane (a split right, a
+//!   split below the one pane there, or a tab), and [`subagent_panes`]: a
+//!   chat's subagent panes, opened one at a time, and the focus a click owes.
 //! - [`closed`]: the daemon's closed history (page rows, Cmd-Shift-T's
 //!   owner) and the undo toast's expected closes, a reducer.
 //! - [`notifications`], [`history`], [`remote`], [`browser`], [`files`],
@@ -49,7 +52,9 @@ pub mod launch;
 pub mod notifications;
 pub mod remote;
 pub mod restore;
+pub mod right_column;
 pub mod screen_share;
+pub mod subagent_panes;
 pub mod tabs;
 pub mod targets;
 pub mod update_idle;
