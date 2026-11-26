@@ -3,7 +3,7 @@ set -x
 OUT=${FAST_CHECKS_OUT:-/tmp/out}; mkdir -p "$OUT"
 cd cmux-tui
 ACPMUX_PROTOCOL_BLESS=1 cargo test -p acpmux --lib protocol:: > "$OUT/protocol.log" 2>&1
-cp spec/acpmux-protocol.json spec/acpmux-abi.surface.json "$OUT/" 2>/dev/null
+cp crates/acpmux/spec/*.json "$OUT/" 2>/dev/null
 find . -path ./target -prune -o -name 'acpmux-protocol.json' -print -o -name 'acpmux-abi.surface.json' -print >> "$OUT/protocol.log"
 git status --short > "$OUT/git-status-after-bless.txt"
 git diff > "$OUT/bless.diff"
