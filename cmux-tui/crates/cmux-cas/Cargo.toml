@@ -14,14 +14,28 @@ workspace = true
 name = "cas-replay"
 path = "src/bin/cas-replay.rs"
 
+[[bin]]
+name = "cas-publish-public"
+path = "src/bin/cas-publish-public.rs"
+
+[[bin]]
+name = "cas-dedup"
+path = "src/bin/cas-dedup.rs"
+
 [dependencies]
 blake3 = "1"
 cmux-signed-envelope = { path = "../cmux-signed-envelope" }
+flate2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+tar.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
 base64.workspace = true
 ring.workspace = true
 tempfile = "3"
+sha2.workspace = true
+tar.workspace = true
+flate2.workspace = true
