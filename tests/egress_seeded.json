@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 42,
+ "todo_max": 30,
  "sites": {
   "acpmux::happy_dial::http_client": {
    "todo": true
@@ -135,7 +135,7 @@
    "todo": true
   },
   "cmux_tui::cli::machine_join": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/machine_join/seeded_tests.rs::the_machine_credential_rides_only_in_authorization"
   },
   "cmux_tui::cli::mcp_servers": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/mcp_servers_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
@@ -144,13 +144,13 @@
    "none": "a GET of the URL the person typed (cmux video open URL): it sends nothing but that URL"
   },
   "cmux_tui::cloud_conversations_backend": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cloud_conversations_backend_seeded_tests.rs::the_cloud_bearer_rides_only_in_authorization"
   },
   "cmux_tui::devices::setup::verbs": {
-   "todo": true
+   "none": "a GET of the public NIGHTLY appcast feed (files-next.cmux.com) with only a user agent: no token, cookie or person data"
   },
   "cmux_tui::link::sync_cli::store": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/link/sync_cli/store_seeded_tests.rs::the_store_credential_rides_only_in_authorization"
   },
   "cmux_tui::owner_start::background_checks": {
    "none": "header-less GETs of the signed feature-flag file and the npm/PyPI registry entry: no cookie, token or person data in the request"
@@ -159,37 +159,37 @@
    "test": "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward_tests.rs::seeded_secrets_never_reach_the_wire"
   },
   "cmux_tui::remote_cli::acpmux_peer": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/remote_cli/acpmux_peer_seeded_tests.rs::the_peer_tokens_ride_only_in_their_headers"
   },
   "cmux_tui_core::apps::community": {
    "none": "a GET of the public app registry pages: no auth or person data in the request"
   },
   "cmux_tui_core::apps::egress": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui-core/src/apps/egress_seeded_tests.rs::app_credentials_never_reach_the_wire"
   },
   "cmux_tui_core::apps::git_source": {
    "none": "header-less GETs of a public repository's refs, archive and release (no token, cookie or credential; a private repository 404s), and the anonymous install ping {ref, commit} with no user id"
   },
   "cmux_tui_core::blob_fetch": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui-core/src/blob_fetch/seeded_tests.rs::the_store_grant_rides_only_in_authorization"
   },
   "cmux_tui_core::language_packs": {
    "none": "a GET of the pack URL from the signed manifest, no auth, no redirect: the request carries only the pack name"
   },
   "cmux_tui_core::server::agent_session_share_room": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui-core/src/server/agent_session_share_room_seeded_tests.rs::the_share_token_rides_only_in_authorization"
   },
   "cmux_tui_core::server::forum_routed": {
    "test": "cmux-tui/crates/cmux-tui-core/src/server/forum_routed_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
   },
   "cmux_vm_pool::http": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-vm-pool/src/http_seeded_tests.rs::the_pool_key_rides_only_in_authorization"
   },
   "cmux_weft::admin": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-weft/src/admin_seeded_tests.rs::the_admin_token_rides_only_in_authorization"
   },
   "cmux_weft::client::relay_pool": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-weft/src/client/relay_pool_seeded_tests.rs::the_ticket_never_rides_in_the_upgrade"
   }
  }
 }

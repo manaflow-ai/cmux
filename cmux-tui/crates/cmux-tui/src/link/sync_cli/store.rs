@@ -778,3 +778,7 @@ fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 #[path = "store_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "store_seeded_tests.rs"]
+mod seeded_tests;
