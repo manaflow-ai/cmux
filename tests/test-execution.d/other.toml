@@ -26,6 +26,11 @@ path = "tests/test_asc_review_package.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_asc_subscription_records.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_asc_subscription_records.py"
+
+[[test]]
 path = "tests/test_attachment_caps_guard.py"
 lane = "linux-guard"
 
@@ -100,6 +105,18 @@ path = "tests/test_cargo_test_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cas_derived_data_replay.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cas_mac_update_replay.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cas_web_ota_replay.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cef_cache_key_checkout_independent.py"
 lane = "manual"
 reason = "Shell-script unit test (no app, no network): run it with python3 -I before a change to merge-cef-universal.sh, build-cef-shim.sh or embed-cef.sh; no CI job runs it (kept manual under the 2026-10-23 no-new-CI rule, since lifted)."
@@ -149,6 +166,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_crash_ratchet_compare.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cu_driver_eval_pins.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cu_driver_eval_pins.py"
 
 [[test]]
 path = "tests/test_dead_code_stripping.py"
@@ -601,6 +623,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_payload_advisories.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pinned_files_mirror.py"
 lane = "linux-guard"
 
 [[test]]
