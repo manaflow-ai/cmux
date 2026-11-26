@@ -294,6 +294,8 @@ public protocol AgentSessionSource: AnyObject {
     /// everything after it. The head is not yielded again on the stream.
     func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>)
     func send(_ intent: AgentClientIntent)
+    /// Whether the transport owns this prompt and will report a delivery failure itself.
+    func isDeliveringPrompt(_ promptID: String) -> Bool
 
     // ACP parity (web UI acpmux/checkpoints and acpmux/handoff). Sources
     // without a feature throw `AgentFeatureUnavailable` with the reason.
@@ -373,6 +375,7 @@ extension AgentSessionSource {
     public func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
         ([], events())
     }
+    public func isDeliveringPrompt(_ promptID: String) -> Bool { false }
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
     public func prestageAttachments(_ attachments: [AgentAttachment]) {}
     public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { nil }

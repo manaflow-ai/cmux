@@ -441,7 +441,7 @@ public final class AgentChatStore {
 
     // MARK: Sends before the Mac has them
 
-    /// How long a message or a call may wait for the Mac before the chat says it did not go.
+    /// How long a send may stall before the chat says it did not go.
     public static let sendDeadline: Duration = .seconds(60)
     /// What a source reports for a message or call that could not reach the Mac within
     /// ``sendDeadline``. Never drawn as it is: the bubble says "Not sent", a call sets ``unreachable``.
@@ -488,8 +488,12 @@ public final class AgentChatStore {
         let clock = sendClock
         // A bounded wait on the injected clock, ended by the Mac having the message (`landed`).
         sendDeadlines[promptID] = Task { [weak self] in
-            do { try await clock.sleep(for: wait) } catch { return }
-            guard !Task.isCancelled else { return }
+            repeat {
+                do { try await clock.sleep(for: wait) } catch { return }
+                guard !Task.isCancelled else { return }
+                // An upload or outbox write has its own stall bound. Its error comes back on
+                // this bubble, even when the upload has been advancing for several windows.
+            } while self?.source.isDeliveringPrompt(promptID) == true
             self?.markNotSent(promptID)
         }
     }
