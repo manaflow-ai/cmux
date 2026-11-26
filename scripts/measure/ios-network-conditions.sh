@@ -27,7 +27,11 @@
 #     to the first frame of a kept chat from AgentTranscriptCache's disk entry, link cut, through
 #     the real AcpmuxHub source and AgentChatStore; rows `transcript | no-link@1 | cold|warm | Nx |
 #     r1_ms`). It needs swift test with the CmuxMobileLinkFFI xcframework, so it runs on a Mac
-#     (cmux-ci run --os macos ... --arg surfaces=transcript); on Linux it prints NETCOND-SKIP.
+#     (cmux-ci run --os macos ... --arg surfaces=transcript); on Linux it prints NETCOND-SKIP. Until
+#     this script is on the measurement list at a PR's ref, the same bench runs alone through
+#     swift-test-bench.sh: --ref FEAT_TIP --arg cmux-next-ios/CmuxMobileKit
+#     --arg TranscriptReadFirstR1Bench --arg source=PR_HEAD --arg config=release
+#     --arg enable=CMUX_TRANSCRIPT_R1_BENCH (mode duress, n=20, 1x/10x/100x).
 # Each prints NETCOND lines; ios-network-conditions-report.py makes report.json (profile x surface
 # x phase x scale x metric: p50, p95, n) and report.md (the table a PR body pastes, with a before
 # column and the change when before= is given).
@@ -201,15 +205,18 @@ transcript() {
   [[ "$mode" == links || "$mode" == duress ]] || { echo "NETCOND-SKIP $label transcript: mode=links or mode=duress only"; return 0; }
   [[ "$(uname -s)" == Darwin ]] || { echo "NETCOND-SKIP $label transcript: needs swift test on macOS (CmuxMobileLive)"; return 0; }
   [[ -f "$tree/$bench" ]] || { echo "NETCOND-SKIP $label transcript: no TranscriptReadFirstR1Bench at this ref"; return 0; }
+  # swift-test-bench.sh's release suite build: @testable needs -enable-testing, DEBUG stays defined,
+  # and the Xcode 26.6 optimizer's CopyPropagation crash is avoided.
+  local release=(-c release -Xswiftc -enable-testing -Xswiftc -DDEBUG -Xswiftc -Xllvm -Xswiftc -sil-disable-pass=copy-propagation)
   # CmuxMobileKit names a local xcframework (a binaryTarget) that SwiftPM needs even on macOS;
   # it is built, not checked in (as swift-test-bench.sh builds it).
   (cd "$tree" && JOBS="$(sysctl -n hw.ncpu)" bash cmux-next-ios/rust/scripts/build-xcframework.sh) >"$log" 2>&1 || code=$?
   if (( code == 0 )); then
-    (cd "$tree" && swift build -c release --package-path cmux-next-ios/CmuxMobileKit --build-tests) >>"$log" 2>&1 || code=$?
+    (cd "$tree" && swift build "${release[@]}" --package-path cmux-next-ios/CmuxMobileKit --build-tests) >>"$log" 2>&1 || code=$?
   fi
   if (( code == 0 )); then
-    (cd "$tree" && NETCOND_TRANSCRIPT_R1=1 NETCOND_MODE="$mode" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" \
-      NETCOND_SEED_BASE="$seed" swift test -c release --package-path cmux-next-ios/CmuxMobileKit --skip-build \
+    (cd "$tree" && CMUX_TRANSCRIPT_R1_BENCH=1 NETCOND_MODE="$mode" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" \
+      NETCOND_SEED_BASE="$seed" swift test "${release[@]}" --package-path cmux-next-ios/CmuxMobileKit --skip-build \
       --filter TranscriptReadFirstR1Bench 2>&1 | tee -a "$log" |
       { sed -un "s/^NETCOND /NETCOND-LIVE $label /p" || true; }) || code=$?
   fi

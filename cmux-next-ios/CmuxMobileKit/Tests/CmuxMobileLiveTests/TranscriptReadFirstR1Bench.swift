@@ -20,12 +20,13 @@ import Testing
 /// - duress: two threads rewrite the other 63 chats' files the whole time, spinners load all but
 ///   three cores, and answers run 3 KB instead of 200 B.
 ///
-/// Off unless `NETCOND_TRANSCRIPT_R1=1`; `NETCOND_MODE` (links|duress), `NETCOND_RUNS`,
-/// `NETCOND_SCALES` (comma list of 1x,10x,100x), `NETCOND_SEED_BASE` as the harness sets them.
+/// Off unless `CMUX_TRANSCRIPT_R1_BENCH=1`; `NETCOND_MODE` (links|duress, default duress),
+/// `NETCOND_RUNS`, `NETCOND_SCALES` (comma list of 1x,10x,100x), `NETCOND_SEED_BASE` as the harness
+/// sets them. `scripts/measure/swift-test-bench.sh ... enable=CMUX_TRANSCRIPT_R1_BENCH` runs it too.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(30))) struct TranscriptReadFirstR1Bench {
     static let env = ProcessInfo.processInfo.environment
-    static var enabled: Bool { env["NETCOND_TRANSCRIPT_R1"] == "1" }
+    static var enabled: Bool { env["CMUX_TRANSCRIPT_R1_BENCH"] == "1" }
 
     static let summary = AgentSessionSummary(id: "s7", name: "Fix", harness: "codex", agentName: "Codex", cwd: "/tmp/w",
                                              workspaceTitle: "w", macName: "mini", macID: "mac1", accountID: "acct")
@@ -104,7 +105,7 @@ import Testing
     }
 
     @Test(.enabled(if: TranscriptReadFirstR1Bench.enabled)) func transcriptR1() async throws {
-        let duress = Self.env["NETCOND_MODE"] == "duress"
+        let duress = (Self.env["NETCOND_MODE"] ?? "duress") == "duress"
         let runs = Int(Self.env["NETCOND_RUNS"] ?? "") ?? 20
         let seedBase = Int(Self.env["NETCOND_SEED_BASE"] ?? "") ?? 0
         let scales = (Self.env["NETCOND_SCALES"] ?? "1x,10x,100x").split(separator: ",").map(String.init)
