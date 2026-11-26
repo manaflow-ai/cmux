@@ -401,3 +401,45 @@ fn pool_auth_endpoint_env_and_pins_change_the_key() {
         );
     }
 }
+
+/// cloud-journey-prod's Codex stub leg (run 45907662413): a pooled Codex warmed on the image's
+/// `cmux` provider was served after `config.toml` pointed Codex at the stub, and its turn failed on
+/// "Missing environment variable: `OPENAI_API_KEY`.". A provider switch must not match; a model
+/// pick or an unrelated setting keeps the session.
+#[test]
+fn pool_auth_codex_config_provider_change_changes_the_key_not_the_account() {
+    let files = LoginFiles::new("codex-config");
+    let cache = AuthCache::default();
+    let write = |text: &str| {
+        let path = files.0.join(".codex/config.toml");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    };
+    files.write(".codex/auth.json", json!({"tokens": {"account_id": "acct-a"}}));
+    write(
+        "model_provider = \"cmux\"\n[model_providers.cmux]\nbase_url = \"https://edge/v1\"\nenv_key = \"OPENAI_API_KEY\"\n",
+    );
+    let team = files.fingerprint(&cache, "codex");
+    write(
+        "model = \"gpt-5\"\nmodel_provider = \"cmux\"\n[model_providers.cmux]\nbase_url = \"https://edge/v1\"\nenv_key = \"OPENAI_API_KEY\"\n[history]\npersistence = \"none\"\n",
+    );
+    assert_eq!(team, files.fingerprint(&cache, "codex"), "a model pick keeps the pooled session");
+    write(
+        "model_provider = \"journeystub\"\n[model_providers.journeystub]\nbase_url = \"http://127.0.0.1:1/v1\"\nrequires_openai_auth = true\n",
+    );
+    let stub = files.fingerprint(&cache, "codex");
+    assert_ne!(team.0, stub.0, "a Codex warmed on another provider must not match");
+    assert_eq!(team.1, stub.1, "the provider is a route, not the account");
+    write(
+        "model_provider = \"journeystub\"\n[model_providers.journeystub]\nbase_url = \"http://127.0.0.1:2/v1\"\nrequires_openai_auth = true\n",
+    );
+    assert_ne!(
+        stub,
+        files.fingerprint(&cache, "codex"),
+        "a moved provider endpoint must not match"
+    );
+    write(
+        "profile = \"p\"\nmodel_provider = \"journeystub\"\n[model_providers.journeystub]\nbase_url = \"http://127.0.0.1:2/v1\"\nrequires_openai_auth = true\n[profiles.p]\nmodel_provider = \"openai\"\n",
+    );
+    assert_ne!(stub, files.fingerprint(&cache, "codex"), "a profile's provider must not match");
+}
