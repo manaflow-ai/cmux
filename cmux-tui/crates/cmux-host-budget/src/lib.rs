@@ -405,6 +405,8 @@ pub use rejudge::with_pressure;
 pub mod place;
 // Which idle sessions leave this machine while it stays over budget (beside `place::decide`).
 pub mod evacuate;
+// What AutoCloud-placed work does when an enrolled machine's owner comes back (beside `evacuate`).
+pub mod owner_return;
 
 // The shadow admission verdict (cmuxterm-hq#7342): logged beside a pick, never acted on.
 mod shadow;
