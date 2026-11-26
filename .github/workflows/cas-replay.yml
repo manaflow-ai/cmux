@@ -119,8 +119,9 @@ jobs:
   b1:
     name: cas/1 replay, row B1 (DerivedData seed restore bytes)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    # Two seeds of up to 12 GiB each: about 4 min to stream each from R2, then hash and compress.
-    timeout-minutes: 60
+    # Two seeds of ~9.2 GiB (1.52 GB archives): about 10 min each to stream and unpack, then
+    # about 8 min per tree to hash and compress (measured on a lane VM, 2026-11-26).
+    timeout-minutes: 90
     permissions:
       contents: read
       # The newest seed-derived-data.yml run's job log names the seed key prefix.
