@@ -58,40 +58,53 @@ SHA = re.compile(r"[0-9a-f]{40}")
 CPU = {0x0100000C: "arm64", 0x01000007: "x86_64"}
 
 
-def local_inputs(sha: str, git_dir: os.PathLike | str | None) -> list[str] | None:
-    """The key's lines from the checkout's own git (no API read), or None when the commit or an input is not here.
+def git_tree_ids(sha: str) -> dict[str, tuple[str, str]] | None:
+    """{path: (type, object id)} of the helper's inputs at sha from the local clone, or None.
 
-    `git ls-tree` reads only trees: the reuse job's sparse, blobless checkout has them for every commit it holds.
-    GIT_NO_LAZY_FETCH keeps a partial clone from asking GitHub for a commit it lacks."""
-    env = {**os.environ, "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+    The object ids are the ones the contents API returns (a gitlink's commit,
+    a file's blob), so the key is the same either way; this read costs no REST
+    core budget, which 15 candidates x 3 contents reads used to spend down to
+    a 403 (nightly run 45776501690). A commit the shallow, sparse checkout
+    lacks is fetched without blobs first; None leaves the key to the API.
+    """
+    paths = ("ghostty", *INPUT_FILES)
+
+    def ls_tree() -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "ls-tree", "-z", sha, "--", *paths], capture_output=True, text=True)
+
     try:
-        listed = subprocess.run(["git", *(["-C", os.fspath(git_dir)] if git_dir else []), "ls-tree", "-z", sha, "--",
-                                 "ghostty", *INPUT_FILES], capture_output=True, text=True, env=env, timeout=30)
+        listed = ls_tree()
+        if listed.returncode != 0:
+            subprocess.run(["git", "fetch", "--quiet", "--no-tags", "--depth=1", "--filter=blob:none", "origin", sha],
+                           capture_output=True, text=True, timeout=120)
+            listed = ls_tree()
     except (OSError, subprocess.SubprocessError):
         return None
     if listed.returncode != 0:
         return None
-    entries = {}
+    ids = {}
     for entry in listed.stdout.split("\0"):
+        if not entry:
+            continue
         meta, _, path = entry.partition("\t")
-        if path:
-            entries[path] = meta.split()
-    ghostty = entries.get("ghostty")
-    if not ghostty or ghostty[:2] != ["160000", "commit"] or not SHA.fullmatch(ghostty[2]):
-        return None
-    lines = [SCHEMA, f"ghostty={ghostty[2]}"]
-    for path in INPUT_FILES:
-        blob = entries.get(path)
-        if not blob or blob[1] != "blob" or not SHA.fullmatch(blob[2]):
-            return None
-        lines.append(f"{path}={blob[2]}")
-    return lines
+        _mode, kind, oid = meta.split(" ")
+        ids[path] = (kind, oid)
+    return ids
 
 
-def input_key(repo: str, sha: str, token: str, git_dir: os.PathLike | str | None = None) -> str:
-    """Hash of everything the helper's bytes depend on at commit sha: from the checkout's git when it holds the
-    commit, else from the contents API."""
-    if lines := local_inputs(sha, git_dir):
+def input_key(repo: str, sha: str, token: str) -> str:
+    """Hash of everything the helper's bytes depend on at commit sha."""
+    ids = git_tree_ids(sha)
+    if ids is not None:
+        ghostty = ids.get("ghostty")
+        if not ghostty or ghostty[0] != "commit" or not SHA.fullmatch(ghostty[1]):
+            raise SystemExit(f"ghostty is not a submodule at {sha}")
+        lines = [SCHEMA, f"ghostty={ghostty[1]}"]
+        for path in INPUT_FILES:
+            blob = ids.get(path)
+            if not blob or blob[0] != "blob" or not SHA.fullmatch(blob[1]):
+                raise SystemExit(f"{path} is missing at {sha}")
+            lines.append(f"{path}={blob[1]}")
         return hashlib.sha256("\n".join(lines).encode()).hexdigest()
     quote = urllib.parse.quote
     ghostty = download.api_json(f"/repos/{repo}/contents/ghostty?ref={sha}", token)
