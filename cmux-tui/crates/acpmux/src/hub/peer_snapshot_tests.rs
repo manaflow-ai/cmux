@@ -2565,7 +2565,7 @@ fn a_proof_whose_copy_was_evicted_goes_back_or_again() {
 }
 
 #[test]
-fn a_copy_a_bound_evicts_still_covers_its_chat_until_it_moves() {
+fn a_copy_a_bound_evicts_is_not_read_ahead_again_until_kept_again() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     let mut store = store_at(dir.path());
     let empty = || std::ops::RangeInclusive::new(1, 0);
@@ -2579,14 +2579,17 @@ fn a_copy_a_bound_evicts_still_covers_its_chat_until_it_moves() {
         assert!(n < 10_000, "the bound never evicted the first copy");
     }
     assert!(!file(dir.path(), "first").exists(), "its file went");
-    // The read-ahead takes the evicted chat as covered as far as it was, so a chat that did not
-    // move is not read again only to be evicted again.
-    assert_eq!(store.covers(PEER).get("first"), Some(&(Some(7), 9)));
+    // The read-ahead does not read the evicted chat again, moved or not, only to evict another.
+    let covers = store.covers(PEER);
+    assert_eq!(covers.evicted.get("first"), Some(&7));
+    assert!(!covers.kept.contains_key("first"));
     assert!(store.evicted.len() <= EVICTED_KEYS);
     // Keeping it again forgets the eviction; the copy kept answers.
     keep(&mut store, "first", 10..=12);
     assert!(!store.evicted.contains_key(&key("first")));
-    assert_eq!(store.covers(PEER).get("first"), Some(&(Some(7), 12)));
+    let covers = store.covers(PEER);
+    assert_eq!(covers.kept.get("first"), Some(&(Some(7), 12)));
+    assert!(!covers.evicted.contains_key("first"));
     store.forget_peer(PEER);
     assert!(store.evicted.keys().all(|k| k.0 != PEER), "a forgotten peer's evictions go");
 }

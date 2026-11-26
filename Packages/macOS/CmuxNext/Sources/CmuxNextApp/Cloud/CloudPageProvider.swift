@@ -146,7 +146,7 @@ final class CloudPageProvider: PageProvider {
                 throw PageError(code: "cmux.protocol.transport", message: failure.message, retryable: true)
             }
             let code = failure.code.isEmpty ? "cmux.cloud.failed" : (failure.code.hasPrefix("cmux.") ? failure.code : "cmux." + failure.code)
-            throw PageError(code: code, message: failure.message, details: failure.details.map(pageJSON))
+            throw PageError(code: code, message: failure.message, retryable: failure.retryable, details: failure.details.map(pageJSON))
         }
     }
 
