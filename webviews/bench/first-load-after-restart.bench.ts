@@ -99,7 +99,7 @@ import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoad
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
-import { goneRows, liveTurnLine, restartSettled } from "./restartSettled";
+import { restartSettled, goneRows, liveTurnLine } from "./restartSettled";
 import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
 import { parseRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { hostTailOf, keptEvents } from "../src/agent-session/acpmux/tailCache";
@@ -151,6 +151,9 @@ const NO_TAIL = process.env.NO_TAIL === "1";
 const NO_COPY = process.env.NO_COPY === "1";
 const WIRE_TRACE = process.env.WIRE_TRACE === "1";
 const LINK = linkProfile(LINK_NAME);
+/// LINK_ZLIB=1: the link compresses large lines (bench/linkModel.ts `zlibWire`: 16 KiB or more, zlib level 1, both
+/// directions), as the machine link that carries a chat on another machine does once both ends support it.
+const LINK_ZLIB = process.env.LINK_ZLIB === "1";
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
 /// 2 s apart while it recovers, hostRetry.ts `nextRetryDelay`), the attach and the settle after it.
 /// A slow LINK adds its round trips and the attach's bytes on the wire: ten round trips and 6 s more on a
@@ -897,8 +900,9 @@ type Round = {
   /// navigation): the relink is the wait for that ask after acpmux came back, then the ask to the open.
   asks: number;
   lastAskMs: number | null;
-  /// Bytes the daemon sent the page over the link this round.
+  /// Bytes the daemon sent the page over the link this round, as text, and as they crossed the wire (LINK_ZLIB).
   bytesDown: number;
+  wireDown: number;
   /// ROWS_WINDOW: the row store's batches the page took (0: it drew the chat by v1).
   rowsTaken: number;
 };
@@ -955,7 +959,7 @@ try {
   let downUntil = 0;
   let wireT0 = 0;
   /// This relaunch's socket timeline (epoch ms).
-  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0, wireDown: 0 };
   /// TRACE: the daemon calls a spare page made before its adopt event.
   const spareCalls: string[] = [];
   let servingSpare = false;
@@ -1277,13 +1281,15 @@ try {
         if (!opened) return { ok: false, code: "transport.connect_failed", message: "acpmux refused the socket" };
         sockets.set(connection, socket);
         // LINK: daemon to page and page to daemon each go through one pipe of the simulated link, in order.
-        const down = new LinkPipe(LINK);
-        const up = new LinkPipe(LINK);
+        const down = new LinkPipe(LINK, undefined, LINK_ZLIB);
+        const up = new LinkPipe(LINK, undefined, LINK_ZLIB);
         pipes.set(connection, { up, down });
         socket.addEventListener("message", (event) => {
           const frame = String(event.data);
           load.bytesDown += Buffer.byteLength(frame);
+          const before = down.bytes;
           down.send(frame, (arrived) => push({ connection, frames: [arrived] }));
+          load.wireDown += down.bytes - before;
         });
         socket.addEventListener("close", (event) => {
           if (!sockets.delete(connection)) return;
@@ -1541,6 +1547,7 @@ try {
         asks: 0,
         lastAskMs: null,
         bytesDown: 0,
+        wireDown: 0,
         rowsTaken: 0,
       };
     } finally {
@@ -1571,7 +1578,7 @@ try {
           true,
         );
       }
-      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0, wireDown: 0 };
       // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
@@ -1670,6 +1677,7 @@ try {
         boundMs,
         asks: got.asks.length,
         bytesDown: load.bytesDown,
+        wireDown: load.wireDown,
         rowsTaken: got.rowsTaken,
         lastAskMs: (() => {
           const opened = since(load.socketOpenedAt);
@@ -1847,6 +1855,8 @@ try {
       goneFrames: median(settled.map((one) => one.goneFrames)),
       goneRowsMax: max(settled.map((one) => one.goneRows)),
       bytesDown: median(rounds.map((r) => r.bytesDown)),
+      wireDown: median(rounds.map((r) => r.wireDown)),
+      zlib: LINK_ZLIB,
       rowStore: rounds.every((r) => r.rowsTaken > 0),
       settledEach: settled.map((one) => one.settledMs),
     };
