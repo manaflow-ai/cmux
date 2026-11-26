@@ -60,6 +60,10 @@ ALLOWED: dict[str, str] = {
     "docs-only-fallback.yml": "covers what the docs-only block can get wrong (GitHub reads only the first 300 changed "
                               "files; label events are filtered too); its gate skips with no runner for a pull request "
                               "of 300 files or fewer and no full-ci/dev-build label",
+    "cloud-resume-matrix.yml": "runs only on a pull request whose body or label carries its marker; otherwise its "
+                               "plan job's `if:` skips with no runner",
+    "cloud-wake-echo.yml": "runs only on a pull request whose body carries `wake-echo: run`; otherwise its one job's "
+                           "`if:` skips with no runner",
     "ios-e2e.yml": "already routes a prose-only diff past its Mac job (route + status only), and its status is on "
                    "the way to being required (docs/ci/ios-e2e.md): a filter would then block docs pull requests",
 }
@@ -70,9 +74,12 @@ ALLOWED: dict[str, str] = {
 # per workflow: each list's push copy must stay in step (tests/test_ci_workflow_path_filter_parity.py), and several
 # put Markdown back on purpose (ios-review-gate.yml's AppStoreReview/**).
 SCOPED: dict[str, str] = {
+    "app-store-shelf.yml": "cmux-tui/crates/cmux-app-host/** (its generated REFERENCE.md is put back in the block)",
     "auth-refresh-tests.yml": "the auth runtime package and the vendored Stack Auth SDK",
     "backend.yml": "backend/** and libs/**",
-    "chief-evals.yml": "Native/OptChat/optchat-chief/evals/person.md, the eval cases' default profile (#47445)",
+    "chat-open-perf-report.yml": "webviews/src/agent-session/**",
+    "cloud-chief-machine.yml": "Native/OptChat/optchat-chief/**",
+    "cloud-journey-pr.yml": "cmux-tui/crates/cmux-cloud-client/**",
     "classic-frozen-guard.yml": ".github/classic-frozen.txt's globs, Markdown in frozen classic paths included "
                                 "(scripts/ci/pr_trigger_paths.py classic_frozen)",
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
@@ -87,7 +94,7 @@ SCOPED: dict[str, str] = {
                            "follow",
     "cmux-tui-windows-check.yml": "cmux-tui/**",
     "cmux-vm.yml": "workers/cmux-vm/**",
-    "coderouter-ci.yml": "coderouter/**",
+    "cmux-vm-clients.yml": "workers/cmux-vm/cli/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",

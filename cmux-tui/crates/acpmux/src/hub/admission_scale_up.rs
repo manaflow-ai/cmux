@@ -106,6 +106,35 @@ pub(crate) fn plan(
     (!providers.is_empty()).then(|| Plan { providers, budget: Duration::from_secs(budget) })
 }
 
+/// Whether the fleet registry gives every lane its own machine
+/// (`lane_place.one_lane_per_host`). Leo: "each guy gets their individual lil machine for now".
+pub(crate) fn one_per_host(registry: Option<&Value>) -> bool {
+    registry.and_then(|r| r.pointer("/lane_place/one_lane_per_host")).and_then(Value::as_bool)
+        == Some(true)
+}
+
+/// With [`one_per_host`], a peer pick that already runs a lane (or whose count is unknown)
+/// is no room: the verdict reads `overloaded`, so [`room_elsewhere`] finds none and an
+/// Auto start waits for a fresh machine instead of doubling up.
+pub(crate) fn solo_pick(verdict: &mut Value, registry: Option<&Value>) {
+    if !one_per_host(registry) {
+        return;
+    }
+    let Some(pick) = verdict.get("pick").and_then(Value::as_str).map(str::to_owned) else {
+        return;
+    };
+    let empty = verdict
+        .get("hosts")
+        .and_then(Value::as_array)
+        .and_then(|h| h.iter().find(|r| r.get("name").and_then(Value::as_str) == Some(&pick)))
+        .and_then(|r| r.get("live"))
+        .and_then(Value::as_u64)
+        == Some(0);
+    if !empty && let Some(v) = verdict.as_object_mut() {
+        v.insert("overloaded".into(), Value::Bool(true));
+    }
+}
+
 /// Where the placement engine's `verdict` over the connected peers would put
 /// the create (`placement::placed`), when a peer has room: a pick that has no
 /// room either (`overloaded`) is no place, and only with none does the fleet
@@ -634,6 +663,23 @@ mod tests {
         let full = json!({"pick": "big-red", "why": "least loaded", "overloaded": true});
         assert_eq!(room_elsewhere(&full), None, "a pick with no room is nowhere: scale up");
         assert_eq!(room_elsewhere(&json!({"error": "no candidates"})), None, "no peer: scale up");
+    }
+
+    #[test]
+    fn one_lane_per_host_needs_an_empty_peer() {
+        let reg = json!({"lane_place": {"one_lane_per_host": true}});
+        let verdict = |live: Value| json!({"pick": "p", "why": "p: room", "hosts": [{"name": "p", "live": live}]});
+        let mut empty = verdict(json!(0));
+        solo_pick(&mut empty, Some(&reg));
+        assert!(room_elsewhere(&empty).is_some(), "an empty peer takes the lane");
+        for live in [json!(1), Value::Null] {
+            let mut busy = verdict(live);
+            solo_pick(&mut busy, Some(&reg));
+            assert_eq!(room_elsewhere(&busy), None, "a busy or unknown peer is no room");
+        }
+        let mut off = verdict(json!(3));
+        solo_pick(&mut off, Some(&json!({})));
+        assert!(room_elsewhere(&off).is_some(), "without the flag nothing changes");
     }
 
     #[test]

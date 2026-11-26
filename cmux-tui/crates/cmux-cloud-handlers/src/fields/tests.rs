@@ -289,6 +289,28 @@ fn machine_status_prints_the_disk_bar_and_its_split() {
 }
 
 #[test]
+fn machine_status_names_the_chats_on_the_disk_and_its_last_eviction() {
+    let g = 1024_u64.pow(3);
+    let status: Status = serde_json::from_value(json!({
+        "machineId": "vm-1", "title": "box", "status": "running", "state": "running",
+        "diskTotalMb": 20480.0, "diskUsedMb": 10240.0, "diskFreeMb": 10240.0,
+        "diskChats": [{"id": "c-a", "bytes": 4 * g}, {"id": "c-b", "bytes": g}, {"id": "c-c", "bytes": g / 2},
+            {"id": "c-d", "bytes": 1}],
+        "diskEvicted": {"at": 1_700_000_000_000_u64, "freedBytes": 3 * g, "paths": ["/home/u/.npm/_cacache"]},
+    }))
+    .unwrap();
+    let text = describe(&status);
+    assert!(text.contains("\ndisk chats: c-a 4, c-b 1, c-c 0.5 GB, 1 more\n"), "{text}");
+    assert!(
+        text.contains("\ndisk cleared: 3 GB of caches and idle build output at 1700000000000"),
+        "{text}"
+    );
+    let fields = status_fields(&status);
+    assert_eq!(fields["disk_chats"][0]["id"], json!("c-a"));
+    assert_eq!(fields["disk_evicted"]["freed_bytes"], json!(3 * g));
+}
+
+#[test]
 fn machine_status_fields_carry_the_cost() {
     let cost = Cost {
         hourly_rate_usd: Some(0.2645),

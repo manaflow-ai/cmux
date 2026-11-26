@@ -330,4 +330,65 @@ import Testing
         let plain = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
         #expect(plain["blocked"] == nil && plain["holders"] == nil)
     }
+
+    /// A hybrid start's state rides on `place.start` as Rust answers it, read once per drivers' folder change (RFD 0078).
+    @Test func placeCarriesTheHybridStart() throws {
+        let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
+        let calls = Calls()
+        let place = CloudPlaceFlows(defaults: defaults, core: { operation, request in
+            guard operation == "cloud_hybrid_start" else { return nil }
+            calls.add()
+            let ask = try? JSONSerialization.jsonObject(with: request) as? [String: Any]
+            return ask?["session"] as? String == "s" ? Data(#"{"start":{"cloud":"booting","sinceMs":5}}"#.utf8) : Data("{}".utf8)
+        }, clock: { 1 })
+        #expect(place.placeJSON(session: "s", onCloud: false, cloudName: nil).flatMap(Self.start) == nil) // no state folder: no read
+        #expect(calls.count == 0)
+        let sessions = FileManager.default.temporaryDirectory.appending(path: "hybrid-\(UUID().uuidString)/sessions")
+        defer { place.watchStarts(state: nil) }
+        let start = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, starts: sessions).flatMap(Self.start))
+        #expect(start["cloud"] as? String == "booting")
+        #expect(start["sinceMs"] as? Int == 5)
+        _ = place.placeJSON(session: "s", onCloud: false, cloudName: nil)
+        #expect(calls.count == 1) // the same revision reads once
+        #expect(place.placeJSON(session: "t", onCloud: false, cloudName: nil).flatMap(Self.start) == nil) // no hybrid start: no key
+    }
+
+    nonisolated final class Calls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var n = 0
+        var count: Int { lock.withLock { n } }
+        func add() { lock.withLock { n += 1 } }
+    }
+
+    private static func start(_ data: Data) -> [String: Any]? {
+        (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["start"] as? [String: Any]
+    }
+
+    /// Keep Running: the priority and its first time persist, reach Rust in the control facts, and Rust's `keep` reaches the header.
+    @Test func keepRunningPersistsReachesRustAndCarriesItsKeep() throws {
+        let defaults = UserDefaults(suiteName: "CloudPlaceFlowsTests.\(UUID().uuidString)")!
+        let sent = SentControl()
+        let core: CloudPlaceFlows.Core = { operation, request in
+            guard operation == "cloud_move_place_control" else { return nil }
+            sent.request = try? JSONSerialization.jsonObject(with: request) as? [String: Any]
+            return Data(#"{"keep":{"priority":"high","pin":"auto","at":"local","lit":true,"used":1,"total":3,"waiting":false}}"#.utf8)
+        }
+        let first = CloudPlaceFlows(defaults: defaults, core: core, clock: { 1 })
+        #expect(first.priority(of: "s") == "normal")
+        first.setPriority("high", of: "s", nowMs: 42)
+        first.setPriority("high", of: "s", nowMs: 99)  // already on: keeps its first time (the slot rule's order)
+        let place = CloudPlaceFlows(defaults: defaults, core: core, clock: { 1 })
+        #expect(place.priority(of: "s") == "high" && place.priorities["s"] == 42)
+        let chats = place.controlChats([CloudPlaceChat(id: "t", session: "s", onCloud: false, turnRunning: false, turnStartedAtMs: nil, moving: false)])
+        let facts = CloudPlaceFlows.ControlFacts(signedIn: true, restoring: false, planKnown: true, planId: "next_plus", chats: chats)
+        let object = try #require(place.placeJSON(session: "s", onCloud: false, cloudName: nil, control: facts)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        #expect((object["keep"] as? [String: Any])?["lit"] as? Bool == true)
+        let chat = try #require((sent.request?["chats"] as? [[String: Any]])?.first)
+        #expect(chat["priority"] as? String == "high" && chat["litAtMs"] as? Int == 42)
+        place.setPriority("normal", of: "s")
+        #expect(CloudPlaceFlows(defaults: defaults).priority(of: "s") == "normal")
+        place.setPriority("sideways", of: "s")
+        #expect(place.priorities.isEmpty)
+    }
 }

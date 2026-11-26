@@ -1,10 +1,10 @@
 import React, { memo, useEffect, useReducer, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
-import { DismissButton } from "../../../ui/DismissButton";
 import { Icon } from "../icons/Icon";
 import { useT, type StringKey } from "../i18n";
 import { ArrowRight } from "./icons";
 import { focusRoute } from "../../../ui/focusRoute";
 import { inlineText } from "../question/inlineText";
+import { CardDismiss } from "../question/CardDismiss";
 import { hasCustomizeRunner, idleRun, runCustomize, runReducer, type CustomizeRun } from "./customizeRun";
 import { answerPrompt, type NextStepAsk, type NextStepOption } from "./nextStepAsk";
 import type { AnswerBlock } from "../subagents/restart";
@@ -220,7 +220,7 @@ export const NextStepCard = memo(function NextStepCard({
           <Icon name="status.question" size={14} />
           {t("question.needsInput")}
         </span>
-        {onDismiss && <DismissButton label={t("message.dismiss")} onDismiss={onDismiss} />}
+        {onDismiss && <CardDismiss label={t("message.dismiss")} onDismiss={onDismiss} />}
       </div>
       {recap}
       <div ref={textRef} className="acpmux-next-step__text" data-whole={whole || undefined}>

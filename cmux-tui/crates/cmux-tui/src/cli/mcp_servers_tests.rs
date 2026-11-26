@@ -134,6 +134,23 @@ fn the_catalog_is_shaped_in_rank_order_with_one_button_each() {
 }
 
 #[test]
+fn a_connection_carries_when_its_sign_in_lapses_only_as_a_plain_instant() {
+    let body = json!({"entries": [
+        {"name": "linear", "title": "Linear", "auth": "dcr", "rank": 1, "available": true,
+         "connection": {"id": "mcs_1", "status": "ready", "toolCount": 2, "expiresAt": "2026-12-01T09:00:00Z"}},
+        {"name": "sentry", "title": "Sentry", "auth": "dcr", "rank": 2, "available": true,
+         "connection": {"id": "mcs_2", "status": "ready", "toolCount": 2, "expiresAt": "<b>soon</b>"}},
+        {"name": "exa", "title": "Exa", "auth": "key", "rank": 3, "available": true,
+         "connection": {"id": "mcs_3", "status": "ready", "toolCount": 2}},
+        {"name": "notion", "title": "Notion", "auth": "dcr", "rank": 4, "available": true, "connection": null}
+    ]});
+    let view = answer(&Verb::Catalog, 200, &body);
+    let at: Vec<_> =
+        view["entries"].as_array().unwrap().iter().map(|e| e["expiresAt"].clone()).collect();
+    assert_eq!(at, [json!("2026-12-01T09:00:00Z"), Value::Null, Value::Null, Value::Null]);
+}
+
+#[test]
 fn connect_answers_a_sign_in_page_or_connects_at_once() {
     let connect = parse_ok("connect linear");
     let page =
@@ -157,17 +174,70 @@ fn a_deployment_without_the_catalog_is_calm() {
 }
 
 #[test]
-fn slack_and_google_come_through_the_hub_not_the_catalog() {
+fn slack_and_google_are_upcoming_until_connected() {
     let body = json!({"entries": [
-        {"name": "slack", "title": "Slack", "auth": "client", "rank": 1, "available": true, "connection": null},
-        {"name": "google-drive", "title": "Google Drive", "auth": "client", "rank": 2, "available": true, "connection": null},
-        {"name": "gmail", "title": "Gmail", "auth": "client", "rank": 3, "available": true, "connection": null},
-        {"name": "google-calendar", "title": "Google Calendar", "auth": "client", "rank": 4, "available": true,
+        {"name": "slack", "title": "Slack", "auth": "client", "rank": 6, "available": false,
+         "unavailableReason": "not_set_up", "connection": null},
+        {"name": "google-drive", "title": "Google Drive", "auth": "client", "rank": 7, "available": true, "connection": null},
+        {"name": "gmail", "title": "Gmail", "auth": "client", "rank": 8, "available": true, "connection": null},
+        {"name": "google-calendar", "title": "Google Calendar", "auth": "client", "rank": 9, "available": true,
          "connection": {"id": "mcs_7", "owner": "me", "status": "ready", "toolCount": 2}},
-        {"name": "linear", "title": "Linear", "auth": "dcr", "rank": 5, "available": true, "connection": null}
+        {"name": "linear", "title": "Linear", "auth": "dcr", "rank": 1, "available": true, "connection": null}
     ]});
     let view = answer(&Verb::Catalog, 200, &body);
-    let names: Vec<_> =
-        view["entries"].as_array().unwrap().iter().map(|e| e["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["google-calendar", "linear"], "a connected one stays, to be disconnected");
+    let entries = view["entries"].as_array().unwrap();
+    let upcoming: Vec<_> = entries
+        .iter()
+        .map(|e| (e["name"].as_str().unwrap(), e["upcoming"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(
+        upcoming,
+        [
+            ("linear", false),
+            ("slack", true),
+            ("google-drive", true),
+            ("gmail", true),
+            ("google-calendar", false)
+        ],
+        "a connected one is never upcoming, so it can be disconnected"
+    );
+    assert_eq!(entries[1]["state"], json!("unavailable"));
+    assert_eq!(entries[1]["statusLabel"], json!("Not set up on this deployment yet."));
+}
+
+#[test]
+fn a_loopback_server_is_marked_and_asked_again_with_its_port() {
+    let body = json!({"entries": [
+        {"name": "vercel", "title": "Vercel", "auth": "dcr", "rank": 5, "available": true,
+         "redirect": "loopback", "connection": null},
+        {"name": "notion", "title": "Notion", "auth": "dcr", "rank": 4, "available": true, "connection": null}
+    ]});
+    let view = answer(&Verb::Catalog, 200, &body);
+    let loopback: Vec<_> = view["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| (e["name"].as_str().unwrap(), e["loopback"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(loopback, [("notion", false), ("vercel", true)]);
+
+    let connect = parse_ok("connect vercel --return-to cmux://settings/integrations");
+    let refused = answer(
+        &connect,
+        400,
+        &json!({"error": {"code": "mcp_servers.loopback_required", "message": "loopback_port is required"}}),
+    );
+    assert!(loopback_required(&connect, &refused));
+    assert!(!loopback_required(&Verb::Catalog, &refused));
+    assert!(loopback_required(&parse_ok("reconnect mcs_9"), &refused));
+    let other = answer(&connect, 409, &json!({"error": {"code": "mcp_servers.already_connected"}}));
+    assert!(!loopback_required(&connect, &other));
+
+    let (_, _, first) = request_of(&connect);
+    assert_eq!(
+        with_loopback_port(first, 47215),
+        json!({"catalog": "vercel", "owner": "me", "return_to": "cmux://settings/integrations",
+               "loopback_port": 47215})
+    );
+    assert_eq!(with_loopback_port(None, 47215), json!({"loopback_port": 47215}));
 }

@@ -197,7 +197,7 @@ final class CloudService {
         let shareDefault = shareAPI == ownerAPI ? identity : install(shareAPI, "install-share")
         shareInstalls = ShareInstalls(root: paths.root, given: [(ownerAPI, identity), (shareAPI, shareDefault)], fallback: shareDefault,
                                      accepts: { [configuration] in configuration.acceptsShareAPI($0) }, make: install)
-        let machineIO = CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work)
+        let machineIO = auth.runningPersonCalls(on: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
         machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
                                                    machineIO: machineIO, installToken: { try await identity.installToken() }, buildSpace: configuration.buildSpace)
@@ -277,20 +277,20 @@ final class CloudService {
         // must not restore auth or start the credential relay/Cloud observers.
         guard !configuration.apiBaseURL.isFileURL else { return }
         installIDs.preload(localStore: machines.local.store)
-        auth.start(); changes.start(); changes.startPush(machineAPI.statePush(baseURL: configuration.relayAPIBaseURL()), connection: { [machines] in machines.local.connection }) { [weak self] record in if let self, let session = machines.session(record.id) { apply(record, to: session, read: beginRecordRead(machineID: record.id)) } }
+        auth.start(); changes.start(); changes.startPush(machineAPI.stateWatch(baseURL: configuration.relayAPIBaseURL(), connection: { [machines] in machines.local.connection })) { [weak self] record in if let self, let session = machines.session(record.id) { apply(record, to: session, read: beginRecordRead(machineID: record.id)) } }
         startCredentialProvider()
         if linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
-            let machines = machines
+            let machines = machines, changes = changes
             linkEvents = machines.local.store.sideEvents.subscribe { event in
-                guard let change = CloudLinkChange(event) else { return }
+                guard let change = CloudLinkChange(event) else { changes.machineState(event); return }
                 machines.session(change.key.machine)?.linkChanged(change)
             }
             // task-owner: observers; cancelled in stop()
             observers.append(Task {
                 // A reconnected local connection is a new daemon client: subscribe it again.
                 for await state in ObservationStream({ machines.local.store.connectionState }) {
-                    guard case .connected = state, !machines.cloud.isEmpty else { continue }
+                    guard case .connected = state else { changes.daemonDisconnected(); continue }; changes.rewatch(); guard !machines.cloud.isEmpty else { continue }
                     await CloudAppLinks.resubscribe(local: machines.local)
                 }
             })

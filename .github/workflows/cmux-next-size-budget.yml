@@ -79,6 +79,7 @@ jobs:
             /Resources/markdown-viewer/
             /release-notes/next/
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /.gitmodules
 
       - name: The base, and whether a web input changed
         id: plan
@@ -170,6 +171,7 @@ jobs:
             /Resources/markdown-viewer/
             /release-notes/next/
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /.gitmodules
       # The base is a feat-cmux-next commit, so cmux-next-web-bundle-publish.yml has usually
       # published its bundles already (same key, same pinned toolchain): fetch, don't rebuild.
       - name: The base's published web bundles
@@ -203,7 +205,7 @@ jobs:
         if: steps.published.outputs.hit != 'true'
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
         if: steps.published.outputs.hit != 'true'
         shell: bash
@@ -269,10 +271,8 @@ jobs:
 
       - name: Restore the web bundles from the source-keyed cache
         timeout-minutes: 5
-        continue-on-error: true
         id: web-bundle-cache
         if: steps.web-bundle-r2.outputs.cache-hit != 'true'
-        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ${{ runner.temp }}/web
@@ -289,7 +289,7 @@ jobs:
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         shell: bash

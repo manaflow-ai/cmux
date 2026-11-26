@@ -14,7 +14,9 @@ lists `needs = ["bun"]` also gets that `[tools]` command run first (bun, node: a
 routed steps that need it pay for), all of them at once after the setup, each in `$CI_TOOLS`. A
 setup or tool that fails fails the job. It exits 1 only when a step with `blocks = true` failed. A step with
 `blocks = false` that fails or runs past its timeout is a warning annotation: an advisory
-step never turns its job red. A step with `alone = true` runs by itself, after the others, in table order.
+step never turns its job red. A step with `alone = true` runs by itself, after the others, in table order,
+and is skipped (a notice, not a failure) once a step with `blocks = true` has failed: the job is red
+already, and the re-run that fixes it runs the step anyway.
 `--label NAME` says the event is a label change of NAME;
 then only the steps that list NAME in `labels` run. `--only NAMES` (comma or space separated)
 runs only those of the routed steps; empty means every routed step. A name the table does
@@ -250,10 +252,11 @@ class Result:
     seconds: float
     output: str
     reused: str = ""  # the run whose pass this step reused; empty when it ran
+    skipped: bool = False  # an alone step not started: a blocking step had failed
 
     @property
     def ok(self) -> bool:
-        return self.code == 0
+        return self.skipped or self.code == 0
 
 
 def reusable(step: Step) -> bool:
@@ -452,7 +455,8 @@ def report(results: list[Result], job: str, out=sys.stdout, logs: bool = True) -
     for r in results:
         if logs:
             print_log(r, out)
-        result = "reused" if r.reused else "passed" if r.ok else ("timed out" if r.code is None else f"exit {r.code}")
+        result = ("skipped" if r.skipped else "reused" if r.reused else "passed" if r.ok
+                  else ("timed out" if r.code is None else f"exit {r.code}"))
         if not r.ok:
             level = "error" if r.step.blocks else "warning"
             what = f"ran past its {r.step.timeout} s" if r.code is None else f"exited {r.code}"
@@ -565,11 +569,21 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                     return result
                 results += pool.map(run_and_print, [s for s in steps if not s.alone])
             # An `alone` step takes the whole machine: it runs by itself, after the others, in table order.
-            results += [run_and_print(s) for s in steps if s.alone]
+            # Once a blocking step failed the job is red, and the re-run runs every step again: an alone step
+            # (the long ones: 15 to 65 minutes) would only spend the machine, so it is skipped.
+            for s in steps:
+                if not s.alone:
+                    continue
+                failed = next((r.step.name for r in results if not r.ok and r.step.blocks), None)
+                if failed is None:
+                    results.append(run_and_print(s))
+                    continue
+                print(f"::notice title=Step table::step {s.name} skipped: blocking step {failed} failed", file=out)
+                results.append(Result(s, 0, 0.0, "", skipped=True))
     if store is not None:
         for r in results:
             key = keys.get(r.step.name)
-            if not key or r.reused or r.code is None:
+            if not key or r.reused or r.skipped or r.code is None:
                 continue
             if r.ok or r.step.name in audit:
                 store.post(key, r.step.name, "pass" if r.ok else "fail", r.seconds, audit=r.step.name in audit)

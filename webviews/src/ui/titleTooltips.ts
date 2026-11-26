@@ -14,7 +14,7 @@
 // It stays inside the scrolling region the element is in (the transcript), and out of a band the host
 // draws over (`data-tooltip-covered`: the agent pane's tab row, under the native tabs), so a row
 // near the top flips below rather than clipping under the tabs; a popup's row may leave its popup,
-// which floats over the pane.
+// which floats over the pane, and so may a row of a `data-tooltip-escape` scroller (the asks stack).
 // A tooltip is one line, as the native one (Chief, 2026-11-21: "Make web tooltips one line, like
 // native"; TooltipContentView.swift): only the text's first line shows, a text wider than the widest
 // tooltip ends in an ellipsis, and the bubble is as narrow as its line (ui/tooltipFit.ts). What a
@@ -25,6 +25,10 @@ import { UI_TOOLTIP_GAP, UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH, tooltipScale } f
 import { fitTooltipWidth } from "./tooltipFit";
 import { keycapLegend } from "./keycapLegend";
 import { onPopupInsetChange, popupInsetOf } from "./popupInset";
+import { onHoverSurfaceOpen, otherHoverSurfaceOpen } from "./hoverSurface";
+import { oneHoverSurface } from "./hoverLook";
+import { attachSeeThroughBlur } from "./glass/seeThroughBlur";
+import { hoverCardGlass, hoverCardUnder } from "./glass/hoverCardGlass";
 export { UI_TOOLTIP_EDGE, UI_TOOLTIP_MAX_WIDTH } from "./tooltipTokens";
 
 /// A scrolling row must settle before its tooltip opens under a resting pointer.
@@ -140,7 +144,9 @@ function boundsOf(element: Element, view: { width: number; height: number }): Bo
   if (!element.closest(".ui-popup"))
     for (let node = element.parentElement; node && node !== doc.body && node !== doc.documentElement;) {
       const overflow = win.getComputedStyle(node).overflowY;
-      if (overflow === "auto" || overflow === "scroll") {
+      // A `data-tooltip-escape` scroller does not hold its tooltips (the agent pane's asks stack, as
+      // tall as its card: a top tooltip there flipped below, over the question, #56534).
+      if ((overflow === "auto" || overflow === "scroll") && !node.hasAttribute("data-tooltip-escape")) {
         const box = node.getBoundingClientRect();
         area = {
           left: Math.max(0, box.left),
@@ -213,6 +219,17 @@ export function installTooltips(
   tip.hidden = true;
   doc.body.append(tip);
   let target: Element | undefined;
+  // Under the One hover look (experiments.hoverLook = one, ui/hoverLook.css), what the tooltip
+  // covers, blurred in place while it shows, as under every hover card. Off, nothing is blurred.
+  let unblur: (() => void) | undefined;
+  const blurUnder = () => {
+    unblur?.();
+    unblur = oneHoverSurface(doc) ? attachSeeThroughBlur(tip, hoverCardUnder, hoverCardGlass) : undefined;
+  };
+  const stopBlur = () => {
+    unblur?.();
+    unblur = undefined;
+  };
 
   const textOf = (element: Element) => {
     // A title React set or changed since the last hover moves over first.
@@ -239,6 +256,7 @@ export function installTooltips(
     if (event && event.target !== tip) return;
     endFade();
     tip.hidden = true;
+    stopBlur();
   }
   /** The longest of the tooltip's transitions now, in ms (0 with no stylesheet, as in a test page). */
   const fadeMs = () => {
@@ -258,6 +276,9 @@ export function installTooltips(
     // One line: a text's second line never shows (TooltipContentView.firstLine, native).
     const text = firstLine(textOf(target));
     if (!text) return;
+    // Under the One hover look, one hover surface at a time (ui/hoverSurface.ts): a hover card or
+    // tooltip already open (the chip's card inside this row) keeps the pointer's one hover.
+    if (oneHoverSurface(doc) && otherHoverSurfaceOpen(doc, tip)) return;
     const shortcut = target.getAttribute("data-tooltip-shortcut");
     const label = doc.createElement("span");
     label.className = "ui-tooltip-text";
@@ -310,6 +331,7 @@ export function installTooltips(
     );
     tip.style.left = `${position.left}px`;
     tip.style.top = `${position.top}px`;
+    blurUnder();
     if (fadeIn) {
       // The starting style is laid out (measuring did that); dropping it runs the fade in.
       void tip.offsetWidth;
@@ -468,7 +490,13 @@ export function installTooltips(
   win.addEventListener("blur", dismiss);
   // Find's bar opening (or anything new covering the page's top) takes away a tooltip under it.
   const unwatchInset = onPopupInsetChange(dismiss);
+  // Under the One hover look, another hover surface opening (a hover card, a labeled tooltip) takes
+  // this one away at once (the surfaces only announce themselves under that look).
+  const unwatchSurfaces = onHoverSurfaceOpen(doc, (surface) => {
+    if (surface !== tip && oneHoverSurface(doc)) hideTip(true);
+  });
   return () => {
+    unwatchSurfaces();
     unwatchInset();
     dismiss();
     intent.dispose();
@@ -481,6 +509,7 @@ export function installTooltips(
     if (quiet !== undefined) clearTimeout(quiet);
     win.removeEventListener("blur", dismiss);
     endFade();
+    stopBlur();
     tip.remove();
   };
 }

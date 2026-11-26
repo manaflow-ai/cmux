@@ -8,6 +8,12 @@
 #   cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA \
 #     --arg MODE --artifact artifacts/ios-sim/evidence.zip
 #
+# Add `--sim-features none` (or the features the step needs, e.g. push,storekit) to a `test` or
+# `shots` step that needs no photo picker, voice, document picker or App Intents: it gets a slim
+# simulator (about 1/5 of a stock one's memory), from the warm pool when one is booted (leased in
+# under a second, 2026-11-25), so more steps fit per Mac and they start sooner. Only `build` is slim
+# by default. BrowserOpenDefaultUITests and WelcomeGlideUITests pass slim with `none`.
+#
 # Any MODE that boots a simulator also takes, as further `--arg`s (see "The simulator's options"
 # below): device=NAME (an iPhone type other than the default, e.g. --arg device=iPhone,16e or
 # --arg device=iPhone,17,Pro,Max; commas stand for spaces; an unknown type exits 3 with the list)
@@ -925,10 +931,14 @@ if [[ "$mode" == pair-e2e ]]; then
   # A tagged dev Mac's hostd registers in the build space dev:<tag> (CMUX_BUILD_SPACE, #43648), and a
   # phone lists only the Macs of its own space: the plain Demo build (no CMUX_MOBILE_DEV_TAG) is in the
   # default space, lists 0 Macs, refuses the Mac's code ("pairing code for a space this account is not
-  # in") and never asks to pair. So the phone gets the Mac's tag as its dev tag (not its bundle id, which
-  # the rig installs by): both are in dev:<tag>, as a hand-off's same-tag Mac and iPhone are.
+  # in") and never asks to pair. So the phone gets the Mac's tag as its dev tag: both are in dev:<tag>, as a
+  # hand-off's same-tag Mac and iPhone are. It is that tag's app too (`dev.cmux.mobile.<tag>`, as a
+  # hand-off's): the tagged Mac's dev auto-approve pairs only its own tag's phone (IPhoneDevAutoApprove),
+  # the one way a phone pairs with no person since the QR code went (#48532). The rig installs by the
+  # bundle id the build reports (CFBundleIdentifier, below).
   mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
   build_settings+=("CMUX_MOBILE_DEV_TAG=.$mac_tag")
+  build_settings+=("CMUX_MOBILE_TAG=.$mac_tag")
 fi
 if [[ "$mode" == try ]]; then
   # The cmux Dev app: device only. No CMUX_MOBILE_DEV_TAG (Demo's is empty), so no build space: the

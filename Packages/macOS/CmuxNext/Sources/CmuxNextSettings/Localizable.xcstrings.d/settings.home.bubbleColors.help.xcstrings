@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.home.bubbleColors.help" : {
+      "comment" : "Help of the Home bubble color settings (home.bubbleColors.*). 'Chat Colors' is the chat right-click menu item.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Right-click a chat and choose Chat Colors to set its own."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "انقر بزر الماوس الأيمن على محادثة واختر ألوان المحادثة لتعيين ألوانها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Desnim klikom na razgovor odaberite Boje razgovora da postavite njegove."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Højreklik på en chat, og vælg Chatfarver for at give den sine egne."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Klicke mit der rechten Maustaste auf einen Chat und wähle Chatfarben, um eigene festzulegen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Haz clic derecho en un chat y elige Colores del chat para darle los suyos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Faites un clic droit sur une discussion et choisissez Couleurs de la discussion pour définir les siennes."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fai clic destro su una chat e scegli Colori chat per impostarne di propri."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チャットを右クリックして「チャットの色」を選ぶと、そのチャットだけの色を設定できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចុចកណ្ដុរស្ដាំលើការជជែក ហើយជ្រើស ពណ៌ការជជែក ដើម្បីកំណត់ពណ៌ផ្ទាល់ខ្លួន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "채팅을 오른쪽 클릭하고 채팅 색상을 선택하면 해당 채팅만의 색상을 설정할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Høyreklikk på en chat og velg Chatfarger for å gi den egne farger."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kliknij czat prawym przyciskiem i wybierz Kolory czatu, aby ustawić własne."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Clique com o botão direito em uma conversa e escolha Cores da conversa para definir as dela."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нажмите на чат правой кнопкой и выберите «Цвета чата», чтобы задать свои."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คลิกขวาที่แชทแล้วเลือก สีของแชท เพื่อตั้งสีเฉพาะ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kendi renklerini ayarlamak için bir sohbete sağ tıklayıp Sohbet Renkleri'ni seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Клацніть чат правою кнопкою й виберіть «Кольори чату», щоб задати власні."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhấp chuột phải vào một cuộc trò chuyện và chọn Màu trò chuyện để đặt màu riêng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "右键点按聊天并选择“聊天颜色”可单独设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "按右鍵點聊天並選擇「聊天顏色」可單獨設定。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

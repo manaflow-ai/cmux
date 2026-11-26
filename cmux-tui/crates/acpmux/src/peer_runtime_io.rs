@@ -611,7 +611,11 @@ impl Peer {
         }
         // One host-wide gate for every peer's dial (`peer_dial_gate.rs`): a link dropping on its
         // own dials at once; 40 dropping together go a few at a time, wanted peers first.
-        let first = {
+        // A replacement the last link dialed while it sat silent opened first: no dial.
+        let replaced = self.replacement.lock_or_recover().take();
+        let first = if let Some(replaced) = replaced {
+            Ok(replaced)
+        } else {
             let mut stopped = self.stop_changed.subscribe();
             let gate = crate::peer_dial_gate::global();
             let dial = gate.pass(self.is_wanted(), crate::peer_link::jitter(), self.open_first());
@@ -646,6 +650,8 @@ impl Peer {
         // The transport's reads, also after the link ends: how long it heard nothing.
         #[cfg(feature = "hub-carrier")]
         let link_heard = opened.heard.clone();
+        *self.link_read.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            opened.heard.read().clone();
         let heard = Some(opened.heard);
         let end = match opened.ws {
             carriers::OpenedWs::Boxed(ws) => self.serve_heard(*ws, out_rx, heard).await,
@@ -687,6 +693,15 @@ impl Peer {
             }
             end => end,
         }
+    }
+
+    /// A link silent past its budget dials a replacement before it drops (`serve_heard`): one with
+    /// no other path up (with one, it moves there at once), and not over ssh, whose dial starts a
+    /// process. Ready or still in its handshake alike: `serve` clears ready on every open, and a
+    /// handshake stuck behind a blackout is the same silence.
+    fn may_replace(&self) -> bool {
+        use crate::peer_paths::Via;
+        self.serving().is_some_and(|via| via != Via::Ssh && !self.another_path_alive(via))
     }
 
     pub(super) fn ws_request(
@@ -1013,6 +1028,43 @@ impl Peer {
         // link is dropped at its budget, not up to `ping_every` after it (a 5G/LTE handoff took
         // 7.5 s to notice of a 6 s budget, about 8 of its 8 s direct handoff).
         let mut silence_due: Option<tokio::time::Instant> = None;
+        // A link dialed when this one sat silent past its budget with no other path up, while
+        // this one keeps reading. TCP holds a blackout's bytes on its retransmission ladder: a
+        // ping sent in the first second of a 4 s blackout lands 6.2 s after it began (200 ms,
+        // doubling), past a 6 s budget counted from the last frame before it, and every byte
+        // after it waits behind it. Dropping then cost a backoff and a whole handshake. Whichever
+        // answers first wins: a frame here drops the dial, the dial opening first moves the link
+        // to it (`LinkEnd::Switching`, no outage). The link drops as before when the dial fails,
+        // or at twice the budget.
+        let mut replacing: Option<
+            std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<(crate::peer_paths::Via, carriers::Opened), String>,
+                        > + Send
+                        + '_,
+                >,
+            >,
+        > = None;
+        // The budget ran out (`$silent`, measured as the drop rule measures it): drop the link, or
+        // keep it while a replacement dials.
+        macro_rules! out_of_silence {
+            ($silent:expr, $silence:expr, $now:expr) => {{
+                let (silent, silence, now): (Duration, Duration, tokio::time::Instant) = ($silent, $silence, $now);
+                let cap = silence.saturating_mul(2);
+                if replacing.is_none() && silent < cap && self.may_replace() {
+                    tracing::info!(peer = %self.name, "silent {}ms, past its {}s budget; dialing a replacement while this link still reads", silent.as_millis(), silence.as_secs());
+                    let gate = crate::peer_dial_gate::global();
+                    replacing = Some(Box::pin(gate.pass(self.is_wanted(), crate::peer_link::jitter(), self.open_first())));
+                }
+                if replacing.is_some() && silent < cap {
+                    silence_due = Some(now + (cap - silent));
+                } else {
+                    self.with_silence(|b| b.dropped(now));
+                    break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
+                }
+            }};
+        }
         // Time this daemon kept the loop from reading is not the peer's silence (`ReaderHeld`).
         let mut reader = crate::peer_link::ReaderHeld::default();
         let mut stale_settled = false;
@@ -1306,8 +1358,22 @@ impl Peer {
                     let silence = self.with_silence(|b| b.current());
                     let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
                     if silent.saturating_sub(late) >= silence {
-                        self.with_silence(|b| b.dropped(now));
-                        break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
+                        out_of_silence!(silent, silence, now);
+                    }
+                }
+                // The replacement dialed for a silent link (`replacing`) opened first.
+                opened = pending_or(&mut replacing) => {
+                    match opened {
+                        Ok(opened) => {
+                            tracing::info!(peer = %self.name, via = opened.0.as_str(), "a replacement opened while the link sat silent; moving the link to it");
+                            *self.replacement.lock_or_recover() = Some(opened);
+                            break Ok(LinkEnd::Switching);
+                        }
+                        Err(e) => {
+                            let now = tokio::time::Instant::now();
+                            self.with_silence(|b| b.dropped(now));
+                            break Err(self.deadline_passed(format!("peer stopped answering, and a replacement did not open ({e})")));
+                        }
                     }
                 }
                 due = ping.tick() => {
@@ -1337,11 +1403,11 @@ impl Peer {
                     // 6 to 19 s of such "silence".
                     let late = now.saturating_duration_since(due);
                     if silent.saturating_sub(late) >= silence {
-                        self.with_silence(|b| b.dropped(now));
-                        break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
+                        out_of_silence!(silent, silence, now);
+                    } else {
+                        let left = silence.saturating_sub(silent.saturating_sub(late));
+                        silence_due = (left < timings.ping_every).then(|| now + left);
                     }
-                    let left = silence.saturating_sub(silent.saturating_sub(late));
-                    silence_due = (left < timings.ping_every).then(|| now + left);
                     if silent >= timings.ping_every {
                         self.with_link(Link::overdue);
                     }
@@ -1370,6 +1436,10 @@ impl Peer {
                     }
                     frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
+                    if replacing.take().is_some() {
+                        tracing::info!(peer = %self.name, "the silent link answered again; its replacement dial is dropped");
+                        silence_due = None;
+                    }
                     wake_probe = None;
                     request_probe = false;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
@@ -1759,4 +1829,12 @@ pub(crate) fn watch_sessions(reply: &Value) -> Vec<Arc<str>> {
         .filter(|session| session.is_object() && !is_mirrored_session(session))
         .map(row_text)
         .collect()
+}
+
+/// `fut`'s output once it is set and done; never while it is not set.
+async fn pending_or<F: std::future::Future + Unpin>(fut: &mut Option<F>) -> F::Output {
+    match fut {
+        Some(fut) => fut.await,
+        None => std::future::pending().await,
+    }
 }

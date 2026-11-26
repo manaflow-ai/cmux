@@ -38,6 +38,8 @@ import Testing
         ("(turn failed: You've hit your weekly limit · resets Oct 25 at 9pm)", "The Chief reached its usage limit."),
         ("(turn failed on codex (fallback for claude): Internal error)", "The model service had a problem."),
         ("(turn failed: acp handshake: unexpected frame 0x1f)", "The Chief's reply failed."),
+        // A fresh Mac with no Claude sign-in: acpmux's words, cut before Claude's "Not logged in" (persona walk, 2026-11-25).
+        ("(turn failed on claude: Claude is not signed in here. This agent found no sign-in (Claude home ~/.claude). Your terminal has no Claude sign-in either. Run `claude auth login` in a terminal, or set ANTHROPIC_API_KEY (or ANTHR)", "The Chief's agent is signed out."),
     ])
     func aFailedTurnIsAPlainWordsCardNotTheRawLine(text: String, title: String) async throws {
         let rig = try await HomeChatRig(history: 1)

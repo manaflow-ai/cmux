@@ -151,6 +151,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `ice2.somafm.com` | connects | the radio player's stream, in a browser tab you start with Play, only when you install it (a customize template) |
 | `api.openai.com` | connects | the OpenAI API: voice calls on iPhone, and when you use an OpenAI key |
 | `api.x.ai` | connects | the xAI API, when you give an agent an xAI API key |
+| `api.tailscale.com` | connects | the Tailscale API, only when you add a Cloud machine to your tailnet with an OAuth client: the Mac trades the client secret for a single-use key there, so the secret never reaches the machine |
 | `app.slack.com` | connects | the Slack integration, only when an agent uses it in your signed-in browser |
 | `api.stack-auth.com` | connects | the sign-in service |
 | `uniichat.com` | connects | the hosted UniiChat agent, only when you start it |
@@ -361,6 +362,14 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `ltd.uk` | identifier | a public suffix, so sites under it are told apart |
 | `me.uk` | identifier | a public suffix, so sites under it are told apart |
 | `plc.uk` | identifier | a public suffix, so sites under it are told apart |
+| `turn.cloudflare.com` | identifier | the TURN relay host the iPhone's blocked-network message asks IT to allow; the code never dials this name (the link's ICE servers come from the relay; config/network/allowlist.json lists it) |
+| `get.docker.com` | identifier | the Docker installer URL written into a migrated project's Cloud machine setup line; the machine runs it when it lacks Docker, the app never fetches it |
+| `mise.run` | identifier | the mise installer URL written into a migrated project's Cloud machine setup line; the machine runs it when it lacks mise, the app never fetches it |
+| `install.determinate.systems` | identifier | the Nix installer URL written into a migrated Nix project's Cloud machine setup line; the machine runs it when it lacks Nix, the app never fetches it |
+| `get.jetify.com` | identifier | the devbox installer URL written into a migrated devbox project's Cloud machine setup line; the app never fetches it |
+| `dot.net` | identifier | the .NET installer URL written into a Cloud machine setup line when a migrated devcontainer names the dotnet feature; the app never fetches it |
+| `aka.ms` | identifier | the Azure CLI installer URL written into a Cloud machine setup line when a migrated devcontainer names the azure-cli feature; the app never fetches it |
+| `git-lfs.github.com` | identifier | the version line of a Git LFS pointer file, matched when seeding a project, never fetched |
 
 ### Samples and placeholders
 
@@ -378,6 +387,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `mini.tail1234.ts.net` | example | a placeholder in a settings field |
 | `*.example.ts.net` | example | a device address in the Debug menu's sample device list |
 | `r.org` | example | a value in a self-check |
+| `www.bbc.co.uk` | example | a sample site in the iPhone site-monogram gallery |
 
 ### Text that looks like a host name
 
@@ -390,7 +400,6 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `prior.app` | not-a-host | the app bundle `cmux app try` sets aside |
 | `replaced.app` | not-a-host | the app bundle `cmux app try` sets aside when it replaces a copy |
 | `undone.app` | not-a-host | the app bundle `cmux app try undo` sets aside |
-| `rejected.app` | not-a-host | the app bundle `cmux app try` sets aside when a swap is refused |
 | `runner-fork-guard.sh` | not-a-host | a script file name in the VM pool runner |
 | `runner-guest.sh` | not-a-host | a script file name in the VM pool runner |
 | `task.ai` | not-a-host | a symbol or icon name |
@@ -398,6 +407,9 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `toast.detail.io` | not-a-host | a localized string key |
 | `projection.io` | not-a-host | an error code of projected folders |
 | `cmux-ios-com.cmux.app` | not-a-host | a URL scheme or bundle id |
+| `red.sh` | not-a-host | a script file name in a Cloud journey repro capsule |
+| `green.sh` | not-a-host | a script file name in a Cloud journey repro capsule |
+| `run.sh` | not-a-host | the runner script file name `cmux-repro` writes |
 | `debug.crash.app` | not-a-host | a method, area or resource kind name |
 | `arrow.down.app` | not-a-host | a symbol or icon name |
 | `arrow.up.forward.app` | not-a-host | a symbol or icon name |

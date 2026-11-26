@@ -27,7 +27,7 @@ routing step did not run or failed) is != 'false', so it runs everything. `--sum
 per skipped step with why.
 
     python3 tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \\
-        --changed-files FILE --event EVENT [--github-output F] [--summary F] [--root DIR] [--json]
+        --changed-files FILE --event EVENT [--pr-scope] [--github-output F] [--summary F] [--root DIR] [--json]
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ from workflow_paths_cover_inputs import (  # noqa: E402
 # no test file): scripts/ci/tooling-step-inputs.json. A change to it runs every step, as a change to this router does.
 DECLARED = "scripts/ci/tooling-step-inputs.json"
 ROUTER_FILES = ("scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
-                "scripts/ci/gh_expressions.py", DECLARED)
+                "scripts/ci/gh_expressions.py", "scripts/ci/tooling_reuse.py", DECLARED)
 SETUP_ID = "setup-"
 # Imports no repository file can satisfy: what the job pip-installs (PyYAML, pytest) and Pillow. Any other import the
 # walker cannot resolve may be a repository module it missed, so the step runs.
@@ -349,8 +349,23 @@ def judge_step(repo: Repo, walker: Walker, step: dict, env: dict[str, str], work
     return False, f"none of its {len(inputs)} inputs changed ({', '.join(tests[:2])}{' ...' if len(tests) > 2 else ''})"
 
 
+# A reason that selects a step only through how wide its inputs reach: a glob a file lists, a directory it reads, a
+# whole-tree list, a file name some input spells out. Not a changed file the step's tests read, a declared input, or a
+# step the walker cannot read (those keep running on a pull request).
+BROAD_REASON = re.compile(r"^\S+ (?:lists |reads directory |names )")
+DEFERRED = "post-merge batch only (--pr-scope), not by a changed input: "
+
+
+def narrow(decision: Decision) -> Decision:
+    """The pull request's own steps: a step selected only by a broad reason is left to the post-merge batch
+    (cmux-next-tooling-tests-batch.yml runs every step at the merged tip)."""
+    steps = [StepVerdict(s.key, s.name, False, DEFERRED + s.reason) if s.run and s.key and BROAD_REASON.match(s.reason)
+             else s for s in decision.steps]
+    return Decision(decision.all, decision.reason, steps)
+
+
 def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, event: str,
-          added_deleted: list[str] | None = None) -> Decision:
+          added_deleted: list[str] | None = None, pr_scope: bool = False) -> Decision:
     repo = Repo.load(root)
     document = load_yaml(repo.root / workflow)
     job = mapping(mapping(document.get("jobs")).get(job_name))
@@ -390,7 +405,8 @@ def route(root: Path, workflow: str, job_name: str, changed: list[str] | None, e
         run, reason = judge_step(repo, walker, step, env, workdir, changed_set, declared.get(key),
                                  None if added_deleted is None else set(added_deleted), key in traced)
         verdicts.append(StepVerdict(key, name, run, reason))
-    return Decision(False, f"{len(changed_set)} changed file(s)", verdicts)
+    decision = Decision(False, f"{len(changed_set)} changed file(s)", verdicts)
+    return narrow(decision) if pr_scope else decision
 
 
 STRACE_CALL = re.compile(r'^(\d+)\s+(?:<\.\.\. )?(\w+)\((.*)\)\s+=\s+(-?\d+(?: \w+)?|\?)')
@@ -627,6 +643,9 @@ def main(argv: list[str] | None = None) -> int:
     cmd.add_argument("--event", required=True)
     cmd.add_argument("--github-output", type=Path)
     cmd.add_argument("--summary", type=Path)
+    cmd.add_argument("--pr-scope", action="store_true",
+                     help="leave a step selected only by a broad reason (a listed glob, a directory read, a whole-tree "
+                          "list, a spelled-out name) to the post-merge batch")
     cmd.add_argument("--json", action="store_true")
     ver = sub.add_parser("verify", help="trace each declared step (strace -f) and fail on a read its inputs miss")
     ver.add_argument("--root", default=str(Path(__file__).resolve().parents[2]))
@@ -647,7 +666,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.added_deleted and args.added_deleted.is_file():
         added_deleted = [line.strip() for line in args.added_deleted.read_text(encoding="utf-8").splitlines()
                          if line.strip()]
-    decision = route(Path(args.root), args.workflow, args.job, changed, args.event, added_deleted)
+    decision = route(Path(args.root), args.workflow, args.job, changed, args.event, added_deleted, args.pr_scope)
     write_outputs(decision, args.github_output, args.summary, args.job)
     if args.json:
         print(json.dumps({"all": decision.all, "reason": decision.reason,

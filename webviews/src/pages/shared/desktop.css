@@ -311,6 +311,7 @@ body {
   border: var(--tooltip-rim-width) solid
     var(--cmux-separator, color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent));
   border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: a tooltip holds text and a keycap, no buttons; the keycap nests in it */
+  /* one-material-allow: the tooltip's fallback for a page that loads no glass.css; on .ui-glass (Tooltip.tsx, titleTooltips.ts) glass.css's .ui-tooltip.ui-glass replaces this fill, frost and shadow with the glass's, so one material either way */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
@@ -390,6 +391,7 @@ body {
 
 .ui-hint {
   border-width: var(--tooltip-rim-width);
+  /* one-material-allow: the toolbar hint's fallback for a page that loads no glass.css; on .ui-glass (LazyCard) glass.css's .ui-hint.ui-card.ui-glass replaces it */
   background: var(--tooltip-tint);
   -webkit-backdrop-filter: var(--tooltip-blur);
   backdrop-filter: var(--tooltip-blur);
@@ -854,6 +856,22 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
   --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
   /* One turn of every spinner (`cmux-spin`); not a transition. */
   --cmux-spinner-period: 2000ms;
+}
+/* Off or reduced motion keeps cmux's own durations and easings, whatever a look sets. */
+:root[data-agent-motion="off"],
+:root[data-agent-motion="reduced"],
+:root[data-cmux-motion="off"],
+:root[data-cmux-motion="reduced"] {
+  --cmux-motion-quick: 80ms;
+  --cmux-motion-micro: 120ms;
+  --cmux-motion-standard: 180ms;
+  --cmux-motion-large: 240ms;
+  --cmux-motion-settle: 180ms;
+  --cmux-motion-send: 0ms;
+  --cmux-ease-out: cubic-bezier(0, 0, 0.58, 1);
+  --cmux-ease-spring: linear(0, 0.21 6%, 0.53 14%, 0.78 24%, 0.92 34%, 0.985 46%, 1 54.57%, 1);
+  --cmux-ease-settle: cubic-bezier(0.16, 1, 0.3, 1);
+  --cmux-ease-send: cubic-bezier(0.16, 1, 0.3, 1);
 }
 /* motion-scale:end */
 /* Hover reveal: a control shown while the pointer is over its row (a message's time and Copy, a

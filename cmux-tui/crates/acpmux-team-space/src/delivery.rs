@@ -98,5 +98,5 @@ pub(crate) fn cut(text: &str, chars: usize) -> String {
         return text.to_owned();
     }
     let kept: String = text.chars().take(chars).collect();
-    format!("{kept} [cut {}]", total - chars)
+    format!("{kept} [cut {}]", total.saturating_sub(chars))
 }

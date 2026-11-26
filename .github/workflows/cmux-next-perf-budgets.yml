@@ -426,7 +426,9 @@ jobs:
           persist-credentials: false
           submodules: false
           fetch-depth: 1
-          sparse-checkout: scripts/cmux-next/perf-cron.py
+          sparse-checkout: |
+            scripts/cmux-next/perf-cron.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Run one part on its host when the fleet is idle
@@ -656,6 +658,7 @@ jobs:
             scripts/cmux-next/perf-budget-table.tsv
             scripts/cmux-next/perf-profile-split.py
             scripts/perf-bench
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Download the working state
