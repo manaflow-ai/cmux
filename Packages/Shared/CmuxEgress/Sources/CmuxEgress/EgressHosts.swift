@@ -43,7 +43,6 @@ enum EgressHosts {
         "cmux-api-staging.debussy.workers.dev",
         "cmux-device-hub-dev.debussy.workers.dev",
         "cmux-device-hub.debussy.workers.dev",
-        "cmux-lawrences-mac-mini.tail137216.ts.net",
         "cmux-mobile-api-dev.debussy.workers.dev",
         "cmux-platform-development.debussy.workers.dev",
         "cmux-platform-production.debussy.workers.dev",
