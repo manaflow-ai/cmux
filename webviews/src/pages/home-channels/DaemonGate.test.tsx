@@ -30,7 +30,9 @@ function installDom(): HTMLElement {
     "sessionStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    // A test that installs a second DOM keeps the globals from before the first: saving again would
+    // restore the closed first window, which the next test file then imports against.
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -148,18 +150,54 @@ test("a refused page listener says so plainly and offers Restart cmux-tui, never
   expect(restarts).toBe(1);
 });
 
-test("without the app to restart it, the refusal keeps Connect", async () => {
+// Leo, 2026-11-22: "i dont know what kind of decision a "try again" would be other than "ok i guess ill
+// click this."" A final refusal with no restart to offer keeps its sentence and asks again on its own,
+// with no Connect to click, so the page opens once the person has done what the sentence says.
+test("without the app to restart it, the refusal has no button", async () => {
   const container = await renderBlocked(pageError(PAGE_LISTENER_REFUSED, "--ws-token", false));
   expect(container.querySelector(".hc-gate-error")?.textContent).toBe(strings.t("connect.listenerRefused"));
-  expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Connect"]);
+  expect(container.querySelectorAll("button").length).toBe(0);
 });
 
-test("any other final refusal is the plain sentence with Connect", async () => {
+test("any other final refusal is the plain sentence with no button", async () => {
   const container = await renderBlocked(
     pageError("cmux.page.failed", 'command(cmd: "ws-listen", code: Optional("io"))', false),
   );
   expect(container.querySelector(".hc-gate-error")?.textContent).toBe(userMessage(undefined));
-  expect([...container.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Connect"]);
+  expect(container.querySelectorAll("button").length).toBe(0);
+});
+
+test("a final refusal asks again on its own and opens once the daemon serves the page", async () => {
+  const container = installDom();
+  jest.useFakeTimers();
+  let loads = 0;
+  let fixed = false;
+  const source: DaemonSource = {
+    kind: "host",
+    load: () => {
+      loads++;
+      return fixed
+        ? Promise.reject(pageError("cmux.protocol.unavailable", "Starting this build's Chief…", true))
+        : Promise.reject(pageError("cmux.daemon.too_old", "Update cmux, then open this tab again.", false));
+    },
+  };
+  root = createRoot(container);
+  await act(async () =>
+    root!.render(
+      <DaemonGate source={source} strings={strings}>
+        {() => null}
+      </DaemonGate>,
+    ),
+  );
+  expect(loads).toBe(1);
+  expect(container.querySelector(".hc-gate-error")?.textContent).toBe("Update cmux, then open this tab again.");
+  for (let ms = 0; ms < 5_000; ms += 100) await act(async () => void jest.advanceTimersByTime(100));
+  expect(loads).toBeGreaterThan(1);
+  // The person updated: the next ask leaves the refusal for the quiet connecting state.
+  fixed = true;
+  for (let ms = 0; ms < 35_000; ms += 100) await act(async () => void jest.advanceTimersByTime(100));
+  expect(container.querySelector(".hc-gate-error")).toBeNull();
+  expect(container.querySelectorAll("button").length).toBe(0);
 });
 
 /** When each credential load ran on a host whose daemon is down, at the longest jitter, for `forMs`. */

@@ -733,6 +733,13 @@ impl Health {
         None
     }
 
+    /// The part [`Self::next_tick_ms`] is for (the host's wakeup ledger names it).
+    pub fn next_tick_id(&mut self) -> Option<&str> {
+        self.next_tick_ms()?;
+        let &Reverse((_, _, slot)) = self.heap.peek()?;
+        self.slots.get(slot)?.as_ref().map(|p| p.id.as_str())
+    }
+
     /// A user action the host queued (newest first).
     pub fn pending(&mut self, id: &str, label: &str, now: u64) {
         self.pending.retain(|p| p.id != id);
