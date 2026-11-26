@@ -43,6 +43,7 @@ jobs:
           sparse-checkout: |
             images/cmux-vm/inputs.lock.json
             scripts/ci/pinned_files_mirror.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Mirror missing pinned files
         env:

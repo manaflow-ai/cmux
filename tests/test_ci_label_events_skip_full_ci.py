@@ -160,7 +160,10 @@ def _unwrap(term: str) -> str:
 
 
 def top_level_and_terms(condition: str) -> list[str]:
-    """CONDITION's && terms outside parentheses, unwrapped (none when it has a top-level ||)."""
+    """CONDITION's && terms outside parentheses, unwrapped (none when it has a top-level ||). A term that is
+    itself a parenthesized && chain gates all of CONDITION too, so its terms are listed as well: #58306 appended
+    `&& (github.event_name != 'pull_request' || needs.R.result == 'success' || ...)` after the label guard and
+    wrapped what came before, `(A && <guard>) && (<router>)`; the guard still gates every label event."""
     if top_level_or(condition):
         return []
     terms, depth, start = [], 0, 0
@@ -171,7 +174,15 @@ def top_level_and_terms(condition: str) -> list[str]:
             terms.append(condition[start:index])
             start = index + 2
     terms.append(condition[start:])
-    return [_unwrap(term.strip()) for term in terms]
+    if len(terms) == 1 and _unwrap(condition.strip()) == condition.strip():
+        return [condition.strip()]
+    found = []
+    for term in terms:
+        term = _unwrap(term.strip())
+        found.append(term)
+        if not term.startswith("!"):
+            found.extend(inner for inner in top_level_and_terms(term) if inner != term)
+    return found
 
 
 PUSH_OR_DISPATCH_ONLY = re.compile(r"github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'")
