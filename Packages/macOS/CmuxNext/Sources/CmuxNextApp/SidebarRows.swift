@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextBridge
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
@@ -31,6 +32,11 @@ final class SidebarRows {
     /// The band groups this window leaves out (`SidebarDocProjection.bandGroupsNotListedHere`) as last shown:
     /// a move of a workspace to another window changes them with no row of this one (#25776), a space switch too.
     private var elsewhere: Set<String>?
+    /// The chats moving to another machine (``ChatMoves``): their rows go to that machine's section, over everything
+    /// else here, until the move ends.
+    var chatMoves: [SidebarChatMove] = [] {
+        didSet { if chatMoves != oldValue { show() } }
+    }
 
     #if DEBUG
     /// The rows `debug.sidebar_nested_fixture` shows instead of the live ones (nested-groups prototype captures).
@@ -95,6 +101,7 @@ final class SidebarRows {
         var sections = PendingWorkspaceRow.adding(self.creating.rows, to: edits.applying(to: self.live), home: self.creating.home,
                                                    catchingUp: layoutCatchingUp)
         edits.applyFolds(to: &sections)
+        sections = SidebarChatMove.applying(chatMoves, to: sections, moving: CloudMoveStrings.movingRow)
         // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.
         model.setSections(sections)
     }
@@ -108,6 +115,8 @@ final class SidebarRows {
         #if DEBUG
         if fixture != nil { return }
         #endif
+        // A moving chat's row says the move, not its live content: its patch shows the rows again, moves applied.
+        if !chatMoves.isEmpty, changed.contains(where: { row in chatMoves.contains { $0.workspace == row.id } }) { return show() }
         if !model.patchWorkspaces(changed) { show() }
     }
 
