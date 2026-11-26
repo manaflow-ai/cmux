@@ -29,7 +29,8 @@ import Testing
 /// The feed moves its cell in a task of its own, after the write: the count of the write does not have the wake of
 /// the view's stream. So the view is made under a counter of its own. Each task that the view makes, and each task
 /// made in one of them (the feed's, each workspace's), counts there: a move of the cell is one wake of the view's
-/// stream in that counter.
+/// stream in that counter. The rows take the wakes of each place of the view's own file there, with no line number:
+/// row 1 wants that their sum does not grow at a new tab, row 2 that it grows at an agent's report.
 ///
 /// Limits: the count has the streams, trackings and loops that record themselves in `ObservationWakes`; a SwiftUI
 /// body is not in it. The rows do not count what the New Tab places feed does for each open New Tab page (it is no
@@ -38,9 +39,9 @@ import Testing
 struct HomeViewTabListReadersTests {
     private static let conversation = "conv_local"
     private static func key(_ workspace: Int) -> String { "home-readers-ws-\(workspace)" }
-    /// The place where the view's stream of the agents is made (`HomeHostView`, `agentsWatch`). When that line
-    /// moves, row 2 is red (it wants a wake at this place): then give the new line here.
-    private static let agentsStream = "CmuxNextApp/HomeHostView.swift:299"
+    /// The start of the key of each place in the view's own file, where the view makes its streams (the one of
+    /// the agents is `agentsWatch`). The rows take the wakes of ALL the places of that file: no line number is here.
+    private static let viewFile = "CmuxNextApp/HomeHostView.swift:"
     /// The keep-awake services this suite started (the app has one, for its lifetime).
     private static var kept: [KeepAwakeService] = []
 
@@ -81,11 +82,23 @@ struct HomeViewTabListReadersTests {
         var agentTab = ""
         /// The tab that had an agent before the view was made (`agentBefore`).
         var agentBefore = ""
-        /// The wakes of the view's stream of the agents in the view's own counter, after the view's first turns
-        /// and after the changes.
-        var streamBefore = 0
-        var streamAfter = 0
+        /// The wakes of each place of the view's own file in the view's own counter, after the view's first turns
+        /// and after the changes. The rows read their sum.
+        var streamsBefore: [String: Int] = [:]
+        var streamsAfter: [String: Int] = [:]
         var lastSeq: UInt64 = 0
+    }
+
+    /// The wakes of each place of the view's own file in `wakes`.
+    private static func viewStreams(_ wakes: ObservationWakes) -> [String: Int] {
+        wakes.bySite.filter { $0.key.hasPrefix(viewFile) }
+    }
+
+    private static func sum(_ places: [String: Int]) -> Int { places.values.reduce(0, +) }
+
+    /// Each place with its count, in the order of the keys.
+    private static func text(_ places: [String: Int]) -> String {
+        "[" + places.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: ", ") + "]"
     }
 
     /// `workspaces` workspaces, each one screen with one pane of two terminals and one WebKit page.
@@ -208,7 +221,7 @@ struct HomeViewTabListReadersTests {
         run.glancesBefore = glanceCount(services)
         run.shownBefore = view.transcript.firstRun.agents.map(\.id)
         run.agentBefore = agentBeforeTab
-        run.streamBefore = viewWakes.bySite[agentsStream] ?? 0
+        run.streamsBefore = viewStreams(viewWakes)
         var woken: [ObjectIdentifier: (place: String, workspaces: Int)] = [:]
         var wakesByPlace: [String: Int] = [:]
         // At most four workspaces, spread over the session; two are enough to see a reader of more than one.
@@ -245,7 +258,7 @@ struct HomeViewTabListReadersTests {
         run.changed = numbers.count
         run.glancesAfter = glanceCount(services)
         run.shownAfter = view.transcript.firstRun.agents.map(\.id)
-        run.streamAfter = viewWakes.bySite[agentsStream] ?? 0
+        run.streamsAfter = viewStreams(viewWakes)
         for observer in woken.values {
             var place = run.places[observer.place] ?? Place()
             place.instances += 1
@@ -292,10 +305,12 @@ struct HomeViewTabListReadersTests {
             // The feed is armed: one observation of the agents woke for each changed workspace, not fewer.
             let armed = session.places.filter { $0.key.contains("HomeAgentGlances.swift") }.values.reduce(0) { $0 + $1.instances }
             #expect(armed == session.changed, "with \(size) workspaces \(armed) observations of the agents woke for \(session.changed) changed workspaces")
-            // The view's stream of the agents, in the view's own counter: no new tab ran it.
-            print("HomeViewTabListReadersTests: row 1: \(size) workspaces: the wakes of the view's stream of the agents \(session.streamBefore) -> \(session.streamAfter)")
-            #expect(session.streamAfter == session.streamBefore,
-                    "with \(size) workspaces the new tabs woke the view's stream of the agents: \(session.streamBefore) -> \(session.streamAfter) wakes")
+            // The streams of the view's own file, in the view's own counter: no new tab ran one of them.
+            let (before, after) = (Self.sum(session.streamsBefore), Self.sum(session.streamsAfter))
+            let places = "\(Self.text(session.streamsBefore)) -> \(Self.text(session.streamsAfter))"
+            print("HomeViewTabListReadersTests: row 1: \(size) workspaces: the wakes of the streams of the view's file \(before) -> \(after); each place: \(places)")
+            // One literal: an expectation's comment is not a sum of two strings.
+            #expect(after == before, "with \(size) workspaces the new tabs woke a stream of the view's file: \(before) -> \(after) wakes, \(places)")
         }
     }
 
@@ -309,12 +324,14 @@ struct HomeViewTabListReadersTests {
         let run = try await Self.run(workspaces: 2, chief: .empty, change: .firstTerminalGetsAnAgent, viewInAWindow: true, agentBefore: true)
         Self.printPlaces("row 2, a terminal gets an agent, \(Chief.empty.rawValue), the home view in a window", small: run, large: run, sizes: (2, 2))
         #expect(run.glancesAfter == run.glancesBefore + 1, "the agents' glances went from \(run.glancesBefore) to \(run.glancesAfter)")
+        let (before, after) = (Self.sum(run.streamsBefore), Self.sum(run.streamsAfter))
         print("HomeViewTabListReadersTests: row 2: the home view lists the agents \(run.shownBefore) -> \(run.shownAfter); the tab with the agent = \(run.agentTab); "
-            + "the tab with an agent before the view = \(run.agentBefore); the wakes of the view's stream of the agents \(run.streamBefore) -> \(run.streamAfter)")
+            + "the tab with an agent before the view = \(run.agentBefore); the wakes of the streams of the view's file \(before) -> \(after); "
+            + "each place: \(Self.text(run.streamsBefore)) -> \(Self.text(run.streamsAfter))")
         #expect(run.shownBefore == [run.agentBefore], "the home view lists the agents \(run.shownBefore) at its start, want [\(run.agentBefore)]")
         #expect(run.shownAfter == [run.agentTab, run.agentBefore],
                 "the home view lists the agents \(run.shownAfter) after the report, want [\(run.agentTab), \(run.agentBefore)]")
-        #expect(run.streamAfter > run.streamBefore, "the report did not wake the view's stream of the agents: \(run.streamBefore) -> \(run.streamAfter) wakes")
+        #expect(after > before, "the report woke no stream of the view's file: \(before) -> \(after) wakes")
     }
 
     /// Row 3, a control that only prints: the same new terminal tabs with a home view whose Chief has one message

@@ -6,7 +6,7 @@ import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { teardownDom } from "../../../test/support/domTeardown";
-import { isClaudeToken } from "../shared/claudeSetupToken";
+import { isClaudeToken, normalizeClaudeToken } from "../shared/claudeSetupToken";
 import { isClaudeToken as settingsCheck } from "../../pages/settings/components/ModelsCard";
 import {
   ClaudeConnectContext,
@@ -111,7 +111,17 @@ test("the token check is the one Settings > Models uses", () => {
   expect(checkToken("   ")).toBe("empty");
   expect(checkToken(" sk-ant-oat01-abc ")).toBe("valid");
   expect(checkToken("sk-ant-api03-abc")).toBe("invalid");
-  expect(checkToken("sk-ant-oat01 abc")).toBe("invalid");
+  // Leo, 2026-11-25: "your terminal sometimes gets cut off with spaces and the text entry doesnt strip
+  // spaces". Whitespace anywhere, a wrapped line or a zero-width space is taken out, not refused.
+  expect(checkToken("sk-ant-oat01-ab c")).toBe("valid");
+  expect(checkToken("  sk-ant-oat01-ab\n   c-d_e\u200B \r\n")).toBe("valid");
+  expect(normalizeClaudeToken(" sk-ant-oat01-ab\n\t c\uFEFF ")).toBe("sk-ant-oat01-abc");
+  expect(connectRequest("sk-ant-oat01-ab\n  cd ", "")).toEqual({ token: "sk-ant-oat01-abcd" });
+  // The shape is still checked: two digits and a dash after the prefix, then base64url only.
+  expect(checkToken("sk-ant-oat01-")).toBe("invalid");
+  expect(checkToken("sk-ant-oatxx-abc")).toBe("invalid");
+  expect(checkToken("sk-ant-oat01-ab│cd")).toBe("invalid");
+  expect(checkToken('"sk-ant-oat01-abc"')).toBe("invalid");
   expect(connectRequest(" sk-ant-oat01-abc ", "  ")).toEqual({ token: "sk-ant-oat01-abc" });
   expect(connectRequest("sk-ant-oat01-abc", " Work ")).toEqual({ token: "sk-ant-oat01-abc", label: "Work" });
   expect(refusalText(new Error(" Refused (401) "), "x")).toBe("Refused (401)");

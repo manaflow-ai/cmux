@@ -21,11 +21,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// with an owner): that daemon stops, keeping its sessions, and the page's next handshake
     /// starts this app's own. Only with a real gesture; answers `{stopped}`.
     case restartAcpmux
-    /// `acpmux.restartStuck {}`: the waiting line's "Restart agent service", while the page's
-    /// handshake waits for this app's own acpmux (``AgentPaneHostProviding/restartStuckAcpmux(sessionId:)``):
-    /// that daemon stops, keeping its sessions, and the page's next handshake starts a new one.
-    /// Only with a real gesture; answers `{stopped}`.
-    case restartStuckAcpmux
     /// The page switched to or created `sessionId`; the host keeps it so a
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
@@ -35,6 +30,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
+    /// The messages a person sent with Return while their Cloud start was still on its way
+    /// (`chat.cloudStartQueue {text}`, Leo 2026-11-25: "playable vs fully installed... or just go"): the
+    /// started chat's first prompt carries them after the start's own, so nothing waits on the machine.
+    /// Empty text: none queued (a failed start put them back in the composer).
+    case cloudStartQueue(String)
     /// What a new chat leaves when its tab opens another chat (`chat.leftover`, cmux#32276): its
     /// typed text and prompts held for a trust answer, kept for its window's next new chat.
     case newChatLeftover(String)
@@ -108,8 +108,15 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// one (the title menu's Bring Back Local), binds it to that chat: the app runs it only while the
     /// tab still shows it. `environment`: New Cloud Machine's Cloud environment (`env_…`), from the
     /// composer's Environment chip; its setup dialog starts on that environment. `handoff`: New Cloud
-    /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens.
-    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil)
+    /// Chat's one-time token from the page (`/side --on cloud`), handed to the tab it opens. `app`: the editor id
+    /// a folder action (``AgentPaneModel/folderActions``) opens in, from the page's Open In ▸. `repo` and
+    /// `returnTo`: Connect GitHub's (`accounts.githubConnect`) from a chat's card, the failed call's
+    /// `OWNER/REPO` and the chat's own link, each dropped when malformed.
+    case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
+                   repo: String? = nil, returnTo: String? = nil, org: String? = nil, mode: String? = nil,
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil, priority: String? = nil)
+    /// `editors.list`: the code editors installed on this Mac, the default first (the page's Open In ▸ submenus).
+    case editorsList
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the
@@ -130,10 +137,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
     /// after a real gesture, for a chat on this Mac.
     case chooseAttachments
-    /// `chat.attach.dropped {kind, names}`: where on this Mac the files of the person's last native
-    /// drop or paste are, for a chat on this Mac (``AgentPaneDroppedPaths``). The names are the
-    /// person's files: never logged.
-    case attachDropped(AgentPaneDroppedPaths.Kind, names: [String])
+    /// `chat.attach.dropped {kind, names, gestureAt}`: where on this Mac the files of the person's
+    /// native drop or paste taken at `gestureAt` are, for a chat on this Mac (``AgentPaneDroppedPaths``).
+    /// The names are the person's files: never logged.
+    case attachDropped(AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil)
     /// `chat.attach.source {kind, names}`: which app each file of the person's drop or paste came
     /// from (``AttachmentSource``), for its chip's corner icon. The names are never logged.
     case attachSource(AgentPaneDroppedPaths.Kind, names: [String], gestureAt: TimeInterval? = nil)
@@ -256,10 +263,13 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case setQuickActions([AgentPaneQuickAction])
     /// The chat tab's state the header's menu labels read: `{pinned}`; `refresh` (a turn ended)
     /// asks for the chat folder's pull request again.
-    case tabState(refresh: Bool)
-    /// `pane.tabRowTools {width}`: the chat header's tools take `width` CSS pixels at the trailing
-    /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there.
-    case tabRowTools(width: Double)
+    /// `terminalSwitch`: also answer whether the chat is half of a terminal and chat pair (its "..." asks as it
+    /// opens, and once as the chat loads; never on a hover, since that answer walks every machine's agents).
+    case tabState(refresh: Bool, terminalSwitch: Bool = false)
+    /// `pane.tabRowTools {width, need?}`: the chat header's tools take `width` CSS pixels at the trailing
+    /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there; `need` is that width less
+    /// what takes only the row's leftover room, what decides whether the pane offers the row.
+    case tabRowTools(width: Double, need: Double? = nil)
     /// The current page-owned Session Info model, or its withdrawal.
     case sessionInfo(AgentPaneSessionInfoModel?)
     /// `pane.sessionInfo.overlays {rects}`: the page's open popups (viewport CSS pixels), which the
@@ -270,17 +280,20 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case sessionInfoPinch(AgentPaneSessionInfoPinch)
     /// `pane.toastAvoidance {rects}`: the page's bottom stack (viewport CSS pixels), which the
     /// window's toasts rest above; nil when the page has none (AgentPaneView+ToastAvoidance.swift).
-    case toastAvoidance(CGRect?)
+    case toastAvoidance(AgentPaneSessionInfoOverlay?)
     /// `pane.toast {message, tone, group}`: feedback the page shows as the app's native toast, so it
     /// takes the picked toast style (Lawrence 2026-11-13); `group` is its kind (Don't Show Again hides it).
     case toast(message: String, isError: Bool, group: String?)
-    /// `pane.glass {surfaces}`: the page's floating glass the App draws under the page
-    /// (``AgentPaneHostGlass``); empty when none shows.
+    /// `pane.glass {surfaces, zoom}`: the page's floating glass the App draws under the page
+    /// (``AgentPaneHostGlass``), measured at the page zoom `zoom`; empty when none shows.
     case hostGlass([AgentPaneHostGlassSurface])
     /// Copies a native Session Info menu item through the platform clipboard.
     case copyText(String)
     /// `pane.tabRowTools.set {tools}`: declarative native controls for the shared tab row.
     case tabRowToolsSet([PaneTabRowTool])
+    /// `customizations.menu {point}`: the chat's Customize button under the composer
+    /// (experiments.composerCustomizer) pops the app's Customizations menu at `point`, CSS px.
+    case customizationsMenu(x: Double, y: Double)
     /// `pane.tabRowTools.openMenu {id, menuItemId?}`: opens a native page menu for palette expansion.
     case tabRowToolsOpenMenu(id: String, menuItemID: String?)
     /// `/btw <question>` asks acpmux for one bounded inline side answer.
@@ -295,10 +308,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// sub-session its agent started, the session that started it, with `sender` the chat that sent
     /// it a message): its tab, else one beside this chat, focused (``AgentPaneOfferOpen``).
     case offerOpen(String, sender: Bool)
-    /// `chat.asks.open {sessionId, where?}`: Needs you went to another chat's ask: on this chat's
-    /// right by default, else the workspace whose tab shows it or a new workspace, as the person
-    /// picked; never this chat replaced in place (``AgentPaneAskOpen``).
-    case asksOpen(String, AgentPaneAskPlace)
+    /// `chat.asks.open {sessionId, where?, turnId?, ask?}`: Needs you went to another chat's ask: on
+    /// this chat's right by default, else the workspace whose tab shows it or a new workspace, as the
+    /// person picked; never this chat replaced in place. The pane that shows it scrolls to `turnId`
+    /// and starts Ask about this with `ask` (``AgentPaneAskThere``, ``AgentPaneAskOpen``).
+    case asksOpen(String, AgentPaneAskPlace, AgentPaneAskThere)
     /// `chat.attention.open {tabId}`: Needs you went to a marked tab.
     case attentionOpen(String)
     /// `chat.asks.answer {sessionId, permissionId, optionId}`: the home's inbox answered another
@@ -332,7 +346,17 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// the chat's settled view (the daemon's `_acpmux/attach {settled: true}`
     /// snapshot), the chat as it stands, so the pane's hold ends on it at once.
     /// Absent (an older page, or a page's fallback paths) means as before.
-    case painted(fromKeptTail: Bool, settled: Bool)
+    /// `copy` (`pane.painted {copy: true}`, chatSnapshot/live.ts): the frame is the inert saved copy of the
+    /// chat, drawn before the page's own app ran; the page's own paint reports again, without it.
+    case painted(fromKeptTail: Bool, settled: Bool, copy: Bool = false, live: Bool = false)
+    /// `pane.launchSettle {settledEpochMs, maxMovePx, element, shifts}` (webviews launchSettle.ts): once per chat
+    /// document, what moved after its first paint. Forwarded as launch marks only
+    /// (``AgentPaneLaunchTimings/layoutSettle(at:maxMovePx:element:shifts:)``).
+    case launchSettle(settledAt: Date, maxMovePx: Double, element: String, shifts: Int)
+    /// `pane.inputEchoed {echoedEpochMs}` (webviews launchInputEcho.ts): once per chat document while a launch
+    /// harness reads the marks, the frame where the composer first drew a key the person typed. Forwarded as the
+    /// launch mark `agent_pane.input_echoed` only (``AgentPaneLaunchTimings/inputEchoed(at:)``).
+    case inputEchoed(at: Date)
     /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
     /// machines and first chat list are in, and its page actions answer), or lost its connection.
     /// A prewarmed page serves a tab opening an existing chat only while it is ready
@@ -419,10 +443,14 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case transportSend(connection: Int, frames: [String])
     /// `transport.close` with `{connection}`.
     case transportClose(connection: Int)
+    /// `transport.ack` with `{connection, seq, inputPending}`: the page applied push `seq`
+    /// (``AgentPaneTransport/acked(connection:seq:inputPending:)``); the host sends the next one.
+    case transportAck(connection: Int, seq: Int, inputPending: Bool)
     /// `transport.gesture {intent}`: reserve the user's current gesture for one pick sent later (a
     /// pick held behind a harness switch); answers `{ticket}`. Nil intent: the params break the
-    /// contract (``AgentPaneGestureIntent``).
-    case transportGesture(AgentPaneGestureIntent?)
+    /// contract (``AgentPaneGestureIntent``); then `method` is the intent's, if any, and `refusal`
+    /// why, for the app log (``AgentPaneRefusalLog``).
+    case transportGesture(AgentPaneGestureIntent?, method: String? = nil, refusal: String? = nil)
     /// `transport.gesture.release`: drop every ticket (the page's harness switch ended or failed).
     case transportGestureRelease
     /// What a reply links to: chips, images, the preview card's browsers (``AgentPaneReplyRequest``).
@@ -493,7 +521,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A transport request: frequent and carrying chat content, so never logged with its values.
     public var isTransport: Bool {
         switch self {
-        case .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease: true
+        case .transportOpen, .transportSend, .transportClose, .transportAck, .transportGesture, .transportGestureRelease: true
         default: false
         }
     }

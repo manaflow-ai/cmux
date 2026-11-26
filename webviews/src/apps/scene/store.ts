@@ -71,6 +71,14 @@ export class SceneStore {
   // Height frequencies let one changed child update its ancestors without scanning their siblings.
   private readonly childHeights = new Map<string, Map<number, number>>();
   private root: string | undefined;
+  // Counts resets: a reset scene is a new tree, so the renderer draws it fresh (no enter or leave
+  // animation carried over from the old one).
+  private generation = 0;
+  // The generation whose first frame has committed (`SceneAppeared`): nodes created after it enter.
+  private drawn = -1;
+  // Removed nodes that leave with a `transition` (and their subtrees), as they last were: the
+  // renderer draws them from here until they have left (sceneMotion.tsx).
+  private readonly departed = new Map<string, SceneNode>();
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly rootListeners = new Set<Listener>();
   private status: SceneStatus = SCENE_LOADING;
@@ -80,6 +88,26 @@ export class SceneStore {
     return this.nodes.get(id);
   }
   getRoot = (): string | undefined => this.root;
+  getGeneration = (): number => this.generation;
+  markDrawn(generation: number): void {
+    this.drawn = generation;
+  }
+  hasDrawn(): boolean {
+    return this.drawn === this.generation;
+  }
+  getDeparted(id: string): SceneNode | undefined {
+    return this.departed.get(id);
+  }
+  /** Drops a departed node and its departed subtree once it has left. */
+  forgetDeparted(id: string): void {
+    const stack = [id];
+    while (stack.length) {
+      const next = this.departed.get(stack.pop()!);
+      if (!next) continue;
+      this.departed.delete(next.id);
+      stack.push(...next.children);
+    }
+  }
 
   subscribeNode(id: string, listener: Listener): () => void {
     let listeners = this.listeners.get(id);
@@ -127,16 +155,31 @@ export class SceneStore {
       this.heights.clear();
       this.childHeights.clear();
       this.root = undefined;
+      this.departed.clear();
+      this.generation += 1;
     }
     for (const op of ops) this.applyOne(op, changed);
     for (const id of changed) {
       for (const listener of this.listeners.get(id) ?? []) listener();
     }
-    if (previousRoot !== this.root) for (const listener of this.rootListeners) listener();
+    if (reset || previousRoot !== this.root) for (const listener of this.rootListeners) listener();
     // After the scene's own listeners, as the host model sets its status after applying the batch.
     // A reset and its first root publish once: a failed mount whose new scene draws goes straight to ready.
     const status = reset ? sceneStatusReducer(this.status, { type: "reset" }) : this.status;
     this.publishStatus(sceneStatusReducer(status, { type: "scene", hasRoot: this.root !== undefined }));
+  }
+
+  /** The person typed in a TextField: the mirror's `text` is what the field shows, as the host's copy
+   * is (it takes the text each edit, submit and cancel reports). So the app's next value replaces the
+   * typed text whenever it differs from it, also when it equals the last value the host sent (an app
+   * that sets "" after a submit while its value was "" all along), and an update of another prop
+   * leaves the typed text alone. */
+  reflectText(id: string, text: string): void {
+    const node = this.nodes.get(id);
+    if (!node || node.props.text === text) return;
+    const changed = new Set<string>();
+    this.write({ ...node, props: { ...node.props, text } }, changed);
+    for (const listener of this.listeners.get(id) ?? []) listener();
   }
 
   private write(node: SceneNode, changed: Set<string>): void {
@@ -148,6 +191,7 @@ export class SceneStore {
     switch (op.op) {
       case "create": {
         if (!op.id || this.nodes.has(op.id) || this.nodes.size >= MAX_NODES) return;
+        this.departed.delete(op.id);
         const props = Object.fromEntries(Object.entries(op.props ?? {}).filter(([, value]) => value !== null));
         this.write({ id: op.id, type: op.type, props, children: [] }, changed);
         this.heights.set(op.id, 1);
@@ -204,12 +248,14 @@ export class SceneStore {
       case "remove": {
         const previous = this.parents.get(op.id);
         if (previous) this.detach(op.id, previous, changed);
+        const leaves = typeof this.nodes.get(op.id)?.props.transition === "string";
         const stack = [op.id];
         while (stack.length) {
           const id = stack.pop()!;
           const node = this.nodes.get(id);
           if (!node) continue;
           stack.push(...node.children);
+          if (leaves) this.keepDeparted(node);
           this.nodes.delete(id);
           this.parents.delete(id);
           this.heights.delete(id);
@@ -221,6 +267,17 @@ export class SceneStore {
       }
       case "root":
         if (this.nodes.has(op.id)) this.root = op.id;
+    }
+  }
+
+  private keepDeparted(node: SceneNode): void {
+    this.departed.delete(node.id);
+    this.departed.set(node.id, node);
+    // Bounded: the oldest go first (a leave lasts a fraction of a second).
+    while (this.departed.size > MAX_NODES) {
+      const oldest = this.departed.keys().next().value;
+      if (oldest === undefined) break;
+      this.departed.delete(oldest);
     }
   }
 

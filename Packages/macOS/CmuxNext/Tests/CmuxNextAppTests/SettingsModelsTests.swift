@@ -21,7 +21,9 @@ import Testing
         /// `chatgpt.wait` answers in order; the last repeats.
         let waits = OSAllocatedUnfairLock<[String]>(initialState: [])
         let refuseKeyAdd = OSAllocatedUnfairLock(initialState: false)
-        let beginURL = OSAllocatedUnfairLock(initialState: "https://auth.openai.com/api/accounts/authorize?client_id=dynamic_agent_client")
+        /// `key.check`'s answer (nil: a daemon without the method, which answers `{}`).
+        let keyCheck = OSAllocatedUnfairLock<String?>(initialState: nil)
+        let beginURL = OSAllocatedUnfairLock(initialState: "https://auth.openai.com/oauth/authorize?client_id=app_EMoamEEZ73f0CkXaXp7hrann")
         let signedInPlan = OSAllocatedUnfairLock(initialState: false)
         /// `chatgpt.wait` fails: acpmux's error name, or "" for a daemon that does not answer.
         let waitFailure = OSAllocatedUnfairLock<String?>(initialState: nil)
@@ -92,6 +94,8 @@ import Testing
                 case .claudeTokenAdd:
                     if daemon.refuseKeyAdd.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.bad_secret", message: "refused") }
                     return Self.claudeToken
+                case .connectionsKeyCheck:
+                    return Data((daemon.keyCheck.withLock { $0 } ?? "{}").utf8)
                 case .connectionsKeyAdd:
                     if daemon.refuseKeyAdd.withLock({ $0 }) { throw AcpmuxRPCError(code: -32602, name: "connections.bad_secret", message: "refused") }
                     return Self.connections(plan: false)
@@ -184,14 +188,48 @@ import Testing
             _ = try await models.run(["action": "addKey", "provider": "openai", "key": "sk-proj-0123456789abcdef"], context: click)
         }
         #expect(keys.deleted.withLock { $0 } == ["keychain:cmux-model-key/openai-test"])
-        // A key with a space or an unknown provider never reaches the Keychain.
+        // An empty paste or an unknown provider never reaches the Keychain.
         await #expect(throws: PageError.self) {
-            _ = try await models.run(["action": "addKey", "provider": "openai", "key": "two words"], context: click)
+            _ = try await models.run(["action": "addKey", "provider": "openai", "key": " \n\u{200B} "], context: click)
         }
         await #expect(throws: PageError.self) {
             _ = try await models.run(["action": "addKey", "provider": "acme", "key": "sk-0123456789"], context: click)
         }
         #expect(keys.stored.withLock { $0 }.count == 1)
+    }
+
+    @Test func aWrappedKeySavesAsOneWordAfterTheProvidersCheck() async throws {
+        let daemon = Daemon()
+        daemon.keyCheck.withLock { $0 = #"{"result":"ok","save":true,"message":null}"# }
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        _ = try await models.run(["action": "addKey", "provider": "openai",
+                                  "key": "  sk-proj-0123\n4567 89ab\u{200B}cdef\r\n"], context: click)
+        #expect(keys.stored.withLock { $0 } == ["keychain:cmux-model-key/openai-test": "sk-proj-0123456789abcdef"])
+        let methods = daemon.calls.withLock { $0 }.map(\.method)
+        let check = try #require(methods.firstIndex(of: "_acpmux/connections/key.check"))
+        let add = try #require(methods.firstIndex(of: "_acpmux/connections/key.add"))
+        #expect(check < add)
+        #expect(daemon.calls.withLock { $0 }[check].params == ["provider": "openai", "secret": "keychain:cmux-model-key/openai-test"])
+        #expect(keys.deleted.withLock { $0 }.isEmpty)
+    }
+
+    @Test func aKeyTheProviderRefusesIsTakenBackOutAndSaid() async throws {
+        let daemon = Daemon()
+        daemon.keyCheck.withLock { $0 = #"{"result":"bad_key","save":false,"message":"Key rejected by OpenAI"}"# }
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        let refusal = await #expect(throws: PageError.self) {
+            _ = try await models.run(["action": "addKey", "provider": "openai", "key": "sk-proj-WRONG0123456789"], context: click)
+        }
+        #expect(refusal?.code == "cmux.models.key_rejected")
+        #expect(refusal?.message == "Key rejected by OpenAI")
+        #expect(keys.deleted.withLock { $0 } == ["keychain:cmux-model-key/openai-test"])
+        #expect(!daemon.calls.withLock { $0 }.contains { $0.method == "_acpmux/connections/key.add" })
+        // A provider that does not answer saves anyway.
+        daemon.keyCheck.withLock { $0 = #"{"result":"unreachable","save":true,"message":null}"# }
+        _ = try await models.run(["action": "addKey", "provider": "openai", "key": "sk-proj-AWAY0123456789"], context: click)
+        #expect(daemon.calls.withLock { $0 }.contains { $0.method == "_acpmux/connections/key.add" })
     }
 
     @Test func changesNeedThePersonsGesture() async throws {
@@ -271,11 +309,11 @@ import Testing
         #expect(row["servesCloud"] == .bool(true))
     }
 
-    @Test func aClaudeTokenNeedsItsPrefixAndNoWhitespace() async throws {
+    @Test func aClaudeTokenNeedsItsShape() async throws {
         let daemon = Daemon()
         let keys = Keys()
         let models = make(daemon: daemon, keys: keys)
-        for token in ["sk-ant-api03-not-a-setup-token", "sk-ant-oat01-two words", "sk-ant-oat01-a\tb", " sk-ant-oat01-lead", ""] {
+        for token in ["sk-ant-api03-not-a-setup-token", "sk-ant-oat01-", "sk-ant-oatxx-abc", "sk-ant-oat01-a│b", "sk-ant-oat01-a\"", "  \n ", ""] {
             await #expect(throws: PageError.self) {
                 _ = try await models.run(["action": "addClaudeToken", "token": .string(token)], context: click)
             }
@@ -288,6 +326,22 @@ import Testing
             _ = try await models.run(["action": "addClaudeToken", "token": "sk-ant-oat01-abc"], context: click)
         }
         #expect(keys.deleted.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test"])
+    }
+
+    @Test func aWrappedOrPaddedClaudeTokenIsSavedWithoutItsWhitespace() async throws {
+        // Leo, 2026-11-25: "your terminal sometimes gets cut off with spaces and the text entry doesnt
+        // strip spaces". A token wrapped across lines, padded with spaces or a zero-width space is the
+        // one token the terminal printed.
+        let token = "sk-ant-oat01-ABCdef_0123-456789xyz"
+        let pasted = "  sk-ant-oat01-ABCdef_0123\n   -456789\u{200B}xyz \r\n\t"
+        #expect(SettingsModels.withoutWhitespace(pasted) == token)
+        #expect(SettingsModels.isClaudeToken(SettingsModels.withoutWhitespace(pasted)))
+        let daemon = Daemon()
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        _ = await models.loadedState()
+        _ = try await models.run(["action": "addClaudeToken", "token": .string(pasted)], context: click)
+        #expect(keys.stored.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test": token])
     }
 
     @Test func claudeSetupTokenOpensATerminalTabRunningIt() async throws {

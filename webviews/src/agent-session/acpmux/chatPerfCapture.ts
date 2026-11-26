@@ -88,6 +88,7 @@ export function longTaskSummary(
   source: "long-animation-frame" | "longtask" | null,
   top = 5,
 ) {
+  let scriptMs = 0;
   const scripts = new Map<
     string,
     { invoker: string; source_url: string; function: string; count: number; total: number; max: number }
@@ -99,6 +100,7 @@ export function longTaskSummary(
       const name = String(script.sourceFunctionName ?? "");
       const key = `${invoker}\u0000${sourceUrl}\u0000${name}`;
       const duration = Number(script.duration) || 0;
+      scriptMs += duration;
       const seen = scripts.get(key) ?? { invoker, source_url: sourceUrl, function: name, count: 0, total: 0, max: 0 };
       seen.count += 1;
       seen.total += duration;
@@ -111,11 +113,40 @@ export function longTaskSummary(
     longest_ms: round2(entries.reduce((longest, entry) => Math.max(longest, entry.duration), 0)),
     total_ms: round2(entries.reduce((total, entry) => total + entry.duration, 0)),
     blocking_ms: round2(entries.reduce((total, entry) => total + blockingMs(entry), 0)),
+    // Every script's time inside the long animation frames (not only the top list). Short frames carry no
+    // attribution, so it is a lower bound on the page's script time; null without long-animation-frame.
+    script_ms: source === "long-animation-frame" ? round2(scriptMs) : null,
     top_scripts: [...scripts.values()]
       .sort((a, b) => b.total - a.total)
       .slice(0, top)
       .map(({ total, max, ...script }) => ({ ...script, total_ms: round2(total), max_ms: round2(max) })),
   };
+}
+
+/** The Event Timing threshold the capture asks for: the smallest the API allows (16 ms), so a key that
+ * painted within a frame is not reported and the p95 reads high for a page that mostly keeps up. */
+export const KEYDOWN_THRESHOLD_MS = 16;
+
+/** Keydown-to-next-frame from Event Timing entries: a keydown's `duration` runs from the key event to the
+ * next paint after its handlers (rounded to 8 ms by the browser). Passive: null when nobody typed. */
+export function keydownSummary(entries: readonly { name?: string; duration: number }[]) {
+  const durations = entries
+    .filter((entry) => entry.name === "keydown")
+    .map((entry) => entry.duration)
+    .sort((a, b) => a - b);
+  return {
+    count: durations.length,
+    threshold_ms: KEYDOWN_THRESHOLD_MS,
+    p95_ms: durations.length ? round2(percentile(durations, 0.95)) : null,
+    max_ms: durations.length ? round2(durations[durations.length - 1]) : null,
+  };
+}
+
+/** Every script's duration in the entries. */
+function scriptTotal(entries: readonly LongEntry[]) {
+  let total = 0;
+  for (const entry of entries) for (const script of entry.scripts ?? []) total += Number(script.duration) || 0;
+  return total;
 }
 
 /** Layout shifts not caused by input: their summed score and how many. */
@@ -172,7 +203,11 @@ export type CaptureEnv = {
   visibility(): string;
   onVisibilityChange(listener: () => void): () => void;
   /** Starts an observer of `type`, or returns undefined when the page has none. */
-  observe(type: string, onEntries: (entries: unknown[]) => void): { disconnect(): void } | undefined;
+  observe(
+    type: string,
+    onEntries: (entries: unknown[]) => void,
+    options?: { durationThreshold?: number },
+  ): { disconnect(): void } | undefined;
   supportedEntryTypes(): readonly string[];
   /** Starts the window's frame-owner tally (frameOwners.ts); a test that does not ask has none. */
   startOwners?(): FrameOwners;
@@ -209,11 +244,11 @@ export function browserEnv(): CaptureEnv {
       document.addEventListener("visibilitychange", listener);
       return () => document.removeEventListener("visibilitychange", listener);
     },
-    observe(type, onEntries) {
+    observe(type, onEntries, options) {
       if (typeof PerformanceObserver === "undefined") return undefined;
       try {
         const observer = new PerformanceObserver((list) => onEntries(list.getEntries()));
-        observer.observe({ type, buffered: false });
+        observer.observe({ type, buffered: false, ...options } as PerformanceObserverInit);
         return observer;
       } catch {
         return undefined;
@@ -249,7 +284,12 @@ export class ChatPerfCapture {
     this.pending.push({ kind: captureKind(kind), at, apply: now - at });
   }
 
-  async capture(options: { seconds?: unknown } = {}, env: CaptureEnv = browserEnv()): Promise<Record<string, unknown>> {
+  /** `shown`: the shown chat's size when the window ends (the pane's rows and its log's event seq). */
+  async capture(
+    options: { seconds?: unknown } = {},
+    env: CaptureEnv = browserEnv(),
+    shown?: () => { rows: number | null; events: number | null },
+  ): Promise<Record<string, unknown>> {
     if (this.active) return { error: "capture_running" };
     const requested = Number(options.seconds);
     const seconds = Number.isFinite(requested) ? Math.min(MAX_CAPTURE_SECONDS, Math.max(1, requested)) : 5;
@@ -261,6 +301,7 @@ export class ChatPerfCapture {
     const painting: PendingArrival[][] = [];
     const longEntries: LongEntry[] = [];
     const shifts: { value: number; hadRecentInput?: boolean }[] = [];
+    const keys: { name?: string; duration: number }[] = [];
     const visibility: { at: number; state: string }[] = [];
     const cleanups: (() => void)[] = [];
     const start = env.now();
@@ -322,6 +363,12 @@ export class ChatPerfCapture {
           )
         : undefined;
       if (shiftObserver) cleanups.push(() => shiftObserver.disconnect());
+      const eventObserver = types.includes("event")
+        ? env.observe("event", (entries) => keys.push(...(entries as { name?: string; duration: number }[])), {
+            durationThreshold: KEYDOWN_THRESHOLD_MS,
+          })
+        : undefined;
+      if (eventObserver) cleanups.push(() => eventObserver.disconnect());
       await new Promise<void>((resolve) => {
         const timer = env.setTimer(resolve, seconds * 1000);
         cleanups.push(() => env.clearTimer(timer));
@@ -345,6 +392,10 @@ export class ChatPerfCapture {
         frames: frameReport,
         long_tasks: longTaskSummary(longEntries, longType as "long-animation-frame" | "longtask" | null),
         layout_shift: layoutShiftSummary(shifts),
+        // Script time inside long animation frames, per second of the window; null without that entry type.
+        script_ms_per_s: longType === "long-animation-frame" ? round2(scriptTotal(longEntries) / seconds) : null,
+        keydown: eventObserver ? keydownSummary(keys) : null,
+        transcript: shown?.() ?? { rows: null, events: null },
         records: { ...arrivalSummary(arrivals), unpainted },
         owners: ownerReport,
       };

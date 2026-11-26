@@ -1,0 +1,30 @@
+[package]
+name = "cmux-git-cache"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Per-machine git smart-HTTP cache: an agent's plain `git clone https://github.com/...` is served from this machine's mirror (then a peer's), and from GitHub only for what nobody has, after GitHub confirms the caller can read the repository"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-process.workspace = true
+cmux-scope.workspace = true
+axum.workspace = true
+base64.workspace = true
+bytes.workspace = true
+flate2.workspace = true
+futures-util.workspace = true
+hex.workspace = true
+reqwest = { workspace = true, features = ["stream"] }
+rustls.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
+tokio-util = { workspace = true, features = ["io"] }
+
+[dev-dependencies]
+tempfile = "3"

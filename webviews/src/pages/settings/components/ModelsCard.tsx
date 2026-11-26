@@ -11,9 +11,13 @@
 // form until it is sent, then is cleared; the app moves it into the Keychain and the page never sees it
 // again. A Mac login Cloud threads cannot use (servesCloud false) says This Mac only (Revision 2), with
 // Set Up for Cloud, which opens Settings > Cloud on the row that sets one up (CloudModelsCard.tsx).
+// A Claude login's Sign In Again, on a host that signs in in place, shows the sign-in card under the
+// row (logins done right; Leo, 2026-11-22: "this is simply logins, done righr."): the CLI's own login
+// when it is signed out, else a new Claude account, as the host's `connectClaude` picks; a daemon
+// without the in-place sign-in, or a host without it, keeps `connectClaude` (its terminal sign-in).
 import { useEffect, useId, useRef, useState, type DragEvent } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
-import { isClaudeToken } from "../../../agent-session/shared/claudeSetupToken";
+import { isClaudeToken, normalizeClaudeToken } from "../../../agent-session/shared/claudeSetupToken";
 import { Button } from "../../../ui/Button";
 import { Dialog } from "../../../ui/Dialog";
 import { Input } from "../../../ui/Input";
@@ -27,6 +31,9 @@ import { SETTINGS_SENTENCES, type ModelConnection, type ModelProvider, type Mode
 import { sectionHref } from "../router";
 import { t } from "../strings";
 import { userMessage } from "../../shared/userMessage";
+import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
+import { parseAccountRow } from "../../shared/signIn/accountSignIn";
+import { useSettingsSignIn } from "./useSettingsSignIn";
 
 /** The route focus that opens Add a Connection (cmux://settings/models/add). */
 export const MODELS_ADD_FOCUS = "models.add";
@@ -69,7 +76,7 @@ export function connectionAuthText(connection: ModelConnection): string {
 /** A ChatGPT sign-in's failure code in plain words. */
 export function chatgptErrorText(code: string): string {
   if (code === "access_denied") return t("settingsWindow.models.chatgpt.errorDenied");
-  if (code === "no_plan_scope") return t("settingsWindow.models.chatgpt.errorNoPlan");
+  if (code === "no_chatgpt_account") return t("settingsWindow.models.chatgpt.errorNoPlan");
   return t("settingsWindow.models.chatgpt.errorOther");
 }
 
@@ -115,12 +122,17 @@ export function cloudFocusOf(connection: Pick<ModelConnection, "kind" | "familie
 }
 
 export function ModelsCard({ focus }: { focus: string | null }) {
+  const store = useStore();
   const models = useSettingsState().models;
   const { busy, error, run } = useModelsRun();
   const [adding, setAdding] = useState(focus === MODELS_ADD_FOCUS);
   useEffect(() => {
     if (focus === MODELS_ADD_FOCUS) setAdding(true);
   }, [focus]);
+  // Whether the host signs in in place (its sign-in accounts), for a Claude login's Sign In Again.
+  useEffect(() => {
+    void store.refreshAccounts();
+  }, [store]);
   if (!models) return null;
   return (
     <div className="models" data-card="models" aria-busy={busy}>
@@ -326,6 +338,10 @@ function ConnectionRow({
   const nameId = useId();
   const router = useSettingsRouter();
   const [confirming, setConfirming] = useState(false);
+  const listed = useSettingsState().accounts?.signInAccounts;
+  const store = useStore();
+  // A finished sign-in reads Models again, so the row shows the login signed in.
+  const signIn = useSettingsSignIn(() => void store.refreshModels());
   const builtin = connection.kind === "codex-login" || connection.kind === "claude-login";
   const plan = connection.kind === "chatgpt-plan";
   const reauth: ModelsRun | null = plan
@@ -431,7 +447,17 @@ function ConnectionRow({
                 {t("settingsWindow.models.moveDown")}
               </MenuItem>
               {reauth && (
-                <MenuItem data-value="signInAgain" onSelect={() => void run(reauth)}>
+                <MenuItem
+                  data-value="signInAgain"
+                  onSelect={() => {
+                    if (reauth.action !== "connectClaude" || !signIn.inPlace) return void run(reauth);
+                    // The CLI's own Claude login when it is signed out, else a new Claude account.
+                    const own = (listed ?? [])
+                      .flatMap((raw) => parseAccountRow(raw) ?? [])
+                      .find((row) => row.family === "claude" && row.builtin);
+                    signIn.begin("claude", own && !own.signedIn ? own.id : null, () => void run(reauth));
+                  }}
+                >
                   {t("settingsWindow.models.signInAgain")}
                 </MenuItem>
               )}
@@ -444,6 +470,11 @@ function ConnectionRow({
           </Menu>
         </div>
       </div>
+      {signIn.running && (
+        <div className="harness-sign-in" data-connection-sign-in={connection.id}>
+          <DeviceSignInCard family={signIn.running.family} view={signIn.running.view} look="inline" {...signIn.card} />
+        </div>
+      )}
       {confirming && (
         <div className="accounts-body">
           <div className="accounts-form" role="alertdialog" aria-labelledby={nameId} data-connection-remove="">
@@ -1010,7 +1041,7 @@ function ClaudeTokenForm({ busy, run, onDone }: { busy: boolean; run: Run; onDon
   const labelId = useId();
   const [token, setToken] = useState("");
   const [label, setLabel] = useState("");
-  const pasted = token.trim();
+  const pasted = normalizeClaudeToken(token);
   const valid = isClaudeToken(pasted);
   const send = () => {
     if (!valid || busy) return;
@@ -1055,7 +1086,7 @@ function ClaudeTokenForm({ busy, run, onDone }: { busy: boolean; run: Run; onDon
         maxLength={4096}
         value={token}
         disabled={busy}
-        onChange={(event) => setToken(event.target.value)}
+        onChange={(event) => setToken(normalizeClaudeToken(event.target.value))}
       />
       {pasted !== "" && !valid && (
         <p className="row-error" role="alert" data-claude-token-invalid="">

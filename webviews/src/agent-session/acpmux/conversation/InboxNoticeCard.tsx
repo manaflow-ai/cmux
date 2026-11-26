@@ -50,6 +50,9 @@ import {
 import { foldsThreads, useInboxNoticeLook } from "./inboxNoticeLook";
 import { fitsLine, newestWholeKey, readForIds, setThreadRead, THREAD_PAGE, threadRead } from "./inboxThreadRead";
 import { useInboxThreadLook } from "./inboxThreadLook";
+import { NoticeMark } from "./NoticeMark";
+import { noticeRepeatClock } from "./noticeRowModel";
+import { useNoticeRowLook } from "./noticeRowLook";
 import { Markdown } from "./Markdown";
 import { inboxHover } from "./MessageGroupHover";
 import { withoutRelayEnvelope } from "./relayEnvelope";
@@ -191,6 +194,9 @@ function InboxThreadLine({
 }) {
   const t = useT();
   const look = useInboxThreadLook();
+  const rowLook = useNoticeRowLook();
+  // A tool's notice (acpmux's `notice` part): one compact line, its detector, severity and title.
+  const notice = rowLook === "off" ? undefined : thread.notice;
   const session = useContext(PromptMarksSession);
   const id = inboxThreadKey(rowId, thread.threadId);
   const [open, setOpen] = useState(() => messageOpened(session, id));
@@ -252,12 +258,13 @@ function InboxThreadLine({
       live = false;
     };
   }, [wanted, hasRead, readFor, readThread, thread, session, id]);
-  const name = newestSender(thread);
-  const lookup = newestLookup(thread);
+  const name = notice?.sender ?? newestSender(thread);
+  const lookup = notice ? undefined : newestLookup(thread);
   const newest = messages?.at(-1);
   // Its session: the thread's, else its sender record's (an acpmux that names the sender's session
   // only there), so the name resolves and opens its chat.
-  const senderSession = thread.fromSession ?? newest?.sender?.session ?? thread.sender?.session;
+  // A notice's detector is no chat here: its name opens nothing.
+  const senderSession = notice ? undefined : (thread.fromSession ?? newest?.sender?.session ?? thread.sender?.session);
   const sender = useMemo<IncomingMessage>(
     () => ({
       name,
@@ -288,7 +295,8 @@ function InboxThreadLine({
   // acpmux's preview is a cut first line (hub/inbox.rs): never draw a cut span (#39100).
   const wholePreview = thread.preview?.endsWith("…") ? shownOfCut(thread.preview) : thread.preview;
   const newestText = newest?.text ?? thread.newest ?? wholePreview;
-  const label = thread.label && thread.label !== name ? thread.label : undefined;
+  // A notice's line says its title; the surge topic its thread is keyed by would say it twice.
+  const label = !notice && thread.label && thread.label !== name ? thread.label : undefined;
   const earlier = messages ? Math.max(0, messages.length - shown) : 0;
   // Where the newest message says it came from (`sender_claim`), under it as under an opened one.
   const newestPrompt = newest?.promptId ?? (thread.promptIds.length === 1 ? thread.promptIds[0] : undefined);
@@ -296,8 +304,22 @@ function InboxThreadLine({
   // A short one-line message, known whole, reads on the line as another agent's received line
   // does, and the line keeps the one-line rows' pitch; anything longer reads in the card under it.
   const known = newest?.text ?? thread.newest;
-  const onLine = fitsLine(known);
-  const preview = onLine ? known.trim() : thread.preview || (newest ? messagePreview(newest.text) : "");
+  // A notice's line is its title alone; its chevron opens the whole text (Leo, 2026-11-25: "how can
+  // we improve this?").
+  const onLine = !notice && fitsLine(known);
+  const preview = notice
+    ? notice.title
+    : onLine
+      ? known.trim()
+      : thread.preview || (newest ? messagePreview(newest.text) : "");
+  const repeats =
+    notice && notice.repeats > 1
+      ? t("inbox.noticeRepeats", {
+          n: notice.repeats,
+          time: noticeRepeatClock(notice.lastAt ?? newest?.at ?? messageAt),
+        })
+      : undefined;
+  const severityMark = notice && <NoticeMark severity={notice.severity} />;
   // The one message row (AgentMessageRow.tsx), as a received message draws: the sender's name after
   // its family's mark, the thread's label and "+N more" after the name. Shut, the card under it holds
   // the newest message (Leo, 2026-11-07: "why can't I see the full excerpt of its message?"); "+N
@@ -305,23 +327,45 @@ function InboxThreadLine({
   return (
     <AgentMessageRow
       direction="received"
-      className="cv-received cv-inbox__thread"
+      className={notice ? "cv-received cv-inbox__thread cv-inbox__notice" : "cv-received cv-inbox__thread"}
+      attributes={{ "data-notice-severity": notice?.severity, "data-notice-look": notice ? rowLook : undefined }}
       // Find counts the thread's messages, never the line that sums them up (IncomingMessageCard.tsx).
       lineAttributes={{ "data-find-skip": "" }}
-      icon={<ReceivedMark message={sender} />}
+      icon={notice && rowLook !== "trailing" ? severityMark : <ReceivedMark message={sender} />}
       // The sender named once, first, as every received line reads (cmux#25002, #32711): the
       // family mark before it says which way the message went.
       sentence={"\u0000"}
       previewClassName="cv-received__preview"
       name={name}
-      nameSlot={<SenderChip message={sender} onOpen={onOpen} />}
+      nameSlot={
+        notice ? (
+          <span className="cv-inbox__detector" title={notice.host && t("inbox.noticeHost", { host: notice.host })}>
+            {notice.sender}
+          </span>
+        ) : (
+          <SenderChip message={sender} onOpen={onOpen} />
+        )
+      }
       unverified={sender.unverified === true}
       claimed={name}
       detail={
         <>
           {/* A thread keyed by its sender (`declared:NAME`) is labeled with that name: said once. */}
           {label && <span className="cv-inbox__label">{label}</span>}
-          {thread.count > 1 && (
+          {notice && rowLook === "trailing" && <span className="cv-inbox__severity">{severityMark}</span>}
+          {repeats ? (
+            // The repeats of one condition fold here; the count opens them, as "+N more" does.
+            <button
+              type="button"
+              className="cv-inbox__more cv-inbox__repeats"
+              aria-expanded={open}
+              aria-label={t("inbox.showThread")}
+              {...{ [HEADER_TOGGLES_ATTRIBUTE]: "" }}
+            >
+              {repeats}
+            </button>
+          ) : null}
+          {!repeats && thread.count > 1 && (
             // The line's own toggle takes its click (headerToggle.ts), anchored as the line's is.
             <button
               type="button"
@@ -342,7 +386,7 @@ function InboxThreadLine({
       actions={actions}
       keepsPreviewOpen={onLine}
       peek={
-        onLine ? undefined : (
+        onLine || notice ? undefined : (
           <>
             <CardCopy text={newestText} />
             <ClampedText

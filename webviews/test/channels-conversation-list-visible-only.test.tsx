@@ -81,7 +81,7 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { useRef, useState, useSyncExternalStore } = await import("react");
+const { useEffect, useRef, useState, useSyncExternalStore } = await import("react");
 const { HomeChannelsStore } = await import("../src/pages/home-channels/store");
 const { HomeOps } = await import("../src/pages/home-channels/types");
 const { withChiefNames } = await import("../src/pages/home-channels/model");
@@ -127,21 +127,28 @@ interface Driver {
 
 /** The list as the page holds it: a new Map on each change, every other conversation the same
  *  object; and, as the page does, new channel and people collections and new actions each render. */
-function Host({ n, pinned, driver }: { n: number; pinned: number; driver: Driver }) {
+function Host({ n, pinned, onDriver }: { n: number; pinned: number; onDriver(driver: Driver): void }) {
   const [conversations, setConversations] = useState(
     () => new Map(Array.from({ length: n }, (_, index) => conversation(index, pinned)).map((c) => [c.id, c])),
   );
   const [selected, setSelected] = useState<string | undefined>(undefined);
   const [, setTick] = useState(0);
-  driver.select = setSelected;
-  driver.change = (id) =>
-    setConversations((old) => {
-      const next = new Map(old);
-      const before = old.get(id)!;
-      next.set(id, { ...before, rev: before.rev + 1, lastText: `${before.lastText} (edited)` });
-      return next;
-    });
-  driver.render = () => setTick((tick) => tick + 1);
+  // The test's handle on the state, a fresh object handed over once mounted (the setters are stable).
+  useEffect(
+    () =>
+      onDriver({
+        select: setSelected,
+        change: (id) =>
+          setConversations((old) => {
+            const next = new Map(old);
+            const before = old.get(id)!;
+            next.set(id, { ...before, rev: before.rev + 1, lastText: `${before.lastText} (edited)` });
+            return next;
+          }),
+        render: () => setTick((tick) => tick + 1),
+      }),
+    [onDriver],
+  );
   const people = new Map([...conversations.values()].slice(0, 50).flatMap((c) => c.participants.map((p) => [p.id, p])));
   return (
     <ConversationList
@@ -168,9 +175,14 @@ function Host({ n, pinned, driver }: { n: number; pinned: number; driver: Driver
 async function mount(n: number, pinned = 0) {
   host = dom.window.document.getElementById("root")!;
   root = createRoot(host);
-  const driver = {} as Driver;
-  await act(async () => root!.render(<Host n={n} pinned={pinned} driver={driver} />));
+  let held: Driver | undefined;
+  const onDriver = (next: Driver) => {
+    held = next;
+  };
+  await act(async () => root!.render(<Host n={n} pinned={pinned} onDriver={onDriver} />));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  if (!held) throw new Error("the host did not hand over its driver");
+  const driver: Driver = held;
   return { driver, list: host.querySelector<HTMLElement>(".lg-list-rows")! };
 }
 

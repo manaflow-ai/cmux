@@ -65,7 +65,12 @@ async function pickCloud(ctx: PlayContext) {
     { capMs: 10_000 },
   );
   await ctx.waitFor(() => listAnswered, { capMs: 10_000 });
-  await frames(frame);
+  await environmentSettled(ctx);
+}
+
+/// The strip has settled after Cloud was picked, so each label is measured at rest.
+async function environmentSettled(ctx: PlayContext) {
+  await frames(ctx.document.defaultView!);
 }
 
 /// Each chip's label text that is cut, ends in "…", or reads the bare placeholder.
@@ -100,17 +105,30 @@ function chipProblems(document: Document): string[] {
       problems.push(`the Mode chip reads the bare placeholder “${PLACEHOLDER}” instead of a mode at ${width}px`);
   }
   if (modes.length === 0) problems.push(`the Mode chip is not shown at ${width}px`);
+  problems.push(...environmentProblems(document));
   return problems;
+}
+
+/// Cloud's environment is a Settings choice (Settings > Cloud, Default image; cmux#51731), not a
+/// composer chip: with Cloud picked the strip shows no Environment chip at any width.
+function environmentProblems(document: Document): string[] {
+  const width = document.defaultView!.innerWidth;
+  const chip = document.querySelector(`${STRIP} .acpmux-cloud-env, ${STRIP} [aria-label^="Cloud environment"]`);
+  return chip ? [`the composer shows an Environment chip with Cloud picked at ${width}px`] : [];
 }
 
 /// The chips at the stage's width, then at the narrow 400 px a split leaves (the health check renders
 /// the normal width only, so the play narrows the pane itself).
 const NARROW = 400;
+/// The entry's normal stage, where every chip shows whole.
+const WIDE_ENOUGH = 760;
+/// The full width a wide pane gives the composer.
+const FULL = 1100;
 async function assertChips(ctx: PlayContext, before: string[] = []) {
   const problems = [...before, ...chipProblems(ctx.document)];
   if ((ctx.document.defaultView?.innerWidth ?? NARROW) > NARROW) {
     await ctx.resize(NARROW);
-    await frames(ctx.document.defaultView!);
+    await environmentSettled(ctx);
     problems.push(...chipProblems(ctx.document));
   }
   if (problems.length) throw new Error(problems.join("; "));
@@ -159,12 +177,93 @@ const variant = (note: string, team: Team, teams: TeamRow[], play: Play): AgentP
   play,
 });
 
+/// One Cloud state of the strip: the account's reply, and the steps that reach it (each returns the
+/// problems it found on the way, which the play reports with the chips').
+type State = { note: string; team: Team; teams: TeamRow[]; reach(ctx: PlayContext): Promise<string[]> };
+
+const STATES: Record<"personal-default" | "team-bypass" | "removed-team", State> = {
+  "personal-default": {
+    note: "Cloud picked in the person's own team, the default mode: the Cloud chip says only Cloud, it and the Mode chip show whole, and the Mode chip names a mode.",
+    team: { name: "Personal", personal: true },
+    teams: [{ id: PERSONAL_ID, name: "Personal", personal: true }],
+    async reach(ctx) {
+      await pickCloud(ctx);
+      return [];
+    },
+  },
+  "team-bypass": {
+    note: `Cloud picked in a shared team with a long name (“${LONG_TEAM}”), Bypass permissions picked from the Mode menu: the Cloud chip and the Environment menu's Cloud row say only Cloud and every chip shows whole.`,
+    team: { name: LONG_TEAM, personal: false },
+    teams: [
+      { id: PERSONAL_ID, name: "Personal", personal: true },
+      { id: "team_stack_leo", name: LONG_TEAM, personal: false },
+    ],
+    async reach(ctx) {
+      await pickCloud(ctx);
+      const refused = await pickBypass(ctx).then(
+        () => [],
+        (error: unknown) => [(error as Error).message],
+      );
+      return [...refused, ...(await cloudRowProblems(ctx))];
+    },
+  },
+  "removed-team": {
+    note: `The app's reply names an active team (“${LONG_TEAM}”) the account's team list no longer has, as a removal leaves it: nothing names it, and the Environment menu's Cloud row says only Cloud.`,
+    team: { name: LONG_TEAM, personal: false },
+    teams: [{ id: PERSONAL_ID, name: "Personal", personal: true }],
+    async reach(ctx) {
+      await pickCloud(ctx);
+      const named = [...ctx.document.querySelectorAll(".acpmux-team-tag")].filter((tag) =>
+        textOf(tag).includes(LONG_TEAM),
+      );
+      const removed = named.length
+        ? [
+            `the team tag names the removed team “${LONG_TEAM}” (${named.length} tag${named.length > 1 ? "s" : ""}); it is not in the account's team list`,
+          ]
+        : [];
+      return [...removed, ...(await cloudRowProblems(ctx))];
+    },
+  },
+};
+
+/// Each state at the stage's width and then 400 px (the original plays).
+const atStage = (state: State) =>
+  variant(state.note, state.team, state.teams, async (ctx) => assertChips(ctx, await state.reach(ctx)));
+
+/// Each state with the pane resized to one width and left there, so the stage shows the strip as it
+/// rests at that width: full (1100 px), the 760 px stage, and the 400 px a split leaves.
+const WIDTHS = { full: FULL, "760": WIDE_ENOUGH, "400": NARROW } as const;
+const atWidth = (name: string, state: State, label: keyof typeof WIDTHS) => {
+  const width = WIDTHS[label];
+  const shows = "no Environment chip, and every chip shows whole";
+  return variant(
+    `${name} at ${label === "full" ? "full width" : `${width} px`}: ${shows}.`,
+    state.team,
+    state.teams,
+    async (ctx) => {
+      const before = await state.reach(ctx);
+      if (ctx.document.defaultView!.innerWidth !== width) {
+        await ctx.resize(width);
+        await environmentSettled(ctx);
+      }
+      const problems = [...before, ...chipProblems(ctx.document)];
+      if (problems.length) throw new Error(problems.join("; "));
+    },
+  );
+};
+
+const widthVariants = Object.fromEntries(
+  Object.entries(STATES).flatMap(([name, state]) =>
+    (Object.keys(WIDTHS) as (keyof typeof WIDTHS)[]).map((label) => [`${name}-${label}`, atWidth(name, state, label)]),
+  ),
+);
+
 export default agentPaneEntry({
   id: "agent-pane.cloud-composer-chips",
   title: "Cloud composer chips",
   area: "Agent pane",
   height: 420,
-  widths: { narrow: 400, normal: 760, wide: 760 },
+  widths: { narrow: NARROW, normal: WIDE_ENOUGH, wide: FULL },
   anchors: [{ selector: STRIP }, { selector: ".acpmux-composer-box" }],
   covers: [
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
@@ -172,49 +271,22 @@ export default agentPaneEntry({
     "agent-session/acpmux/EnvironmentPicker.tsx",
     "agent-session/acpmux/cloudMachines.ts",
   ],
-  keywords: ["cloud", "composer", "chips", "truncation", "mode", "team", "bypass", "removed team"],
+  keywords: [
+    "cloud",
+    "composer",
+    "chips",
+    "truncation",
+    "mode",
+    "team",
+    "bypass",
+    "removed team",
+    "environment",
+    "narrow",
+  ],
   variants: {
-    "personal-default": variant(
-      "Cloud picked in the person's own team, the default mode: the Cloud chip says only Cloud, it and the Mode chip show whole, and the Mode chip names a mode.",
-      { name: "Personal", personal: true },
-      [{ id: PERSONAL_ID, name: "Personal", personal: true }],
-      async (ctx) => {
-        await pickCloud(ctx);
-        await assertChips(ctx);
-      },
-    ),
-    "team-bypass": variant(
-      `Cloud picked in a shared team with a long name (“${LONG_TEAM}”), Bypass permissions picked from the Mode menu: the Cloud chip and the Environment menu's Cloud row say only Cloud and every chip shows whole.`,
-      { name: LONG_TEAM, personal: false },
-      [
-        { id: PERSONAL_ID, name: "Personal", personal: true },
-        { id: "team_stack_leo", name: LONG_TEAM, personal: false },
-      ],
-      async (ctx) => {
-        await pickCloud(ctx);
-        const refused = await pickBypass(ctx).then(
-          () => [],
-          (error: unknown) => [(error as Error).message],
-        );
-        await assertChips(ctx, [...refused, ...(await cloudRowProblems(ctx))]);
-      },
-    ),
-    "removed-team": variant(
-      `The app's reply names an active team (“${LONG_TEAM}”) the account's team list no longer has, as a removal leaves it: nothing names it, and the Environment menu's Cloud row says only Cloud.`,
-      { name: LONG_TEAM, personal: false },
-      [{ id: PERSONAL_ID, name: "Personal", personal: true }],
-      async (ctx) => {
-        await pickCloud(ctx);
-        const named = [...ctx.document.querySelectorAll(".acpmux-team-tag")].filter((tag) =>
-          textOf(tag).includes(LONG_TEAM),
-        );
-        const removed = named.length
-          ? [
-              `the team tag names the removed team “${LONG_TEAM}” (${named.length} tag${named.length > 1 ? "s" : ""}); it is not in the account's team list`,
-            ]
-          : [];
-        await assertChips(ctx, [...removed, ...(await cloudRowProblems(ctx))]);
-      },
-    ),
+    "personal-default": atStage(STATES["personal-default"]),
+    "team-bypass": atStage(STATES["team-bypass"]),
+    "removed-team": atStage(STATES["removed-team"]),
+    ...widthVariants,
   },
 });

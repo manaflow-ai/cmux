@@ -13,14 +13,20 @@
 // and in each, once the pages settle:
 //   idle         the renderers' CPU (/proc/PID/stat utime+stime) over IDLE_S seconds of nothing, as % of one core;
 //   streaming    the same while the shown chat streams a turn of TPS chunks a second for STREAM_S seconds;
-//   renderer MB  the renderers' proportional set size (/proc/PID/smaps_rollup Pss) after a collection on every page.
+//   renderer MB  the renderers' proportional set size (/proc/PID/smaps_rollup Pss) after a collection on every page;
+//   heap MB      the JS heap those pages use then (Runtime.getHeapUsage), its ratios beside ratio_max, not in it.
 // Rows (PERF_ROW, chat_100k_flat.*): each value per launch, each long/empty ratio at x1 and xN, and ratio_max, the
 // worst of the ratios a run measured (long and grown, each over empty; CASES below): the goal's number (NOW benches
 // row chat_100k_flat_ratio_max, target 1.2, the worse of ratio_max and grown_many.ratio_max). A CPU ratio is
 // taken over a floor of CPU_FLOOR_PCT (default 1 % of a core) on both sides, so two near-idle readings are not a ratio
 // of noise. An xN ratio's empty side is the mean of two empty xN launches, one before the xN launches it is compared
 // with and one after (empty_xN_after; see the bracket below the launches).
-// HIDDEN=0 keeps every chat shown.
+// HIDDEN=0 keeps every chat shown; HIDDEN_FOCUS=1 lets the hidden chats keep their composer's focus (the fake hide
+// before cmux#45531). HEAP_SNAPSHOT=DIR writes each launch's V8 heap snapshots (the shown page, and in an xN launch a
+// hidden one) for DevTools. CASES=long runs only empty x1, long x1, empty xN and long xN.
+// TRACE=DIR (with WAKES=1 for the rAF sites) writes browser-wide Chrome traces of each xN launch's idle windows, of a
+// later idle window, and of one with every page's focus blurred, and prints what each renderer thread ran (idleTrace.ts):
+// the frames' owner and the thread pool's work (in long x20, V8's memory-reducer GC marking the bigger heap).
 // CASES=long-many runs only empty xN and long xN; with PROFILE it profiles every page of long xN. WAKES=1 also splits
 // each idle window's renderer CPU by thread, so a burst on V8's worker threads reads apart from steady idle, and
 // traces one hidden and the shown page of an xN launch. PROFILE=DIR writes CDP CPU profiles of the long x1 and grown x1 idle and streaming
@@ -49,9 +55,11 @@ import type { CDPSession, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { chromium } from "./browsers";
 import { newestPage } from "./daemonPage";
+import { idleTrace, startIdleTrace } from "./idleTrace";
 import { describePaintWindow, paintWindow, runningAnimations } from "./paintWindow";
 import { sourceMapper } from "./sourceMapper";
 import { perfRow } from "./perfRow";
+import { cpuTicks, pssMB, renderers, TICK_HZ } from "./procStats";
 import { settledAt } from "./stability";
 
 const ROWS = Number(process.argv[2] ?? 100_000);
@@ -61,6 +69,7 @@ const STREAM_S = Number(process.env.STREAM_S ?? 10);
 const TPS = Number(process.env.TPS ?? 30);
 const CPU_FLOOR_PCT = Number(process.env.CPU_FLOOR_PCT ?? 1);
 const HIDDEN = process.env.HIDDEN !== "0";
+const HIDDEN_FOCUS = process.env.HIDDEN_FOCUS === "1";
 const PROFILE = process.env.PROFILE;
 const GROW_BATCH = Number(process.env.GROW_BATCH ?? 400);
 const REPEAT = Math.max(1, Number(process.env.REPEAT ?? 3));
@@ -101,12 +110,14 @@ const SETTLE_MAX_S = Number(process.env.SETTLE_MAX_S ?? 180);
 const heapDropped = (before: number, after: number) => before - after > Math.max(0.02 * before, 2);
 // A grown-many run's rows carry their own prefix: the perf cron stores them from a part of their own.
 const ROW = CASES === "grown-many" ? "chat_100k_flat.grown_many" : "chat_100k_flat";
-if (!["all", "main", "grown-many", "running", "long-many"].includes(CASES)) {
-  console.error("chat-100k-flat: CASES is all, main, grown-many, running or long-many");
+if (!["all", "main", "grown-many", "running", "long", "long-many"].includes(CASES)) {
+  console.error("chat-100k-flat: CASES is all, main, grown-many, running, long or long-many");
   process.exit(2);
 }
 const GROW_OPEN = process.env.GROW_OPEN === "1";
+const HEAP_SNAPSHOT = process.env.HEAP_SNAPSHOT;
 const WAKES = process.env.WAKES === "1";
+const TRACE = process.env.TRACE;
 type Wakes = { timers: number; raf: number; posts: number; mutations: number };
 if (!Number.isInteger(ROWS) || ROWS < 2 || !Number.isInteger(CHATS) || CHATS < 2) {
   console.error("usage: bun bench/chat-100k-flat.bench.ts [rows=100000] [chats=20]");
@@ -117,7 +128,6 @@ if (process.platform !== "linux") {
   process.exit(2);
 }
 const webviews = path.resolve(import.meta.dir, "..");
-const TICK_HZ = 100; // USER_HZ, the unit of /proc/PID/stat utime and stime on Linux.
 
 type Rec = { sessionId: string; seq: number; at: number; dir: string; kind: string; msg: Record<string, unknown> };
 type Template = { events: Rec[]; session: Record<string, unknown>; turns: number };
@@ -131,54 +141,11 @@ const sessionId = (index: number) =>
 const rekey = <T>(value: T, id: string): T =>
   id === PAPERCUT_CHAT ? value : JSON.parse(JSON.stringify(value).replaceAll(PAPERCUT_CHAT, id));
 
-/// The renderer processes under `root` (a Chromium launch), by their command line.
-function renderers(root: number): number[] {
-  const children = new Map<number, number[]>();
-  for (const entry of fs.readdirSync("/proc")) {
-    if (!/^\d+$/.test(entry)) continue;
-    try {
-      const stat = fs.readFileSync(`/proc/${entry}/stat`, "utf8");
-      const parent = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
-      children.set(parent, [...(children.get(parent) ?? []), Number(entry)]);
-    } catch {
-      // Gone between the listing and the read.
-    }
-  }
-  const out: number[] = [];
-  const walk = (pid: number) => {
-    for (const child of children.get(pid) ?? []) {
-      try {
-        if (fs.readFileSync(`/proc/${child}/cmdline`, "utf8").includes("--type=renderer")) out.push(child);
-      } catch {
-        // Gone.
-      }
-      walk(child);
-    }
-  };
-  walk(root);
-  return out;
-}
-/// utime + stime of `pids` in clock ticks (a process gone since the listing counts nothing).
-function cpuTicks(pids: number[]): number {
-  let ticks = 0;
-  for (const pid of pids) {
-    try {
-      const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-      const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-      ticks += Number(fields[11]) + Number(fields[12]);
-    } catch {
-      // Gone.
-    }
-  }
-  return ticks;
-}
 const median = (values: number[]) => {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
 };
-const pssMB = (pid: number) =>
-  Number(/^Pss:\s+(\d+) kB/m.exec(fs.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8"))?.[1] ?? 0) / 1024;
 
 type CpuProfile = {
   nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number } }[];
@@ -243,6 +210,7 @@ type Launch = {
   idlePct: number;
   streamPct: number;
   mb: number;
+  heapMb: number;
   renderers: number;
   settleS: number;
   capped: boolean;
@@ -314,7 +282,9 @@ try {
       const extra = streamed.get(id);
       return extra?.length ? [...chat.events, ...extra] : chat.events;
     };
-    const lastSeqOf = (id: string) => recordsOf(id).at(-1)?.seq ?? 0;
+    // Read from the newest record, never from a copy of the chat: emit calls it once a record, and a copy a call made
+    // growing a chat by n records cost O(n^2) (200k records a grown chat, about 2 min of the bench's own CPU each).
+    const lastSeqOf = (id: string) => (streamed.get(id)?.at(-1) ?? chat.events.at(-1))?.seq ?? 0;
     const summaryOf = (id: string) => {
       const session = sessions.find((s) => s.sessionId === id) ?? sessions[0]!;
       return { ...session, lastSeq: lastSeqOf(id) };
@@ -423,11 +393,21 @@ try {
           (timeout as Callback)(counted(fn), ...rest)) as typeof setTimeout;
         globalThis.setInterval = ((fn: unknown, ...rest: unknown[]) =>
           (interval as Callback)(counted(fn), ...rest)) as typeof setInterval;
-        globalThis.requestAnimationFrame = (fn: FrameRequestCallback) =>
-          frame((time) => {
+        const sites = new Map<string, number>();
+        (globalThis as unknown as { __benchRafSites: typeof sites }).__benchRafSites = sites;
+        globalThis.requestAnimationFrame = (fn: FrameRequestCallback) => {
+          const site =
+            new Error().stack
+              ?.split("\n")
+              .slice(2, 5)
+              .map((line) => line.trim())
+              .join(" < ") ?? "?";
+          return frame((time) => {
             wakes.raf += 1;
+            sites.set(site, (sites.get(site) ?? 0) + 1);
             fn(time);
           });
+        };
         MessagePort.prototype.postMessage = function (this: MessagePort, ...args: unknown[]) {
           wakes.posts += 1;
           return (post as Callback).apply(this, args) as void;
@@ -439,7 +419,7 @@ try {
     try {
       const origin = `http://127.0.0.1:${statics.port}`;
       const urlFor = (index: number) =>
-        `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${sessionId(index)}`;
+        `${origin}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${sessionId(index)}`;
       const firstText = `Answer ${chat.turns}:`;
       const pages: { page: Page; cdp: CDPSession }[] = [];
       for (let index = 0; index < count; index++) {
@@ -623,16 +603,20 @@ try {
       // idle windows (run 44055105953: 20 empty chats' idle windows read 10.3/4.0/1.9 % and 7.2/5.2/3.2 % after the
       // hide, with flat 2-4 % settle samples before it and no heap drop in them).
       if (HIDDEN) {
-        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app. Only the
-        // document's state is faked: Chromium still draws these pages (40 main frames a second each, in the trace
-        // WAKES=1 takes), which the app's hidden pages do not. Minimizing each page's window does not hide it in
-        // headless Chromium (tried: 0 of 19 turned hidden), so the hidden pages' frame cost is still unmeasured here.
+        // A chat tab that is not shown: its document turns hidden, as CEF's WasHidden makes it in the app, and it
+        // loses focus, as a tab switched away from does. Headless Chromium emulates focus for every page, so each
+        // chat's composer kept the caret and blinked it: a main frame each blink (~2 a second a page, 0 paints;
+        // every page's in one renderer, the 40 a second the browser-wide traces read). Blurring the field stops it
+        // (TRACE=DIR, run 44093806454: 40 to 0 main frames a second). Only the document's state is faked: Chromium
+        // would still draw a hidden page that asked; minimizing a page's window does not hide it in headless Chromium
+        // (tried: 0 of 19 turned hidden). HIDDEN_FOCUS=1 keeps the old fake (the hidden pages keep their focus).
         for (const { page } of pages.slice(0, -1))
-          await page.evaluate(() => {
+          await page.evaluate((blur) => {
             Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
             Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
             document.dispatchEvent(new Event("visibilitychange"));
-          });
+            if (blur) (document.activeElement as HTMLElement | null)?.blur?.();
+          }, !HIDDEN_FOCUS);
       }
       // The pages' own settling (read-ahead, fonts, the first paints, after a burst its drain, and V8's collections after
       // it) is not idle: it is timed from the pages' final state (every record in, the hidden pages hidden) to the
@@ -762,6 +746,9 @@ try {
         return total;
       };
       const idleWakes: (Wakes & { switches: number })[] = [];
+      // TRACE=DIR: one browser-wide trace over every idle window, so a burst on the thread pool is named.
+      const windowsCdp = TRACE ? await browser.newBrowserCDPSession() : undefined;
+      const stopWindowsTrace = windowsCdp ? await startIdleTrace(windowsCdp) : undefined;
       let idleGcWindows = 0;
       for (let round = 0; round < REPEAT; round++) {
         // A launch of many chats profiles every page (the hidden ones too), and names the sites that ran by their
@@ -820,6 +807,12 @@ try {
       }
       // WAKES=1 in a launch of many chats: what each page draws while idle (a hidden one and the shown one traced),
       // and every page's running animations, so work a hidden or off-screen page still does is named.
+      if (stopWindowsTrace) {
+        fs.mkdirSync(TRACE!, { recursive: true });
+        console.log(`  ${name}: browser-wide trace of the idle windows`);
+        console.log(await stopWindowsTrace(path.join(TRACE!, `${name}-windows.json.gz`)));
+        await windowsCdp!.detach();
+      }
       if (WAKES && count > 1) {
         for (const [index, { page }] of pages.entries()) {
           const running = await runningAnimations(page);
@@ -837,6 +830,58 @@ try {
           const traced = await paintWindow(page, cdp, IDLE_S, sources);
           console.log(describePaintWindow(`${name} page ${index} idle`, traced));
         }
+      }
+      if (TRACE) {
+        // TRACE=DIR: what each page's frames come from (the rAF sites the init script saw, through the build's maps),
+        // a control page of plain text in the same browser, and one browser-wide trace of IDLE_S idle.
+        if (WAKES)
+          for (const index of [0, count - 1]) {
+            const sites = await pages[index]!.page.evaluate(() => {
+              const map = (globalThis as unknown as { __benchRafSites?: Map<string, number> }).__benchRafSites;
+              const out = map ? [...map] : [];
+              map?.clear();
+              return out;
+            });
+            const mapSite = (site: string) =>
+              sources
+                ? site.replace(
+                    /(?:https?:\/\/[^\s)]*\/)?assets\/([^\s/:)]+\.js):(\d+):(\d+)/g,
+                    (_, file: string, line: string, column: string) =>
+                      sources(file, Number(line) - 1, Number(column) - 1),
+                  )
+                : site;
+            for (const [site, n] of sites.sort((a, b) => b[1] - a[1]).slice(0, 6))
+              console.log(`  ${name}: page ${index} rAF since load x${n} from ${mapSite(site)}`);
+          }
+        const control = await context.newPage();
+        await control.goto("data:text/html,<p>control</p>");
+        const controlCdp = await context.newCDPSession(control);
+        console.log(describePaintWindow(`${name} control page idle`, await paintWindow(control, controlCdp, IDLE_S)));
+        await control.close();
+        fs.mkdirSync(TRACE, { recursive: true });
+        const browserCdp = await browser.newBrowserCDPSession();
+        console.log(`  ${name}: browser-wide idle trace`);
+        console.log(await idleTrace(browserCdp, IDLE_S, path.join(TRACE, `${name}-idle.json.gz`)));
+        // What has focus on each page: a focused editable blinks its caret, a frame each blink.
+        const focus = new Map<string, number>();
+        for (const { page } of pages) {
+          const what = await page.evaluate(() => {
+            const active = document.activeElement;
+            const label = active
+              ? `${active.tagName.toLowerCase()}${typeof active.className === "string" && active.className ? `.${active.className.trim().split(/\s+/).slice(0, 3).join(".")}` : ""}`
+              : "none";
+            return `${label}${(active as HTMLElement | null)?.isContentEditable ? " (editable)" : ""}; hasFocus ${document.hasFocus()}`;
+          });
+          focus.set(what, (focus.get(what) ?? 0) + 1);
+        }
+        for (const [what, n] of focus) console.log(`  ${name}: focus on ${n} page(s): ${what}`);
+        for (const { page } of pages)
+          await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+        // fixed-wait: the blurred fields stop their carets.
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        console.log(`  ${name}: browser-wide idle trace, every page's focus blurred`);
+        console.log(await idleTrace(browserCdp, IDLE_S, path.join(TRACE, `${name}-blurred.json.gz`)));
+        await browserCdp.detach();
       }
       const idlePct = median(idleWindows);
       for (const [round, wakes] of idleWakes.entries())
@@ -974,6 +1019,33 @@ try {
       await new Promise((resolve) => setTimeout(resolve, 1500));
       const pids = renderers(root);
       const mb = pids.reduce((sum, pid) => sum + pssMB(pid), 0);
+      // heap MB: the JS heap the pages' one renderer uses after that collection (cmux-page's pages share an isolate,
+      // so the shown page's reading is every page's), and its DOM.
+      const shownPage = pages.at(-1)!;
+      const { usedSize } = (await shownPage.cdp.send("Runtime.getHeapUsage")) as { usedSize: number };
+      const heapMb = usedSize / 1048576;
+      const elements = await shownPage.page.evaluate(() => document.getElementsByTagName("*").length);
+      console.log(`  ${name}: JS heap ${heapMb.toFixed(1)} MB; shown page ${elements} elements`);
+      if (HEAP_SNAPSHOT) {
+        // HEAP_SNAPSHOT=DIR: the first page's (hidden in an xN launch) and the shown page's V8 heap, for DevTools.
+        fs.mkdirSync(HEAP_SNAPSHOT, { recursive: true });
+        const which =
+          count > 1
+            ? ([
+                ["hidden", pages[0]!],
+                ["shown", shownPage],
+              ] as const)
+            : ([["shown", shownPage]] as const);
+        for (const [label, { cdp }] of which) {
+          await cdp.send("HeapProfiler.enable");
+          const chunks: string[] = [];
+          const onChunk = (event: { chunk: string }) => chunks.push(event.chunk);
+          cdp.on("HeapProfiler.addHeapSnapshotChunk", onChunk);
+          await cdp.send("HeapProfiler.takeHeapSnapshot", { reportProgress: false } as never);
+          cdp.off("HeapProfiler.addHeapSnapshotChunk", onChunk);
+          fs.writeFileSync(path.join(HEAP_SNAPSHOT, `${name}-${label}.heapsnapshot`), chunks.join(""));
+        }
+      }
       if (count === 1 && RESIZE) {
         const { page, cdp } = pages[0]!;
         await cdp.send("Performance.enable", { timeDomain: "threadTicks" });
@@ -1005,7 +1077,7 @@ try {
             `resize cpu ms ${resizeCpuMs.map((v) => v.toFixed(0)).join(", ")} (median ${median(resizeCpuMs).toFixed(0)})`,
         );
       }
-      const row: Launch = { name, idlePct, streamPct, mb, renderers: pids.length, settleS: settledS, capped };
+      const row: Launch = { name, idlePct, streamPct, mb, heapMb, renderers: pids.length, settleS: settledS, capped };
       perfRow({ name: `${ROW}.${name}.cpu_settle_s`, p50: settledS, p95: settledS, unit: "s" });
       perfRow({ name: `${ROW}.${name}.cpu_settle_capped`, p50: Number(capped), p95: Number(capped), unit: "count" });
       perfRow({ name: `${ROW}.${name}.settle_spike_cpu_s`, p50: spikeCpuS, p95: spikeCpuS, unit: "s", clock: "cpu" });
@@ -1020,6 +1092,7 @@ try {
         clock: "cpu",
       });
       perfRow({ name: `${ROW}.${name}.renderer_mb`, p50: mb, p95: mb, unit: "MB" });
+      perfRow({ name: `${ROW}.${name}.heap_mb`, p50: heapMb, p95: heapMb, unit: "MB" });
       return row;
     } finally {
       await context.close().catch(() => undefined);
@@ -1037,17 +1110,22 @@ try {
     const emptyOne = await runLaunch("empty_x1", small, 1);
     if (CASES !== "running") {
       const longOne = await runLaunch("long_x1", long, 1, { profile: PROFILE, match: emptyOne });
-      const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns, match: emptyOne });
-      pairs.push(["long_x1", longOne, emptyOne], ["grown_x1", grownOne, emptyOne]);
+      pairs.push(["long_x1", longOne, emptyOne]);
+      if (CASES !== "long") {
+        const grownOne = await runLaunch("grown_x1", small, 1, { profile: PROFILE, grow: long.turns, match: emptyOne });
+        pairs.push(["grown_x1", grownOne, emptyOne]);
+      }
     }
     // Running: one chat whose single open turn takes about ROWS records live (a chunk, a tool call and its update per
     // step), the coordinator chat that never finishes its turn.
-    const runningOne = await runLaunch("running_x1", small, 1, {
-      profile: PROFILE,
-      runGrow: Math.ceil(ROWS / 3),
-      match: emptyOne,
-    });
-    pairs.push(["running_x1", runningOne, emptyOne]);
+    if (CASES !== "long") {
+      const runningOne = await runLaunch("running_x1", small, 1, {
+        profile: PROFILE,
+        runGrow: Math.ceil(ROWS / 3),
+        match: emptyOne,
+      });
+      pairs.push(["running_x1", runningOne, emptyOne]);
+    }
   }
   // The xN baseline brackets the launches it is compared with: empty xN runs before them and again after
   // (empty_xN_after), and each xN ratio is taken over the two launches' mean. One empty xN launch's steady idle moved
@@ -1064,7 +1142,7 @@ try {
       `long_x${CHATS}`,
       await runLaunch(`long_x${CHATS}`, long, CHATS, { profile: PROFILE, match: emptyMany }),
     ]);
-  if (emptyMany && CASES !== "main" && CASES !== "long-many")
+  if (emptyMany && CASES !== "main" && CASES !== "long" && CASES !== "long-many")
     many.push([
       `grown_x${CHATS}`,
       await runLaunch(`grown_x${CHATS}`, small, CHATS, { grow: long.turns, match: emptyMany }),
@@ -1077,6 +1155,7 @@ try {
       idlePct: mean(emptyMany.idlePct, after.idlePct),
       streamPct: mean(emptyMany.streamPct, after.streamPct),
       mb: mean(emptyMany.mb, after.mb),
+      heapMb: mean(emptyMany.heapMb, after.heapMb),
       renderers: emptyMany.renderers,
       settleS: Math.max(emptyMany.settleS, after.settleS),
       capped: emptyMany.capped || after.capped,
@@ -1096,6 +1175,12 @@ try {
   for (const [name, value] of ratios) {
     console.log(`chat-100k-flat: ${name} ${value.toFixed(2)}x`);
     perfRow({ name: `${ROW}.${name}`, p50: value, p95: value, unit: "x", target: 1.2, floor: 0.05 });
+  }
+  // The JS heap's long/empty ratios: where a renderer MB ratio comes from, read beside ratio_max, never in it.
+  for (const [label, big, base] of pairs) {
+    const value = big.heapMb / base.heapMb;
+    console.log(`chat-100k-flat: ${label}.heap_mb_ratio ${value.toFixed(2)}x`);
+    perfRow({ name: `${ROW}.${label}.heap_mb_ratio`, p50: value, p95: value, unit: "x" });
   }
   const [worst, max] = ratios.reduce((a, b) => (b[1] > a[1] ? b : a));
   console.log(`chat-100k-flat: worst ratio ${max.toFixed(2)}x (${worst}); target 1.2x`);

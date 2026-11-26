@@ -77,13 +77,13 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
     },
     {
       // A failure's line under the default background-turn-look (inline): its rows already draw under
-      // it, so it opens nothing and is no button, like "Subagent finished" with no report.
-      name: "background reaction line (opens nothing)",
+      // it, and since #48648 the line opens to the task that ran ("background tasks not expandable ...
+      // why shouldn't they get the same treatment?", Leo, 2026-11-21): a button, lit as a tool row is.
+      name: "background reaction line (opens its task)",
       entry: "agent-pane.background-reactions",
-      line: "div.cv-background-turn",
+      line: 'button.cv-background-turn[data-opens="task"]',
       words: ".cv-agent-activity__sentence",
       glyph: ".cv-agent-activity__icon",
-      lights: false,
     },
     {
       name: "Subagent finished, no report (only its name chip opens)",
@@ -118,8 +118,9 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       words: ".cv-notice__lead",
     },
     {
-      name: "Background command completed",
-      entry: "agent-pane.turn-after-subagent",
+      name: "Background task completion",
+      entry: "agent-pane.lone-system-rows",
+      variant: "background-task",
       line: "button.cv-tool.cv-bgtask.is-toggle",
       words: ".cv-tool__text",
       glyph: ".cv-tool__icon",

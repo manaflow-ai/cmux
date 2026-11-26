@@ -390,13 +390,46 @@
           }
         },
         {
+          "key": "sidebar.nav",
+          "note": "The nav block a look puts at the top of the sidebar: plain icon and label rows that run cmux actions. Rust validates it (cmux-layout-reducer sidebar_nav.rs); empty draws no block.",
+          "title": {
+            "key": "settings.sidebar.nav",
+            "text": "Sidebar Nav Rows"
+          },
+          "help": {
+            "key": "settings.sidebar.nav.help",
+            "text": "Rows at the top of the sidebar that run cmux actions, by action id, optionally \"id | Title | symbol\". Empty shows none."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "sidebar",
+            "nav",
+            "navigation",
+            "actions",
+            "new chat",
+            "search",
+            "pull requests",
+            "look"
+          ],
+          "page_hidden": "action ids; cmux.json, setups and theme files only",
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.showSpaces",
           "title": {
             "key": "settings.sidebar.showSpaces",
             "text": "Show Spaces"
           },
+          "help": {
+            "key": "settings.sidebar.showSpaces.help",
+            "text": "Spaces show once you have more than one. New Space is in the command palette."
+          },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "spaces",
@@ -444,7 +477,7 @@
             "text": "A search button after the profile button. Off: search from the palette."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "search",
@@ -454,6 +487,62 @@
             "footer",
             "hide",
             "show"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.showLiveToggle",
+          "note": "Off by default (Lawrence 2026-11-25: \"get rid of it by default... keep things as minimal as possible\"; Leo 2026-11-24 first asked for an icon \"somewhere omnipresent\"). Off hides the footer's Live button only; presence.live and the Live palette action stay.",
+          "title": {
+            "key": "settings.sidebar.showLiveToggle",
+            "text": "Show Live Button"
+          },
+          "help": {
+            "key": "settings.sidebar.showLiveToggle.help",
+            "text": "A Live button after the profile button turns presence on or off. Off: use the palette."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "live",
+            "presence",
+            "online",
+            "teammates",
+            "footer",
+            "hide",
+            "show"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "presence.live",
+          "name": "presenceLive",
+          "note": "Off by default (RFD 0141: Live is opt-in, nothing about a person leaves their machine until they turn it on). On: this Mac publishes its presence and the footer's Live button is accent-filled; off it is dimmed. The daemon reads the same key from cmux.json.",
+          "title": {
+            "key": "settings.presence.live",
+            "text": "Live Presence"
+          },
+          "help": {
+            "key": "settings.presence.live.help",
+            "text": "Show teammates and agents who are live, and let them see you. Off: you appear offline."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "live",
+            "presence",
+            "online",
+            "teammates",
+            "agents",
+            "status",
+            "sync"
           ],
           "swift_owner": {
             "type": "SidebarSectionsSetting",
@@ -686,6 +775,62 @@
           }
         },
         {
+          "key": "sidebar.look",
+          "name": "sidebarLook",
+          "title": {
+            "key": "settings.sidebar.look",
+            "text": "Sidebar Look"
+          },
+          "help": {
+            "key": "settings.sidebar.look.help",
+            "text": "Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "cmux",
+              "title": {
+                "key": "settings.choice.sidebarLookCmux",
+                "text": "cmux"
+              }
+            },
+            {
+              "value": "claude",
+              "title": {
+                "key": "settings.choice.sidebarLookClaude",
+                "text": "Claude"
+              }
+            },
+            {
+              "value": "codex",
+              "title": {
+                "key": "settings.choice.sidebarLookCodex",
+                "text": "Codex"
+              }
+            },
+            {
+              "value": "studio",
+              "title": {
+                "key": "settings.choice.sidebarLookStudio",
+                "text": "Studio"
+              }
+            }
+          ],
+          "default": "cmux",
+          "keywords": [
+            "sidebar",
+            "look",
+            "preset",
+            "style",
+            "claude",
+            "codex",
+            "studio",
+            "like",
+            "app"
+          ],
+          "swift_owner": "SidebarLookPreset"
+        },
+        {
           "key": "sidebar.style",
           "title": {
             "key": "settings.sidebar.style",
@@ -735,6 +880,28 @@
             "type": "SidebarSectionsSetting",
             "prefixed": true
           }
+        },
+        {
+          "key": "sidebar.drawnMenus",
+          "note": "On: the sidebar's right-click and more-button menus open as cmux-drawn menus (GlassMenu) with the same rows, shortcuts, submenus and keys, so the menu look (appearance.menu.*) styles them; off (the default) keeps the system menu, which cannot be restyled. A look pack or a theme file turns it on; it applies to the next menu opened.",
+          "title": {
+            "key": "settings.sidebar.drawnMenus",
+            "text": "Styled Sidebar Menus"
+          },
+          "help": {
+            "key": "settings.sidebar.drawnMenus.help",
+            "text": "Right-click and more-button menus in the sidebar follow the menu look instead of the system menu."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "menu",
+            "context menu",
+            "right click",
+            "look",
+            "style"
+          ],
+          "swift_owner": "SidebarDrawnMenusSetting"
         },
         {
           "key": "sidebar.density",
@@ -908,6 +1075,99 @@
             "last activity",
             "clock",
             "rows"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.settleFinished",
+          "note": "Seen, finished agent chats fold behind a Settled (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer settle). Off by default; the Studio look turns it on.",
+          "title": {
+            "key": "settings.sidebar.settleFinished",
+            "text": "Settle Finished Chats"
+          },
+          "help": {
+            "key": "settings.sidebar.settleFinished.help",
+            "text": "A chat whose answer you have read folds into Settled at the end of its list until its next turn."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "settle",
+            "settled",
+            "finished",
+            "done",
+            "read",
+            "seen",
+            "fold",
+            "chats",
+            "threads",
+            "tidy"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.showAgentSessions",
+          "note": "Leo 2026-11-25 about the nested helper sessions: \"idk who asked for those in teh sidebar. it's weird\". Off by default: a workspace whose session another session's agent started (acpmux spawnedBy, a peer daemon's parents, AgentSessionParents) draws no row, except one waiting on the person (a permission or a question) and the selected one, which draw under their parents (SidebarSessionTreeState.hidesStarted). On nests them under their parents (the lineage nesting that was Debug's sidebar.lineageNesting).",
+          "title": {
+            "key": "settings.sidebar.showAgentSessions",
+            "text": "Show Sessions Started by Agents"
+          },
+          "help": {
+            "key": "settings.sidebar.showAgentSessions.help",
+            "text": "Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "agent",
+            "agents",
+            "subagent",
+            "helper",
+            "started",
+            "nested",
+            "tree",
+            "hidden",
+            "hide",
+            "sessions"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.showAutomaticSessions",
+          "note": "Sessions no person started and no chat's subagent (the daemon recorded created_by kind script at the create: a script, an automation, a launcher) fold behind an Automatic (N) row at the end of their list (SidebarLayout+DoneFold); the rule is Rust's (cmux-layout-reducer automatic). Off by default: they fold; on draws them in place.",
+          "title": {
+            "key": "settings.sidebar.showAutomaticSessions",
+            "text": "Show Automatic Sessions"
+          },
+          "help": {
+            "key": "settings.sidebar.showAutomaticSessions.help",
+            "text": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "automatic",
+            "auto",
+            "script",
+            "automation",
+            "background",
+            "hidden",
+            "hide",
+            "fold",
+            "sessions",
+            "tidy"
           ],
           "swift_owner": {
             "type": "SidebarSectionsSetting",
@@ -1094,10 +1354,17 @@
           },
           "help": {
             "key": "settings.sidebar.groupHeader.background.help",
-            "text": "How a group's background draws. Sections shows plain headings instead."
+            "text": "How a group draws. Folders shows plain folders; Sections shows plain headings."
           },
           "kind": "choice",
           "choices": [
+            {
+              "value": "folder",
+              "title": {
+                "key": "settings.choice.groupBackgroundFolder",
+                "text": "Folders"
+              }
+            },
             {
               "value": "auto",
               "title": {
@@ -1125,6 +1392,27 @@
                 "key": "settings.choice.groupBackgroundSections",
                 "text": "Sections"
               }
+            },
+            {
+              "value": "chip",
+              "title": {
+                "key": "settings.choice.groupBackgroundChip",
+                "text": "Chips"
+              }
+            },
+            {
+              "value": "tree",
+              "title": {
+                "key": "settings.choice.groupBackgroundTree",
+                "text": "Tree"
+              }
+            },
+            {
+              "value": "card",
+              "title": {
+                "key": "settings.choice.groupBackgroundCard",
+                "text": "Cards"
+              }
             }
           ],
           "default": "auto",
@@ -1143,7 +1431,14 @@
             "sections",
             "section",
             "heading",
-            "plain"
+            "plain",
+            "chip",
+            "chromium",
+            "rail",
+            "tree",
+            "guide",
+            "card",
+            "cards"
           ],
           "swift_enum": {
             "name": "SidebarGroupBackgroundStyle",
@@ -1387,7 +1682,7 @@
             "text": "A daily tip about a feature you haven't used"
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "sidebar",
             "tips",
@@ -1505,6 +1800,42 @@
             "type": "ChromePlacementSetting",
             "prefixed": true
           }
+        },
+        {
+          "key": "appearance.metrics.spaceButtonSpacing",
+          "title": {
+            "key": "settings.sidebar.spaceButtonSpacing",
+            "text": "Space Button Spacing"
+          },
+          "help": {
+            "key": "settings.sidebar.spaceButtonSpacing.help",
+            "text": "Distance between the centers of neighboring Space buttons. The density default fits them to the sidebar."
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 18,
+            "max": 48,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 24
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "spaces",
+            "dots",
+            "buttons",
+            "gap",
+            "spacing"
+          ]
         },
         {
           "key": "sidebar.spacesPosition",
@@ -1816,6 +2147,56 @@
           ],
           "swift_owner": {
             "type": "SidebarNavigationSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.sections.hidden",
+          "name": "sectionsHidden",
+          "note": "Sidebar sections to leave out, by section id or stable key (cmux-layout-reducer sidebar_section_customization.rs plans the projection; SidebarProjectionCustomizationResolver reads it; docs/cmux-next/sidebar-customization.md).",
+          "title": {
+            "key": "settings.sidebar.sections.hidden",
+            "text": "Hidden Sections"
+          },
+          "help": {
+            "key": "settings.sidebar.sections.hidden.help",
+            "text": "Sidebar sections to hide, by id. The section of the selected workspace always shows."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "sidebar",
+            "section",
+            "hide",
+            "hidden"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionIDsSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.sections.order",
+          "name": "sectionsOrder",
+          "note": "Sidebar sections first in their region (top, middle, bottom), by section id or stable key; never across regions (sidebar_section_customization.rs).",
+          "title": {
+            "key": "settings.sidebar.sections.order",
+            "text": "Section Order"
+          },
+          "help": {
+            "key": "settings.sidebar.sections.order.help",
+            "text": "Sidebar sections to show first in their part of the sidebar, in this order, by id."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "sidebar",
+            "section",
+            "order",
+            "sort"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionIDsSetting",
             "prefixed": true
           }
         }
@@ -2194,6 +2575,258 @@
             "order",
             "subtitle"
           ],
+          "swift_owner": {
+            "type": "WorkspaceRowSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.workspaceRow.statusPlacement",
+          "title": {
+            "key": "settings.workspaceRow.statusPlacement",
+            "text": "Status Position"
+          },
+          "help": {
+            "key": "settings.workspaceRow.statusPlacement.help",
+            "text": "Where the row's status mark draws: at the row's end, or before the name in the icon's place."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "WorkspaceRowStatusPlacement",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "choices": [
+            {
+              "value": "trailing",
+              "title": {
+                "key": "settings.workspaceRow.statusPlacement.trailing",
+                "text": "At the End"
+              }
+            },
+            {
+              "value": "leading",
+              "title": {
+                "key": "settings.workspaceRow.statusPlacement.leading",
+                "text": "Before the Name"
+              }
+            }
+          ],
+          "default": "trailing",
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "status",
+            "spinner",
+            "leading",
+            "left",
+            "position"
+          ],
+          "swift_owner": {
+            "type": "WorkspaceRowSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.workspaceRow.lines",
+          "title": {
+            "key": "settings.workspaceRow.lines",
+            "text": "Row Layout"
+          },
+          "help": {
+            "key": "settings.workspaceRow.lines.help",
+            "text": "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line."
+          },
+          "kind": "json",
+          "shape": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "icon",
+                  "name",
+                  "working",
+                  "progress",
+                  "notification",
+                  "directory",
+                  "branch",
+                  "process",
+                  "agentStatus",
+                  "tabCount",
+                  "ports",
+                  "lastActivity",
+                  "pullRequest",
+                  "log"
+                ]
+              }
+            }
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.workspaceRow.lines.default",
+            "text": "Item switches"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "layout",
+            "lines",
+            "customize",
+            "tokens"
+          ],
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
+          "swift_owner": {
+            "type": "WorkspaceRowSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.workspaceRow.linesByKind",
+          "title": {
+            "key": "settings.workspaceRow.linesByKind",
+            "text": "Row Layout by Kind"
+          },
+          "help": {
+            "key": "settings.workspaceRow.linesByKind.help",
+            "text": "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout."
+          },
+          "kind": "json",
+          "shape": {
+            "type": "object",
+            "propertyNames": {
+              "enum": [
+                "terminal",
+                "agent",
+                "browser",
+                "mixed"
+              ]
+            },
+            "additionalProperties": {
+              "type": "array",
+              "maxItems": 3,
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "icon",
+                    "name",
+                    "working",
+                    "progress",
+                    "notification",
+                    "directory",
+                    "branch",
+                    "process",
+                    "agentStatus",
+                    "tabCount",
+                    "ports",
+                    "lastActivity",
+                    "pullRequest",
+                    "log"
+                  ]
+                }
+              }
+            }
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.workspaceRow.lines.default",
+            "text": "Item switches"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "layout",
+            "lines",
+            "customize",
+            "tokens",
+            "kind",
+            "terminal",
+            "agent",
+            "browser"
+          ],
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
+          "swift_owner": {
+            "type": "WorkspaceRowSetting",
+            "prefixed": true
+          }
+        },
+        {
+          "key": "sidebar.workspaceRow.linesByAgent",
+          "title": {
+            "key": "settings.workspaceRow.linesByAgent",
+            "text": "Row Layout by Agent"
+          },
+          "help": {
+            "key": "settings.workspaceRow.linesByAgent.help",
+            "text": "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts."
+          },
+          "kind": "json",
+          "shape": {
+            "type": "object",
+            "maxProperties": 32,
+            "propertyNames": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "additionalProperties": {
+              "type": "array",
+              "maxItems": 3,
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "icon",
+                    "name",
+                    "working",
+                    "progress",
+                    "notification",
+                    "directory",
+                    "branch",
+                    "process",
+                    "agentStatus",
+                    "tabCount",
+                    "ports",
+                    "lastActivity",
+                    "pullRequest",
+                    "log"
+                  ]
+                }
+              }
+            }
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.workspaceRow.lines.default",
+            "text": "Item switches"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "layout",
+            "lines",
+            "customize",
+            "tokens",
+            "agent",
+            "claude",
+            "codex"
+          ],
+          "palette_hidden": "the Sidebar page's row layout editor edits it (CMUX-383): the palette has no nested-JSON value page",
           "swift_owner": {
             "type": "WorkspaceRowSetting",
             "prefixed": true

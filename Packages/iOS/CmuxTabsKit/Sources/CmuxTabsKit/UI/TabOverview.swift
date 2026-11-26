@@ -45,10 +45,32 @@ struct CardCloseGlyph: View {
     }
 }
 
+/// A title row's icon: the tab's own picture (a favicon) at the symbol's size, else the
+/// symbol. Never empty: a tab with no picture yet keeps its symbol.
+struct TabGlyph: View {
+    var icon: UIImage?
+    var systemImage: String
+    /// The symbol's point size; a picture is drawn two points larger, the symbol's box.
+    var size: CGFloat
+    var tint: Color
+
+    var body: some View {
+        if let icon {
+            // Fit, never stretch: a favicon need not be square (HIG, Images).
+            Image(uiImage: icon).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                .frame(width: size + 2, height: size + 2)
+                .clipShape(.rect(cornerRadius: (size + 2) * 0.22, style: .continuous))
+        } else {
+            Image(systemName: systemImage).font(.system(size: size)).foregroundStyle(tint)
+        }
+    }
+}
+
 /// One tab card: the card content with rounded corners, close button, title row.
 struct TabCard<Content: View>: View {
     var title: String
     var systemImage: String
+    var icon: UIImage?
     var pageSize: CGSize
     var width: CGFloat
     var height: CGFloat
@@ -61,6 +83,8 @@ struct TabCard<Content: View>: View {
     /// The zoom draws this card's content and close button; its title row
     /// stays here and fades in with the others.
     var contentHidden = false
+    /// What the content shows that the title does not (`cardAccessibilityValue(for:)`).
+    var accessibilityValue: String?
     var onOpen: () -> Void = {}
     var onClose: () -> Void
     @ViewBuilder var content: Content
@@ -83,8 +107,7 @@ struct TabCard<Content: View>: View {
                 .background { CardShadow(radius: radius) }
                 .opacity(contentHidden ? 0 : 1)
             HStack(spacing: 6) {
-                Image(systemName: systemImage).font(.system(size: 14))
-                    .foregroundStyle(theme.colors.secondaryLabel)
+                TabGlyph(icon: icon, systemImage: systemImage, size: 14, tint: theme.colors.secondaryLabel)
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(theme.colors.label)
@@ -92,6 +115,8 @@ struct TabCard<Content: View>: View {
                     .truncationMode(.tail)
             }
             .frame(width: width, height: m.titleRow)
+            // A title never draws past its own card into a neighbour's.
+            .clipped()
             .padding(.top, 2)
             .offset(y: titleOffset)
             .opacity(titleOpacity)
@@ -101,6 +126,7 @@ struct TabCard<Content: View>: View {
         // Open and Close actions (no nested images or buttons).
         .accessibilityRepresentation {
             Button("\(title), tab", action: onOpen)
+                .accessibilityValue(accessibilityValue ?? "")
                 .accessibilityAction(named: "Open", onOpen)
                 .accessibilityAction(named: "Close", onClose)
         }
@@ -178,6 +204,8 @@ struct TabOverview<Source: TabsDataSource>: View {
     /// The grid is at rest (no zoom running): cards off screen are built
     /// ahead only then, so the zoom's frames build nothing but what it shows.
     var isSettled = true
+    /// The settle animation's scale and blur (`TabTransitionVariant`).
+    var transition: TabTransitionVariant = .safari
 
     var body: some View {
         let tabs = source.tabs
@@ -254,8 +282,8 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
-            .scaleEffect(1.06 - 0.06 * shown)
-            .blur(radius: 10 * (1 - shown))
+            .scaleEffect(transition.gridScale(shown: shown))
+            .blur(radius: transition.gridBlur(shown: shown))
             .allowsHitTesting(gridInteractive || swipeInteractive)
 
             // Glass ignores inherited opacity, so the hidden controls are
@@ -325,7 +353,8 @@ struct TabOverview<Source: TabsDataSource>: View {
 
     /// An unbuilt card's accessibility element, named as its built card is.
     private func standIn(_ tab: TabsKitTab, rect: CGRect, pinned: Bool) -> CardStandIn {
-        CardStandIn(label: pinned ? "\(tab.title), Pinned" : "\(tab.title), tab", rect: rect,
+        CardStandIn(label: pinned ? "\(tab.title), Pinned" : "\(tab.title), tab",
+                    value: pinned ? nil : source.cardAccessibilityValue(for: tab.id), rect: rect,
                     open: { [onSelect] in onSelect(tab.id) },
                     close: pinned ? nil : { Task { _ = await closeTapped(tab.id) } })
     }
@@ -359,10 +388,11 @@ struct TabOverview<Source: TabsDataSource>: View {
         let tab = card.tab, index = card.index
         let r = card.departed?.rect ?? layout.card(index)
         let copy = { DepartingCard(id: tab.id, tab: tab, rect: r) }
-        TabCard(title: tab.title, systemImage: tab.systemImage, pageSize: layout.size, width: r.width, height: r.height,
+        TabCard(title: tab.title, systemImage: tab.systemImage, icon: source.icon(for: tab.id), pageSize: layout.size, width: r.width, height: r.height,
                 radius: layout.cardRadius, showsClose: !selecting, closeOpacity: chrome.closeOpacity,
                 titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
-                contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
+                contentHidden: tab.id == hiddenTabId, accessibilityValue: source.cardAccessibilityValue(for: tab.id),
+                onOpen: { onSelect(tab.id) },
                 onClose: { Task { _ = await closeTapped(tab.id) } }) {
             source.card(for: tab)
                 .offset(y: -source.cardContentOffset(for: tab.id, visibleHeight: layout.cardPageHeight))
@@ -427,7 +457,7 @@ struct TabOverview<Source: TabsDataSource>: View {
 
     @ViewBuilder private func pinnedCardView(_ tab: TabsKitTab, index: Int) -> some View {
         let r = layout.card(index)
-        PinnedCard(title: tab.title, systemImage: tab.systemImage, width: r.width, height: r.height,
+        PinnedCard(title: tab.title, systemImage: tab.systemImage, icon: source.icon(for: tab.id), width: r.width, height: r.height,
                    selected: selecting ? selection.contains(tab.id) : nil)
             .opacity(swipes.menuCard == tab.id ? 0 : 1)
             .overlay {
@@ -435,7 +465,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                     card: r.size, radius: r.height / 2, passThrough: nil,
                     menu: { selecting ? [] : menuSections(tab) },
                     preview: { scale in
-                        AnyView(PinnedCard(title: tab.title, systemImage: tab.systemImage, width: r.width * scale, height: r.height * scale, selected: nil)
+                        AnyView(PinnedCard(title: tab.title, systemImage: tab.systemImage, icon: source.icon(for: tab.id), width: r.width * scale, height: r.height * scale, selected: nil)
                             .environment(\.tabsKitTheme, theme))
                     },
                     dragKey: nil,
@@ -454,7 +484,7 @@ struct TabOverview<Source: TabsDataSource>: View {
     private func menuSections(_ tab: TabsKitTab) -> [[CardMenuEntry]] {
         let pinned = source.pinnedTabIDs.contains(tab.id)
         var own = source.cardMenu(for: tab).flatMap { $0 }.map { item in
-            CardMenuEntry(title: item.title, symbol: item.systemImage, destructive: item.isDestructive) { item.action() }
+            CardMenuEntry(title: item.title, symbol: item.systemImage, symbolBundle: item.symbolBundle, destructive: item.isDestructive) { item.action() }
         }
         if pinned { own = Array(own.prefix(1)) }
         var main = own
@@ -674,6 +704,7 @@ struct CardMenuPreview<Content: View>: View {
 struct PinnedCard: View {
     var title: String
     var systemImage: String
+    var icon: UIImage?
     var width: CGFloat
     var height: CGFloat
     var selected: Bool?
@@ -681,7 +712,7 @@ struct PinnedCard: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: systemImage).font(.system(size: 15)).foregroundStyle(.white.opacity(0.6))
+            TabGlyph(icon: icon, systemImage: systemImage, size: 15, tint: .white.opacity(0.6))
             Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
             Spacer(minLength: 4)
             ZStack {

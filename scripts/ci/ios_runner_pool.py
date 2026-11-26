@@ -38,6 +38,15 @@ Otherwise the run keeps the default, exactly as before: when the picker would
 have chosen a Blacksmith pool (12vcpu overflow, say), iOS still takes its own
 variable, so MACOS_RUNNER_IOS keeps meaning what it meant.
 
+Granted default. A same-repository manaflow-ai run that would keep the
+6vcpu macOS 26 default automatically (no runner input or variable naming
+another pool, no blocker above) asks instead for `${CI_OVERFLOW_MAC or
+'cmux-mac'}` with SIM_LABEL and its xcode-<version>, so the CI controller can
+grant it to any free owned or AWS Mac with an iOS simulator runtime
+(granted_default()). Leo, 2026-11-24: "we can do it better, no? simply have
+a scheduler that does better." A fork keeps its fallback, a CI_OVERFLOW_MAC
+naming another label keeps Blacksmith, and re-runs take Blacksmith.
+
 Queue rounds. The pool rule is pull request CI's with its
 vars.CI_PR_POOL_QUEUE_ROUNDS (`--queue-rounds`): an owned pool takes the run
 while its jobs start there within that many job lengths, whatever
@@ -245,13 +254,29 @@ SMALL_RUNNER = pr_runner_pool.DEFAULT_RUNNER
 # role and an iOS 26.x runtime. Requested beside the owned pool label.
 SIM_LABEL = "glaeda-ios-sim"
 assert SIM_LABEL in pr_runner_pool.CAPABILITY_LABELS
+# The plain Mac label the CI controller grants (scripts/ci/mac_grants.py MAC_LABEL, not imported: the pickers'
+# sparse checkouts list their files), and its overflow switch: a same-repository run the owned pool does not take
+# asks for it with SIM_LABEL and its xcode-<version> (see Granted default), unless vars.CI_OVERFLOW_MAC names
+# another label during an outage.
+GRANT_LABEL = "cmux-mac"
+OVERFLOW_VARIABLE = "CI_OVERFLOW_MAC"
+OWNER = "manaflow-ai"
+# The version in /Applications/Xcode_26.6.app or glaeda-std-xcode-26.6 (mac_grants._XCODE).
+XCODE_IN = re.compile(r"(?:-xcode-|(?:^|/)Xcode[_-])(?P<version>[0-9]+(?:\.[0-9]+)*)(?:\.app)?(?:/|$)")
+XCODE_PINS = Path(__file__).resolve().parent / "xcode-pins.txt"
 # The `runner` choice that forces the owned pool for a proof run.
 OWNED_CHOICE = "owned"
 IOS_OWNED_VARIABLE = "CI_IOS_OWNED"
 # The workflows whose in-flight runs since the snapshot hold simulators.
-IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml", "ios-reliability-matrix.yml")
+IOS_WORKFLOWS = ("test-ios.yml", "ios-screenshots.yml", "cmux-next-ios-kit.yml", "ios-reliability-matrix.yml",
+                 "ios-review-gate.yml")
 # The workflows that pick with the kit lane: one simulator job on one Mac.
 KIT_WORKFLOWS = ("/cmux-next-ios-kit.yml", "/ios-reliability-matrix.yml")
+# The App Review gate: its plan job picks with the review-gate lane, one
+# reviewer-path leg (a simulator job) per planned device family, two at most.
+REVIEW_GATE_WORKFLOWS = ("/ios-review-gate.yml",)
+# The job that picks in REVIEW_GATE_WORKFLOWS (PICKER_JOB elsewhere).
+REVIEW_GATE_PICKER_JOB = "plan"
 # How far back an in-flight iOS run is charged its simulator jobs on the live
 # path: longer than any iOS run lives (ios-screenshots.yml's 300 minute
 # capture; see Live capacity).
@@ -270,7 +295,7 @@ PICKER_JOB = "runner"
 # and ios-screenshots.yml's capture. ios-simulator-build carries SIM_LABEL only
 # to land on a mini with the runtime; glaeda runs it as an isolated build job.
 SIM_JOB = re.compile(r"ios-simulator(?: \(.*\))?|screenshots|CmuxMobileKit tests \(macOS swift test, iOS simulator\)"
-                     r"|phone cells \(iOS simulator\)")
+                     r"|phone cells \(iOS simulator\)|Reviewer path \(.*\)")
 # In-flight iOS runs whose jobs are read (one request each), newest first.
 MAX_JOB_READS = 20
 # Job statuses before a runner has taken the job.
@@ -302,6 +327,23 @@ LANES = {
     # ios-reliability-matrix.yml's phone cells: the kit lane's one simulator
     # job on one Mac, which glaeda classes as a simulator job.
     "phone-cells": Lane(jobs=1, measured=True),
+    # ios-review-gate.yml's reviewer-path legs, side by side: one simulator
+    # job on one Mac per device family (--device-family when one is planned).
+    # Not sim-first: its runs_on serves Reviewer path jobs, which the sim-first
+    # runner does not class as simulator jobs.
+    "review-gate": Lane(jobs=2, measured=True),
+    # billing.yml's ios-billing: the billing packages' swift test and the
+    # StoreKit Testing slot on one iPhone simulator, one Mac. Not sim-first:
+    # glaeda does not class ios-billing as a simulator job. billing.yml is not
+    # in IOS_WORKFLOWS, so other pickers do not charge an in-flight billing
+    # run's simulator: at most one undercounted job of the SIM_LABEL slots.
+    "billing": Lane(jobs=1, measured=True),
+    # pr-pipeline.yml's `ios` job (ci/steps.toml's ios steps: the CmuxMobileKit tests, then the reliability
+    # matrix's phone cells, one after the other on one iPhone simulator, one Mac). Not sim-first until glaeda
+    # classes ("pr-router.yml", "ios") as a simulator-step job (the reusable workflow's run carries the caller's
+    # file); until then its sim-first runner refuses it. pr-router.yml is not in IOS_WORKFLOWS (it runs for every
+    # pull request), so, as with billing, other pickers do not charge an in-flight pipeline's simulator.
+    "pipeline": Lane(jobs=1, measured=True),
 }
 # The most simulator jobs any one iOS run holds: test-ios.yml's two families.
 MAX_SIM_JOBS = 2
@@ -340,6 +382,8 @@ class Route:
     persistent: bool
     # The sim-first label ios-simulator-build takes instead of runs_on, or "" (see Build placement).
     build_label: str = ""
+    # A granted default (see Granted default): every label of runs_on, GRANT_LABEL first, SIM_LABEL included.
+    grant_labels: tuple[str, ...] = ()
 
     @property
     def runs_on(self) -> str:
@@ -347,6 +391,8 @@ class Route:
 
         The sim-first label stands alone: its runner carries neither the pool label nor SIM_LABEL.
         """
+        if self.grant_labels:
+            return json.dumps(list(self.grant_labels))
         if pr_runner_pool.sim_first(self.label):
             return json.dumps([self.label])
         return json.dumps([self.label, SIM_LABEL] if self.persistent else self.label)
@@ -359,6 +405,8 @@ class Route:
     @property
     def package_runs_on(self) -> str:
         """runs-on as JSON for mobile-core-package, which needs no simulator."""
+        if self.grant_labels:
+            return json.dumps([label for label in self.grant_labels if label != SIM_LABEL])
         return json.dumps(self.label)
 
     @property
@@ -377,7 +425,7 @@ def retry_label(default: str) -> str:
 
 def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = None) -> int:
     """The simulator jobs this run holds at once: one per device family, the one capture, or none."""
-    if lane in ("screenshots", "kit", "phone-cells"):
+    if lane in ("screenshots", "kit", "phone-cells", "billing", "pipeline"):
         return 1
     if (swift_package or "").strip():
         # mobile-core-package alone: SwiftPM tests on the host.
@@ -385,8 +433,10 @@ def sim_jobs(lane: str, device_family: str | None, swift_package: str | None = N
     return 1 if (device_family or "").strip() in ("iphone", "ipad") else MAX_SIM_JOBS
 
 
-def run_jobs(lane: str, swift_package: str | None = None) -> int:
+def run_jobs(lane: str, swift_package: str | None = None, device_family: str | None = None) -> int:
     """The owned machines this run holds at once."""
+    if lane == "review-gate":
+        return sim_jobs(lane, device_family)
     return 1 if lane == "test-ios" and (swift_package or "").strip() else LANES[lane].jobs
 
 
@@ -499,7 +549,7 @@ def resolve(
         return ephemeral(default)
     if load.live is not None:
         pools = pr_runner_pool.owned_pools(pr_xcode_app)
-        jobs = run_jobs(lane, swift_package)
+        jobs = run_jobs(lane, swift_package, device_family)
         if pools and pools[0] in limits.order and load.live.pool >= jobs and load.live.sim >= needed:
             log(f"live: {load.live.pool} owned runner(s) and {load.live.sim} {SIM_LABEL} free, {jobs} and "
                 f"{needed} needed -> {pools[0]} with {SIM_LABEL}")
@@ -520,7 +570,7 @@ def resolve(
     try:
         choice = e2e_runner_pool.decide(load.pool, limits, now=now,
                                         owned_slots=pool_slots(owned_slots, pr_xcode_app),
-                                        jobs=run_jobs(lane, swift_package),
+                                        jobs=run_jobs(lane, swift_package, device_family),
                                         owned_choices=pr_runner_pool.owned_pools(pr_xcode_app)[:1])
         free = sim_free(load, capacity)
     except Exception as error:  # noqa: BLE001 - every failure is fail-safe
@@ -605,7 +655,13 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
     With `placements`, an `auto` run the picker sent to Blacksmith is charged nothing (see "Where an
     `auto` run went").
     """
-    kit_run = str(run.get("path") or "").split("@", 1)[0].endswith(KIT_WORKFLOWS)
+    path = str(run.get("path") or "").split("@", 1)[0]
+    if path.endswith(REVIEW_GATE_WORKFLOWS):
+        # Untitled: charged both legs unless the picker sent it off the fleet.
+        if placements is not None and placements.off_fleet(run, now or dt.datetime.now(dt.timezone.utc)):
+            return 0
+        return MAX_SIM_JOBS
+    kit_run = path.endswith(KIT_WORKFLOWS)
     if screenshots_run(run) or kit_run:
         if kit_run and placements is not None and placements.off_fleet(run, now or dt.datetime.now(dt.timezone.utc)):
             return 0
@@ -627,6 +683,8 @@ def charged_sim_jobs(run: Mapping[str, Any], placements: Placements | None = Non
 
 def charged_jobs(run: Mapping[str, Any]) -> int:
     """The owned machines an in-flight iOS run may hold, read from its title; in full when unsure."""
+    if str(run.get("path") or "").split("@", 1)[0].endswith(REVIEW_GATE_WORKFLOWS):
+        return LANES["review-gate"].jobs
     kit_run = str(run.get("path") or "").split("@", 1)[0].endswith(KIT_WORKFLOWS)
     if screenshots_run(run) or kit_run:
         return LANES["screenshots" if screenshots_run(run) else "kit"].jobs
@@ -683,7 +741,9 @@ def hosted_macos(label: str) -> bool:
 
 def picked_unmarked(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> bool:
     """The run's picker finished and no macOS job exists yet: its marker alone says where it went."""
-    return (any(job.get("name") == PICKER_JOB and job.get("status") == "completed" for job in jobs)
+    picker = (REVIEW_GATE_PICKER_JOB if str(run.get("path") or "").split("@", 1)[0].endswith(REVIEW_GATE_WORKFLOWS)
+              else PICKER_JOB)
+    return (any(job.get("name") == picker and job.get("status") == "completed" for job in jobs)
             and not any(hosted_macos(label) for job in jobs for label in job_labels(job)))
 
 
@@ -873,6 +933,57 @@ def ios_runs_since(client: Any, since: str, *, exclude_run_id: int | None,
                if run.get("id") != exclude_run_id and run.get("status") != "completed")
 
 
+def pinned_xcode(macos_major: str = "26", path: Path = XCODE_PINS) -> str:
+    """The Xcode scripts/select-ci-xcode.sh selects on a macOS `macos_major` host (xcode-pins.txt), or ""."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for line in lines:
+        fields = line.split("#", 1)[0].split()
+        if len(fields) == 2 and fields[0] == macos_major:
+            return fields[1]
+    return ""
+
+
+def granted_default(route: Route, *, fork: bool, owner: str, requested: str | None, variable: str | None,
+                    blocker: str, overflow: str | None, pr_xcode_app: str | None,
+                    log: Callable[[str], None] = lambda message: None) -> Route:
+    """Granted default: `route` on GRANT_LABEL with SIM_LABEL and its xcode-<version> when it is the default.
+
+    Leo, 2026-11-24: "we can do it better, no? simply have a scheduler that does better." About 20 of these
+    simulator jobs waited on Blacksmith at 05:57Z while owned and AWS Macs with an iOS simulator runtime sat
+    free. A same-repository manaflow-ai run the owned pool did not take, routed automatically to Blacksmith (the
+    6vcpu macOS 26 default, or an overflow pool the simple picker chose), takes
+    `${CI_OVERFLOW_MAC or 'cmux-mac'}` instead, as other own-branch Mac workflows do (vars.CI_OVERFLOW_MAC ||
+    'cmux-mac'), with SIM_LABEL and xcode-<version>: the shared glaeda runners carrying all three take it, and
+    the CI controller grants it to any free Mac whose asker reports that Xcode and an iOS simulator runtime
+    (cmuxterm-hq build-fleet/internal/sched/grant.go). mobile-core-package drops SIM_LABEL. Its Xcode is the
+    lane's vars.CMUX_CI_XCODE_APP_PR, else the macOS 26 row of xcode-pins.txt, which select-ci-xcode.sh picks
+    on such a Mac (CMUX_CI_XCODE_APP stays empty off a glaeda- label).
+
+    Unchanged: a fork's pull request (its fallback stays as it is), another owner, an explicit runner input
+    or runner variable, an owned route, a blocker (ios_version, an upload, a release call, seed_cache), and a
+    CI_OVERFLOW_MAC naming another label (an outage: Blacksmith, as before). Re-runs keep SMALL_RUNNER.
+    """
+    if fork or owner != OWNER or route.persistent or blocker:
+        return route
+    if (requested or "").strip() not in ("", "auto") or (variable or "").strip() not in ("", SMALL_RUNNER):
+        return route
+    if not route.label.startswith(pr_runner_pool.EPHEMERAL_PREFIX):
+        return route
+    kind = (overflow or "").strip() or GRANT_LABEL
+    if kind != GRANT_LABEL:
+        log(f"vars.{OVERFLOW_VARIABLE} is {kind}; staying on {route.label}")
+        return route
+    match = XCODE_IN.search((pr_xcode_app or "").strip())
+    version = match.group("version") if match else pinned_xcode()
+    xcode = f"xcode-{version}" if version else ""
+    labels = tuple(label for label in (GRANT_LABEL, SIM_LABEL, xcode) if label)
+    log(f"granted default: {route.label} -> {list(labels)} (re-runs take {SMALL_RUNNER})")
+    return Route(GRANT_LABEL, SMALL_RUNNER, False, grant_labels=labels)
+
+
 def runner_variable(value: str) -> str:
     """The lane's runner variable, unless it names a capability or the sim-first label, which no runner takes alone.
 
@@ -913,6 +1024,15 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--called", default="", help="'true' when another workflow called this one")
     args = parser.parse_args(argv)
     args.variable = runner_variable(args.variable)
+    repository = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
+    grant_args = dict(
+        fork=args.fork.strip() == "true",
+        owner=(env.get("GITHUB_REPOSITORY_OWNER") or repository.partition("/")[0]).strip(),
+        requested=args.requested, variable=args.variable,
+        blocker=owned_blocker(ios_version=args.ios_version, upload=args.upload, called=args.called,
+                              seed_cache=args.seed_cache),
+        overflow=env.get(OVERFLOW_VARIABLE), pr_xcode_app=args.pr_xcode_app,
+        log=lambda message: print(message, file=sys.stderr))
 
     # Simulator-aware runs with an Actions token retain the lane's capability
     # accounting below. Plain automatic package/screenshot routing shares the
@@ -926,10 +1046,20 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         choice = simple_pool_picker.pick(simple_pool_picker.observe(
             token=values.get("ROUTE_TOKEN") or values.get("GH_TOKEN") or "",
             repository=values.get("GH_REPO") or values.get("GITHUB_REPOSITORY") or "",
-            jobs=1, env=values, fork=args.fork == "true"))
+            jobs=run_jobs(args.lane, device_family=args.device_family) if args.lane == "review-gate" else 1,
+            env=values, fork=args.fork == "true"))
         label = runner_variable(choice.label) or args.variable or SMALL_RUNNER
         persistent = choice.owned and args.owned.strip() == "1" and args.ios_owned.strip() == "1"
-        lane_jobs = 1 if args.swift_package else (2 if args.lane == "test-ios" else 1)
+        lane_jobs = 1 if args.swift_package else (2 if args.lane == "test-ios"
+                                                  else run_jobs(args.lane, device_family=args.device_family))
+        granted = granted_default(Route(label, label, persistent), **grant_args)
+        if granted.grant_labels:
+            for key, value in {"label": granted.label, "retry_label": granted.retry_label,
+                               "runs_on": granted.runs_on, "build_runs_on": granted.build_runs_on,
+                               "package_runs_on": granted.package_runs_on, "retry_runs_on": granted.retry_runs_on,
+                               "persistent": "false", "jobs": str(lane_jobs), "sim_jobs": "0"}.items():
+                print(f"{key}={value}")
+            return 0
         for key, value in {"label": label, "retry_label": label if not persistent else SMALL_RUNNER,
                            "runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
                            "build_runs_on": json.dumps([label, SIM_LABEL] if persistent else label),
@@ -1022,6 +1152,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                   file=sys.stderr)
     route = build_route(route, lane=args.lane, swift_package=args.swift_package, sim_first_label=first_label,
                         idle=idle_sim_first(listed.get("runners") or [], first_label), log=log)
+    route = granted_default(route, **grant_args)
     print(f"label={route.label}")
     print(f"retry_label={route.retry_label}")
     print(f"runs_on={route.runs_on}")
@@ -1029,7 +1160,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     print(f"package_runs_on={route.package_runs_on}")
     print(f"retry_runs_on={route.retry_runs_on}")
     print(f"persistent={'true' if route.persistent else 'false'}")
-    print(f"jobs={run_jobs(args.lane, args.swift_package)}")
+    print(f"jobs={run_jobs(args.lane, args.swift_package, args.device_family)}")
     print(f"sim_jobs={sim_jobs(args.lane, args.device_family, args.swift_package)}")
     return 0
 

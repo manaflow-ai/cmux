@@ -89,7 +89,7 @@ fn spawn_turn(h: &mut Harness, send: Option<&'static str>) {
     h.connect();
     h.say("user_local", "start the fix");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let sp = spawner(h);
     let started = run(h, move || {

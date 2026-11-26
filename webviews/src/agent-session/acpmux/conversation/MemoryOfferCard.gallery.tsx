@@ -63,6 +63,7 @@ function LiveCard({ initial, look }: { initial: MemoryOffer; look: MemoryCardLoo
       look={look}
       onResolve={(accept, dismiss) => {
         setState((current) => memoryRequestStarted(current, [...accept, ...dismiss]));
+        // gallery-capture: only after an Accept or Dismiss click; no arm clicks before its still.
         setTimeout(
           () => setState((current) => settleMemoryOffer(current, { accepted: accept, dismissed: dismiss })),
           350,

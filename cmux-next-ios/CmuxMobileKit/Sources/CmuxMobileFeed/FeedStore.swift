@@ -173,7 +173,12 @@ public final class FeedStore {
     /// The Feed before live data: sample items only with mock content on (DEBUG).
     static func initialItems(mockContentEnabled: Bool) -> [FeedItem] {
         #if DEBUG
-        if mockContentEnabled { return FeedStore.mockItems(now: Date()) }
+        if mockContentEnabled {
+            let now = Date()
+            // `-cmux-mobile-feed-marks`: one short row per kind of sender first, for screenshots of the avatars.
+            let marks = CommandLine.arguments.contains("-cmux-mobile-feed-marks") ? FeedStore.markSamples(now: now) : []
+            return marks + FeedStore.mockItems(now: now)
+        }
         #endif
         return []
     }
@@ -206,6 +211,7 @@ public final class FeedStore {
             #if DEBUG
             if FeedStressRig.shared.config.logsChurn { FeedStore.logChange(from: oldValue, to: items) }
             #endif
+            if !items.isEmpty { markKnown() }
             onItemsChange?(items)
         }
     }
@@ -461,6 +467,12 @@ public final class FeedStore {
     }
     /// Called after every change (live mode saves the Feed with `FeedArchive`).
     @ObservationIgnored public var onItemsChange: (@MainActor ([FeedItem]) -> Void)?
+    /// Called once when the live source has answered, including an empty Feed. The archive
+    /// uses this to remember that an empty result is known, so a relaunch does not show a
+    /// spinner while waiting for a list that was already read.
+    @ObservationIgnored public var onKnownData: (@MainActor () -> Void)?
+    /// The live source or an account archive has answered at least once this run.
+    public private(set) var hasKnownData = false
     public var filter: FeedFilter = .all {
         didSet { if filter != oldValue { refreshDerived() } }
     }
@@ -488,10 +500,28 @@ public final class FeedStore {
             if read.contains(item.id) { item.isRead = true }
             return item
         }
+        hasKnownData = !items.isEmpty
         self.answersLocally = answersLocally
         reindex()
         refreshDerived()
         memoryPressure.register(self) { [weak self] in self?.relieveMemoryPressure() }
+    }
+
+    /// Marks even an empty live result as known. This is separate from `items` because an
+    /// empty reply does not change the array and therefore does not trigger `onItemsChange`.
+    public func markKnown() {
+        guard !hasKnownData else { return }
+        hasKnownData = true
+        onKnownData?()
+    }
+
+    /// Starts a new account/team Feed source before its snapshot or live reply
+    /// arrives. The rows are replaced separately so an uncached team can show
+    /// its first-load placeholder without inheriting the previous team's state.
+    public func resetKnownData() {
+        hasKnownData = false
+        evictedDoneIDs = []
+        refreshError = nil
     }
 
     /// Pull to refresh: re-reads the Mac's sessions and open asks through
@@ -621,8 +651,10 @@ public final class FeedStore {
     /// deleted by the caller); nothing is saved for it any more.
     public func clearForSignOut() {
         onItemsChange = nil
+        onKnownData = nil
         actions = nil
         replaceAll([])
+        hasKnownData = false
         useSpill(nil)
         evictedDoneIDs = []
         useReadMarks(nil)
@@ -779,7 +811,9 @@ public final class FeedStore {
     /// Shown on a permission card while its Allow is signed and sent to the Mac.
     public static let sendingAllow = "Sending…"
 
-    public func respond(_ id: String, option: ACPPermissionOption) {
+    /// `settled`: called once an Allow went out (true) or failed (false), for a haptic that
+    /// confirms the outcome rather than the tap; never called for a Deny.
+    public func respond(_ id: String, option: ACPPermissionOption, settled: (@MainActor (Bool) -> Void)? = nil) {
         if let actions, let item = item(id: id), case .permission(let request) = item.kind {
             guard item.pending == nil else { return }
             let attempt = item.attempt + 1
@@ -801,8 +835,10 @@ public final class FeedStore {
                         $0.resolution = Self.allowedText(option.name)
                         $0.isRead = true
                     }
+                    settled?(true)
                 } catch {
                     if actions.isAlreadyAnswered(error) { return settleAnsweredElsewhere(id, attempt: attempt) }
+                    if option.isAllow { settled?(false) }
                     mutate(id) {
                         guard $0.attempt == attempt else { return }
                         $0.pending = nil
@@ -822,10 +858,12 @@ public final class FeedStore {
                 try? await Task.sleep(for: delay)
                 mutate(id) { $0.pending = nil }
                 applyRespond(id, option: option)
+                settled?(true)
             }
             return
         }
         applyRespond(id, option: option)
+        if option.isAllow { settled?(true) }
     }
 
     /// The card's line after an Allow: the option's own words when they say more than

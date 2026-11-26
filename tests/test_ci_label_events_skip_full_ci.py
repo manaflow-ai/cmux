@@ -30,7 +30,9 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 # Workflows that run CI, with the labels they react to.
 GUARDED: dict[str, tuple[str, ...]] = {
-    "ci.yml": ("full-ci", "dev-build"),
+    # ready-to-land: a ready head into feat-cmux-next runs the cheap tier until it is handed off to land
+    # (scripts/ci/head_tier.py land rule), so adding the label runs the full tier at the same head.
+    "ci.yml": ("full-ci", "dev-build", "ready-to-land"),
     "cmux-vm.yml": ("cmux-vm-breaking-change-ok",),
     # Cheap one-step checks, but each label event still queued a runner on a saturated pool: bots set
     # and clear risk, hold and landing labels on hundreds of open pull requests.
@@ -38,10 +40,20 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # Its capture step reads the media-tour labels and its perf section step the perf labels
     # (tests/test_pr_body_checks.py pins which step runs on which label).
     "pr-body-checks.yml": ("media-tour", "media-tour-mac", "perf", "performance"),
+    # Calls ci.yml for a docs-only pull request that gets one of ci.yml's labels (its `paths:` filters label events
+    # too); its gate takes no runner for any other label (scripts/ci/docs_only_paths.py FALLBACK).
+    "docs-only-fallback.yml": ("full-ci", "dev-build"),
+    # Adding full-ci re-runs the tiers a feat-cmux-next pull request skips without it (scripts/ci/affected_jobs.py PR_SKIP_IF).
+    "cmux-next.yml": ("full-ci", "ready-to-land"),
+    # Applies on backend:apply-migrations; full-ci lifts its draft skip. Every other label took a Blacksmith VM
+    # and, in the PR's shared group, replaced the push's pending run (a new PR gets three labels at once).
+    # Routes only the land handoff (scripts/ci/head_tier.py land rule): a ready-to-land head runs the full tier.
+    "pr-router.yml": ("ready-to-land",),
+    "backend-migrations.yml": ("backend:apply-migrations", "full-ci"),
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.
-TARGET_EVENT: set[str] = {"merge-freeze.yml"}
+TARGET_EVENT: set[str] = {"merge-freeze.yml", "backend-migrations.yml"}
 
 # Jobs of a GUARDED workflow that run on every label event, and why.
 UNGUARDED_JOBS: dict[tuple[str, str], str] = {
@@ -52,7 +64,6 @@ UNGUARDED_JOBS: dict[tuple[str, str], str] = {
 
 # Label-triggered workflows that may run on any label, and why.
 REACTS: dict[str, str] = {
-    "backend-migrations.yml": "plans migrations (cheap); applies only on backend:apply-migrations",
     "classic-frozen-guard.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
     "passing, and only the classic-migration label it judges may let a frozen change through",
     "language-boundaries.yml": "one cheap Linux step; a skipped run newer than a failing one would read as "
@@ -60,7 +71,6 @@ REACTS: dict[str, str] = {
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",
-    "risk-tier.yml": "the risk tier check itself: it must react to risk:* labels",
 }
 
 
@@ -180,7 +190,8 @@ def main() -> int:
             ({"event_name": "push"}, True),
             ({"event_name": event_name, "action": "labeled", "label": "risk:high"}, False),
             ({"event_name": event_name, "action": "unlabeled", "label": "risk:normal"}, False),
-            ({"event_name": event_name, "action": "labeled", "label": "ready-to-land"}, False),
+            # Unless the workflow reads it (the land tier: ci.yml, cmux-next.yml), the land handoff re-runs nothing.
+            ({"event_name": event_name, "action": "labeled", "label": "ready-to-land"}, "ready-to-land" in labels),
             # Other bases keep re-running: main's required checks must not be superseded by a skip.
             ({"event_name": event_name, "action": "labeled", "label": "risk:high", "base": "main"}, True),
         ] + [({"event_name": event_name, "action": action, "label": label}, True)

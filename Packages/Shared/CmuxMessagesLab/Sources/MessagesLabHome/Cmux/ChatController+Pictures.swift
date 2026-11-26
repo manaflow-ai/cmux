@@ -30,19 +30,39 @@ extension ChatController {
             return nil
         }
         let items = pictures.enumerated().map { i, a in
-            HomePictureGallery.Item(source: HomeMapping.tableAttachmentScheme + a.id, url: URL(fileURLWithPath: a.fileName),
-                                    title: a.fileName.isEmpty ? CmuxStrings.pictureUntitled : a.fileName, row: 0, column: i)
+            let title = a.fileName.isEmpty ? CmuxStrings.pictureUntitled : a.fileName
+            // A picture the Markdown names (the Chief's screenshot): its own file or web address, its thumbnail.
+            if let source = HomeMapping.pictureSource(a.id), let url = HomeTablePictures.original(source) {
+                return HomePictureGallery.Item(source: source, url: url, title: title, row: 0, column: i,
+                                               thumbnail: a.asset.flatMap(URL.init(string:)))
+            }
+            return HomePictureGallery.Item(source: HomeMapping.tableAttachmentScheme + a.id, url: URL(fileURLWithPath: a.fileName),
+                                           title: title, row: 0, column: i)
         }
         let at = pictures.firstIndex { $0.id == attachment } ?? 0
         guard !items.isEmpty else { intents?.openAttachment(message, attachment); return }
         let intents = intents
         presentPictures(HomePictureGallery(items: items, index: at)) { item in
+            guard item.source.hasPrefix(HomeMapping.tableAttachmentScheme) else { return await Self.decode(item) }
             let id = String(item.source.dropFirst(HomeMapping.tableAttachmentScheme.count))
             guard let file = await intents?.attachmentFile(message, id) else { return nil }
             var local = item
             local.url = file
             return await Self.decode(local)
         }
+    }
+
+    /// A click on the picture `id` in the message box (``FieldTextView/openPictureClicked(down:up:)``): opens it large
+    /// with the box's other pictures, growing out of `thumbnail` (its box in ``host`` and its picture) when given
+    /// (issue 51939). False when `id` is not a picture
+    /// of the draft.
+    @discardableResult
+    func openDraftPicture(_ id: ID, from thumbnail: (rect: CGRect, image: CGImage)? = nil) -> Bool {
+        let intents = intents
+        guard let gallery = HomePictureGallery(draft: store?.state.ui.draft.attachments ?? [], opening: id,
+                                               file: { intents?.draftAttachmentFile($0) }) else { return false }
+        presentPictures(gallery, from: thumbnail) { item in await Self.decode(item) }
+        return true
     }
 
     /// Opens `gallery` over this pane through the main-actor seam (``HomePictureViewerMount``); the viewer has the

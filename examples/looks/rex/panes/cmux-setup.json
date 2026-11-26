@@ -1,0 +1,11 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/rex-panes",
+  "name": "Rex Panes",
+  "tagline": "Terminal-scoped directional splits, focus, pane swaps, zoom, floating and balance.",
+  "description": "Terminal-scoped directional splits, focus, pane swaps, zoom, floating and balance. Uses existing cmux actions; see README.md for source mappings and limits.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "cmuxProfile": 1,
+  "settings": {}
+}

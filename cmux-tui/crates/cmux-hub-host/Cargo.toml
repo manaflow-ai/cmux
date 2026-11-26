@@ -22,6 +22,8 @@ libc.workspace = true
 # The session's helper (`cmux-rd serve`): owned, ended with its session, and on macOS its own
 # responsible process when asked.
 cmux-process.workspace = true
+# The running host's lock on its pid file (host_process.rs).
+cmux-file-lock.workspace = true
 # Relay secrets sealed to the agreement key: HPKE base mode, DHKEM(P-256, HKDF-SHA256),
 # HKDF-SHA256, AES-256-GCM (PROTOCOL.md, Relays). `pkcs8` reads the agreement key as ring
 # wrote it.

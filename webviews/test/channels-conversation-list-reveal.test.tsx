@@ -85,7 +85,7 @@ afterAll(async () => {
 });
 
 const { createRoot } = await import("react-dom/client");
-const { useState } = await import("react");
+const { useEffect, useState } = await import("react");
 const { ConversationList } = await import("../src/pages/home-channels/ConversationList");
 const { createStrings } = await import("../src/pages/shared/i18n");
 const table = (await import("../src/pages/home-channels/generated/strings.json")).default as Record<
@@ -130,17 +130,24 @@ interface Driver {
 
 /** The list between a control before it (inside it: the search field) and one after it (the
  *  conversation pane's first control), as the page lays them out. */
-function Host({ n, driver }: { n: number; driver: Driver }) {
+function Host({ n, onDriver }: { n: number; onDriver(driver: Driver): void }) {
   const [conversations, setConversations] = useState(() => all(n));
   const [selected, setSelected] = useState<string | undefined>(undefined);
-  driver.select = setSelected;
-  driver.load = (count) => setConversations(all(count));
-  driver.without = (id, count = n) =>
-    setConversations(() => {
-      const next = all(count);
-      next.delete(id);
-      return next;
-    });
+  // The test's handle on the state, a fresh object handed over once mounted (the setters are stable).
+  useEffect(
+    () =>
+      onDriver({
+        select: setSelected,
+        load: (count) => setConversations(all(count)),
+        without: (id, count = n) =>
+          setConversations(() => {
+            const next = all(count);
+            next.delete(id);
+            return next;
+          }),
+      }),
+    [onDriver, n],
+  );
   return (
     <>
       <ConversationList
@@ -173,9 +180,14 @@ const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve
 async function mount(n = N) {
   host = dom.window.document.getElementById("root")!;
   root = createRoot(host);
-  const driver = {} as Driver;
-  await act(async () => root!.render(<Host n={n} driver={driver} />));
+  let held: Driver | undefined;
+  const onDriver = (next: Driver) => {
+    held = next;
+  };
+  await act(async () => root!.render(<Host n={n} onDriver={onDriver} />));
   await settle();
+  if (!held) throw new Error("the host did not hand over its driver");
+  const driver: Driver = held;
   return { driver, list: host.querySelector<HTMLElement>(".lg-list-rows")! };
 }
 

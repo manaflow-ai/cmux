@@ -59,7 +59,7 @@ const running: ComputerUsePreview = { session: "cua_t1", app: "Calculator", done
 async function render(container: HTMLElement, preview: ComputerUsePreview | null) {
   await act(async () => {
     root ??= createRoot(container);
-    root.render(<ComputerUsePreviewCard preview={preview} onOpen={() => undefined} onClose={() => undefined} />);
+    root.render(<ComputerUsePreviewCard preview={preview} onClose={() => undefined} />);
   });
 }
 
@@ -105,9 +105,7 @@ test("a card that comes back during the exit stays", async () => {
   await render(container, next);
   await act(async () => exit.end());
   expect(card(container)?.hasAttribute("data-leaving")).toBe(false);
-  expect(container.querySelector("button")?.getAttribute("aria-label")).toBe(
-    "Calculator, live. Open in Agent Activity",
-  );
+  expect(container.querySelector("button")?.getAttribute("aria-label")).toBe("Calculator, live");
 });
 
 test("a new frame shows only once it has decoded, and the one before stays until then", async () => {
@@ -132,4 +130,21 @@ test("a new frame shows only once it has decoded, and the one before stays until
   expect(img()).toBe(third);
   await act(async () => decodes.at(-2)!());
   expect(img()).toBe(third);
+});
+
+test("a click enlarges the card and a second shrinks it; another session's card starts small", async () => {
+  const container = installDom();
+  // A session of its own: the size a click asks for stays in the page's store for that session.
+  const clicked = { ...running, session: "cua_clicks" };
+  await render(container, clicked);
+  const button = () => container.querySelector<HTMLButtonElement>(".acpmux-cu-preview__open")!;
+  expect(card(container)?.hasAttribute("data-expanded")).toBe(false);
+  await act(async () => button().click());
+  expect(card(container)?.hasAttribute("data-expanded")).toBe(true);
+  expect(button().getAttribute("aria-expanded")).toBe("true");
+  await act(async () => button().click());
+  expect(card(container)?.hasAttribute("data-expanded")).toBe(false);
+  await act(async () => button().click());
+  await render(container, { ...running, session: "cua_clicks_next" });
+  expect(card(container)?.hasAttribute("data-expanded")).toBe(false);
 });

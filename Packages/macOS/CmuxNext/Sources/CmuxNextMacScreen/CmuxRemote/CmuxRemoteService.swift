@@ -1,6 +1,5 @@
 import ApplicationServices
 import CmuxNextCompat
-public import CmuxNextComputerUse
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 public import CmuxNextDevices
@@ -14,13 +13,15 @@ private let remoteLogger = Logger(subsystem: "com.cmuxterm.app.next", category: 
 
 /// cmux Remote from the app (docs/cmux-remote.md): the daemon supervises the one signed host
 /// that holds Accessibility and Screen Recording; this app tells the daemon which features are
-/// on, opens Computer Use channels through the host, signs its own device hub requests with the
+/// on, sends the Computer Use policy (its worker serves agents itself, through the daemon), signs its own device hub requests with the
 /// Screen Sharing worker's device keys (this Mac is one device), reads hub pushes from the
 /// worker's one User DO socket, and anchors the worker's device-key renewal while signed in.
 @MainActor
 public final class CmuxRemoteService {
     /// This build embeds cmux Remote (``start(_:)`` ran).
     public private(set) var started = false
+    /// cmux Remote's Computer Use worker as the last host status said (Computer Use Setup follows it).
+    public let computerUse = CmuxRemoteComputerUseState()
     /// This app's local daemon connection when it serves `remote-host-v1`, else nil.
     private let connectionSource: @MainActor () -> DaemonConnection?
     /// The app socket's credentials, until the host restarts (a refusal asks again).
@@ -29,7 +30,11 @@ public final class CmuxRemoteService {
     public private(set) var available = false
     /// The hub made with cmux Remote's device identity, while it is the one running.
     var remoteHub: DeviceHub?
+    /// The switches the daemon took, and the connection that took them (held weakly, compared by
+    /// identity): a new daemon (one not ready at launch, restarted or reconnected) gets them again,
+    /// so its saved `config.json` never keeps Computer Use off while this app has it on.
     private var lastConfig: (computerUse: Bool, screenSharing: Bool, headless: Bool)?
+    private weak var lastConfigConnection: AnyObject?
     /// The anchor's hourly refresh (PROTOCOL.md, Device renewal).
     private let anchorTimer = DemandTimer(owner: "cmux-remote.anchor")
     /// The person's switches now (``follow`` sets it once the settings load): Computer Use on with
@@ -57,24 +62,31 @@ public final class CmuxRemoteService {
         self.init { [weak daemon] in daemon?.supports(DaemonCapability.remoteHost.rawValue) == true ? daemon?.connection : nil }
     }
 
-    func markStarted() { started = true }
+    func markStarted() {
+        started = true
+        computerUse.embedded = true
+    }
 
     // MARK: Daemon
 
     private var connection: DaemonConnection? { connectionSource() }
 
+    /// The daemon connection now (a reconnect or a new daemon is a new object), nil without one.
+    var currentConnectionObject: AnyObject? { connection }
+
     /// The person's switches to the daemon (it saves them and starts or stops the host).
     public func apply(computerUse: Bool, screenSharing: Bool, headless: Bool) async {
         let next = (computerUse, screenSharing, headless)
-        if let lastConfig, lastConfig == next { return }
         guard let connection else {
             available = false
             return
         }
+        if let lastConfig, lastConfig == next, let sent = lastConfigConnection, sent === connection { return }
         do {
             _ = try await connection.request(RemoteHostConfigRequest(computerUse: computerUse, screenSharing: screenSharing,
                                                                      headless: headless))
             lastConfig = next
+            lastConfigConnection = connection
             available = true
         } catch {
             remoteLogger.notice("cmux Remote config refused: \(String(describing: error), privacy: .public)")
@@ -112,10 +124,9 @@ public final class CmuxRemoteService {
         }
         try Task.checkCancellation()
         guard let config = currentConfig?() else { return false }
-        if lastConfig == nil {
-            await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
-        }
-        // Both switches off (Computer Use off or not Upstream, and signed out): the app's own helper and host serve.
+        // Skipped when this connection already took these switches; sent to a new daemon.
+        await apply(computerUse: config.computerUse, screenSharing: config.screenSharing, headless: config.headless)
+        // Both switches off (Computer Use off, and signed out): nothing runs in cmux Remote.
         return available && (config.computerUse || config.screenSharing)
     }
 
@@ -136,6 +147,12 @@ public final class CmuxRemoteService {
         return try await connection.request(RemoteHostCallRequest(method: method, params: params), timeout: timeout)
     }
 
+    /// One daemon request on this app's own (verified) connection.
+    func daemonRequest<Request: DaemonRequest>(_ request: Request) async throws -> Request.Response {
+        guard let connection else { throw CmuxRemoteError.unavailable }
+        return try await connection.request(request, timeout: .seconds(25))
+    }
+
     public func status() async throws -> CmuxNextDaemon.JSONValue {
         guard let connection else { throw CmuxRemoteError.unavailable }
         return try await connection.request(RemoteHostStatusRequest())
@@ -150,7 +167,10 @@ public final class CmuxRemoteService {
 
     /// Tells the daemon this app's own grants (`remote-host-config` `app_permissions` only, no
     /// switch: nothing saved, started or stopped). Where no cmux Remote is bundled (Release and
-    /// NIGHTLY) the app captures the screen itself, so `cmux remote-host grants` reads these.
+    /// NIGHTLY), `cmux remote-host grants` reads these. A build with the Screen Sharing helper
+    /// captures in the helper and its children (the cmux.rd/1 host and the iPhone viewer's WebRTC
+    /// host), whose grants are the helper's (`MacScreenHelper.permissions`); this app's own matter
+    /// for a build without the helper, and for the Accessibility tap of `MacScreenSystemShortcuts`.
     public func reportAppPermissions() async {
         guard let connection else { return }
         do {
@@ -259,7 +279,8 @@ public final class CmuxRemoteService {
         Task {
             do {
                 _ = try await hub.client.anchorDevice()
-                await devices.anchored(userID: userID, hubURL: hubURL)
+                // The space the device was anchored in: the worker renews there with the app quit.
+                await devices.anchored(userID: userID, hubURL: hubURL, buildSpace: hub.client.buildSpace.headerValue)
             } catch {
                 remoteLogger.notice("cmux Remote anchor failed: \(String(describing: error), privacy: .public)")
             }

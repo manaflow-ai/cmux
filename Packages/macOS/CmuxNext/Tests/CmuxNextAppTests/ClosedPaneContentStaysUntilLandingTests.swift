@@ -75,6 +75,8 @@ import Testing
             window.orderFrontRegardless()
             // Pins the pane springs on without touching the shared settings; from here the test is the clock.
             root.context.reduceMotionOverride = false
+            // No pane moves at a close or a zoom here (`PaneCommitMotion`): these rows count the frames of a change that shows in one.
+            root.context.commitMotionOverride = false
             root.context.afterCommit = { [committed] in committed.work.append($0) }
             root.driver.isManual = true
             root.driver.detach()

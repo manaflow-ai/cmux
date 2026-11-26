@@ -1,4 +1,6 @@
 import { readPeerLinkDetail, type PeerLinkDetail } from "./linkState";
+import { intl } from "../../ui/intl";
+import type { MachineAutoCloud } from "./machineResources";
 
 /// Where a chat runs, as the environment picker (EnvironmentPicker.tsx) lists it: this computer, an
 /// SSH machine (an `ssh://` acpmux peer) or a Cloud machine (any other peer, or a Cloud chat's host).
@@ -21,6 +23,8 @@ export type Environment = {
   /// When acpmux says its link left `connected` (`PeerLinkDetail.since`, ms since the epoch), while
   /// it is not connected; absent from an older daemon.
   downSince?: number;
+  /// Its owner enrolled it in AutoCloud (RFD 0172): AutoCloud's Mac tier, listed after this Mac.
+  autoCloud?: MachineAutoCloud;
 };
 
 /// The location row's connect choices and the app action each runs (the agent pane allows exactly
@@ -175,8 +179,10 @@ export function thisMacName(
 /// or a Cloud chat's host, and every SSH peer whose name is a shared stem and a number
 /// (`gcp-codex-lane-1`, `gcp-codex-lane-2`, `gcp-codex-lane-3`), at least three of them. Any other
 /// SSH peer is the person's own (`big-red`, `cmux16`, and a pair such as `build-mini-1`/`-2`).
-export type EnvironmentSection = "local" | "mine" | "fleet";
-const SECTION_ORDER: readonly EnvironmentSection[] = ["local", "mine", "fleet"];
+/// An SSH machine its owner enrolled in AutoCloud (RFD 0172) is AutoCloud's Mac tier: listed right
+/// after this Mac, in AutoCloud's own order (this Mac, enrolled machines, the cloud pool).
+export type EnvironmentSection = "local" | "autocloud" | "mine" | "fleet";
+const SECTION_ORDER: readonly EnvironmentSection[] = ["local", "autocloud", "mine", "fleet"];
 const POOL_NAME = /^(.*\D)[-_.]?\d+$/;
 const POOL_MIN = 3;
 
@@ -192,13 +198,14 @@ export function environmentSections(environments: readonly Environment[]): Map<s
     environments.map((environment) => {
       if (environment.kind === "local") return [environment.id, "local"];
       if (environment.kind === "cloud") return [environment.id, "fleet"];
+      if (environment.autoCloud) return [environment.id, "autocloud"];
       const stem = stemOf(environment);
       return [environment.id, stem && (stems.get(stem) ?? 0) >= POOL_MIN ? "fleet" : "mine"];
     }),
   );
 }
 
-const byName = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const byName = intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 /// The environments in the order the picker lists them: This Mac, then the person's machines, then
 /// Cloud and VMs; in each, the machines a chat can start on first, then the ones still connecting or

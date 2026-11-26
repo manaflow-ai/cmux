@@ -6,7 +6,7 @@ import UIKit
 /// The composer's text field: a UITextView, so the screen controls what a
 /// SwiftUI TextField does not expose: the dark keyboard (iOS 27 no longer
 /// derives it from the field's trait), terminal-safe text traits, and growth
-/// upward from 1 to 14 lines before it scrolls inside (classic cmux iOS; the
+/// upward from 1 to 6 lines before it scrolls inside (the agent chat's; the
 /// height rule is `ComposerFieldHeight`, shared with the agent chat composer).
 ///
 /// Return starts a new line from either keyboard and only the send button
@@ -31,10 +31,18 @@ struct ComposerTextView: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): it becomes an attachment. Nil: the composer takes none.
     var onPasteAttachments: (() -> Void)?
+    /// The composer's Autocorrect toggle (`CmuxMobilePreferences.terminalComposerAutocorrect`):
+    /// on, the keyboard corrects, spell-checks and predicts as in the chat
+    /// composer; off (the default), a shell line is typed as is.
+    var autocorrect = false
+    /// Points of the card over the field taken by the attachment strip: the field gives them up
+    /// (`ComposerReturnTextView.shareCard`), so attaching never makes the card taller than its tallest.
+    var reservedTop: CGFloat = 0
 
-    /// Classic cmux iOS's 14 lines (#41900 cut it to six; the iOS owner
-    /// kept the classic design, 2026-11-13).
-    static let maxLines = 14
+    /// Six lines, the agent chat's: 14 (classic cmux iOS) covered most of the terminal over the
+    /// keyboard (Leo, 2026-11-23: "composer growth in terminal view on ios is most certainly too
+    /// high").
+    static let maxLines = ComposerFieldHeight.defaultMaxLines
     /// Read so a live text size change updates the view (Codex QA F10): the
     /// insets follow the new line height and SwiftUI measures it again.
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -48,20 +56,16 @@ struct ComposerTextView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.textColor = .label
         view.tintColor = .label
-        // The view runs the field's full height (`textVerticalInset`): one
-        // line is 40 pt, as tall as the paperclip and voice circles beside
-        // it (classic), and a scrolled draft is cut at the field's edge.
-        let inset = TerminalDockMetrics.textVerticalInset
-        view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
+        // No inset, as the agent chat's field: the card (`ComposerCard`)
+        // places the text, one line centered on the row of 36 pt circles.
+        view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.keyboardAppearance = .dark
-        view.autocorrectionType = .no
+        Self.applyAutocorrect(autocorrect, to: view)
         view.autocapitalizationType = .none
-        view.spellCheckingType = .no
         view.smartQuotesType = .no
         view.smartDashesType = .no
         view.smartInsertDeleteType = .no
-        view.inlinePredictionType = .no
         // A shell line is not prose (SPEC M2): no QuickType bar, no AutoFill
         // callout, no Writing Tools.
         view.textContentType = nil
@@ -78,6 +82,10 @@ struct ComposerTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ComposerUITextView, context: Context) {
+        ComposerKeyStamp.viewUpdate(view) { update(view, context: context) }
+    }
+
+    private func update(_ view: ComposerUITextView, context: Context) {
         context.coordinator.parent = self
         if context.coordinator.lastTypeSize != dynamicTypeSize {
             context.coordinator.lastTypeSize = dynamicTypeSize
@@ -86,10 +94,15 @@ struct ComposerTextView: UIViewRepresentable {
             view.invalidateIntrinsicContentSize()
             view.setNeedsLayout()
         }
-        if view.text != text { view.text = text }
+        if view.differs(from: text) { view.takeDraft(text) }
+        if view.shareCard(reserved: reservedTop, baseMaxLines: Self.maxLines) { view.setNeedsLayout() }
         view.placeholder = placeholder
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
+        }
+        if Self.applyAutocorrect(autocorrect, to: view), view.isFirstResponder {
+            // The open keyboard reads its traits only when asked again.
+            view.reloadInputViews()
         }
         view.isEditable = !isDisabled
         if isDisabled, view.isFirstResponder { view.resignFirstResponder() }
@@ -104,6 +117,21 @@ struct ComposerTextView: UIViewRepresentable {
     /// (`ComposerFieldHeight`); measuring changes nothing on the view.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerUITextView, context: Context) -> CGSize? {
         uiView.fittingSize(proposedWidth: proposal.width)
+    }
+
+    /// Sets the correction traits; true when one changed. Smart quotes and
+    /// dashes stay off either way: a quote typed to a shell stays a quote.
+    @discardableResult
+    static func applyAutocorrect(_ on: Bool, to view: UITextView) -> Bool {
+        let correction: UITextAutocorrectionType = on ? .yes : .no
+        let spelling: UITextSpellCheckingType = on ? .yes : .no
+        let prediction: UITextInlinePredictionType = on ? .default : .no
+        guard view.autocorrectionType != correction || view.spellCheckingType != spelling
+            || view.inlinePredictionType != prediction else { return false }
+        view.autocorrectionType = correction
+        view.spellCheckingType = spelling
+        view.inlinePredictionType = prediction
+        return true
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -125,9 +153,11 @@ struct ComposerTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            parent.text = textView.text
+            // A native copy, so a long draft compares as a buffer downstream (`draftText()`).
+            parent.text = (textView as? ComposerReturnTextView)?.draftText() ?? textView.text
             (textView as? ComposerUITextView)?.updatePlaceholder()
-            textView.invalidateIntrinsicContentSize()
+            // The height is settled once per edit, and SwiftUI asked again only when it changed.
+            (textView as? ComposerReturnTextView)?.settleAfterEdit()
             (textView as? ComposerUITextView)?.followCaret()
         }
 
