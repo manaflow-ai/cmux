@@ -31,6 +31,15 @@ struct TerminalComposer: View {
     @AppStorage(CmuxMobilePreferences.Key.terminalComposerAutocorrect)
     private var autocorrect = CmuxMobilePreferences.defaultTerminalComposerAutocorrect
 
+    #if DEBUG
+    /// The accessibility probes are opt-in so ordinary debug UI tests keep the same
+    /// view hierarchy and query cost as a production launch. The composer-edge test
+    /// enables them explicitly when it needs to inspect hit routing.
+    private var tapProbeEnabled: Bool {
+        ProcessInfo.processInfo.arguments.contains("-cmuxMobileComposerTapProbe")
+    }
+    #endif
+
     var body: some View {
         #if DEBUG
         let _ = InputLatencyTrace.shared?.count("composer_body")
@@ -49,7 +58,11 @@ struct TerminalComposer: View {
         }
         .overlay(alignment: .topLeading) { floatingNotes }
         #if DEBUG
-        .background(alignment: .bottomLeading) { KeyBarFiredProbe(model: model) }
+        .background(alignment: .bottomLeading) {
+            if tapProbeEnabled {
+                KeyBarFiredProbe(model: model)
+            }
+        }
         #endif
         .padding(.horizontal, ComposerCardMetrics.horizontalInset)
         // Always its own height, never the hosting view's current one (kept
@@ -185,8 +198,14 @@ struct TerminalComposer: View {
     /// terminal theme's colors over the same Liquid Glass, so it reads as part of the pane.
     private var card: some View {
         ComposerCard(look: look.card, lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
+            // Strip and text share the cap: the field gives the strip its
+            // height, and the page's inset leaves out what reaches above the
+            // field's own height, so no row moves (Leo, 2026-11-23: "simply
+            // have it within the top part of the composer. the inner area grows
+            // at the top. no shift, nothing.").
             if !model.attachments.isEmpty {
                 AttachmentStrip(model: model)
+                    .frame(height: ComposerHeightCap.stripHeight, alignment: .top)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         } leading: {
@@ -211,7 +230,8 @@ struct TerminalComposer: View {
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
                 autocorrect: autocorrect,
-                reservedTop: model.attachments.isEmpty ? 0 : ComposerCardMetrics.attachmentStripHeight
+                stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !model.attachments.isEmpty),
+                fieldRef: model.composerField
             )
         } trailing: {
             HStack(spacing: 0) {
@@ -283,7 +303,11 @@ struct TerminalComposer: View {
         let canSend = model.composerHasText || !model.attachments.isEmpty
         let failed = model.attachmentError != nil
         return Button {
-            send()
+            if model.isUploading {
+                model.cancelAttachmentSend()
+            } else {
+                send()
+            }
         } label: {
             ZStack {
                 if model.isUploading {
@@ -291,7 +315,7 @@ struct TerminalComposer: View {
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(failed ? AnyShapeStyle(Color.white) : canSend ? AnyShapeStyle(Color.cmuxMobileOnSend) : AnyShapeStyle(Color(uiColor: .tertiaryLabel)))
+                        .foregroundStyle(failed ? AnyShapeStyle(CmuxMobileTheme.standard.colors.onAccent.color) : canSend ? AnyShapeStyle(Color.cmuxMobileOnSend) : AnyShapeStyle(Color(uiColor: .tertiaryLabel)))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
@@ -299,19 +323,21 @@ struct TerminalComposer: View {
             // (`Color.cmuxMobileSend`, never a white disk). Tinted glass washed
             // it out to a pale disc (Leo, 2026-11-22: "the send button is
             // themed/coloured slightly oddly"). Empty (disabled): the faint fill.
-            .composerControlCircle(failed ? AnyShapeStyle(Color.red)
+            .composerControlCircle(failed ? AnyShapeStyle(CmuxMobileTheme.standard.colors.danger.color)
                                    : canSend || model.isUploading ? AnyShapeStyle(Color.cmuxMobileSend)
                                    : AnyShapeStyle(Color.cmuxMobileFill))
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(model.isUploading || !canSend)
+        .disabled(!canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
                 model.sendWithoutReturn()
             }
         }
-        .accessibilityLabel(model.isUploading ? "Sending" : failed ? "Send failed" : "Send")
+
+        .accessibilityLabel(model.isUploading ? CmuxMobileTerminalAccessibility.cancelSending : failed ? "Send failed" : "Send")
+
         .accessibilityIdentifier("terminal.composer.send")
     }
 
@@ -503,10 +529,11 @@ struct AttachmentStrip: View {
                                 // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                                 Image(systemName: "xmark")
                                     .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(CmuxMobileTheme.standard.colors.label.color)
                                     .frame(width: 22, height: 22)
-                                    // Glass, darkened so it reads over any thumbnail (as in Messages).
-                                    .glassEffect(.regular.tint(.black.opacity(0.5)).interactive(), in: .circle)
+                                    // The theme's floating glass (its surface at the transient veil),
+                                    // so it reads over any thumbnail and follows the Mac's theme.
+                                    .cmuxMobileFloatingGlass(in: .circle, interactive: true)
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }

@@ -434,7 +434,7 @@ fn a_never_shown_plain_shell_starts_on_its_first_need() {
         tab["relaunch"]["on_show"],
         true,
         "{tab}\nlazy trace:\n{}",
-        std::fs::read_to_string(harness.dir.join("lazy-trace.log")).unwrap_or_default()
+        fs::read_to_string(harness.dir.join("lazy-trace.log")).unwrap_or_default()
     );
 
     let added = request(
