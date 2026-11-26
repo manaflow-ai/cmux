@@ -1266,6 +1266,8 @@ impl Hub {
             "build": build(),
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
+            // Its ABI revision and the hellos heard since the start (`abi_hello.rs`).
+            "abi": crate::abi_hello::status(),
             // Chats out of memory as compact rows now, and evictions and rehydrations since the
             // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is unset).
             "evicted": evicted,
