@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.appsTier.help" : {
+      "comment" : "Settings > Advanced > Experiments: Publish Previews as Apps",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A Cloud preview can be published as an app with its own versions and a stable address, listed under Apps in the sidebar."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يمكن نشر معاينة السحابة كتطبيق له إصداراته الخاصة وعنوان ثابت، ويظهر ضمن التطبيقات في الشريط الجانبي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pregled u oblaku može se objaviti kao aplikacija s vlastitim verzijama i stalnom adresom, navedena pod Aplikacije na bočnoj traci."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En forhåndsvisning i skyen kan udgives som en app med egne versioner og en fast adresse, vist under Apps i sidepanelet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine Cloud-Vorschau kann als App mit eigenen Versionen und einer festen Adresse veröffentlicht werden und erscheint unter Apps in der Seitenleiste."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una vista previa en la nube puede publicarse como una app con sus propias versiones y una dirección estable, listada en Apps en la barra lateral."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un aperçu Cloud peut être publié comme une app avec ses propres versions et une adresse stable, listée sous Apps dans la barre latérale."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un'anteprima Cloud può essere pubblicata come app con versioni proprie e un indirizzo stabile, elencata in App nella barra laterale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クラウドのプレビューを、独自のバージョンと固定アドレスを持つアプリとして公開し、サイドバーのアプリに表示できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការមើលជាមុនលើពពកអាចបោះពុម្ពជាកម្មវិធីដែលមានកំណែផ្ទាល់ខ្លួន និងអាសយដ្ឋានថេរ ហើយបង្ហាញនៅក្រោមកម្មវិធីក្នុងរបារចំហៀង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "클라우드 미리보기를 자체 버전과 고정 주소를 가진 앱으로 게시하고, 사이드바의 앱 아래에 표시할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En forhåndsvisning i skyen kan publiseres som en app med egne versjoner og en fast adresse, oppført under Apper i sidepanelet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Podgląd w chmurze można opublikować jako aplikację z własnymi wersjami i stałym adresem, widoczną w sekcji Aplikacje na pasku bocznym."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma prévia na nuvem pode ser publicada como um app com versões próprias e um endereço fixo, listado em Apps na barra lateral."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Облачное превью можно опубликовать как приложение со своими версиями и постоянным адресом; оно появится в разделе «Приложения» на боковой панели."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ตัวอย่างบนคลาวด์สามารถเผยแพร่เป็นแอปที่มีเวอร์ชันของตัวเองและที่อยู่คงที่ และแสดงอยู่ในส่วนแอปบนแถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir bulut önizlemesi, kendi sürümleri ve sabit bir adresi olan bir uygulama olarak yayımlanabilir ve kenar çubuğunda Uygulamalar altında listelenir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Хмарний попередній перегляд можна опублікувати як застосунок із власними версіями та сталою адресою; він з'явиться в розділі «Застосунки» на бічній панелі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bản xem trước trên đám mây có thể được xuất bản thành ứng dụng có phiên bản riêng và địa chỉ cố định, hiển thị trong mục Ứng dụng ở thanh bên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "云端预览可以发布为拥有独立版本和固定地址的应用，并列在侧边栏的“应用”下。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "雲端預覽可以發佈為擁有獨立版本和固定網址的 App，並列在側邊欄的「App」下。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
