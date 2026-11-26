@@ -178,7 +178,8 @@ fn owner_ask(out: &mpsc::Sender<Value>, approvals: &Approvals) -> super::agent::
 /// An exclusive lock on `<hand home>/hand.lock`, held for the process life.
 fn single_instance() -> Result<std::fs::File> {
     let path = super::config::home().join("hand.lock");
-    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path)?;
+    let file =
+        crate::home_fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path)?;
     #[cfg(unix)]
     {
         use std::os::fd::AsRawFd;

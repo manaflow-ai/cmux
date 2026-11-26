@@ -132,6 +132,28 @@
         }
       }
     },
+    "browserProfile.reason.incognito" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deleted when the last incognito window closes"
+          }
+        }
+      }
+    },
+    "browserProfile.reason.builtIn" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Default for all workspaces"
+          }
+        }
+      }
+    },
     "browserProfile.reason.workspace" : {
       "extractionState" : "manual",
       "localizations" : {

@@ -168,6 +168,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-tab-discard/",
+    "cmux-tui/crates/cmux-browser-rules/",
     "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-cloud-environment/",
     "cmux-tui/crates/cmux-build-space/",
@@ -177,9 +178,13 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-cookie-sync/",
     "cmux-tui/crates/cmux-daemon-conn-core/",
     "cmux-tui/crates/cmux-daemon-launch-core/",
+    "cmux-tui/crates/cmux-update-prewarm-core/",
     "cmux-tui/crates/cmux-health-core/",
     "cmux-tui/crates/cmux-launch-image/",
     "cmux-tui/crates/cmux-pane-pictures/",
+    "cmux-tui/crates/cmux-chat-markdown/",
+    "cmux-tui/crates/cmux-acpmux-remote-wire/",
+    "cmux-tui/crates/cmux-screenshots/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
@@ -190,6 +195,9 @@ SWIFT_JOB_INPUTS = (
     # The SDK's C ABI (the app's daemon client). The SDK it wraps (cmux-tui/bindings/rust/)
     # reaches the app only through the pinned FFI release, whose repin routes the Swift jobs.
     "cmux-tui/crates/cmux-sdk-ffi/",
+    # CmuxNextAgentPane's relay policy tables are generated from it at build time (AgentPanePolicyPlugin).
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+    "scripts/cmux-next/gen-agent-pane-policy-swift.py",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )
@@ -342,7 +350,7 @@ CHECKED_WEB_BUNDLES = (
 # Release or scheme compile: #29013 (images/cmux-vm/inputs.lock.json) waited 80 minutes on a fleet
 # Release compile its diff could not change. A test target that reads one still runs (consumed()).
 NO_APP_INPUT = (
-    "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
+    "images/*", "services/*", "vault/*", "agent-chat/*", "markdown-obsidian-parity/*",
     "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
     # Script directories under scripts/cmux-next/ that only a workflow or a person runs, and that
     # import nothing of the app's and nothing of the app's imports: the classic -> NEXT migration CLI

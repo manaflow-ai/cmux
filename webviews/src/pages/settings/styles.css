@@ -1458,43 +1458,62 @@ mark {
   max-width: var(--page-size-160);
 }
 
-/* Settings > Connections (ConnectionsCard): the catalog as a grid of tiles in rank order, each with
-   its title and status on one line, one line about it, and its button at the bottom. */
+/* Settings > Connections (ConnectionsPanel.tsx): the catalog as a grid of tiles in rank order, each with
+   its mark, title and status pill on one line, one line about it, and its button at the bottom. */
 .connections-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--page-size-240), 1fr));
   gap: var(--ds-space-2);
 }
 
+/* Each tile is the pane's connect card (acpmux/ConnectCard.tsx, claudeConnect.css): its pane colours
+   from this page's, as the plan usage card's are (.harness-account-usage). */
 .connections-tile {
+  --agent-text: var(--text);
+  --agent-muted: var(--muted-text);
+  --agent-border: var(--border);
+  --agent-accent: var(--cmux-accent, var(--text));
+  --agent-danger: var(--danger);
   display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
   min-width: 0;
+}
+
+.connections-tile > .acpmux-connect-card {
+  flex: 1;
   padding: var(--ds-space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-lg);
+  border-color: var(--border);
   background: var(--input-bg);
+}
+
+.connections-tile .acpmux-connect-card__actions {
+  margin-top: auto;
+}
+
+.connections-tile .acpmux-connect-card__details .row-help {
+  white-space: normal;
+}
+
+.connections-monogram {
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--ds-space-5);
+  height: var(--ds-space-5);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--muted-text) 18%, transparent);
+  font-weight: 600;
+  font-size: var(--text-detail);
+}
+
+.connections-confirm {
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: var(--ds-space-2);
 }
 
 .connections-tile[data-connections-state="unavailable"] {
   opacity: 0.7;
-}
-
-.connections-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-2);
-}
-
-.connections-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--ds-space-2);
-  margin-top: auto;
-  padding-top: var(--ds-space-2);
 }
 
 .connections-key {
@@ -1513,6 +1532,44 @@ mark {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
+}
+
+/* Settings > Connections, on top (AllConnections.tsx): every connection as one compact row, its
+   title and kind, its status pill and its one action. */
+.all-connections-list {
+  display: flex;
+  flex-direction: column;
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  list-style: none;
+}
+
+.all-connections-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-1) var(--ds-space-3);
+}
+
+.all-connections-row + .all-connections-row {
+  border-top: 1px solid var(--border);
+}
+
+.all-connections-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.all-connections-title,
+.all-connections-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
@@ -4236,3 +4293,12 @@ button.menu-disclosure {
   display: block;
   margin: 0 0 12px;
 }
+
+/* RFD 0123 Slack awake card (gallery-first): the right-hand spent / allowance value. */
+[data-card="slack-awake"] .row-value {
+  margin-left: auto;
+  color: var(--text-secondary, inherit);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
