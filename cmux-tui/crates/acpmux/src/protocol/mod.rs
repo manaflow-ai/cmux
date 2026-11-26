@@ -539,6 +539,7 @@ pub fn registry() -> Vec<MethodDecl> {
         // Harnesses, models, routes.
         keyed::<params::HarnessesParams>(method::MUX_HARNESSES, Request),
         keyed::<params::HarnessEnableParams>(method::MUX_HARNESS_ENABLE, Request),
+        keyed::<params::HarnessDisableParams>(method::MUX_HARNESS_DISABLE, Request),
         untyped(method::MUX_HARNESS_ADD, Request),
         untyped(method::MUX_HARNESS_REMOVE, Request),
         untyped(method::MUX_HARNESS_RESTORE, Request),
@@ -611,6 +612,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/host_health", Request),
         untyped("_acpmux/host_overload", Request),
         untyped("_acpmux/vm_host", Request),
+        untyped("_acpmux/autocloud_enroll", Request),
         untyped("_acpmux/host_notice", Request),
         untyped("_acpmux/place", Request),
         untyped("_acpmux/place_set", Request),
