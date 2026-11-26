@@ -59,8 +59,7 @@ extension AppOnboardingServices {
         // only pages on a daemon without browser tabs) is not opened.
         let browsers = daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue)
         if saved.leftOutPanels { summary.leftTabs = true }
-        // A markdown or file preview tab opens its file on this Mac, so only in a local workspace and only while the
-        // file is there; it is built as a page on the file and becomes its markdown or editor page once placed.
+        // A markdown or file tab opens its file on this Mac: only in a local workspace, only while the file is there.
         let keepsFile: (ClassicSessionFile) -> Bool = { browsers && saved.remote == nil && FileManager.checked.fileExists(atPath: $0.path) }
         if saved.layout.tabs.contains(where: { $0.file.map { !keepsFile($0) } ?? false }) { summary.leftTabs = true }
         guard let layout = saved.layout.keeping({ tab in tab.file.map(keepsFile) ?? (browsers || tab.url == nil) }) else { return nil }
@@ -298,14 +297,12 @@ extension AppOnboardingServices {
                              created: { made.resolve($0) }) else { continue }
             let bound = DemandTimer(owner: "ClassicImport.filePage"); bound.schedule(after: .seconds(10)) { made.resolve(nil) }
             let surface = await made.value(); bound.cancel()
-            // A page that did not open, or did not move, leaves the file's preview in its place.
             guard let surface, (try? await connection.moveTab(surface, to: slot.pane, index: slot.index)) != nil else { continue }
             try? await connection.closeTab(slot.surface)
         }
     }
 
-    /// Each pane as classic left it: its pinned tabs pinned, its selected tab selected in every window, its focus
-    /// remembered (``ClassicSessionLayout/selections(in:)``). Panes and tabs match by order: replaced tabs kept their places.
+    /// Each pane as classic left it (pins, selected tab in every window, focus); panes and tabs match by order.
     func restoreClassicPanes(_ layout: ClassicSessionLayout, workspaceID: String, daemon: DaemonService, connection: DaemonConnection) async {
         let key = WorkspaceKey(rawValue: workspaceID)
         guard layout.restoresPanes, let built = try? await daemon.shape(of: key, after: connection)?.screens.first else { return }
