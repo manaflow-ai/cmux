@@ -874,7 +874,7 @@ class UnstartedRunTests(unittest.TestCase):
         running = [live_job("mac_build_done", status="in_progress", conclusion=None, completed_at=None)]
         main_runs = [dict(self.live(run_minutes_ago=5, status="in_progress"), head_branch="main", head_sha="e" * 40,
                           event=event, display_title=title)
-                     for event, title in (("schedule", "Nightly macOS build · 17 * * * *"),
+                     for event, title in (("schedule", "Nightly macOS build · 2,17,32,47 * * * *"),
                                           ("workflow_dispatch", "Promote nightly-next to " + "e" * 40),
                                           ("workflow_dispatch", "Resume nightly-next run 1 attempt 1"))]
         gh = self.Flows(self, {("nightly.yml", "main"): main_runs,

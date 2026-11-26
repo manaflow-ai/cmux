@@ -45,7 +45,8 @@ ALLOWED_SHARED: dict[tuple[str, str], str] = {
         "only plain drives share it: each plans from the durable verdict to the branch tip when it starts; "
         "a fix-forward or a given tip has a group per run"),
     ("nightly.yml", ""): (
-        "every push run and promotion request is keyed by its run id; the shared lanes are the scheduled "
+        "every push run, 15-minute main tick and promotion request is keyed by its run id (decide caps main "
+        "app builds in flight); the shared lanes are the scheduled "
         "cache seed and manual fast/full dispatches, which build the branch tip when they start "
         "(test_nightly_push_runs_never_share_a_build_group)"),
     ("nightly.yml", "promote-nightly-next"): (

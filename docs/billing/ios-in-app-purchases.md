@@ -1,28 +1,40 @@
 # iOS in-app purchases
 
-The iOS app sells cmux personal plans through StoreKit 2. RevenueCat is not used. The web server is the source of truth: it verifies every Apple transaction, records every App Store Server Notification, applies the plan entitlement, and feeds analytics.
+The iOS apps sell cmux personal plans through StoreKit 2. RevenueCat is not used. The web server is the source of truth: it verifies every Apple transaction, records every App Store Server Notification, applies the plan entitlement, and feeds analytics.
 
 ## Products
 
-Personal plans only. Team stays web-only (per-seat, invoiced to a team).
+Personal plans only. Team stays web-only (per-seat, invoiced to a team). One price book for the web and the App Store (cmuxterm-hq RFD 0037a). The cmux-next apps (`com.cmux.app`, `dev.cmux.app.internal`) sell the cmux NEXT plans; each product grants exactly its own NEXT plan:
 
-| Plan | Web (Stripe) | iOS (App Store, USD base) | Net at 30% | Net at 15% |
-| --- | --- | --- | --- | --- |
-| Go | $10/mo | $14.99/mo | $10.49 | $12.74 |
-| Pro | $50/mo | $74.99/mo | $52.49 | $63.74 |
-| Max | $200/mo | $299.99/mo | $209.99 | $254.99 |
+| Plan | Plan ID | Web (Stripe) | iOS (App Store, USD base) | Net at 30% | Net at 15% | Allowance |
+| --- | --- | --- | --- | --- | --- | --- |
+| Plus | `next_plus` | $20/mo | $29.99/mo | $20.99 | $25.49 | 30,000 machine-minutes, 1 Chief |
+| Pro | `next_pro` | $50/mo | $74.99/mo | $52.49 | $63.74 | 75,000 machine-minutes, 2 Chiefs |
+| Max | `next_max` | $200/mo | $299.99/mo | $209.99 | $254.99 | 300,000 machine-minutes, 5 Chiefs |
+| Team | `team` | $60/seat/mo | web only | - | - | $25 pool a seat |
+
+The classic beta (`dev.cmux.app.beta`) sells the classic plans, which grant classic entitlements:
+
+| Plan | Plan ID | Web (Stripe) | iOS (App Store, USD base) | Net at 30% | Net at 15% |
+| --- | --- | --- | --- | --- | --- |
+| Go | `go` | $15/mo | $21.99/mo | $15.39 | $18.69 |
+| Pro | `pro` | $50/mo | $74.99/mo | $52.49 | $63.74 |
+| Max | `max` | $200/mo | $299.99/mo | $209.99 | $254.99 |
 
 The iOS price is the web price divided by 0.7 (Apple's first-year commission), rounded up to the next `.99` price point with a few dollars of margin. This matches what YouTube Premium, Spotify (historically), Tinder, and Bumble do: iOS buyers pay more so net revenue per plan is never below web. After a subscriber's first year, or under the Small Business Program, Apple takes 15% and the margin grows. Other storefronts use Apple's automatic equalization from the US base price.
 
-All products are auto-renewable, monthly, in one subscription group so upgrades and downgrades are Apple-managed (Max > Pro > Go, level 1 highest). No introductory offers or free trials.
+All products are auto-renewable, in one subscription group per app so upgrades and downgrades are Apple-managed (Max > Pro > Plus, or Max > Pro > Go, level 1 highest). NEXT plans are monthly only, as on the web. No introductory offers or free trials.
 
 Product IDs are prefixed with the bundle ID, so the App Store app and each TestFlight app own their products:
 
-- `<bundleId>.go.monthly`, `<bundleId>.pro.monthly`, `<bundleId>.max.monthly`
+- cmux-next apps: `<bundleId>.next_plus.monthly`, `<bundleId>.next_pro.monthly`, `<bundleId>.next_max.monthly`. The server never maps `go` to `next_plus`.
+- Classic app: `<bundleId>.go.monthly`, `<bundleId>.pro.monthly`, `<bundleId>.max.monthly`. These IDs still map to their classic plans in every bundle, so a subscriber renewing one of the old `com.cmux.app` products keeps it; the account-token route no longer lists them to the cmux-next apps.
 - Yearly, like the web prices (Pro $480/yr, Max $1,920/yr; Go is monthly only): `<bundleId>.pro.yearly`, `<bundleId>.max.yearly`. The account-token route lists them only to an app that sends `x-cmux-billing-periods: monthly,yearly`; every product entry carries `billingPeriod` (`monthly` | `yearly`). Older apps get monthly products only. Transactions and notifications map either ID to its plan; the grant runs until `expires_at`. Until the App Store yearly prices are set, a non-USD yearly charge is estimated at the monthly list price x 9.6.
 - App Store app: bundle `com.cmux.app` (Apple ID 6783338052), the App Store home of cmux-next. Beta: `dev.cmux.app.beta`. cmux INTERNAL, the cmux-next TestFlight build: `dev.cmux.app.internal` (Apple ID 6791408425); its products resolve once they exist in App Store Connect, and production answers it `purchases_unavailable` because it buys only in the Sandbox. Dev builds use a local StoreKit configuration file.
 
 Go is listed only when the server reports it enabled (the Go PostHog flag), same as web.
+
+A NEXT product's grant is mirrored in `cmuxNextPlan` (and `cmuxPlan` while no classic plan holds it), combined with a Stripe NEXT subscription, the higher plan winning; a classic product's grant goes to `cmuxPlan` as before. The two families are picked separately, so a NEXT subscription never counts as a classic plan or the reverse.
 
 ## Account linking
 
@@ -117,7 +129,7 @@ The iOS app sends client events (`ios_paywall_viewed`, `ios_purchase_started`, `
 
 ## Plan allowances
 
-App Store and web subscribers get the same allowances, each reset by its own subscription period (App Store: newest transaction's purchase date to expiry, extended by a grace period; a yearly subscription resets monthly from its start date). Go: 40 VM-hours, one running machine, two saved; always enforced.
+App Store and web subscribers get the same allowances, each reset by its own subscription period (App Store: newest transaction's purchase date to expiry, extended by a grace period; a yearly subscription resets monthly from its start date). Go: one saved Cloud VM (running or paused), up to 8 vCPU / 16 GiB, no monthly hour cap (`web/services/vms/README.md`). NEXT plans: the machine-minutes in the table above.
 
 The Pro and Max allowances below are **off by default**: https://cmux.com/pricing promises no hour limits, so without `CMUX_VM_PLAN_BUDGETS=on` no Pro or Max user gets a compute-hour or disk limit and the 402 refusals never fire. With the switch on: Pro: 375 compute-hours and 160 GB of disk across saved machines. Max: 1,500 compute-hours and 640 GB. A compute-hour is 1 vCPU with 2 GB of memory running for one hour (a machine draws `max(vCPUs, memory GB / 2)` units). Create, resume, fork, and restore refuse with 402 `vm_compute_budget_reached` (with the reset date) when the compute-hours are used up, and create or disk growth refuses with 402 `vm_storage_budget_reached`; the minute job pauses running Pro and Max machines at the limit. Founder's Edition, operator plan grants, and Team have no allowance (an operator grant to a user who also holds a Pro or Max subscription is metered by that subscription). A machine is metered at its current recorded shape, so resizing a machine also re-rates its earlier runtime in the period. `CMUX_VM_PLAN_BUDGETS=on` turns them on.
 
@@ -133,14 +145,20 @@ Subscription group "cmux Plans" (localized name "cmux", en-US and ja) per app, a
 
 | Product ID | ASC ID | Level | USD |
 | --- | --- | --- | --- |
-| `com.cmux.app.max.monthly` | 6818444182 | 1 | 299.99 |
-| `com.cmux.app.pro.monthly` | 6818444960 | 2 | 74.99 |
-| `com.cmux.app.go.monthly` | 6818445194 | 3 | 14.99 |
+| `com.cmux.app.next_max.monthly` | to create | 1 | 299.99 |
+| `com.cmux.app.next_pro.monthly` | to create | 2 | 74.99 |
+| `com.cmux.app.next_plus.monthly` | to create | 3 | 29.99 |
+| `dev.cmux.app.internal.next_max.monthly` | to create | 1 | 299.99 |
+| `dev.cmux.app.internal.next_pro.monthly` | to create | 2 | 74.99 |
+| `dev.cmux.app.internal.next_plus.monthly` | to create | 3 | 29.99 |
+| `com.cmux.app.max.monthly` | 6818444182 | 1 | 299.99 (to take off sale) |
+| `com.cmux.app.pro.monthly` | 6818444960 | 2 | 74.99 (to take off sale) |
+| `com.cmux.app.go.monthly` | 6818445194 | 3 | 14.99 (to take off sale) |
 | `dev.cmux.app.beta.max.monthly` | 6818446208 | 1 | 299.99 |
 | `dev.cmux.app.beta.pro.monthly` | 6818447766 | 2 | 74.99 |
-| `dev.cmux.app.beta.go.monthly` | 6818447955 | 3 | 14.99 |
+| `dev.cmux.app.beta.go.monthly` | 6818447955 | 3 | 21.99 (App Store Connect still at 14.99 until changed) |
 
-Group IDs: `com.cmux.app` 22433557, `dev.cmux.app.beta` 22433386. Display names "cmux Max", "cmux Pro", "cmux Go" (en-US and ja). Descriptions, en-US / ja: Max "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM" / "クラウドVM最大5台で80 vCPU・160 GB RAMを共有"; Pro "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM" / "クラウドVM最大5台で20 vCPU・40 GB RAMを共有"; Go "1 Cloud VM with 40 VM-hours a month" / "クラウドVM 1台、月40 VM時間". The VM resources are one pool shared by the plan's VMs, not a per-VM allowance; App Store Connect descriptions must use this pooled wording.
+Group IDs: `com.cmux.app` 22433557, `dev.cmux.app.beta` 22433386. Display names "cmux Max", "cmux Pro", "cmux Go" (en-US and ja). Descriptions, en-US / ja: Max "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM" / "クラウドVM最大5台で80 vCPU・160 GB RAMを共有"; Pro "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM" / "クラウドVM最大5台で20 vCPU・40 GB RAMを共有"; Go "1 Cloud VM with up to 8 vCPUs and 16 GB RAM" / "クラウドVM 1台、最大8 vCPU・16 GB RAM" (App Store Connect still shows the old "40 VM-hours" text until changed). NEXT, to create: Plus "30,000 machine-minutes a month and 1 Chief" / "毎月30,000マシン分とChief 1体"; Pro "75,000 machine-minutes a month and 2 Chiefs" / "毎月75,000マシン分とChief 2体"; Max "300,000 machine-minutes a month and 5 Chiefs" / "毎月300,000マシン分とChief 5体", display names "cmux Plus", "cmux Pro", "cmux Max". The VM resources are one pool shared by the plan's VMs, not a per-VM allowance; App Store Connect descriptions must use this pooled wording.
 
 The products are in `MISSING_METADATA` until each gets an App Review screenshot of the paywall. The first subscriptions for an app must be submitted with an app version.
 
