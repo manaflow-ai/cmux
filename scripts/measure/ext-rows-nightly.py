@@ -26,6 +26,7 @@ import argparse
 import importlib.util
 import json
 import os
+import pwd
 import re
 import shutil
 import socket
@@ -475,6 +476,24 @@ def side_relaunch(ctx: Ctx, between=None) -> dict:
             "launch_err": launch.stderr[-400:]}
 
 
+def support_roots() -> list[Path]:
+    """`~/Library/Application Support` for `$HOME` and for the account's own home: a cmux-ci step runs with HOME
+    set to a per-step folder, while the app it launches (`launchctl asuser`) keeps its state under the account's
+    home (c7aa89105590: `installedAt` under /Users/cmux while HOME was the step's, so the widget row found no
+    session folder)."""
+    homes = [Path.home()]
+    try:
+        homes.append(Path(pwd.getpwuid(os.getuid()).pw_dir))
+    except KeyError:
+        pass
+    roots: list[Path] = []
+    for home in homes:
+        root = home / "Library/Application Support"
+        if root not in roots:
+            roots.append(root)
+    return roots
+
+
 def daemon_session_dirs(ctx: Ctx, since: float = 0.0) -> list[Path]:
     """The copy's daemon session folders: `builds/<key>/tui/<session>` of its own build key (the side marker's
     `key=`, cmux-agent-pane-policy build_identity.rs `daemon_state_dir`), where the apps supervisor keeps its
@@ -484,9 +503,12 @@ def daemon_session_dirs(ctx: Ctx, since: float = 0.0) -> list[Path]:
         return by_socket
     marker = (ctx.pid_file.parent / ".side-instance").read_text()
     key = re.search(r"^key=(.+)$", marker, re.M).group(1).strip()
-    root = Path.home() / "Library/Application Support/cmux-next/builds" / key / "tui"
-    dirs = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
-    return dirs or apps_state_dirs(since)
+    dirs: list[Path] = []
+    for support in support_roots():
+        root = support / "cmux-next/builds" / key / "tui"
+        if root.is_dir():
+            dirs.extend(p for p in root.iterdir() if p.is_dir())
+    return sorted(set(dirs)) or apps_state_dirs(since)
 
 
 def socket_session_dirs(daemon_socket: str, support: Path | None = None) -> list[Path]:
@@ -497,13 +519,13 @@ def socket_session_dirs(daemon_socket: str, support: Path | None = None) -> list
     stem = Path(daemon_socket).name.removesuffix(".sock")
     if not stem:
         return []
-    support = support or Path.home() / "Library/Application Support"
     found: list[Path] = []
-    for top in ("cmux-next", "cmux", "cmux-tui"):
-        base = support / top
-        for pattern in ("tui", "*/*/tui"):
-            for tui in base.glob(pattern):
-                found.extend(p for p in tui.glob(f"{stem}-*") if p.is_dir())
+    for root in ([support] if support else support_roots()):
+        for top in ("cmux-next", "cmux", "cmux-tui"):
+            base = root / top
+            for pattern in ("tui", "*/*/tui"):
+                for tui in base.glob(pattern):
+                    found.extend(p for p in tui.glob(f"{stem}-*") if p.is_dir())
     return sorted(set(found))
 
 
@@ -512,10 +534,8 @@ def apps_state_dirs(since: float) -> list[Path]:
     `LAUNCHES_FILE`) names the customize app and was written since `since`: where this run's install landed,
     wherever the copy's build identity put its daemon state (`builds/<key>/tui`, `tags/<tag>/tui`, or the
     shared root of a NIGHTLY-keyed copy; build_identity.rs `daemon_state_dir`)."""
-    support = Path.home() / "Library/Application Support"
     found: list[Path] = []
-    for top in ("cmux-next", "cmux", "cmux-tui"):
-        base = support / top
+    for base in (root / top for root in support_roots() for top in ("cmux-next", "cmux", "cmux-tui")):
         if not base.is_dir():
             continue
         for here, subdirs, files in os.walk(base):
