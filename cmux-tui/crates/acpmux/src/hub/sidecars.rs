@@ -9,7 +9,12 @@
 //!
 //! Off unless `agents.harnessMagic.sidecars.enabled` is `true` (an opinionated nudge, like
 //! cold_wake; Leo 2026-11-26 on compaction: "only do it for our personal fleet situation"), and
-//! `ACPMUX_HM_SIDECARS=0` kills it. It fires at most once per rule per turn, steers only into a
+//! `ACPMUX_HM_SIDECARS=0` kills it.
+//!
+//! The second rule is a permission stall: a permission or question the agent asked that nobody
+//! answered for [`STALL`]. The agent cannot act on a steer while it waits, so the rule raises a
+//! notice for the person instead, once per ask: a `permission_stall` record, which
+//! `daemon/notify.rs` sends through `notify_command` like the ask itself. It fires at most once per rule per turn, steers only into a
 //! steerable turn (otherwise drops: a stale nudge on the next prompt helps no one), and fails
 //! open: a missing command, an unknown tool shape or a lost lock does nothing. The turn's
 //! `turn_result` carries `harnessMagic.sidecars.{polling,steered}`.
@@ -18,6 +23,7 @@ use super::*;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex as StdMutex};
+use std::time::Duration;
 
 pub(super) const FEATURE: &str = "sidecars";
 /// Runs of one wait-shaped command before the rule fires. A shared waiter (`glaeda-gh wait`,
@@ -27,6 +33,8 @@ const REPEATS: u32 = 3;
 const MAX_KEY: usize = 300;
 /// Call ids remembered per turn (first sight only); past it the turn stops counting.
 const MAX_SEEN: usize = 512;
+/// How long an ask waits unanswered before the stall rule raises its notice.
+pub(super) const STALL: Duration = Duration::from_secs(10 * 60);
 
 /// `None` only if the pattern failed to compile; the rule then never fires (fails open).
 static WAIT_SHAPED: LazyLock<Option<Regex>> = LazyLock::new(|| {
@@ -77,12 +85,15 @@ pub(super) struct Rules {
     /// This turn's counters, taken by the `turn_result`.
     polling: u64,
     steered: u64,
+    /// Asks this turn that waited past [`STALL`].
+    stalls: u64,
 }
 
 impl Rules {
     fn on_turn(&mut self, turn: &str) {
         if self.turn != turn {
-            *self = Rules { turn: turn.to_owned(), ..Rules::default() };
+            let stalls = self.stalls;
+            *self = Rules { turn: turn.to_owned(), stalls, ..Rules::default() };
         }
     }
 
@@ -120,8 +131,12 @@ impl Rules {
         ))
     }
 
-    pub(super) fn take(&mut self) -> (u64, u64) {
-        (std::mem::take(&mut self.polling), std::mem::take(&mut self.steered))
+    pub(super) fn take(&mut self) -> (u64, u64, u64) {
+        (
+            std::mem::take(&mut self.polling),
+            std::mem::take(&mut self.steered),
+            std::mem::take(&mut self.stalls),
+        )
     }
 }
 
@@ -130,14 +145,14 @@ static STATES: LazyLock<StdMutex<HashMap<String, Rules>>> = LazyLock::new(Defaul
 fn with<R>(session: &str, f: impl FnOnce(&mut Rules) -> R) -> R {
     let mut map = STATES.lock().unwrap_or_else(|e| e.into_inner());
     if map.len() > 1000 && !map.contains_key(session) {
-        map.retain(|_, r| r.polling > 0 || r.steered > 0);
+        map.retain(|_, r| r.polling > 0 || r.steered > 0 || r.stalls > 0);
     }
     f(map.entry(session.to_owned()).or_default())
 }
 
 /// Puts this turn's counters on its `turn_result` (none when the rule never fired).
 pub(super) fn stamp(session: &str, msg: &mut Value) {
-    let (polling, steered) = {
+    let (polling, steered, stalls) = {
         let mut map = STATES.lock().unwrap_or_else(|e| e.into_inner());
         map.get_mut(session).map(Rules::take).unwrap_or_default()
     };
@@ -145,6 +160,22 @@ pub(super) fn stamp(session: &str, msg: &mut Value) {
         super::harness_magic::add_counter(msg, FEATURE, "polling", polling);
         super::harness_magic::add_counter(msg, FEATURE, "steered", steered);
     }
+    if stalls > 0 {
+        super::harness_magic::add_counter(msg, FEATURE, "permissionStalls", stalls);
+    }
+}
+
+/// The `permission_stall` record of `permission_id` when it is still waiting, else `None`.
+pub(super) fn stall_record(
+    session: &Session,
+    permission_id: &str,
+    waited: Duration,
+) -> Option<Value> {
+    let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+    let pending = state.pending.get(permission_id)?;
+    Some(
+        json!({"permissionId": permission_id, "request": pending.request, "waitedS": waited.as_secs()}),
+    )
 }
 
 #[cfg(test)]
@@ -153,6 +184,40 @@ pub(super) fn forget(session: &str) {
 }
 
 impl Hub {
+    /// Raises the permission-stall notice for `permission_id` once, if it still waits after
+    /// [`STALL`] and the feature is on. Holds the session weakly: a closed chat ends it.
+    pub(super) fn watch_permission_stall(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        permission_id: &str,
+    ) {
+        self.watch_permission_stall_after(session, permission_id, STALL);
+    }
+
+    pub(super) fn watch_permission_stall_after(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        permission_id: &str,
+        after: Duration,
+    ) {
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
+        let (hub, weak, id) =
+            (Arc::downgrade(self), Arc::downgrade(session), permission_id.to_owned());
+        self.scope.spawn_named("sidecar-permission-stall", async move {
+            tokio::time::sleep(after).await;
+            let (Some(hub), Some(session)) = (hub.upgrade(), weak.upgrade()) else { return };
+            let Some(record) = stall_record(&session, &id, after) else { return };
+            // The settings file is read only when the rule would fire.
+            if !super::harness_magic::enabled(FEATURE) {
+                return;
+            }
+            with(&session.id, |r| r.stalls += 1);
+            hub.append(&session, "mux", "permission_stall", record);
+        });
+    }
+
     /// One tool update through the sidecar rules; steers the turn when a rule fires.
     pub(super) fn note_sidecars(self: &Arc<Self>, session: &Arc<Session>, update: &Value) {
         if !matches!(
