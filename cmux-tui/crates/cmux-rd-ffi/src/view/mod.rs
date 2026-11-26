@@ -153,9 +153,9 @@ pub enum Request {
     #[serde(rename = "text.events")]
     TextEvents { text: String },
     #[serde(rename = "pane.reduce")]
-    PaneReduce { state: PaneState, event: PaneEvent, now: i64 },
+    PaneReduce { state: Box<PaneState>, event: PaneEvent, now: i64 },
     #[serde(rename = "pane.view")]
-    PaneView { state: PaneState },
+    PaneView { state: Box<PaneState> },
     #[serde(rename = "latency.sample")]
     LatencySample {
         #[serde(default)]
