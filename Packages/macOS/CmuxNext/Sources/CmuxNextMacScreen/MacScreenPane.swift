@@ -86,6 +86,8 @@ public struct MacScreenPaneHandlers {
     public var openHome: () -> Void = {}
     /// Sign In pressed on a card that says this Mac is not signed in to cmux.
     public var signIn: () -> Void = {}
+    /// What that Sign In signs in to ("Signs in to cmux.com"), the line under the card's buttons.
+    public var signInBackend: String?
     /// cmux shortcut matcher: true keeps the chord in this app.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
     /// Whether this screen holds the keyboard may have changed (focus, the
@@ -207,6 +209,7 @@ public final class MacScreenPane {
         actions.closeTab = { [weak self] in self?.handlers.closeTab() }
         actions.openHome = { [weak self] in self?.handlers.openHome() }
         actions.signIn = { [weak self] in self?.handlers.signIn() }
+        actions.signInBackend = { [weak self] in self?.handlers.signInBackend }
         actions.selectDisplay = { [weak self] index in
             session.selectDisplay(index)
             self?.model.currentDisplay = index
@@ -304,7 +307,9 @@ public final class MacScreenPane {
                 }
                 model.hub?.streamStalled(session.isStalled)
                 // A device hub stream that could not start, or dropped: the hub hears it too.
-                if case .failed = session.phase, model.hub?.phase.streamingScope != nil { model.hub?.streamFailed() }
+                if case let .failed(message, _) = session.phase, model.hub?.phase.streamingScope != nil {
+                    model.hub?.streamFailed(stage: session.connectStage.name, message: message)
+                }
                 view.needsLayout = true
                 handlers.keyboardChanged()
                 observePhase(session)
