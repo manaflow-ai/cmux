@@ -3771,6 +3771,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-update-prewarm-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-url-input"
 version = "0.1.0"
 
