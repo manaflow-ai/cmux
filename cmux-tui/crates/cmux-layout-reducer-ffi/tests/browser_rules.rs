@@ -1,5 +1,6 @@
 //! `browser_rules_*` through the C ABI: the app sends a Chromium window request and gets back where
-//! it goes, and a WebKit link click's modifiers and gets back what it does.
+//! it goes, a WebKit link click's modifiers and gets back what it does, and a tab's load waits
+//! and gets back the waits an event ended.
 
 use cmux_layout_reducer_ffi::{ERR_INVALID, OK, cmux_layout_reducer_json};
 use serde_json::{Value, json};
@@ -7,7 +8,7 @@ use std::ffi::CString;
 
 fn call(op: &str, request: &[u8]) -> (i32, Value) {
     let op = CString::new(op).unwrap();
-    let mut output = vec![0u8; 1 << 12];
+    let mut output = vec![0u8; 1 << 16];
     let mut len = 0usize;
     // SAFETY: every pointer is live for the call, with its length.
     let code = unsafe {
@@ -54,4 +55,28 @@ fn browser_rules_webkit_link_click_opens_cmd_click_where_links_go() {
 fn browser_rules_refuse_a_request_that_is_not_their_json() {
     let (code, _) = call("browser_rules_link_action", br#"{"gesture": "wave"}"#);
     assert_eq!(code, ERR_INVALID);
+}
+
+#[test]
+fn browser_rules_automation_load_waits_carry_a_tabs_waits_between_calls() {
+    let send = |request: Value| {
+        let (code, body) =
+            call("browser_rules_automation_load_waits", &serde_json::to_vec(&request).unwrap());
+        assert_eq!(code, OK);
+        body
+    };
+    let begun = send(json!({"input": {"kind": "begin", "requestedUrl": "https://a.test/"}}));
+    let mut ticket = begun["ticket"].clone();
+    ticket["navigation"] = json!(4);
+    let waiting = send(json!({"state": begun["state"],
+        "input": {"kind": "reach", "id": 1, "target": "commit", "ticket": ticket}}));
+    assert_eq!(waiting["met"], json!(false));
+    let committed = send(json!({"state": waiting["state"],
+        "input": {"kind": "navigation",
+                  "event": {"kind": "committed", "id": 4, "url": "about:blank"}}}));
+    assert_eq!(
+        committed["resolved"],
+        json!([{"id": 1, "outcome": "failed",
+                "message": "navigation failed: https://a.test/ did not load"}])
+    );
 }

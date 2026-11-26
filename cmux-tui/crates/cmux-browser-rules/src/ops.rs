@@ -14,12 +14,13 @@
 //! | `browser_rules_cef_link_placement` | `{disposition, userGesture, click, now, mapping}` | [`LinkPlacement`] |
 //! | `browser_rules_window_placement` | `{request, links}` | [`LinkPlacement`] |
 //! | `browser_rules_window_decide` | `{request, candidates, links}` | [`WindowDecision`] |
+//! | `browser_rules_automation_*` | the browser automation's rules | see [`crate::automation_ops`] |
 
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
     Modifiers, WebKitLinkClick, WindowCandidate, WindowDecision, WindowRequest,
 };
-use crate::{address, calculator};
+use crate::{address, automation_ops, calculator};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -100,11 +101,11 @@ struct WindowOpRequest {
     links: LinkContext,
 }
 
-fn parse<T: DeserializeOwned>(request: Value) -> Result<T, OpError> {
+pub(crate) fn parse<T: DeserializeOwned>(request: Value) -> Result<T, OpError> {
     serde_json::from_value(request).map_err(|error| OpError::Invalid(error.to_string()))
 }
 
-fn encode<T: serde::Serialize>(value: &T) -> Value {
+pub(crate) fn encode<T: serde::Serialize>(value: &T) -> Value {
     serde_json::to_value(value).unwrap_or(Value::Null)
 }
 
@@ -170,6 +171,9 @@ pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
             let WindowOpRequest { request, candidates, links } = parse(request)?;
             let decision: WindowDecision = links::decide_window(&request, &candidates, &links);
             Ok(encode(&decision))
+        }
+        automation if automation.starts_with("browser_rules_automation_") => {
+            automation_ops::call(automation, request)
         }
         other => Err(OpError::UnknownOp(other.to_owned())),
     }
