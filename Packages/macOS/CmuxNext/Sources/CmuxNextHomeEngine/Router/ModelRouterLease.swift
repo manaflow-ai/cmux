@@ -1,5 +1,6 @@
 package import CmuxNextAgentPane
 package import CmuxNextCompat
+import CmuxNextHomeModel
 package import CmuxNextWakeups
 package import Foundation
 package import os
@@ -10,6 +11,11 @@ package import os
 /// cx-dna4.4). The relay holds the bearer in memory only; agents reach the
 /// router through the relay with its own per-session keys, never with this
 /// token. The lease renews shortly before the token expires.
+///
+/// When to renew, the retry delays and the log lines are `chief_brain.lease_step` in
+/// cmux-home-rules; this class keeps the token reads, the relay calls and the waits. The
+/// `exp` milliseconds-to-seconds conversion stays here too: the relay call takes it before
+/// the rules step, which needs the relay's pid.
 @MainActor package final class ModelRouterLease {
     private let tokens: any CloudLeaseTokens
     private let apiBaseURL: URL
@@ -20,10 +26,8 @@ package import os
     /// The relay process the bearer went to last.
     private var routerPID: Int?
 
-    /// Renew this long before the token's `exp`.
-    package nonisolated static let renewMargin: TimeInterval = 90
-    /// Waits after a failure (the daemon and its relay may still be starting), doubling to the last.
-    package nonisolated static let retryDelays: [Duration] = [.seconds(2), .seconds(5), .seconds(15), .seconds(30), .seconds(60), .seconds(120)]
+    /// The wait when a rules step fails: the rules' last retry delay.
+    private nonisolated static let fallbackWait: Duration = .seconds(120)
 
     package init(tokens: any CloudLeaseTokens, apiBaseURL: URL, acpmuxHome: URL, clock: any Clock<Duration> = ContinuousClock(),
          logger: Logger) {
@@ -53,30 +57,29 @@ package import os
     }
 
     private func run() async {
-        var failures = 0
-        var forceRefresh = false
+        var lease = LeaseState(routerPid: routerPID.map(Int64.init))
         while !Task.isCancelled {  // wakeup-allow: each pass waits on the injected clock until the token's renewal time
-            let wait: Duration
+            let event: LeaseEvent
             do {
                 guard tokens.isSignedIn, let origin = HomeCloudLease.origin(apiBaseURL) else { return }
-                let token = try await tokens.accessToken(forceRefresh: forceRefresh)
+                let token = try await tokens.accessToken(forceRefresh: lease.forceRefresh == true)
                 let expiresAtMs = HomeCloudLease.expiry(ofJWT: token) ?? HomeCloudLease.fallbackExpiry(now: Date())
-                let expiresAt = expiresAtMs / 1000
-                let pid = try await router.setUpstream(origin: origin, bearer: token, expiresAt: expiresAt)
-                if let pid, let last = routerPID, pid != last {
-                    logger.info("model router lease: the local relay restarted (pid \(last) -> \(pid)); bearer sent again")
-                }
-                routerPID = pid
-                failures = 0
-                let remaining = TimeInterval(expiresAt) - Date().timeIntervalSince1970
-                forceRefresh = remaining <= Self.renewMargin * 2
-                wait = .seconds(max(10, remaining - Self.renewMargin))
+                let pid = try await router.setUpstream(origin: origin, bearer: token, expiresAt: expiresAtMs / 1000)
+                event = LeaseEvent(kind: "set", expiresAtMs: Int64(clamping: expiresAtMs), pid: pid.map(Int64.init),
+                                   nowSecs: Date().timeIntervalSince1970)
             } catch is CancellationError {
                 return
             } catch {
-                if failures == 0 { logger.info("model router lease: \(String(describing: error), privacy: .public)") }
-                wait = Self.retryDelays[min(failures, Self.retryDelays.count - 1)]
-                failures += 1
+                event = LeaseEvent(kind: "failed", error: String(describing: error))
+            }
+            let wait: Duration
+            if let reply: LeaseReply = try? HomeRules.chiefBrain("lease_step", LeaseRequest(state: lease, event: event)) {
+                lease = reply.state
+                if event.kind == "set" { routerPID = reply.state.routerPid.map { Int($0) } }
+                if let log = reply.log { logger.info("\(log, privacy: .public)") }
+                wait = .seconds(reply.waitSecs)
+            } else {
+                wait = Self.fallbackWait
             }
             // wakeup-allow: one wait per pass: until the token's renewal time, the relay's exit, or the next retry delay after a failure
             do { try await waitForRenewal(wait) } catch { return }
@@ -135,4 +138,31 @@ private nonisolated final class RenewalWake: Sendable {
         }
         continuation?.resume()
     }
+}
+
+/// `chief_brain::lease::LeaseState`; every field is defaulted on the Rust side.
+private nonisolated struct LeaseState: Codable {
+    var failures: Int?
+    var forceRefresh: Bool?
+    var routerPid: Int64?
+}
+
+/// `chief_brain::lease::LeaseEvent`, flat: `kind` names the case.
+private nonisolated struct LeaseEvent: Encodable {
+    var kind: String
+    var expiresAtMs: Int64?
+    var pid: Int64?
+    var nowSecs: Double?
+    var error: String?
+}
+
+private nonisolated struct LeaseRequest: Encodable {
+    var state: LeaseState
+    var event: LeaseEvent
+}
+
+private nonisolated struct LeaseReply: Decodable {
+    var state: LeaseState
+    var waitSecs: Double
+    var log: String?
 }
