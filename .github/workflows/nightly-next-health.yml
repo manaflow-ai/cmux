@@ -113,6 +113,7 @@ jobs:
             scripts/ci/nightly_next_health.py
             scripts/ci/nightly-next-guard.py
             scripts/ci/upload-r2-object.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Read the feed
@@ -238,6 +239,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/ci/nightly_next_health.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # Its report outlives an exhausted GITHUB_TOKEN: spare App tokens, then the reset (runs 45548650589 and

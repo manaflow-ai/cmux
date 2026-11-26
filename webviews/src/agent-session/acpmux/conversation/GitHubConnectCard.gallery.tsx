@@ -23,7 +23,7 @@ type Props = {
   /// connected, error) in each.
   scheme?: Scheme;
   /// The settings-ask-card arm a `settings_ask` card is drawn in (component variants pin no experiments).
-  askArm?: "needs" | "card" | "rail";
+  askArm?: "needs" | "card" | "rail" | "popover";
 };
 
 type Scheme = "dark" | "light";
@@ -138,13 +138,16 @@ export default componentEntry<Props>({
       return (
         <div
           style={{
-            padding: "16px 16px 0",
+            // The popover arm opens above its chip, as over the composer at a chat's end.
+            padding: askArm === "popover" ? "32px 16px 0" : "16px 16px 0",
             ...(scheme ? { ...SCHEMES[scheme], minHeight: "100%" } : {}),
           }}
         >
-          <TurnActionsContext.Provider value={actions}>
-            <TurnFooter row={row as never} />
-          </TurnActionsContext.Provider>
+          <div style={askArm === "popover" ? { marginTop: 56, paddingTop: 32 } : undefined}>
+            <TurnActionsContext.Provider value={actions}>
+              <TurnFooter row={row as never} />
+            </TurnActionsContext.Provider>
+          </div>
         </div>
       );
     };
@@ -177,6 +180,42 @@ export default componentEntry<Props>({
     "asked-waiting": {
       note: "settings_ask after the tap: finish on GitHub; Continue by hand.",
       props: { need: asked(), phase: { kind: "waiting", left: true }, askArm: "needs" },
+    },
+    // The popover arm (default off): the Needs you popover's surface over a chip under the turn,
+    // holding just the one setting's control.
+    "asked-popover": {
+      note: "settings_ask, Popover arm: a Needs you popover anchored to the turn's chip, Connect GitHub in its one row.",
+      props: { need: asked(), askArm: "popover", scheme: "light" },
+    },
+    "asked-popover-dark": {
+      note: "settings_ask, Popover arm, with the agent's own line. Dark page.",
+      props: {
+        need: asked("manaflow-ai", "Pushing lane/x to manaflow-ai/cmux needs the cmux GitHub app on manaflow-ai."),
+        scheme: "dark",
+        askArm: "popover",
+      },
+    },
+    "asked-popover-waiting": {
+      note: "settings_ask, Popover arm after the tap: finish on GitHub; Continue by hand.",
+      props: {
+        need: asked(),
+        phase: { kind: "waiting", left: true },
+        askArm: "popover",
+        scheme: "dark",
+      },
+    },
+    "asked-popover-refused": {
+      note: "settings_ask, Popover arm, the app did not run Connect: its reason, Try again.",
+      props: {
+        need: asked(),
+        walk: "refuse",
+        phase: {
+          kind: "refused",
+          reason: "Sign in to cmux to connect GitHub.",
+        },
+        askArm: "popover",
+        scheme: "light",
+      },
     },
     "idle-dark": {
       note: "Idle: one line naming the repository, one filled Connect GitHub. Dark page.",

@@ -422,6 +422,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             wrangler.jsonc
+            .gitmodules
       - name: Land the roll commit
         id: push
         env:

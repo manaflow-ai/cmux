@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.cloudSignInExpired" : {
+      "comment" : "Agent pane: a failed turn's note when the cloud provider sign-in the agent uses has expired; {harness} is the agent's name, {command} the shell command that refreshes it, e.g. aws sso login",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "انتهت صلاحية تسجيل الدخول إلى مزوّد السحابة الذي يستخدمه {harness}. شغّل {command} في الطرفية لتجديده، ثم أعد المحاولة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prijava kod cloud provajdera koju {harness} koristi je istekla. Pokreni {command} u terminalu da je osvježiš, pa pokušaj ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Login hos cloududbyderen, som {harness} bruger, er udløbet. Kør {command} i en terminal for at forny det, og prøv så igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Cloud-Anmeldung, die {harness} nutzt, ist abgelaufen. Führe {command} in einem Terminal aus, um sie zu erneuern, und versuche es dann erneut."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The cloud provider sign-in {harness} uses has expired. Run {command} in a terminal to refresh it, then retry."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El inicio de sesión del proveedor de nube que usa {harness} caducó. Ejecuta {command} en una terminal para renovarlo y vuelve a intentarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La connexion au fournisseur cloud qu’utilise {harness} a expiré. Lance {command} dans un terminal pour la renouveler, puis réessaie."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’accesso al provider cloud usato da {harness} è scaduto. Esegui {command} in un terminale per rinnovarlo, poi riprova."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} が使うクラウドプロバイダーのサインインの有効期限が切れました。ターミナルで {command} を実行して更新してから、再試行してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការចូលគណនីអ្នកផ្ដល់សេវាពពកដែល {harness} ប្រើ បានផុតកំណត់ហើយ។ ដំណើរការ {command} ក្នុងទែមីណាល់ ដើម្បីធ្វើឱ្យវាថ្មី រួចសាកម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness}이(가) 사용하는 클라우드 제공업체 로그인이 만료되었습니다. 터미널에서 {command}을(를) 실행해 갱신한 뒤 다시 시도하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Innloggingen hos skyleverandøren som {harness} bruker, har utløpt. Kjør {command} i en terminal for å fornye den, og prøv igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Logowanie do dostawcy chmury, którego używa {harness}, wygasło. Uruchom {command} w terminalu, aby je odświeżyć, a potem spróbuj ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O login no provedor de nuvem que {harness} usa expirou. Rode {command} em um terminal para renová-lo e tente de novo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вход у облачного провайдера, который использует {harness}, истёк. Выполните {command} в терминале, чтобы обновить его, и повторите попытку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การลงชื่อเข้าใช้ผู้ให้บริการคลาวด์ที่ {harness} ใช้หมดอายุแล้ว เรียกใช้ {command} ในเทอร์มินัลเพื่อต่ออายุ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} için kullanılan bulut sağlayıcı oturumunun süresi doldu. Yenilemek için terminalde {command} çalıştır, sonra yeniden dene."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вхід у хмарного провайдера, який використовує {harness}, закінчився. Виконайте {command} у терміналі, щоб оновити його, і спробуйте ще раз."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Phiên đăng nhập nhà cung cấp đám mây mà {harness} dùng đã hết hạn. Chạy {command} trong terminal để làm mới, rồi thử lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 使用的云服务商登录已过期。请在终端运行 {command} 刷新登录，然后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 使用的雲端服務商登入已過期。請在終端機執行 {command} 重新整理登入，然後重試。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
