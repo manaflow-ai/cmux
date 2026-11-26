@@ -5533,5 +5533,15 @@
     "unavailableTitle": "No pudimos confirmar tu inicio de sesión",
     "unavailableBody": "Nuestro proveedor de inicio de sesión está ocupado. Espera unos segundos y vuelve a abrir la invitación. No necesitas iniciar sesión de nuevo.",
     "retry": "Reintentar"
+  },
+  "connected": {
+    "title": "Has iniciado sesión en {app}",
+    "titleGeneric": "Has iniciado sesión",
+    "errorTitle": "No se pudo iniciar sesión en {app}",
+    "errorTitleGeneric": "El inicio de sesión no terminó",
+    "body": "Vuelve a cmux para continuar.",
+    "errorBody": "Vuelve a cmux e inténtalo de nuevo.",
+    "button": "Volver a cmux",
+    "closeHint": "Puedes cerrar esta pestaña."
   }
 }
