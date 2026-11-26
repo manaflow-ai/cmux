@@ -48,7 +48,7 @@ concurrency:
 jobs:
   w1:
     name: cas/1 replay, row W1 (web update bytes per merge)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # About 7 s per 54 MB bundle tree to hash and compress, plus a cold build of one small crate.
     timeout-minutes: 30
     permissions:
