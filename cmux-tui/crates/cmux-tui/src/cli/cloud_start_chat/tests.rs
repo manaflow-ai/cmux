@@ -353,6 +353,39 @@ impl Runner for Fake {
             stderr: internal::bounded::past_deadline().to_string(),
         }
     }
+    /// [`Fake::cmux_by`], whose `until` may move as `internal::bounded::output_by_unless` moves it: the step's
+    /// answer is taken when it starts, and `later` runs its own steps (taking their time) at each `until`.
+    fn cmux_by_unless(
+        &mut self,
+        args: &[String],
+        mut until: Instant,
+        later: &mut dyn FnMut(&mut dyn Runner) -> Option<Instant>,
+    ) -> Ran {
+        if let Some(look) = self.looks(args) {
+            return look;
+        }
+        let done = self.clock + self.cost(args);
+        self.ran.push(args.to_vec());
+        let answer = self.answers.pop_front().expect("an answer for every step");
+        loop {
+            if done <= until {
+                self.clock = self.clock.max(done);
+                return answer;
+            }
+            self.clock = self.clock.max(until);
+            let moved = later(self);
+            match moved.filter(|moved| *moved > self.clock) {
+                Some(moved) => until = moved,
+                None => {
+                    return Ran {
+                        code: internal::bounded::PAST_DEADLINE,
+                        stdout: String::new(),
+                        stderr: internal::bounded::past_deadline().to_string(),
+                    };
+                }
+            }
+        }
+    }
     fn say(&mut self, line: &str) {
         self.said.push(line.to_owned());
     }
@@ -1591,9 +1624,10 @@ fn unanswered_pauses_back_off_to_a_cap() {
     assert_eq!(pauses, [2, 4, 8, 15, 15, 15]);
 }
 
-/// A read refused because the machine stopped, is gone or is not the caller's, or for its length, fails at once:
-/// another read would be refused the same way. The app reports these as `daemon_error` with the server's text, so
-/// both envelopes are refused without a second read.
+/// A read refused because the machine is gone or is not the caller's, or for its length, fails at once: another
+/// read would be refused the same way. The app reports these as `daemon_error` with the server's text, so both
+/// envelopes are refused without a second read. (A stopped or paused machine is resumed instead: see
+/// `a_read_or_send_on_a_paused_machine_resumes_it`.)
 #[test]
 fn a_read_refused_for_the_machine_fails_at_once() {
     let app = |message: &str| {
@@ -1601,11 +1635,9 @@ fn a_read_refused_for_the_machine_fails_at_once() {
                "message": format!("exec on Cloud machine: {message}")})
     };
     let refusals = [
-        json!({"code": "vm_not_running", "message": "no"}),
         json!({"code": "vm_not_found", "message": "no"}),
         json!({"code": "vm_forbidden", "message": "no"}),
         json!({"code": "vm_command_too_large", "message": "no"}),
-        app("This machine is stopped. Start it, then try again. (trace t-1)"),
         app("No Cloud machine vm_1 on this account. (trace t-2)"),
         app("You can't use this machine. (trace t-3)"),
         app("The command is too long (413). (trace t-4)"),
@@ -1621,6 +1653,82 @@ fn a_read_refused_for_the_machine_fails_at_once() {
         assert_eq!(error["code"], "chat.unreachable", "{code}");
         assert_eq!(fake.ran.len(), 4, "{code}: {:?}", fake.ran);
     }
+}
+
+/// AutoCloud pauses an idle machine; a read (`cloud chat status|last`) or a send on it resumes it once and goes
+/// again, never answering "the machine is not running; start it first" (AutoCloud Claude proof, 2026-11-25:
+/// proof-1's machine refused its status read). A refusal right after the resume is the machine coming up and is
+/// asked again; every refusal shape (the Cloud API's codes, the app's text) resumes.
+#[test]
+fn a_read_or_send_on_a_paused_machine_resumes_it() {
+    let resume = ["cloud", "resume-machine", "--target", "machine:vm-1", "--json"]
+        .map(str::to_owned)
+        .to_vec();
+    let app = |message: &str| {
+        json!({"code": "daemon_error", "data": {"action": "cloudExec"},
+               "message": format!("exec on Cloud machine: {message}")})
+    };
+    let refusals = [
+        json!({"code": "vm_not_running", "message": "the machine is not running; start it first"}),
+        json!({"code": "cloud.machine.paused", "message": "the machine is paused; start it first"}),
+        app("This machine is stopped. Start it, then try again. (trace t-1)"),
+    ];
+    for refusal in &refusals {
+        let refused = || Ran { code: 1, stdout: String::new(), stderr: refusal.to_string() };
+        let coming_up = Ran {
+            code: 1,
+            stdout: String::new(),
+            stderr: json!({"code": "vm_state_conflict", "message": "starting"}).to_string(),
+        };
+        let mut fake = Fake::new(vec![refused(), ok(json!({})), coming_up, exec_out(REPLIED)]);
+        let Outcome::Done(answer) = status(&mut fake, "vm-1", "sess-1", None, 0) else {
+            panic!("{refusal}: {:?}", fake.ran)
+        };
+        assert_eq!(answer["state"], "ended", "{refusal}");
+        assert_eq!(answer["reply"], "4", "{refusal}");
+        assert_eq!(fake.ran[1], resume, "{refusal}: {:?}", fake.ran);
+        assert_eq!(fake.ran.iter().filter(|args| **args == resume).count(), 1, "{refusal}");
+        assert_eq!(fake.ran.len(), 4, "{refusal}: {:?}", fake.ran);
+    }
+    // A refused resume is the answer, and nothing is sent again.
+    let mut fake = Fake::new(vec![
+        Ran { code: 1, stdout: String::new(), stderr: refusals[0].to_string() },
+        Ran {
+            code: 1,
+            stdout: String::new(),
+            stderr: json!({"code": "cloud.quota", "message": "over quota"}).to_string(),
+        },
+    ]);
+    let Outcome::Failed { error, .. } = status(&mut fake, "vm-1", "sess-1", None, 0) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["details"]["app"]["code"], "cloud.quota", "{error}");
+    assert_eq!(fake.ran.len(), 2, "{:?}", fake.ran);
+}
+
+/// A machine that never comes up after its resume stops being asked within the bound, with the refusal as its answer.
+#[test]
+fn a_resumed_machine_that_never_runs_is_given_up_within_the_bound() {
+    let not_running = || Ran {
+        code: 1,
+        stdout: String::new(),
+        stderr: json!({"code": "vm_not_running", "message": "the machine is not running"})
+            .to_string(),
+    };
+    let mut answers = vec![not_running(), ok(json!({}))];
+    answers.extend((0..100).map(|_| not_running()));
+    let mut fake = Fake::new(answers);
+    let began = fake.clock;
+    let Outcome::Failed { error, .. } = status(&mut fake, "vm-1", "sess-1", None, 0) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(error["code"], "chat.unreachable", "{error}");
+    assert!(fake.ran.len() < 100, "{}", fake.ran.len());
+    assert!(
+        fake.clock.duration_since(began) <= RESUME_BOUND + Duration::from_secs(10),
+        "{:?}",
+        fake.clock.duration_since(began)
+    );
 }
 
 /// An unanswered read with no time left is not read again: past `--timeout` the answer is the wait's timeout.
@@ -3707,6 +3815,43 @@ fn an_unread_list_names_the_apps_last_cloud_error() {
             assert_eq!(fake.called[0].0, "cloud.machines", "{path}");
             assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
         }
+    }
+}
+
+/// An app that is not connected (the relay's `unavailable`: closed, or a locked or asleep Mac) never loads its
+/// list however long one waits, so the refusal names it and says to open or unlock the app, not to run it again
+/// in a moment, and is not retryable; a connected app still loading is retryable, as its message says
+/// (ask-259986a6c4: interim-coord's 3 NIGHTLY readbacks read `cloud.list_unread` from an app not connected).
+#[test]
+fn an_app_not_connected_says_so_and_a_loading_one_is_retryable() {
+    let unread =
+        json!({"account": {"signed_in": true}, "loaded": false, "machines": [], "creating": []});
+    let paths: [(&str, &[&str]); 2] = [
+        ("a fresh name", &["--prompt", "x"]),
+        ("--environment's name", &["--prompt", "x", "--environment", "env_1", "--name", "py-1"]),
+    ];
+    for (path, words) in paths {
+        let gone = json!({"code": "unavailable", "message": "needs the cmux Mac app connected"});
+        let mut fake = Fake::new(unloaded_lists(unread.clone()));
+        fake.stream = Some(Err(gone));
+        let Outcome::Failed { error, exit } = run(&mut fake, &request(words)) else {
+            panic!("{path}: {:?}", fake.ran)
+        };
+        assert_eq!((error["code"].as_str(), exit), (Some("cloud.app_not_connected"), 75), "{path}");
+        assert_eq!(error["retryable"], false, "{path}");
+        assert_eq!(error["details"]["app"], "not_connected", "{path}");
+        let message = error["message"].as_str().unwrap();
+        assert!(message.contains("open or unlock the app"), "{path}: {message}");
+        assert!(!message.contains("in a moment"), "{path}: {message}");
+        assert!(only_lists(&fake), "{path}: nothing started or made: {:?}", fake.ran);
+
+        let mut fake = Fake::new(unloaded_lists(unread.clone()));
+        fake.stream = Some(Ok(json!({"loaded": false, "last_error": null})));
+        let Outcome::Failed { error, .. } = run(&mut fake, &request(words)) else {
+            panic!("{path}: {:?}", fake.ran)
+        };
+        assert_eq!(error["code"], "cloud.list_unread", "{path}");
+        assert_eq!(error["retryable"], true, "{path}");
     }
 }
 

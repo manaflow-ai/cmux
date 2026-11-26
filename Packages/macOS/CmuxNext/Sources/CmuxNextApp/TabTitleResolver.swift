@@ -43,7 +43,7 @@ struct TabTitleResolver {
         conversationTitle = { [weak services] tab in services?.home.tabTitle(for: tab) ?? Strings.untitledBrowser }
         page = { [weak services] tab in
             guard let services else { return nil }
-            if let app = tab.appTab, let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false),
+            if let app = tab.appTab, let provider = services.apps.pageProvider(appID: app.app),
                let page = services.pages.storeTabItem(tab, page: provider.page) { return page }
             return tab.page != nil ? services.pages.storeTabItem(tab) : nil
         }
@@ -78,7 +78,7 @@ struct TabTitleResolver {
             if isNewTabPage(tab) { return cloudStarts?.title(of: tab) ?? newTabPageTitle(tab) ?? Strings.untitledBrowser } // a Cloud start's page reads as its chat
             // A subagent's pane is a tab on its chat's session: it shows the subagent's own name, never
             // the chat's (Leo 2026-10-30: "subagents shouldn't be tab-named the exact same as the parent").
-            if let subagent = subagentTitle(tab) { return subagent }
+            if let subagent = subagentTitle(tab) { return subagent } else if let shown = fronted(tab) { return cloudStarts?.title(of: tab, showing: shown, untitled: AgentPaneModel.tabTitle) ?? chatTitle(shown) } // a Mac tab showing a Cloud chat in place reads as that chat (cmux#55668)
             let title = chatTitle(tab)
             if title == AgentPaneModel.tabTitle, let name = cloudStarts?.title(of: tab) ?? workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
             return title

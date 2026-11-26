@@ -134,19 +134,13 @@ public final class IPhoneHostService {
 
     /// `mobile.allowIPhoneConnections`, as the settings file has it.
     private(set) var allowed = false
-    /// Host-owned per-chat Remote Control policy. These are observed from the Rust host's replayable
-    /// supervisor state; the App never reads or writes the policy file itself.
-    private(set) var sessionExposureConfigured = false
-    private(set) var exposedSessionIDs: Set<String> = []
-    private(set) var blockedSessionIDs: Set<String> = []
-    private(set) var sessionExposureAvailable = false
-    private(set) var sessionExposureKnown = false
-    private(set) var sessionExposureRevision = 0
     /// Session Info's Remote Control switch every chat page shows (the App gives it to each page's model).
     public let remoteControl = AgentPaneRemoteControl()
     /// The service is wired and this build bundles hostd, so this Mac can serve cmux on iPhone
     /// (Session Info's Remote Control row shows only then). Observed: set once by `wire`.
     public internal(set) var servesPhones = false
+    /// What the card's Sign In signs in to ("Signs in to cmux.com"), the line under it; set by `wire`.
+    public internal(set) var signInBackend: String?
     private(set) var account: Account?
     private(set) var state = MobileHostState()
     /// The account's phones on the mobile service (Settings > Mobile's list with Remove).
@@ -286,18 +280,6 @@ public final class IPhoneHostService {
                 guard let self else { return }
                 let before = self.state
                 self.state = next
-                sessionExposureConfigured = next.sessionExposureConfigured
-                exposedSessionIDs = next.exposedSessionIDs
-                blockedSessionIDs = next.blockedSessionIDs
-                sessionExposureAvailable = next.sessionExposureAvailable
-                sessionExposureKnown = next.sessionExposureKnown
-                if next.sessionExposureKnown != before.sessionExposureKnown
-                    || next.sessionExposureConfigured != before.sessionExposureConfigured
-                    || next.exposedSessionIDs != before.exposedSessionIDs
-                    || next.blockedSessionIDs != before.blockedSessionIDs
-                    || next.sessionExposureAvailable != before.sessionExposureAvailable {
-                    sessionExposureRevision &+= 1
-                }
                 if next.phase == .removed, before.phase != .removed { self.recordRemoval() }
                 if next.phase == .deviceIDTaken, before.phase != .deviceIDTaken { self.renewDeviceID() }
                 // The list follows what hostd reports: online, and each phone that comes or goes.
@@ -742,7 +724,8 @@ public final class IPhoneHostService {
                 // backend shared, readable only by the build that made it (-25293 for the others).
                 let store = MobileHostMacIdentityStore(bundleID: dependencies.keychainName
                                                        ?? dependencies.stateDirectory.deletingLastPathComponent().lastPathComponent,
-                                                stateDirectory: dependencies.stateDirectory, loginKeychain: loginKeychain)
+                                                stateDirectory: dependencies.stateDirectory,
+                                                keepsKeychainCopy: Self.mayUseFileStoreOnRefusal, loginKeychain: loginKeychain)
                 // task-owner: one Keychain read per hostd start; awaited here
                 if self?.identityRefusalsKey != key { self?.identityRefusals = 0; self?.identityBackoff.reset() }
                 let fileStore = Self.mayUseFileStoreOnRefusal && (self?.identityRefusals ?? 0) >= Self.identityRefusalsBeforeFileKey

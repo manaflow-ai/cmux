@@ -96,7 +96,7 @@ extension TabCell {
         }
         // The title shows where the path's form has it (it shows or hides once); its geometry is the
         // fade's (`TitleFade.follow`), so a title shown at either end fades with the width.
-        let titles = samples.map(\.title)
+        let titles = Self.titlesShownOnce(samples.map(\.title))
         let titleShown = titles.map { $0 != nil }
         if titleShown.contains(true), titleShown.contains(false),
            let animation = MotionPath.keyframes("opacity", values: titleShown.map { NSNumber(value: $0 ? 1 : 0) }, times: times, on: titleLayer, discrete: true) {
@@ -104,6 +104,22 @@ extension TabCell {
         }
         titleFade.follow(titles, times: times, steps: steps)
         innerPath = InnerPath(end: end, layers: order)
+    }
+
+    /// A title that appears along a path (hidden at its first sample: a new tab opening from nothing, a tab
+    /// widening back to a title) shows once, as it rests, at the first sample that shows as much of it as the
+    /// end does. Shown at every sample it widened through, its fade swept across the letters as the tab
+    /// grew, each one surfacing and dissolving at the clip ("New Tab" read N, Ne, New, New and a fragment:
+    /// Leo 2026-11-23, "a weird rewritten thing ... and the animations are weird"). A title shown at the
+    /// path's start (a neighbour making room, a close) still follows its width.
+    static func titlesShownOnce(_ titles: [TitleFade.Sample?]) -> [TitleFade.Sample?] {
+        guard titles.count > 1, titles.first == .some(nil), let target = titles.last ?? nil else { return titles }
+        let rest = target.geometry.isTruncated ? target.geometry.fadeEnd : .infinity
+        return titles.map { title in
+            guard let title else { return nil }
+            let shown = title.geometry.isTruncated ? title.geometry.fadeEnd : .infinity
+            return shown >= rest - 0.5 ? title : nil
+        }
     }
 
     /// The form on screen now, from what the parts show (`shown`: the parts whose presentation is
