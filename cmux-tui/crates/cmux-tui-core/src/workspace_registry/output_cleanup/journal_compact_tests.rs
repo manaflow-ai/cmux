@@ -645,6 +645,49 @@ fn a_registry_an_output_cleanup_already_pruned_is_compacted() {
 }
 
 #[test]
+fn an_output_only_registry_can_swap_to_an_empty_journal() {
+    let root = temp_root("output-only-empty");
+    let session = "journal-output-only-empty";
+    let db_path = {
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        append_output(&registry, 4);
+        let db_path = registry.session_journal_database_path().unwrap();
+        drop(registry);
+        let db = Connection::open(&db_path).unwrap();
+        db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(())).unwrap();
+        db_path
+    };
+
+    let before = open_registry_database_read_only(&db_path).unwrap();
+    let head = journal_head(&before);
+    assert_eq!(head, 4);
+    drop(before);
+
+    assert_eq!(stage(&db_path, CleanupMode::Output, &|| true), StageOutcome::Built);
+    assert!(swap_at_open(&db_path, &|_| Ok(())), "the registry was not swapped");
+
+    let db = open_registry_database_read_only(&db_path).unwrap();
+    assert_eq!(journal_head(&db), head, "the empty journal lost its head");
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row(
+            "SELECT start_sequence || ':' || end_sequence FROM journal_pruned_ranges",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap(),
+        "1:4"
+    );
+    assert!(meta(&db, DONE_META_KEY).is_some(), "the output cleanup did not finish");
+    drop(db);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn a_restating_registry_is_not_staged_without_the_opt_in() {
     let root = temp_root("default-off-fixture");
     let fixture = restating_registry(&root, "journal-compact-off");

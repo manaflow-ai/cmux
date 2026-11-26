@@ -837,7 +837,6 @@ fn build_in(
     steps.mark("stage tail");
     pack_rest(tx, source, from, start, head)?;
     let kept = state_u64(tx, "packed_kept")? + tail_kept;
-    anyhow::ensure!(kept > 0, "the journal holds no record other than terminal output");
     steps.mark("pack tail");
 
     // The copied tables, created again here (the background build made

@@ -821,10 +821,13 @@ pub(super) fn pack_rest(
     // Each pass packs at least one staged record (or fails), so it ends.
     loop {
         let (segment, full) = collect_segment(staging, after, start, fold.as_ref())?;
-        anyhow::ensure!(
-            !segment.sequences.is_empty(),
-            "no kept record is left for the last journal segment"
-        );
+        if segment.sequences.is_empty() {
+            if start <= head {
+                insert_pruned(staging, start, head)?;
+                pruned += 1;
+            }
+            return Ok((segments, pruned));
+        }
         let end = if full { segment.last } else { head };
         let (ranges, compacted) = write_segment(staging, source, segment, end)?;
         pruned += ranges;
