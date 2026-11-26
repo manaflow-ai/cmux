@@ -12,7 +12,7 @@ import WebRTC
 /// full-screen scroll. Prints CHANGING-BYTES lines.
 @Suite(.serialized)
 struct ChangingBytesTests {
-    static let matrix = ProcessInfo.processInfo.environment["CMUX_VNC_CHANGING_BYTES"] == "1"
+    static let matrix = true // experiment: runs by default while measuring
 
     struct Result {
         var kbps: Double
