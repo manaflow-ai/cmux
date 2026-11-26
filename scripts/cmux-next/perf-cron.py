@@ -238,8 +238,12 @@ PARTS = [
     # run: the goal compares it with other apps' release builds and with the 2026-11-08 Release baseline (app process
     # 243-285 MB). Rows before this were the Debug build, whose app process read 323.3 MB at 8c515cc5, so a Debug row
     # read as growth that was the build. The bench build is the one throughput uses: one build serves both parts.
+    # goal: NOW's chat_memory_vs_empty_ratio (memory.app_agents.ratio_vs_empty, goal memory-per-chat) and ram-baseline,
+    # so once due it goes right after the build (part_order). Without it the part kept its PARTS place behind every
+    # stale Mac part: at tips 12aa19c228 and b767035490 (2026-11-23..25) the build was stored and the tip was given up
+    # for a newer one before memory-agents ran, so the row went without a reading from 2026-11-23 19:17Z on.
     {"name": "memory-agents", "args": [*MEASURE, "--config=bench", "--suite=memory-agents", "--agents=10"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents",
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "memory-agents", "goal": "memory-per-chat",
      "run_seconds": 2700},  # 1800 s for the bench (with its settled samples), plus a cold bench build (800 s) when this part runs first
     # Terminal throughput (scripts/cmux-next/terminal-throughput-bench.py): a 200 MB burst through a NEXT terminal and
     # through standalone Ghostty on the same host, MB/s each and NEXT/Ghostty. Reporting only (REPORT_ONLY_ROW_RE): the
