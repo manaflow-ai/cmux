@@ -440,9 +440,12 @@ mod translator_queue_tests;
 #[cfg(all(test, unix))]
 mod trigger_quiet_tests;
 mod trust_wait;
+mod turn_admitted;
 mod turn_attestation;
 pub(crate) mod turn_cap;
+mod turn_config;
 mod turn_cost;
+mod turn_finish;
 pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
