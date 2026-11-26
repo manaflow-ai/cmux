@@ -4,8 +4,10 @@ import type { ReactNode } from "react";
 import { cx } from "../ui/cx";
 
 export type PillTone = "neutral" | "accent" | "success" | "attention" | "danger";
-/** sm 20, md 24 (design/system.md pills). */
-export type PillSize = "sm" | "md";
+/** xs 16, sm 20, md 24 (design/system.md pills). xs is the customize scene's badge: the grid's
+ * icon box tall, the detail type step, and a neutral fill of its own text color; its corner is a
+ * capsule unless the host sets `--kit-pill-radius`. */
+export type PillSize = "xs" | "sm" | "md";
 
 export interface PillProps {
   tone?: PillTone;

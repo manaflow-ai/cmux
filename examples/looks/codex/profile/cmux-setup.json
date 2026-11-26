@@ -3,7 +3,7 @@
   "id": "manaflow-ai/codex-profile",
   "name": "Reference desktop agent app (whole)",
   "tagline": "The whole reference desktop coding agent app in one opt-in look: its colors and type, its wide calm sidebar, its round composer, its keys, its New Tab page and its motion.",
-  "description": "Opt-in. One look built from the codex-app recipe and the four codex feature looks (composer, send-parity, sidebar, threads): the reference app's theme, system type at 15 pt, a 1000 pt transcript column, the round studio composer with circular icon buttons, a 340 pt sidebar of one-line chats by project with a spinner or unread dot and Settled folding, a Chats section with New chat, Pinned, a sort and archive from a row, the thread hover card, cmux's priority view for chats that need you, the builder New Tab page (\"What should we build in {project}?\"), the app's keyboard shortcuts and fast, quiet motion. README.md lists every feature of the reference app and how this look matches it or which gap is left. Remove it and everything you had comes back.",
+  "description": "Opt-in. One look built from the codex-app recipe and the four codex feature looks (composer, send-parity, sidebar, threads): the reference app's theme, system type at 12 pt, a 1200 pt transcript column, the round studio composer with circular icon buttons, a 340 pt sidebar of 11 pt one-line chats by project with a spinner or unread dot and Settled folding, a Chats section with New chat, Pinned, a sort and archive from a row, the thread hover card, cmux's priority view for chats that need you, the builder New Tab page (\"What should we build in {project}?\"), the app's keyboard shortcuts and fast, quiet motion. README.md lists every feature of the reference app and how this look matches it or which gap is left. Remove it and everything you had comes back.",
   "version": "1.0.0",
   "license": "MIT",
   "repository": "https://github.com/manaflow-ai/cmux",
@@ -16,8 +16,10 @@
     "agentPane.display.presentation": "messages",
     "agentPane.display.font.preset": "system",
     "agentPane.display.font.ui": "system-ui",
-    "agentPane.display.font.size": 15,
-    "agentPane.display.width": 1000,
+    // Proportions (parity table, proportions): cmux's type read about 1.3x larger than the reference
+    // app's in the sidebar and transcript, and the reference transcript column is wider.
+    "agentPane.display.font.size": 12,
+    "agentPane.display.width": 1200,
     "agentPane.display.minimap": "off",
     "agentPane.editedFiles.show": "collapsed",
     "agentPane.attachmentView": "strip",
@@ -31,10 +33,10 @@
     // The composer (codex/composer): the prompt on its own line over the controls row.
     "agentPane.composerLook": "studio",
 
-    // The sidebar (codex/sidebar): 340 pt, 36 pt rows, 14 pt text, one line per chat.
+    // The sidebar (codex/sidebar): 340 pt, 36 pt rows, 11 pt text (14 / 1.3), one line per chat.
     "appearance.metrics.sidebarWidth": 340,
     "appearance.metrics.sidebarRowHeight": 36,
-    "appearance.metrics.chromeFontSize": 14,
+    "appearance.metrics.chromeFontSize": 11,
     "appearance.density": "comfortable",
     // Pending (Rust): "appearance.metrics.sidebarWidthMin": 240, "appearance.metrics.sidebarWidthMax": 520,
     // "appearance.metrics.sidebarRowCornerRadius": 10, "appearance.metrics.sidebarRowInset": 6,

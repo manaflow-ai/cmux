@@ -173,6 +173,12 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
 }
 
 extension AcpmuxEnvironment {
+    /// Whether this is attached to the daemon of `home` (a Chief home's acpmux at quit).
+    public func isAttached(to home: URL) -> Bool {
+        func canonical(_ url: URL) -> String { url.standardizedFileURL.resolvingSymlinksInPath().path }
+        return isAttached && canonical(self.home) == canonical(home)
+    }
+
     /// `_acpmux/tag`: sets and removes tags of one session (a chat's mute, cx-sg1qz).
     public nonisolated func tag(session: String, set: [String: String], remove: [String]) async throws {
         try await AcpmuxStatusClient.tag(socketPath: socketPath, sessionId: session, set: set, remove: remove)
