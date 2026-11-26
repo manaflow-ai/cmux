@@ -229,7 +229,7 @@ impl ToastCenter {
                 out.push(CenterEffect::Answer { value: ok });
             }
             CenterEvent::PersonRanSecondaryAction { serial } => {
-                self.run_secondary(serial, &mut out)
+                self.run_secondary(serial, &mut out);
             }
             CenterEvent::RunSecondaryActionById { id, window } => {
                 let serial = self.newest_with_id(&id, &window);
@@ -257,7 +257,7 @@ impl ToastCenter {
                 out.push(CenterEffect::Answer { value: takes });
             }
             CenterEvent::Dismiss { serial } => {
-                self.end(serial, DismissReason::Closed, true, &mut out)
+                self.end(serial, DismissReason::Closed, true, &mut out);
             }
             CenterEvent::PersonChoseNeverShow { serial } => {
                 let Some(toast) = self.entry(serial).map(|e| e.toast.clone()) else { return out };
@@ -375,7 +375,7 @@ impl ToastCenter {
         if let Some(toast) = self.entry(serial).map(|e| e.toast.clone()) {
             if toast.action.is_none() && toast.working {
                 if !self.closed_working.contains(&toast.id) {
-                    self.closed_working.push(toast.id.clone());
+                    self.closed_working.push(toast.id);
                 }
             } else if toast.action.is_none() && self.closed_cooldown > 0.0 {
                 let key = QuietKey::of(&toast);
@@ -408,7 +408,7 @@ impl ToastCenter {
     }
 
     fn run_secondary(&mut self, serial: i64, out: &mut Vec<CenterEffect>) {
-        if !self.entry(serial).is_some_and(|e| e.toast.secondary_action.is_some()) {
+        if self.entry(serial).is_none_or(|e| e.toast.secondary_action.is_none()) {
             return;
         }
         out.push(CenterEffect::RunSecondaryAction { serial });

@@ -149,10 +149,10 @@ impl PlainErrorText {
         if let Some(kind) = Self::kind(error) {
             return Self::words_for(kind).into();
         }
-        if !Self::is_system(error) {
-            if let Some(text) = &error.description {
-                return text.clone();
-            }
+        if !Self::is_system(error)
+            && let Some(text) = &error.description
+        {
+            return text.clone();
         }
         GENERIC.into()
     }
@@ -186,7 +186,7 @@ impl PlainErrorText {
                 -1009 | -1005 | -1020 | -1018 => Some(Offline),
                 -1001 => Some(TimedOut),
                 -1004 | -1003 | -1006 | -2000 => Some(Unreachable),
-                -1200 | -1202 | -1201 | -1204 | -1203 => Some(SecureConnection),
+                -1204..=-1200 => Some(SecureConnection),
                 _ => None,
             },
             COCOA_DOMAIN => match code {
