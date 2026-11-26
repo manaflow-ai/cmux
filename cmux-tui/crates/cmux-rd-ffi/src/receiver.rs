@@ -64,6 +64,18 @@ pub const MESSAGE_OVERHEAD: usize = 64;
 /// Decode times kept for the feedback median.
 const DECODE_SAMPLES: usize = 30;
 
+/// Popped frames awaiting a decode report; older ones are forgotten (a frame
+/// whose decode is never reported acknowledges nothing).
+const MAX_POPPED: usize = 32;
+
+/// A frame handed to the caller, remembered until its decode is reported.
+#[derive(Debug, Clone, Copy)]
+struct Popped {
+    frame: u32,
+    ltr_token: Option<u64>,
+    keyframe: bool,
+}
+
 /// Viewer state for one display stream.
 #[derive(Debug)]
 pub struct Receiver {
@@ -75,8 +87,10 @@ pub struct Receiver {
     deframer: StreamDeframer,
     ready: VecDeque<CompleteFrame>,
     acknowledged_ltr_tokens: VecDeque<u64>,
-    inflight_ltr_token: Option<u64>,
-    inflight_keyframe: bool,
+    /// Frames handed out by [`Self::pop_frame`] whose decode is not yet
+    /// reported, oldest first, so [`Self::note_decode`] acknowledges the token
+    /// of the frame that decoded and not of whichever frame was popped last.
+    popped: VecDeque<Popped>,
     messages: VecDeque<Message>,
     message_bytes: usize,
     arrivals: VecDeque<Arrival>,
@@ -141,8 +155,7 @@ impl Receiver {
             deframer: StreamDeframer::default(),
             ready: VecDeque::new(),
             acknowledged_ltr_tokens: VecDeque::new(),
-            inflight_ltr_token: None,
-            inflight_keyframe: false,
+            popped: VecDeque::new(),
             messages: VecDeque::new(),
             message_bytes: 0,
             arrivals: VecDeque::new(),
@@ -213,8 +226,14 @@ impl Receiver {
     /// The oldest frame ready to decode.
     pub fn pop_frame(&mut self) -> Option<CompleteFrame> {
         let frame = self.ready.pop_front()?;
-        self.inflight_ltr_token = frame.body.ltr_token;
-        self.inflight_keyframe = frame.flags & flags::KEYFRAME != 0;
+        if self.popped.len() >= MAX_POPPED {
+            self.popped.pop_front();
+        }
+        self.popped.push_back(Popped {
+            frame: frame.frame,
+            ltr_token: frame.body.ltr_token,
+            keyframe: frame.flags & flags::KEYFRAME != 0,
+        });
         Some(frame)
     }
 
@@ -246,20 +265,32 @@ impl Receiver {
         Some(m)
     }
 
-    /// Records one decode time for the feedback median.
-    pub fn note_decode(&mut self, decode_us: u32) {
-        if self.inflight_keyframe {
-            self.acknowledged_ltr_tokens.clear();
-        }
-        if let Some(token) = self.inflight_ltr_token.take()
-            && !self.acknowledged_ltr_tokens.contains(&token)
+    /// Records one decode time for the feedback median. `frame` is the
+    /// popped frame that decoded: its LTR token, if any, is acknowledged to the
+    /// host. `None` records the time only (a viewer that offers no LTR).
+    pub fn note_decode(&mut self, frame: Option<u32>, decode_us: u32) {
+        if let Some(frame) = frame
+            && let Some(at) = self.popped.iter().position(|p| p.frame == frame)
         {
-            self.acknowledged_ltr_tokens.push_back(token);
-            while self.acknowledged_ltr_tokens.len() > 16 {
-                self.acknowledged_ltr_tokens.pop_front();
+            let decoded = self.popped[at];
+            if decoded.keyframe {
+                // An IDR flushes every reference: tokens acknowledged before it,
+                // and frames popped before it, name pictures the decoder no
+                // longer holds.
+                self.acknowledged_ltr_tokens.clear();
+                self.popped.drain(..=at);
+            } else {
+                self.popped.remove(at);
+            }
+            if let Some(token) = decoded.ltr_token
+                && !self.acknowledged_ltr_tokens.contains(&token)
+            {
+                self.acknowledged_ltr_tokens.push_back(token);
+                while self.acknowledged_ltr_tokens.len() > cmux_rd_proto::MAX_LTR_TOKENS {
+                    self.acknowledged_ltr_tokens.pop_front();
+                }
             }
         }
-        self.inflight_keyframe = false;
         if self.decode_us.len() >= DECODE_SAMPLES {
             self.decode_us.pop_front();
         }
@@ -280,8 +311,7 @@ impl Receiver {
         // so does one held while the link was quiet.
         self.recovery_sent &= self.keyframe_requested && self.keyframe_asked;
         self.keyframe_requested = true;
-        self.inflight_ltr_token = None;
-        self.inflight_keyframe = false;
+        self.popped.clear();
         self.acknowledged_ltr_tokens.clear();
         self.keyframe_asked = true;
     }

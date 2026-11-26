@@ -547,7 +547,7 @@ impl Run {
                         let _ = viewer.session.request_keyframe(0);
                     }
                     Ok(Command::Decoded(us)) => {
-                        let _ = viewer.session.note_decode(0, us);
+                        let _ = viewer.session.note_decode(0, None, us);
                     }
                     Ok(Command::Close) | Err(mpsc::TryRecvError::Disconnected) => {
                         return ("closed".into(), String::new());
