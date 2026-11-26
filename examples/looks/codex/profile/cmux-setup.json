@@ -32,6 +32,8 @@
 
     // The composer (codex/composer): the prompt on its own line over the controls row.
     "agentPane.composerLook": "studio",
+    // The empty message box's text, as in a Codex thread.
+    "agentPane.composerPlaceholder": "Ask for follow-up changes",
     // The model picker (parity table, model_effort_picker): the reference app's chip opens a short list of
     // models with a check on the current one; the compact menu is that, with Effort as a submenu.
     "agentPane.display.modelPickerStyle": "menu",

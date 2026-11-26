@@ -31,6 +31,7 @@ Totals: 6 matched, 18 partial, 3 missing, out of 27.
 | --- | --- | --- |
 | Integrated terminal scoped to the checkout | matched | cmux is terminal-native: every workspace has terminals in its cwd. |
 | Split and full tab views | matched | `tabs.hideLoneChatTab`. |
+| Composer placeholder ("Ask for follow-up changes") | matched | `agentPane.composerPlaceholder`. |
 | Slash commands in the composer | matched | cmux's agent composer offers the harness's slash commands; Codex's list itself is harness-defined. |
 | Automations (scheduled tasks in project or worktree) | matched | cmux has automations (scheduled, catch-up, failure states); look surfaces them in the sidebar like Codex. |
 | Search chats | matched | `tabs.toolbarButtons` carries `agentPane.searchChats`. |
