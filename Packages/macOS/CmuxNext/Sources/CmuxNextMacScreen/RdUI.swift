@@ -22,6 +22,12 @@ nonisolated enum RdUI {
         return answer(op, object)
     }
 
+    /// An answer's JSON value as a Codable type (a daemon `JSONValue`), nil when it does not read as one.
+    static func decode<T: Decodable>(_ value: Any?, as type: T.Type = T.self) -> T? {
+        guard let value, let data = try? JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+
     /// The op's `ok` value, or its refusal's text (`err`).
     static func answer(_ op: String, _ args: [String: Any] = [:]) -> (ok: Any?, err: String?) {
         guard let request = try? JSONSerialization.data(withJSONObject: ["op": op, "args": args]) else { return (nil, "bad request") }
