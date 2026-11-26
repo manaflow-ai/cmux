@@ -27,6 +27,8 @@ describe("cloud journey", () => {
       .toBe("idle clock not running (last_active_at null: no report speaks for its activity); idle policy 120 s");
     expect(await idleHeldBy(api({ status: "running", last_active_at: 940_000, idle_policy: { idle_seconds: 120 }, activity: { active_sessions: 1 } }), "vm_x", 1_000_000))
       .toBe('idle clock started 60 s ago; idle policy 120 s; activity {"active_sessions":1}');
+    expect(await idleHeldBy(api({ status: "running", last_active_at: 1_000_000, idle_policy: { idle_seconds: 120 }, idle_kept: { why: "workload", running_s: 900, report_age_s: 20, daemon: "1.0.0", workload: { busy: 0, listening: 1, ports: [5173] } } }), "vm_x", 1_000_000))
+      .toBe('idle clock started 0 s ago; idle policy 120 s; kept by {"why":"workload","workload":{"busy":0,"listening":1,"ports":[5173]}}');
     const failing = { read: async () => { throw new Error("HTTP 503"); } } as unknown as Api;
     expect(await idleHeldBy(failing, "vm_x")).toBe("idle facts unreadable: HTTP 503");
   });
