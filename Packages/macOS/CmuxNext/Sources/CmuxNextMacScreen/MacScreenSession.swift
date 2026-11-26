@@ -452,8 +452,9 @@ public final class MacScreenSession {
     /// The bridge socket closes a moment before `cmux rd connect` prints why (`ended`, on its stdout), so a
     /// lost stream waits `lostGrace` for that line: `linkEnded` ends the session with its cause and cancels this.
     func failLostUnlessLinkExplains(transport: RemoteRdStreamTransport?) {
-        lostDeadline.schedule(after: lostGrace) { @MainActor [weak self, weak transport] in
-            guard let self, let transport, self.transport === transport else { return }
+        let stream = transport.map(ObjectIdentifier.init)
+        lostDeadline.schedule(after: lostGrace) { @MainActor [weak self] in
+            guard let self, self.transport.map(ObjectIdentifier.init) == stream else { return }
             fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
         }
     }
