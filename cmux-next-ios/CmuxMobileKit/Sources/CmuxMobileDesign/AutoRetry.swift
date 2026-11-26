@@ -61,6 +61,8 @@ public final class AutoRetry {
     @ObservationIgnored private var visible = true
     @ObservationIgnored private var foreground = true
     @ObservationIgnored private var loop: Task<Void, Never>?
+    @ObservationIgnored private var attemptTask: Task<Void, Never>?
+    @ObservationIgnored private var attemptGeneration = 0
 
     public init(backoff: AutoRetryBackoff = .standard,
                 quiet: Duration = QuietStatusGate.threshold,
@@ -92,14 +94,14 @@ public final class AutoRetry {
     public func update(foreground: Bool) {
         let returned = foreground && !self.foreground
         self.foreground = foreground
-        if !foreground { stopLoop() } else if returned { schedule(immediately: true) }
+        if !foreground { stopLoop(cancelAttempt: true) } else if returned { schedule(immediately: true) }
     }
 
     /// The screen is on screen or not.
     public func update(visible: Bool) {
         let returned = visible && !self.visible
         self.visible = visible
-        if !visible { stopLoop() } else if returned { schedule(immediately: true) }
+        if !visible { stopLoop(cancelAttempt: true) } else if returned { schedule(immediately: true) }
     }
 
     /// An attempt is running now (a return to the screen meanwhile starts none of its own).
@@ -127,17 +129,28 @@ public final class AutoRetry {
         guard let perform else { return }
         inFlight = true
         attempts += 1
-        // Unstructured on purpose: the attempt usually swaps the failed view for a
-        // loading one, which must not cancel the load it started.
-        await Task { @MainActor in await perform() }.value
+        attemptGeneration += 1
+        let generation = attemptGeneration
+        // Keep a handle so leaving the screen or backgrounding can cancel the read. The
+        // generation guard below ignores a late answer from a non-cooperative backend.
+        let task = Task { @MainActor in await perform() }
+        attemptTask = task
+        await task.value
+        guard generation == attemptGeneration else { return }
         inFlight = false
+        attemptTask = nil
         loop = nil
         if failing { schedule(immediately: false) } else { recovered() }
     }
 
-    private func stopLoop() {
+    private func stopLoop(cancelAttempt: Bool = false) {
         loop?.cancel()
         loop = nil
+        guard cancelAttempt else { return }
+        attemptGeneration += 1
+        attemptTask?.cancel()
+        attemptTask = nil
+        inFlight = false
     }
 
     private func recovered() {

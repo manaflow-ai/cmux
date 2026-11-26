@@ -76,4 +76,21 @@ import Testing
         retry.update(visible: true)
         #expect(await until { calls == 2 }, "and on the screen appearing again")
     }
+
+    @Test func leavingScreenCancelsAttemptAndReturningRetriesImmediately() async {
+        let retry = fast()
+        var calls = 0
+        retry.setAttempt {
+            calls += 1
+            try? await Task.sleep(for: .seconds(60))
+        }
+        retry.update(failing: true)
+        #expect(await until { retry.isAttemptInFlight })
+
+        retry.update(visible: false)
+        #expect(!retry.isAttemptInFlight)
+        retry.update(visible: true)
+        #expect(await until { calls == 2 }, "the return starts a fresh attempt")
+        retry.update(failing: false)
+    }
 }
