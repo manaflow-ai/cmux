@@ -743,7 +743,7 @@ jobs:
             ${{ runner.temp }}/guards-head.json
             ${{ runner.temp }}/guards-head.json.failures.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
 
   # The static checks that may be red on the base, in one runner session and one checkout. Each was a job of its own
   # (vt-link-graph, nightly-static-capabilities, defaults-snapshot, page-strings), seconds of work behind a runner start
