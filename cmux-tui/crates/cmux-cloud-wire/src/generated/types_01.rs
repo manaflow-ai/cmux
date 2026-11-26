@@ -9,6 +9,19 @@ pub type AddressId = String;
 
 pub type AgentId = String;
 
+pub type AppKvApp = String;
+
+pub type AppKvKey = String;
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct AppKvRow {
+    pub app: String,
+    pub key: String,
+    pub value: Value,
+    pub revision: WireNumber,
+    pub updated_ms: WireNumber,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Automation {
     pub id: AutomationId,
