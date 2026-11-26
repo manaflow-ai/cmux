@@ -63,6 +63,8 @@ pub mod history_search;
 pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
+// Its authority crate (cmux-projection) is a unix-only dependency, as `projection` is.
+#[cfg(unix)]
 pub mod projection_ns;
 /// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
 #[cfg(unix)]

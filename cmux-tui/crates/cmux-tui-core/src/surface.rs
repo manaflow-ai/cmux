@@ -1075,8 +1075,8 @@ impl Surface {
         }
     }
 
-    /// The terminal runs on the holder (its PTY master lives in the holder process).
-    #[cfg(test)]
+    /// The terminal runs on the holder (its PTY master lives in the holder process). The holder is unix-only.
+    #[cfg(all(test, unix))]
     pub(crate) fn runs_on_holder(&self) -> bool {
         self.as_pty().is_some_and(|pty| {
             let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
