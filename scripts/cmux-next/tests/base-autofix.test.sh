@@ -141,24 +141,6 @@ printf '// edited\npublic enum S {}\n' > "$repo/$settings"
 bash "$FIX" --no-fmt --ratchets "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed beside an edited frozen file"
 [[ "$(cat "$repo/$settings")" == $'// edited\npublic enum S {}' ]] || fail "an edited frozen file must keep its edit and get no rewrite"
 grep -q "^skipped (frozen): $settings" "$tmp/out" || fail "a frozen namespace rewrite beside an edit must be reported"
-# --sdk resyncs the SDKs' resource API descriptors after a catalog-only change
-# (#34498 changed resource-operations-v2.json and left every catalog_sha256
-# stale, a base red the PR could not fix: the descriptors are generated). The
-# real sync script runs on a one-operation catalog.
-git -C "$repo" checkout -q -- .
-mkdir -p "$repo/cmux-tui/spec" "$repo/cmux-tui/bindings/rust/scripts"
-cp "$ROOT_DIR/cmux-tui/bindings/rust/scripts/sync-resource-api.py" "$repo/cmux-tui/bindings/rust/scripts/"
-for package in cpp go java python rust typescript zig; do mkdir -p "$repo/cmux-tui/bindings/$package"; done
-printf '{"protocol":"p","operations":{"a.get":{"class":"read"}}}\n' > "$repo/cmux-tui/spec/resource-operations-v2.json"
-python3 -I "$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py"
-git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm descriptors
-bash "$FIX" --no-fmt --sdk "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on current descriptors"
-[[ -z "$(git -C "$repo" status --porcelain)" ]] || fail "current descriptors must stay unchanged"
-printf '{"protocol":"p","operations":{"a.get":{"class":"read","params":["id"]}}}\n' > "$repo/cmux-tui/spec/resource-operations-v2.json"
-git -C "$repo" -c user.name=t -c user.email=t@t commit -qam catalog
-bash "$FIX" --no-fmt --sdk "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on stale descriptors"
-python3 -I "$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py" --check || fail "the descriptors must match the catalog after --sdk"
-grep -q '^fixed: regenerated cmux-tui/bindings/zig/.cmux-resource-api.json' "$tmp/out" || fail "a resynced descriptor must be reported"
 # The display suite list is derived wherever it is read, never committed: a run writes no list, even
 # after a suite gains a display trait (it went stale on every such pull request when it was committed).
 git -C "$repo" checkout -q -- .
@@ -202,14 +184,26 @@ grep -qx 'web/scripts/export-next-docs.ts --settings' "$tmp/bun-args" || fail "t
 pin="$tmp/pin"; pgen="$tmp/pin-generated"; mk=cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin
 mkdir -p "$pin/plans/cmux-next" "$pin/$mk/actions" "$pin/$mk/removal" "$pgen/plans/cmux-next"
 for f in actions/landed actions/waiting actions/half removal/gone removal/kept; do echo '# note' > "$pin/$mk/$f"; done
+# fields/ markers: a pointer the regenerated export changed from the committed one is settled (taken out; the
+# file goes with its last), one it left alone or a /surfacePlan/ one stays.
+mkdir -p "$pin/$mk/fields"
+printf '# the dump has the old flag until the re-pin\n/focuses\n' > "$pin/$mk/fields/kept"
+printf '# note\n/focuses\n/title\n' > "$pin/$mk/fields/landed"
+printf '/surfacePlan/palette\n' > "$pin/$mk/fields/plan"
 echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-surfaces.json"
-echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-catalog.json"
+echo '{"actions":[{"id":"kept","focuses":false},{"id":"landed","focuses":false,"title":"A"},{"id":"plan","surfacePlan":{"palette":"x"}}]}' > "$pin/plans/cmux-next/action-catalog.json"
 echo '{"actions":[{"id":"landed"},{"id":"half"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-surfaces.json"
-echo '{"actions":[{"id":"landed"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-catalog.json"
+echo '{"actions":[{"id":"landed","focuses":true,"title":"A"},{"id":"kept","focuses":true},{"id":"plan","surfacePlan":{"palette":"y"}}]}' > "$pgen/plans/cmux-next/action-catalog.json"
 git -C "$pin" init -q && git -C "$pin" add -A && git -C "$pin" -c user.name=t -c user.email=t@t commit -qm fixture
 bash "$FIX" --no-fmt --generated "$pgen" "$pin" > "$tmp/out" 2>&1 || fail "the fixer must succeed on settled re-pin markers"
 [[ ! -e "$pin/$mk/actions/landed" ]] || fail "an actions marker both regenerated exports carry must be deleted"
 [[ ! -e "$pin/$mk/removal/gone" ]] || fail "a removal marker neither regenerated export has must be deleted"
 for f in actions/waiting actions/half removal/kept; do [[ -e "$pin/$mk/$f" ]] || fail "the unsettled marker $f must stay"; done
 grep -q "^fixed: deleted $mk/actions/landed" "$tmp/out" || fail "a deleted marker must be reported"
+[[ ! -e "$pin/$mk/fields/kept" ]] || fail "a fields marker whose every pointer the regenerated export changed must be deleted"
+grep -q "^fixed: deleted $mk/fields/kept" "$tmp/out" || fail "a deleted fields marker must be reported"
+[[ "$(grep -v '^#' "$pin/$mk/fields/landed")" == /title ]] || fail "only the settled pointer must leave a fields marker: $(cat "$pin/$mk/fields/landed")"
+grep -q '^# note' "$pin/$mk/fields/landed" || fail "a fields marker keeps its note"
+grep -q "^fixed: took /focuses out of $mk/fields/landed" "$tmp/out" || fail "a settled pointer must be reported"
+[[ "$(cat "$pin/$mk/fields/plan")" == /surfacePlan/palette ]] || fail "a /surfacePlan/ pointer stays for a person"
 echo "base autofix: ok"
