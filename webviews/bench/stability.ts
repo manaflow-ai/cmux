@@ -88,9 +88,10 @@ export function installStabilityProbe(options: {
         (line) =>
           line && line !== "Error" && !line.includes("installStabilityProbe") && !/^at (w\.|window\.)/.test(line),
       )
-      // The caller that registered the callback first, then two of its callers (the wrapper's own frame is
-      // filtered above; slicing from 1 dropped the caller itself, naming only its caller's caller).
-      .slice(0, 3)
+      // The caller that registered the callback first, then four of its callers (the wrapper's own frame is
+      // filtered above): a shared timer (slackTimers.ts `later` < `arm`) takes two frames, and the job that
+      // asked for it sits under them, so three frames named the timer, never the job.
+      .slice(0, 5)
       .join(" < ") || "unknown";
   const note = (kind: keyof typeof counts, error: Error | undefined) => {
     counts[kind] += 1;
