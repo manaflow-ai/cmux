@@ -22,6 +22,8 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CmuxMobileKeychainGroup</key>
 	<string>$(CMUX_MOBILE_KEYCHAIN_GROUP)</string>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>Ring an alarm when a coding agent is waiting on you, for a permission request, a question or an agent that stopped.</string>
 	<key>NSExtension</key>
 	<dict>
 		<key>NSExtensionPointIdentifier</key>

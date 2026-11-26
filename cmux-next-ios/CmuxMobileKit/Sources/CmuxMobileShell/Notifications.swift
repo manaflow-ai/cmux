@@ -222,6 +222,9 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
             await MainActor.run { ChatMuteList.shared.load(stored) }
             for await keys in changes { mutes.save(keys) }
         }
+        #if DEBUG
+        AgentAlarmDebug.runIfAsked()
+        #endif
         #if DEBUG && targetEnvironment(simulator)
         SimulatedServiceExtension.deliverIfAsked()
         SimulatedServiceExtension.registerStandInTokenIfAsked()
@@ -268,6 +271,13 @@ public final class CmuxMobileAppDelegate: NSObject, UIApplicationDelegate, UNUse
                                                    withCompletionHandler completionHandler: @escaping @Sendable (UNNotificationPresentationOptions) -> Void) {
         let route = NotificationRoute(userInfo: notification.request.content.userInfo)
         let payload = PushPayload(userInfo: notification.request.content.userInfo)
+        // Agent Alarms: the same gate as the service extension, which already rang for a push it
+        // opened (the key makes this a duplicate); this rings for one it didn't (a local post).
+        let mutes = PushChatMutes.live()
+        let content = notification.request.content
+        if let alarm = ServicePush().alarmPayload(content, muted: mutes.mutes(content.userInfo)) {
+            Task { await AgentAlarms.handle(alarm, source: .foregroundPush) }
+        }
         let chatMac = payload?.kind == .chief || payload?.kind == .terminal ? nil : payload?.mac
         let chatSession = payload?.sessionId
         Task { @MainActor in
@@ -445,3 +455,42 @@ final class MockDeviceDirectory: SettingsDeviceDirectory {
     }
 }
 #endif
+
+/// Settings → Notifications → Phone Calls over the live service (PROTOCOL.md "Agent calls").
+extension LiveDeviceDirectory: AgentCallService {
+    private func agentCallData(_ method: String, _ subpath: String = "", body: [String: Any]? = nil) async throws -> Data {
+        guard let live else { throw NotSignedIn() }
+        do {
+            let json = try body.map { try JSONSerialization.data(withJSONObject: $0) }
+            return try await live.agentCall(method, subpath, body: json)
+        } catch let failure as LiveAPI.Failure {
+            throw AgentCallFailure(code: failure.code, message: failure.message)
+        }
+    }
+
+    private struct Calling: Decodable { var calling: String }
+
+    func agentCall() async throws -> AgentCallState {
+        try JSONDecoder().decode(AgentCallState.self, from: try await agentCallData("GET"))
+    }
+
+    func setAgentCall(enabled: Bool?, triggers: [String]?, clearNumber: Bool) async throws -> AgentCallState {
+        var body: [String: Any] = [:]
+        if let enabled { body["enabled"] = enabled }
+        if let triggers { body["triggers"] = triggers }
+        if clearNumber { body["number"] = NSNull() }
+        return try JSONDecoder().decode(AgentCallState.self, from: try await agentCallData("PUT", body: body))
+    }
+
+    func verifyAgentCall(number: String) async throws -> String {
+        try JSONDecoder().decode(Calling.self, from: try await agentCallData("POST", "/verify", body: ["number": number])).calling
+    }
+
+    func confirmAgentCall(code: String) async throws -> AgentCallState {
+        try JSONDecoder().decode(AgentCallState.self, from: try await agentCallData("POST", "/confirm", body: ["code": code]))
+    }
+
+    func testAgentCall() async throws -> String {
+        try JSONDecoder().decode(Calling.self, from: try await agentCallData("POST", "/test", body: [:])).calling
+    }
+}

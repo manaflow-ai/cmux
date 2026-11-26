@@ -351,7 +351,20 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             cloudPages?.automations()
         case .longPressMenus:
             LongPressMenusPage()
+        case .agentAlarms:
+            AgentAlarmsPage()
+        case .agentCalls:
+            AgentCallsPage(service: agentCalls)
         }
+    }
+
+    /// Phone Calls' service: the live directory, or (DEBUG mock mode) the simulator's stand-in.
+    private var agentCalls: (any AgentCallService)? {
+        if let live = directory as? any AgentCallService { return live }
+        #if DEBUG
+        if directory != nil { return AgentCallMockService.shared }
+        #endif
+        return nil
     }
 
     /// Settings > Send feedback: the bug report form with HQ's report marker (FeedbackFormLink).
@@ -385,6 +398,10 @@ public enum SettingsRoute: Hashable, Sendable {
     case automations
     /// Long-Press Menus: the menu items the person hid.
     case longPressMenus
+    /// Notifications → Agent Alarms: AlarmKit alarms when an agent is stuck on the person.
+    case agentAlarms
+    /// Notifications → Phone Calls: cmux's number calls the person for the same events.
+    case agentCalls
 
     /// The route named by its case name (DEBUG launch arguments). The old
     /// name "pairedMacs" opens Devices.
@@ -395,7 +412,7 @@ public enum SettingsRoute: Hashable, Sendable {
         }
         let all: [SettingsRoute] = [.account, .team, .transport, .devices, .terminal, .terminalSizing, .composer, .browser, .notifications,
                                     .acknowledgements, .chiefCalls, .screenSharing, .accentColor, .cloudMachines, .automations,
-                                    .longPressMenus]
+                                    .longPressMenus, .agentAlarms, .agentCalls]
         guard let route = all.first(where: { "\($0)" == name }) else { return nil }
         self = route
     }

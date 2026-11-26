@@ -215,6 +215,14 @@ public struct LiveAPI: Sendable {
         return try JSONDecoder().decode(Reply.self, from: try await call("GET", "v1/me/devices")).devices
     }
 
+    /// `/v1/me/agent-call…` (PROTOCOL.md "Agent calls"): the phone-call settings and their code and test calls.
+    /// The reply is passed through as is; Settings decodes it (`AgentCallState`).
+    /// `body` is the JSON object's bytes (Sendable, so it crosses from the main actor).
+    public func agentCall(_ method: String, _ subpath: String = "", body: Data? = nil) async throws -> Data {
+        let object = try body.map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] ?? [:] }
+        return try await call(method, "v1/me/agent-call\(subpath)", body: object)
+    }
+
     /// `DELETE /v1/devices/:id` (owner only).
     public func deleteDevice(id: String) async throws {
         _ = try await call("DELETE", "v1/devices/\(id)")

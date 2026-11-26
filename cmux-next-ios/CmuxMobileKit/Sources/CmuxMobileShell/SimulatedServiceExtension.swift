@@ -58,8 +58,12 @@ struct SimulatedServiceExtension {
         let served = service.withheld(content, keys: keys) ?? service.opened(content, keys: keys)
             ?? service.inert(content, trust: keys?.trust()) ?? service.categorized(content) ?? content
         // The extension's last step too: a chat muted on this phone arrives quietly.
-        let opened = PushChatMutes.live().quieted(served) ?? served
+        let mutes = PushChatMutes.live()
+        let opened = mutes.quieted(served) ?? served
         let request = UNNotificationRequest(identifier: "dev-service-push-\(UUID().uuidString)", content: opened, trigger: nil)
+        // And its Agent Alarms step, before the banner, as the extension does.
+        let alarm = ServicePush().alarmPayload(opened, muted: mutes.mutes(opened.userInfo))
+        if let alarm { Task { await AgentAlarms.handle(alarm, source: .serviceExtension) } }
         UNUserNotificationCenter.current().add(request) { error in
             if let error { Logger(subsystem: "dev.cmux.mobile", category: "push").error("simulated service push: \(String(describing: error), privacy: .public)") }
         }

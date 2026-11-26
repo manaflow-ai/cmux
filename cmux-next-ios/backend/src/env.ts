@@ -47,6 +47,14 @@ export interface Env {
   readonly TURN_SELF_URLS?: string
   readonly TURN_SELF_SECRET?: string
   readonly ICE_TTL_SECONDS?: string
+  /** Agent Calls (src/agent-call.ts): Twilio's account, its key and the cmux number; all three or none. */
+  readonly TWILIO_ACCOUNT_SID?: string
+  readonly TWILIO_AUTH_TOKEN?: string
+  readonly TWILIO_FROM_NUMBER?: string
+  /** Signs the links Twilio fetches the call's voice from. */
+  readonly AGENT_CALL_AUDIO_KEY?: string
+  /** Workers AI: MeloTTS reads the call; absent, Twilio's own voice does. */
+  readonly AI?: Ai
   /** APNs (src/push.ts): all three or none. */
   readonly APNS_KEY_P8?: string
   readonly APNS_KEY_ID?: string

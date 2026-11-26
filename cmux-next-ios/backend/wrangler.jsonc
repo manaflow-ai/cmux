@@ -25,6 +25,8 @@
   "env": {
     "dev": {
       "name": "cmux-mobile-api-dev",
+      // Agent Calls' voice (src/agent-call.ts): MeloTTS on Workers AI.
+      "ai": { "binding": "AI" },
       "workers_dev": true,
       // Query strings can carry nothing secret here, but redact anyway; invocation logs would record the
       // Sec-WebSocket-Protocol bearer, so they stay off.
@@ -69,6 +71,8 @@
       // Production: production Stack project only, its own PlanetScale database cmux/cmux-mobile-prod (branch main,
       // role cmux-mobile-api) behind Hyperdrive cmux-mobile-prod (query caching disabled), custom domain on cmux.dev.
       "name": "cmux-mobile-api-prod",
+      // Agent Calls' voice (src/agent-call.ts): MeloTTS on Workers AI.
+      "ai": { "binding": "AI" },
       "workers_dev": true,
       "routes": [{ "pattern": "mobile-api.cmux.dev", "custom_domain": true }],
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
