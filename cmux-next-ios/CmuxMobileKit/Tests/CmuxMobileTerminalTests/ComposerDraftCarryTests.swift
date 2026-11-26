@@ -23,6 +23,39 @@ import Testing
         TerminalModel(session: StubSession(), artifactSource: MockArtifactSource(), title: "zsh")
     }
 
+    @Test func adoptingAttachmentsStartsUploadsWithAnAlreadyBoundUploader() async throws {
+        let before = model()
+        let file = ComposerAttachment(kind: .file, name: "draft.txt", data: Data("draft".utf8))
+        before.addAttachment(file)
+
+        let after = model()
+        after.ingest(.connection(.attached))
+        let (uploads, continuation) = AsyncStream<String>.makeStream()
+        defer { continuation.finish() }
+        after.setUploader({ _, name in
+            continuation.yield(name)
+            return "/workspace/" + name
+        }, directory: "/workspace")
+
+        // The live host binds the uploader before copying a replaced model's draft.
+        // No send or subsequent connection event should be needed to begin transfer.
+        after.adoptComposer(from: before)
+        let uploaded = try await withThrowingTaskGroup(of: String?.self) { group in
+            group.addTask {
+                for await name in uploads { return name }
+                return nil
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(10))
+                return nil
+            }
+            defer { group.cancelAll() }
+            return try await group.next() ?? nil
+        }
+        #expect(uploaded == "draft.txt")
+        #expect(after.attachments.map(\.id) == [file.id])
+    }
+
     @Test func aRebuiltTerminalKeepsTheDraft() {
         let before = model()
         before.ingest(.connection(.attached))
