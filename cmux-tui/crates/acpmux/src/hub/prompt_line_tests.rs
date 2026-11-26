@@ -49,6 +49,30 @@ async fn another_agents_first_message_titles_the_chat_by_its_words() {
     assert_eq!(m.title.as_deref(), Some("Fix the sidebar spinner"));
 }
 
+/// A prompt's line is secret-scanned once as its turn starts (the turn's summary line and its
+/// `turn_started` record share it), not once for a default line, again for its own, and again
+/// for the record, and again as its end built the whole session row for one count: at 2,000
+/// attached sessions that scan was the costliest step of a prompt burst (goal
+/// sessions-2000-attached). The record still holds it masked.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_prompts_line_is_scanned_once_and_stays_masked() {
+    let marker = "scan-once-marker-7f3a";
+    let token = format!("ghp_{}", "aB3dE5fG7hJ9kL1mN3pQ5rS7tV9wX1yZ3b5D");
+    crate::secret_scan::watched::watch(marker);
+    let hub = hub();
+    let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+    let s = hub.new_session(req).await.unwrap();
+    let blocks = vec![json!({"type": "text", "text": format!("{marker} {token}")})];
+    hub.prompt_with(&s, blocks, "acpmux-cli#7", false, PromptOptions::default()).await.unwrap();
+    let events = hub.events(&s.id, 0, 100_000).unwrap();
+    let started = events.iter().find(|e| e.kind == "turn_started").expect("the turn starts");
+    let line = started.msg["promptLine"].as_str().unwrap_or_default();
+    assert!(line.starts_with(marker), "{line}");
+    assert!(!line.contains(&token), "the record keeps the line masked: {line}");
+    // Texts that start with the marker: the stand-in agent's echo of it starts with its own words.
+    assert_eq!(crate::secret_scan::watched::scans_of(marker), 1);
+}
+
 /// The sidebar hover card's History lists what was asked, not acpmux's notices (Leo
 /// 2026-11-01: "the details aren't even very useful"): an inbox notice and a digest are notices;
 /// another agent's message and the person's prompt are not.
