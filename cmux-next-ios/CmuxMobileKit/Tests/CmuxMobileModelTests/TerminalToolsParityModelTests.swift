@@ -41,6 +41,8 @@ import Testing
     /// `move-tab`'s insertion index for a new tab appended at the pane's end (the daemon's
     /// place) beside the tab at `anchor`.
     @Test func newTabPositionsMoveTheAppendedTab() {
+        // The index is Rust (new_tab_move_index), which links only on iOS.
+        #if os(iOS)
         let pinned = [true, false, false, false, false] // the new tab is index 4
         // Same Kind goes where the Mac's default New Tab position puts it: after the current tab.
         #expect(NewTabPosition.sameKind.moveIndex(from: 4, anchor: 1, pinned: pinned) == 2)
@@ -54,6 +56,7 @@ import Testing
         let groups: [String?] = [nil, "g", "g", nil, nil]
         #expect(NewTabPosition.afterCurrent.moveIndex(from: 4, anchor: 1, pinned: pinned, groups: groups) == 3)
         #expect(NewTabPosition.afterCurrent.moveIndex(from: 4, anchor: 0, pinned: [true, true, false, false, false]) == 2)
+        #endif
         #expect(NewTabPosition.allCases.map(\.title)
             == ["New Tab of the Same Kind", "New Tab to the Right", "New Tab at Start", "New Tab at End"])
     }

@@ -72,7 +72,9 @@ import Testing
         #expect(placeholder.title == "Fix the flaky upload test")
         // The tab is the agent, as the Mac's tab reads once listed (live run 3: the pill flipped
         // from the task to the agent's name); the workspace carries the task.
+        #if os(iOS) // the agent tab title is Rust, which links only on iOS
         #expect(placeholder.tabs.first?.title == "Claude")
+        #endif
         #expect(placeholder.tabs.first?.subtitle == nil)
         #expect(placeholder.tabs.first?.agentStatus == .working)
         #expect(store.takeFocusOnOpen(placeholder.id))
