@@ -323,25 +323,32 @@ impl Hub {
             .zip(&states)
             .map(|(k, s)| json!({"harness": k.harness, "state": s}))
             .collect();
-        let mut answer = json!({"accepted": true, "state": state, "cwd": key.cwd,
-            "harness": key.harness, "credential": on_credential});
+        let mut answer = serde_json::Map::from_iter([
+            ("accepted".to_owned(), json!(true)),
+            ("state".to_owned(), json!(state)),
+            ("cwd".to_owned(), json!(key.cwd)),
+            ("harness".to_owned(), json!(key.harness)),
+            ("credential".to_owned(), json!(on_credential)),
+        ]);
         if let Some(model) = &key.model {
-            answer["model"] = json!(model);
+            answer.insert("model".to_owned(), json!(model));
         }
         // Why no agent is there or coming, for the app's log (`CloudMachineRoute.warmHome`).
         match state {
             "none" => {
-                answer["reason"] = json!(
+                answer.insert("reason".to_owned(), json!(
                     "the pool did not keep the entry (it is off or stopping, the shape is over the memory cap, or another start in the folder replaced it)"
-                )
+                ));
             }
-            "empty" => answer["reason"] = json!("the agent did not start"),
+            "empty" => {
+                answer.insert("reason".to_owned(), json!("the agent did not start"));
+            }
             _ => {}
         }
         if !spares.is_empty() {
-            answer["spares"] = Value::Array(spares);
+            answer.insert("spares".to_owned(), Value::Array(spares));
         }
-        Ok(answer)
+        Ok(Value::Object(answer))
     }
 
     /// The state of the entry for `key`: `ready`, `warming`, `empty` or `none`.
