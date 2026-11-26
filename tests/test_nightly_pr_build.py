@@ -62,6 +62,27 @@ class Route(unittest.TestCase):
         self.assertEqual(npb.route([npb.WORKFLOW]), {"swift": True, "helpers": True})
         self.assertEqual(npb.route(["scripts/ci/nightly_pr_build.py"]), {"swift": True, "helpers": True})
 
+    def test_landing_routes_changed_inputs_without_the_full_tier(self) -> None:
+        name = "nightly-pr-build.yml"
+        callees = pr_router.load_manifest()
+        repo = {"full_name": "manaflow-ai/cmux"}
+        pr = {"draft": False, "head": {"repo": repo}, "base": {"ref": "feat-cmux-next", "repo": repo},
+              "labels": [{"name": "ready-to-land"}]}
+        for action in ("synchronize", "labeled"):
+            event = {"action": action, "label": {"name": "ready-to-land"}, "pull_request": pr}
+            tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+            self.assertTrue(pr_router.head_tier.land_affected(tier))
+            for path, expected in ((npb.WORKFLOW, True), ("Packages/macOS/CmuxNext/Sources/X.swift", True),
+                                   ("docs/readme.md", False)):
+                with self.subTest(action=action, path=path):
+                    start, _ = pr_router.route(event, callees, [path], decided=tier)
+                    self.assertEqual(name in start, expected)
+        for changes in ({"draft": True}, {"labels": []}):
+            event = {"action": "synchronize", "pull_request": {**pr, **changes}}
+            tier = pr_router.head_tier.tier("pull_request", event, land_switch="1", land_full_switch="0")
+            start, _ = pr_router.route(event, callees, [npb.WORKFLOW], decided=tier)
+            self.assertNotIn(name, start)
+
     def test_outer_router_admits_compile_and_helper_inputs(self) -> None:
         config = pr_router.load_manifest()["nightly-pr-build.yml"]
         for root in npb.HELPER_INPUTS:

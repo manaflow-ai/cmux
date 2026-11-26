@@ -1,8 +1,7 @@
 # The NIGHTLY's own app compile and Rust helper builds, on a pull request into feat-cmux-next.
 #
-# On 2026-11-25 a change the pull request checks never compiled the Nightly's way broke the cmux NEXT
-# Nightly's app compile, and the NIGHTLY went over 5 hours without publishing. This runs the Nightly's
-# settings on the pull request instead (scripts/ci/nightly_pr_build.py says what and why):
+# A normal Debug or Release PR compile can miss failures specific to the Nightly configuration.
+# This checks the Nightly settings when a landing PR changes their inputs:
 #   - swift:   scripts/cmux-next/check-release-compile.sh --archs ARCH --nightly, as a fleet job, for
 #              arm64 and x86_64: Release with -DCMUX_BLOCKING_CHECKS and -Osize, as app-build-release.sh.
 #   - helpers: cargo check --release of each Rust helper the Nightly bundles, with its features and profile.
@@ -55,7 +54,7 @@ jobs:
     needs: [route]
     if: ${{ needs.route.outputs.swift == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
     # The literal fallback never schedules: the job's if: skips when the variable is unset.
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || 'ubuntu-24.04' }}
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || 'cmux-linux' }}
     timeout-minutes: 140  # the client waits up to 3600 s queued plus 3600 s running
     permissions: {}
     strategy:

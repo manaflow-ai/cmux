@@ -220,6 +220,7 @@
    "skip_docs_only": true
   },
   "nightly-pr-build.yml": {
+   "land_affected": true,
    "types": [
     "opened",
     "synchronize",
