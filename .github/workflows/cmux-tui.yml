@@ -1773,6 +1773,12 @@ jobs:
         working-directory: cmux-tui
         run: cargo build -p cmux-tui --locked
 
+      # The web frontend's ghostty-web terminal (?terminal=ghostty) against this
+      # daemon in system Chrome: it renders the shell and a typed command echoes.
+      - name: Web ghostty terminal e2e (Playwright)
+        working-directory: cmux-tui/frontends/web
+        run: bash scripts/ghostty-e2e.sh --bin "$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
+
       - name: Resolve Zig SDK version
         id: zig-sdk-version
         shell: bash
