@@ -6,6 +6,7 @@
 // (managedBy.ts `managerDrivingUntil`): a chat its manager only dispatched, or that went quiet,
 // draws nothing.
 import { ManagedBanner } from "./ManagedBanner";
+import { Icon } from "./icons/Icon";
 import { managerDrivingUntil, type ManagedBy, type PromptRow } from "./managedBy";
 import "./managedBanner.css";
 
@@ -33,54 +34,40 @@ const pillDesigns = new Set<ManagedBannerDesign>([
   "pill-mini",
 ]);
 
-/// Floating pill candidates (Lawrence, 2026-11-25: "make it more like a floating pill instead"): the
-/// line becomes a rounded chip that floats over the composer's top edge instead of a full-width row.
+/// Floating pill candidates (Lawrence, 2026-11-25: "make it more like a floating pill instead"). Each
+/// is built from the pane's own floating pill: Jump to latest's glass (`ui-glass ui-glass-floats
+/// acpmux-jump-latest`, conversation.css) widened as the Needs your input pill is
+/// (`acpmux-needs-you-pill`, needsYou.css), with catalog icons (`agent.chief`, `action.close`,
+/// `action.hide`) and the Needs you dot. Only the content and the lead mark differ.
 function ManagedPill({ design, name }: { design: ManagedBannerDesign; name: string }) {
-  const mini = design === "pill-mini";
+  const short = design === "pill-mini";
   const lead =
     design === "pill-dot" || design === "pill-straddle" ? (
-      <span className="acpmux-managed-pill-dot" aria-hidden />
-    ) : design === "pill-avatar" || design === "pill-left" || design === "pill-accent" || mini ? (
-      <span className="acpmux-managed-pill-avatar" aria-hidden>
-        {name.slice(0, 1)}
-      </span>
-    ) : null;
+      <span className="acpmux-needs-you-dot acpmux-managed-pill-live" aria-hidden="true" />
+    ) : design === "pill" || design === "pill-glass" ? null : (
+      <Icon name="agent.chief" size={14} />
+    );
+  const iconHide = design !== "pill" && design !== "pill-glass" && design !== "pill-accent" && design !== "pill-left";
   return (
     <div className="acpmux-managed-pill-stage" data-design={design}>
-      <output className="acpmux-managed-pill" data-design={design}>
+      <output
+        className="ui-glass ui-glass-floats acpmux-jump-latest acpmux-needs-you-pill acpmux-managed-pill"
+        data-shown=""
+        data-design={design}
+      >
         {lead}
-        {mini ? (
-          <span className="acpmux-managed-pill-text">
-            <strong className="acpmux-managed-name">{name}</strong> is sending
-          </span>
-        ) : (
-          <span className="acpmux-managed-pill-text">
-            <strong className="acpmux-managed-name">{name}</strong> is sending messages here
-            {design === "pill" || design === "pill-glass" ? (
-              <span className="acpmux-managed-pill-sub"> · you can still type</span>
-            ) : null}
-          </span>
-        )}
-        <button type="button" className="acpmux-managed-pill-hide" aria-label="Hide" title="Hide">
-          {mini || design === "pill-dot" || design === "pill-straddle" || design === "pill-avatar" ? "\u00d7" : "Hide"}
+        <span className="acpmux-managed-pill-text">
+          <strong className="acpmux-managed-name">{name}</strong>
+          {short ? " is sending" : " is sending messages here"}
+        </span>
+        <button type="button" className="acpmux-managed-take-over" aria-label="Hide" title="Hide">
+          <Icon name={iconHide ? "action.close" : "action.hide"} size={12} />
+          {iconHide ? null : <span>Hide</span>}
         </button>
       </output>
-      <div className="acpmux-managed-pill-composer">Type / for commands</div>
     </div>
   );
 }
-
-
-export type ManagedBannerDesignsProps = {
-  design: ManagedBannerDesign;
-  manager: ManagedBy;
-  /** The chat's rows, when the variant shows the rule rather than a design: no line unless the
-   *  manager drives the chat at `now`. */
-  rows?: readonly PromptRow[];
-  now?: number;
-};
-
-const noop = () => undefined;
 
 export function ManagedBannerDesigns({ design, manager, rows, now = Date.now() }: ManagedBannerDesignsProps) {
   if (rows) {

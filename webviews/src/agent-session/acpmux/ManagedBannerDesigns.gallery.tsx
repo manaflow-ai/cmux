@@ -31,15 +31,15 @@ export default componentEntry<ManagedBannerDesignsProps>({
   load: () => import("./ManagedBannerDesigns").then((module) => module.ManagedBannerDesigns),
   variants: {
     "pill": {
-      note: "Floating pill, centered over the composer, with the reassurance after a dot.",
+      note: "Jump to latest's glass pill with the sentence and Hide.",
       props: { design: "pill", manager: chief },
     },
     "pill-dot": {
-      note: "Pill with a live dot that pulses while the Chief is sending; × hides it.",
+      note: "The Needs you dot in the accent colour while the Chief sends; close icon.",
       props: { design: "pill-dot", manager: chief },
     },
     "pill-avatar": {
-      note: "Pill led by the Chief's monogram badge; × hides it.",
+      note: "Led by the catalog's agent.chief icon; close icon.",
       props: { design: "pill-avatar", manager: chief },
     },
     "pill-straddle": {
@@ -47,11 +47,11 @@ export default componentEntry<ManagedBannerDesignsProps>({
       props: { design: "pill-straddle", manager: chief },
     },
     "pill-glass": {
-      note: "Translucent blurred pill floating over the transcript.",
+      note: "The same glass, thinner tint.",
       props: { design: "pill-glass", manager: chief },
     },
     "pill-accent": {
-      note: "Accent-tinted pill, louder, with the badge and Hide.",
+      note: "Accent rim and wash, Chief icon, Hide.",
       props: { design: "pill-accent", manager: chief },
     },
     "pill-left": {
@@ -59,7 +59,7 @@ export default componentEntry<ManagedBannerDesignsProps>({
       props: { design: "pill-left", manager: chief },
     },
     "pill-mini": {
-      note: "Smallest: badge, 'Chief is sending', ×.",
+      note: "Shortest: icon, 'Chief is sending', close.",
       props: { design: "pill-mini", manager: chief },
     },
     sending: {
