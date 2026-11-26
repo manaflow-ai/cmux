@@ -228,7 +228,8 @@ def main(argv: list[str] | None = None) -> int:
     out = os.environ.get("GITHUB_OUTPUT")
     if out:
         with open(out, "a", encoding="utf-8") as f:
-            f.write(f"run={'true' if result['run'] else 'false'}\n")
+            # unknown (no merge commit to diff): the job skips, and cmux/ios-fast reads no verdict (error), not success.
+            f.write(f"run={'unknown' if paths is None else 'true' if result['run'] else 'false'}\n")
             f.write(f"plan={json.dumps(result, separators=(',', ':'))}\n")
             f.write(f"summary={summary(result)}\n")
     return 0

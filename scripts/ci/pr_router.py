@@ -418,6 +418,31 @@ def land_status(event: dict, decided: tuple[str, str]) -> str:
             else "pending")
 
 
+def ios_status(event: dict, files: list[str] | None, start: list[str], land: str) -> tuple[str, str]:
+    """The `cmux/ios-fast` commit status for EVENT's head (pr-router.yml posts it; the ios fast verdict's own result
+    replaces a `pending` one, pr-router.yml's ios-fast-status job): ("", "") where the land rule does not apply.
+    `success` at once for a head that touches nothing iOS builds (scripts/ci/ios_fast_verdict.py affects, the ios-kit
+    step's inputs, the Rust crates the FFI compiles among them), so a ruleset can require it; `pending` for an
+    iOS-affecting head until its verdict runs (pr-pipeline.yml's ios-fast); a head the router starts no pipeline on
+    carries `success` only where cmux/land-tier does (LAND, land_status), else waits for the land handoff."""
+    if not head_tier.land_rule_applies(event):
+        return "", ""
+    if os.environ.get("CI_IOS_FAST_VERDICT", "").strip() == "0":
+        return "success", "iOS fast verdict is off (vars.CI_IOS_FAST_VERDICT=0): the ios job's kit tests still run"
+    try:
+        import ios_fast_verdict
+        touched = files is None or ios_fast_verdict.affects(files)
+    except Exception:  # noqa: BLE001 - unreadable routes more, never less
+        touched = True
+    if not touched:
+        return "success", "Touches nothing iOS builds (cmux-next-ios, the packages it links, the FFI's Rust crates)"
+    if "pr-pipeline.yml" in start:
+        return "pending", "iOS fast verdict runs on this head: the changed iOS targets, the app and its UI tests compile"
+    if land == "success":
+        return "success", "Carried: no pipeline runs on this head (land tier carried from its previous head)"
+    return "pending", "iOS-affecting: the fast verdict runs when ready-to-land or full-ci is added"
+
+
 def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tuple[set[str], set[str]]:
     """rerun_plan for this head when the red-head base merge rule reached the router: the head only merges the base
     onto a previous head where some run was not green and the router's own run there was not green either (a green
@@ -433,11 +458,13 @@ def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tup
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
-                  table: list[str] | None = None, status: str = "") -> None:
+                  table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", "")) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"land_status={status}\n")
+        out.write(f"ios_status={ios[0]}\n")
+        out.write(f"ios_status_description={ios[1]}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
@@ -469,7 +496,8 @@ def main(argv: list[str]) -> int:
             why["pr-pipeline.yml"] = why.get("pr-pipeline.yml", "") + (
                 f" (table jobs that ran green at the previous head stay off: {', '.join(sorted(rows))})")
         status = land_status(event, decided)
-        write_outputs(start, why, files, table, "pending" if status and (carried or rows) else status)
+        status = "pending" if status and (carried or rows) else status
+        write_outputs(start, why, files, table, status, ios_status(event, files, start, status))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)
