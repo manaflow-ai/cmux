@@ -87,11 +87,14 @@ ensure_sim() {
   read -r runtime device_type <"$EVAL_STATE/sim-choice" || return 1
   [[ -n "$runtime" && -n "$device_type" ]] || { echo "iphone-sim: no simulator choice from build" >&2; return 1; }
   if [[ -z "$(sims)" ]]; then
-    # One set per checkout (a short /tmp path: CoreSimulator's sockets live inside it), made by mktemp
-    # so no other account can have guessed its name first, and recorded in $EVAL_STATE/sims: this
-    # script runs once per verb, so no EXIT trap here can own it; host-stop (also from the harness's
-    # exit trap) removes it, and a run it misses leaves it recorded, so the next run reuses it.
-    set="$(mktemp -d /tmp/iphsim.XXXXXX)" || return 1
+    # One fixed set per checkout (a short /tmp path: CoreSimulator's sockets live inside it), not a
+    # fresh folder per run: this script runs once per verb, so no EXIT trap here can own it; host-stop
+    # (also from the harness's exit trap) removes it, and a run it misses leaves this one folder, which
+    # the next run reuses. The name is guessable, so the folder is made 0700 and used only if this
+    # account owns it and it is not a symlink: a folder another account made first is refused.
+    set="/tmp/iphsim.$(printf %s "$EVAL_STATE" | shasum | cut -c1-10)"
+    mkdir -m 700 "$set" 2>/dev/null || [[ -d "$set" ]] || return 1
+    [[ -O "$set" && ! -L "$set" ]] || { echo "iphone-sim: $set is not this account's own folder" >&2; return 1; }
     echo "$set" >"$EVAL_STATE/sims" || return 1
   fi
   udid=$(simctl create screen-eval-iphone "$device_type" "$runtime") || return 1
