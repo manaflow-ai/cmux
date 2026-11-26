@@ -32294,6 +32294,7 @@ type SetWorkspaceMetadataRequest struct {
 	ExpectedGeneration Presence[string] `json:"-"`
 	ExpectedRevision   Presence[uint64] `json:"-"`
 	Icon               Presence[string] `json:"-"`
+	KeepAwake          Presence[bool]   `json:"-"`
 	Key                Presence[string] `json:"-"`
 	MarkedUnread       Presence[bool]   `json:"-"`
 	MutationID         Presence[string] `json:"-"`
@@ -32360,6 +32361,18 @@ func (value SetWorkspaceMetadataRequest) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("encode SetWorkspaceMetadataRequest.Icon: %w", err)
 		}
 		object["icon"] = encodedField
+	}
+	if value.KeepAwake.IsAbsent() {
+		delete(object, "keep_awake")
+	} else if value.KeepAwake.IsNull() {
+		object["keep_awake"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.KeepAwake.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetWorkspaceMetadataRequest.KeepAwake: %w", err)
+		}
+		object["keep_awake"] = encodedField
 	}
 	if value.Key.IsAbsent() {
 		delete(object, "key")
@@ -32457,6 +32470,7 @@ func (value *SetWorkspaceMetadataRequest) UnmarshalJSON(data []byte) error {
 		ExpectedGeneration Presence[string] `json:"expected_generation"`
 		ExpectedRevision   Presence[uint64] `json:"expected_revision"`
 		Icon               Presence[string] `json:"icon"`
+		KeepAwake          Presence[bool]   `json:"keep_awake"`
 		Key                Presence[string] `json:"key"`
 		MarkedUnread       Presence[bool]   `json:"marked_unread"`
 		MutationID         Presence[string] `json:"mutation_id"`
@@ -32474,6 +32488,7 @@ func (value *SetWorkspaceMetadataRequest) UnmarshalJSON(data []byte) error {
 	decoded.ExpectedGeneration = fields.ExpectedGeneration
 	decoded.ExpectedRevision = fields.ExpectedRevision
 	decoded.Icon = fields.Icon
+	decoded.KeepAwake = fields.KeepAwake
 	decoded.Key = fields.Key
 	decoded.MarkedUnread = fields.MarkedUnread
 	decoded.MutationID = fields.MutationID
@@ -32492,6 +32507,7 @@ type SetWorkspaceMetadataOptions struct {
 	ExpectedGeneration Presence[string] `json:"-"`
 	ExpectedRevision   Presence[uint64] `json:"-"`
 	Icon               Presence[string] `json:"-"`
+	KeepAwake          Presence[bool]   `json:"-"`
 	Key                Presence[string] `json:"-"`
 	MarkedUnread       Presence[bool]   `json:"-"`
 	MutationID         Presence[string] `json:"-"`
@@ -32558,6 +32574,18 @@ func (value SetWorkspaceMetadataOptions) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("encode SetWorkspaceMetadataOptions.Icon: %w", err)
 		}
 		object["icon"] = encodedField
+	}
+	if value.KeepAwake.IsAbsent() {
+		delete(object, "keep_awake")
+	} else if value.KeepAwake.IsNull() {
+		object["keep_awake"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.KeepAwake.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode SetWorkspaceMetadataOptions.KeepAwake: %w", err)
+		}
+		object["keep_awake"] = encodedField
 	}
 	if value.Key.IsAbsent() {
 		delete(object, "key")
@@ -32655,6 +32683,7 @@ func (value *SetWorkspaceMetadataOptions) UnmarshalJSON(data []byte) error {
 		ExpectedGeneration Presence[string] `json:"expected_generation"`
 		ExpectedRevision   Presence[uint64] `json:"expected_revision"`
 		Icon               Presence[string] `json:"icon"`
+		KeepAwake          Presence[bool]   `json:"keep_awake"`
 		Key                Presence[string] `json:"key"`
 		MarkedUnread       Presence[bool]   `json:"marked_unread"`
 		MutationID         Presence[string] `json:"mutation_id"`
@@ -32672,6 +32701,7 @@ func (value *SetWorkspaceMetadataOptions) UnmarshalJSON(data []byte) error {
 	decoded.ExpectedGeneration = fields.ExpectedGeneration
 	decoded.ExpectedRevision = fields.ExpectedRevision
 	decoded.Icon = fields.Icon
+	decoded.KeepAwake = fields.KeepAwake
 	decoded.Key = fields.Key
 	decoded.MarkedUnread = fields.MarkedUnread
 	decoded.MutationID = fields.MutationID

@@ -118,7 +118,7 @@ extension DaemonLanePolicy {
         "set-tab-pinned": ["pinned", "surface"],
         "set-terminal-idle-policy": ["idle_close_seconds", "surface", "terminal_id"],
         "set-viewport-pane-width": ["pane", "transaction", "width"],
-        "set-workspace-metadata": ["color", "expected_generation", "expected_revision", "icon", "key", "marked_unread", "mutation_id", "origin", "pinned", "title", "workspace"],
+        "set-workspace-metadata": ["color", "expected_generation", "expected_revision", "icon", "keep_awake", "key", "marked_unread", "mutation_id", "origin", "pinned", "title", "workspace"],
         "split": ["around", "before", "cols", "dir", "keep", "kind", "pane", "pane_id", "rows", "split_id", "tab_id", "terminal_id", "url"],
         "subscribe": ["surface", "tree_events"],
         "swap-pane": ["dir", "pane", "target"],

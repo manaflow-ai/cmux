@@ -90,6 +90,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case savedTabGroups = "saved-tab-groups-v1"
     /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
     case workspacePin = "workspace-pin-v1"
+    /// Keep Workspace Awake mirrored to the workspace's daemon: `keep_awake` on `set-workspace-metadata` and
+    /// workspaces. The daemon's freeing timer never ends a kept-awake workspace's shells.
+    case workspaceKeepAwake = "workspace-keep-awake-v1"
     /// Each workspace's checklist (`workspace_checklist.*` and the `workspace_checklist` state resource).
     case workspaceChecklist = "workspace-checklist-v1"
     /// The manual workspace unread mark: `marked_unread` on
@@ -669,7 +672,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
             return .required
         case .workspaceGroups, .workspaceMetadata, .workspaceNameSource, .tabMetadata, .frontendBrowserTabs,
              .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .tabDrag, .sharedSizing,
-             .tabWorkspaceName, .notificationAck, .feedLocalOwner, .feedClient, .tabGroups, .savedTabGroups, .workspacePin,
+             .tabWorkspaceName, .notificationAck, .feedLocalOwner, .feedClient, .tabGroups, .savedTabGroups, .workspacePin, .workspaceKeepAwake,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .tabAttention, .tabAttentionRequestID, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,
              .splitClientKeys, .splitClientSplitID, .splitAround, .splitDividerVisibility, .splitBefore, .rowClientKeys, .conversationTabSplit, .conversationTabDock, .frontendBrowserTabSplit, .workspaceFirstTab, .frontendBrowserTabWorkspace,

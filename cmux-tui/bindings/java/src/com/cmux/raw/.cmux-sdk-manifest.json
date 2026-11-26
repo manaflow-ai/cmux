@@ -797,8 +797,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "558939055caad5d79f017e907f8b68c723f2165e5389623639fa3c69be1126ed",
-      "size": 87592
+      "sha256": "be5cf3931d7cd67a627f2b381c4fbf6e742b8c68738428bc80f384a501a38969",
+      "size": 87674
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -2307,7 +2307,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "8e56ecb5fc6ce8f737c28d48adf686a81d0e40fbef740b14eb47b07f33816d3e",
+      "sha256": "1717cf69c6bb915d94da6f063fdaf4bbdc995304e5bc64eb727885c9fdf95eb7",
       "size": 8591
     },
     {
@@ -3077,8 +3077,8 @@
     },
     {
       "path": "SetWorkspaceMetadataRequest.java",
-      "sha256": "4154573cdfc79d1e8acc0b99c40c38903118a195305a34c1a6468c78c03934c2",
-      "size": 9057
+      "sha256": "7efa8f7b69cfa589b920ccc8ca331b96b0d9bd280e06b9c8f0937e88e425f2f4",
+      "size": 9761
     },
     {
       "path": "SettingsChangedEvent.java",
@@ -3872,7 +3872,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "51f4fd0cbd806c4f4ef0b5fc96c687c0857ddeefe8c3d77d777fd53529f18eee",
+  "ir_sha256": "41c81ce58cf47315e0ec5bc3cf10232a3796e6b1010d17440f0ff0224d4337cc",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

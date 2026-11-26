@@ -6,7 +6,7 @@ package raw
 const (
 	SDKSchemaVersion   = 2
 	MuxProtocolVersion = 12
-	SDKIRSHA256        = "51f4fd0cbd806c4f4ef0b5fc96c687c0857ddeefe8c3d77d777fd53529f18eee"
+	SDKIRSHA256        = "41c81ce58cf47315e0ec5bc3cf10232a3796e6b1010d17440f0ff0224d4337cc"
 )
 
 type Authority string
@@ -330,7 +330,7 @@ var commandMetadata = map[string]CommandMetadata{
 	"set-terminal-tail-pin":              {Name: "set-terminal-tail-pin", GoMethod: "SetTerminalTailPin", Authority: AuthorityControl, Since: 12, Capability: "terminal-tail-pin-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"set-viewport-pane-width":            {Name: "set-viewport-pane-width", GoMethod: "SetViewportPaneWidth", Authority: AuthorityControl, Since: 9, Capability: "viewport-column-resize-v1", Stream: "", FieldSince: map[string]uint32{"transaction": 9}, FieldCapabilities: map[string]string{"transaction": "layout-undo-v1"}},
 	"set-window-title":                   {Name: "set-window-title", GoMethod: "SetWindowTitle", Authority: AuthorityControl, Since: 6, Capability: "", Stream: "", FieldSince: nil, FieldCapabilities: nil},
-	"set-workspace-metadata":             {Name: "set-workspace-metadata", GoMethod: "SetWorkspaceMetadata", Authority: AuthorityControl, Since: 12, Capability: "workspace-metadata-v1", Stream: "", FieldSince: map[string]uint32{"marked_unread": 12, "pinned": 12}, FieldCapabilities: map[string]string{"marked_unread": "notification-mark-unread-v1", "pinned": "workspace-pin-v1"}},
+	"set-workspace-metadata":             {Name: "set-workspace-metadata", GoMethod: "SetWorkspaceMetadata", Authority: AuthorityControl, Since: 12, Capability: "workspace-metadata-v1", Stream: "", FieldSince: map[string]uint32{"keep_awake": 12, "marked_unread": 12, "pinned": 12}, FieldCapabilities: map[string]string{"keep_awake": "workspace-keep-awake-v1", "marked_unread": "notification-mark-unread-v1", "pinned": "workspace-pin-v1"}},
 	"shell-read":                         {Name: "shell-read", GoMethod: "ShellRead", Authority: AuthorityControl, Since: 12, Capability: "shell-runs-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"shell-run":                          {Name: "shell-run", GoMethod: "ShellRun", Authority: AuthorityControl, Since: 12, Capability: "shell-runs-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},
 	"shell-stop":                         {Name: "shell-stop", GoMethod: "ShellStop", Authority: AuthorityControl, Since: 12, Capability: "shell-runs-v1", Stream: "", FieldSince: nil, FieldCapabilities: nil},

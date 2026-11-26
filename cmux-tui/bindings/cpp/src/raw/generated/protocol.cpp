@@ -36223,6 +36223,11 @@ Result<Json> Codec<SetWorkspaceMetadataRequest>::encode(const SetWorkspaceMetada
         if (!encoded) return std::move(encoded).error();
         object.emplace("icon", std::move(encoded).value());
     }
+    if (!value.keep_awake.is_absent()) {
+        auto encoded = encode_value(value.keep_awake);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("keep_awake", std::move(encoded).value());
+    }
     if (!value.key.is_absent()) {
         auto encoded = encode_value(value.key);
         if (!encoded) return std::move(encoded).error();
@@ -36306,6 +36311,16 @@ Result<SetWorkspaceMetadataRequest> Codec<SetWorkspaceMetadataRequest>::decode(c
             auto decoded = decode_value<std::string>(*field_icon);
             if (!decoded) return std::move(decoded).error();
             result.icon = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_keep_awake = value.find("keep_awake");
+    if (field_keep_awake) {
+        if (field_keep_awake->is_null()) {
+            result.keep_awake = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_keep_awake);
+            if (!decoded) return std::move(decoded).error();
+            result.keep_awake = Field<bool>(std::move(decoded).value());
         }
     }
     const Json* field_key = value.find("key");
@@ -48865,7 +48880,8 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand260FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand266FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand268FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand268FieldRequirements{{
+    {"keep_awake", 12U, "workspace-keep-awake-v1"},
     {"marked_unread", 12U, "notification-mark-unread-v1"},
     {"pinned", 12U, "workspace-pin-v1"},
 }};
