@@ -77,7 +77,7 @@ export function StartFailure({
       {view.detail && (
         <>
           {" "}
-          <ErrorDetails text={view.detail} className="acpmux-start-failure-details" />
+          <ErrorDetails text={view.detail} className="acpmux-start-failure-details" chipChevron />
         </>
       )}
     </output>

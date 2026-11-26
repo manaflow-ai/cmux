@@ -716,6 +716,8 @@ class HotKeys(unittest.TestCase):
         self.assertNotIn("via", plan)
         self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff
         self.publish(FIX, rules="a" * 64)
+        # The first plan kept FIX's record under state/keys/hot; CI's republish replaces it there too.
+        (self.tmp / "state" / "keys" / "hot" / f"{FIX}.json").unlink()
         code, plan, err = self.plan()
         self.assertEqual(code, 0, err)
         self.assertEqual(plan["via"], "published keys")
@@ -1345,7 +1347,10 @@ class PinCompatibility(unittest.TestCase):
 class StringCatalogs(unittest.TestCase):
     """A string catalog gen-strings.mjs reads is web: the bundle built for a commit carries its words."""
 
-    WEB_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
+    # gen-strings.mjs names a one-file-per-key table by its directory (scripts/cmux-next/string_catalogs.py); an
+    # edit is to one key's file in it.
+    WEB_TABLE = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d"
+    WEB_CATALOG = f"{WEB_TABLE}/settings.demo.title.xcstrings"
     SWIFT_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextOnlySwift/Localizable.xcstrings"
 
     def setUp(self):
@@ -1358,7 +1363,7 @@ class StringCatalogs(unittest.TestCase):
         self.git("config", "user.name", "t")
         gen = self.repo / "webviews/scripts/pages/gen-strings.mjs"
         gen.parent.mkdir(parents=True)
-        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_CATALOG}" }}] }} }};\n')
+        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_TABLE}" }}] }} }};\n')
         (self.repo / "webviews/src").mkdir(parents=True)
         (self.repo / "webviews/src/web-abi.json").write_text('{"abi": 3}\n')
         for catalog in (self.WEB_CATALOG, self.SWIFT_CATALOG):
@@ -2294,4 +2299,10 @@ class RefusedOverlayRollback(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    # `--shard I/N`: the checks job runs this file as four pool commands (tests/unittest_shard.py); whole it
+    # ran 260 s on Linux and past the pool's 600 s deadline beside 15 other commands.
+    _shard_spec = importlib.util.spec_from_file_location(
+        "unittest_shard", Path(__file__).resolve().parents[3] / "tests" / "unittest_shard.py")
+    unittest_shard = importlib.util.module_from_spec(_shard_spec)
+    _shard_spec.loader.exec_module(unittest_shard)
+    unittest_shard.main()

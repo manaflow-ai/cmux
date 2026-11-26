@@ -430,6 +430,37 @@ def alias(args):
         out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
 
 
+def repoint(args):
+    """The payload of another channel's pointer (linux-nightly, linux-stable) at a commit's published
+    cmux-tui/<commit>/release.json: its verified build (commit, commit time, tree, targets) re-signed for
+    --channel with a sequence above that channel's. The channel follows a build another channel already
+    shipped (the NEXT NIGHTLY's commit), so nothing is downloaded and no per-commit file is written."""
+    if args.channel not in LINUX_RELEASE_CHANNELS:
+        fail(f"--channel must be one of {', '.join(LINUX_RELEASE_CHANNELS)}")
+    verified = subprocess.run(
+        [sys.executable, POINTER, "verify", "--pointer", args.release, "--keys", args.keys,
+         "--purpose", LINUX_RELEASE_PURPOSE, "--allow-expired"],
+        capture_output=True, text=True)
+    if verified.returncode != 0:
+        fail(f"{args.release} does not verify: {verified.stderr.strip()}")
+    build = json.loads(verified.stdout)
+    if args.commit and build.get("commit") != args.commit:
+        fail(f"{args.release} is the release file of {build.get('commit')!r}, not {args.commit}")
+    now = int(time.time())
+    committed_at = int(build["committed_at"])
+    sequence = release_sequence(now, committed_at, args.min_sequence or 0)
+    value = {
+        "schema": SCHEMA, "purpose": LINUX_RELEASE_PURPOSE, "channel": args.channel,
+        "version": release_version(build["version"].split("+", 1)[0], build["commit"], sequence),
+        "sequence": sequence, "commit": build["commit"], "committed_at": committed_at,
+        "published_at": now, "expires_at": now + LIFETIME, "targets": build["targets"],
+    }
+    if build.get("tree_key"):
+        value["tree_key"] = build["tree_key"]
+    with open(args.out, "wb") as out:
+        out.write(json.dumps(value, sort_keys=True, separators=(",", ":")).encode())
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -462,9 +493,17 @@ def main(argv):
         a.add_argument(name, required=True)
     a.add_argument("--min-sequence", type=int, default=0,
                    help="the lowest sequence to sign (the channel's current one + 1)")
+    r = sub.add_parser("repoint", help="another channel's payload for a commit's published release.json")
+    for name in ("--release", "--keys", "--channel", "--out"):
+        r.add_argument(name, required=True)
+    r.add_argument("--commit", help="refuse a release file of any other commit")
+    r.add_argument("--min-sequence", type=int, default=0,
+                   help="the lowest sequence to sign (the channel's current one + 1)")
     args = parser.parse_args(argv[1:])
     if args.command == "alias":
         alias(args)
+    elif args.command == "repoint":
+        repoint(args)
     else:
         payload(args)
     return 0

@@ -5666,10 +5666,11 @@
 * blob webviews/node_modules
 * blob webviews/scripts
 * blob webviews/scripts/pages
+* blob webviews/scripts/pages/catalog.mjs
 * blob webviews/scripts/pages/gen-design-scale.mjs
 * blob webviews/scripts/pages/gen-feature-tips.mjs
 * blob webviews/scripts/pages/gen-strings.mjs
-* blob webviews/src/agent-session/acpmux/Localizable.xcstrings
+* tree webviews/src/agent-session/acpmux/Localizable.xcstrings.d
 * blob webviews/src/agent-session/acpmux/generated/strings.json
 * blob webviews/src/browser-chrome/page-info/Localizable.xcstrings
 * blob webviews/src/browser-chrome/page-info/generated/strings.json

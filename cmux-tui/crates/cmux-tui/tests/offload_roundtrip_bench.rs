@@ -34,12 +34,12 @@
 //! short turn), `OFFLOAD_BENCH_OUT` (also write the JSON there). Prints one
 //! line `OFFLOAD_BENCH {json}`.
 //!
-//! Run: `cargo test -p cmux-tui --test offload_roundtrip_bench -- --ignored --nocapture`.
+//! Run: `cargo test -p cmux-tui --test it -- offload_roundtrip_bench:: --ignored --nocapture`.
 //!
 //! Linux only, like the journeys it reuses: a Cloud host is a Linux machine.
 #![cfg(target_os = "linux")]
 
-mod journey_support;
+use crate::journey_support;
 
 use std::collections::BTreeMap;
 use std::fs;

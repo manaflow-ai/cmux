@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.updates.installWhenIdleMinutes.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How long cmux must be idle before Update When Idle installs."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "المدة التي يجب أن يبقى فيها cmux خاملًا قبل أن يثبّت «التحديث عند الخمول»."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koliko dugo cmux mora biti neaktivan prije nego što Ažuriraj kada je neaktivan instalira."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor længe cmux skal være inaktiv, før Opdater ved inaktivitet installerer."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie lange cmux inaktiv sein muss, bevor „Bei Inaktivität aktualisieren“ installiert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuánto tiempo debe estar cmux inactivo antes de que Actualizar en reposo instale."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durée d'inactivité de cmux avant que « Mettre à jour en cas d'inactivité » installe."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per quanto tempo cmux deve restare inattivo prima che Aggiorna quando inattivo installi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「アイドル時にアップデート」がインストールするまでに cmux がアイドル状態である必要がある時間。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រយៈពេលដែល cmux ត្រូវទំនេរ មុនពេល «ធ្វើបច្ចុប្បន្នភាពនៅពេលទំនេរ» ដំឡើង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "'유휴 시 업데이트'가 설치하기 전에 cmux가 유휴 상태여야 하는 시간입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor lenge cmux må være inaktiv før Oppdater ved inaktivitet installerer."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jak długo cmux musi być bezczynny, zanim Aktualizuj w bezczynności zainstaluje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Por quanto tempo o cmux precisa ficar ocioso antes que Atualizar quando ocioso instale."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сколько cmux должен бездействовать, прежде чем «Обновлять при бездействии» установит обновление."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ระยะเวลาที่ cmux ต้องไม่มีการใช้งานก่อนที่ อัปเดตเมื่อไม่มีการใช้งาน จะติดตั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Boşta Kalınca Güncelle yüklemeden önce cmux'un ne kadar boşta kalması gerektiği."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скільки cmux має бути бездіяльним, перш ніж «Оновлювати під час бездіяльності» встановить оновлення."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thời gian cmux phải nhàn rỗi trước khi Cập nhật khi nhàn rỗi cài đặt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 需空闲多久，“空闲时更新”才会安装。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 需閒置多久，「閒置時更新」才會安裝。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
