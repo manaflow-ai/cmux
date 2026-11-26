@@ -3,7 +3,7 @@
 
 cmux#43937 added CmuxNextAgentListTests, seven tests, and every check was green while none of them ran:
 the fast tier built the target and listed its tests, then ran only its registry's filters, and
-`cmux-next swift test` needs full-ci (hq#11644). Before this guard 24 of the 94 Swift test targets in
+`cmux-next swift test` ran only with full-ci (hq#11644). Before this guard 24 of the 94 Swift test targets in
 Packages/ had no pull request runner at all. scripts/ci/swift_test_coverage.py is the check; this test
 runs it on the tree (a new test target with no runner and no registry entry fails here), and on fixtures
 for the diff check that cmux-next-guards.yml's tooling-tests job runs with the pull request's base.
@@ -216,27 +216,20 @@ class DiffCheck(Fixture):
         return subprocess.run([sys.executable, "-I", str(SCRIPT), "--root", str(self.root), *extra],
                               capture_output=True, text=True)
 
-    def test_a_new_target_no_fast_tier_entry_covers_fails_without_full_ci(self):
+    def test_a_new_target_no_fast_tier_entry_covers_is_a_post_merge_warning(self):
+        # A post-merge runner satisfies coverage: the tip suite dispatch runs `cmux-next swift test` on
+        # feat-cmux-next (cmuxterm-hq docs/findings/2026-11-25-ci-value.md: 0 real PR catches in 30 days).
         base = self.commit()
         self.add_agent_list_target()
         self.commit()
-        result = self.run_script("--base", base)
-        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("::error title=Swift test target coverage::Packages/macOS/CmuxNext: the new test target"
-                      " CmuxNextAgentListTests (7 tests) is run by no pull request check", result.stdout)
-        self.assertIn("fast-tier.json swift entry", result.stdout)
-        self.assertIn("full-ci", result.stdout)
-        # The tree check alone passes: the target is in the graph, so full-ci would run it.
+        for extra in ((), ("--full-ci",)):
+            with self.subTest(extra=extra):
+                result = self.run_script("--base", base, *extra)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("::warning title=Swift test target coverage::Packages/macOS/CmuxNext: the new test"
+                              " target CmuxNextAgentListTests (7 tests) first runs after merge", result.stdout)
+                self.assertIn("fast-tier.json swift entry", result.stdout)
         self.assertEqual(self.run_script().returncode, 0)
-
-    def test_full_ci_turns_it_into_a_warning(self):
-        base = self.commit()
-        self.add_agent_list_target()
-        self.commit()
-        result = self.run_script("--base", base, "--full-ci")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("::warning title=Swift test target coverage::", result.stdout)
-        self.assertIn("runs here only because of full-ci", result.stdout)
 
     def test_a_fast_tier_entry_for_the_target_or_its_suite_passes(self):
         base = self.commit()
