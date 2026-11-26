@@ -23,6 +23,27 @@ const DOMAIN: &str = "cmux.device-hub.machine\n";
 /// The key's length; a file of any other length is not a key.
 const SECRET_LEN: usize = 32;
 
+/// What `machineKey`'s SHA-256 covers before the hardware id (PROTOCOL.md, One record per machine).
+const KEY_DOMAIN: &str = "cmux-device-hub machine v1\n";
+
+/// The `machineKey` for `hardware_id` (PROTOCOL.md, One record per machine): the lowercase hex
+/// SHA-256 of `cmux-device-hub machine v1\n` and the uppercased id, the value the Mac app sends
+/// (`CmuxNextDevices/DeviceIdentity+MachineKey.swift`), so the hub gives the daemon's device and the
+/// app's one `machineId` and apps list them as one device. None without a hardware id.
+pub fn machine_key(hardware_id: &str) -> Option<String> {
+    let id = hardware_id.trim().to_uppercase();
+    if id.is_empty() {
+        return None;
+    }
+    Some(crate::hex(ring::digest::digest(&ring::digest::SHA256, format!("{KEY_DOMAIN}{id}").as_bytes()).as_ref()))
+}
+
+/// This machine's `machineKey`, read once per process; None where there is no hardware id.
+pub fn current_key() -> Option<String> {
+    static CURRENT: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    CURRENT.get_or_init(|| machine_key(&hardware_id()?)).clone()
+}
+
 /// The `machine` for `hardware_id` under `secret`: None without a hardware id or a 32-byte key.
 /// The id is trimmed and uppercased first, as the app does.
 pub fn machine_id(hardware_id: &str, secret: &[u8]) -> Option<String> {
@@ -201,6 +222,16 @@ mod tests {
             machine_id("12345678-ABCD-EF01-2345-6789ABCDEF01", &secret).as_deref(),
             Some(expected)
         );
+    }
+
+    #[test]
+    fn the_machine_key_is_the_apps_for_the_same_hardware_uuid() {
+        // DeviceIdentity.machineKey(platformUUID:): SHA-256 of "cmux-device-hub machine v1\n" and
+        // the uppercased UUID, never keyed, so every build and the daemon send the same value.
+        let expected = "61fd245706a49b5848b55b38c1f994413e198fbb51cc075cebd38436572b652f";
+        assert_eq!(machine_key(" 12345678-abcd-ef01-2345-6789abcdef01\n").as_deref(), Some(expected));
+        assert_eq!(machine_key("  "), None);
+        assert_eq!(machine_key("A").map(|k| k.len()), Some(64));
     }
 
     #[test]

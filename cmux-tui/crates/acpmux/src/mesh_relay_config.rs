@@ -153,51 +153,6 @@ impl MeshControlFrom {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::mesh::Sender;
-
-    fn sender(user: Option<&str>, daemon: Option<&str>) -> Sender {
-        Sender {
-            user: user.map(str::to_owned),
-            daemon_id: daemon.map(str::to_owned),
-            ..Sender::default()
-        }
-    }
-
-    #[test]
-    fn move_out_has_the_same_owner_only_grant_as_move() {
-        let entry = MeshControlFrom {
-            same_user: true,
-            ops: vec![MOVE_OP.to_owned()],
-            ..Default::default()
-        };
-        let own = sender(Some("person"), Some("daemon"));
-        assert!(entry.allows(&own, Some("person"), MOVE_OP));
-        assert!(entry.allows(&own, Some("person"), MOVE_OUT_OP));
-        assert!(!entry.allows(&own, Some("other"), MOVE_OUT_OP));
-        assert!(!entry.allows(&sender(None, Some("daemon")), Some("person"), MOVE_OUT_OP));
-        assert!(!entry.allows(&sender(Some("person"), None), Some("person"), MOVE_OUT_OP));
-        assert!(!entry.allows(&own, None, MOVE_OUT_OP));
-    }
-
-    #[test]
-    fn move_out_cannot_be_granted_by_daemon_id_or_lifecycle_defaults() {
-        let by_daemon = MeshControlFrom {
-            daemon_id: "daemon".into(),
-            ops: vec![MOVE_OP.into()],
-            ..Default::default()
-        };
-        let from = sender(Some("person"), Some("daemon"));
-        assert!(!by_daemon.allows(&from, Some("person"), MOVE_OUT_OP));
-        let default = MeshControlFrom::same_user();
-        assert!(!default.allows(&from, Some("person"), MOVE_OUT_OP));
-        let only_move_out = MeshControlFrom { ops: vec![MOVE_OUT_OP.into()], ..default };
-        assert!(!only_move_out.allows(&from, Some("person"), MOVE_OUT_OP));
-    }
-}
-
 /// How much a policy runs without asking: nothing (`ask`, `deny-all`), reads (`approve-reads`,
 /// `review`), reads and edits (`approve-edits`), everything (`approve-all`).
 pub fn policy_reach(policy: crate::config::PermissionPolicy) -> u8 {
@@ -208,6 +163,18 @@ pub fn policy_reach(policy: crate::config::PermissionPolicy) -> u8 {
         P::ApproveEdits => 2,
         P::ApproveAll => 3,
     }
+}
+
+/// The `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its owner) becomes
+/// the one a join writes now, so the person's own machines keep starting chats on each other in
+/// the policy they name. An entry the owner changed keeps its choice. True when one changed.
+pub fn upgrade_join_entries(control_from: &mut [MeshControlFrom]) -> bool {
+    let mut changed = false;
+    for entry in control_from.iter_mut().filter(|entry| entry.is_unmarked_join_entry()) {
+        *entry = MeshControlFrom::same_user();
+        changed = true;
+    }
+    changed
 }
 
 /// The widest cap among `entries` that grant `op` to `from` here (each entry's
@@ -255,5 +222,76 @@ impl MeshRelayConfig {
         reqwest::Url::parse(self.url.trim())
             .map(|u| u.origin().ascii_serialization())
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mesh::Sender;
+
+    fn sender(user: Option<&str>, daemon: Option<&str>) -> Sender {
+        Sender {
+            user: user.map(str::to_owned),
+            daemon_id: daemon.map(str::to_owned),
+            ..Sender::default()
+        }
+    }
+
+    #[test]
+    fn move_out_has_the_same_owner_only_grant_as_move() {
+        let entry = MeshControlFrom {
+            same_user: true,
+            ops: vec![MOVE_OP.to_owned()],
+            ..Default::default()
+        };
+        let own = sender(Some("person"), Some("daemon"));
+        assert!(entry.allows(&own, Some("person"), MOVE_OP));
+        assert!(entry.allows(&own, Some("person"), MOVE_OUT_OP));
+        assert!(!entry.allows(&own, Some("other"), MOVE_OUT_OP));
+        assert!(!entry.allows(&sender(None, Some("daemon")), Some("person"), MOVE_OUT_OP));
+        assert!(!entry.allows(&sender(Some("person"), None), Some("person"), MOVE_OUT_OP));
+        assert!(!entry.allows(&own, None, MOVE_OUT_OP));
+    }
+
+    #[test]
+    fn move_out_cannot_be_granted_by_daemon_id_or_lifecycle_defaults() {
+        let by_daemon = MeshControlFrom {
+            daemon_id: "daemon".into(),
+            ops: vec![MOVE_OP.into()],
+            ..Default::default()
+        };
+        let from = sender(Some("person"), Some("daemon"));
+        assert!(!by_daemon.allows(&from, Some("person"), MOVE_OUT_OP));
+        let default = MeshControlFrom::same_user();
+        assert!(!default.allows(&from, Some("person"), MOVE_OUT_OP));
+        let only_move_out = MeshControlFrom { ops: vec![MOVE_OUT_OP.into()], ..default };
+        assert!(!only_move_out.allows(&from, Some("person"), MOVE_OUT_OP));
+    }
+
+    #[test]
+    fn an_older_join_entry_runs_at_the_cap_a_join_writes_now_and_an_owner_choice_stays() {
+        // 2026-11-25: lane VMs joined before `maxPolicy` kept `{"sameUser": true}` (cap `ask`),
+        // so the coordinator's `acpmux new --machine LANE --policy approve-all` was refused.
+        let own = sender(Some("person"), Some("mac"));
+        let unmarked: MeshControlFrom =
+            serde_json::from_value(serde_json::json!({"sameUser": true})).unwrap();
+        let chosen: MeshControlFrom =
+            serde_json::from_value(serde_json::json!({"sameUser": true, "maxPolicy": "ask"}))
+                .unwrap();
+        let mut entries = vec![unmarked.clone()];
+        assert_eq!(
+            control_cap(&entries, &own, Some("person"), "start"),
+            Some(crate::config::PermissionPolicy::Ask)
+        );
+        assert!(upgrade_join_entries(&mut entries));
+        assert_eq!(entries, vec![MeshControlFrom::same_user()]);
+        assert_eq!(
+            control_cap(&entries, &own, Some("person"), "start"),
+            Some(crate::config::PermissionPolicy::ApproveAll)
+        );
+        let mut kept = vec![chosen.clone()];
+        assert!(!upgrade_join_entries(&mut kept));
+        assert_eq!(kept, vec![chosen]);
     }
 }

@@ -12,7 +12,7 @@ import { settleReact } from "./support/domTeardown";
 // blank glass bit ... should have a loading indicator, like an ellipsis-type thing". The host draws the
 // card only from its page's first report, and the page reports as soon as it has its data: the title is
 // final then, and the change line holds its one line with a quiet indicator until the notes come, so the
-// words swap in once, at the same height, with no second report.
+// words swap in once, at the same height; the one later report only marks its words settled (u51892).
 test("the Updated card reports with its title and a loading change line, then swaps the words in once", async () => {
   const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "https://cmux.test/#/surface/updated" });
   const scope = globalThis as Record<string, unknown>;
@@ -96,17 +96,20 @@ test("the Updated card reports with its title and a loading change line, then sw
     expect(host.querySelector(".wn-card-note")?.textContent?.toLowerCase()).not.toContain("readable transcript");
     expect(sizes.length).toBe(1);
 
-    // The list answers with no builds: the host's items are the card's final words. They take the
-    // line's place, and the card's height is unchanged, so the page reports nothing new.
+    // The list answers with no builds: the notes are final. The card's height is unchanged; the one
+    // later report says its words are final, so the host may give back a taller remembered height
+    // (u51892 review F1).
     await act(async () => {
       answerList?.({ builds: [], current: "1.0.0-nightly.42" });
-      await until(() => host.querySelector(".wn-card-note-loading") === null);
+      await until(() => sizes.length > 1);
       for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
     });
     expect(host.querySelector(".wn-card-note-loading")).toBeNull();
     expect(host.querySelector(".wn-card-note")?.textContent?.toLowerCase()).toContain("readable transcript");
     expect(host.querySelector(".wn-card-title")?.textContent).toContain("Updated to Nightly");
-    expect(sizes.length).toBe(1);
+    expect(new Set(sizes.map((size) => (size as { height: number }).height)).size).toBe(1);
+    expect(sizes.length).toBe(2);
+    expect((sizes.at(-1) as { settled?: boolean }).settled).toBe(true);
   } finally {
     await settleReact();
     dom.window.close();

@@ -160,8 +160,10 @@ export function SteerQueue({
         ? t("steerQueue.placeholder.steer", { name: focused.title })
         : t("steerQueue.placeholder.reply", { name: focused.title });
 
+  // "results": the queue is a live list (agents join and leave, the split look widens it) with no
+  // input from the person, so its box follows its rows (ui/popupSettle.ts).
   return (
-    <KeyboardScope className="acpmux-steer-queue ui-popup ui-glass" handleKeyDown={handleKeyDown}>
+    <KeyboardScope className="acpmux-steer-queue ui-popup ui-glass" popupSettle="results" handleKeyDown={handleKeyDown}>
       {/* A press anywhere on the panel keeps the keyboard in the field: with focus on the page, keys
           would reach the chat under the queue (its composer, a permission card's digits, Esc Esc). */}
       <div ref={frame} className="acpmux-steer-frame">

@@ -77,6 +77,7 @@ fn before_the_hub_lists_this_device_its_name_still_marks_it() {
         id: "nightly".into(),
         name: Some("Desk Mac".into()),
         platform: Some("macos".into()),
+        ..This::default()
     };
     let listing = listing(&mine, &devices);
     assert_eq!(listing.this_device, ["nightly", "dev"]);
@@ -90,56 +91,74 @@ fn a_renamed_or_blank_own_record_still_marks_this_macs_builds_by_its_registered_
         id: "nightly".into(),
         name: Some("Desk Mac".into()),
         platform: Some("macos".into()),
+        ..This::default()
     };
     assert_eq!(listing(&mine, &devices).this_device, ["nightly", "dev"]);
 }
 
-fn on(machine: &str, device: Device) -> Device {
-    Device { machine_group: Some(machine.into()), ..device }
+fn on(machine: &str, d: Device) -> Device {
+    Device { machine_id: Some(machine.into()), ..d }
 }
 
 #[test]
-fn one_machine_is_one_row_whatever_its_records_are_named() {
-    // studio-mac: the acpmux daemon's record is named by the kernel host name, the
-    // app's by the Computer Name, and a stale app identity predates the hub's machine group.
+fn a_machine_id_makes_records_one_device_whatever_their_names() {
+    // This Mac (m1): NIGHTLY, a DEV renamed in Settings, and a record from before machine ids.
     let devices = [
-        on(
-            "g1",
-            Device { online: true, mac_screen_shared: true, ..device("daemon", "studio-mac") },
-        ),
-        on("g1", device("app", "Studio Mac (2)")),
-        device("stale", "studio-mac"),
-        on("g2", device("me", "Laptop")),
+        on("m1", device("nightly", "Desk Mac")),
+        on("m1", device("dev", "Studio Desk")),
+        device("old", "Desk Mac"),
+        on("m2", Device { online: true, ..device("air1", "Laptop") }),
+        on("m2", device("air2", "Air")),
+        device("air-old", "Laptop"),
+    ];
+    let listing = listing(&this("nightly"), &devices);
+    assert_eq!(listing.this_device, ["nightly", "dev", "old"]);
+    assert_eq!(
+        listing.others,
+        [Machine { id: "air1".into(), ids: vec!["air1".into(), "air2".into(), "air-old".into()] }]
+    );
+}
+
+#[test]
+fn two_macs_with_one_name_are_two_devices_when_their_machine_ids_differ() {
+    let devices = [
+        on("m1", device("me", "Mac mini")),
+        on("m2", device("a", "Mac mini")),
+        on("m3", device("b", "Mac mini")),
+        on("m3", device("b2", "Mac mini")),
     ];
     let listing = listing(&this("me"), &devices);
     assert_eq!(listing.this_device, ["me"]);
     assert_eq!(
         listing.others,
-        [Machine { id: "daemon".into(), ids: vec!["daemon".into(), "app".into(), "stale".into()] }]
+        [
+            Machine { id: "a".into(), ids: vec!["a".into()] },
+            Machine { id: "b".into(), ids: vec!["b".into(), "b2".into()] },
+        ]
     );
 }
 
 #[test]
-fn this_machines_records_are_this_device_by_its_machine() {
-    let devices = [
-        on("g1", device("me", "Studio Mac")),
-        on("g1", device("daemon", "studio-mac-host")),
-        on("g2", device("air", "Laptop")),
-    ];
-    let listing = listing(&this("me"), &devices);
-    assert_eq!(listing.this_device, ["me", "daemon"]);
-    assert_eq!(listing.others, [Machine { id: "air".into(), ids: vec!["air".into()] }]);
+fn this_devices_machine_id_from_the_app_marks_its_builds_before_its_record_lists() {
+    let devices = [on("m1", device("dev", "Renamed")), on("m2", device("other", "Desk Mac"))];
+    let mine = This {
+        id: "nightly".into(),
+        machine_id: Some("m1".into()),
+        name: Some("Desk Mac".into()),
+        platform: Some("macos".into()),
+    };
+    let listing = listing(&mine, &devices);
+    assert_eq!(listing.this_device, ["nightly", "dev"]);
+    assert_eq!(listing.others, [Machine { id: "other".into(), ids: vec!["other".into()] }]);
 }
 
 #[test]
-fn two_machines_with_one_name_stay_two_once_both_name_their_machine() {
-    let devices = [
-        on("g1", device("a", "Studio")),
-        on("g2", device("b", "Studio")),
-        Device { platform: Some("ios".into()), ..on("g1", device("phone", "Studio")) },
-    ];
-    let ids: Vec<_> = listing(&this("me"), &devices).others.into_iter().map(|m| m.id).collect();
-    assert_eq!(ids, ["a", "b", "phone"]);
+fn without_a_machine_id_of_its_own_this_device_falls_back_to_names() {
+    let devices = [device("nightly", "Desk Mac"), on("m1", device("dev", "Desk Mac"))];
+    assert_eq!(listing(&this("nightly"), &devices).this_device, ["nightly", "dev"]);
+    // An empty machine id reads as none.
+    let devices = [on("", device("nightly", "Desk Mac")), on("", device("dev", "Desk Mac"))];
+    assert_eq!(listing(&this("nightly"), &devices).this_device, ["nightly", "dev"]);
 }
 
 fn ready(connection: &str) -> DiscoveryInput {

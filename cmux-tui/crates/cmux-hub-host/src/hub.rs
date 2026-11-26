@@ -95,7 +95,14 @@ pub struct Hub {
     session: Mutex<Option<(String, u64)>>,
     /// This machine's `machine` (machine.rs), sent at registration; None names no machine.
     machine: Option<String>,
+    /// This machine's `machineKey` (machine.rs), sent with [`APP_ID`] so the hub groups this
+    /// daemon with the app on the same machine under one `machineId`; None sends neither.
+    machine_key: Option<String>,
 }
+
+/// The `appId` the daemon registers with (PROTOCOL.md, One record per machine): one install
+/// per machine, so a restart that made a new device retires its own offline older record.
+pub const APP_ID: &str = "com.cmuxterm.acpmux";
 
 impl Hub {
     /// A hub client that renews with the device anchor.
@@ -120,6 +127,7 @@ impl Hub {
             session: Mutex::new(None),
             // This crate's own tests register against a stand-in and never read the real machine.
             machine: if cfg!(test) { None } else { crate::machine::current() },
+            machine_key: if cfg!(test) { None } else { crate::machine::current_key() },
         })
     }
 
@@ -127,6 +135,14 @@ impl Hub {
     #[must_use]
     pub fn with_machine(mut self, machine: Option<String>) -> Self {
         self.machine = machine;
+        self
+    }
+
+    /// This client with `machine_key` as the `machineKey` it registers (None: sends no
+    /// `machineKey` or `appId`).
+    #[must_use]
+    pub fn with_machine_key(mut self, machine_key: Option<String>) -> Self {
+        self.machine_key = machine_key;
         self
     }
 
@@ -281,6 +297,10 @@ impl Hub {
         // machine and lists them as one (machine.rs).
         if let Some(machine) = &self.machine {
             body.insert("machine".into(), json!(machine));
+        }
+        if let Some(key) = &self.machine_key {
+            body.insert("machineKey".into(), json!(key));
+            body.insert("appId".into(), json!(APP_ID));
         }
         self.call("POST", "/v1/devices", Some(&Value::Object(body)))
     }

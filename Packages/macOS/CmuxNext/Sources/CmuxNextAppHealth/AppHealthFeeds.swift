@@ -27,10 +27,6 @@ public import Foundation
 public final class AppHealthFeeds {
     /// The app's health (the Rust model's host), which every feed writes to.
     public let health: AppHealth
-    /// App health's popover; its one trigger (the Restoring sessions card's Details) calls `popover.open(over:)`.
-    /// The sidebar has no health line (Leo, 2026-11-22, ask-eacfb2ec1f: "we dont need it. ever."): the parts
-    /// repair themselves and say nothing.
-    public let popover: AppHealthPopover
     private let daemon: DaemonService
     private let stateDirectory: URL?
     private let work: BackgroundWork
@@ -38,23 +34,17 @@ public final class AppHealthFeeds {
     public let pageFeed: any PageHealthFeed
     /// The follow of the local daemon connection (`AppHealthConnectionFeed`), for the app's life.
     private var connectionFeed: Task<Void, Never>?
-    /// Where each part is (the chat a page shows), for the card's words.
-    private let places: AppHealthPlaces
 
     /// - Parameters:
     ///   - stateDirectory: The session daemon's state directory, whose registry size is read once.
     ///   - work: The app's blocking-work lanes (the size read runs on `.files`).
-    ///   - places: Where each part is; nil: the pages' tabs in `daemon`'s store (``AppHealthPlaces/init(store:)``).
-    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork, places: AppHealthPlaces? = nil) {
+    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork) {
         let health = AppHealth()
         self.health = health
         self.daemon = daemon
         self.stateDirectory = stateDirectory
         self.work = work
-        let places = places ?? AppHealthPlaces(store: daemon.store)
-        self.places = places
         pageFeed = AppHealthPageFeed(health: health)
-        popover = AppHealthPopover(health: health, places: places)
     }
 
     /// Before the daemon starts (its first ensure is a health fact). The debug socket's `debug.health`
@@ -238,31 +228,6 @@ final class AppHealthStoppedOwner {
             return Darwin.kill(stopped, SIGCONT) == 0
         default:
             return false
-        }
-    }
-}
-#endif
-
-#if DEBUG || CMUX_BENCH_HOOKS
-extension AppHealthFeeds {
-    /// `debug.app_health_card {state, close?}` (DEBUG and bench builds), for captures of app health's card over the
-    /// main window: `state` failed (Agent chat needs a repair, with Repair Now), repairing, or quiet (all clear),
-    /// from a fixture snapshot; the model is not touched. `close` takes the card away.
-    public func debugMethod() -> ControlMethod {
-        .mainActor("debug.app_health_card") { [weak self] call in
-            guard let self else { return .value(.null) }
-            if call.params["close"]?.boolValue == true {
-                popover.close()
-                popover.fixture = nil
-                return .value(["shown": false])
-            }
-            let state = call.params["state"]?.stringValue ?? "failed"
-            popover.fixture = AppHealthCard.fixture(state: state)
-            popover.close()
-            popover.open(over: NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && $0.canBecomeMain })
-            // A capture host's app is not active: the card stays up as it would over the person's active window.
-            popover.panel?.hidesWhenInactive = false
-            return .value(["shown": true, "state": .string(state)])
         }
     }
 }

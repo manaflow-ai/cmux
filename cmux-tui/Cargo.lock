@@ -24,24 +24,31 @@ dependencies = [
  "clap",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
+ "cmux-auto-session",
+ "cmux-bounded",
  "cmux-build-space",
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
+ "cmux-cloud-disk",
  "cmux-cloud-environment",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-command-class",
+ "cmux-composer-send",
  "cmux-computer-use",
  "cmux-config",
+ "cmux-deadline",
  "cmux-device-kind",
  "cmux-egress",
  "cmux-embed",
  "cmux-fault",
  "cmux-felt",
  "cmux-file-lock",
+ "cmux-forum-hosted",
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",
@@ -56,6 +63,7 @@ dependencies = [
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-presence",
  "cmux-process",
  "cmux-relay",
  "cmux-remote",
@@ -71,8 +79,12 @@ dependencies = [
  "cmux-source-scan",
  "cmux-stack-auth",
  "cmux-supervise-core",
+ "cmux-sync",
  "cmux-tag-cache",
  "cmux-tailnet",
+ "cmux-tailnet-front",
+ "cmux-tailnet-join",
+ "cmux-tailnet-local",
  "cmux-transport",
  "cmux-tui-hooks",
  "cmux-tui-platform",
@@ -111,6 +123,7 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "signal-hook-registry",
  "syn 2.0.119",
@@ -212,12 +225,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "acpmux-team-space"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "acpmux-tui"
 version = "1.0.0"
 dependencies = [
  "acpmux",
  "anyhow",
  "base64",
+ "cmux-bounded",
  "cmux-json",
  "cmux-scope",
  "crossterm",
@@ -1378,6 +1400,8 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
+ "cmux-config",
  "cmux-embed",
  "cmux-wallpaper",
  "hex",
@@ -1404,6 +1428,39 @@ name = "cmux-auth-coordinator"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+]
+
+[[package]]
+name = "cmux-auto-session"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-autocloud"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cmux-cloud-client",
+ "cmux-cloud-config",
+ "cmux-cloud-environment",
+ "cmux-cloud-wire",
+ "cmux-egress",
+ "cmux-process",
+ "cmux-scope",
+ "crossterm",
+ "futures-util",
+ "ratatui",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1444,13 +1501,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-bounded"
+version = "0.1.0"
+dependencies = [
+ "cmux-deadline",
+ "proc-macro2",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "cmux-braid-carrier"
+version = "0.1.0"
+
+[[package]]
+name = "cmux-braid-class"
 version = "0.1.0"
 
 [[package]]
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
+ "cmux-transport",
  "futures-util",
  "tokio",
 ]
@@ -1523,6 +1598,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cas"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "blake3",
+ "cmux-signed-envelope",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "zstd",
+]
+
+[[package]]
 name = "cmux-chat-index"
 version = "0.1.0"
 dependencies = [
@@ -1545,6 +1634,7 @@ dependencies = [
 name = "cmux-classic-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-config",
  "cmux-file-lock",
  "libc",
  "serde",
@@ -1558,6 +1648,7 @@ version = "1.0.0"
 dependencies = [
  "base64",
  "bytes",
+ "cmux-auto-session",
  "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
@@ -1618,6 +1709,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-disk"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
@@ -1635,6 +1734,7 @@ dependencies = [
 name = "cmux-cloud-handlers"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-disk",
  "cmux-cloud-start-core",
  "serde",
  "serde_json",
@@ -1644,6 +1744,7 @@ dependencies = [
 name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-disk",
  "cmux-lifeline",
  "serde",
  "serde_json",
@@ -1653,8 +1754,10 @@ dependencies = [
 name = "cmux-cloud-start-core"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "toml",
 ]
 
@@ -1722,6 +1825,7 @@ version = "0.1.0"
 name = "cmux-composer-send"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "serde_json",
 ]
 
@@ -1772,6 +1876,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-app-host",
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
@@ -1785,6 +1890,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "unicode-segmentation",
  "uuid",
 ]
 
@@ -1957,6 +2063,7 @@ dependencies = [
 name = "cmux-extension-sdk"
 version = "1.0.0"
 dependencies = [
+ "cmux-app-host",
  "cmux-app-manifest",
  "cmux-customize",
  "serde_json",
@@ -2035,6 +2142,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-forum-hosted"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
@@ -2044,6 +2162,28 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "wait-timeout",
+]
+
+[[package]]
+name = "cmux-git-cache"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64",
+ "bytes",
+ "cmux-process",
+ "cmux-scope",
+ "flate2",
+ "futures-util",
+ "hex",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -2094,6 +2234,7 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-cloud-start-core",
  "cmux-file-lock",
+ "cmux-git-cache",
  "cmux-json",
  "cmux-link",
  "cmux-process",
@@ -2171,6 +2312,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-interactivity"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-journal"
 version = "0.1.0"
 dependencies = [
@@ -2183,6 +2331,14 @@ dependencies = [
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-keymap"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -2248,7 +2404,7 @@ dependencies = [
 name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
- "regex",
+ "regex-automata",
 ]
 
 [[package]]
@@ -2271,6 +2427,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-migrate"
+version = "0.1.0"
+dependencies = [
+ "cmux-git",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "yaml-rust",
+]
+
+[[package]]
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
@@ -2286,6 +2455,14 @@ dependencies = [
  "cmux-mobile-core",
  "serde_json",
  "uniffi",
+]
+
+[[package]]
+name = "cmux-mobile-last-place"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2332,6 +2509,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-pane-pictures"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-pane-protocol"
 version = "0.1.0"
 dependencies = [
@@ -2363,6 +2544,26 @@ dependencies = [
  "flate2",
  "libc",
  "rustc-demangle",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-pool-pod"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "cmux-process",
+ "cmux-tui-machine-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "cmux-presence"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -2406,6 +2607,7 @@ name = "cmux-pty"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
@@ -2464,6 +2666,7 @@ dependencies = [
  "md-5",
  "sha1",
  "snow",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2504,6 +2707,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-relay-snapshot"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "hkdf",
+ "p256",
+ "rand_core 0.6.4",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-remote"
 version = "0.1.0"
 dependencies = [
@@ -2523,7 +2737,9 @@ dependencies = [
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-signed-envelope",
- "cmux-tui-core",
+ "cmux-tailnet-local",
+ "cmux-terminal-host-protocol",
+ "cmux-tui-util",
  "cmux-unix-socket",
  "cmux-wg",
  "diffy",
@@ -2573,9 +2789,20 @@ name = "cmux-remote-protocol"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-braid-class",
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-repro"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -2761,6 +2988,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-sync"
+version = "0.1.0"
+dependencies = [
+ "diffy",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-tab-discard"
 version = "0.1.0"
 dependencies = [
@@ -2796,9 +3033,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet-front"
+version = "0.1.0"
+dependencies = [
+ "cmux-scope",
+ "cmux-tailnet",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-tailnet-join"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-tailnet-local"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "cmux-process",
  "serde",
  "serde_json",
 ]
@@ -2824,6 +3083,17 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+]
+
+[[package]]
+name = "cmux-team-messaging"
+version = "0.1.0"
+dependencies = [
+ "cmux-forum-hosted",
+ "cmux-sync",
+ "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2855,6 +3125,17 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-terminal-host-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cmux-pty",
+ "getrandom 0.3.4",
+ "serde",
+ "socket2",
 ]
 
 [[package]]
@@ -2926,6 +3207,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum",
+ "backtrace",
  "base64",
  "bytes",
  "cmux-action-catalog",
@@ -2935,7 +3217,9 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-apps",
+ "cmux-autocloud",
  "cmux-automations",
+ "cmux-braid-path",
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
@@ -2943,6 +3227,7 @@ dependencies = [
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-config",
+ "cmux-cloud-disk",
  "cmux-cloud-environment",
  "cmux-cloud-handlers",
  "cmux-cloud-machine",
@@ -2969,6 +3254,8 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-lifeline",
  "cmux-link",
+ "cmux-migrate",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
@@ -2979,12 +3266,14 @@ dependencies = [
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-repro",
  "cmux-scope",
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-sync",
  "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
@@ -2995,6 +3284,7 @@ dependencies = [
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
  "cmux-tui-platform",
+ "cmux-tui-test-modules",
  "cmux-unix-socket",
  "cmux-usage-patterns",
  "cmux-vm",
@@ -3099,6 +3389,7 @@ dependencies = [
  "cmux-build-space",
  "cmux-classic-import",
  "cmux-cloud-api",
+ "cmux-cloud-machine",
  "cmux-computer-use",
  "cmux-conductor-import",
  "cmux-config",
@@ -3110,17 +3401,21 @@ dependencies = [
  "cmux-file-lock",
  "cmux-flow-trace",
  "cmux-focus-core",
+ "cmux-forum-hosted",
  "cmux-git",
  "cmux-history",
  "cmux-holder",
+ "cmux-interactivity",
  "cmux-json",
  "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
  "cmux-local-url",
+ "cmux-output-paint",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-presence",
  "cmux-process",
  "cmux-projection",
  "cmux-pty",
@@ -3129,9 +3424,11 @@ dependencies = [
  "cmux-signed-bundle",
  "cmux-signed-envelope",
  "cmux-supervise-core",
+ "cmux-tag-cache",
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-find",
+ "cmux-terminal-host-protocol",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-theme-tokens",
@@ -3168,6 +3465,7 @@ dependencies = [
  "socket2",
  "subsecond",
  "tar",
+ "time",
  "tokio",
  "tokio-tungstenite",
  "toml",
@@ -3226,9 +3524,11 @@ dependencies = [
 name = "cmux-tui-machine-protocol"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "serde",
  "serde_json",
  "subtle",
+ "tokio",
  "zeroize",
 ]
 
@@ -3263,6 +3563,10 @@ dependencies = [
 
 [[package]]
 name = "cmux-tui-source-watch"
+version = "0.0.0"
+
+[[package]]
+name = "cmux-tui-test-modules"
 version = "0.0.0"
 
 [[package]]
@@ -3450,6 +3754,8 @@ dependencies = [
  "blake2",
  "boringtun",
  "bytes",
+ "cmux-braid-class",
+ "cmux-braid-path",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-link",
@@ -4088,6 +4394,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
 dependencies = [
  "const-oid 0.9.6",
+ "pem-rfc7468 0.7.0",
  "zeroize",
 ]
 
@@ -4098,7 +4405,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a69dedd701da44b0536442edf09c81a64b0ab97a7a4a5e3d1971f00027cbc63d"
 dependencies = [
  "const-oid 0.10.2",
- "pem-rfc7468",
+ "pem-rfc7468 1.0.0",
  "zeroize",
 ]
 
@@ -4283,7 +4590,9 @@ dependencies = [
  "der 0.7.10",
  "digest 0.10.7",
  "elliptic-curve",
+ "rfc6979",
  "signature 2.2.0",
+ "spki 0.7.3",
 ]
 
 [[package]]
@@ -4332,6 +4641,7 @@ dependencies = [
  "generic-array",
  "group",
  "hkdf",
+ "pem-rfc7468 0.7.0",
  "pkcs8 0.10.2",
  "rand_core 0.6.4",
  "sec1",
@@ -4870,6 +5180,7 @@ dependencies = [
  "ghostty-vt-sys",
  "memchr",
  "png",
+ "simdutf8",
 ]
 
 [[package]]
@@ -7096,6 +7407,7 @@ dependencies = [
  "ecdsa",
  "elliptic-curve",
  "primeorder",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -7194,6 +7506,15 @@ checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
 dependencies = [
  "base64",
  "serde_core",
+]
+
+[[package]]
+name = "pem-rfc7468"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "88b39c9bfcfc231068454382784bb460aae594343fb030d46e9f50a645418412"
+dependencies = [
+ "base64ct",
 ]
 
 [[package]]
@@ -8138,6 +8459,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e061d1b48cb8d38042de4ae0a7a6401009d6143dc80d2e2d6f31f0bdd6470c7"
 
 [[package]]
+name = "rfc6979"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dd2a808d456c4a54e300a23e9f5a67e122c3024119acbfd73e3bf664491cb2"
+dependencies = [
+ "hmac",
+ "subtle",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8458,6 +8789,7 @@ dependencies = [
  "base16ct 0.2.0",
  "der 0.7.10",
  "generic-array",
+ "pkcs8 0.10.2",
  "subtle",
  "zeroize",
 ]
@@ -8923,6 +9255,7 @@ version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
+ "base64ct",
  "der 0.7.10",
 ]
 

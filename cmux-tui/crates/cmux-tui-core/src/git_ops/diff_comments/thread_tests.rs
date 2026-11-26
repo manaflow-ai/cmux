@@ -109,3 +109,31 @@ fn a_threaded_prompt_carries_only_what_the_agent_has_not_read() {
     mark_sent(&mut file, &carried, "p3");
     assert!(render(&file, "/r", &[c], None).is_some());
 }
+
+#[test]
+fn a_browser_or_terminal_thread_names_its_surface_not_a_file() {
+    let mut file = File::default();
+    let a = saved(
+        &mut file,
+        "k1",
+        json!({"surface": "terminal", "place": "zsh (~/w)", "quote": "error: x", "message": "why",
+               "submissionText": "> **Terminal**\n> error: x\n\nwhy"}),
+    );
+    let b = saved(
+        &mut file,
+        "k2",
+        json!({"surface": "browser", "place": "https://example.com/", "message": "too wide"}),
+    );
+    let (text, _) = render(&file, "/r", &[a.clone(), b.clone()], None).unwrap();
+    assert!(text.starts_with("Code review of /r: 2 threads across 2 places."), "{text}");
+    assert!(
+        text.contains(&format!("## Thread {a}: terminal zsh (~/w)\n\n> **Terminal**")),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!("## Thread {b}: browser page https://example.com/\n")),
+        "{text}"
+    );
+    assert!(text.contains("too wide"), "{text}");
+    assert!(!text.contains("(no file)") && !text.contains("new version"), "{text}");
+}

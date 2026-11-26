@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.remote.shareWithOwnDevicesByDefault.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عند التشغيل: تعرض أجهزتك الأخرى هذا الـ Mac دون طلب سماح، حتى توقف المشاركة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uključeno: vaši drugi uređaji vide ovaj Mac bez odobrenja, dok ne zaustavite dijeljenje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Til: dine andre enheder ser denne Mac uden Tillad, indtil du stopper deling."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein: Deine anderen Geräte sehen diesen Mac ohne Erlauben, bis du das Teilen beendest."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On: your other devices view this Mac with no Allow, until you stop sharing."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activado: tus otros dispositivos ven este Mac sin Permitir, hasta que dejes de compartir."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activé : vos autres appareils voient ce Mac sans Autoriser, jusqu'à ce que vous arrêtiez le partage."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attivo: gli altri tuoi dispositivi vedono questo Mac senza Consenti, finché non interrompi la condivisione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オン: 共有を停止するまで、他のデバイスは「許可」なしでこの Mac を表示できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បើក៖ ឧបករណ៍ផ្សេងទៀតរបស់អ្នកមើល Mac នេះដោយគ្មានការអនុញ្ញាត រហូតដល់អ្នកឈប់ចែករំលែក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "켬: 공유를 중지할 때까지 다른 기기에서 허용 없이 이 Mac을 볼 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "På: de andre enhetene dine ser denne Macen uten Tillat, til du stopper delingen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Włączone: inne Twoje urządzenia widzą tego Maca bez Zezwól, dopóki nie zatrzymasz udostępniania."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ativado: seus outros dispositivos veem este Mac sem Permitir, até você parar de compartilhar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вкл.: другие ваши устройства видят этот Mac без «Разрешить», пока вы не остановите доступ."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เปิด: อุปกรณ์อื่นของคุณดู Mac เครื่องนี้ได้โดยไม่ต้องอนุญาต จนกว่าคุณจะหยุดแชร์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Açık: diğer cihazlarınız, paylaşmayı durdurana kadar bu Mac'i İzin Ver olmadan görür."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Увімк.: інші ваші пристрої бачать цей Mac без «Дозволити», доки ви не зупините доступ."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bật: các thiết bị khác của bạn xem Mac này mà không cần Cho phép, cho đến khi bạn dừng chia sẻ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "开启：在你停止共享前，你的其他设备无需“允许”即可查看这台 Mac。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟：在你停止共享前，你的其他裝置無需「允許」即可檢視這台 Mac。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

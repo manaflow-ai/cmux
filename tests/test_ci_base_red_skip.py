@@ -98,17 +98,59 @@ class BaseRedSkip(unittest.TestCase):
         out = brs.decide(args(audit_percent=100), PR, now=NOW, read=reader([(3, [("kit", "failure")])]))
         self.assertEqual(out[0], "base_red=false")
 
+    def test_decide_many_one_read_set_for_every_job(self):
+        calls = []
+        base = reader([(5, [("a", "failure"), ("b", "skipped")]), (4, [("b", "success"), ("c", "failure")]),
+                       (3, [("c", "success")])])
+
+        def read(path):
+            calls.append(path)
+            return base(path)
+        out = brs.decide_many(args(job=["a", "b", "c", "d"]), PR, now=NOW, read=read)
+        self.assertEqual(out, ['red_jobs=["a","c"]'])
+        self.assertEqual(len(calls), 4, calls)  # the list, then each run once; d has no verdict, so all are read
+
+    def test_decide_many_stops_reading_once_every_job_is_decided(self):
+        calls = []
+        base = reader([(5, [("a", "success"), ("b", "failure")]), (4, [("a", "failure")])])
+
+        def read(path):
+            calls.append(path)
+            return base(path)
+        self.assertEqual(brs.decide_many(args(job=["a", "b"]), PR, now=NOW, read=read), ['red_jobs=["b"]'])
+        self.assertEqual(len(calls), 2)
+
+    def test_decide_many_fails_open_and_skips_only_pull_requests(self):
+        def boom(path):
+            raise RuntimeError("HTTP 403")
+        self.assertEqual(brs.decide_many(args(job=["a"]), PR, boom), ["red_jobs=[]"])
+        red = reader([(3, [("a", "failure")])])
+        self.assertEqual(brs.decide_many(args(job=["a"]), dict(PR, GITHUB_EVENT_NAME="push"), now=NOW, read=red),
+                         ["red_jobs=[]"])
+        old = reader([(3, [("a", "failure")])], created="2026-11-23T10:00:00Z")
+        self.assertEqual(brs.decide_many(args(job=["a"]), PR, now=NOW, read=old), ["red_jobs=[]"])
+
+    def test_decide_many_audit_runs_the_job(self):
+        red = reader([(3, [("a", "failure"), ("b", "failure")])])
+        self.assertEqual(brs.decide_many(args(job=["a", "b"], audit_percent=100), PR, now=NOW, read=red),
+                         ["red_jobs=[]"])
+
     def test_workflows_wire_the_switch_and_full_ci(self):
         wired = {
-            "cmux-next-guards.yml": "tooling-tests",
-            "cloud-journey-pr.yml": "journey-staging",
-            "cmux-next.yml": "cmux-next generated files",
+            "cmux-next-guards.yml": ["tooling-tests"],
+            # ci/steps.toml's tooling-tests-N, the job's tt- steps on a feat-cmux-next pull request.
+            "pr-pipeline.yml": ["tooling-tests"],
+            "cloud-journey-pr.yml": ["journey-staging"],
+            "cmux-next.yml": ["cmux-next fast tier (cargo)", "cmux-next generated files"],
         }
-        for name, job in wired.items():
+        for name, jobs in wired.items():
             with open(os.path.join(WORKFLOWS, name), encoding="utf-8") as fh:
                 text = fh.read()
             self.assertIn("scripts/ci/base_red_skip.py decide", text, name)
-            self.assertIn(f'--job "{job}"', text, name)
+            for job in jobs:
+                self.assertIn(f'--job "{job}"', text, name)
+                if job == "cmux-next fast tier (cargo)":  # decide-many: the job reads its own name in the list
+                    self.assertIn(f"outputs.base_red_jobs || '[]'), '{job}')", text, name)
             self.assertIn("format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0'", text, name)
             self.assertIn("'full-ci'", text, name)
         with open(os.path.join(WORKFLOWS, "cmux-next-ios-kit.yml"), encoding="utf-8") as fh:

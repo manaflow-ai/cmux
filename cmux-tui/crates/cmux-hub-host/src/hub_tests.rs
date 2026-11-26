@@ -111,7 +111,8 @@ fn a_joined_machine_renews_with_its_credential_and_learns_its_person() {
     let machine = "ab".repeat(32);
     let hub = Hub::with_renewal(&origin, device, None, renewal)
         .unwrap()
-        .with_machine(Some(machine.clone()));
+        .with_machine(Some(machine.clone()))
+        .with_machine_key(Some("ab".repeat(32)));
     assert_eq!(hub.user_id(), None);
     let mut extra = serde_json::Map::new();
     extra.insert("shareByJoin".into(), json!(true));
@@ -130,6 +131,9 @@ fn a_joined_machine_renews_with_its_credential_and_learns_its_person() {
     assert_eq!(received[1].body["platform"], "macos");
     assert_eq!(received[1].body["shareByJoin"], true);
     assert_eq!(received[1].body["machine"], json!(machine));
+    // The machine key and app id the hub groups this daemon and the app under (machineId).
+    assert_eq!(received[1].body["machineKey"], json!("ab".repeat(32)));
+    assert_eq!(received[1].body["appId"], json!(APP_ID));
     assert_eq!(received[1].body["id"], json!(id));
     assert_eq!(received[1].header("authorization"), Some("Bearer sess-1"));
     assert!(received[1].header("x-device-sig").is_some());
@@ -153,6 +157,8 @@ fn an_anchored_device_renews_with_its_signed_user_id() {
     assert_eq!(received[1].body["platform"], "linux");
     // No machine read here: the registration names none rather than a made-up one.
     assert!(received[1].body.get("machine").is_none());
+    assert!(received[1].body.get("machineKey").is_none());
+    assert!(received[1].body.get("appId").is_none());
     assert_eq!(received[1].header("authorization"), Some("Bearer sess-2"));
 }
 

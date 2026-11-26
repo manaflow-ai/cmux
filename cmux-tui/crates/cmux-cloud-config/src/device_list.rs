@@ -10,18 +10,19 @@
 //! behind too. The list read every record but this build's own as another device, so the same
 //! Mac showed as many rows, This Mac among them as an offline remote.
 //!
-//! The rule: records of one platform whose names fold to the same key (letters and digits,
-//! lowercased: "Leo’s Mac" is "Leo's Mac") are one device. Records with this device's key are
-//! this device (its other builds) and are not listed as remotes. Every other group lists once, as
-//! the record a connect should reach: online, then sharing, then the newest seen.
+//! The rule, machine id first: records with one `machineId` (the hub's per-account id of the
+//! physical machine, PROTOCOL.md "One record per machine") are one device, and two machine ids are
+//! two devices even under one name. A record without one (a build from before the field, or a
+//! renewal's leftover) falls back to its name: records of one platform whose names fold to the same
+//! key (letters and digits, lowercased: "Leo’s Mac" is "Leo's Mac") are one device, and such a
+//! record joins the first machine whose records carry its name key. Records of this device's
+//! machine, or (when this device has no machine id, or the record none) with this device's name
+//! key, are this device (its other builds) and are not listed as remotes. Every other device lists
+//! once, as the record a connect should reach: online, then sharing, then the newest seen.
 //!
-//! The hub's machine id comes first (Leo, 2026-11-18: one Mac listed as its app's and its acpmux
-//! daemon's devices, whose names differ, "Studio Mac" and "studio-mac"): a record with a
-//! `machineGroup` (every registrant on one machine names the same `machine`, and the hub lists a
-//! one-way name of it) is one device with every record of the same group and platform, whatever
-//! their names. A record without one (a build from before the hub listed it) joins the group of a
-//! record whose name folds the same, else the name rule above. Two physical devices with the same
-//! Computer Name stay apart once both name their machine.
+//! What the name fallback cannot tell: two physical devices with the same Computer Name, neither
+//! with a machine id, read as one. The hub retires a renewal's leftover once the build registers
+//! with a machine id, so the fallback only covers records from before the field.
 
 use std::collections::HashMap;
 
@@ -47,16 +48,19 @@ pub struct Device {
     /// Epoch seconds.
     #[serde(default)]
     pub created_at: Option<f64>,
-    /// The hub's one-way name of the machine the record runs on; None when it named none.
+    /// The hub's per-account id of the physical machine; absent or null for a record registered
+    /// without a `machineKey`.
     #[serde(default)]
-    pub machine_group: Option<String>,
+    pub machine_id: Option<String>,
 }
 
-/// This device: its id, and its name and platform for before the hub lists its record.
+/// This device: its id, and its name, platform and machine id for before the hub lists its record.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct This {
     pub id: String,
+    #[serde(default)]
+    pub machine_id: Option<String>,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -95,13 +99,6 @@ pub fn key(id: &str, name: &str, platform: Option<&str>) -> String {
     }
 }
 
-/// The key of a record that names its machine: the platform and the hub's machine group.
-fn machine_key(device: &Device) -> Option<String> {
-    let group = device.machine_group.as_deref().filter(|g| !g.is_empty())?;
-    let platform = device.platform.as_deref().filter(|p| !p.is_empty()).unwrap_or("macos");
-    Some(format!("{platform}\u{0}machine\u{0}{group}"))
-}
-
 /// Whether `a` is the better record of one device to show and connect to.
 fn better(a: &Device, b: &Device) -> bool {
     let rank = |d: &Device| (d.online, d.mac_screen_shared);
@@ -112,37 +109,41 @@ fn better(a: &Device, b: &Device) -> bool {
     seen(a) > seen(b)
 }
 
+/// A non-empty machine id.
+fn machine_of(id: Option<&str>) -> Option<&str> {
+    id.filter(|m| !m.is_empty())
+}
+
+/// The group key of a machine id (never equal to a name [`key`]: no platform is `machine`).
+fn machine_key(machine: &str, platform: Option<&str>) -> String {
+    let platform = platform.filter(|p| !p.is_empty()).unwrap_or("macos");
+    format!("machine\u{0}{platform}\u{0}{machine}")
+}
+
 /// The hub's records as physical devices: this device's records, and one entry per other device.
 pub fn listing(this: &This, devices: &[Device]) -> Listing {
-    // A name that folds the same as a record naming its machine stands for that machine.
-    let mut by_name: HashMap<String, String> = HashMap::new();
-    for device in devices {
-        if let Some(machine) = machine_key(device) {
-            by_name
+    // This device's keys: its listed record's (a name pinned in Settings) and the name it registers
+    // with (the Computer Name now, after a rename or while its record is blank or not listed yet).
+    let own = devices.iter().find(|d| d.id == this.id);
+    let this_machine = machine_of(own.and_then(|d| d.machine_id.as_deref()))
+        .or(machine_of(this.machine_id.as_deref()));
+    // A record without a machine id joins the first machine (in the hub's order) whose records
+    // carry its name key.
+    let mut name_owner: HashMap<String, String> = HashMap::new();
+    for device in devices.iter().filter(|d| d.id != this.id) {
+        if let Some(machine) = machine_of(device.machine_id.as_deref()) {
+            name_owner
                 .entry(key(&device.id, &device.name, device.platform.as_deref()))
-                .or_insert(machine);
+                .or_insert_with(|| machine_key(machine, device.platform.as_deref()));
         }
     }
-    let resolve = |name_key: String| by_name.get(&name_key).cloned().unwrap_or(name_key);
-    let record_key = |device: &Device| {
-        machine_key(device)
-            .unwrap_or_else(|| resolve(key(&device.id, &device.name, device.platform.as_deref())))
-    };
-    // This device's keys: its listed record's machine, its name (a name pinned in Settings) and the
-    // name it registers with (the Computer Name now, after a rename or while its record is blank or
-    // not listed yet).
-    let own = devices.iter().find(|d| d.id == this.id);
     let platform = own.and_then(|d| d.platform.as_deref()).or(this.platform.as_deref());
     let this_keys: Vec<String> = own
-        .and_then(machine_key)
+        .map(|d| d.name.as_str())
         .into_iter()
-        .chain(
-            own.map(|d| d.name.as_str())
-                .into_iter()
-                .chain(this.name.as_deref())
-                .filter(|name| name.chars().any(char::is_alphanumeric))
-                .map(|name| resolve(key(&this.id, name, platform))),
-        )
+        .chain(this.name.as_deref())
+        .filter(|name| name.chars().any(char::is_alphanumeric))
+        .map(|name| key(&this.id, name, platform))
         .collect();
     let mut this_device = vec![this.id.clone()];
     let mut order: Vec<String> = Vec::new();
@@ -151,11 +152,20 @@ pub fn listing(this: &This, devices: &[Device]) -> Listing {
         if device.id == this.id {
             continue;
         }
-        let k = record_key(device);
-        if this_keys.contains(&k) {
+        let name_key = key(&device.id, &device.name, device.platform.as_deref());
+        let machine = machine_of(device.machine_id.as_deref());
+        let is_this = match (this_machine, machine) {
+            (Some(mine), Some(theirs)) => mine == theirs,
+            _ => this_keys.contains(&name_key),
+        };
+        if is_this {
             this_device.push(device.id.clone());
             continue;
         }
+        let k = match machine {
+            Some(machine) => machine_key(machine, device.platform.as_deref()),
+            None => name_owner.get(&name_key).cloned().unwrap_or(name_key),
+        };
         groups
             .entry(k.clone())
             .or_insert_with(|| {

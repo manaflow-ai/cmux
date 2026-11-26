@@ -1,6 +1,7 @@
 #if canImport(CmuxMobileLinkFFI)
 import CmuxMobileLinkFFI
 #endif
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileTerminal
 import CmuxMobileTransport
@@ -143,10 +144,25 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `paste` (``sendPasteAndSubmit(_:notSent:maybeSent:)``). An older daemon ignores `submit`
     /// and would paste the draft with no Return: it gets the mirror's paste.
     private var pasteSubmit = false
+    /// The daemon lists `send-typed-submit-v1`: `send {text, submit:true}`
+    /// with no `paste` writes Return a paste-burst window after the typed
+    /// text, in the same request (``sendTypedAndSubmit(_:notSent:maybeSent:)``).
+    private var typedSubmit = false
+    /// Composer sends (by their id in `input`, `paste`) that go as typed text,
+    /// not a paste, where the request is built here (no Rust outbox).
+    private var typedSends: Set<Int> = []
     /// The `agent-cli-frame` stream and the newest frame this mirror drew
     /// (`agent-cli-hybrid-v1`): a reattach names them, so the Mac sends what changed
     /// since that frame instead of the whole screen.
     private var hybridResume: (stream: String, frame: Int)?
+    /// Where this mirror stands in the Mac's byte stream (`terminal-resume-v1`): the offset
+    /// after the last byte drawn and its generation. A reattach names it, and the Mac sends
+    /// only the bytes the phone missed while it was away (the app switched to dictate, a
+    /// dropped link) instead of a reset and a whole replay with history (Leo, 2026-11-24:
+    /// "The like multi-second long reattach").
+    private var streamPosition: TerminalStreamPosition?
+    /// The bytes the last whole replay took: a resume past it costs more than a replay.
+    private var lastReplayBytes: Int?
     /// Agent CLI frames this session could not draw (``DaemonTerminalInbound/hybridFallback(reason:)``).
     /// The first makes a full resync (an attach that names no frame: a keyframe); after the
     /// second the session attaches in bytes mode (it declares no hybrid capability).
@@ -272,6 +288,18 @@ public final class DaemonTerminalSession: TerminalSession {
     nonisolated public static let inputHoldCeiling: TimeInterval = 60
     /// When the coordinator last called the Mac offline (``now``'s clock), while it is.
     private var offlineSince: TimeInterval?
+    /// The Mac link's last progress (``MacSession/progress``, set by the coordinator): every event
+    /// line heard on the attach channel tells it, and keys held while the Mac is called offline
+    /// go after ``inputHoldLimit`` of silence on it, not 10 s after the Mac went offline (Leo,
+    /// 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?"). Nil (a
+    /// bench, a test): the hold runs from the key and the Mac going offline, as before.
+    public var linkProgress: LinkProgress?
+    /// The input lane's own progress (its answers, its writes taken): a lane wait is bounded by
+    /// silence on the lane itself, since traffic on the attach channel must not keep a stuck
+    /// lane alive (falling back to the attach channel is the lane's recovery). New per lane.
+    private var laneProgress = LinkProgress()
+    /// Looks at the held keys again when progress on the link kept them past a check.
+    private var heldKeysRecheck: Task<Void, Never>?
     /// At most this many typed bytes wait for a detached terminal; past it
     /// the queue is dropped as an expired one is (a long paste into a dead
     /// link is not replayed whole into whatever runs when it comes back).
@@ -292,8 +320,15 @@ public final class DaemonTerminalSession: TerminalSession {
     /// a lost reply does not stop input (later sends keep both directions
     /// moving, and the loss is repaired by duplicate ACKs).
     static let maxInputInFlight = 64
-    /// A missing input reply frees its slot and reports uncertain delivery.
+    /// A send that made no progress for this long (no bytes taken by the link, no answer to an
+    /// earlier send) frees its slot and reports uncertain delivery. A send that keeps moving
+    /// goes on, up to ``DaemonClient/progressCeiling`` (Leo, 2026-11-24: "a 10s timeout that
+    /// kills messages while they're making progress is a shame. make it progress-based, not a
+    /// wall clock").
     var inputRequestDeadline: Duration = .seconds(10)
+    /// Sends answered later than ``inputRequestDeadline`` after they went out: each one the old
+    /// fixed 10 s cut would have dropped while it was still moving.
+    private(set) var sendsPastFixedDeadline = 0
     /// How long a `send` may go unanswered before ``armTailProbe()`` writes
     /// `ping`s behind it: many round trips, well under the 1 s RTO.
     var tailProbeDelay: Duration = .milliseconds(150)
@@ -484,6 +519,30 @@ public final class DaemonTerminalSession: TerminalSession {
         return true
     }
 
+    /// The composer's Send of a one-line draft to a full-screen program, as
+    /// one keyed `send {surface, text, submit:true}`: typed (vim takes a
+    /// bracketed paste as text even in normal mode), with Return in the same
+    /// request, so a link blip can never deliver the text without its Return
+    /// (Leo, 2026-11-21: "the text goes through. But then the send doesn't go
+    /// through"). Held through a blip and sent once, like a pasted Send. False
+    /// against a daemon that does not list `send-typed-submit-v1` (one that
+    /// would write Return right behind the text, inside an agent's paste-burst
+    /// window): the screen keeps the mirror's path there.
+    public func sendTypedAndSubmit(_ text: String, notSent: @escaping @MainActor () -> Void, maybeSent: @escaping @MainActor () -> Void) -> Bool {
+        #if canImport(CmuxMobileLinkFFI)
+        guard !text.isEmpty, (pasteSubmit && typedSubmit) || !identified else { return false }
+        let id = Int(composerOutbox.pushTyped(text: text, nowMs: Self.milliseconds(now())))
+        #else
+        guard pasteSubmit, typedSubmit, !text.isEmpty else { return false }
+        let id = nextPaste
+        nextPaste += 1
+        typedSends.insert(id)
+        #endif
+        pasteNotSent[id] = (notSent, maybeSent)
+        enqueueTyped(Data(text.utf8), paste: id)
+        return true
+    }
+
     /// Gives a composer paste up and tells the screen (once): "may have been sent" when an
     /// attempt went out (``composerOutbox``), else "not sent".
     private func pasteWasNotSent(_ id: Int?) {
@@ -493,6 +552,7 @@ public final class DaemonTerminalSession: TerminalSession {
         guard let done = composerOutbox.giveUpSend(seq: UInt64(id)) else { return }
         composerSendEnded(done)
         #else
+        typedSends.remove(id)
         pasteNotSent.removeValue(forKey: id)?.notSent()
         #endif
     }
@@ -615,18 +675,49 @@ public final class DaemonTerminalSession: TerminalSession {
     /// (``inputHoldCeiling``). Keys typed while attached (a slow but live link)
     /// never expire here.
     private func expireInput() {
-        guard let reason = Self.heldInputExpiry(typedAt: input.filter(\.detached).map(\.at), now: now(),
-                                                gaveUp: gaveUp, offlineSince: macOffline ? offlineSince : nil) else { return }
+        heldKeysRecheck?.cancel()
+        heldKeysRecheck = nil
+        let typedAt = input.filter(\.detached).map(\.at)
+        let progressAge = linkProgress?.lastProgressAge()
+        let offline = macOffline ? offlineSince : nil
+        guard let reason = Self.heldInputExpiry(typedAt: typedAt, now: now(), gaveUp: gaveUp,
+                                                offlineSince: offline, progressAge: progressAge) else {
+            // Progress since the Mac went offline kept them: look again once that progress is a
+            // hold old (each look is one timer; the ceiling ends them).
+            if !typedAt.isEmpty, offline != nil, let progressAge, progressAge < Self.inputHoldLimit {
+                let delay = max(0.25, Self.inputHoldLimit - progressAge)
+                heldKeysRecheck = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(delay))
+                    guard !Task.isCancelled else { return }
+                    self?.expireInput()
+                }
+            }
+            return
+        }
         dropDetachedInput(reason: reason)
     }
 
     /// Why keys held for a detached terminal (typed at `typedAt`) go now, or nil while
-    /// they wait for the attach: the reconnect gave up, the Mac was offline for
-    /// ``inputHoldLimit`` since the later of the key and the Mac going offline, or a key
-    /// is past ``inputHoldCeiling``.
+    /// they wait for the attach: the reconnect gave up, the Mac was offline and the link made
+    /// no progress for ``inputHoldLimit`` since the later of the key, the Mac going offline and
+    /// its last progress (`progressAge` seconds ago), or a key is past ``inputHoldCeiling``.
+    /// Rust decides (`held_keys_expiry`, `cmux_composer_send::progress`).
     nonisolated static func heldInputExpiry(typedAt: [TimeInterval], now: TimeInterval, gaveUp: Bool,
-                                            offlineSince: TimeInterval?) -> String? {
+                                            offlineSince: TimeInterval?, progressAge: TimeInterval? = nil) -> String? {
         guard !typedAt.isEmpty else { return nil }
+        #if canImport(CmuxMobileLinkFFI)
+        func ms(_ seconds: TimeInterval) -> UInt64 { UInt64(max(0, seconds * 1000).rounded()) }
+        let reason = CmuxMobileLinkFFI.heldKeysExpiry(
+            typedAgesMs: typedAt.map { ms(now - $0) }, gaveUp: gaveUp,
+            offlineAgeMs: offlineSince.map { ms(now - $0) }, progressAgeMs: progressAge.map(ms),
+            holdMs: ms(inputHoldLimit), ceilingMs: ms(inputHoldCeiling))
+        switch reason {
+        case nil: return nil
+        case .gaveUp?: return "the reattach gave up"
+        case .offline?: return "the Mac was offline and the link made no progress for \(inputHoldLimit) s"
+        case .ceiling?: return "the terminal was unreachable for longer than \(inputHoldCeiling) s"
+        }
+        #else
         if gaveUp { return "the reattach gave up" }
         if let offlineSince, typedAt.contains(where: { now - max($0, offlineSince) >= inputHoldLimit }) {
             return "the Mac was offline for \(inputHoldLimit) s"
@@ -635,6 +726,7 @@ public final class DaemonTerminalSession: TerminalSession {
             return "the terminal was unreachable for longer than \(inputHoldCeiling) s"
         }
         return nil
+        #endif
     }
 
     /// Drops every queued key, refuses input until the next attach, and tells the screen.
@@ -712,6 +804,7 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        streamPosition = nil
         eventTask?.cancel()
         eventTask = nil
         historyPrefetch?.cancel()
@@ -752,6 +845,7 @@ public final class DaemonTerminalSession: TerminalSession {
         outbox.removeAll()
         input.removeAll()
         pasteNotSent.removeAll()
+        typedSends.removeAll()
         echoDue = nil
         echoDueAckMs = nil
         tailProbe?.cancel()
@@ -886,6 +980,52 @@ public final class DaemonTerminalSession: TerminalSession {
             historyAllowance = historyRowsOmitted <= Self.historyChunkRows ? nil : allowance + Self.historyChunkRows
         }
         log.notice("surface \(self.surface, privacy: .public): older history asked (\(self.historyRowsOmitted, privacy: .public) rows on the Mac, next \(self.historyRequestDescription, privacy: .public))")
+        replacing = client
+        Task { await attach() }
+        return true
+    }
+
+    /// The daemon refused `terminal-find` (an older Mac, or a lane that does not list it): the
+    /// screen searches its mirror for the rest of this session.
+    private var findUnsupported = false
+
+    /// `terminal-find {surface, query, ...}` on the attach channel: one page of matches in the
+    /// terminal's whole history. Nil when the daemon has no such command.
+    public func findPage(_ request: TerminalFindRequest) async throws -> TerminalFindPage? {
+        // Settings → Terminal → Find in Whole History, off by default: off, the mirror searches itself.
+        guard !findUnsupported, CmuxMobilePreferences.terminalHistoryFind() else { return nil }
+        guard attached, let client else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+        var params = request.fields
+        params["surface"] = surface
+        let reply = try await client.request("terminal-find", params: params)
+        do {
+            return try TerminalFindPage.decode(reply)
+        } catch let error as TerminalFindError where error.isUnsupported {
+            log.notice("surface \(self.surface, privacy: .public): terminal-find not available: \(String(describing: error), privacy: .public)")
+            findUnsupported = true
+            return nil
+        }
+    }
+
+    public var findMirror: TerminalFindMirror? {
+        return TerminalFindMirror(omitted: historyRowsOmitted, skipped: historyRowsSkipped, windowRows: historyWindowRows)
+    }
+
+    /// Brings the history around `daemonRow` into the mirror: the newest rows down to it
+    /// when it is within reach of a tail, else a window centered on it
+    /// (`attach-replay-history-window-v1`).
+    @discardableResult
+    public func loadHistory(aroundDaemonRow daemonRow: Int, rowsFromBottom: Int) -> Bool {
+        guard attached, !attaching, replacing == nil, !awaitingReplay, tailReplay,
+              inputInFlight == 0, let client else { return false }
+        if windowReplay, rowsFromBottom + Self.historyChunkRows > Self.maxTailHistoryRows {
+            historyWindowStart = max(0, daemonRow - Self.historyWindowRows / 2)
+        } else {
+            historyWindowStart = nil
+            let wanted = rowsFromBottom + Self.historyChunkRows / 4
+            historyAllowance = wanted >= historyRowsOmitted + (historyAllowance ?? 0) ? nil : max(historyAllowance ?? 0, wanted)
+        }
+        log.notice("surface \(self.surface, privacy: .public): history for a find match asked (\(self.historyRequestDescription, privacy: .public))")
         replacing = client
         Task { await attach() }
         return true
@@ -1049,6 +1189,14 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     /// The size state and own participant of an attach reply (shared sizing).
+    /// Whether an `attach-surface` reply resumed the byte stream exactly (`resume: "exact"`,
+    /// `terminal-resume-v1`): its only event is the missed bytes, with no replay.
+    nonisolated static func resumedExactly(_ reply: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              let data = object["data"] as? [String: Any] else { return false }
+        return data["resume"] as? String == "exact"
+    }
+
     nonisolated static func attachSizing(_ reply: Data) -> (TerminalSizeState?, String?) {
         guard let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
               let data = object["data"] as? [String: Any] else { return (nil, nil) }
@@ -1105,6 +1253,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 }
             }
             let events = client.events
+            let linkProgress = linkProgress
             eventTask?.cancel()
             inbox?.close()
             // Event lines are decoded off the main actor and reach it in
@@ -1125,10 +1274,16 @@ public final class DaemonTerminalSession: TerminalSession {
             self.inbox = inbox
             let surface = surface
             let resumeFrom = hybridWanted ? hybridResume : nil
-            let resumeAlternate = resumeFrom != nil && isAlternateScreen
+            // A reattach in bytes mode from a known position (`terminal-resume-v1`). Not a
+            // history fetch: it replaces the mirror with more rows on purpose.
+            let bytesFrom = !hybridWanted && !replacement ? streamPosition : nil
+            let resumeAlternate = (resumeFrom != nil || bytesFrom != nil) && isAlternateScreen
+            let bytesResume = bytesFrom != nil
             eventTask = Task.detached { [weak self] in
-                var parser = DaemonTerminalEventParser(surface: surface, hybridResume: resumeFrom, alternate: resumeAlternate)
+                var parser = DaemonTerminalEventParser(surface: surface, hybridResume: resumeFrom, alternate: resumeAlternate, bytesResume: bytesResume)
                 for await line in events {
+                    // Bytes heard from the Mac: the link is moving.
+                    linkProgress?.progressed()
                     await inbox.push(parser.parse(line))
                 }
                 // After the batches already queued (the main queue is FIFO).
@@ -1178,6 +1333,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 && (identify.map { Self.lists(Self.replayHistoryWindowCapability, $0) } ?? false)
             if !windowReplay { historyWindowStart = nil }
             pasteSubmit = identify.map { Self.lists(Self.pasteSubmitCapability, $0) } ?? false
+            typedSubmit = identify.map { Self.lists(Self.typedSubmitCapability, $0) } ?? false
+            // A daemon that does not list it would refuse the resume fields.
+            let resumable = identify.map { Self.lists(Self.terminalResumeCapability, $0) } ?? false
+            let resumeBounded = identify.map { Self.lists(Self.terminalResumeBoundedCapability, $0) } ?? false
+            let bytesResumeFrom = resumable ? bytesFrom : nil
             // Attached: this daemon's answer (or its silence: an older one) settles the composer's
             // waiting Sends. One that takes no keys gives them up; they never went out.
             identified = true
@@ -1214,6 +1374,21 @@ public final class DaemonTerminalSession: TerminalSession {
                         }
                         return try await client.request("attach-surface", params: ["surface": surface, "replay_history_rows": rows,
                                                                                    "replay_history_start": start])
+                    }
+                    // In bytes mode from a known position: the missed bytes, or (a gap) the
+                    // same replay as below.
+                    if let position = bytesResumeFrom {
+                        var params: [String: Any] = ["surface": surface, "resume_offset": position.offset, "resume_generation": position.generation]
+                        if resumeBounded { params["resume_max_bytes"] = max(Self.minResumeBytes, lastReplayBytes ?? 0) }
+                        if let size {
+                            params["cols"] = size.columns
+                            params["rows"] = size.rows
+                        }
+                        if let historyRows {
+                            params["replay_history_rows"] = historyRows
+                            if windowReplay, let start = historyWindowStart { params["replay_history_start"] = start }
+                        }
+                        return try await client.request("attach-surface", params: params)
                     }
                     switch (size, historyRows) {
                     case let (size?, rows?):
@@ -1290,7 +1465,6 @@ public final class DaemonTerminalSession: TerminalSession {
             // The replay rebuilds the screen and scrollback. The reset also
             // tells the screen where the Mac's screen starts in its taller
             // mirror (TerminalRowShift).
-            log.notice("surface \(self.surface, privacy: .public): mirror reset cause=\(self.everAttached ? "reattach" : "attach", privacy: .public) size=\(self.attachedWithSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public)")
             // The alternate screen is not touched here: the replay's
             // `vt-state` says its own final state before its rows (held or
             // still coming). Set to the primary screen first, a reattach to a
@@ -1305,8 +1479,14 @@ public final class DaemonTerminalSession: TerminalSession {
                 if case .hybridFrame(_, _, resumed: true) = event { return true }
                 return false
             } ?? false
+            // An exact byte resume (`terminal-resume-v1`): the Mac sent only what this mirror
+            // missed, as one `output`, so the screen and its history stay as they are.
+            let resumesBytes = bytesResumeFrom != nil && Self.resumedExactly(reply)
+            log.notice("surface \(self.surface, privacy: .public): attach resume=\(resumesBytes ? "exact" : bytesResumeFrom != nil ? "gap" : resumesHybrid ? "hybrid" : "none", privacy: .public)")
+            if !resumesBytes { streamPosition = nil }
             macKeepsGrid = false
-            if !resumesHybrid {
+            if !resumesHybrid, !resumesBytes {
+                log.notice("surface \(self.surface, privacy: .public): mirror reset cause=\(self.everAttached ? "reattach" : "attach", privacy: .public) size=\(self.attachedWithSize.map { "\($0.columns)x\($0.rows)" } ?? "-", privacy: .public)")
                 hybridResume = nil
                 reclaimHold.restart(alternate: isAlternateScreen)
                 show(.output(TerminalReclaimHold.reset))
@@ -1379,10 +1559,16 @@ public final class DaemonTerminalSession: TerminalSession {
                 draining = false
                 if handler != nil, !ended { handler?(.connection(connectionState)) }
             }
-            if autoReattaching, (error as? LinkError)?.code == "no-link" {
-                // A self-reattach found no link: the link is down, and its
-                // return reattaches every session. Wait for it as before,
-                // "Reattaching…", never into the retries' "Can't reach".
+            if Self.waitsForTheLink(error) {
+                // An attach found no link: the link is down, and its return
+                // reattaches every session (`LiveCoordinator` calls `reconnect()`).
+                // Wait for it, "Reattaching…" with keys held, never into the
+                // retries' "Can't reach" with Send refused. Any attach, not only a
+                // self-reattach: back from minutes away, a tab's attach ran while
+                // the link still redialed, spent its 16 s of retries on "no link"
+                // and gave up (Send refused, keys dropped) before the link was back.
+                // A link that stays down is the Mac's offline bound
+                // (`setMacOffline`, `inputHoldLimit`), not this attach's to call.
                 autoReattaching = false
                 attachRetries = 0
                 if let client = self.client { self.client = nil; Task { await client.close() } }
@@ -1503,6 +1689,12 @@ public final class DaemonTerminalSession: TerminalSession {
             }
         case let .hybridFrame(stream, frame, _):
             hybridResume = (stream, frame)
+            // Cells, not the byte stream: no byte offset describes this screen.
+            streamPosition = nil
+        case .streamPosition(let position):
+            streamPosition = position
+        case .replayBytes(let bytes):
+            lastReplayBytes = bytes
         case .hybridFallback(let reason):
             // The screen may be behind the Mac's: never resume from it.
             hybridResume = nil
@@ -1814,9 +2006,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 return
             }
             self.inputClient = lane
+            let progress = LinkProgress()
+            self.laneProgress = progress
             let events = lane.events
             Task { [weak self] in
-                for await _ in events {}
+                for await _ in events { progress.progressed() }
                 guard let self, self.inputClient === lane else { return }
                 self.inputClient = nil
             }
@@ -1907,6 +2101,7 @@ public final class DaemonTerminalSession: TerminalSession {
         let typedBytes = taken.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         let key = composerRequest.flatMap(Self.requestKey) ?? resendKey ?? (sendKeys ? UUID().uuidString : nil)
         let resent = resendKey != nil
+        let typedSend = paste.map { typedSends.contains($0) } ?? false
         // Typed keys (no paste, no resend, no terminal replies): this batch's echo is timed.
         let timesEcho = typedBytes > 0 && paste == nil && !resent
         if timesEcho, echoDue == nil {
@@ -1915,10 +2110,12 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         let surface = surface
         let onLane = target !== client
+        let laneProgress = laneProgress
         let deadline = inputRequestDeadline
         Task { [weak self] in
             guard let self else { return }
             var written = false
+            let started = ContinuousClock.now
             do {
                 let submit: @Sendable () async throws -> String = {
                     var params: [String: Any]
@@ -1927,22 +2124,24 @@ public final class DaemonTerminalSession: TerminalSession {
                         params = request
                     } else {
                         params = paste != nil
-                            ? ["text": String(decoding: batch, as: UTF8.self), "paste": true, "submit": true]
+                            ? ["text": String(decoding: batch, as: UTF8.self), "paste": !typedSend, "submit": true]
                             : ["bytes": batch.base64EncodedString()]
                         if let key { params["key"] = key }
                     }
                     params["surface"] = surface
                     return try await target.submit("send", params: params, deadline: deadline)
                 }
-                // A lane request gets written and answered within seconds or
-                // the lane is given up.
+                // A lane request gets written and answered with no more than
+                // `inputLaneStall` of silence on the lane, or the lane is given
+                // up: a lane that keeps taking writes and answering goes on.
                 let id: String
                 if onLane {
-                    guard let submitted = try await Self.within(.seconds(10), submit) else {
+                    guard let submitted = try await Self.within(Self.inputLaneStall, extend: laneProgress.stallExtension(after: Self.inputLaneStall), submit) else {
                         abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: true)
                         return
                     }
                     id = submitted
+                    laneProgress.progressed()  // the lane took a write
                 } else {
                     id = try await submit()
                 }
@@ -1954,13 +2153,20 @@ public final class DaemonTerminalSession: TerminalSession {
                 drainInput()
                 let reply: Data
                 if onLane {
-                    guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
+                    guard let answer = try await Self.within(Self.inputLaneStall, extend: laneProgress.stallExtension(after: Self.inputLaneStall),
+                                                             { try await target.reply(to: id) }) else {
                         abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: false)
                         return
                     }
                     reply = answer
+                    laneProgress.progressed()  // the lane answered
                 } else {
                     reply = try await target.reply(to: id)
+                }
+                let took = ContinuousClock.now - started
+                if took >= deadline {
+                    sendsPastFixedDeadline += 1
+                    log.notice("send \(number, privacy: .public) answered after \(took, privacy: .public) while it kept moving: a fixed \(deadline, privacy: .public) cut would have dropped it (\(self.sendsPastFixedDeadline, privacy: .public) so far)")
                 }
                 if timesEcho, Self.error(in: reply) == nil {
                     keyAnswered(number: number, typedAt: typedAt)
@@ -1982,9 +2188,15 @@ public final class DaemonTerminalSession: TerminalSession {
                     composerAnswered(paste, .applied)
                     #else
                     pasteNotSent[paste] = nil
+                    typedSends.remove(paste)
                     #endif
                 }
             } catch {
+                if onLane, Self.madeNoProgress(error) {
+                    // Stalled for `deadline`: the lane is given up, as when it was a wall clock.
+                    abandonInputLane(target, number: number, batch: batch, typed: typedBytes, key: key, resent: resent, paste: paste, wasWriting: !written)
+                    return
+                }
                 if !written { inputWriting = false }
                 lastError = Self.diagnostic(error)
                 inputRecovering = true
@@ -2019,6 +2231,12 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Treat it like a lost reply: the Mac may have applied the keystrokes.
     static func inputDeliveryUncertain(_ error: any Error) -> Bool {
         error is CancellationError || (error as? LinkError)?.code == "write_timeout"
+    }
+
+    /// A send's client gave it up after ``inputRequestDeadline`` without progress.
+    static func madeNoProgress(_ error: any Error) -> Bool {
+        let code = (error as? LinkError)?.code
+        return code == DaemonClient.replyTimeout || code == "write_timeout"
     }
 
     /// The input lane gave no answer in time (`wasWriting`: the batch's
@@ -2154,10 +2372,15 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
-    /// `operation`'s result, or nil when it takes longer than `limit`. Does
-    /// not wait for `operation` to notice cancellation (a request on a dead
-    /// channel never does).
-    private static func within<T: Sendable>(_ limit: Duration, _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
+    /// Silence on the input lane a lane write or answer may take before the lane is given up.
+    static let inputLaneStall: Duration = .seconds(10)
+
+    /// `operation`'s result, or nil when it takes longer than `limit` and then `extend` (asked
+    /// each time it passes: a progress verdict, `LinkProgress.stallExtension(after:)`) says
+    /// stop. Does not wait for `operation` to notice cancellation (a request on a dead channel
+    /// never does).
+    private static func within<T: Sendable>(_ limit: Duration, extend: (@Sendable () -> Duration?)? = nil,
+                                            _ operation: @escaping @Sendable () async throws -> T) async throws -> T? {
         let once = RaceOnce()
         let result: Result<T?, any Error> = await withCheckedContinuation { continuation in
             let timer = TaskBox()
@@ -2171,6 +2394,9 @@ public final class DaemonTerminalSession: TerminalSession {
             }
             timer.set(Task {
                 try? await Task.sleep(for: limit)
+                while !Task.isCancelled, let left = extend?(), left > .zero {
+                    try? await Task.sleep(for: left)
+                }
                 if !Task.isCancelled, once.claim() {
                     work.cancel()
                     continuation.resume(returning: .success(nil))
@@ -2203,6 +2429,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Delays before retrying a failed reattach (seconds); then the error shows.
     static let defaultReattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
     var reattachBackoff = DaemonTerminalSession.defaultReattachBackoff
+    /// An attach that failed for want of a link (`no-link`): it waits for the link's return,
+    /// which reattaches it, and spends no retry (so never gives up on it).
+    nonisolated static func waitsForTheLink(_ error: any Error) -> Bool {
+        (error as? LinkError)?.code == "no-link"
+    }
 
     // MARK: Self-recovery
 
@@ -2355,8 +2586,19 @@ public final class DaemonTerminalSession: TerminalSession {
     static let sendKeyCapability = "send-key-v1"
     /// `send` takes `submit` (with `paste`): Return in the same request as the paste.
     static let pasteSubmitCapability = "send-expect-agent-v1"
+    /// `send` with `submit` and typed text waits past a paste-burst window before Return.
+    static let typedSubmitCapability = "send-typed-submit-v1"
+    /// `offset` and `generation` on the byte stream's events, and `resume_offset` /
+    /// `resume_generation` on `attach-surface`: a reattach gets only the missed bytes
+    /// (cmux-tui `terminal-resume-v1`).
+    static let terminalResumeCapability = "terminal-resume-v1"
+    /// `resume_max_bytes` on `attach-surface`: past it the daemon replays instead.
+    static let terminalResumeBoundedCapability = "terminal-resume-bounded-v1"
+    /// The smallest bound a resume asks for: a replay is rarely smaller.
+    static let minResumeBytes = 64 << 10
     /// What the attach channel lists in `set-client-info`.
-    static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability]
+    static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability,
+                                     terminalResumeCapability, terminalResumeBoundedCapability]
 
     /// The Mac's daemon sends an agent CLI's terminal (Claude Code, Codex, opencode) as the
     /// cells that changed instead of its PTY bytes (`agent-cli-frame` events).
@@ -2378,13 +2620,19 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `attach-output-coalesce-v1`, #43373): fewer events, the first bytes after idle at once.
     nonisolated static let outputCoalesceCapability = "attach-output-coalesce-v1"
 
-    /// What `set-client-info` declares: the lean stream (agent CLIs, shells, coalesced PTY
-    /// bytes for everything else) only with the setting on.
+    /// What `set-client-info` declares: the lean stream (agent CLIs, shells, full-screen
+    /// programs, coalesced PTY bytes for everything else) only with the setting on.
     static func capabilities(agentCLIHybrid: Bool) -> [String] {
-        agentCLIHybrid
-            ? clientCapabilities + [agentCLIHybridCapability, agentCLIHybridLeanCapability, shellLinesCapability, outputCoalesceCapability]
-            : clientCapabilities
+        agentCLIHybrid ? clientCapabilities + leanStreamCapabilities : clientCapabilities
     }
+
+    /// The lean stream's names: cmux-mobile-link `names::TERMINAL_LEAN_STREAM` on the phone
+    /// (with `terminal-full-screen-frames-v1`), today's four where the link library is absent.
+    #if canImport(CmuxMobileLinkFFI)
+    nonisolated static let leanStreamCapabilities = terminalLeanStreamCapabilities()
+    #else
+    nonisolated static let leanStreamCapabilities = [agentCLIHybridCapability, agentCLIHybridLeanCapability, shellLinesCapability, outputCoalesceCapability]
+    #endif
 
     /// While the size is claimed and the daemon leases it: the same size
     /// again every `sizeLeaseRefresh` (a same-size `resize-surface` renews

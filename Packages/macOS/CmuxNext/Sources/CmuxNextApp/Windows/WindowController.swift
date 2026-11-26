@@ -114,7 +114,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let registry = services.registry
         root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                                  shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
-        root.toolbarBand.appButtons = services.apps.client.toolbarButtons(in: root.toolbarBand, reveal: root.titlebarReveal)
+        root.toolbarBand.appButtons = services.apps.client.toolbarButtons(in: root.toolbarBand, reveal: root.titlebarReveal, registry: services.registry)
         let window = ShellWindow(
             contentRect: frame ?? NSRect(origin: .zero, size: Self.defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -397,8 +397,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     func windowWillBeginSheet(_ notification: Notification) { focus.send(.overlayOpened(.sheet)) }
     func windowDidEndSheet(_ notification: Notification) { focus.send(.overlayClosed(.sheet)) }
 
-    func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
-    func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state); BackdropImageStore.shared.light.windowDidMove() }
+    func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state); BackdropImageStore.shared.light.windowDidMove() }
     /// A resize with no live resize (Zoom, macOS tiling, an Accessibility client such as Rectangle,
     /// a display change) keeps the origin and never ends a live resize: it saves here (#25568).
     func windowDidResize(_ notification: Notification) {
@@ -484,6 +484,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     let presses = WindowPressRouter() // what a press does before AppKit gets it (ShellWindow+Events.swift)
     /// The incognito badge in the top row while the sidebar is hidden.
     var titlebarAccessoryFrame: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryFrame }
+    var titlebarAccessoryReserve: CGRect? { (contentView as? WindowRootView)?.titlebarAccessoryReserve }
     var sidebarHidden: Bool { (contentView as? WindowRootView)?.sidebarHidden ?? false }
     /// Views that keep clear of the top row (Home's header in a pane with no tab bar): they
     /// re-check when the top row, the main pane card or a pane moves (`WindowController+Sidebar`).

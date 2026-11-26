@@ -17,21 +17,22 @@ public struct DeviceList: Sendable, Equatable {
     public var thisDevice: [String]
     public var others: [Machine]
 
-    /// Rust's listing of `devices` for this device (`thisID`, registering as `thisName`). Without an
+    /// Rust's listing of `devices` for this device (`thisID`, registering as `thisName`, on the machine
+    /// `thisMachineID` when the hub listed one: records of one `machineId` are one device). Without an
     /// answer from Rust: every record but this one, each its own device (the list before the rule).
-    public static func make(thisID: String, thisName: String, platform: DevicePlatform,
+    public static func make(thisID: String, thisName: String, platform: DevicePlatform, thisMachineID: String? = nil,
                             devices: [HubDevice]) -> DeviceList {
-        struct This: Encodable { var id: String, name: String, platform: String }
+        struct This: Encodable { var id: String, name: String, platform: String, machineId: String? }
         struct Record: Encodable {
             var id: String, name: String, platform: String?, online: Bool, macScreenShared: Bool
-            var lastSeenAt: Double?, createdAt: Double?, machineGroup: String?
+            var lastSeenAt: Double?, createdAt: Double?, machineId: String?
         }
         struct Request: Encodable { var this: This, devices: [Record] }
         struct Reply: Decodable { var thisDevice: [String], others: [Machine] }
-        let request = Request(this: This(id: thisID, name: thisName, platform: platform.rawValue), devices: devices.map {
+        let request = Request(this: This(id: thisID, name: thisName, platform: platform.rawValue, machineId: thisMachineID), devices: devices.map {
             Record(id: $0.id, name: $0.name, platform: $0.platform?.rawValue, online: $0.online,
                    macScreenShared: $0.macScreenShared, lastSeenAt: $0.lastSeenAt?.timeIntervalSince1970,
-                   createdAt: $0.createdAt?.timeIntervalSince1970, machineGroup: $0.machineGroup)
+                   createdAt: $0.createdAt?.timeIntervalSince1970, machineId: $0.machineId)
         })
         if let data = try? JSONEncoder().encode(request), let answer = AppRules.call("cloud_identity_device_list", data),
            let reply = try? JSONDecoder().decode(Reply.self, from: answer) {

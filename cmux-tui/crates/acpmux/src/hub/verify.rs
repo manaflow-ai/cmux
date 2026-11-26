@@ -50,7 +50,7 @@ pub(crate) enum Check {
     Rustfmt { file: PathBuf },
     Tsc { dir: PathBuf, plain_js: Vec<PathBuf> },
     Biome { dir: PathBuf, file: PathBuf },
-    NodeCheck { file: PathBuf },
+    Node { file: PathBuf },
     Python { file: PathBuf },
     Bash { file: PathBuf },
     Json { file: PathBuf },
@@ -65,7 +65,7 @@ impl Check {
             Self::Tsc { dir, .. } => format!("tsc:{}", dir.display()),
             Self::Biome { file, .. } => format!("biome:{}", file.display()),
             Self::Rustfmt { file } => format!("rustfmt:{}", file.display()),
-            Self::NodeCheck { file } => format!("node:{}", file.display()),
+            Self::Node { file } => format!("node:{}", file.display()),
             Self::Python { file } => format!("py:{}", file.display()),
             Self::Bash { file } => format!("bash:{}", file.display()),
             Self::Json { file } => format!("json:{}", file.display()),
@@ -128,7 +128,7 @@ pub(crate) fn plan(files: &[PathBuf]) -> Vec<Check> {
                         Check::Tsc { dir, plain_js: if plain { vec![f.clone()] } else { vec![] } },
                         &mut out,
                     ),
-                    None if plain => add(Check::NodeCheck { file: f.clone() }, &mut out),
+                    None if plain => add(Check::Node { file: f.clone() }, &mut out),
                     None => {}
                 }
                 if let Some(dir) = up_find(file, &["biome.json", "biome.jsonc"])
@@ -181,7 +181,7 @@ pub(crate) fn error_lines(check: &Check, output: &str) -> Vec<String> {
                     || l.contains(" parse")
                     || l.contains(" format")
             }
-            Check::NodeCheck { .. } | Check::Python { .. } => l.contains("Error"),
+            Check::Node { .. } | Check::Python { .. } => l.contains("Error"),
             Check::Bash { .. } | Check::Json { .. } | Check::Toml { .. } => true,
         }
     };
@@ -277,7 +277,13 @@ fn run_cmd_blocking(dir: &Path, prog: &str, args: &[String]) -> Option<Ran> {
         Ok(None) => {
             // SAFETY: signals the process group this call made (`process_group(0)`); its pid is
             // not reaped yet, so the id is still this check's.
-            unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL) };
+            #[cfg(unix)]
+            unsafe {
+                libc::kill(-(child.id() as i32), libc::SIGKILL)
+            };
+            // No process groups off unix: end the child itself.
+            #[cfg(not(unix))]
+            let _ = child.kill();
             let _ = child.wait();
             Some(Ran { text: String::new(), slow: true })
         }
@@ -347,7 +353,7 @@ async fn run_check(
                 let mut lines = vec![];
                 for f in plain_js {
                     let o = run_cmd(dir, "node", &["--check", &s(f)]).await?;
-                    lines.extend(error_lines(&Check::NodeCheck { file: f.clone() }, &o.text));
+                    lines.extend(error_lines(&Check::Node { file: f.clone() }, &o.text));
                 }
                 return Some(Outcome { lines, slow: true });
             }
@@ -363,7 +369,7 @@ async fn run_check(
             .await?;
             (r, check.clone())
         }
-        Check::NodeCheck { file } => {
+        Check::Node { file } => {
             (run_cmd(parent(file), "node", &["--check", &s(file)]).await?, check.clone())
         }
         Check::Python { file } => (
@@ -513,7 +519,7 @@ impl Hub {
             && STATES.lock().unwrap_or_else(|e| e.into_inner()).get(&session.id).is_some_and(|e| {
                 e.state.lock().unwrap_or_else(|e| e.into_inner()).calls.contains_key(id)
             });
-        if !named && !(done && known) {
+        if !(named || done && known) {
             return;
         }
         if !enabled() {

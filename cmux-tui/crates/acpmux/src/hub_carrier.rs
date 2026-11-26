@@ -170,7 +170,20 @@ pub enum CircuitService {
     /// whose target is the dialer's Noise-proven key. Hello `{"service":"acpmux-transfer"}`.
     /// Never the WebSocket listener, so it has no connection origin.
     TransferSource,
+    /// The lane-gh broker this machine runs for the person's other machines, each reaching its
+    /// own broker socket (RFD 0127 cut 2, `hub_carrier_broker.rs`), in place of a per-machine
+    /// `ssh -R` forward. Hello `{"service":"lane-gh-broker"}`. Off unless the owner names the
+    /// broker's socket (`laneGhBroker`); rides only a kept circuit's stream.
+    LaneGhBroker,
+    /// The candidate exchange of a punch (`hub_carrier_punch.rs`): one JSON line each way, the
+    /// addresses each machine opens toward the other from. Hello `{"service":"direct-offer"}`;
+    /// a daemon from before it refuses it `service.unknown` and the dialer keeps to the relay.
+    /// Rides only a kept circuit's stream.
+    DirectOffer,
 }
+
+/// The service name a hello gives [`CircuitService::LaneGhBroker`].
+pub const LANE_GH_BROKER_SERVICE: &str = "lane-gh-broker";
 
 /// The service name a hello gives [`CircuitService::TransferSource`].
 pub const TRANSFER_SERVICE: &str = "acpmux-transfer";
@@ -206,9 +219,12 @@ impl CircuitLane {
             CircuitService::CmuxTui { .. }
             | CircuitService::CmuxTuiResume { .. }
             | CircuitService::TransferSource => Self::Bulk,
+            // A broker call is one request and its answer, which a click waits for.
             CircuitService::Acpmux
             | CircuitService::CmuxTuiSession
-            | CircuitService::MachineCall => Self::Cheap,
+            | CircuitService::MachineCall
+            | CircuitService::LaneGhBroker
+            | CircuitService::DirectOffer => Self::Cheap,
         }
     }
 
@@ -307,6 +323,8 @@ fn hello_record(service: CircuitService) -> Bytes {
         }
         CircuitService::MachineCall => serde_json::json!({"service": MACHINE_CALL_SERVICE}),
         CircuitService::TransferSource => serde_json::json!({"service": TRANSFER_SERVICE}),
+        CircuitService::LaneGhBroker => serde_json::json!({"service": LANE_GH_BROKER_SERVICE}),
+        CircuitService::DirectOffer => serde_json::json!({"service": punch::DIRECT_OFFER_SERVICE}),
     };
     let mut record = SERVICE_HELLO.to_vec();
     record.extend_from_slice(body.to_string().as_bytes());
@@ -347,6 +365,12 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         }
         (Some(ACPMUX_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::Acpmux)
+        }
+        (Some(LANE_GH_BROKER_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::LaneGhBroker)
+        }
+        (Some(punch::DIRECT_OFFER_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::DirectOffer)
         }
         _ => Err(unknown()),
     })
@@ -411,6 +435,9 @@ const REGISTER_WAIT_MAX: Duration = Duration::from_secs(60);
 /// the next line comes. At the 60 s backoff cap this is about one line per 8 to 10 asks, six an
 /// hour, which keeps a day of refusals readable and the current state never older than 10 min.
 const REFUSAL_SAID_EVERY: Duration = Duration::from_secs(600);
+/// How often the carrier looks for kept circuits that ended under it ([`HubCarrier::keep_reopening`]):
+/// a scan of its own table, no I/O unless one ended.
+const REOPEN_SCAN: Duration = Duration::from_secs(1);
 
 /// The carrier's timings.
 #[derive(Debug, Clone, Copy)]
@@ -470,6 +497,8 @@ pub struct Stats {
     pub received: AtomicU64,
     /// Relay records (one Noise record each) both ways.
     pub records: AtomicU64,
+    /// Kept circuits opened again after they ended under the carrier ([`HubCarrier::keep_reopening`]).
+    pub kept_reopens: AtomicU64,
     /// Dials that rode a kept circuit as a new stream (`hub_carrier_mux.rs`), not a new circuit.
     pub kept_opens: AtomicU64,
     /// Kept circuits opened.
@@ -494,12 +523,27 @@ pub struct DialStages {
     pub answer: Duration,
 }
 
+/// Count a call that got its stream in `gauges.carrier.calls`: a port pipe (ssh, scp, a forwarded
+/// port: the bulk lane) or a cheap call, on a kept circuit or a new one (RFD 0056 part 5).
+fn record_call(lane: CircuitLane, kept: bool) {
+    crate::gauges::carrier::global().call(lane == CircuitLane::Bulk, kept);
+}
+
 impl DialStages {
     pub fn total(&self) -> Duration {
         self.ticket + self.relay + self.peer_join + self.noise + self.answer
     }
 
+    /// Log the stages and record them in `gauges.carrier` (`acpmux status`'s `carrier:` line).
+    /// A plain acpmux link asks no service, so its zero answer is no answer sample.
     fn log(&self, daemon: &str, kind: &str) {
+        crate::gauges::carrier::global().circuit(&crate::gauges::carrier::Stages {
+            ticket: self.ticket,
+            relay: self.relay,
+            peer_join: self.peer_join,
+            noise: self.noise,
+            answer: (!self.answer.is_zero()).then_some(self.answer),
+        });
         let ms = |d: Duration| d.as_secs_f64() * 1e3;
         tracing::debug!(
             machine = %daemon.get(..8).unwrap_or(daemon),
@@ -526,6 +570,9 @@ pub struct DialReport {
     pub stream: Duration,
     /// The path it took: the relay, or a direct connection (`hub_carrier_direct.rs`).
     pub via: direct::Via,
+    /// How many of the stream's first bytes rode behind its OPEN, before the answer
+    /// ([`HubCarrier::dial_service_early`]); 0 when none did.
+    pub early: usize,
 }
 
 impl DialReport {
@@ -534,6 +581,9 @@ impl DialReport {
         let mut json = self.steps_json();
         if let Some(object) = json.as_object_mut() {
             object.insert("path".into(), self.via.name().into());
+            if self.early > 0 {
+                object.insert("early".into(), self.early.into());
+            }
         }
         json
     }
@@ -561,6 +611,9 @@ enum KeptOpen {
     Refused(ServiceRefusal),
     /// The circuit could not open at all (no ticket, not serving): a plain dial fares no better.
     Failed(String),
+    /// The circuit failed after the stream's early bytes left: the far service may have acted
+    /// on them, so no other path dials it again ([`mux::OpenFailed::early_out`]).
+    Lost(String),
     /// No kept circuit for this one: take a plain circuit.
     Plain(String),
 }
@@ -593,6 +646,8 @@ pub struct HubCarrier {
     machine_call: RwLock<Option<Arc<dyn MachineCallGate>>>,
     /// Whether a circuit may read the pages of a move this machine began; none refuses it.
     transfer: RwLock<Option<Arc<dyn TransferGate>>>,
+    /// Whether a stream may reach this machine's lane-gh broker; none refuses it.
+    lane_gh_broker: RwLock<Option<Arc<dyn broker::LaneGhBrokerGate>>>,
     /// Why this machine's own registration cannot heal by retrying alone, while it cannot
     /// (`credential-unavailable`: no Register ticket comes). [`Self::serve_reason`].
     serve_reason: RwLock<Option<OfflineReason>>,
@@ -643,6 +698,7 @@ impl HubCarrier {
             session: RwLock::new(None),
             machine_call: RwLock::new(None),
             transfer: RwLock::new(None),
+            lane_gh_broker: RwLock::new(None),
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
@@ -680,6 +736,7 @@ impl HubCarrier {
             session: RwLock::new(None),
             machine_call: RwLock::new(None),
             transfer: RwLock::new(None),
+            lane_gh_broker: RwLock::new(None),
             serve_reason: RwLock::new(None),
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
@@ -792,6 +849,15 @@ impl HubCarrier {
         self.transfer.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Let streams reach this machine's lane-gh broker as `gate` decides (RFD 0127 cut 2).
+    pub fn set_lane_gh_broker_gate(&self, gate: Arc<dyn broker::LaneGhBrokerGate>) {
+        *self.lane_gh_broker.write().unwrap_or_else(|e| e.into_inner()) = Some(gate);
+    }
+
+    fn lane_gh_broker_gate(&self) -> Option<Arc<dyn broker::LaneGhBrokerGate>> {
+        self.lane_gh_broker.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// One live path to `daemon`: a relay circuit with the Noise handshake done, its key pinned
     /// to the platform's `peer_key`, as a byte stream. The caller speaks WebSocket over it.
     pub async fn dial(&self, daemon: &str) -> Result<HubStream, String> {
@@ -818,12 +884,41 @@ impl HubCarrier {
         daemon: &str,
         service: CircuitService,
     ) -> Result<(HubStream, DialReport), String> {
+        self.dial_service_early(daemon, service, &[]).await
+    }
+
+    /// [`Self::dial_service_reported`] with the stream's first bytes, `early`, already in hand
+    /// (a client that speaks first, as `lane-gh` does to its broker). On a kept circuit they go
+    /// right behind the stream's OPEN, so the far service's reply to them comes one round trip
+    /// after the dial began instead of two (the OPEN's ANSWER, then the request and its reply).
+    /// On any other path they are the stream's first bytes after the answer. A circuit that fails
+    /// once they left is not dialed again: the far service may have acted on them. At most
+    /// [`Self::EARLY_BYTES`] of them ride with the OPEN; the rest follow as stream bytes.
+    pub async fn dial_service_early(
+        &self,
+        daemon: &str,
+        service: CircuitService,
+        early: &[u8],
+    ) -> Result<(HubStream, DialReport), String> {
         let mut report = DialReport::default();
-        let stream = self
-            .dial_service_report(daemon, service, CircuitLane::of(service), &mut report)
+        let (pipelined, rest) = early.split_at(early.len().min(Self::EARLY_BYTES));
+        let mut stream = self
+            .dial_service_report_early(
+                daemon,
+                service,
+                CircuitLane::of(service),
+                pipelined,
+                &mut report,
+            )
             .await?;
+        if !rest.is_empty() {
+            stream.write_all(rest).await.map_err(|e| e.to_string())?;
+        }
         Ok((stream, report))
     }
+
+    /// The most bytes [`Self::dial_service_early`] sends behind a stream's OPEN.
+    pub const EARLY_BYTES: usize = mux::EARLY_BYTES;
 
     /// [`Self::dial_service`] on the kept circuit of `lane`, whatever the service's own lane.
     pub async fn dial_service_on(
@@ -842,27 +937,50 @@ impl HubCarrier {
         lane: CircuitLane,
         report: &mut DialReport,
     ) -> Result<HubStream, String> {
+        self.dial_service_report_early(daemon, service, lane, &[], report).await
+    }
+
+    /// [`Self::dial_service_report`] whose stream starts with `early` (at most
+    /// [`mux::EARLY_BYTES`]): behind the OPEN on a kept circuit, else written once answered.
+    async fn dial_service_report_early(
+        &self,
+        daemon: &str,
+        service: CircuitService,
+        lane: CircuitLane,
+        early: &[u8],
+        report: &mut DialReport,
+    ) -> Result<HubStream, String> {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
-        let Some(hello) = service_hello(service) else {
-            return self.dial_acpmux(daemon, lane).await;
+        let after_answer = |mut stream: HubStream| async move {
+            if !early.is_empty() {
+                stream.write_all(early).await.map_err(|e| e.to_string())?;
+            }
+            Ok::<_, String>(stream)
         };
-        match self.direct_open(daemon, lane, hello.clone(), report).await {
+        let Some(hello) = service_hello(service) else {
+            return after_answer(self.dial_acpmux(daemon, lane).await?).await;
+        };
+        match self.direct_open(daemon, lane, hello.clone(), early, report).await {
             Some(KeptOpen::Stream(stream)) => return Ok(stream),
             Some(KeptOpen::Refused(refusal)) => return Err(refusal.to_string()),
+            Some(KeptOpen::Lost(e)) => return Err(e),
             _ => {}
         }
-        match self.kept_open(daemon, lane, hello.clone(), report, Path::Relay).await {
+        match self.kept_open(daemon, lane, hello.clone(), early, report, Path::Relay).await {
             KeptOpen::Stream(stream) => return Ok(stream),
             KeptOpen::Refused(refusal) => return Err(refusal.to_string()),
-            KeptOpen::Failed(e) => return Err(e),
+            KeptOpen::Failed(e) | KeptOpen::Lost(e) => return Err(e),
             KeptOpen::Plain(why) => {
                 tracing::debug!("hub carrier: a plain circuit for this dial: {why}");
             }
         }
         match self.plain_service(daemon, hello, report).await? {
-            Ok(secure) => Ok(self.carry_plain(secure)),
+            Ok(secure) => {
+                record_call(lane, false);
+                after_answer(self.carry_plain(secure)).await
+            }
             Err(refusal) => Err(refusal.to_string()),
         }
     }
@@ -876,15 +994,15 @@ impl HubCarrier {
         if self.acpmux_streams.load(Ordering::SeqCst) {
             let slot = self.kept.slot(daemon, lane);
             let refused_until = slot.lock().await.no_acpmux_until;
-            if !refused_until.is_some_and(|until| Instant::now() < until) {
+            if refused_until.is_none_or(|until| Instant::now() >= until) {
                 let hello = hello_record(CircuitService::Acpmux);
                 let mut report = DialReport::default();
                 if let Some(KeptOpen::Stream(stream)) =
-                    self.direct_open(daemon, lane, hello.clone(), &mut report).await
+                    self.direct_open(daemon, lane, hello.clone(), &[], &mut report).await
                 {
                     return Ok(stream);
                 }
-                match self.kept_open(daemon, lane, hello, &mut report, Path::Relay).await {
+                match self.kept_open(daemon, lane, hello, &[], &mut report, Path::Relay).await {
                     KeptOpen::Stream(stream) => return Ok(stream),
                     KeptOpen::Refused(refusal) => {
                         tracing::debug!(
@@ -897,7 +1015,7 @@ impl HubCarrier {
                     }
                     // The circuit did not open: a plain one would not either, and a second
                     // dial here would double the dials of a host whose links all dropped.
-                    KeptOpen::Failed(e) => return Err(e),
+                    KeptOpen::Failed(e) | KeptOpen::Lost(e) => return Err(e),
                     KeptOpen::Plain(why) => {
                         tracing::debug!("hub carrier: a plain circuit for this acpmux dial: {why}");
                     }
@@ -907,6 +1025,7 @@ impl HubCarrier {
         crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
         let (secure, stages) = self.open_circuit(daemon).await?;
         stages.log(daemon, "plain");
+        record_call(lane, false);
         Ok(self.carry_plain(secure))
     }
 
@@ -929,6 +1048,7 @@ impl HubCarrier {
             circuit: Some(stages),
             stream: Duration::ZERO,
             via: direct::Via::Hub,
+            early: 0,
         };
         match answer {
             Ok(Ok(())) => Ok(Ok(secure)),
@@ -973,12 +1093,13 @@ impl HubCarrier {
         daemon: &str,
         lane: CircuitLane,
         hello: Bytes,
+        early: &[u8],
         report: &mut DialReport,
         path: Path,
     ) -> KeptOpen {
         let slot = match path {
             Path::Relay => self.kept.slot(daemon, lane),
-            Path::Direct(_) => self.direct.kept.slot(daemon, lane),
+            Path::Direct(_) | Path::Punched => self.direct.kept.slot(daemon, lane),
         };
         let mut why = String::new();
         for _ in 0..2 {
@@ -993,7 +1114,8 @@ impl HubCarrier {
                         // Parallel dials wait here on this one open, not on one each. Never a
                         // plain dial beside it: a service hello can ask the far machine's owner
                         // for consent, and one dial asks once.
-                        let (mux, said, mut stages) = match self.open_kept(daemon, path).await {
+                        let (mux, said, mut stages) = match self.open_kept(daemon, lane, path).await
+                        {
                             Ok(opened) => opened,
                             Err(e) => return KeptOpen::Failed(e),
                         };
@@ -1002,7 +1124,7 @@ impl HubCarrier {
                         let asked = Instant::now();
                         let wait = self.timings.handshake;
                         let (first, said) = tokio::join!(
-                            mux.open(hello.clone(), wait),
+                            mux.open(hello.clone(), early, wait),
                             tokio::time::timeout(wait, said)
                         );
                         stages.answer = asked.elapsed();
@@ -1012,12 +1134,18 @@ impl HubCarrier {
                             circuit: Some(stages),
                             stream: Duration::ZERO,
                             via: direct::Via::Hub,
+                            early: early.len(),
                         };
+                        let early_out = first.as_ref().err().is_some_and(|e| e.early_out);
                         match said {
                             Ok(Ok(Ok(()))) => {
                                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                                 kept.live = Some(mux.clone());
+                                kept.path = Some(path);
+                                kept.reopen_at = None;
                             }
+                            // The far machine refused the `mux` hello before reading any
+                            // stream: early bytes behind it were never read.
                             Ok(Ok(Err(refusal))) => {
                                 mux.close().await;
                                 tracing::debug!(
@@ -1028,17 +1156,29 @@ impl HubCarrier {
                             }
                             Ok(Err(_)) | Err(_) => {
                                 mux.close().await;
-                                return KeptOpen::Failed(
-                                    "the machine did not answer the kept circuit's hello".into(),
-                                );
+                                let why = mux.ended().unwrap_or_else(|| {
+                                    "the machine did not answer the kept circuit's hello".into()
+                                });
+                                return if early_out {
+                                    KeptOpen::Lost(why)
+                                } else {
+                                    KeptOpen::Failed(why)
+                                };
                             }
                         }
                         match first {
-                            Ok(Ok(stream)) => return KeptOpen::Stream(stream),
+                            Ok(Ok(stream)) => {
+                                record_call(lane, false);
+                                return KeptOpen::Stream(stream);
+                            }
                             Ok(Err(refusal)) => return KeptOpen::Refused(refusal),
+                            Err(e) if e.early_out => {
+                                mux.close().await;
+                                return KeptOpen::Lost(e.why);
+                            }
                             Err(e) => {
                                 mux.close().await;
-                                why = e;
+                                why = e.why;
                                 continue;
                             }
                         }
@@ -1046,17 +1186,32 @@ impl HubCarrier {
                 }
             };
             let asked = Instant::now();
-            let opened = mux.open(hello.clone(), self.timings.handshake).await;
+            let opened = mux.open(hello.clone(), early, self.timings.handshake).await;
             *report = DialReport {
                 kept: true,
                 circuit: None,
                 stream: asked.elapsed(),
                 via: direct::Via::Hub,
+                early: early.len(),
             };
+            if matches!(opened, Ok(Ok(_))) {
+                crate::gauges::carrier::global().kept_stream(report.stream);
+                record_call(lane, true);
+            }
             match opened {
                 Ok(Ok(stream)) => return KeptOpen::Stream(stream),
                 Ok(Err(refusal)) => return KeptOpen::Refused(refusal),
+                Err(e) if e.early_out => {
+                    tracing::info!(
+                        "hub carrier: a kept circuit failed after a stream's first bytes left \
+                         ({}); not sent again",
+                        e.why
+                    );
+                    mux.close().await;
+                    return KeptOpen::Lost(e.why);
+                }
                 Err(e) => {
+                    let e = e.why;
                     tracing::info!(
                         "hub carrier: a kept circuit failed under a dial ({e}); opening it again"
                     );
@@ -1077,10 +1232,21 @@ impl HubCarrier {
         daemon: &str,
         lane: CircuitLane,
         hello: Bytes,
+        early: &[u8],
         report: &mut DialReport,
     ) -> Option<KeptOpen> {
-        let address = self.direct_address(daemon).await?;
-        match self.kept_open(daemon, lane, hello, report, Path::Direct(address)).await {
+        // A private route first; else a punched connection (`hub_carrier_punch.rs`), which a
+        // first dial never waits for: it starts one and rides the relay.
+        let path = match self.direct_address(daemon).await {
+            Some(address) => Path::Direct(address),
+            None => self.punch_path(daemon, lane)?,
+        };
+        let address = path;
+        let miss = |carrier: &Self| match path {
+            Path::Punched => carrier.direct.punch.miss(daemon),
+            _ => carrier.direct.miss(daemon),
+        };
+        match self.kept_open(daemon, lane, hello, early, report, path).await {
             KeptOpen::Stream(stream) => {
                 report.via = direct::Via::Direct;
                 Some(KeptOpen::Stream(stream))
@@ -1088,15 +1254,21 @@ impl HubCarrier {
             KeptOpen::Refused(refusal) if refusal.reason != "service.unknown" => {
                 Some(KeptOpen::Refused(refusal))
             }
+            // The far service may have read the early bytes: no relay dial repeats them.
+            KeptOpen::Lost(why) => {
+                tracing::info!("hub carrier direct: {address:?} failed ({why}) after early bytes");
+                miss(self);
+                Some(KeptOpen::Lost(why))
+            }
             KeptOpen::Refused(refusal) => {
-                tracing::debug!("hub carrier direct: {address} refused: {refusal}; the relay");
-                self.direct.miss(daemon);
+                tracing::debug!("hub carrier direct: {address:?} refused: {refusal}; the relay");
+                miss(self);
                 *report = DialReport::default();
                 None
             }
             KeptOpen::Failed(why) | KeptOpen::Plain(why) => {
-                tracing::info!("hub carrier direct: {address} failed ({why}); the relay");
-                self.direct.miss(daemon);
+                tracing::info!("hub carrier direct: {address:?} failed ({why}); the relay");
+                miss(self);
                 *report = DialReport::default();
                 None
             }
@@ -1109,12 +1281,14 @@ impl HubCarrier {
     async fn open_kept(
         &self,
         daemon: &str,
+        lane: CircuitLane,
         path: Path,
     ) -> Result<(Arc<mux::Mux>, mux::HelloAnswer, DialStages), String> {
         crate::gauges::bump(&crate::gauges::links().hub_kept_dials);
         let (secure, stages) = match path {
             Path::Relay => self.open_circuit(daemon).await?,
             Path::Direct(address) => self.open_direct(daemon, address).await?,
+            Path::Punched => self.open_punched(daemon, lane).await?,
         };
         secure.send(mux::mux_hello()).await.map_err(|e| e.to_string())?;
         let (mux, said) = mux::start_dialer(
@@ -1125,6 +1299,93 @@ impl HubCarrier {
             self.timings.kept_idle,
         );
         Ok((mux, said, stages))
+    }
+
+    /// Keep every kept circuit open (Leo, 2026-11-25: "small, chatty calls stay on whichever
+    /// machine holds the files, batched over one always-open connection, never a new connection
+    /// per call"): every [`REOPEN_SCAN`], open again each kept circuit that ended under this
+    /// carrier (the far machine restarted, the relay or the hub dropped it, the keepalive heard
+    /// nothing), rather than leave the next dial a whole new circuit (0.5 to 0.9 s against a
+    /// stream's 0.07 s). Ends with the carrier. A circuit closed on purpose (no stream for
+    /// `kept_idle`) is not opened again, and one whose machine stays away is given up once it
+    /// would have idled out anyway.
+    pub fn keep_reopening(self: &Arc<Self>) {
+        let carrier = Arc::downgrade(self);
+        mux::spawn_reopening(async move {
+            loop {
+                tokio::time::sleep(REOPEN_SCAN).await;
+                let Some(carrier) = carrier.upgrade() else { return };
+                carrier.reopen_closed().await;
+            }
+        });
+    }
+
+    /// One pass of [`Self::keep_reopening`]: every machine at once, each slot locked while its
+    /// circuit opens, so a dial to that machine waits on this open rather than racing it.
+    pub async fn reopen_closed(&self) -> usize {
+        let slots: Vec<_> =
+            self.kept.to_reopen().into_iter().chain(self.direct.kept.to_reopen()).collect();
+        let opened =
+            futures::future::join_all(slots.into_iter().map(|(daemon, lane, slot)| async move {
+                self.reopen(&daemon, lane, &slot).await
+            }))
+            .await;
+        opened.into_iter().filter(|opened| *opened).count()
+    }
+
+    async fn reopen(
+        &self,
+        daemon: &str,
+        lane: CircuitLane,
+        slot: &tokio::sync::Mutex<mux::Kept>,
+    ) -> bool {
+        let mut kept = slot.lock().await;
+        let Some(old) = kept.live.clone().filter(|mux| mux.wants_reopen()) else { return false };
+        if kept.reopen_at.is_some_and(|at| Instant::now() < at) {
+            return false;
+        }
+        let Some(path) = kept.path else { return false };
+        if old.quiet_for() >= self.timings.kept_idle {
+            kept.live = None;
+            return false;
+        }
+        let why = match self.open_kept(daemon, lane, path).await {
+            Ok((mux, said, _)) => match tokio::time::timeout(self.timings.handshake, said).await {
+                Ok(Ok(Ok(()))) => {
+                    self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
+                    self.stats.kept_reopens.fetch_add(1, Ordering::Relaxed);
+                    tracing::info!(daemon, ?path, "hub carrier: opened a kept circuit again");
+                    kept.live = Some(mux);
+                    kept.reopen_at = None;
+                    kept.reopen_wait = Duration::ZERO;
+                    return true;
+                }
+                Ok(Ok(Err(refusal))) => {
+                    mux.close().await;
+                    kept.live = None;
+                    kept.no_mux_until = Some(Instant::now() + mux::NO_MUX_ASK_AGAIN);
+                    tracing::info!(
+                        daemon,
+                        "hub carrier: the machine keeps no circuits now: {refusal}"
+                    );
+                    return false;
+                }
+                Ok(Err(_)) | Err(_) => {
+                    mux.close().await;
+                    mux.ended().unwrap_or_else(|| "no answer to the `mux` hello".into())
+                }
+            },
+            Err(e) => e,
+        };
+        kept.reopen_wait =
+            (kept.reopen_wait * 2).clamp(mux::REOPEN_BACKOFF_MIN, mux::REOPEN_BACKOFF_MAX);
+        kept.reopen_at = Some(Instant::now() + kept.reopen_wait);
+        tracing::debug!(
+            daemon,
+            "hub carrier: a kept circuit did not open again ({why}); next try in {:?}",
+            kept.reopen_wait
+        );
+        false
     }
 
     /// `false` answers a kept circuit's hello as an acpmux that predates kept circuits does
@@ -1162,6 +1423,31 @@ impl HubCarrier {
             mux.close().await;
         }
         !live.is_empty()
+    }
+
+    /// A link to `daemon` that rode a kept circuit ended after `silent` with no byte in (a peer
+    /// link dropped for silence): close each kept circuit to `daemon` that heard nothing in that
+    /// window either. The link pinged across it the whole time, so it is dead, and the redial
+    /// opens a fresh circuit at once instead of spending [`mux::ANSWER_SUSPECT`] on an OPEN that
+    /// cannot be answered. A circuit that heard anything in the window (another stream's bytes,
+    /// a keepalive PONG) is alive and kept. Under `ANSWER_SUSPECT` of silence the link proved no
+    /// more than an OPEN would, so nothing is closed. Returns how many circuits it closed.
+    pub async fn close_kept_silent_for(&self, daemon: &str, silent: Duration) -> usize {
+        if silent < mux::ANSWER_SUSPECT {
+            return 0;
+        }
+        let dead: Vec<_> = [&self.kept, &self.direct.kept]
+            .into_iter()
+            .flat_map(|kept| kept.silent_for(daemon, silent))
+            .collect();
+        for mux in &dead {
+            tracing::info!(
+                "hub carrier: a link on a kept circuit heard nothing for {}ms, nor did the circuit; closing it so the redial opens a new one",
+                silent.as_millis()
+            );
+            mux.close().await;
+        }
+        dead.len()
     }
 
     /// One relay circuit to `daemon` with the Noise handshake done, its key pinned to the
@@ -1300,6 +1586,7 @@ impl HubCarrier {
             connection_attempt: ConnectionAttemptId(random_16()?),
             resume: BTreeMap::new(),
             daemon_takes_ik: false,
+            early: Vec::new(),
             handshake_timeout,
         })
     }
@@ -1660,7 +1947,7 @@ impl ServerAuthenticator for PeerKeys {
     }
 }
 
-struct Incoming {
+pub(crate) struct Incoming {
     carrier: Arc<HubCarrier>,
     websocket: SocketAddr,
     allowed: Arc<RwLock<HashSet<[u8; 32]>>>,
@@ -1901,13 +2188,15 @@ impl Incoming {
                 let reached = match named {
                     Ok(CircuitService::Acpmux) => Ok(local),
                     Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
-                    // Served above; never reaches a TCP target. A held pipe rides only a kept
-                    // circuit's stream, whose mux serves it; its dialer then opens a plain one.
+                    // Served above; never reaches a TCP target. A held pipe and the broker
+                    // ride only a kept circuit's stream, whose mux serves them.
                     Ok(
                         CircuitService::CmuxTuiResume { .. }
                         | CircuitService::CmuxTuiSession
                         | CircuitService::MachineCall
-                        | CircuitService::TransferSource,
+                        | CircuitService::TransferSource
+                        | CircuitService::LaneGhBroker
+                        | CircuitService::DirectOffer,
                     ) => Err(ServiceRefusal::new("service.unknown", "no such service")),
                     Err(refusal) => Err(refusal),
                 };
@@ -2320,8 +2609,11 @@ pub async fn start_configured(
     // machine's own way to the source of a move it pulls. A move needs `move` in
     // `meshRelay.controlFrom` on the target, off by default.
     carrier.set_transfer_gate(Arc::new(crate::transfer_service::ConfiguredTransferGate::new(hub)));
+    // The lane-gh broker, to the machines the hub names, only once the owner names its socket.
+    carrier.set_lane_gh_broker_gate(Arc::new(broker::ConfiguredBrokerGate::new(hub)));
     hub.set_transfer_dial(Arc::new(crate::transfer_service::CarrierDial::new(hub)));
     hub.hub_carrier.set(carrier.clone());
+    carrier.keep_reopening();
     // The start's answer, whether or not the relay takes the registration yet (it retries).
     tracing::info!(
         "hub carrier: on, bridging admitted circuits to this daemon's listener {websocket}"
@@ -2329,9 +2621,14 @@ pub async fn start_configured(
     let direct_port = hub.config.read().await.direct_port;
     let mut serving = carrier.serve(websocket);
     serving.lease = lease;
-    if let Some(port) = direct_port {
-        serving.direct = start_direct(hub, &carrier, port).await;
-    }
+    serving.direct = match direct_port {
+        // `directPort` 0: no direct path at all.
+        Some(0) => None,
+        Some(port) => start_direct(hub, &carrier, port).await,
+        // Unset: no dialing by name, but a port of its own for punches (on by default).
+        None if punch::enabled() => start_punch(&carrier, 0),
+        None => None,
+    };
     Some(serving)
 }
 
@@ -2354,26 +2651,33 @@ async fn start_direct(
                 .map(|(_, host)| host)
         })),
     );
-    match tokio::net::TcpListener::bind((std::net::Ipv6Addr::UNSPECIFIED, port)).await {
-        Ok(listener) => {
-            tracing::info!("hub carrier direct: listening on port {port}");
-            Some(carrier.serve_direct(listener))
-        }
-        Err(e) => {
-            match tokio::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, port)).await {
-                Ok(listener) => {
-                    tracing::info!("hub carrier direct: listening on port {port} (IPv4)");
-                    Some(carrier.serve_direct(listener))
-                }
-                Err(e4) => {
-                    tracing::warn!(
-                        "hub carrier direct: port {port} will not bind ({e}; {e4}); dialing only"
-                    );
-                    None
-                }
-            }
-        }
+    let served = start_punch(carrier, port);
+    if served.is_none() {
+        tracing::warn!("hub carrier direct: port {port} will not bind; dialing only");
     }
+    served
+}
+
+/// Listen for direct connections on `port` (0: a port of its own) where punches can open from
+/// the same port, map it on the router when PCP or NAT-PMP grants one, and serve it.
+fn start_punch(carrier: &Arc<HubCarrier>, port: u16) -> Option<tokio::task::JoinHandle<()>> {
+    let listener = match punch::punch_listener(port) {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::warn!("hub carrier punch: no listener on port {port}: {e}");
+            return None;
+        }
+    };
+    let port = listener.local_addr().ok()?.port();
+    tracing::info!("hub carrier direct: listening on port {port}");
+    if punch::enabled() {
+        carrier.set_punch_port(port);
+        let mapping = Arc::downgrade(carrier);
+        direct::scope().spawn_named("hub carrier port map", async move {
+            punch::portmap::keep_mapped(mapping, port).await;
+        });
+    }
+    Some(carrier.serve_direct(listener))
 }
 
 /// [`start_configured`] on the daemon's key lock (its WireGuard transport's, else the carrier's
@@ -2414,17 +2718,25 @@ pub mod tickets;
 #[path = "hub_carrier_mux.rs"]
 mod mux;
 
+#[path = "hub_carrier_broker.rs"]
+pub mod broker;
+
 #[path = "hub_carrier_rehome.rs"]
 mod rehome;
 
 #[path = "hub_carrier_direct.rs"]
 pub mod direct;
 
+#[path = "hub_carrier_punch.rs"]
+pub mod punch;
+
 /// Which path a kept circuit runs on.
 #[derive(Clone, Copy, Debug)]
-enum Path {
+pub(crate) enum Path {
     Relay,
     Direct(SocketAddr),
+    /// A connection both machines opened toward each other (`hub_carrier_punch.rs`).
+    Punched,
 }
 
 #[cfg(test)]
@@ -2434,3 +2746,7 @@ mod register_log_tests;
 #[cfg(test)]
 #[path = "hub_carrier_key_lock_tests.rs"]
 mod key_lock_tests;
+
+#[cfg(test)]
+#[path = "hub_carrier_silent_circuit_tests.rs"]
+mod silent_circuit_tests;

@@ -123,7 +123,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-headless-debug
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           cache-workspace-crates: "true"
 
       - name: Build exact headless cmux-tui
