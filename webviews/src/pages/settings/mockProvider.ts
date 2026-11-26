@@ -258,6 +258,7 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
     statusKind: "quiet",
     busy: false,
     buttons: [cmuxButton("cmux.signIn", "Sign In to cmux")],
+    signInBackend: "Signs in to cmux.com",
     note: null,
     error: null,
   },
