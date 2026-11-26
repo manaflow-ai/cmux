@@ -145,6 +145,35 @@
    ],
    "affects_why": "The gate builds cmux-rd from cmux-rd-host (its own Cargo workspace, which pulls the link, proto and transport crates by path) and runs scripts/screen-share-netem.py from cmux-rd-host's tree; nothing else changes what it measures."
   },
+  "ios-link-ffi-linux.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "cmux-next-ios/rust/**",
+    "cmux-next-ios/CmuxMobileKit/Package.swift",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFIFFILinux/**",
+    "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLinkFFILinuxTests/**",
+    ".github/workflows/ios-link-ffi-linux.yml"
+   ],
+   "affects": [
+    "cmux-next-ios/rust/Cargo.lock",
+    "cmux-next-ios/rust/Cargo.toml",
+    "cmux-next-ios/rust/rust-toolchain.toml",
+    "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/**",
+    "cmux-next-ios/rust/scripts/build-linux-ffi.sh",
+    "cmux-next-ios/CmuxMobileKit/Package.swift",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**",
+    "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFIFFILinux/**",
+    "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLinkFFILinuxTests/**",
+    ".github/workflows/ios-link-ffi-linux.yml"
+   ],
+   "affects_why": "The linkage receipt (RFD 0051 route 2) breaks when the FFI surface, the checked-in binding, the kit manifest's Linux module, these tests, the script or the toolchain change. A change deeper in the crates the FFI compiles (cmux-mobile-link, cmux-tui/crates) is caught by the feat-cmux-next push run, which keeps the broad path filter, so a pull request touching only those does not start a 40-minute Rust and Swift build."
+  },
   "swift-logic-ratchet.yml": {
    "types": [
     "opened",

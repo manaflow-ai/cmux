@@ -207,6 +207,14 @@ jobs:
     permissions:
       contents: read
 
+  ios-link-ffi-linux:
+    name: iOS link FFI on Linux
+    needs: route
+    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'ios-link-ffi-linux.yml') }}
+    uses: ./.github/workflows/ios-link-ffi-linux.yml
+    permissions:
+      contents: read
+
   web-validation:
     name: Web validation
     needs: route
