@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.agentCustomization.help" : {
+      "comment" : "Settings > Advanced > Labs: help for the Claude Code and Codex Customization toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اعرض خوادم MCP والمهارات والأوامر التي يستخدمها Claude Code وCodex وعدّلها، في ملفات إعدادهما."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikažite i uredite MCP servere, vještine i komande koje Claude Code i Codex koriste, u njihovim konfiguracijskim datotekama."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis og rediger de MCP-servere, skills og kommandoer, Claude Code og Codex bruger, i deres egne konfigurationsfiler."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "MCP-Server, Skills und Befehle, die Claude Code und Codex nutzen, in deren eigenen Konfigurationsdateien anzeigen und bearbeiten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra y edita los servidores MCP, las habilidades y los comandos que usan Claude Code y Codex, en sus propios archivos de configuración."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affichez et modifiez les serveurs MCP, compétences et commandes qu'utilisent Claude Code et Codex, dans leurs propres fichiers de configuration."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra e modifica i server MCP, le skill e i comandi usati da Claude Code e Codex, nei loro file di configurazione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code と Codex が使う MCP サーバー、スキル、コマンドを、それぞれの設定ファイルで表示・編集します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញ និងកែម៉ាស៊ីនមេ MCP ជំនាញ និងពាក្យបញ្ជា ដែល Claude Code និង Codex ប្រើ នៅក្នុងឯកសារកំណត់ផ្ទាល់ខ្លួនរបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code와 Codex가 쓰는 MCP 서버, 스킬, 명령을 각자의 설정 파일에서 보고 편집합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis og rediger MCP-serverne, ferdighetene og kommandoene Claude Code og Codex bruker, i deres egne konfigurasjonsfiler."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokaż i edytuj serwery MCP, umiejętności i polecenia używane przez Claude Code i Codex, w ich własnych plikach konfiguracji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostre e edite os servidores MCP, as habilidades e os comandos que o Claude Code e o Codex usam, nos próprios arquivos de configuração deles."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать и изменять серверы MCP, навыки и команды, которые используют Claude Code и Codex, в их собственных файлах настроек."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงและแก้ไขเซิร์ฟเวอร์ MCP ทักษะ และคำสั่งที่ Claude Code และ Codex ใช้ ในไฟล์ตั้งค่าของแต่ละตัว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code ve Codex'in kullandığı MCP sunucularını, becerileri ve komutları kendi yapılandırma dosyalarında gösterin ve düzenleyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показувати й редагувати сервери MCP, навички та команди, які використовують Claude Code і Codex, у їхніх власних файлах налаштувань."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiện và sửa các máy chủ MCP, kỹ năng và lệnh mà Claude Code và Codex dùng, trong tệp cấu hình riêng của chúng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 Claude Code 和 Codex 各自的配置文件中查看和编辑它们使用的 MCP 服务器、技能和命令。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 Claude Code 與 Codex 各自的設定檔中檢視和編輯它們使用的 MCP 伺服器、技能和命令。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

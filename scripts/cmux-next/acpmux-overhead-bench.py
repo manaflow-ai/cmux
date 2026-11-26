@@ -3,7 +3,7 @@
 
 A local stand-in model answers every request at once with "ok" (Anthropic
 Messages for Claude Code, OpenAI Responses for Codex, OpenAI chat completions
-for OpenCode), so a timing difference is the client side only: acpmux, or the
+for OpenCode, Gemini streamGenerateContent for Antigravity), so a timing difference is the client side only: acpmux, or the
 harness itself, never the model. Each run alternates raw and acpmux so machine
 load hits both sides alike.
 
@@ -11,6 +11,8 @@ Raw drives the harness the way acpmux does, on the same wire:
   claude: `claude -p --input-format stream-json ...` (acpmux's claude_stdio args)
   codex:  `codex app-server` JSON-RPC (acpmux bridges it in process)
   opencode: `opencode acp` (ACP)
+  antigravity: `agy acp` (ACP), signed in with `authenticate` gemini-api-key on a bench key, its
+               Gemini endpoint the stand-in (GOOGLE_GEMINI_BASE_URL)
 acpmux: an isolated daemon (its own ACPMUX_HOME) on the binary given with
 --acpmux; session/new, then session/prompt over its socket.
 
@@ -64,7 +66,7 @@ The floor row is the optimum: one process per chat, the harness itself at its ra
 shared and nothing left behind. PROCS-ROW and PROCS-GAP lines carry the same numbers as JSON.
 
 Usage:
-  acpmux-overhead-bench.py --acpmux PATH [--harness claude,codex,opencode] [-n 20]
+  acpmux-overhead-bench.py --acpmux PATH [--harness claude,codex,opencode,antigravity] [-n 20]
                            [--mode overhead|prewarm|hibernate|build-turn|procs] [--build-cmd CMD]
                            [--json OUT] [--md OUT]
 """
@@ -168,7 +170,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.openai_responses(body)
         if path.endswith("/chat/completions"):
             return self.chat(body)
+        if path.endswith(":streamGenerateContent") or path.endswith(":generateContent"):
+            return self.gemini(path)
+        if path.endswith(":countTokens"):
+            return self.reply(200, b'{"totalTokens": 10}')
         self.reply(404, b"{}")
+
+    def gemini(self, path):
+        # Gemini's generateContent (Antigravity: `POST /v1beta/models/<model>:streamGenerateContent?alt=sse`).
+        model = path.rsplit("/", 1)[-1].split(":")[0]
+        chunk = {"candidates": [{"content": {"role": "model", "parts": [{"text": "ok"}]}, "finishReason": "STOP", "index": 0}],
+                 "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 1, "totalTokenCount": 11},
+                 "modelVersion": model}
+        if path.endswith(":generateContent"):
+            return self.reply(200, json.dumps(chunk).encode())
+        self.reply(200, sse([(None, chunk)]), "text/event-stream")
 
     def anthropic(self, body):
         model = body.get("model", "claude-bench")
@@ -376,7 +392,13 @@ def stop(p):
 # The model each harness runs, on both sides: acpmux gets it as `_meta.acpmux.model`, raw
 # as its own flag or config. A real model id, so each harness builds the prompt it builds for
 # a real chat (the stand-in answers any id).
-MODELS = {"claude": "claude-opus-5-5", "codex": "gpt-6.1-sol", "opencode": "bench/m"}
+# Antigravity runs its own default model on both sides (the stand-in answers any Gemini model).
+MODELS = {"claude": "claude-opus-5-5", "codex": "gpt-6.1-sol", "opencode": "bench/m", "antigravity": None}
+
+
+def model_meta(harness):
+    """`_meta.acpmux`'s model for `harness`: none for one that runs its own default (Antigravity)."""
+    return {"model": MODELS[harness]} if MODELS.get(harness) else {}
 
 
 def raw_claude(env, cwd, keep=None):
@@ -493,7 +515,48 @@ def raw_opencode(env, cwd, keep=None):
             stop(p)
 
 
-RAW = {"claude": raw_claude, "codex": raw_codex, "opencode": raw_opencode}
+def raw_antigravity(env, cwd, keep=None):
+    t0 = time.perf_counter()
+    p = spawn([AGY, "acp"], env, cwd)
+    io = Lines(p.stdout, p.stdin)
+    try:
+        io.send({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                 "params": {"protocolVersion": 1, "clientCapabilities": {}}})
+        io.wait(lambda m: m.get("id") == 1)
+        # Antigravity answers session/new with "Authentication required" until a sign-in: the bench
+        # key (GEMINI_API_KEY), as acpmux's start authenticates it.
+        io.send({"jsonrpc": "2.0", "id": 2, "method": "authenticate", "params": {"methodId": "gemini-api-key"}})
+        _, m, _ = io.wait(lambda m: m.get("id") == 2)
+        if "error" in m:
+            raise RuntimeError(f"authenticate: {m['error']}")
+        io.send({"jsonrpc": "2.0", "id": 3, "method": "session/new", "params": {"cwd": cwd, "mcpServers": []}})
+        t_ready, m, i = io.wait(lambda m: m.get("id") == 3)
+        if "error" in m:
+            raise RuntimeError(f"session/new: {m['error']}")
+        sid = m["result"]["sessionId"]
+        out = {"ready": ms(t0, t_ready)}
+        _, tf, te, i = acp_turn(io, i, 4, sid, "Reply with ok.")
+        out["first"], out["end"] = ms(t0, tf), ms(t0, te)
+        if keep is not None:
+            keep.append(p)
+            return out
+        ts, tf, te, i = acp_turn(io, i, 5, sid, "Again: reply with ok.")
+        out["warm_first"], out["warm_end"] = ms(ts, tf), ms(ts, te)
+        return out
+    finally:
+        # --mode procs keeps the harness open after its first turn (`keep`) and stops it itself.
+        if keep is None or p not in keep:
+            stop(p)
+
+
+# Antigravity's CLI: `agy` on PATH, or ACPMUX_BENCH_AGY (its installer may put it outside PATH).
+AGY = os.environ.get("ACPMUX_BENCH_AGY") or "agy"
+if os.environ.get("ACPMUX_BENCH_AGY"):
+    # Raw children change cwd to their scratch folder; resolve the override here,
+    # before either side starts, so both launch the same executable.
+    AGY = os.path.abspath(shutil.which(AGY) or AGY)
+
+RAW = {"claude": raw_claude, "codex": raw_codex, "opencode": raw_opencode, "antigravity": raw_antigravity}
 
 # ---------------------------------------------------------------- acpmux driver
 
@@ -543,7 +606,7 @@ def via_acpmux(daemon: Daemon, harness, cwd):
     t0 = time.perf_counter()
     t_ready, r = daemon.request("session/new", {"cwd": cwd, "mcpServers": [],
                                                  "_meta": {"acpmux": {"harness": harness, "policy": "approve-all",
-                                                                      "model": MODELS[harness]}}})
+                                                                      **model_meta(harness)}}})
     sid = r["sessionId"]
     out = {"ready": ms(t0, t_ready)}
     io = daemon.io
@@ -661,7 +724,7 @@ def hibernate_main(args, daemon: Daemon, scratch):
             os.makedirs(cwd, exist_ok=True)
             _, r = daemon.request("session/new", {"cwd": cwd, "mcpServers": [],
                                                    "_meta": {"acpmux": {"harness": h, "policy": "approve-all",
-                                                                        "model": MODELS[h]}}}, timeout=180)
+                                                                        **model_meta(h)}}}, timeout=180)
             sid = r["sessionId"]
             daemon.next += 1
             acp_turn(daemon.io, daemon.io.mark(), daemon.next, sid, "Reply with ok.")
@@ -840,7 +903,7 @@ def procs_side_acpmux(h, daemon: Daemon, scratch, n):
         os.makedirs(cwd, exist_ok=True)
         _, r = daemon.request("session/new", {"cwd": cwd, "mcpServers": [],
                                                "_meta": {"acpmux": {"harness": h, "policy": "approve-all",
-                                                                    "model": MODELS[h]}}}, timeout=180)
+                                                                    **model_meta(h)}}}, timeout=180)
         sid = r["sessionId"]
         daemon.next += 1
         acp_turn(daemon.io, daemon.io.mark(), daemon.next, sid, "Reply with ok.")
@@ -982,7 +1045,7 @@ def env_for(stand_url, scratch):
     for k in list(env):
         # CLAUDECODE (this script run from a Claude Code session) makes acpmux drop the
         # stand-in's ANTHROPIC_* keys for its children (config::scrub_nested_claude_env).
-        if k.startswith(("ANTHROPIC_", "OPENAI_", "CLAUDE_CODE_", "CMUX_", "ACPMUX_", "CODEX_")) or k == "CLAUDECODE":
+        if k.startswith(("ANTHROPIC_", "OPENAI_", "CLAUDE_CODE_", "CMUX_", "ACPMUX_", "CODEX_", "GEMINI_", "GOOGLE_")) or k == "CLAUDECODE":
             env.pop(k)
     codex_home = os.path.join(scratch, "codex-home")
     os.makedirs(codex_home, exist_ok=True)
@@ -1008,6 +1071,16 @@ env_key = "BENCH_API_KEY"
     home = os.path.join(scratch, "home")
     os.makedirs(home, exist_ok=True)
     env["HOME"] = home
+    if os.environ.get("ACPMUX_BENCH_AGY"):
+        # Discovery launches `agy` on the daemon side. Pin it to the same override the
+        # raw side uses, even if another installation already appears on PATH.
+        agy = shutil.which(AGY)
+        if not agy:
+            raise RuntimeError(f"ACPMUX_BENCH_AGY is not executable: {AGY}")
+        bench_bin = os.path.join(scratch, "bin")
+        os.makedirs(bench_bin, exist_ok=True)
+        os.symlink(os.path.abspath(agy), os.path.join(bench_bin, "agy"))
+        env["PATH"] = bench_bin + os.pathsep + env.get("PATH", os.defpath)
     claude_dir = os.path.join(scratch, "claude-config")
     os.makedirs(claude_dir, exist_ok=True)
     env.update({
@@ -1016,6 +1089,8 @@ env_key = "BENCH_API_KEY"
         "DISABLE_ERROR_REPORTING": "1", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "ANTHROPIC_MODEL": "claude-bench", "ANTHROPIC_SMALL_FAST_MODEL": "claude-bench",
         "CODEX_HOME": codex_home, "BENCH_API_KEY": "x",
+        # Antigravity: Gemini's API, on the stand-in, with a bench key.
+        "GEMINI_API_KEY": "bench", "GOOGLE_GEMINI_BASE_URL": stand_url,
         "OPENCODE_CONFIG": oc, "OPENCODE_DISABLE_AUTOUPDATE": "1", "OPENCODE_DISABLE_LSP_DOWNLOAD": "1",
         "XDG_CONFIG_HOME": os.path.join(scratch, "xdg-config"),
         "XDG_DATA_HOME": os.path.join(scratch, "xdg-data"), "XDG_STATE_HOME": os.path.join(scratch, "xdg-state"),

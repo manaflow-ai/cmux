@@ -46,6 +46,12 @@ extension AgentTurnStateStore {
         return existing(session)
     }
 
+    /// The record of the names of the chat `ref` shows: this Mac's (or a mirrored acpmux's), else what its page
+    /// noted of a chat on another machine (``remote(_:)``, cmux#55668).
+    private func named(_ ref: AgentSessionRef) -> Session? {
+        local(ref) ?? remote(ref)
+    }
+
     /// Past ``recordCap``: the idle records (no turn running or waiting, no unread end, no
     /// subagent or command running) written longest ago go, down to seven eighths of the cap, so
     /// this runs once per cap/8 new records. Logged with the counts: no real list is this long.
@@ -126,29 +132,29 @@ extension AgentTurnStateStore {
     /// The model and running turn of the chat an agent chat tab shows; nil off this Mac.
     public func detail(for ref: AgentSessionRef) -> AgentChatDetail? { local(ref)?.detail }
 
-    /// The title of the chat an agent chat tab shows; nil when it has none yet or is not on
-    /// this Mac.
-    public func title(for ref: AgentSessionRef) -> String? { local(ref)?.title }
+    /// The title of the chat an agent chat tab shows; nil when it has none yet, or for a chat of
+    /// another machine whose page has not read it yet (``noteRemote(_:host:machine:)``).
+    public func title(for ref: AgentSessionRef) -> String? { named(ref)?.title }
 
     /// The launcher/session name, when it is user-readable.
-    public func sessionName(for ref: AgentSessionRef) -> String? { local(ref)?.sessionName }
+    public func sessionName(for ref: AgentSessionRef) -> String? { named(ref)?.sessionName }
 
     /// The chat's real title, excluding its session name and first prompt.
-    public func generatedTitle(for ref: AgentSessionRef) -> String? { local(ref)?.generatedTitle }
+    public func generatedTitle(for ref: AgentSessionRef) -> String? { named(ref)?.generatedTitle }
 
-    /// The name given to the session `ref` shows (acpmux `displayName`); nil when none was, or off this Mac.
-    public func displayName(for ref: AgentSessionRef) -> String? { local(ref)?.identity?.displayName }
+    /// The name given to the session `ref` shows (acpmux `displayName`); nil when none was.
+    public func displayName(for ref: AgentSessionRef) -> String? { named(ref)?.identity?.displayName }
 
     /// Every name that session had before its current one, oldest first (acpmux `formerNames`).
-    public func formerNames(for ref: AgentSessionRef) -> [String] { local(ref)?.identity?.formerNames ?? [] }
+    public func formerNames(for ref: AgentSessionRef) -> [String] { named(ref)?.identity?.formerNames ?? [] }
 
     /// The name that session had just before its current one (the newest of `formerNames`).
-    public func formerName(for ref: AgentSessionRef) -> String? { local(ref)?.identity?.formerName }
+    public func formerName(for ref: AgentSessionRef) -> String? { named(ref)?.identity?.formerName }
 
     /// The icon that session set for itself, drawn once per icon (``HarnessIconArtwork/art(_:)``, the harness
     /// icons' drawing); nil when it set none or cannot be drawn.
     func iconArt(for ref: AgentSessionRef) -> HarnessIconLookup.Art? {
-        guard let record = local(ref), let spec = record.identity?.icon else { return nil }
+        guard let record = local(ref), let spec = record.identity?.icon else { return nil } // never a remote chat's (cmux#55668)
         if let drawn = record.iconArt { return drawn }
         let drawn = HarnessIconArtwork.art(spec)
         record.iconArt = .some(drawn)
