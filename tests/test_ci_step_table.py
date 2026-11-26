@@ -2072,7 +2072,7 @@ class IosJobTest(unittest.TestCase):
             leg["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-            "vars.CI_BLACKSMITH_MACOS == 'on' && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}")
+            "vars.CI_BLACKSMITH_MACOS == 'on' && fromJSON(vars.RUNNER_POOLS).macos_26 || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}")
         self.assertEqual(jobs["ios"]["permissions"]["actions"], "read")
         ios_run = next(s for s in jobs["ios"]["steps"] if s.get("name") == "Run the routed ios steps (ci/steps.toml)")
         self.assertEqual(ios_run["env"]["GH_TOKEN"], "${{ github.token }}")
