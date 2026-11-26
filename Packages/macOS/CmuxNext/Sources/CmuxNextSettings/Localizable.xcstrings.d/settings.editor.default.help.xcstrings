@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.editor.default.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The app Open in Editor opens a folder or file in; Text Editor, when set, opens files and picks it here. One not installed uses the first editor found."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "التطبيق الذي يفتح فيه «فتح في المحرر» مجلدًا أو ملفًا؛ محرر النصوص، عند تعيينه، يفتح الملفات ويُختار هنا. إذا لم يكن مثبتًا، يُستخدم أول محرر يُعثر عليه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aplikacija u kojoj Otvori u uređivaču otvara mapu ili datoteku; Uređivač teksta, kada je postavljen, otvara datoteke i bira se ovdje. Ako nije instalirana, koristi se prvi pronađeni uređivač."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den app, Åbn i editor åbner en mappe eller fil i; Teksteditor åbner filer, når den er angivet, og vælges her. Er den ikke installeret, bruges den første editor, der findes."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die App, in der „Im Editor öffnen“ einen Ordner oder eine Datei öffnet; ein festgelegter Texteditor öffnet Dateien und wird hier gewählt. Ist sie nicht installiert, wird der erste gefundene Editor verwendet."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La app en la que Abrir en el editor abre una carpeta o un archivo; el Editor de texto, si está definido, abre los archivos y se elige aquí. Si no está instalada, se usa el primer editor encontrado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’app dans laquelle Ouvrir dans l’éditeur ouvre un dossier ou un fichier ; l’Éditeur de texte, s’il est défini, ouvre les fichiers et est choisi ici. Si elle n’est pas installée, le premier éditeur trouvé est utilisé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "L’app in cui Apri nell’editor apre una cartella o un file; l’Editor di testo, se impostato, apre i file e viene scelto qui. Se non è installata, si usa il primo editor trovato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「エディタで開く」でフォルダやファイルを開くアプリ。テキストエディタを設定すると、ファイルはそれで開き、ここでも選ばれます。インストールされていない場合は、最初に見つかったエディタを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កម្មវិធីដែល បើកក្នុងកម្មវិធីកែ បើកថត ឬឯកសារ។ កម្មវិធីកែអត្ថបទ ពេលកំណត់ នឹងបើកឯកសារ ហើយត្រូវបានជ្រើសនៅទីនេះ។ បើមិនបានដំឡើងទេ នឹងប្រើកម្មវិធីកែដំបូងដែលរកឃើញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "편집기에서 열기가 폴더나 파일을 여는 앱입니다. 텍스트 편집기를 설정하면 파일은 그 앱으로 열리고 여기서도 선택됩니다. 설치되어 있지 않으면 처음 찾은 편집기를 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Appen Åpne i redigerer åpner en mappe eller fil i; Tekstredigerer åpner filer når den er angitt, og velges her. Er den ikke installert, brukes den første redigereren som finnes."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aplikacja, w której Otwórz w edytorze otwiera folder lub plik; ustawiony Edytor tekstu otwiera pliki i jest wybierany tutaj. Jeśli nie jest zainstalowana, używany jest pierwszy znaleziony edytor."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O app em que Abrir no editor abre uma pasta ou um arquivo; o Editor de texto, quando definido, abre os arquivos e é escolhido aqui. Se não estiver instalado, é usado o primeiro editor encontrado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Приложение, в котором «Открыть в редакторе» открывает папку или файл; заданный «Текстовый редактор» открывает файлы и выбирается здесь. Если оно не установлено, используется первый найденный редактор."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แอปที่ เปิดในโปรแกรมแก้ไข ใช้เปิดโฟลเดอร์หรือไฟล์ โปรแกรมแก้ไขข้อความ เมื่อตั้งไว้ จะเปิดไฟล์และถูกเลือกที่นี่ หากไม่ได้ติดตั้งไว้ จะใช้โปรแกรมแก้ไขแรกที่พบ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Düzenleyicide Aç'ın bir klasörü veya dosyayı açtığı uygulama; Metin Düzenleyici ayarlıysa dosyaları açar ve burada seçilir. Yüklü değilse bulunan ilk düzenleyici kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Застосунок, у якому «Відкрити в редакторі» відкриває папку чи файл; заданий «Текстовий редактор» відкриває файли й вибирається тут. Якщо його не встановлено, використовується перший знайдений редактор."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ứng dụng mà Mở trong trình soạn thảo dùng để mở thư mục hoặc tệp; Trình soạn thảo văn bản, khi được đặt, sẽ mở tệp và được chọn ở đây. Nếu chưa cài, trình soạn thảo đầu tiên tìm thấy sẽ được dùng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“在编辑器中打开”用来打开文件夹或文件的 App；设置了“文本编辑器”时，文件用它打开，这里也选它。未安装时，使用找到的第一个编辑器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「在編輯器中開啟」用來開啟資料夾或檔案的 App；設定了「文字編輯器」時，檔案用它開啟，這裡也選它。未安裝時，使用找到的第一個編輯器。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
