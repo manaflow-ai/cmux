@@ -221,10 +221,6 @@ path = "tests/test_cmux_next_media_tour_gate.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_media_last_toured.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cmux_next_media_tree_fallback.py"
 lane = "linux-guard"
 
@@ -402,10 +398,6 @@ path = "tests/test_cmux_tui_branch_inputs.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_tui_tree_request_rerun.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
@@ -470,6 +462,10 @@ path = "tests/test_cmux_tui_republish_same_commit.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_stranded_owner_sweep.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_superseded_gate.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 tests/test_cmux_tui_superseded_gate.py yourself after changing the workflow steps it reads."
@@ -491,5 +487,13 @@ path = "tests/test_cmux_tui_tree_handoff.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_tree_request_rerun.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_tui_tree_takeover.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_media_last_toured.py"
 lane = "linux-guard"
