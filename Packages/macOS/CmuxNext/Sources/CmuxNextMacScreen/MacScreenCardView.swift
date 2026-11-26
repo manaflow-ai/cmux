@@ -400,23 +400,8 @@ extension MacScreenCard {
         return out
     }
 
-    private var kind: String {
-        switch self {
-        case .unsupported: "unsupported"
-        case .connecting: "connecting"
-        case .waitingForPicture: "waitingForPicture"
-        case .failed: "failed"
-        case .ended: "ended"
-        case .hubConnect: "hubConnect"
-        case .hubRequesting: "hubRequesting"
-        case .hubWaiting: "hubWaiting"
-        case .hubDeclined: "hubDeclined"
-        case .hubRefused: "hubRefused"
-        case .hubRevoked: "hubRevoked"
-        case .hubAccessLowered: "hubAccessLowered"
-        case .hubEnded: "hubEnded"
-        }
-    }
+    /// The case's name, as Rust's `card.*` ops name a card kind and a refusal.
+    private var kind: String { rdCaseName(self) }
 
     /// The scope a request card names.
     var scope: SessionScope? {
@@ -437,15 +422,10 @@ extension MacScreenCard {
 
 extension MacScreenHubRefusal {
     /// The refusal's name in Rust's `card.*` ops.
-    var rdName: String {
-        switch self {
-        case .permissionNone: "permissionNone"
-        case .scopeExceeds: "scopeExceeds"
-        case .hostOffline: "hostOffline"
-        case .notShared: "notShared"
-        case .notFound: "notFound"
-        case .notSignedIn: "notSignedIn"
-        case .other: "other"
-        }
-    }
+    var rdName: String { rdCaseName(self) }
+}
+
+/// An enum case's name (`.hubRefused(…)` → "hubRefused"): the names Swift's cases and Rust's ops share.
+private func rdCaseName(_ value: some Any) -> String {
+    Mirror(reflecting: value).children.first?.label ?? String(describing: value)
 }

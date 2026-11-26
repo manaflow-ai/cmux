@@ -21,14 +21,21 @@ public nonisolated enum MacScreenViewerLook: String, Sendable, CaseIterable, Has
         }
     }
 
+    @MainActor private static var rdStyles: [MacScreenViewerLook: [String: Any]] = [:]
+
     /// What this look decides. A look is one value: the pane, toolbar and card read it, nothing else branches on the case.
+    /// Rust's `viewerLook.style` decides the fields; Swift adds the look's materials, which are views.
     @MainActor var style: MacScreenViewerStyle {
+        // A look's fields never change while the app runs: Rust is asked once per look, not on every layout.
+        let rd = Self.rdStyles[self] ?? RdUI.call("viewerLook.style", ["look": rawValue]) as? [String: Any] ?? [:]
+        Self.rdStyles[self] = rd
+        var style = MacScreenViewerStyle(rd: rd)
         switch self {
-        case .current: .current
-        case .a: .lookA
-        case .b: .lookB
-        case .c: .lookC
+        case .a: style.toolbarSurface = { MacScreenLookA.glass(cornerRadius: $0) }
+        case .c: style.makeToolbarSurface = { MacScreenViewerLookC.pillSurface() }
+        case .current, .b: break
         }
+        return style
     }
 }
 
@@ -133,13 +140,49 @@ struct MacScreenViewerStyle {
 
     /// The pane as shipped.
     static var current: MacScreenViewerStyle { MacScreenViewerStyle() }
+
+    /// The style Rust's `viewerLook.style` answers (its field names; a `Metrics` token or points for a length).
+    init(rd: [String: Any]) {
+        func points(_ value: Any?) -> CGFloat? {
+            switch value {
+            case let number as Double: CGFloat(number)
+            case "space4" as String: Metrics.space4
+            case "space5" as String: Metrics.space5
+            case "surfaceCornerRadius" as String: Metrics.surfaceCornerRadius
+            case let text as String: Double(text).map { CGFloat($0) }
+            default: nil
+            }
+        }
+        func flag(_ key: String) -> Bool { rd[key] as? Bool ?? false }
+        toolbarPlacement = rd["toolbarPlacement"] as? String == "floating" ? .floating : .topBar
+        toolbarFilled = rd["toolbarFilled"] as? Bool ?? true
+        toolbarCornerRadius = points(rd["toolbarCornerRadius"]) ?? 0
+        toolbarInset = points(rd["toolbarInset"]) ?? 0
+        backdrop = switch rd["backdrop"] as? String { case "page": .page; case "chrome": .chrome; default: .black }
+        pictureCornerRadius = points(rd["pictureCornerRadius"]) ?? 0
+        pictureShadow = flag("pictureShadow")
+        cardCornerRadius = points(rd["cardCornerRadius"])
+        cardFill = rd["cardFill"] as? String == "page" ? \.page : \.popup
+        cardBordered = rd["cardBordered"] as? Bool ?? true
+        statusStrip = flag("statusStrip")
+        toolbarLayout = rd["toolbarLayout"] as? String == "pill" ? .pill : .bar
+        cardLayout = rd["cardLayout"] as? String == "fullPane" ? .fullPane : .standard
+        cardWidth = points(rd["cardWidth"])
+        cardVeilOpacity = points(rd["cardVeilOpacity"]) ?? 0
+        quietOutage = flag("quietOutage")
+        toolbarRowHeight = points(rd["toolbarRowHeight"])
+        toolbarScopeSegments = flag("toolbarScopeSegments")
+        toolbarAutoHide = flag("toolbarAutoHide")
+        pictureMarks = flag("pictureMarks")
+        outageKeepsPicture = flag("outageKeepsPicture")
+        cardQuietTransient = flag("cardQuietTransient")
+    }
 }
 
 extension MacScreenPaneModel {
     /// A stall over a shown picture that the look keeps quiet (``MacScreenViewerStyle/quietOutage``): the picture
     /// stays, the card does not show, input still waits for the picture to come back.
     var isQuietOutage: Bool {
-        guard viewerLook.style.quietOutage, isLive, hasFrame, case .connecting(reconnecting: true)? = card else { return false }
-        return true
+        RdUI.call("viewerLook.isQuietOutage", rdState()) as? Bool ?? false
     }
 }
