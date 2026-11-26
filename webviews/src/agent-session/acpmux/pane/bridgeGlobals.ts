@@ -44,8 +44,6 @@ declare global {
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
       applySidebarPreviewVariant?(variant: unknown): void;
       /// Claude Code desktop's in-session status (the live plan card) on or off: the
-      /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
-      applySessionStatus?(on: boolean): void;
       /// Settings > Advanced > Experiments: every `experiments.*` switch as one object
       /// (`{"glassToolbarGroups": true}`), each off by default (experiments/switches.ts).
       applyExperiments?(value: unknown): void;

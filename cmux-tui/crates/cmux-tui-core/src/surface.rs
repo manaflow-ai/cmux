@@ -1080,7 +1080,12 @@ impl Surface {
     pub(crate) fn runs_on_holder(&self) -> bool {
         self.as_pty().is_some_and(|pty| {
             let runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. })
+            #[cfg(unix)]
+            let on_holder = matches!(&*runtime, PtyRuntime::Local { holder: Some(_), .. });
+            // Windows has no holder process: its terminals run in the daemon or a host.
+            #[cfg(not(unix))]
+            let on_holder = false;
+            on_holder
         })
     }
 

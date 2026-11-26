@@ -94,6 +94,13 @@ const WORDS: Record<string, StringKey> = {
   "status.sendsHeld.held": "status.sendsHeld.held",
 };
 
+/// A link coming back on its own: silent, from the dot as from the machine row (Leo, 2026-11-24:
+/// "let's just keep optimistically connecting and reinforcing the connection"). acpmux sends none of
+/// these now (composer_status.rs `machine_link_item`); an older one still may. A pattern over the
+/// words acpmux sends, not copy: nothing here is ever drawn.
+const SELF_HEALING =
+  /^status\.(?:machineLink\.(?:connecting|reconnecting|degraded|restarting)|agentService\.reconnecting)$/;
+
 /// The catalog key an item draws: undefined for words this build does not know and, given `now`, for
 /// an item not yet due (`statusDueAt`).
 export function statusWordsKey(
@@ -129,6 +136,8 @@ export function readStatusItem(value: unknown): StatusItem | undefined {
   const raw = record(value);
   if (!raw || typeof raw.kind !== "string" || !KINDS.has(raw.kind)) return undefined;
   if (typeof raw.level !== "string" || !LEVELS.has(raw.level) || typeof raw.words !== "string") return undefined;
+  // An older acpmux still sends a link on its way back; it says nothing here either.
+  if (SELF_HEALING.test(raw.words)) return undefined;
   const item: StatusItem = { kind: raw.kind as StatusKind, level: raw.level as StatusLevel, words: raw.words };
   const subject = text(raw.subject);
   if (subject !== undefined) item.subject = subject;
@@ -216,12 +225,12 @@ export type HostRecovery = {
 /// The pane's own recovery as a dot item, under HostRecoveringLine's rule (hostRetry.ts
 /// `hostRecoveryLine`): it follows the connection's state, never a clock (Leo, 2026-11-22: "surely we
 /// can think of better fixes than random timing which can shift"). "Restoring sessions…" while the
-/// host says acpmux restores, else "Reconnecting…" while the link is down for real; nothing while a
-/// failure the pane already says covers it. No `wakeAt`: only a new state changes the answer.
+/// host says acpmux restores; a link coming back says nothing (Leo, 2026-11-24: "let's just keep
+/// optimistically connecting"), nor does a failure the pane already says. No `wakeAt`: only a new
+/// state changes the answer.
 export function hostRecoveryItem(host: HostRecovery | undefined, now: number): { item?: StatusItem; wakeAt?: number } {
   const line = host && hostRecoveryLine({ ...host, now });
-  if (!line) return {};
-  if (line.kind === "restoring") {
+  if (line?.kind === "restoring") {
     return {
       item: {
         kind: "restoringSessions",
@@ -231,7 +240,7 @@ export function hostRecoveryItem(host: HostRecovery | undefined, now: number): {
       },
     };
   }
-  return { item: { kind: "agentService", level: "info", words: "status.agentService.reconnecting" } };
+  return {};
 }
 
 /// A send the composer holds until acpmux answers (sendWhenReady.ts), as a dot item.

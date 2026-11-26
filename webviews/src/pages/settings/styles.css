@@ -1458,43 +1458,62 @@ mark {
   max-width: var(--page-size-160);
 }
 
-/* Settings > Connections (ConnectionsCard): the catalog as a grid of tiles in rank order, each with
-   its title and status on one line, one line about it, and its button at the bottom. */
+/* Settings > Connections (ConnectionsPanel.tsx): the catalog as a grid of tiles in rank order, each with
+   its mark, title and status pill on one line, one line about it, and its button at the bottom. */
 .connections-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--page-size-240), 1fr));
   gap: var(--ds-space-2);
 }
 
+/* Each tile is the pane's connect card (acpmux/ConnectCard.tsx, claudeConnect.css): its pane colours
+   from this page's, as the plan usage card's are (.harness-account-usage). */
 .connections-tile {
+  --agent-text: var(--text);
+  --agent-muted: var(--muted-text);
+  --agent-border: var(--border);
+  --agent-accent: var(--cmux-accent, var(--text));
+  --agent-danger: var(--danger);
   display: flex;
-  flex-direction: column;
-  gap: var(--ds-space-1);
   min-width: 0;
+}
+
+.connections-tile > .acpmux-connect-card {
+  flex: 1;
   padding: var(--ds-space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-radius-lg);
+  border-color: var(--border);
   background: var(--input-bg);
+}
+
+.connections-tile .acpmux-connect-card__actions {
+  margin-top: auto;
+}
+
+.connections-tile .acpmux-connect-card__details .row-help {
+  white-space: normal;
+}
+
+.connections-monogram {
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: var(--ds-space-5);
+  height: var(--ds-space-5);
+  border-radius: var(--ds-radius-control);
+  background: color-mix(in srgb, var(--muted-text) 18%, transparent);
+  font-weight: 600;
+  font-size: var(--text-detail);
+}
+
+.connections-confirm {
+  display: flex;
+  flex-basis: 100%;
+  flex-direction: column;
+  gap: var(--ds-space-2);
 }
 
 .connections-tile[data-connections-state="unavailable"] {
   opacity: 0.7;
-}
-
-.connections-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--ds-space-2);
-}
-
-.connections-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--ds-space-2);
-  margin-top: auto;
-  padding-top: var(--ds-space-2);
 }
 
 .connections-key {
@@ -1513,6 +1532,44 @@ mark {
   display: flex;
   align-items: center;
   gap: var(--ds-space-2);
+}
+
+/* Settings > Connections, on top (AllConnections.tsx): every connection as one compact row, its
+   title and kind, its status pill and its one action. */
+.all-connections-list {
+  display: flex;
+  flex-direction: column;
+  margin: var(--ds-space-2) 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-lg);
+  list-style: none;
+}
+
+.all-connections-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-1) var(--ds-space-3);
+}
+
+.all-connections-row + .all-connections-row {
+  border-top: 1px solid var(--border);
+}
+
+.all-connections-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.all-connections-title,
+.all-connections-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Settings > Devices: tones reuse the Accounts status dot; the history is a compact table. */
@@ -3119,6 +3176,175 @@ button.menu-disclosure {
   align-self: flex-end;
 }
 
+/* Settings > Appearance > Looks (LooksGalleryCard): a grid of look tiles, each its golden sample in
+   a fixed 16:10 frame (the frame holds its size before the image arrives, so tiles never move), its
+   name and tagline, then Install or its switch and Uninstall. The Stacked list under it is the
+   installed looks top first, one Settings row each. */
+.looks-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.looks-hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+}
+
+.looks-rail {
+  display: grid;
+  grid-auto-columns: minmax(180px, 1fr);
+  grid-auto-flow: column;
+  gap: var(--ds-space-3);
+  overflow-x: auto;
+}
+
+.looks-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.looks-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-lg);
+}
+
+.looks-tile[data-size="row"] {
+  flex-direction: row;
+  align-items: center;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 0;
+  border-radius: 0;
+}
+
+.looks-tile[data-size="row"] + .looks-tile[data-size="row"] {
+  border-top: 1px solid var(--ds-color-separator);
+}
+
+.looks-preview {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border: 1px solid var(--ds-color-separator);
+  border-radius: var(--ds-radius-md);
+}
+
+.looks-tile[data-size="row"] .looks-preview {
+  flex: none;
+  width: 96px;
+}
+
+.looks-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.looks-preview-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.looks-tile-body {
+  display: flex;
+  flex: 1;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.looks-tile[data-size="row"] .looks-tile-body {
+  align-items: center;
+}
+
+/* In a tile the text takes the whole width and the controls sit under it, Install or the switch
+   leading and Uninstall trailing, so a long name never squeezes beside them. */
+.looks-tile:not([data-size="row"]) .looks-tile-body {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.looks-tile:not([data-size="row"]) .looks-controls {
+  justify-content: space-between;
+}
+
+.looks-tile-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.looks-tagline {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.looks-controls {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.looks-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.looks-sheet {
+  margin: var(--ds-space-3);
+}
+
+.looks-changes {
+  margin: 0;
+  padding-inline-start: var(--ds-space-4);
+  color: var(--ds-color-muted);
+}
+
+.looks-replaces,
+.looks-unreviewed {
+  color: var(--ds-color-attention);
+}
+
+.looks-stacked {
+  margin-top: var(--ds-space-3);
+}
+
+.looks-position {
+  flex: none;
+  min-width: var(--ds-space-4);
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.looks-source {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+[data-looks-layer]:not([data-on]) :is(.row-title, .looks-source) {
+  opacity: 0.55;
+}
+
 /* A search no setting matches (AskCmuxRow.tsx): the words become a wish for the Customize chat.
    One row under "No settings match.", a hover fill on its own box like a result row, the words
    quoted under the action; Return in the search does the same. */
@@ -4006,6 +4232,16 @@ button.menu-disclosure {
 .customize-progress__ring-fill {
   stroke: var(--ds-color-accent);
   stroke-linecap: round;
+}
+
+/* Add a Connection > Claude Code's Paste a token instead: a collapsed disclosure in the help line's
+   type under Connect Claude, the paste form inside it once opened. */
+.models-claude-paste > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.models-claude-paste[open] > summary {
+  margin-bottom: 8px;
 }
 
 /* Settings > General's Replay the Intro card (ReplayIntroCard), right under Text Size: a line and a button that
