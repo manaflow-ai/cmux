@@ -5,9 +5,9 @@ Today every web update downloads the whole web bundle archive (about 17 MB). Und
 client holding the previous bundle tree fetches only the FastCDC chunks it lacks. This script
 replays that over the real feat-cmux-next publishes, with no network beyond fetching them:
 
-  1. fetch: the newest N successful push runs of cmux-next-web-bundle-publish.yml that built a
-     bundle (a run whose key was already published uploads none), via their
-     `cmux-next-web-bundles` artifact (archive plus manifest.json; kept 3 days).
+  1. fetch: the newest N `cmux-next-web-bundles` artifacts from feat-cmux-next runs of
+     cmux-next-web-bundle-publish.yml (archive plus manifest.json; kept 3 days), named by one
+     artifacts list call, then one download each.
   2. unpack each archive with scripts/cmux-next/web-bundle-archive.py unpack.
   3. run `cas-replay --archive-bytes SIZE... DIR...` (cmux-tui/crates/cmux-cas), oldest first:
      one JSON row per consecutive pair (1 merge behind) and one for oldest to newest.
@@ -28,39 +28,51 @@ import os
 import statistics
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-WORKFLOW = "cmux-next-web-bundle-publish.yml"
 ARTIFACT = "cmux-next-web-bundles"
 
 
-def api(path, token, raw=False):
+def api(path, token, raw=False, tries=6):
+    """GET one GitHub API path. A rate-limit 403/429 waits for its reset (at most 10 min each)
+    and retries; any other HTTP error raises with GitHub's message."""
     url = path if path.startswith("https://") else f"https://api.github.com/{path}"
     req = urllib.request.Request(url, headers={
         "Authorization": f"Bearer {token}",
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     })
-    with urllib.request.urlopen(req, timeout=120) as r:
-        body = r.read()
-    return body if raw else json.loads(body)
+    for attempt in range(tries):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as r:
+                body = r.read()
+            return body if raw else json.loads(body)
+        except urllib.error.HTTPError as e:
+            msg = e.read()[:500].decode("utf-8", "replace")
+            h = e.headers
+            limited = e.code == 429 or (e.code == 403 and (
+                h.get("retry-after") or h.get("x-ratelimit-remaining") == "0" or "rate limit" in msg))
+            if not limited or attempt == tries - 1:
+                raise SystemExit(f"GET {url}: HTTP {e.code}: {msg}")
+            wait = int(h.get("retry-after") or 0) or max(5, int(h.get("x-ratelimit-reset") or 0) - int(time.time()))
+            wait = min(wait, 600)
+            print(f"GET {url}: rate limited (HTTP {e.code}), retrying in {wait}s", file=sys.stderr)
+            time.sleep(wait)
 
 
 def fetch(repo, token, count, work):
-    """Download the newest `count` bundle artifacts; return their run dirs, oldest first."""
-    runs = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs"
-               f"?branch=feat-cmux-next&event=push&status=success&per_page=100", token)["workflow_runs"]
+    """Download the newest `count` feat-cmux-next bundle artifacts; return their run dirs, oldest
+    first. One list call names them all (a run whose key was already published uploads none)."""
+    arts = api(f"repos/{repo}/actions/artifacts?name={ARTIFACT}&per_page=100", token)["artifacts"]
+    arts = [a for a in arts if not a["expired"] and (a.get("workflow_run") or {}).get("head_branch") == "feat-cmux-next"]
+    arts.sort(key=lambda a: a["created_at"], reverse=True)
     got = []
-    for run in runs:
-        if len(got) >= count:
-            break
-        arts = api(f"repos/{repo}/actions/runs/{run['id']}/artifacts", token)["artifacts"]
-        art = next((a for a in arts if a["name"] == ARTIFACT and not a["expired"]), None)
-        if art is None:
-            continue
-        d = os.path.join(work, "runs", f"{run['created_at']}-{run['id']}")
+    for art in arts[:count]:
+        d = os.path.join(work, "runs", f"{art['created_at']}-{art['workflow_run']['id']}")
         if not glob.glob(os.path.join(d, "web-bundles-*.tar.gz")):
             os.makedirs(d, exist_ok=True)
             z = os.path.join(d, "a.zip")
