@@ -63,6 +63,7 @@ pub mod history_search;
 pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
+#[cfg(unix)]
 pub mod projection_ns;
 /// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
 #[cfg(unix)]
