@@ -320,8 +320,8 @@ final class AppServices {
                   let host = cache.existingTerminal(tab.id)?.session.view else { return nil }
             return (tab.id, host)
         }, place: { [weak self] in self?.cmuxRemote.sendComputerUsePreview(session: $0, update: $1) }, controls: { [weak self] in self?.settings?.snapshot.previewFeatures == true })
-        // A chat's page made after its agent started using an app gets the card then.
-        agentTabs.onTabSession = { [weak router] in router?.replayChats() }
+        agentTabs.onTabSession = { [weak router] in router?.replayChats() } // a chat's page made after its agent started using an app gets the card then
+        ComputerUseFloatingPreview().follow(daemon.store, menu: menuBarExtra) { [weak self] in self?.settings?.snapshot.computerUse.floatingPreview ?? false }
         return router
     }
 
