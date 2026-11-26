@@ -233,10 +233,9 @@ fn warn_is_one_word_and_shows_only_while_a_row_has_one() {
     // Warnings as the daemon decides them (`hub/usage_warnings.rs`), for a row named `big`.
     let stats = json!({"autocompact": "none", "contextTokens": 955_000, "subagents1h": 90});
     let summary = json!({"name": "big", "status": "idle", "family": "claude", "usageStats": stats});
-    let warnings = crate::hub::usage_warnings::usage_warnings(
-        &summary,
-        &crate::config::UsageLimits::default(),
-    );
+    // The no-cap rule is opt-in (`usageWarnings.autocompactCap`); turned on here to draw all three.
+    let limits = crate::config::UsageLimits { autocompact_cap: true, ..Default::default() };
+    let warnings = crate::hub::usage_warnings::usage_warnings(&summary, &limits);
     let warned = with(lane("big"), json!({"usageWarnings": warnings}));
     let out = compact(&[lane("a"), warned.clone()]);
     assert!(out.lines().next().unwrap().ends_with("WARN"), "{out}");
