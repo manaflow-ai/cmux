@@ -109,6 +109,10 @@ path = "tests/test_cas_derived_data_replay.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cas_mac_update_replay.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cas_web_ota_replay.py"
 lane = "linux-guard"
 
@@ -162,6 +166,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_crash_ratchet_compare.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cu_driver_eval_pins.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cu_driver_eval_pins.py"
 
 [[test]]
 path = "tests/test_dead_code_stripping.py"
@@ -365,6 +374,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_iroh_monitor_simulator_plan.py"
 lane = "legacy"
+
+[[test]]
+path = "tests/test_iroh_transport_lock_pins_iroh_ffi.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_iroh_transport_lock_pins_iroh_ffi.py"
 
 [[test]]
 path = "tests/test_job_input_fingerprint.py"
@@ -614,6 +628,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_payload_advisories.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pinned_files_mirror.py"
 lane = "linux-guard"
 
 [[test]]
