@@ -38,6 +38,20 @@ export interface LiveResizeClock {
   steps: number;
   /// When the last width step's own work finished: the render it forced and the measuring with it.
   served?: number;
+  /// When the width last held and the resize settled.
+  settled?: number;
+}
+
+/// How soon after a settle a new width resumes the drag instead of starting a new one. A hand that
+/// pauses on a divider for a few hundred ms and moves on is still dragging: started again, its next
+/// two widths were steps before flow, each laying out rows at a new width (Leo's 2026-11-18
+/// recording paused this way and stalled 0.9-1.5 s at each pause).
+export const LIVE_RESUME_MS = 1000;
+
+/// Whether a width arriving at `now`, after the last live resize settled, takes that drag up again.
+export function resumesLiveResize(clock: LiveResizeClock, now: number, window = LIVE_RESUME_MS): boolean {
+  if (clock.settled === undefined) return false;
+  return now - clock.settled < window;
 }
 
 /// Whether a width arriving at `now` continues the live resize `clock` describes.
@@ -54,4 +68,17 @@ export function continuesLiveResize(clock: LiveResizeClock, now: number, window 
 export function stepLiveResize(clock: LiveResizeClock, now: number, window = LIVE_RESIZE_MS): LiveResizeClock {
   const live = continuesLiveResize(clock, now, window);
   return { ...clock, at: now, steps: live ? clock.steps + 1 : 0 };
+}
+
+/// What the transcript kept of its last layout, as far as a width change reads it.
+export interface LaidOutWidth {
+  sessionId?: string;
+  width: number;
+  partial?: boolean;
+}
+
+/// Whether the chat's last layout was at another width (or only partly laid out), so the rows away
+/// from the view keep their last heights until they come near it.
+export function widthChanged(last: LaidOutWidth | undefined, sessionId: string | undefined, width: number): boolean {
+  return last !== undefined && last.sessionId === sessionId && (last.width !== width || last.partial === true);
 }

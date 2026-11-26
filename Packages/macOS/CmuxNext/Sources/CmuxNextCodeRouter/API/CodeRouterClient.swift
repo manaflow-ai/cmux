@@ -1,3 +1,4 @@
+public import CmuxEgress
 import CmuxNextCloud
 public import Foundation
 
@@ -48,7 +49,7 @@ public struct CodeRouterClient: Sendable {
     let timeout: Duration
 
     public init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, labeler: @escaping Labeler,
-                session: URLSession = .shared, timeout: Duration = .seconds(15),
+                session: URLSession = CmuxEgress.shared(site: "CmuxNextCodeRouter.CodeRouterClient"), timeout: Duration = .seconds(15),
                 scopeValidator: ScopeValidator? = nil) {
         self.baseURL = baseURL
         self.tokens = tokens

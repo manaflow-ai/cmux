@@ -53,6 +53,10 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// `experiments.agentBadges`: an agent chat tab's count pill and its reserved slot (TabCell+CountPill). Read
     /// with the tokens, so a change relays the strip out (`startObservingTokens`).
     public var agentBadges: AgentBadgesExperiment = .off
+    /// `experiments.terminalAgentMark` (off by default): a terminal agent's tab draws its mark on the soft rounded
+    /// square (`TabIcon.terminalAgentMark`); off, it draws the bare mark as a GUI agent chat does. Read with the tokens,
+    /// so flipping the switch redraws the strip live.
+    public var terminalAgentMarks = false
 
     public var stripHeight: CGFloat
     public var tabHeight: CGFloat
@@ -233,6 +237,7 @@ public struct TabStripMetrics: Equatable, Sendable {
         separatorOpacity = TabTunables.separatorOpacity.value
         showsPinnedDivider = TabTunables.pinnedDivider.value
         agentBadges = DesignSettings.shared.agentBadges
+        terminalAgentMarks = DesignSettings.shared.terminalAgentMarks
     }
 
     /// Token-derived metrics for the current density.

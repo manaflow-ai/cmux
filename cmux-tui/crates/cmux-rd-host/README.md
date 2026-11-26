@@ -192,23 +192,28 @@ systemctl --user daemon-reload && systemctl --user enable --now cmux-screen-host
 - Relays the person added by hand are sealed to the device's agreement key and not opened
   yet: the host uses the hub's ICE servers.
 
-## Windows PC on the device hub (lists and captures; viewing is next)
+## Windows PC on the device hub
 
-A Windows PC joins the person's devices as a `windows` device with the same hub client as
-the Linux host (`src/screen_host/`). In the signed-in user's session (not a service):
+A Windows PC joins the person's devices as a `windows` device and serves viewing sessions
+with the Linux host's hub client, consent and session code (`src/screen_host/`). In the
+signed-in user's session (not a service):
 
 ```powershell
-cmux-rd windows-host enable --stack-token-file $env:APPDATA\cmux\stack-token
+cmux-rd windows-host enable --stack-token-file $env:APPDATA\cmux\stack-token [--allow-control]
+cmux-rd windows-host run
 schtasks /Create /SC ONLOGON /TN cmux-screen-host /TR "C:\path\cmux-rd.exe windows-host run"
 cmux-rd windows-host status
 ```
 
+- `enable` registers, anchors, turns sharing on and downloads Cisco's OpenH264. Control
+  (SendInput) needs `--allow-control`; without it every session is view only.
+- `run` holds the hub socket and serves each approved session through a `cmux-rd serve`
+  child (`src/windows_serve.rs`: GDI capture, OpenH264, the secure link). Viewers the person
+  has not allowed wait for `requests`, `approve SESSION [--always]` or `deny SESSION`.
 - Keys and account in `%APPDATA%\cmux\screen-host\`, run state in
-  `%LOCALAPPDATA%\cmux\screen-host\run\`; `run` holds the hub socket (online) and records a
-  capture of this desktop (GDI) that `status` prints.
-- It serves no session yet: `cmux-rd serve` and the secure link have no Windows port, so the
-  host leaves sharing off (`share on` says why) and closes any session the hub hands it. The
-  plan, capture and input backends, and what Windows itself blocks (UAC, lock screen):
+  `%LOCALAPPDATA%\cmux\screen-host\run\`.
+- `cmux-rd windows-serve-selftest [--scope view|control]` runs one session against a viewer
+  on the same PC, no hub. What Windows itself blocks (UAC, lock screen):
   `docs/device-hub/windows-host.md`.
 
 ## Build

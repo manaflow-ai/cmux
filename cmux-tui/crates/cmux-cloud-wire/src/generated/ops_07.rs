@@ -5,6 +5,38 @@
 use super::*;
 
 wire_op! {
+    /// Enroll the calling install's machine as a host in the team directory.
+    HostEnrollOp {
+        name: "host.enroll",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Install],
+        params: HostEnrollParams,
+        result: Host,
+        error: HostEnrollError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HostEnrollParams {
+    pub name: String,
+    pub platform: Platform,
+}
+
+wire_errors! {
+    /// The error codes host.enroll declares.
+    HostEnrollError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Bind the calling client install's own host to a network device using a fresh policy read signed by that install key. Verify the authoritative team tenant and both public keys. This records identity only; current transport policy and serving permissions remain separate.
     HostNetworkBindOp {
         name: "host.network.bind",
@@ -711,6 +743,8 @@ pub struct IntegrationCompleteParams {
     pub installation_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub setup_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions_oidc: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -864,32 +898,6 @@ pub struct IntegrationListResult {
 wire_errors! {
     /// The error codes integration.list declares.
     IntegrationListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Read the team's integration policy (allowed providers, GitHub repository scope).
-    IntegrationPolicyGetOp {
-        name: "integration.policy.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:ConnectionDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: IntegrationPolicyGetParams,
-        result: TeamIntegrationPolicy,
-        error: IntegrationPolicyGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationPolicyGetParams {}
-
-wire_errors! {
-    /// The error codes integration.policy.get declares.
-    IntegrationPolicyGetError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
     }

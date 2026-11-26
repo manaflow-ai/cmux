@@ -17,7 +17,7 @@ const prompt = (clientId: string, text: string, state: GuestPrompt["state"], rea
   ...(reason ? { reason } : {}),
 });
 
-const page = (prompts: GuestPrompt[]): GuestPageProps => ({
+const page = (prompts: GuestPrompt[], owner = "Sam Rivera"): GuestPageProps => ({
   shareId: SHARE,
   guestId: "g1",
   role: "talk",
@@ -27,17 +27,33 @@ const page = (prompts: GuestPrompt[]): GuestPageProps => ({
   attempt: () => "0".repeat(32),
   socketUrl: "wss://room.invalid/v1/chat-shares/c2hhcmUtZ2FsbGVyeQ/guest",
   openSocket: fakeRoom(
-    joinFrames(
-      workingRecords(),
-      undefined,
-      prompts.map((each) => ({
-        client_id: each.clientId,
-        state: each.state,
-        ...(each.reason ? { reason: each.reason } : {}),
-      })),
+    withOwner(
+      owner,
+      joinFrames(
+        workingRecords(),
+        undefined,
+        prompts.map((each) => ({
+          client_id: each.clientId,
+          state: each.state,
+          ...(each.reason ? { reason: each.reason } : {}),
+        })),
+      ),
     ),
   ),
 });
+
+/** The room's frames with the owner renamed (a long name's variant). */
+const withOwner = (name: string, frames: object[]) =>
+  frames.map((frame) =>
+    "participants" in frame
+      ? {
+          ...frame,
+          participants: (frame.participants as { kind: string }[]).map((person) =>
+            person.kind === "owner" ? { ...person, name } : person,
+          ),
+        }
+      : frame,
+  );
 
 export default componentEntry<GuestPageProps>({
   id: "guest-page.waiting",
@@ -46,8 +62,8 @@ export default componentEntry<GuestPageProps>({
   keywords: ["multiplayer", "share", "guest", "held", "approve", "composer"],
   covers: ["agent-session/guest/GuestComposer.tsx", "agent-session/guest/GuestPage.tsx"],
   height: 760,
-  // A phone browser at narrow.
-  widths: { narrow: 390 },
+  // A phone browser at narrow; the smallest phones (280, 320) at normal and wide.
+  widths: { narrow: 390, normal: 280, wide: 320 },
   pane: true,
   load: () => import("./GuestPage").then((module) => module.GuestPage),
   variants: {
@@ -65,6 +81,20 @@ export default componentEntry<GuestPageProps>({
         prompt("c3", "And bump the timeout to 30 s", "refused", "share.too_many_held"),
       ]),
       note: "Decided messages, one quiet line each: sent, declined, and refused with a reason.",
+    },
+    refused: {
+      props: page([
+        prompt("c1", "Can you run it on the CI image too?", "approved"),
+        prompt("c2", "Could the test use a fake clock instead of real sleeps?", "refused"),
+      ]),
+      note: "A message the room did not take: Not sent, with a quiet Try again that sends it again.",
+    },
+    "long-owner": {
+      props: page(
+        [prompt("c1", "Could the test use a fake clock instead of real sleeps?", "held")],
+        "Maximiliana Alexandrovna Bartholomew-Featherstonehaugh Kowalczyk",
+      ),
+      note: "A 64-character owner name: the header's Shared by and the held message's Waiting for cut at the end.",
     },
   },
 });

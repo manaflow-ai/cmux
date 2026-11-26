@@ -2,6 +2,7 @@
 // these to behave like it, and the page uses them to refuse a bad field value before sending.
 import { isPlacementMap } from "./backgroundPlacement";
 import { parseThemeSpec } from "./themeSpec";
+import { UI_FONT_VALIDATION } from "./fontPickerModel";
 import type { Domains } from "./ops";
 import type { SchemaRow } from "./schema";
 
@@ -65,6 +66,12 @@ function inRange(row: SchemaRow, value: unknown): boolean {
     Number.isFinite(value) &&
     (range === undefined || (value >= range.min && value <= range.max))
   );
+}
+
+/** The installed families a font row takes: every family for the App Font (`domain:ui_font_family`),
+ * the fixed-pitch ones for the rest. */
+export function fontNames(validation: string | undefined, domains: Partial<Domains> | undefined): string[] | undefined {
+  return validation === UI_FONT_VALIDATION ? domains?.ui_font_families : domains?.font_families;
 }
 
 function inDomain(list: string[] | undefined, value: unknown): boolean {
@@ -355,7 +362,7 @@ export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domai
       if (row.default !== null && value === row.default) return null;
       return themeInDomain(domains?.themes, value) ? null : "unknown theme";
     case "font_family":
-      return inDomain(domains?.font_families, value) ? null : "unknown font family";
+      return inDomain(fontNames(row.validation, domains), value) ? null : "unknown font family";
     case "text":
       return typeof value === "string" ? null : "expected text";
     case "sound":

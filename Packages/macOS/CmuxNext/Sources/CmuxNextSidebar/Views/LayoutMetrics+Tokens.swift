@@ -25,7 +25,8 @@ extension SidebarLayoutMetrics {
         // A chat's subagent lines take a row's height, as the Code tab's nested tasks do; the stacked line a
         // detail line's (`SidebarLayoutMetrics.subagentsHeight`).
         metrics.subagentLineHeight = row
-        metrics.subagentStackHeight = pitch.line + Metrics.space1
+        // Never under the mark stack's cell, so the chips' rings are not cut at the line's edges.
+        metrics.subagentStackHeight = max(pitch.line + Metrics.space1, RowBadgeView.glyphSide + 2 * RowBadgeView.stackCellPad)
         return metrics
     }
 
