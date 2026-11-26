@@ -243,8 +243,7 @@ final class SidebarBridge {
         let isLaunchWindow = windows.controllers.isEmpty && windows.restoresSession(state.id)
         let saved = services.sidebarSnapshots.launchDocument.snapshot(for: state.id, fallback: isLaunchWindow)
         seed = SidebarSeed(sections: saved?.sidebarSections ?? [], grace: seed.grace.rerunning(sameTurn), connecting: seed.connecting.rerunning(sameTurn))
-        // Collapsed sections: this window's view state, saved only in its sidebar snapshot.
-        model.collapsedSections = Set((saved?.sidebarSections ?? []).filter(\.isCollapsed).map(\.id))
+        model.seedView(from: saved, documentShown: services.sidebarDoc.drag(room: state.profileID.rawValue) != nil)
         let savedSpaces = saved.flatMap { $0.profiles.isEmpty ? nil : $0 }
         if let savedSpaces { seededProfiles = (savedSpaces.sidebarProfiles, savedSpaces.sidebarActiveProfileID) }
         // No saved spaces (each new window): the store's, by the rows pass's own function, so the first frame has the space bar. Not `seededProfiles`: the pass keeps those while a launch lists none.
@@ -266,6 +265,7 @@ final class SidebarBridge {
         model.docDrag = services.sidebarDoc.drag(room: state?.profileID.rawValue) // the document's drag half, nil keeps the older resolver
         if let id = state?.id { model.docDrag?.listedElsewhere = WorkspaceLayoutRefs(machines: services.machines).listedElsewhere(window: id, registry: services.windows.registry) }
         model.ungroupedFirst = model.docDrag == nil && !usesMixedOrder
+        if !launching { model.awaitsDocument = false } // the launch ended without the document
         if model.layout != layout { model.layout = layout; sectionsPass?.ensureValues() } // a new pin has its value in this turn
         // A pass that lists what the rows show already (a daemon reorder the personal or document order hides, a store
         // snapshot laid over again) sets no sections: no arrange and compare of every row in the main thread's frame.
