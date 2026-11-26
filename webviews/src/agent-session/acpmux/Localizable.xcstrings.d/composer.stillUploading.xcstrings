@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "unavailable.reconnect" : {
-      "comment" : "Agent pane: button on an offline chat; checks the machine and the chat again",
+    "composer.stillUploading" : {
+      "comment" : "Agent pane: the tooltip of an attachment still loading whose upload failed for a while and is being tried again on its own (no button); the next line is the upload's error. {name} is the file",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "إعادة الاتصال"
+            "value" : "ما زلنا نحاول رفع {name}…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ponovo poveži"
+            "value" : "Još pokušavamo otpremiti {name}…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Opret forbindelse igen"
+            "value" : "Prøver stadig at uploade {name}…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Erneut verbinden"
+            "value" : "{name} wird weiter hochzuladen versucht…"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Reconnect"
+            "value" : "Still trying to upload {name}…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Volver a conectar"
+            "value" : "Seguimos intentando subir {name}…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Se reconnecter"
+            "value" : "Nouvelle tentative d’envoi de {name} en cours…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Riconnetti"
+            "value" : "Stiamo ancora provando a caricare {name}…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "再接続"
+            "value" : "{name} のアップロードを引き続き試しています…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ភ្ជាប់ឡើងវិញ"
+            "value" : "នៅតែព្យាយាមផ្ទុកឡើង {name}…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "다시 연결"
+            "value" : "{name} 업로드를 계속 시도하는 중…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Koble til igjen"
+            "value" : "Prøver fortsatt å laste opp {name}…"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Połącz ponownie"
+            "value" : "Nadal próbujemy przesłać {name}…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Reconectar"
+            "value" : "Ainda tentando enviar {name}…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Переподключить"
+            "value" : "Продолжаем пытаться загрузить {name}…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เชื่อมต่อใหม่"
+            "value" : "ยังคงพยายามอัปโหลด {name}…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Yeniden Bağlan"
+            "value" : "{name} yüklenmeye çalışılmaya devam ediliyor…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Під'єднати знову"
+            "value" : "Досі намагаємося завантажити {name}…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kết nối lại"
+            "value" : "Vẫn đang thử tải lên {name}…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "重新连接"
+            "value" : "仍在尝试上传 {name}…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "重新連線"
+            "value" : "仍在嘗試上傳 {name}…"
           }
         }
       }

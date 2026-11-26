@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "cloudRepository.notConnectedYet" : {
-      "comment" : "Agent pane: Cloud repository picker and recovery",
+    "cloudRepository.stillLinking" : {
+      "comment" : "Agent pane: Cloud repository recovery, the quiet line when getting a GitHub connect link has kept failing past the deadline; the card keeps asking on its own",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لم يُربط GitHub بعد"
+            "value" : "لا تزال المحاولة جارية للحصول على رابط GitHub…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub još nije povezan"
+            "value" : "Još se pokušava dohvatiti GitHub veza…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub er ikke forbundet endnu"
+            "value" : "Prøver stadig at hente et GitHub-link…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub ist noch nicht verbunden"
+            "value" : "GitHub-Link wird weiter abgerufen…"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "GitHub isn’t connected yet"
+            "value" : "Still trying to get a GitHub link…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub aún no está conectado"
+            "value" : "Seguimos intentando obtener un enlace de GitHub…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub n’est pas encore connecté"
+            "value" : "Nouvelle tentative de récupération d’un lien GitHub…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub non è ancora collegato"
+            "value" : "Ancora in corso il tentativo di recuperare un link GitHub…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub はまだ接続されていません"
+            "value" : "GitHub のリンクをまだ取得しようとしています…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub មិនទាន់បានភ្ជាប់ទេ"
+            "value" : "នៅតែកំពុងព្យាយាមយកតំណ GitHub…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub가 아직 연결되지 않았습니다"
+            "value" : "GitHub 링크를 계속 가져오는 중…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub er ikke koblet til ennå"
+            "value" : "Prøver fortsatt å hente en GitHub-lenke…"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub nie jest jeszcze połączony"
+            "value" : "Nadal próbujemy pobrać link GitHub…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "O GitHub ainda não está conectado"
+            "value" : "Ainda tentando obter um link do GitHub…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub ещё не подключён"
+            "value" : "Всё ещё пытаемся получить ссылку GitHub…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ยังไม่ได้เชื่อมต่อ GitHub"
+            "value" : "ยังคงพยายามขอลิงก์ GitHub…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub henüz bağlı değil"
+            "value" : "GitHub bağlantısı alınmaya çalışılıyor…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub ще не підключено"
+            "value" : "Досі намагаємося отримати посилання GitHub…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub chưa được kết nối"
+            "value" : "Vẫn đang thử lấy liên kết GitHub…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub 尚未连接"
+            "value" : "仍在尝试获取 GitHub 链接…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "GitHub 尚未連接"
+            "value" : "仍在嘗試取得 GitHub 連結…"
           }
         }
       }

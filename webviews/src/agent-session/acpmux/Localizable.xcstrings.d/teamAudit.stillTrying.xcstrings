@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "cloudRepository.checkAgain" : {
-      "comment" : "Agent pane: Cloud repository picker and recovery",
+    "teamAudit.stillTrying" : {
+      "comment" : "Agent pane: History > Team, the quiet line when reading the team's spend has kept failing past the deadline; the page keeps asking on its own",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تحقّق مرة أخرى"
+            "value" : "لا تزال المحاولة جارية لقراءة إنفاق الفريق…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Provjeri ponovo"
+            "value" : "Još se pokušava pročitati potrošnja tima…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tjek igen"
+            "value" : "Prøver stadig at læse holdets forbrug…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Erneut prüfen"
+            "value" : "Die Ausgaben des Teams werden weiter abgerufen…"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Check again"
+            "value" : "Still trying to read the team’s spend…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Comprobar de nuevo"
+            "value" : "Seguimos intentando leer el gasto del equipo…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Vérifier à nouveau"
+            "value" : "Nouvelle tentative de lecture des dépenses de l’équipe…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Controlla di nuovo"
+            "value" : "Ancora in corso il tentativo di leggere la spesa del team…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "もう一度確認"
+            "value" : "チームの使用量をまだ読み込もうとしています…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ពិនិត្យម្ដងទៀត"
+            "value" : "នៅតែកំពុងព្យាយាមអានការចំណាយរបស់ក្រុម…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "다시 확인"
+            "value" : "팀 사용량을 계속 읽어오는 중…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sjekk igjen"
+            "value" : "Prøver fortsatt å lese teamets forbruk…"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sprawdź ponownie"
+            "value" : "Nadal próbujemy odczytać wydatki zespołu…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Verificar de novo"
+            "value" : "Ainda tentando ler o gasto da equipe…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Проверить снова"
+            "value" : "Всё ещё пытаемся прочитать расходы команды…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ตรวจสอบอีกครั้ง"
+            "value" : "ยังคงพยายามอ่านค่าใช้จ่ายของทีม…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Yeniden kontrol et"
+            "value" : "Ekibin harcaması okunmaya çalışılıyor…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Перевірити знову"
+            "value" : "Досі намагаємося прочитати витрати команди…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kiểm tra lại"
+            "value" : "Vẫn đang thử đọc mức chi tiêu của nhóm…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "再次检查"
+            "value" : "仍在尝试读取团队的用量…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "再次檢查"
+            "value" : "仍在嘗試讀取團隊的用量…"
           }
         }
       }

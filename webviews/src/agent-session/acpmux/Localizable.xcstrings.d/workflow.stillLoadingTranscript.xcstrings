@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "pane.renderRetry" : {
-      "comment" : "Agent pane",
+    "workflow.stillLoadingTranscript" : {
+      "comment" : "Agent pane: a workflow agent's transcript, the quiet line when reading it has kept failing past the deadline; the pane keeps asking on its own",
       "extractionState" : "manual",
       "localizations" : {
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "إعادة المحاولة"
+            "value" : "لا يزال تحميل سجل الوكيل جاريًا…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pokušaj ponovo"
+            "value" : "Još se učitava transkript agenta…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Prøv igen"
+            "value" : "Indlæser stadig agentens transskription…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Erneut versuchen"
+            "value" : "Das Protokoll des Agenten wird noch geladen…"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Try again"
+            "value" : "Still loading the agent’s transcript…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Reintentar"
+            "value" : "Seguimos cargando la transcripción del agente…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Réessayer"
+            "value" : "Chargement de la transcription de l’agent en cours…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Riprova"
+            "value" : "Ancora in caricamento la trascrizione dell’agente…"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "再試行"
+            "state" : "needs_review",
+            "value" : "エージェントのトランスクリプトをまだ読み込んでいます…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ព្យាយាមម្តងទៀត"
+            "value" : "នៅតែកំពុងផ្ទុកកំណត់ត្រារបស់ភ្នាក់ងារ…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "다시 시도"
+            "value" : "에이전트 기록을 계속 불러오는 중…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Prøv igjen"
+            "value" : "Laster fortsatt agentens transkripsjon…"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Spróbuj ponownie"
+            "value" : "Nadal wczytujemy transkrypcję agenta…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tentar novamente"
+            "value" : "Ainda carregando a transcrição do agente…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Повторить"
+            "value" : "Всё ещё загружаем журнал агента…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ลองอีกครั้ง"
+            "value" : "ยังคงโหลดบันทึกของเอเจนต์…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Tekrar dene"
+            "value" : "Ajanın dökümü hâlâ yükleniyor…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Спробувати ще раз"
+            "value" : "Досі завантажуємо журнал агента…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Thử lại"
+            "value" : "Vẫn đang tải bản ghi của tác nhân…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "重试"
+            "value" : "仍在加载代理的记录…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "重試"
+            "value" : "仍在載入代理的記錄…"
           }
         }
       }

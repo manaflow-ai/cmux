@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "newTab.chatsLoadFailed" : {
-      "comment" : "New Tab > Chats when the chat index did not answer; a Try again button follows",
+    "pane.stillLoading" : {
+      "comment" : "Agent pane: the one quiet line while the pane reloads itself on its own after it failed to draw, once that has lasted",
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Couldn't load your chats."
-          }
-        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "تعذّر تحميل الدردشات."
+            "value" : "لا يزال تحميل لوحة الوكيل جاريًا…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nije moguće učitati vaše chatove."
+            "value" : "Panel agenta se još učitava…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dine chats kunne ikke indlæses."
+            "value" : "Indlæser stadig agentpanelet…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Deine Chats konnten nicht geladen werden."
+            "value" : "Agentenbereich wird noch geladen…"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Still loading the agent pane…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No se pudieron cargar tus chats."
+            "value" : "Todavía cargando el panel del agente…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Impossible de charger vos discussions."
+            "value" : "Chargement du panneau de l’agent en cours…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Impossibile caricare le tue chat."
+            "value" : "Caricamento del pannello dell’agente in corso…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "チャットを読み込めませんでした。"
+            "value" : "エージェントパネルを読み込んでいます…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "មិនអាចផ្ទុកការជជែករបស់អ្នកបានទេ។"
+            "value" : "កំពុងផ្ទុកផ្ទាំងភ្នាក់ងារនៅឡើយ…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "채팅을 불러올 수 없습니다."
+            "value" : "에이전트 패널을 계속 불러오는 중…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kunne ikke laste inn chattene dine."
+            "value" : "Laster fortsatt agentpanelet …"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Nie udało się wczytać czatów."
+            "value" : "Nadal wczytuję panel agenta…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Não foi possível carregar seus chats."
+            "value" : "Ainda carregando o painel do agente…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не удалось загрузить чаты."
+            "value" : "Панель агента всё ещё загружается…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ไม่สามารถโหลดแชตของคุณได้"
+            "value" : "ยังคงโหลดแผงเอเจนต์…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sohbetleriniz yüklenemedi."
+            "value" : "Ajan paneli hâlâ yükleniyor…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Не вдалося завантажити ваші чати."
+            "value" : "Панель агента ще завантажується…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Không thể tải các cuộc trò chuyện của bạn."
+            "value" : "Vẫn đang tải khung tác nhân…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "无法加载你的对话。"
+            "value" : "仍在加载代理面板…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "無法載入你的對話。"
+            "value" : "仍在載入代理面板…"
           }
         }
       }

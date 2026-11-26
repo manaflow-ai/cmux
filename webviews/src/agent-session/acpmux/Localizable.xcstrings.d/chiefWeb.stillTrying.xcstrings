@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "chiefWeb.unavailable" : {
-      "comment" : "Chief web: the service is temporarily unavailable",
+    "chiefWeb.stillTrying" : {
+      "comment" : "Chief web: the first read of the account's Chief kept failing past the deadline; the page asks again on its own (no button)",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief is unavailable"
+            "value" : "Still trying to reach Chief…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief ist nicht verfügbar"
+            "value" : "Chief wird weiterhin zu erreichen versucht…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief est indisponible"
+            "value" : "Tentative de joindre Chief toujours en cours…"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief غير متاح"
+            "value" : "لا نزال نحاول الوصول إلى Chief…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief no está disponible"
+            "value" : "Seguimos intentando conectar con Chief…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief 無法使用"
+            "value" : "仍在嘗試連線到 Chief…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief 暂时不可用"
+            "value" : "仍在尝试连接 Chief…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief를 사용할 수 없습니다"
+            "value" : "Chief에 계속 연결을 시도하는 중…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chiefを利用できません"
+            "value" : "Chiefへの接続をまだ試みています…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief nije dostupan"
+            "value" : "Još pokušavamo doći do Chiefa…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief er ikke tilgængelig"
+            "value" : "Prøver stadig at nå Chief…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief non è disponibile"
+            "value" : "Stiamo ancora cercando di raggiungere Chief…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "មិនអាចប្រើ Chief បានទេ"
+            "value" : "នៅតែកំពុងព្យាយាមភ្ជាប់ទៅ Chief…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief er utilgjengelig"
+            "value" : "Prøver fortsatt å nå Chief…"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief jest niedostępny"
+            "value" : "Nadal próbujemy połączyć się z Chiefem…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief está indisponível"
+            "value" : "Ainda tentando falar com o Chief…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief недоступен"
+            "value" : "Всё ещё пытаемся связаться с Chief…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief ไม่พร้อมใช้งาน"
+            "value" : "ยังคงพยายามเชื่อมต่อกับ Chief…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief kullanılamıyor"
+            "value" : "Chief’e ulaşmaya hâlâ çalışılıyor…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief недоступний"
+            "value" : "Досі намагаємося зв’язатися з Chief…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Chief hiện không khả dụng"
+            "value" : "Vẫn đang thử kết nối với Chief…"
           }
         }
       }
