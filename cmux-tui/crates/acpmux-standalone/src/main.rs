@@ -8,18 +8,20 @@
 //! Linux musl leg that recompile was 209 s of the acpmux group's 213 s (run
 //! 43497362002).
 
-// mimalloc on Linux (RFD 0156). The Linux packages are static musl builds, and musl's malloc
+// mimalloc on musl Linux (RFD 0156). The Linux packages are static musl builds, and musl's malloc
 // never handed freed pages back: a daemon up 12 h on a lane VM held 2.5 GB in 9,818 anonymous
-// regions, its live heap flat, and malloc_quiet_trim.rs trims glibc only. mimalloc purges freed
-// pages itself, at once with `tune_allocator`.
-#[cfg(target_os = "linux")]
+// regions, its live heap flat. mimalloc purges freed pages itself, at once with `tune_allocator`.
+// A gnu build keeps glibc's malloc: at n=1,000 chats with the resident cap, mimalloc v3 held
+// about 2.5x the live heap resident where glibc held 164 MB against mimalloc's 234 (cmux#57621),
+// and malloc_quiet_trim.rs and malloc_arenas.rs tune glibc for the daemon.
+#[cfg(all(target_os = "linux", target_env = "musl"))]
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 /// mimalloc's options for a long-lived daemon, as measured (RFD 0156): freed pages go back at
 /// once (`purge_delay` 0, its default 10 ms kept 176 MB where musl kept 79 MB on the replay), and
 /// arenas commit only what they touch. Ids from mimalloc.h's `mi_option_e`.
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", target_env = "musl"))]
 fn tune_allocator() {
     const MI_OPTION_ARENA_EAGER_COMMIT: std::ffi::c_int = 4;
     const MI_OPTION_PURGE_DELAY: std::ffi::c_int = 15;
@@ -34,7 +36,7 @@ fn tune_allocator() {
 }
 
 fn main() -> anyhow::Result<()> {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", target_env = "musl"))]
     tune_allocator();
     // Before anything reads `acpmux::hub::build()`. It only sets a OnceLock:
     // still one thread when `process_main` runs.
