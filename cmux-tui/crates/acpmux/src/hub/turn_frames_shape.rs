@@ -209,7 +209,7 @@ pub(crate) fn take(out: &Path) -> Option<Shape> {
 /// has no outline or they match.
 pub(crate) fn since_last(session: &str, turn: &str, shape: Option<&Shape>) -> Option<String> {
     let last = LAST.lock().unwrap_or_else(PoisonError::into_inner);
-    let (last_turn, last) = last.get(session).filter(|(t, _)| t == turn)?;
+    let (_, last) = last.get(session).filter(|(t, _)| t == turn)?;
     change(last, shape?)
 }
 
