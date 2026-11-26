@@ -37,7 +37,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use super::relay::{RELAY_PEER, RelayCarrier, RelayEndpoint};
+use super::relay::{RELAY_PEER, RelayCarrier, RelayEndpoint, RelayRung};
 use super::turn::{Allocated, TurnCarrier, TurnTransport};
 use super::{
     DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind, UltraSetting,
@@ -617,9 +617,20 @@ fn abort_early(early: Option<&roam::EarlyJoin>) {
 }
 
 /// Whether a side with this gather has no way to the peer but the relay:
-/// no plain UDP (off, or no STUN answer) and no TURN allocation.
+/// no TURN allocation, and plain UDP not usable on this network (off, or no
+/// STUN answer), as the braid carrier rules say ([`cmux_braid_carrier::usable`]).
 fn only_the_relay(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnCarrier>) -> bool {
-    options.relay.is_some() && turn.is_none() && (no_plain_udp(options) || udp_blocked)
+    let facts = cmux_braid_carrier::NetFacts {
+        udp_blocked: no_plain_udp(options) || udp_blocked,
+        ..cmux_braid_carrier::NetFacts::default()
+    };
+    let direct = cmux_braid_carrier::Endpoint {
+        kind: cmux_braid_carrier::CarrierKind::Udp,
+        address: String::new(),
+        host: String::new(),
+        login: None,
+    };
+    options.relay.is_some() && turn.is_none() && !cmux_braid_carrier::usable(&direct, facts)
 }
 
 /// The answer's gather before `wg-resp` (an older peer, or no plain UDP):
@@ -2957,7 +2968,14 @@ pub(super) fn dial_wireguard<'a>(
                                 (session_id.to_owned(), mac.to_owned(), ticket.clone());
                             early_ticket = Some(ticket);
                             early_join = Some(Arc::new(Mutex::new(Some(tokio::spawn(async move {
-                                RelayCarrier::join(&endpoint, &session, &peer, Some(&used)).await
+                                RelayRung {
+                                    endpoint: &endpoint,
+                                    session_id: &session,
+                                    peer_device: &peer,
+                                    ticket: Some(&used),
+                                }
+                                .join()
+                                .await
                             })))));
                         }
                     }
@@ -3363,6 +3381,32 @@ mod tests {
         assert!(answer_trickles(&DialOptions::default(), 2));
         assert!(answer_trickles(&DialOptions::default(), WG_VERSION));
         assert!(!answer_trickles(&DialOptions::default(), 0));
+    }
+
+    /// "Join the relay now" is the braid carrier rule for plain UDP: a side
+    /// with a relay and no TURN allocation joins at once exactly when UDP
+    /// is off (relay only, UDP blocked, relay via cmux) or got no STUN answer.
+    #[test]
+    fn only_the_relay_is_the_carrier_rule_for_plain_udp() {
+        let with_relay = |edit: fn(&mut DialOptions)| {
+            let mut options = DialOptions {
+                relay: Some(RelayEndpoint::with_token("https://relay.test", None, "dev", "t")),
+                ..DialOptions::default()
+            };
+            edit(&mut options);
+            options
+        };
+        let open = with_relay(|_| {});
+        assert!(!only_the_relay(&open, false, None), "UDP may work: the relay waits its turn");
+        assert!(only_the_relay(&open, true, None), "no STUN answer: relay now");
+        for edit in [
+            (|o: &mut DialOptions| o.block_udp = true) as fn(&mut DialOptions),
+            |o| o.relay_only = true,
+            |o| o.force_relay = true,
+        ] {
+            assert!(only_the_relay(&with_relay(edit), false, None));
+        }
+        assert!(!only_the_relay(&DialOptions { block_udp: true, ..DialOptions::default() }, true, None));
     }
 
     /// Ultra Mode is Auto by default, metered by the cellular flag.
