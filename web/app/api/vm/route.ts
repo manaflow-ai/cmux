@@ -14,7 +14,7 @@ import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/v
 
 import type { Span } from "@opentelemetry/api";
 import * as Effect from "effect/Effect";
-import { discardCloudDb, preconnectCloudDb } from "../../../db/client";
+import { cloudDb, discardCloudDb, preconnectCloudDb } from "../../../db/client";
 import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   verifyRequest,
@@ -175,9 +175,15 @@ export async function GET(request: Request): Promise<Response> {
       // Bounded: a wedged database pool once held this read for the route's
       // whole maxDuration. Past the budget it answers the retryable 503 and
       // drops this instance's client so the next request reconnects.
+      // The client this read runs on; only it is dropped at the deadline.
+      const listDb = cloudDb();
       const listed = await runVmRoute(listUserVms(user.id, billingTeamId), {
         request,
-        databaseDeadline: { operation: "listUserVms", budgetMs: VM_LIST_DATABASE_BUDGET_MS, onDeadline: discardCloudDb },
+        databaseDeadline: {
+          operation: "listUserVms",
+          budgetMs: VM_LIST_DATABASE_BUDGET_MS,
+          onDeadline: () => discardCloudDb(listDb),
+        },
       });
       if (!listed.ok) return listed.response;
       const entries = listed.value;

@@ -311,19 +311,35 @@ export function cloudDb(): CloudDb {
 const CLOUD_DB_DISCARD_GRACE_SECONDS = 5;
 
 /**
- * Drops this process's database client so the next query opens a new one.
+ * How long a discarded client keeps serving the requests already using it
+ * before it is closed. Other requests' queries and transactions on the old
+ * pool get this long to finish; only connections still stuck past it are cut.
+ */
+const CLOUD_DB_DISCARD_CLOSE_AFTER_MS = 60_000;
+
+/**
+ * Drops `db`, the client a timed-out read was using, so the next query opens a
+ * new one. Does nothing if `db` is no longer this process's client: a later
+ * timeout from a read that queued on the same dead pool must not drop the
+ * fresh pool another request has opened since.
  *
  * For a pool that stopped answering: a query queued behind wedged
  * connections is never sent, so no abort or deadline reaches it, and every
- * later query on the same pool queues behind it too. The old client is closed
- * in the background (postgres.js after a short grace for in-flight queries);
- * nothing here waits on it.
+ * later query on the same pool queues behind it too. New queries go to a new
+ * client at once; the old one is closed in the background after a grace
+ * (postgres.js then allows a few more seconds for in-flight queries).
  */
-export function discardCloudDb(): void {
+export function discardCloudDb(
+  db: CloudDb,
+  { closeAfterMs = CLOUD_DB_DISCARD_CLOSE_AFTER_MS }: { readonly closeAfterMs?: number } = {},
+): void {
   const state = globalForDb.__cmuxCloudDb;
-  if (!state) return;
+  if (!state || state.db !== db) return;
   globalForDb.__cmuxCloudDb = undefined;
-  void state.abandon().catch(() => undefined);
+  const timer = setTimeout(() => {
+    void state.abandon().catch(() => undefined);
+  }, closeAfterMs);
+  (timer as { unref?: () => void }).unref?.();
 }
 
 /**
