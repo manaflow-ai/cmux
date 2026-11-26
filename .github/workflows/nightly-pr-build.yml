@@ -35,6 +35,9 @@ jobs:
           persist-credentials: false
           fetch-depth: 2
           filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
           submodules: false
       - name: Route the change
         id: route
@@ -132,7 +135,7 @@ jobs:
           submodules: false
       - name: Install Linux build dependencies
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
+        run: scripts/ci/apt-ensure.sh clang libclang-dev pkg-config
       - name: Set up pinned Rust
         if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
