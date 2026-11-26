@@ -74,17 +74,10 @@ pub fn grapheme_count(text: &str) -> usize {
         let starts = match previous {
             None => true,
             Some(p) => {
-                if p == '\r' && c == '\n' {
-                    false
-                } else if joined {
-                    false
-                } else if extends(c) {
-                    false
-                } else if regional(c) && regional(p) && flag_open {
-                    false
-                } else {
-                    true
-                }
+                !((p == '\r' && c == '\n')
+                    || joined
+                    || extends(c)
+                    || (regional(c) && regional(p) && flag_open))
             }
         };
         if starts {
