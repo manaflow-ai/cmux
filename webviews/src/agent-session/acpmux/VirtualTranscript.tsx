@@ -1095,10 +1095,27 @@ function TranscriptView({
     setScroll(next);
     scheduleScrollLeadReset();
   };
+  /// The offset the placement pass of a chat switched to kept (its reset, then its open), rendered only
+  /// when its commit did not draw the rows there already (`projectedTop`: at the open's offset, from
+  /// the top when the chat fits). One forced anyway was a sync render of the whole transcript that
+  /// drew the same rows, inside every chat switch's long task (settled page,
+  /// test/transcript-return-keeps-layout.test.tsx). Within a pixel of the drawn offset is the drawn
+  /// offset, as for a scroll frame (`drew` below).
+  const renderSwitchScroll = () => {
+    const drew = drewScroll.current;
+    if (!drew || Math.abs(scrollRef.current.top - drew.top) >= 1) setScroll(scrollRef.current);
+    scheduleScrollLeadReset();
+  };
   /// The view follows the latest row (scrolledTo.atLatest, as of the last scroll). Jump to latest shows
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
   /// so a reply growing below or a session switch updates it without a scroll.
   const [following, setFollowing] = useState(true);
+  /// The follow state last asked of React (`following` as rendered, or set since): asking it again asks
+  /// nothing. Asked anyway, the same value after a commit was a sync render of the whole transcript
+  /// that changed nothing (React bails out of a same-value update only on an idle fiber), twice in every
+  /// chat switch (`follow` "session", then "open"; test/transcript-return-keeps-layout.test.tsx).
+  const followingAsked = useRef(following);
+  followingAsked.current = following;
   /// Jump to latest is shown (`behind`, below): set past JUMP_LATEST_DISTANCE, cleared only back at
   /// the latest message.
   const jumpShown = useRef(false);
@@ -1206,6 +1223,8 @@ function TranscriptView({
     followingRef.current = next;
     if (next && !was) keepFromNow.current();
     onFollowingChange?.(next);
+    if (followingAsked.current === next) return;
+    followingAsked.current = next;
     setFollowing(next);
   };
   const followRef = useRef(follow);
@@ -1307,6 +1326,7 @@ function TranscriptView({
         setScroll(scrollRef.current);
         // Upward intent can arrive before the browser's default moves the offset. Even at the
         // queued frame's exact position, its old follow state must not replace that live intent.
+        followingAsked.current = followingRef.current;
         setFollowing(followingRef.current);
       });
     });
@@ -2012,7 +2032,7 @@ function TranscriptView({
   /// `setDrawn(update)`, noted in `drawnAsk`.
   const askDrawn = useCallback((update: (current: DrawnHeights) => DrawnHeights) => {
     const ask: { ran: boolean; result?: DrawnHeights } = { ran: false };
-    drawnAsk.current = ask; if ((globalThis as any).__TRACE_ASK) console.log("askDrawn", new Error().stack?.split("\n")[2]);
+    drawnAsk.current = ask;
     setDrawn((current) => {
       const next = update(current);
       ask.ran = true;
@@ -2052,8 +2072,7 @@ function TranscriptView({
         : keptLayouts.show(sessionId, chatLook, attachmentView, registry, gridScale());
     // Its drawn heights name it (`DrawnHeight.sessionId`), so they place only its rows.
     // Noted as what was last asked (`askDrawn`): the commit's report of each mounted row at its kept
-    // height then asks nothing, where it asked a sync render of the whole transcript that changed
-    // nothing, inside the switch's long task (test/transcript-return-keeps-layout.test.tsx).
+    // height then asks nothing (`flushDrawn`).
     if (shown && shown !== drawn) {
       drawnAsk.current = { ran: true, result: shown };
       setDrawn(shown);
@@ -2218,7 +2237,9 @@ function TranscriptView({
   const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
   useLayoutEffect(() => {
     olderDragPending.current = false;
-    setScrollbarRange(undefined);
+    // Only a range held asks a render: a same-value one was a sync render of the whole transcript in
+    // every chat switch (`followingAsked` above).
+    if (scrollbarRange !== undefined) setScrollbarRange(undefined);
   }, [sessionKey]);
   /// How far the reader has scrolled up among the rows while room was owed (olderReserve.ts `rose`),
   /// in total, and the offset the last scroll event read: each rise pays some of what is owed.
@@ -2723,14 +2744,14 @@ function TranscriptView({
       if (inCommit) {
         readAfterSettle.current = true;
         setFlowWidth(undefined);
-        if ((globalThis as any).__TRACE_ASK) console.log("dispatch@2726"); settleResize();
+        settleResize();
         return;
       }
       // At a new width the settle's render measures its rows at it (RowFrame's rowWidth). A width
       // that came back to the one the rows were placed at renders nothing new: read them then.
       flushSync(() => {
         setFlowWidth(undefined);
-        if ((globalThis as any).__TRACE_ASK) console.log("dispatch@2733"); settleResize();
+        settleResize();
       });
       if (rowWidthRef.current === from) flushSync(readMounted);
     },
@@ -2926,13 +2947,12 @@ function TranscriptView({
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
     for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
-    // A drawn map with no row gone (a chat shown again holds its own rows' heights alone) with nothing
-    // asked still waiting: no update. One asked anyway was a sync render of the whole transcript that
-    // changed nothing, inside every chat switch's long task (test/transcript-return-keeps-layout.test.tsx).
+    // No row gone from what is drawn (a chat shown again holds its own rows' heights alone), with
+    // nothing asked still waiting: no update, where one asked anyway was a sync render of the whole
+    // transcript that changed nothing, inside every chat switch (test/transcript-return-keeps-layout.test.tsx).
     const ask = drawnAsk.current;
-    if ((globalThis as any).__TRACE_ASK) console.log("retain guard", ask.ran, ask.result === drawnRef.current);
-    if (ask.ran && ask.result === drawnRef.current && drawnRef.current.retain((id) => ids.has(id)) === drawnRef.current)
-      return;
+    const current = drawnRef.current;
+    if (ask.ran && ask.result === current && current.retain((id) => ids.has(id)) === current) return;
     askDrawn((current) => current.retain((id) => ids.has(id)));
   }, [rows, queuedTail, askDrawn]);
   useLayoutEffect(() => {
@@ -3099,7 +3119,7 @@ function TranscriptView({
       live.settled = performance.now();
       if (live.flow !== undefined) endFlow(false);
       // Settle whatever left a partial layout, even a step that came late enough to end the drag.
-      if ((globalThis as any).__TRACE_ASK) console.log("dispatch@3102"); else if (lastEstimate.current?.partial) settleResize();
+      else if (lastEstimate.current?.partial) settleResize();
     };
     if (live.rearm) {
       // The run before had a settle on the way: it keeps its time, LIVE_RESIZE_MS after the last width.
@@ -3335,7 +3355,7 @@ function TranscriptView({
     heldRoom.current.room = dockRoomRef.current;
     flushSync(() => {
       setNoticeBase(dockNoticeRef.current);
-      if ((globalThis as any).__TRACE_ASK) console.log("dispatch@3338"); roomTaken();
+      roomTaken();
     });
   }, []);
   const thread = useRef<HTMLDivElement>(null);
@@ -4635,7 +4655,8 @@ function TranscriptView({
       didOpenAtLatest.current = false;
       // Another chat's count (the subagent view takes none) is not a send in this one.
       seenSends.current = sends;
-      setSentPromptIds((current) => (current.size === 0 ? current : new Set()));
+      // Already cleared as the switch rendered (`sentPromptIdsForRender`): only a set left asks a render.
+      if (sentPromptIds.size !== 0) setSentPromptIds(new Set());
       sentBeforeOpen.current = false;
       sendRiseUntil.current = Number.NEGATIVE_INFINITY;
       sendClockUntil.current = Number.NEGATIVE_INFINITY;
@@ -4647,7 +4668,8 @@ function TranscriptView({
       scrollPacer.current?.cancel();
       stopJump();
       stopBottomStackFold();
-      setScrollAt(0, 0);
+      // Kept, and rendered after the open below if the commit drew elsewhere (`renderSwitchScroll`).
+      scrollRef.current = { top: 0, delta: 0 };
       follow(true, "session");
     }
     const old = switched ? null : previousLayout.current;
@@ -5267,7 +5289,8 @@ function TranscriptView({
         }
         followTrace.set(node.scrollTop);
         scrollPacer.current?.cancel();
-        setScrollAt(node.scrollTop, 0);
+        if (switched) scrollRef.current = { top: node.scrollTop, delta: 0 };
+        else setScrollAt(node.scrollTop, 0);
         follow(top >= latest - 1, "open");
         didOpenAtLatest.current = true;
         // The rows in view as the chat opens: the first move after it chases from them, once
@@ -5279,6 +5302,8 @@ function TranscriptView({
         }
       }
     }
+    // A switch's kept offset (its reset, its open), rendered only where its commit drew elsewhere.
+    if (switched) renderSwitchScroll();
     // The room a collapse kept follows the view's end, and goes once the rows reach it.
     if (node) trimFoldRoom(node);
     // The live line, the thread's last row, holds still at the bottom against the chase while the
@@ -5376,7 +5401,7 @@ function TranscriptView({
         () => {
           floorTimer.current = undefined;
           floor.current = { ...floor.current, height: 0 };
-          if ((globalThis as any).__TRACE_ASK) console.log("dispatch@5379"); releaseFloor();
+          releaseFloor();
         },
         forSent ? FLOOR_HOLD_MS : WITHDRAWN_HOLD_MS,
       );
@@ -5496,7 +5521,7 @@ function TranscriptView({
       heldRoom.current.room = Math.max(dockRoomRef.current, heldRoom.current.reader.kept?.room ?? 0);
       flushSync(() => {
         followRef.current(false);
-        if ((globalThis as any).__TRACE_ASK) console.log("dispatch@5499"); roomTaken();
+        roomTaken();
       });
     };
     node.addEventListener("wheel", giveTrayRoom, { passive: true });
@@ -6491,7 +6516,8 @@ function TranscriptView({
   // Another chat: its own places (its idle stretch loads with it, above), nothing held from this one.
   useLayoutEffect(() => {
     jumpBack.current = undefined;
-    setJumpBackHeld(false);
+    // Only a held way back asks a render (`followingAsked` above).
+    if (jumpBackHeld) setJumpBackHeld(false);
   }, [sessionId]);
   useEffect(() => {
     const node = ref.current;
@@ -6771,7 +6797,7 @@ function TranscriptView({
       settleHeldFollowMotion();
       if (!followDeferred.current) return;
       followDeferred.current = false;
-      if ((globalThis as any).__TRACE_ASK) console.log("dispatch@6774"); if (followingRef.current) resumeDeferredFollow();
+      if (followingRef.current) resumeDeferredFollow();
     });
     // attachUserScrollIntent captures the scroller and scrollbar inputs (a drag outside the
     // scroller too), then invokes this reader through the shared subscription before layout or
