@@ -2,7 +2,11 @@
 
 use super::*;
 
-pub(super) async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout: Duration) {
+pub(super) async fn run_heartbeat(
+    weak: Weak<ClientConnection>,
+    interval: Duration,
+    timeout: Duration,
+) {
     let Some(initial) = weak.upgrade() else { return };
     let mut close_state = initial.close_state.subscribe();
     // A new watch receiver considers the current value seen. The atomic flag
