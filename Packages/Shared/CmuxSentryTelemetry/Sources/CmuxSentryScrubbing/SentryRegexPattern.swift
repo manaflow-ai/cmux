@@ -79,7 +79,7 @@ public struct SentryRegexPattern: Sendable {
         let matches = regex.matches(in: text, range: fullRange)
         guard !matches.isEmpty else { return nil }
 
-        let result = NSMutableString(string: source)
+        let result = NSMutableString(string: text)
         for checkingResult in matches.reversed() {
             let match = SentryRegexMatch(source: source, result: checkingResult)
             result.replaceCharacters(in: checkingResult.range, with: replacement(match))
