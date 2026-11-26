@@ -1,7 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextHostPressureTunables
+import CmuxNextHostPressure
 import AppKit
 import Observation
 import os

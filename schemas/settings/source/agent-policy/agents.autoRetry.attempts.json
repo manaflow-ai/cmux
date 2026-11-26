@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "Whether and how often a failed turn is sent again spends the person's usage: their call, as `sessions.resumeAgents` is."
-}

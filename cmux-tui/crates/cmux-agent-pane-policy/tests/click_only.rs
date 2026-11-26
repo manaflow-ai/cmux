@@ -35,7 +35,7 @@ fn check(method: &str, params: Value, gesture: Gesture) -> Checked {
 }
 
 /// One granting frame of each click-only method.
-fn answers() -> [(&'static str, Value); 5] {
+fn answers() -> [(&'static str, Value); 4] {
     [
         (
             "_acpmux/presets",
@@ -53,7 +53,6 @@ fn answers() -> [(&'static str, Value); 5] {
             "_acpmux/permission_group_respond",
             json!({"sessionId": "own", "groupId": "g1", "revision": 1, "decisionKey": "k", "decision": "allow_once"}),
         ),
-        ("_acpmux/customize_run", json!({"run": {"customize": "try", "target": "pr:1"}})),
     ]
 }
 

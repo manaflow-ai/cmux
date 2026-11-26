@@ -25,13 +25,6 @@ pub(super) struct TestEndpoint {
     generation: watch::Sender<u64>,
 }
 
-impl TestEndpoint {
-    /// Moves this side's session to `generation`, as a resume does.
-    pub(super) fn set_generation(&self, generation: u64) {
-        let _ = self.generation.send(generation);
-    }
-}
-
 #[async_trait]
 impl SessionEndpoint for TestEndpoint {
     async fn send_frame(
@@ -677,9 +670,8 @@ async fn blocked_process_input_does_not_delay_process_signal() {
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ = services
-                                .serve_stream(scope, request_slots, None, None, incoming)
-                                .await;
+                            let _ =
+                                services.serve_stream(scope, request_slots, None, incoming).await;
                         });
                     }
                 }
@@ -821,9 +813,8 @@ async fn dropped_wait_requests_release_control_admission() {
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ = services
-                                .serve_stream(scope, request_slots, None, None, incoming)
-                                .await;
+                            let _ =
+                                services.serve_stream(scope, request_slots, None, incoming).await;
                         });
                     }
                 }
@@ -946,9 +937,8 @@ async fn predeclared_process_stream_never_silently_loses_immediate_large_output(
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ = services
-                                .serve_stream(scope, request_slots, None, None, incoming)
-                                .await;
+                            let _ =
+                                services.serve_stream(scope, request_slots, None, incoming).await;
                         });
                     }
                 }
@@ -1334,9 +1324,8 @@ async fn reconnect_process_stream_reports_a_structured_replay_gap() {
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ = services
-                                .serve_stream(scope, request_slots, None, None, incoming)
-                                .await;
+                            let _ =
+                                services.serve_stream(scope, request_slots, None, incoming).await;
                         });
                     }
                 }

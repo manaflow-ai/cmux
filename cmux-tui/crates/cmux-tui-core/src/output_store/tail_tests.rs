@@ -51,11 +51,7 @@ fn restore_writes_the_tail_over_the_snapshot_screen() {
     let tail = b"third\r\nfourth\r\nfifth\r\nsixth\r\n";
     append(&directory, &id, "g", 15, 15, tail, false).unwrap();
     source.vt_write(tail);
-    let restored = restore(
-        snapshot,
-        &bytes_after(&directory, &id, "g", 15),
-        crate::DEFAULT_SCROLLBACK_LIMIT_BYTES,
-    );
+    let restored = restore(snapshot, &bytes_after(&directory, &id, "g", 15));
     let mut rebuilt = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
     rebuilt.vt_write(&restored.bytes);
     assert_eq!(rebuilt.plain_text().unwrap(), source.plain_text().unwrap());
@@ -84,11 +80,7 @@ fn a_tail_that_ends_inside_an_oversized_upload_still_restores_its_text() {
         tail.extend_from_slice(b"\x1b\\");
     }
     append(&directory, &id, "g", 7, 7, &tail, false).unwrap();
-    let restored = restore(
-        snapshot,
-        &bytes_after(&directory, &id, "g", 7),
-        crate::DEFAULT_SCROLLBACK_LIMIT_BYTES,
-    );
+    let restored = restore(snapshot, &bytes_after(&directory, &id, "g", 7));
     let mut rebuilt = ghostty_vt::Terminal::new(40, 5, 1_000_000, Default::default()).unwrap();
     rebuilt.vt_write(&restored.bytes);
     let text = rebuilt.plain_text().unwrap();

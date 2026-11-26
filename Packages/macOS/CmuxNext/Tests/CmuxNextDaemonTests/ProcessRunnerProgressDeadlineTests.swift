@@ -81,26 +81,4 @@ struct ProcessRunnerProgressDeadlineTests {
                                             environment: nil, timeout: nil, progressIdle: nil, clock: ContinuousClock())
         }
     }
-
-    // A child that reports progress only on stderr (the cloud move CLI) lives past the idle bound
-    // in total: 8 lines 150 ms apart is 1.2 s against a 500 ms idle bound. On base, only stdout
-    // counted, so this child was killed at 500 ms.
-    @Test func slowChildWritingOnlyStderrIsNotCutOff() async throws {
-        let result = try await ProcessRunner.run(
-            executable: URL(fileURLWithPath: "/bin/sh"),
-            arguments: ["-c", "i=0; while [ $i -lt 8 ]; do echo step >&2; i=$((i+1)); sleep 0.15; done"],
-            environment: nil, timeout: nil, progressIdle: .milliseconds(500), clock: ContinuousClock())
-        #expect(result.status == 0)
-    }
-
-    @Test func silentChildIsStillCutOffAtTheIdleBound() async throws {
-        let clock = ContinuousClock()
-        let start = clock.now
-        await #expect(throws: DaemonError.self) {
-            _ = try await ProcessRunner.run(
-                executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "sleep 20"],
-                environment: nil, timeout: nil, progressIdle: .milliseconds(500), clock: ContinuousClock())
-        }
-        #expect(clock.now - start < .seconds(10))
-    }
 }

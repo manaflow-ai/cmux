@@ -124,6 +124,10 @@ export function summarizeTurnActivity(blocks: Block[]): string {
       edited += block.files.length;
       continue;
     }
+    if (block.kind === "plan") {
+      other++;
+      continue;
+    }
     if (block.kind !== "tool") {
       other++;
       continue;

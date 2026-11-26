@@ -1,4 +1,3 @@
-import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextPalette
 import Foundation
@@ -18,8 +17,9 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
 
     private weak var services: AppServices?
     private let local: LocalPaletteUsageStore
-    /// The connection whose history the mirror holds.
-    private var fetchedFrom: ObjectIdentifier?
+    private let preferences: URL
+    /// The connection whose former histories were imported this launch.
+    private var importedOn: ObjectIdentifier?
     /// The revision of the mirror; an older snapshot never replaces it.
     private var revision: UInt64 = 0
     private var fetching: Task<Void, Never>?
@@ -38,9 +38,11 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private(set) var history: FrecencyStore
     var onChange: (@MainActor () -> Void)?
 
-    init(services: AppServices, local: LocalPaletteUsageStore = LocalPaletteUsageStore(persistence: UserDefaultsFrecencyPersistence())) {
+    init(services: AppServices, local: LocalPaletteUsageStore = LocalPaletteUsageStore(persistence: UserDefaultsFrecencyPersistence()),
+         preferences: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Preferences")) {
         self.services = services
         self.local = local
+        self.preferences = preferences
         history = local.history
     }
 
@@ -66,31 +68,12 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
 
     func prepare() {
         guard case .daemon(_, let id) = owner else { return }
-        if fetchedFrom != id || revision == 0 { fetch() }
+        if importedOn != id || revision == 0 { fetch() }
     }
 
-    /// A consented Classic import includes the former per-build defaults histories.
-    func importClassicHistory() async throws {
-        guard case .daemon(let client, _) = owner else { throw DaemonError.notConnected }
-        let override = ProcessInfo.processInfo.environment[BuildStatePaths.classicImportDirectoryKey]
-        let home = override.flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
-            ?? BuildStatePaths.current.classicImportDirectory ?? FileManager.default.homeDirectoryForCurrentUser
-        let preferences = home.appending(path: "Library/Preferences")
-        let snapshot = try PaletteUsageWire.history(JSONEncoder().encode(try await client.get()))
-        var firstFailure: (any Error)?
-        for former in await PaletteUsageLegacyHistory.read(preferences: preferences, excluding: snapshot.imported) {
-            do {
-                _ = try await client.importHistory(source: former.source, entries: former.rows,
-                                                   idempotencyKey: "palette-usage-import:\(former.source)")
-            } catch {
-                firstFailure = firstFailure ?? error
-            }
-        }
-        fetch()
-        if let firstFailure { throw firstFailure }
-    }
-
-    /// Rereads the daemon history. A request during a fetch runs one more after it.
+    /// Rereads the history (one fetch at a time; a request during one runs
+    /// one more after it). The first fetch on a connection imports the former
+    /// per-build histories the daemon has not seen, each on its own.
     private func fetch() {
         guard fetching == nil else {
             fetchAgain = true
@@ -110,8 +93,22 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private func fetchOnce() async {
         guard case .daemon(let client, let id) = owner else { return }
         do {
-            let snapshot = try PaletteUsageWire.history(JSONEncoder().encode(try await client.get()))
-            fetchedFrom = id
+            var snapshot = try PaletteUsageWire.history(try await client.get())
+            if importedOn != id {
+                var importedAny = false
+                for former in await PaletteUsageLegacyHistory.read(preferences: preferences)
+                where !snapshot.imported.contains(former.source) && !Task.isCancelled {
+                    do {
+                        _ = try await client.importHistory(source: former.source, entries: former.rows,
+                                                           idempotencyKey: "palette-usage-import:\(former.source)")
+                        importedAny = true
+                    } catch {
+                        Self.logger.error("palette usage import of one former history failed: \(String(describing: error), privacy: .public)")
+                    }
+                }
+                importedOn = id
+                if importedAny { snapshot = try PaletteUsageWire.history(try await client.get()) }
+            }
             guard snapshot.revision >= revision else { return }
             revision = snapshot.revision
             history = snapshot.history

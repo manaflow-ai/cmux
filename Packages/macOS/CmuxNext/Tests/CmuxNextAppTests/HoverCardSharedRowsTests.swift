@@ -52,10 +52,7 @@ import Testing
         #expect(tone == .danger)
         #expect(bars.count == 3 && bars.last == 1)
         let quiet = ResourceReport(total: ResourceUsage(cpu: 0.01, memoryBytes: 10 << 20), processCount: 1)
-        let calm = try #require(WorkspaceHoverCardContent.resourceRow(quiet, history: [0.01]))
-        #expect(calm.ink == .secondary)
-        #expect(calm.text == ResourceFormat.line(quiet.total))
-        #expect(WorkspaceHoverCardContent.resourceRow(nil, history: []) == nil)
+        #expect(WorkspaceHoverCardContent.resourceRow(quiet, history: [0.01]) == nil)
     }
 
     @Test func aBlankPageHasNoAddressForATitleOrPlace() {

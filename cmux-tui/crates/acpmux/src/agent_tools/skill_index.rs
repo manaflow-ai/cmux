@@ -97,7 +97,6 @@ mod tests {
                 "cmux-computer-use",
                 "cmux-customization",
                 "cmux-live",
-                "cmux-ui-preview",
                 "cmux-rich-output",
                 "acpmux",
                 "cmux-quota",
@@ -116,7 +115,6 @@ mod tests {
                 "cmux-browser",
                 "cmux-customization",
                 "cmux-live",
-                "cmux-ui-preview",
                 "cmux-rich-output",
                 "acpmux",
                 "cmux-quota"

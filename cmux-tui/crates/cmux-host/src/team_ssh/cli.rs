@@ -10,8 +10,7 @@
 //!   certificate session, close_session removes it). Exit 1 refuses the
 //!   session, so a certificate session is never left unrecorded, and a
 //!   session with no logind session (nothing would scope its processes) is
-//!   refused. A login with only the platform's own expiring key
-//!   (`cert::platform_key_session`) has no certificate and is let through.
+//!   refused.
 //! - `reap [--root DIR]`: one reaper pass (revoked sessions, then the team
 //!   users' lingering and user managers).
 
@@ -214,17 +213,6 @@ fn session_verb(paths: &Paths) -> u8 {
         _ => return 0,
     }
     let auth_info = var("SSH_AUTH_INFO_0").unwrap_or_default();
-    let user = var("PAM_USER").unwrap_or_default();
-    // The platform's own short-lived key (the ssh backup carrier, `cmux ssh` to a Cloud machine) has no
-    // certificate to record. Refusing it made sshd print the login banner on the session's stdout and exit
-    // 254, which the carrier read as a link frame ("link frame is 173303909 bytes": "\nThe" of /etc/legal).
-    if !user.is_empty() && !user.contains('/') {
-        let keys = std::fs::read_to_string(paths.at(super::cert::PLATFORM_KEYS_DIR).join(&user))
-            .unwrap_or_default();
-        if super::cert::platform_key_session(&auth_info, &keys) {
-            return 0;
-        }
-    }
     let certs = match super::cert::required_session_certs(&auth_info) {
         Ok(c) => c,
         Err(e) => {
@@ -240,6 +228,7 @@ fn session_verb(paths: &Paths) -> u8 {
         eprintln!("cmux host team-ssh session-open: parent is {comm}, not sshd");
         return 1;
     }
+    let user = var("PAM_USER").unwrap_or_default();
     let record = SessionRecord::new(parent, start, &user, &certs, var("XDG_SESSION_ID"));
     // Only a logind session scopes every process of the session, so only
     // then can a revocation end them all (pam_systemd is `optional` and

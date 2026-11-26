@@ -14,7 +14,7 @@ pub(super) fn handle(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, Rp
         return Err(RpcError::invalid_params("cached inventory watches require the local socket"));
     }
     let InventoryWatchParams { enabled } = serde_json::from_value(params.clone())
-        .map_err(|_| RpcError::invalid_params("expected a boolean enabled field"))?;
+        .map_err(|_| RpcError::invalid_params("expected only a boolean enabled field"))?;
     let _outbound = conn.out.lock();
     *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = enabled;
     if enabled { Ok(hub.health.inventory_changes().borrow().wire()) } else { Ok(json!({})) }
@@ -29,9 +29,7 @@ pub(super) async fn send_latest(
 ) {
     let mut queue = conn.out.lock();
     let enabled = *conn.watch_inventory.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    // Asked for by the client's own `_acpmux/harness_inventory_watch {enabled: true}`, and
-    // gated on the feature naming that watch for a client that lists its features.
-    if enabled && conn.client_features.hears_any(&[FEATURE, "harnessInventory"]) {
+    if enabled {
         let value = snapshots.borrow_and_update().wire();
         match Message::notification(method::MUX_HARNESS_INVENTORY, value).bounded_line() {
             Ok(line) => {

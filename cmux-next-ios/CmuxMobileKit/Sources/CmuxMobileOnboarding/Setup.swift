@@ -309,7 +309,6 @@ private struct TeamStep: View {
                             SkeletonList(rows: 2, leadingSquare: theme.metrics.teamAvatar, delay: .zero)
                                 .transition(.opacity)
                                 .accessibilityIdentifier("setup.teams.loading")
-                                .placeholderBound("onboarding.teams.skeleton", .milliseconds(2000))
                         case .failed:
                             failedRow
                                 .transition(.opacity)
@@ -317,12 +316,13 @@ private struct TeamStep: View {
                         case .loaded:
                             VStack(spacing: 0) {
                                 ForEach(teams) { team in
-                                    let computer = ComputerDots.team(team)
+                                    let presence = team.macDots()
                                     row(action: { pick(team) }) {
                                         SidebarTeamRow(
                                             name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji,
                                             transparent: team.appearance.isTransparent,
-                                            computer: computer.map { ($0.name, $0.isUp) }, isSelected: false
+                                            dots: presence.dots, overflow: presence.overflow,
+                                            onlineCount: team.listedMacs.filter(\.isOnline).count, isSelected: false
                                         )
                                     }
                                 }

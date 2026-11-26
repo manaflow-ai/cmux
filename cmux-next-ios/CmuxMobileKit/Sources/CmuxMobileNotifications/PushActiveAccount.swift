@@ -1,9 +1,7 @@
 import Foundation
-#if canImport(OSLog)
 import OSLog
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "push-account")
-#endif
 
 /// The session that is currently permitted to reveal notifications in the
 /// notification service extension. Pairing and per-account decrypt keys are
@@ -70,11 +68,7 @@ public final class PushActiveAccountMirror {
         let task = Task.detached(priority: .utility) {
             await previous?.value
             do { try account?.update(userID: userID) }
-            catch {
-                #if canImport(OSLog)
-                log.error("could not update notification account marker")
-                #endif
-            }
+            catch { log.error("could not update notification account marker") }
         }
         pending = task
         return task

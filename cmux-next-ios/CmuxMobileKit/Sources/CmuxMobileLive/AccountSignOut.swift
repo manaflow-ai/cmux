@@ -33,10 +33,9 @@ extension LiveCoordinator: SignOutSession {}
 /// (`willSignOut`), so a signed-out phone gets no notifications.
 @MainActor
 public struct AccountSignOut {
-    public var lastKnownLists: LastKnownListStore
     public var snapshots: LiveSnapshotStore
     public var feedStore: FeedStore
-    public var removeFeedArchives: (String) -> Void
+    public var feedArchive: (String) -> FeedArchive
     public var readMarks: (String) -> FeedReadMarks
     public var preferences: AccountPreferences
     public var discardChiefTranscripts: @MainActor () -> Void
@@ -44,8 +43,8 @@ public struct AccountSignOut {
     /// list, every agent chat's newest messages): none of them stays for the next account.
     public var discardKeptChats: @MainActor () -> Void
 
-    public init(lastKnownLists: LastKnownListStore = .standard, snapshots: LiveSnapshotStore = .standard, feedStore: FeedStore = .shared,
-                removeFeedArchives: @escaping (String) -> Void = FeedArchive.removeAll,
+    public init(snapshots: LiveSnapshotStore = .standard, feedStore: FeedStore = .shared,
+                feedArchive: @escaping (String) -> FeedArchive = FeedArchive.forAccount,
                 readMarks: @escaping (String) -> FeedReadMarks = FeedReadMarks.forAccount,
                 preferences: AccountPreferences = .standard,
                 discardChiefTranscripts: @escaping @MainActor () -> Void = {
@@ -56,13 +55,11 @@ public struct AccountSignOut {
                 discardKeptChats: @escaping @MainActor () -> Void = {
                     MacHomeFeed.shared.discardForSignOut()
                     AgentChatsMemory.shared.removeAll()
-                    AgentCatalogCache.shared.removeAll()
                     AgentTranscriptCache.standard.removeAll()
                 }) {
-        self.lastKnownLists = lastKnownLists
         self.snapshots = snapshots
         self.feedStore = feedStore
-        self.removeFeedArchives = removeFeedArchives
+        self.feedArchive = feedArchive
         self.readMarks = readMarks
         self.preferences = preferences
         self.discardChiefTranscripts = discardChiefTranscripts
@@ -92,14 +89,13 @@ public struct AccountSignOut {
         session?.stop()
         feedStore.clearForSignOut()
         if let userID {
-            removeFeedArchives(userID)
+            feedArchive(userID).remove()
             preferences.stash(userID: userID)
             if session?.accountDeleted == true {
                 preferences.forget(userID: userID)
                 readMarks(userID).remove()
             }
         }
-        lastKnownLists.removeAll()
         snapshots.removeAll()
         discardChiefTranscripts()
         discardKeptChats()

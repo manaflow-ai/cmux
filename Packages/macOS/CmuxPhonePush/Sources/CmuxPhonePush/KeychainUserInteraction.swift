@@ -1,4 +1,3 @@
-#if canImport(Security)
 import Foundation
 import os
 
@@ -53,4 +52,3 @@ enum KeychainUserInteraction {
         .map { unsafeBitCast($0, to: Setter.self) }
     #endif
 }
-#endif

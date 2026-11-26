@@ -118,7 +118,7 @@ final class DevServerChannel: LinkChannel, @unchecked Sendable {
         let directory = StreamedBrowserDirectory()
         let mac = MacBrowser()
         directory.opener = { mac }
-        let source = everyPane(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", native: native, streamed: directory))
+        let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", native: native, streamed: directory)
         let docs = try #require(source.workspace?.tabs.first { $0.id == tab })
         let mirror = try #require(source.browser(docs) as? StreamedBrowserModel)
         mirror.setVisible(true)

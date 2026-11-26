@@ -97,17 +97,4 @@ struct AcpmuxStrayDaemonTests {
         #expect(AcpmuxStrayDaemon.pid(fromLaunchctlPrint: printed) == 4242)
         #expect(AcpmuxStrayDaemon.pid(fromLaunchctlPrint: "gui/501/x = {\n\tstate = not running\n}\n") == nil)
     }
-
-    // The join's LaunchAgent keeps the daemon alive with no app (remote-screen-share-zero-touch
-    // Z1): a takeover keeps it, pointed at the bundled acpmux, for `~/.acpmux` only; any other job,
-    // home or an attached daemon is booted out or left as before.
-    @Test func aTakeoverKeepsOnlyAcpmuxsOwnLaunchAgentForTheSharedHome() {
-        let user = URL(fileURLWithPath: "/Users/me", isDirectory: true)
-        let shared = user.appendingPathComponent(".acpmux", isDirectory: true)
-        #expect(AcpmuxStrayDaemon.keepsLaunchAgent(label: "com.acpmux.daemon", home: shared, userHome: user, attached: false))
-        #expect(!AcpmuxStrayDaemon.keepsLaunchAgent(label: "com.acpmux.daemon", home: shared, userHome: user, attached: true))
-        #expect(!AcpmuxStrayDaemon.keepsLaunchAgent(label: "com.manaflow.acpmux.supervised.mini", home: shared, userHome: user, attached: false))
-        #expect(!AcpmuxStrayDaemon.keepsLaunchAgent(label: "com.acpmux.daemon", home: shared.appendingPathComponent("builds/dev", isDirectory: true),
-                                                    userHome: user, attached: false))
-    }
 }

@@ -223,6 +223,21 @@ private final class CallCounter: @unchecked Sendable {
         #expect(!driver.relaunchGate.isWaiting)
     }
 
+    @Test func theWaitCapBoundsOnlyAutomaticInstalls() {
+        let busy = UpdateRelaunchBlockers(busyAgentCount: 1, runningCommandCount: 1, userInputActive: true)
+        func relaunches(automatic: Bool, waited: Duration) -> Bool {
+            UpdateRelaunchGate.shouldRelaunch(
+                automatic ? busy : busy.forUserInstall, automatic: automatic, waited: waited,
+                daemonUnavailableFor: .zero, agentTimeout: .seconds(30 * 60),
+                daemonUnavailableTimeout: .seconds(10 * 60), automaticWaitCap: .seconds(15 * 60))
+        }
+
+        #expect(!relaunches(automatic: true, waited: .seconds(15 * 60 - 2)))
+        #expect(relaunches(automatic: true, waited: .seconds(15 * 60)))
+        // A host that holds user installs keeps holding them for a running command.
+        #expect(!relaunches(automatic: false, waited: .seconds(60 * 60)))
+    }
+
     @Test func theDefaultWaitCapIsFifteenMinutes() {
         #expect(UpdateRelaunchGate.automaticWaitCap == .seconds(15 * 60))
         #expect(makeDriver().relaunchGate.automaticWaitCap == .seconds(15 * 60))

@@ -26,10 +26,7 @@ impl TeamPolicyLayer {
         let keep = |values: &BTreeMap<String, Value>| {
             values
                 .iter()
-                .filter(|(key, _)| {
-                    schema.row(key).is_some()
-                        || crate::schema::replaced_old_keys().any(|old| &old == *key)
-                })
+                .filter(|(key, _)| schema.row(key).is_some())
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect()
         };

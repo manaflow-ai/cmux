@@ -35,7 +35,7 @@ struct ChatNativeLayout: @unchecked Sendable {
         var frame: CGRect
         var fill: UIColor
         var radius: CGFloat
-        /// A 1 px border in the card level's line (`CmuxMobileContentSurface.line(.card)`).
+        /// A 0.5 pt border in the separator color at half opacity.
         var bordered = false
     }
 

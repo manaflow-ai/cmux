@@ -43,7 +43,7 @@ async fn fetch(url: &str) -> Result<(&'static str, Vec<u8>)> {
     } else {
         parsed.join("/favicon.ico").context("the site's favicon URL")?
     };
-    let client = crate::happy_dial::http_client()
+    let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .user_agent("acpmux-icon")
         .build()?;

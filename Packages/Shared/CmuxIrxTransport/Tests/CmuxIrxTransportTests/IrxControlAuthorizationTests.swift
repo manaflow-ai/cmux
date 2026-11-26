@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import Foundation
 import IrohLib
 import Testing
@@ -92,4 +91,3 @@ struct IrxControlAuthorizationTests {
         func revoke() { allowed = false }
     }
 }
-#endif

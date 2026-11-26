@@ -1,4 +1,0 @@
-{
-  "agent": "privacy",
-  "why": "On, cmux keeps reading the source browser's cookies after an import: only the person turns that on."
-}

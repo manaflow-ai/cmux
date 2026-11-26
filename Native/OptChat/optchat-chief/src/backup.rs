@@ -1,18 +1,17 @@
 //! The remote backup of the memory's text export (decision 2026-10-06):
 //! after each turn's commit, the chat directory's history is pushed to a
 //! private per-Chief repository, `manaflow-ai/chief-memory-<chief id>`,
-//! created with `gh` on the first push. A moved remote branch is fetched and
-//! merged before retrying, never forced.
+//! created with `gh` on the first push. Never forced: a remote with other
+//! history is reported and left alone.
 //!
 //! Before a push, the export lines added since the last pushed commit are
 //! scanned for secrets (gitleaks when it is on PATH, else a built-in set of
 //! token and key shapes). A hit holds the backup: nothing is pushed, a
 //! `backup_held` trace event is written, and the status file says
 //! `(backup held: possible secret in message N)` until the hit is allowed
-//! (`backup-allow.txt`: one message id or summary name per line). A failed push
-//! is retried with bounded jittered backoff by the persister thread; after the
-//! retry window the status becomes `blocked` instead of retrying forever. It
-//! never blocks a turn.
+//! (`backup-allow.txt`: one message id or summary name per line) . A failed
+//! push is retried with backoff (30 s doubling to 30 min) by the persister
+//! thread; it never blocks a turn.
 //!
 //! Configuration per Chief home: `OPTCHAT_BACKUP_REMOTE=on|off`, else
 //! `optchat/settings.json` `{"backup": {"remote": true|false}}`, else on
@@ -25,7 +24,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -41,9 +40,6 @@ const PUSHED: &str = "refs/remotes/backup/main";
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const FIRST_RETRY: Duration = Duration::from_secs(30);
 const LAST_RETRY: Duration = Duration::from_secs(30 * 60);
-const MAX_RETRIES: u32 = 8;
-const RETRY_WINDOW: Duration = Duration::from_secs(6 * 60 * 60);
-const RECONCILE_ATTEMPTS: u32 = 4;
 
 /// Where a backup goes and where it reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -134,27 +130,14 @@ pub enum Outcome {
         error: String,
         retry: Duration,
     },
-    /// A turn arrived before the next scheduled retry.
-    Waiting {
-        error: String,
-        retry: Duration,
-    },
-    /// The backup could not be reconciled within its retry window.
-    Blocked {
-        error: String,
-        attempts: u32,
-    },
 }
 
 pub struct Backup {
     config: BackupConfig,
     remote: Option<bool>,
     created: bool,
-    retries: u32,
-    retry_until: Option<Instant>,
+    delay: Duration,
     due: Option<Instant>,
-    last_error: Option<String>,
-    blocked: Option<(String, u32)>,
 }
 
 /// One secret shape: a prefix, the characters that follow it and how many.
@@ -340,23 +323,15 @@ fn line_owner(line: &str) -> String {
     }
 }
 
-fn git_raw(dir: &Path, args: &[&str]) -> Result<String, String> {
+fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     let out = Command::new("git")
         .arg("-C")
         .arg(dir)
-        .args([
-            "-c",
-            "user.name=optchat-chief",
-            "-c",
-            "user.email=optchat-chief@localhost",
-            "-c",
-            "commit.gpgsign=false",
-        ])
         .args(args)
         .output()
         .map_err(|e| format!("running git: {e}"))?;
     if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
     } else {
         Err(format!(
             "git {}: {}",
@@ -364,10 +339,6 @@ fn git_raw(dir: &Path, args: &[&str]) -> Result<String, String> {
             String::from_utf8_lossy(&out.stderr).trim()
         ))
     }
-}
-
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    git_raw(dir, args).map(|out| out.trim().to_owned())
 }
 
 fn gh(args: &[&str]) -> Result<String, String> {
@@ -386,151 +357,14 @@ fn gh(args: &[&str]) -> Result<String, String> {
     }
 }
 
-fn retry_delay(attempt: u32) -> Duration {
-    let exponent = attempt.saturating_sub(1).min(5);
-    let base = (FIRST_RETRY * (1u32 << exponent)).min(LAST_RETRY);
-    // A small process-local jitter keeps Chiefs that notice the same remote
-    // move from waking and colliding on the same schedule.
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.subsec_nanos());
-    let percent = 75 + nanos % 51;
-    Duration::from_millis((base.as_millis() * u128::from(percent) / 100) as u64)
-}
-
-fn index_blob(dir: &Path, stage: u8, path: &str) -> Option<String> {
-    let spec = format!(":{stage}:{path}");
-    git_raw(dir, &["show", &spec]).ok()
-}
-
-/// Merge two JSONL export versions when both writers only appended records.
-/// A changed or removed existing line is left as a real conflict so no memory
-/// is silently replaced by a second writer.
-fn merge_jsonl(
-    base: Option<&str>,
-    ours: Option<&str>,
-    theirs: Option<&str>,
-) -> Result<String, String> {
-    let Some(ours) = ours else {
-        return Err("one writer removed an export file".into());
-    };
-    let Some(theirs) = theirs else {
-        return Err("one writer removed an export file".into());
-    };
-    let base = base.unwrap_or("");
-    if !ours.starts_with(base) || !theirs.starts_with(base) {
-        return Err("both writers changed existing export lines".into());
-    }
-    let mut merged = base.to_owned();
-    let mut seen = merged
-        .lines()
-        .map(str::to_owned)
-        .collect::<std::collections::HashSet<_>>();
-    for tail in [&ours[base.len()..], &theirs[base.len()..]] {
-        if tail.is_empty() {
-            continue;
-        }
-        if !tail.ends_with('\n') {
-            return Err("an export append is not a complete JSONL line".into());
-        }
-        for line in tail.lines() {
-            if seen.insert(line.to_owned()) {
-                merged.push_str(line);
-                merged.push('\n');
-            }
-        }
-    }
-    Ok(merged)
-}
-
-fn reconcile_remote(dir: &Path) -> Result<(), String> {
-    // A newly created backup repository has no branch yet. Fetch reports that
-    // case as an error, but there is nothing to reconcile until the first push.
-    let _ = git(dir, &["fetch", "--quiet", REMOTE, "main"]);
-    let remote = match git(
-        dir,
-        &["rev-parse", "--verify", "-q", "refs/remotes/backup/main"],
-    ) {
-        Ok(remote) => remote,
-        Err(_) => return Ok(()),
-    };
-    if git(dir, &["merge-base", "--is-ancestor", "HEAD", &remote]).is_ok() {
-        git(dir, &["merge", "--ff-only", &remote])?;
-        return Ok(());
-    }
-    if git(dir, &["merge-base", "--is-ancestor", &remote, "HEAD"]).is_ok() {
-        return Ok(());
-    }
-
-    let merge = git(
-        dir,
-        &[
-            "merge",
-            "--no-commit",
-            "--no-ff",
-            "--allow-unrelated-histories",
-            &remote,
-        ],
-    );
-    if let Err(merge_error) = merge {
-        let conflicts = match git(dir, &["diff", "--name-only", "--diff-filter=U"]) {
-            Ok(conflicts) => conflicts,
-            Err(error) => {
-                let _ = git(dir, &["merge", "--abort"]);
-                return Err(error);
-            }
-        };
-        if conflicts.is_empty() {
-            let _ = git(dir, &["merge", "--abort"]);
-            return Err(merge_error);
-        }
-        for path in conflicts.lines() {
-            if !(path.starts_with("main/") || path.starts_with("tree/")) {
-                let _ = git(dir, &["merge", "--abort"]);
-                return Err(format!("merge conflict in non-memory file {path}"));
-            }
-            let merged = match merge_jsonl(
-                index_blob(dir, 1, path).as_deref(),
-                index_blob(dir, 2, path).as_deref(),
-                index_blob(dir, 3, path).as_deref(),
-            ) {
-                Ok(merged) => merged,
-                Err(why) => {
-                    let _ = git(dir, &["merge", "--abort"]);
-                    return Err(format!("merge conflict in {path}: {why}"));
-                }
-            };
-            if let Err(error) = std::fs::write(dir.join(path), merged) {
-                let _ = git(dir, &["merge", "--abort"]);
-                return Err(format!("write merged export {path}: {error}"));
-            }
-            if let Err(error) = git(dir, &["add", "--", path]) {
-                let _ = git(dir, &["merge", "--abort"]);
-                return Err(error);
-            }
-        }
-    }
-    if let Err(error) = git(
-        dir,
-        &["commit", "-q", "-m", "Merge remote Chief memory backup"],
-    ) {
-        let _ = git(dir, &["merge", "--abort"]);
-        return Err(format!("commit reconciled memory: {error}"));
-    }
-    Ok(())
-}
-
 impl Backup {
     pub fn new(config: BackupConfig) -> Backup {
         Backup {
             remote: config.remote,
             config,
             created: false,
-            retries: 0,
-            retry_until: None,
+            delay: FIRST_RETRY,
             due: None,
-            last_error: None,
-            blocked: None,
         }
     }
 
@@ -596,49 +430,19 @@ impl Backup {
 
     /// One attempt: scan what is new since the last push, then push it.
     pub fn run(&mut self, dir: &Path) -> Outcome {
-        self.run_at(dir, Instant::now())
-    }
-
-    /// Run a backup against a supplied clock. The persister uses [`Self::run`]
-    /// with the real clock. This entry point keeps retry-bound tests
-    /// deterministic without sleeping through the production backoff.
-    #[doc(hidden)]
-    pub fn run_at(&mut self, dir: &Path, now: Instant) -> Outcome {
-        if let Some((error, attempts)) = &self.blocked {
-            return Outcome::Blocked {
-                error: error.clone(),
-                attempts: *attempts,
-            };
-        }
-        if let Some(at) = self.due
-            && now < at
-        {
-            return Outcome::Waiting {
-                error: self
-                    .last_error
-                    .clone()
-                    .unwrap_or_else(|| "backup retry is pending".to_owned()),
-                retry: at.saturating_duration_since(now),
-            };
-        }
-        let outcome = self.attempt(dir, now);
+        let outcome = self.attempt(dir);
         match &outcome {
-            Outcome::Failed { .. } | Outcome::Waiting { .. } | Outcome::Blocked { .. } => {}
+            Outcome::Failed { .. } => {}
             _ => {
-                self.retries = 0;
-                self.retry_until = None;
+                self.delay = FIRST_RETRY;
                 self.due = None;
-                self.last_error = None;
             }
-        }
-        if let Outcome::Blocked { error, attempts } = &outcome {
-            self.blocked = Some((error.clone(), *attempts));
         }
         self.report(&outcome);
         outcome
     }
 
-    fn attempt(&mut self, dir: &Path, now: Instant) -> Outcome {
+    fn attempt(&mut self, dir: &Path) -> Outcome {
         let (url, tagged) = (self.config.url.is_some(), self.config.tagged);
         let remote = *self
             .remote
@@ -657,15 +461,15 @@ impl Backup {
         match self.scan(dir, &base) {
             Ok(Some((what, rule))) => return Outcome::Held { what, rule },
             Ok(None) => {}
-            Err(error) => return self.failed(error, now),
+            Err(error) => return self.failed(error),
         }
-        match self.push(dir, &head) {
-            Ok(head) => Outcome::Pushed { head },
-            Err(error) => self.failed(error, now),
+        if let Err(error) = self.push(dir, &head) {
+            return self.failed(error);
         }
+        Outcome::Pushed { head }
     }
 
-    fn push(&mut self, dir: &Path, head: &str) -> Result<String, String> {
+    fn push(&mut self, dir: &Path, head: &str) -> Result<(), String> {
         let url = self.url();
         match git(dir, &["remote", "get-url", REMOTE]) {
             Ok(current) if current == url => {}
@@ -674,7 +478,7 @@ impl Backup {
         }
         if self.config.url.is_none() && !self.created {
             if gh(&["repo", "view", &self.config.repo, "--json", "name"]).is_err() {
-                let created = gh(&[
+                gh(&[
                     "repo",
                     "create",
                     &self.config.repo,
@@ -683,71 +487,26 @@ impl Backup {
                     "--disable-wiki",
                     "--description",
                     "OptChat Chief memory: the text export, pushed after every turn",
-                ]);
-                if let Err(error) = created
-                    && gh(&["repo", "view", &self.config.repo, "--json", "name"]).is_err()
-                {
-                    return Err(format!(
-                        "create backup repository {}: {error}",
-                        self.config.repo
-                    ));
-                }
+                ])?;
             }
             self.created = true;
         }
-        // gh signs the push in for github.com; never forced. A moved branch is
-        // reconciled below and then pushed again from the merged commit.
+        // gh signs the push in for github.com; never forced.
         let helper = "credential.helper=!gh auth git-credential";
-        let mut head = head.to_owned();
-        for _ in 0..=RECONCILE_ATTEMPTS {
-            let refspec = format!("{head}:refs/heads/main");
-            let mut args: Vec<&str> = Vec::new();
-            if self.config.url.is_none() {
-                args.extend(["-c", "credential.helper=", "-c", helper]);
-            }
-            args.extend(["push", "--quiet", REMOTE, &refspec]);
-            match git(dir, &args) {
-                Ok(_) => {
-                    git(dir, &["update-ref", PUSHED, &head])?;
-                    return Ok(head);
-                }
-                Err(push_error) => {
-                    let reconcile = reconcile_remote(dir);
-                    match reconcile {
-                        Ok(()) => {
-                            head = git(dir, &["rev-parse", "--verify", "HEAD"])?;
-                        }
-                        Err(reconcile_error) => {
-                            return Err(format!(
-                                "backup push refused ({push_error}); reconciling remote memory failed: {reconcile_error}"
-                            ));
-                        }
-                    }
-                }
-            }
+        let mut args: Vec<&str> = Vec::new();
+        if self.config.url.is_none() {
+            args.extend(["-c", "credential.helper=", "-c", helper]);
         }
-        Err(format!(
-            "backup push did not converge after {RECONCILE_ATTEMPTS} remote reconciliations"
-        ))
+        let refspec = format!("{head}:refs/heads/main");
+        args.extend(["push", "--quiet", REMOTE, &refspec]);
+        git(dir, &args)?;
+        git(dir, &["update-ref", PUSHED, head]).map(|_| ())
     }
 
-    fn failed(&mut self, error: String, now: Instant) -> Outcome {
-        self.retries += 1;
-        let until = *self.retry_until.get_or_insert(now + RETRY_WINDOW);
-        if self.retries >= MAX_RETRIES || now >= until {
-            self.due = None;
-            let outcome = Outcome::Blocked {
-                error,
-                attempts: self.retries,
-            };
-            if let Outcome::Blocked { error, .. } = &outcome {
-                self.last_error = Some(error.clone());
-            }
-            return outcome;
-        }
-        let retry = retry_delay(self.retries);
-        self.due = Some(now + retry);
-        self.last_error = Some(error.clone());
+    fn failed(&mut self, error: String) -> Outcome {
+        let retry = self.delay;
+        self.due = Some(Instant::now() + retry);
+        self.delay = (self.delay * 2).min(LAST_RETRY);
         Outcome::Failed { error, retry }
     }
 
@@ -775,25 +534,6 @@ impl Backup {
                     json!({"error": error, "retry_s": retry.as_secs()}),
                 )),
             ),
-            Outcome::Waiting { .. } => return,
-            Outcome::Blocked { error, attempts } => {
-                let text = format!(
-                    "backup push stopped after {attempts} attempts: {error}; inspect the backup repository and retry"
-                );
-                (
-                    json!({
-                        "state": "blocked",
-                        "text": text,
-                        "error": error,
-                        "attempts": attempts,
-                        "at": at
-                    }),
-                    Some((
-                        "backup_blocked",
-                        json!({"error": error, "attempts": attempts}),
-                    )),
-                )
-            }
         };
         let tmp = self.config.status.with_extension("json.tmp");
         if std::fs::write(&tmp, status.to_string()).is_ok() {

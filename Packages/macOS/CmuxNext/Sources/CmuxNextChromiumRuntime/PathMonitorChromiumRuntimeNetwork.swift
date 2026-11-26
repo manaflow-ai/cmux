@@ -1,5 +1,3 @@
-#if canImport(Network)
-// NWPathMonitor is Apple-only; a Linux build has no network observer.
 import Network
 
 /// Network state from `NWPathMonitor`: a path is usable when it is satisfied,
@@ -29,4 +27,3 @@ public struct PathMonitorChromiumRuntimeNetwork: ChromiumRuntimeNetwork {
         return allowsExpensive || (!path.isExpensive && !path.isConstrained)
     }
 }
-#endif

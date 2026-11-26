@@ -34,7 +34,7 @@ impl Network {
         let space = space.map_err(|error| Error::rejected(error.to_string()))?;
         version.parse::<reqwest::header::HeaderValue>().map_err(|_| invalid())?;
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = cmux_egress::blocking_client_builder("cmux_server::pairing::network")
+        let http = reqwest::blocking::Client::builder()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
@@ -210,12 +210,7 @@ async fn wait(
     let deadline = tokio::time::Instant::now() + remaining;
     let (socket, response) = match tokio::time::timeout_at(
         deadline,
-        cmux_egress::ws::connect_async_with_config(
-            request,
-            Some(config),
-            false,
-            "cmux_server::pairing::network",
-        ),
+        tokio_tungstenite::connect_async_with_config(request, Some(config), false),
     )
     .await
     {

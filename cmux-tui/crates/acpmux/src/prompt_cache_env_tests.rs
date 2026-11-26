@@ -81,38 +81,3 @@ fn caching_turned_off_sets_nothing() {
         assert!(e.is_empty(), "login {key}: {e:?}");
     }
 }
-
-#[test]
-fn turn_context_stays_in_the_user_turn() {
-    let mut e = env(&[]);
-    keep_turn_context_in_user_turn(&mut e, &|_| None);
-    assert_eq!(e[MODEL_CAPABILITIES_ENV], "-mid_conv_system");
-}
-
-#[test]
-fn a_capabilities_value_that_names_it_wins() {
-    for value in ["mid_conv_system", "claude-opus-5*=effort,-mid_conv_system"] {
-        let mut e = env(&[(MODEL_CAPABILITIES_ENV, value)]);
-        keep_turn_context_in_user_turn(&mut e, &|_| None);
-        assert_eq!(e[MODEL_CAPABILITIES_ENV], value);
-    }
-}
-
-#[test]
-fn another_capabilities_value_gets_the_entry_appended() {
-    let mut e = env(&[(MODEL_CAPABILITIES_ENV, "claude-opus-5*=-temperature")]);
-    keep_turn_context_in_user_turn(&mut e, &|_| None);
-    assert_eq!(e[MODEL_CAPABILITIES_ENV], "claude-opus-5*=-temperature;-mid_conv_system");
-}
-
-#[test]
-fn the_login_shell_or_the_force_switch_keeps_its_choice() {
-    let mut e = env(&[]);
-    keep_turn_context_in_user_turn(&mut e, &|k| {
-        (k == MODEL_CAPABILITIES_ENV).then(|| "mid_conv_system".to_owned())
-    });
-    assert!(!e.contains_key(MODEL_CAPABILITIES_ENV));
-    let mut e = env(&[(FORCE_MID_CONV_SYSTEM_ENV, "1")]);
-    keep_turn_context_in_user_turn(&mut e, &|_| None);
-    assert!(!e.contains_key(MODEL_CAPABILITIES_ENV));
-}

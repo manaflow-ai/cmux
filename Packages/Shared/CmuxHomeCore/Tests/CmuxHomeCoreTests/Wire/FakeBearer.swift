@@ -1,6 +1,4 @@
-#if canImport(os)
 import os
-#endif
 @testable import CmuxHomeCore
 
 /// A Stack token provider that counts the refreshes it was asked for.

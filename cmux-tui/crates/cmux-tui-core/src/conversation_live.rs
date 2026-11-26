@@ -27,8 +27,6 @@ pub(crate) const MAX_LINE_CHARS: usize = 80;
 /// Most bytes of one step's text the owner keeps (the tail).
 pub(crate) const MAX_STEP_BYTES: usize = 64 * 1024;
 /// Most streamed steps of one run the owner keeps.
-/// Measured: memory; 256 steps × MAX_STEP_BYTES (64 KiB) is at most 16 MiB of step text per
-/// live run, held in the owner's memory until the run ends.
 pub(crate) const MAX_RUN_STEPS: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -49,7 +47,7 @@ impl LiveKind {
 
 /// One frame a Chief publishes.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", deny_unknown_fields)]
 pub(crate) enum LiveFrame {
     /// Text appended to a talk or thought step; `final` ends the step (its
     /// step row with the whole text follows on the run).

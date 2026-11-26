@@ -69,6 +69,7 @@ where
 
 /// One event schema declared by a journal producer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalEventSchema {
     pub kind: String,
     pub schema_version: u32,
@@ -80,6 +81,7 @@ pub struct JournalEventSchema {
 
 /// Manifest installed by a userland journal producer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalProducerManifest {
     pub producer_id: String,
     pub namespace: String,
@@ -178,6 +180,7 @@ impl JournalProducerManifest {
 
 /// Generic journal ingress envelope for a userland producer.
 #[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalIngress {
     pub producer_id: String,
     pub manifest_version: u32,
@@ -240,6 +243,7 @@ impl JournalIngress {
 
 /// Receipt returned by `session.journal.producer.put`.
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalProducerPutResult {
     pub producer_id: String,
     pub manifest_version: u32,
@@ -265,6 +269,7 @@ impl JournalProducerPutResult {
 
 /// Result returned by `session.journal.producer.list`.
 #[derive(Clone, Debug, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalProducerListResult {
     pub producers: Vec<JournalProducerManifest>,
 }
@@ -289,6 +294,7 @@ impl JournalProducerListResult {
 
 /// Receipt returned by `session.journal.append`.
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct JournalAppendResult {
     pub producer_id: String,
     pub sequence: String,

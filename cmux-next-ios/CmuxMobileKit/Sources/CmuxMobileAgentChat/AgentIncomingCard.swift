@@ -124,7 +124,8 @@ struct AgentIncomingCard: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 16, style: .continuous))
+        .background(Color.cmuxMobileBubble.opacity(0.55), in: .rect(cornerRadius: 16, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
         .frame(maxWidth: .infinity, alignment: .leading)
         .selectionMenu { _ in messageActions }
         .accessibilityElement(children: .contain)
@@ -148,7 +149,7 @@ struct AgentIncomingCard: View {
             } label: {
                 headerLine(chevron: allOpen).contentShape(.rect)
             }
-            .buttonStyle(.cmuxPressLine)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityHint(allOpen ? "Closes every message" : "Opens every message")
         } else {
             // One message starts closed: its sender's line and its first line, muted; a tap opens the
@@ -172,7 +173,7 @@ struct AgentIncomingCard: View {
                 }
                 .contentShape(.rect)
             }
-            .buttonStyle(.cmuxPressLine)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityValue(singleOpen ? "Expanded" : "Collapsed")
             .accessibilityHint(singleOpen ? "Closes the message" : "Opens the message")
             .accessibilityIdentifier("agent-chat.incoming-line")
@@ -284,7 +285,7 @@ struct AgentIncomingChip: View {
             .foregroundStyle(.secondary)
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .cmuxMobileContentSurface(.inset, in: Capsule())
+            .background(.quaternary, in: .capsule)
     }
 }
 #endif

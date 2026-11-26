@@ -37,7 +37,6 @@ fn window() -> WindowRecord {
         screen_frame: Frame { x: 0.0, y: 0.0, width: 1512.0, height: 982.0 },
         visible_workspace_id: "ws".into(),
         visible_tab_ids: vec![],
-        sidebar_width: 0.0,
     }
 }
 
@@ -58,7 +57,6 @@ fn fixture(dir: &Path, kind: &str) -> std::io::Result<()> {
         sidebar_rows: vec![],
         session_socket_path: String::new(),
         session_registry_id: String::new(),
-        written_at_ms: 0,
     };
     match kind {
         "image" => {

@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 public import Foundation
 
 /// The device's irx network identity: one long-lived Ed25519 keypair whose

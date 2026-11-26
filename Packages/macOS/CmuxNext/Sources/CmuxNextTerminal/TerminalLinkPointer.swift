@@ -197,23 +197,6 @@ import GhosttyNextKit
         view.setCursor(.pointingHand)
     }
 
-    /// The viewport moved (a scroll, output that scrolled it): the underlines sit on the rows
-    /// the link had, over other text now. Look for the link under the pointer again (Leo,
-    /// 2026-11-24: "sometimes the highlights in terminal just float and dont move when i scroll?").
-    func viewportMoved() {
-        guard wrapped != nil else { return }
-        clearWrapped()
-        guard !buttonsDown, let view, let point = pointerLocation, view.bounds.contains(point) else { return }
-        hoverWrapped(at: point, flags: heldFlags, force: true)
-    }
-
-    #if DEBUG
-    /// The viewport rows the underlines are drawn on.
-    var underlinedRowsForTesting: [Int] {
-        underlines.isEmpty ? [] : wrapped?.segments.map(\.row) ?? []
-    }
-    #endif
-
     private func clearWrapped(keepCell: Bool = false) {
         if !keepCell { wrappedCell = nil }
         guard wrapped != nil else { return }

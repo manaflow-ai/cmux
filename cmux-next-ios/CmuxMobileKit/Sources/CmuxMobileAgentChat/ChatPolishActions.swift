@@ -154,7 +154,7 @@ struct ChatCopyChoicesSheet: View {
                     Button("Done", systemImage: "checkmark") { dismiss() }
                 }
             }
-            .cmuxMobileSensoryFeedback(.success, trigger: copied)
+            .sensoryFeedback(.success, trigger: copied)
         }
         .presentationDetents([.medium, .large])
     }
@@ -430,7 +430,7 @@ struct ChatTurnBar: View {
         .font(.body)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .cmuxMobileFloatingGlass(in: .capsule)
+        .glassEffect(.regular, in: .capsule)
         .padding(.horizontal, 12)
     }
 

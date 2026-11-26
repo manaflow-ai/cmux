@@ -15,6 +15,7 @@ public final class HomeChiefSettingsCard {
     /// The popover, once made.
     public private(set) var popover: HomeChiefSettingsPopover?
     private var host = HomeChiefHostLine()
+    private var teleport: ChiefTeleportChip?
     private var name = ""
     private var avatar: (picture: NSImage?, text: String?)?
     private var pictureStore: (avatars: HomeChiefAvatars, chief: String)?
@@ -40,6 +41,7 @@ public final class HomeChiefSettingsCard {
         self.popover = popover
         configure(view)
         view.setHost(place: host.place, switchTo: host.switchTo)
+        view.showTeleport(teleport)
         view.setName(name)
         view.pictureStore = pictureStore
         if let avatar { view.setAvatar(picture: avatar.picture, text: avatar.text) }
@@ -49,6 +51,11 @@ public final class HomeChiefSettingsCard {
     public func setHost(_ line: HomeChiefHostLine) {
         host = line
         view?.setHost(place: line.place, switchTo: line.switchTo)
+    }
+
+    public func showTeleport(_ chip: ChiefTeleportChip?) {
+        teleport = chip
+        view?.showTeleport(chip)
     }
 
     public func setName(_ text: String) {

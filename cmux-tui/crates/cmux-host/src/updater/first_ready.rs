@@ -36,7 +36,6 @@ use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::channel::{self, Binary, Payload};
-use super::gate::{Gate, Honor};
 use super::role::{self, Lock, Outcome};
 use super::{
     Decision, Pending, clear_pending, decide, load_pending, load_state, off_reason,
@@ -69,13 +68,6 @@ pub(super) trait Io {
     fn disarm_guard(&mut self);
     /// Restarts what runs `old` but `cmux-host.service` (this process execs instead).
     fn restart_others(&mut self, old: &Path);
-    /// The last look before the flip, with the guard armed: why not to flip, if
-    /// not. At a restore it enters the worker's commit section, held through the
-    /// flip and the queued restarts, and looks whether the worker was stopped
-    /// ([`after_restore`]); `cmux host run`'s step runs before any worker.
-    fn last_look(&mut self) -> Result<(), String> {
-        Ok(())
-    }
 }
 
 /// What the step found.
@@ -94,21 +86,6 @@ pub enum First {
 
 /// Why this machine does not take the step, if it does not.
 pub(super) fn not_first(paths: &Paths) -> Option<&'static str> {
-    if let Some(why) = not_before_bind(paths) {
-        return Some(why);
-    }
-    // A session host from an earlier start of the service (`/run` is new at each boot).
-    if paths.at(crate::config::DAEMON_PID_FILE).exists() {
-        return Some("a session host runs");
-    }
-    None
-}
-
-/// Why a machine whose `cmux host run` already runs does not take the step
-/// at a snapshot restore ([`after_restore`]), if it does not: [`not_first`]
-/// but the session host, which the image's snapshot keeps running from the
-/// bake (no person was ever linked to a machine never bound).
-pub(super) fn not_before_bind(paths: &Paths) -> Option<&'static str> {
     if !paths.at(store::CURRENT_LINK).exists() {
         return Some("no store profile");
     }
@@ -122,142 +99,11 @@ pub(super) fn not_before_bind(paths: &Paths) -> Option<&'static str> {
     if load_pending(paths).is_some() {
         return Some("an update is waiting for its health check");
     }
+    // A session host from an earlier start of the service (`/run` is new at each boot).
+    if paths.at(crate::config::DAEMON_PID_FILE).exists() {
+        return Some("a session host runs");
+    }
     None
-}
-
-/// How long the step may hold the restart gate's flock at a snapshot restore
-/// ([`after_restore`]): a bind waits on it that long at most. Every GET, every
-/// `systemctl` and the guard's `systemd-run` end by it (`role::within`,
-/// `role::commands_within`).
-pub const RESTORE_BOUND: Duration = Duration::from_secs(30);
-/// At a restore, the flip comes this long before [`RESTORE_BOUND`] at the latest:
-/// room for the restarts it queues (a few `--no-block` systemctl calls), which
-/// run within the bound too. Later, the step leaves the image's build.
-pub const RESTART_RESERVE: Duration = Duration::from_secs(5);
-
-/// The step on a machine restored from the image's memory snapshot, before
-/// its first bind. Such a restore never starts `cmux host run` again (the
-/// snapshot's process goes on, two days into its uptime), so [`run`] never
-/// sees it: before this, the restore took the five-minute resume hold
-/// (`role::hold_after_restore`) and the new machine bound, reported ready
-/// and was linked on the image's build, then waited out the hold the bind
-/// took too.
-///
-/// The channel is read and the build decided outside the gate; the download,
-/// the profile, the flip and the queued restart of the service (`restart`)
-/// run inside [`Gate::run`] honoring every hold but a resume hold, as the
-/// Scaler's `--skip-resume-hold` does. A bind that comes during it waits on
-/// the gate's flock, then finds the restart pending and leaves `bind.json`
-/// for the restarted service, whose first bind, first report and first link
-/// are the channel's build (the own-flip mark spares it the start hold). A
-/// bind already in flight or done (its connect hold) refuses the step, and
-/// the normal updater, with its holds, takes the build later.
-///
-/// `last_look` is the normal flip's last look ([`Io::last_look`]): it enters
-/// the worker's commit section, or says why not to flip (the worker was
-/// stopped); what it returns is held through the flip and `restart`. The
-/// step's observation is saved as [`before_ready`]'s is (`state.first_ready`).
-pub(super) fn after_restore<C>(
-    paths: &Paths,
-    target: &str,
-    deadline: Instant,
-    io: &mut impl Io,
-    last_look: impl FnMut() -> Result<C, String>,
-    restart: impl FnOnce(),
-) -> First {
-    if let Some(why) = not_before_bind(paths) {
-        return First::NotFirst(why);
-    }
-    let started = Instant::now();
-    let mut observation = observation_at_start(paths);
-    let first = restore_step(paths, target, deadline, io, last_look, restart, &mut observation);
-    record_first_ready(paths, started, observation, &first);
-    first
-}
-
-fn restore_step<C>(
-    paths: &Paths,
-    target: &str,
-    deadline: Instant,
-    io: &mut impl Io,
-    last_look: impl FnMut() -> Result<C, String>,
-    restart: impl FnOnce(),
-    observation: &mut super::look::FirstReady,
-) -> First {
-    let payload = loop {
-        match io.read_channel() {
-            Ok(payload) => break payload,
-            Err(e) if Instant::now() + READ_RETRY >= deadline => {
-                return First::OnImage(format!("the channel was not read in time: {e}"));
-            }
-            Err(_) => std::thread::sleep(READ_RETRY),
-        }
-    };
-    observation.channel_commit = Some(payload.commit.clone());
-    observation.to_version = payload.binaries_for(target).ok().map(|(tui, _)| tui.sha256.clone());
-    match decide(paths, &load_state(paths), &payload, target) {
-        Ok(Decision::Update(_)) => observation.image_behind = Some(true),
-        Ok(Decision::Current) => {
-            observation.image_behind = Some(false);
-            return First::Current(payload.commit);
-        }
-        Ok(Decision::Older) => {
-            return First::OnImage("the channel's build is older than this one".to_owned());
-        }
-        Ok(Decision::RolledBack) => {
-            return First::OnImage("the channel's build was rolled back here".to_owned());
-        }
-        Err(e) => return First::OnImage(e),
-    }
-    let mut read = Read { payload: Some(payload), io, last_look, commit: None };
-    // The flip by the reserve before the bound, so the restarts end within it.
-    let flip_by = deadline.checked_sub(RESTART_RESERVE).unwrap_or(deadline);
-    let ran = Gate::new(paths).run(wall_ms(), Honor::AllButResume, |inside| {
-        let first = step(paths, target, deadline, flip_by, &mut read, observation);
-        if matches!(first, First::Flipped(_)) {
-            inside.flip_restart_queued(wall_ms(), crate::linux::realtime_minus_boottime_ns());
-            restart();
-        }
-        first
-    });
-    // The commit section ends after the queued restarts.
-    drop(read);
-    ran.unwrap_or_else(|refused| First::OnImage(format!("the restart gate: {refused}")))
-}
-
-/// `io` with the channel already read, and the worker's last look:
-/// [`after_restore`]'s step inside the gate.
-struct Read<'a, I, L, C> {
-    payload: Option<Payload>,
-    io: &'a mut I,
-    last_look: L,
-    /// The commit section the last look entered, held until this is dropped.
-    commit: Option<C>,
-}
-
-impl<I: Io, L: FnMut() -> Result<C, String>, C> Io for Read<'_, I, L, C> {
-    fn last_look(&mut self) -> Result<(), String> {
-        self.commit = Some((self.last_look)()?);
-        Ok(())
-    }
-    fn read_channel(&mut self) -> Result<Payload, String> {
-        match self.payload.take() {
-            Some(payload) => Ok(payload),
-            None => self.io.read_channel(),
-        }
-    }
-    fn download(&mut self, bin: &Binary, to: &Path) -> Result<(), String> {
-        self.io.download(bin, to)
-    }
-    fn arm_guard(&mut self, pending: &Pending) -> Result<(), String> {
-        self.io.arm_guard(pending)
-    }
-    fn disarm_guard(&mut self) {
-        self.io.disarm_guard();
-    }
-    fn restart_others(&mut self, old: &Path) {
-        self.io.restart_others(old);
-    }
 }
 
 /// The step on `paths` for `target`, by `deadline`. GETs must be bounded by the
@@ -272,8 +118,14 @@ pub(super) fn before_ready(
         return First::NotFirst(why);
     }
     let started = Instant::now();
-    let mut observation = observation_at_start(paths);
-    let first = step(paths, target, deadline, deadline, io, &mut observation);
+    let mut observation = super::look::FirstReady {
+        started_at: wall_ms(),
+        from_version: store::current_generation(paths)
+            .and_then(|generation| store::linked_package(paths, generation, super::CMUX_TUI))
+            .ok(),
+        ..Default::default()
+    };
+    let first = step(paths, target, deadline, io, &mut observation);
     let outcome = match &first {
         First::NotFirst(_) => return first,
         First::Current(commit) => Outcome::Current(commit.clone()),
@@ -281,37 +133,11 @@ pub(super) fn before_ready(
         First::OnImage(why) => Outcome::Failed(why.clone()),
     };
     role::save_outcome(paths, &outcome, "before the first ready: ");
-    record_first_ready(paths, started, observation, &first);
-    first
-}
-
-/// The step's observation as it starts: when, and the build it starts on.
-fn observation_at_start(paths: &Paths) -> super::look::FirstReady {
-    super::look::FirstReady {
-        started_at: wall_ms(),
-        from_version: store::current_generation(paths)
-            .and_then(|generation| store::linked_package(paths, generation, super::CMUX_TUI))
-            .ok(),
-        ..Default::default()
-    }
-}
-
-/// Saves the step's observation (`state.first_ready`, the report's
-/// `first_ready`) once it ended as `first`, unless one is saved already.
-fn record_first_ready(
-    paths: &Paths,
-    started: Instant,
-    mut observation: super::look::FirstReady,
-    first: &First,
-) {
-    if matches!(first, First::NotFirst(_)) {
-        return;
-    }
     // Round measured durations up to milliseconds: a real sub-ms update is not "no update".
     observation.check_ms =
         u64::try_from(started.elapsed().as_nanos().div_ceil(1_000_000)).unwrap_or(u64::MAX);
     observation.finished_at = wall_ms();
-    observation.outcome = match first {
+    observation.outcome = match &first {
         First::Current(_) => "current",
         First::Flipped(_) => "updated",
         _ => "on_image",
@@ -327,6 +153,7 @@ fn record_first_ready(
             log("first-ready observation could not be saved");
         }
     }
+    first
 }
 
 fn wall_ms() -> u64 {
@@ -335,12 +162,10 @@ fn wall_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// The flip comes by `flip_by` (at or before `deadline`) or not at all.
 fn step(
     paths: &Paths,
     target: &str,
     deadline: Instant,
-    flip_by: Instant,
     io: &mut impl Io,
     observation: &mut super::look::FirstReady,
 ) -> First {
@@ -379,7 +204,7 @@ fn step(
     if let Err(e) = role::stage_with(paths, &plan, |bin, file| io.download(bin, file)) {
         return First::OnImage(e);
     }
-    if Instant::now() >= flip_by {
+    if Instant::now() >= deadline {
         return First::OnImage("staged past the bound".to_owned());
     }
     if let Err(e) = store::build_profile(paths, plan.from, plan.to, &plan.replacements()) {
@@ -394,18 +219,6 @@ fn step(
     if let Err(e) = io.arm_guard(&pending) {
         clear_pending(paths);
         return First::OnImage(format!("arming the guard: {e}"));
-    }
-    // The last looks, right before the flip: the bound (arming the guard waits
-    // on systemd), then the caller's own ([`Io::last_look`]).
-    let last = if Instant::now() >= flip_by {
-        Err("armed the guard past the bound".to_owned())
-    } else {
-        io.last_look()
-    };
-    if let Err(why) = last {
-        io.disarm_guard();
-        clear_pending(paths);
-        return First::OnImage(why);
     }
     if let Err(e) = store::flip(paths, plan.to) {
         io.disarm_guard();
@@ -424,7 +237,7 @@ fn step(
 }
 
 /// The machine's own effects.
-pub(super) struct Machine;
+struct Machine;
 
 impl Io for Machine {
     fn read_channel(&mut self) -> Result<Payload, String> {

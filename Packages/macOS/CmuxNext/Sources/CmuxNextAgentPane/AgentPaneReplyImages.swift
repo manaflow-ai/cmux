@@ -32,8 +32,7 @@ public nonisolated enum AgentPaneReplyError: String, Error, Equatable, Sendable 
 /// image roots and at most
 /// ``maximumBytes``; a raster image is decoded first, so bytes that only claim to be an image
 /// never reach the page; an SVG is rebuilt without script, event handlers, foreign content or
-/// links out (``AgentPaneSVGSanitizer``). A web image is decoded and re-encoded as PNG, but for an
-/// animated GIF, which stays a GIF. A PDF
+/// links out (``AgentPaneSVGSanitizer``). A web image is always decoded and re-encoded as PNG. A PDF
 /// shows as its first page, drawn as a PNG thumbnail (``pdfThumbnail(_:)``): the page never gets
 /// the document.
 nonisolated struct AgentPaneReplyImages {
@@ -114,19 +113,9 @@ nonisolated struct AgentPaneReplyImages {
         return .success("data:image/png;base64," + (output as Data).base64EncodedString())
     }
 
-    /// Bytes from a web fetch as a PNG data URL; an animated GIF stays a GIF, so it moves as it does
-    /// from a local file (Leo, 2026-11-22: "shouldn't these, like the in-app videos, and probably gifs,
-    /// be rendered in the app?"). Its type, size and first frame are checked first, as for a local GIF.
+    /// Bytes from a web fetch as a PNG data URL.
     @concurrent static func remote(_ data: Data) async -> Result<String, AgentPaneReplyError> {
-        raster(data, reencode: !isAnimatedGIF(data))
-    }
-
-    /// Whether `data` is a GIF of more than one frame, at most ``maximumBytes``.
-    static func isAnimatedGIF(_ data: Data) -> Bool {
-        guard data.count <= maximumBytes,
-              let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)
-        else { return false }
-        return CGImageSourceGetType(source) as String? == UTType.gif.identifier && CGImageSourceGetCount(source) > 1
+        raster(data, reencode: true)
     }
 
     /// `data` as a raster data URL: kept as it is when the page draws its type and `reencode` is

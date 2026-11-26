@@ -1,4 +1,3 @@
-#if canImport(SwiftUI)
 public import SwiftUI
 
 /// The spinner in SwiftUI, in place of an indeterminate `ProgressView()`: ``CmuxSpinnerView`` at a
@@ -11,7 +10,6 @@ public struct CmuxSpinner: View {
     private let label: Text?
     @Environment(\.controlSize) private var controlSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.cmuxSpinnerDrawsStill) private var still
 
     /// - Parameters:
     ///   - size: The side in points; nil follows the environment's control size.
@@ -37,35 +35,14 @@ public struct CmuxSpinner: View {
         let side = size ?? Self.side(for: controlSize)
         if let label {
             VStack(spacing: 8) {
-                arc(side).frame(width: side, height: side).accessibilityHidden(true)
+                Host(side: side, tint: tint, reduceMotion: reduceMotion).frame(width: side, height: side).accessibilityHidden(true)
                 label.foregroundStyle(.secondary)
             }
             .accessibilityElement(children: .combine)
         } else {
-            arc(side).frame(width: side, height: side)
+            Host(side: side, tint: tint, reduceMotion: reduceMotion).frame(width: side, height: side)
         }
     }
-
-    /// The turning arc; in a still picture (`ImageRenderer`, which draws a UIKit or AppKit view
-    /// as a yellow square with a red sign) the same arc at rest, drawn in SwiftUI.
-    @ViewBuilder private func arc(_ side: CGFloat) -> some View {
-        if still {
-            let line = CmuxSpinnerLayer.lineWidth(side: side)
-            Circle()
-                .inset(by: line / 2)
-                .trim(from: 0, to: CmuxSpinnerLayer.arcLength)
-                .stroke(tint ?? Color.secondary, style: StrokeStyle(lineWidth: line, lineCap: .round))
-        } else {
-            Host(side: side, tint: tint, reduceMotion: reduceMotion)
-        }
-    }
-}
-
-extension EnvironmentValues {
-    /// The view is drawn once into a still picture (`ImageRenderer`): a spinner draws its arc at
-    /// rest in SwiftUI, not its UIKit or AppKit view, which the picture would show as the system's
-    /// cannot-draw mark. Set with the rest of a still picture's environment (`drawnAsStillPicture`).
-    @Entry public var cmuxSpinnerDrawsStill = false
 }
 
 #if canImport(UIKit)
@@ -108,5 +85,4 @@ extension CmuxSpinner {
         }
     }
 }
-#endif
 #endif

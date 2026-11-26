@@ -6,7 +6,6 @@
 //! phone answer sends back (or that it is refused after exposure is revoked).
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -31,8 +30,6 @@ struct Fixture {
     mac_id: String,
     exposure: watch::Sender<SessionExposure>,
     backend: mpsc::UnboundedReceiver<Value>,
-    /// Canonicalize `_acpmux/info` lookups hostd made (each one a fresh trusted side socket).
-    info_calls: Arc<AtomicUsize>,
     _dirs: Vec<tempfile::TempDir>,
 }
 
@@ -52,16 +49,13 @@ fn state(blocked: &[&str]) -> SessionExposure {
 /// An ACP fake that resolves aliases on `_acpmux/info`, records client traffic,
 /// and sends a pending approval after each forwarded prompt.
 #[allow(clippy::result_large_err)] // tungstenite requires an unboxed HTTP response in its handshake callback
-async fn fake_acpmux() -> (String, mpsc::UnboundedReceiver<Value>, Arc<AtomicUsize>) {
+async fn fake_acpmux() -> (String, mpsc::UnboundedReceiver<Value>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("ws://{}/", listener.local_addr().unwrap());
     let (tx, rx) = mpsc::unbounded_channel();
-    let info_calls = Arc::new(AtomicUsize::new(0));
-    let counted = info_calls.clone();
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
             let tx = tx.clone();
-            let counted = counted.clone();
             tokio::spawn(async move {
                 let check = |request: &tokio_tungstenite::tungstenite::handshake::server::Request,
                              response: tokio_tungstenite::tungstenite::handshake::server::Response| {
@@ -77,11 +71,6 @@ async fn fake_acpmux() -> (String, mpsc::UnboundedReceiver<Value>, Arc<AtomicUsi
                 while let Some(Ok(Message::Text(text))) = source.next().await {
                     let Ok(request) = serde_json::from_str::<Value>(&text) else { continue };
                     if request["method"] == "_acpmux/info" {
-                        // Only the trusted canonicalize lookup (fresh socket, `waitLogs`), not
-                        // the mode check on hostd's kept side connection.
-                        if request["params"].get("waitLogs").is_some() {
-                            counted.fetch_add(1, Ordering::SeqCst);
-                        }
                         let answer = json!({
                             "jsonrpc": "2.0",
                             "id": request["id"],
@@ -111,14 +100,14 @@ async fn fake_acpmux() -> (String, mpsc::UnboundedReceiver<Value>, Arc<AtomicUsi
             });
         }
     });
-    (url, rx, info_calls)
+    (url, rx)
 }
 
 async fn fixture(initial: SessionExposure) -> Fixture {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let sockets = tempfile::tempdir().unwrap();
     let uploads = tempfile::tempdir().unwrap();
-    let (acpmux_url, backend, info_calls) = fake_acpmux().await;
+    let (acpmux_url, backend) = fake_acpmux().await;
     let services = ServiceConfig {
         chief_socket: None,
         tui_socket_dir: sockets.path().to_path_buf(),
@@ -131,7 +120,6 @@ async fn fixture(initial: SessionExposure) -> Fixture {
         uploads_dir: uploads.path().to_path_buf(),
         browser: cmux_mobile_host::browser::BrowserConfig::default(),
         surface: cmux_mobile_host::surface::SurfaceConfig::default(),
-        viewport_sync: None,
     };
     let (exposure, session_exposure) = watch::channel(initial);
     let mac_id = uuid::Uuid::new_v4().to_string();
@@ -150,7 +138,7 @@ async fn fixture(initial: SessionExposure) -> Fixture {
     ));
     let phone_id = uuid::Uuid::new_v4().to_string();
     let phone = SignalingClient::connect(&server.base_url, "user:alice", "team", &phone_id).await.unwrap();
-    Fixture { _server: server, phone, mac_id, exposure, backend, info_calls, _dirs: vec![sockets, uploads] }
+    Fixture { _server: server, phone, mac_id, exposure, backend, _dirs: vec![sockets, uploads] }
 }
 
 async fn connect(fixture: &Fixture) -> cmux_mobile_link::Connected {
@@ -334,64 +322,4 @@ async fn handoff_cannot_use_a_blocked_source_capsule() {
         .unwrap();
     let _ = recv_close(&mut channel).await;
     assert!(timeout(Duration::from_millis(200), fixture.backend.recv()).await.is_err());
-}
-
-fn numbered_prompt(session: &str, id: usize) -> Bytes {
-    Bytes::from(
-        json!({"jsonrpc":"2.0","id":format!("prompt-{id}"),"method":"session/prompt","params":{"sessionId":session,"prompt":"hello"}})
-            .to_string(),
-    )
-}
-
-/// A current phone names chats by canonical id: only its first request pays the trusted
-/// `_acpmux/info` lookup (a fresh loopback socket); the rest go straight through.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn canonical_session_is_looked_up_once_per_link() {
-    let mut fixture = fixture(state(&[])).await;
-    let connected = connect(&fixture).await;
-    let channel = connected.link.open("acpmux", json!({})).await.unwrap();
-    for id in 0..5 {
-        channel.send(numbered_prompt(SESSION, id)).await.unwrap();
-        let forwarded = timeout(Duration::from_secs(10), fixture.backend.recv()).await.unwrap().unwrap();
-        assert_eq!(forwarded["params"]["sessionId"], SESSION);
-    }
-    assert_eq!(fixture.info_calls.load(Ordering::SeqCst), 1);
-}
-
-/// Old-phone compat: an alias is resolved on every request, so a renamed or re-pointed
-/// alias is never answered from a stale entry, and each still reaches the canonical id.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn alias_is_resolved_on_every_request() {
-    let mut fixture = fixture(state(&[])).await;
-    let connected = connect(&fixture).await;
-    let channel = connected.link.open("acpmux", json!({})).await.unwrap();
-    for id in 0..3 {
-        channel.send(numbered_prompt(ALIAS, id)).await.unwrap();
-        let forwarded = timeout(Duration::from_secs(10), fixture.backend.recv()).await.unwrap().unwrap();
-        assert_eq!(forwarded["params"]["sessionId"], SESSION);
-    }
-    assert_eq!(fixture.info_calls.load(Ordering::SeqCst), 3);
-}
-
-/// Skipping the lookup never skips exposure: a canonical id known on this link is still
-/// refused once the person hides that chat.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn known_canonical_session_is_still_refused_once_blocked() {
-    let mut fixture = fixture(state(&[])).await;
-    let connected = connect(&fixture).await;
-    let mut channel = connected.link.open("acpmux", json!({})).await.unwrap();
-    channel.send(numbered_prompt(SESSION, 0)).await.unwrap();
-    assert_eq!(fixture.backend.recv().await.unwrap()["method"], "session/prompt");
-    assert_eq!(recv_json(&mut channel).await["id"], "approval-1");
-    fixture.exposure.send_replace(state(&[SESSION]));
-    let _ = channel.send(numbered_prompt(SESSION, 1)).await;
-    match timeout(Duration::from_secs(10), channel.recv()).await.expect("in time") {
-        Some(ChannelEvent::Data(data)) => {
-            let refusal: Value = serde_json::from_slice(&data).unwrap();
-            assert_eq!(refusal["error"]["data"]["reason"], "remote_control.session_not_exposed");
-        }
-        Some(ChannelEvent::Closed(_)) | None => {}
-    }
-    assert!(timeout(Duration::from_millis(200), fixture.backend.recv()).await.is_err());
-    assert_eq!(fixture.info_calls.load(Ordering::SeqCst), 1);
 }

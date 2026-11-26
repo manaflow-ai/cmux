@@ -4,7 +4,6 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextFocus
-import CmuxNextFocusUI
 import CmuxNextSidebar
 import CmuxNextTerminal
 
@@ -36,8 +35,7 @@ extension KeyRouter {
     nonisolated static func keyContext(for focus: FocusState, appContext: ActionContext, facts: Facts) -> KeyContext {
         var bits = appContext.subtracting(ActionContext.focusBits)
         let implied = focus.context
-        // A text input outside the named terminal has the keyboard (#52840): the key is that input's.
-        if implied.terminal, !facts.typingOutsideFocusedTerminal { bits.insert(.terminalFocused) }
+        if implied.terminal { bits.insert(.terminalFocused) }
         if implied.browser { bits.insert(.browserFocused) }
         if implied.agent { bits.insert(.agentPaneFocused) }
         if case .addressBar = focus.resolved { bits.insert(.omnibarFocused) }
@@ -154,34 +152,18 @@ extension KeyRouter {
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
                      fileExplorerFocused: FileExplorerService.hasKeyboard(window),
                      workspacesAsTabs: SidebarTunables.workspacesAsTabsOn,
-                     pageReportsUnhandledKeys: pageHasKeys(window, controller: controller),
-                     typingOutsideFocusedTerminal: typingOutsideFocusedTerminal(window, controller: controller))
+                     pageReportsUnhandledKeys: chromiumPageHasKeys(window, controller: controller))
     }
 
-    /// The model names a terminal, but the keys go elsewhere (``KeyFacts/typingOutsideFocusedTerminal``,
-    /// #52840): `window`, the key window, is not the cmux window itself (a Chromium page window over it,
-    /// such as a Chief chat page, which a terminal never lives in), or its first responder is a visible,
-    /// editable text input outside the terminal (Home's message box). The window itself or no responder
-    /// (a terminal whose surface is on its way) keeps the terminal's keys.
-    func typingOutsideFocusedTerminal(_ window: NSWindow, controller: WindowController) -> Bool {
-        guard case .terminal(let pane, _) = controller.focus.state.resolved else { return false }
-        if let shell = controller.window, window !== shell { return true }
-        guard let responder = window.firstResponder, responder.ownsTypedText else { return false }
-        guard case .terminal(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return true }
-        return !entry.session.hasKeyboard(responder)
-    }
-
-    /// The focused browser tab's page has the keyboard in `window`, the key window, and reports a key
-    /// it leaves unhandled: a live Chromium tab whose page window is `window` (Chromium's unhandled-key
-    /// callback), or a WebKit tab whose web view is `window`'s first responder (WebKit sends the key
-    /// back to `NSApp.sendEvent`). Otherwise (the shell window is key for a Chromium page, the omnibar
-    /// has the keyboard) the key would reach no page, so cmux runs its action first as before.
-    private func pageHasKeys(_ window: NSWindow, controller: WindowController) -> Bool {
+    /// The focused live Chromium tab's page window is `window`, the key window: the key reaches
+    /// the page, and Chromium reports it if the page leaves it unhandled. While the shell window
+    /// itself is key (a page the model names but Chromium has not been handed the keyboard), the
+    /// key would reach no page, so cmux runs its action first as before.
+    private func chromiumPageHasKeys(_ window: NSWindow, controller: WindowController) -> Bool {
         guard case .browserPage = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
-              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent else { return false }
-        if let tab = entry.tab as? CEFTab { return tab.isPageWindow(window) }
-        if let tab = entry.tab as? WebKitTab { return tab.pageHasKeyboard(in: window) }
-        return false
+              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent,
+              let tab = entry.tab as? CEFTab else { return false }
+        return tab.isPageWindow(window)
     }
 
     /// The page id of the focused internal page tab.

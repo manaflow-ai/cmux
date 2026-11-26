@@ -77,8 +77,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()
-            // The page's Escape: Skip, with what Skip does on this step (Make cmux Yours puts the settings back).
-            case .skipAll: model?.skipStep()
+            case .skipAll: model?.finish(completed: false)
             }
         }
         model.onEnd = { [weak self] _ in self?.window?.close() }

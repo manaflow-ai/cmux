@@ -75,24 +75,15 @@ fn layout_rows_keep_row_one_without_an_id_and_refuse_bad_rows() {
     let row = &viewport.columns[0].rows.as_ref().unwrap()[0];
     assert!(row.row_id.is_none() && row.height == 500);
     assert_eq!(serde_json::to_value(row).unwrap(), json!({"height": 500}));
-    for bad in [json!([{"row_id": CHAIN, "height": 50}]), json!([{"row_id": CHAIN}]), json!("rows")]
-    {
+    for bad in [
+        json!([{"row_id": CHAIN, "height": 600, "width": 1}]),
+        json!([{"row_id": CHAIN, "height": 50}]),
+        json!([{"row_id": CHAIN}]),
+        json!("rows"),
+    ] {
         assert!(
             serde_json::from_value::<cmux::LayoutDocument>(document(bad.clone())).is_err(),
             "{bad}"
         );
     }
-}
-
-#[test]
-fn layout_documents_ignore_fields_a_newer_daemon_adds() {
-    let mut wire = document(json!([{"row_id": CHAIN, "height": 600, "width": 1}]));
-    wire["future"] = json!({"v": 2});
-    wire["root"]["future"] = json!(true);
-    wire["root"]["columns"][0]["future"] = json!(1);
-    wire["root"]["columns"][0]["root"]["first"]["future"] = json!("x");
-    let decoded: cmux::LayoutDocument = serde_json::from_value(wire).unwrap();
-    let LayoutNode::Viewport(viewport) = &decoded.root else { panic!() };
-    let row = &viewport.columns[0].rows.as_ref().unwrap()[0];
-    assert_eq!(serde_json::to_value(row).unwrap(), json!({"row_id": CHAIN, "height": 600}));
 }

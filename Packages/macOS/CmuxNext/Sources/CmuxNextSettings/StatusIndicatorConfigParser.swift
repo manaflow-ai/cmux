@@ -11,8 +11,6 @@ enum StatusIndicatorConfigParser {
     static var defaults: StatusIndicatorSettings {
         var settings = StatusIndicatorSettings(style: styleDefault, scale: CGFloat(sizeDefault), thickness: CGFloat(thicknessDefault),
                                                honoredStyleSources: honoredSources(.bool(honorStatusStyleDefault)) ?? [])
-        // `iconSet` stays nil: the Debug tunable's default, which equals `iconSetDefault`
-        // (StatusIconSetSettingTests), so reset settings equal `StatusIndicatorSettings()`.
         settings.animation = animationDefault
         settings.showsAgentWorkingOnTabs = showAgentWorkingOnTabsDefault
         settings.showsPageLoading = showPageLoadingDefault
@@ -24,15 +22,6 @@ enum StatusIndicatorConfigParser {
         guard var reader = ConfigFieldReader(root, at: path, diagnostics: &diagnostics) else { return settings }
         if let value = reader.choice("style", StatusIndicatorStyle.self) { settings.style = value }
         if let value = reader.choice("animation", StatusIndicatorAnimation.self) { settings.animation = value }
-        // The Debug-only sets (`StatusIconSet.isDebugOnly`) are the Debug switch's, not the setting's.
-        if let value = reader.choice("iconSet", StatusIconSet.self) {
-            if value.isDebugOnly {
-                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: iconSetPath.joined(separator: "."),
-                                                      message: "\"\(value.rawValue)\" is a Debug Settings set"))
-            } else {
-                settings.iconSet = value.rawValue
-            }
-        }
         if let value = reader.number("size", range: sizeRange) {
             settings.scale = CGFloat(value)
         }

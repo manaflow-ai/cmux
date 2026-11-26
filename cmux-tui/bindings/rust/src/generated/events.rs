@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 904084da7c7269d2c068894336d66cb1aa68bb6f467a7992efd2ee435a2ad886.
+// cmux-tui mux protocol 12, IR 6ec7f7cebc370abc68d280422ff3451e8146dfb33a1b83b3c8d54a7960383b8b.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -102,26 +102,6 @@ pub struct AgentPresenceChangedEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentSessionShareChangedEvent {
     pub session: String,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AppsCloudMachineEventKind {
-    #[serde(rename = "record")]
-    Record,
-    #[serde(rename = "live")]
-    Live,
-    #[serde(rename = "lost")]
-    Lost,
-}
-
-#[rustfmt::skip]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AppsCloudMachineEvent {
-    pub kind: AppsCloudMachineEventKind,
-    pub machine: String,
-    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
-    pub record: Option<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -1118,7 +1098,6 @@ pub enum Event {
     AgentInventoryWatchEnded(AgentInventoryWatchEndedEvent),
     AgentPresenceChanged(AgentPresenceChangedEvent),
     AgentSessionShareChanged(AgentSessionShareChangedEvent),
-    AppsCloudMachine(AppsCloudMachineEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
@@ -1225,7 +1204,6 @@ impl Event {
             Self::AgentInventoryWatchEnded(_) => Some("agent-inventory-watch-ended"),
             Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
             Self::AgentSessionShareChanged(_) => Some("agent-session-share-changed"),
-            Self::AppsCloudMachine(_) => Some("apps-cloud-machine"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
@@ -1331,7 +1309,6 @@ impl Event {
             Self::AgentInventoryWatchEnded(_) => Some(&AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA),
             Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
             Self::AgentSessionShareChanged(_) => Some(&AGENT_SESSION_SHARE_CHANGED_EVENT_METADATA),
-            Self::AppsCloudMachine(_) => Some(&APPS_CLOUD_MACHINE_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
@@ -1490,14 +1467,6 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-session-share-changed") => match serde_json::from_value::<AgentSessionShareChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentSessionShareChanged(event),
-            Err(error) => Event::Unknown(UnknownEvent {
-                name,
-                raw,
-                decode_error: Some(error.to_string()),
-            }),
-        },
-        Some("apps-cloud-machine") => match serde_json::from_value::<AppsCloudMachineEvent>(raw.clone()) {
-            Ok(event) => Event::AppsCloudMachine(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

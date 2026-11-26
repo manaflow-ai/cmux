@@ -1,4 +1,3 @@
-#if canImport(IrohLib)
 import IrohLib
 import Testing
 
@@ -42,4 +41,3 @@ import Testing
         #expect(current.failureDescription == nil)
     }
 }
-#endif

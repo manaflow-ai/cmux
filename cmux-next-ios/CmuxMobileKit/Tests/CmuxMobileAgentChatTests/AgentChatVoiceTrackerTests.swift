@@ -40,6 +40,7 @@ import Testing
         let turns = [Self.turn("t1", [
             .thought(id: "th", text: "I should edit the store"),
             .tool(Self.edit),
+            .plan(id: "p", entries: [ACPPlanEntry(content: "Edit the store")]),
             .message(id: "m", markdown: "Fixed it.\n\n```diff\n-a\n+b\n```"),
         ], status: .completed)]
         #expect(tracker.newSpeech(in: turns) == ["Fixed it."])

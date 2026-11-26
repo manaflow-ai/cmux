@@ -51,8 +51,6 @@
 
 mod child;
 mod command;
-#[cfg(unix)]
-mod exec;
 mod group;
 #[cfg(target_vendor = "apple")]
 mod spawn_apple;
@@ -60,8 +58,6 @@ mod stdio;
 
 pub use child::{Child, DROP_GRACE};
 pub use command::Command;
-#[cfg(unix)]
-pub use exec::exec_replace;
 pub use group::{ChildGroup, GRACE, OwnedChild};
 pub use std::process::{ExitStatus, Output};
 pub use stdio::Stdio;

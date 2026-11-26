@@ -53,7 +53,6 @@ fn ticket(authority: &TicketAuthority) -> String {
             issued_at_unix: now,
             expires_at_unix: now + TICKET_SECONDS,
             grant: None,
-            region: None,
         })
         .unwrap()
 }

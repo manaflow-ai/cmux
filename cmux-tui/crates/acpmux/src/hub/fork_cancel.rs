@@ -39,13 +39,7 @@ impl Hub {
         let (_, harness_env) = self.harness_env(&meta).await;
         // Read before the kill purges the fork's meta from the store.
         let store_env = self.btw_store_env(&meta, &harness_env).await;
-        self.kill_held(
-            fork,
-            true,
-            using.downgrade(),
-            crate::close_why::CloseWhy::by("app", "fork cancelled before use"),
-        )
-        .await?;
+        self.kill_held(fork, true, using.downgrade()).await?;
         // Its agent may have reported its own session id while it started (Claude's
         // `--fork-session`): read after the kill, which ended that start.
         let Some(copy) = fork.meta().agent_session_id else { return Ok(()) };

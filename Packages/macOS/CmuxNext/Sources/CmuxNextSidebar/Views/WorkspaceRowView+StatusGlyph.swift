@@ -17,27 +17,6 @@ extension WorkspaceRowView {
         return NSRect(x: snapped(trailing - side), y: snapped(centerY - side / 2), width: side, height: side)
     }
 
-    /// The status mark that draws in the leading icon slot (`sidebar.workspaceRow.statusPlacement` `leading`): the
-    /// row badge, else the agent mark standing in for the status, else the status glyph, as `layoutColumnMark` picks
-    /// them on the trailing column. Nil when the status trails or the row is idle (the slot shows its icon or nothing).
-    var leadingStatusMark: NSView? {
-        guard statusLeads else { return nil }
-        if !rowBadge.isHidden { return rowBadge }
-        if !agentMark.isHidden && agentMarkVariant == .replacesStatus { return agentMark }
-        return activity.showsGlyph ? activity : nil
-    }
-
-    /// Places the leading status `mark` in the icon slot whose box starts at `leading`, centered in it (a dot, a
-    /// spinner and a warning differ in ink width, so a centered mark does not shift as the state changes), on
-    /// `centerY`, on the pixel grid. The workspace's icon hides while the mark shows; the title keeps its x.
-    func layoutLeadingStatus(_ mark: NSView, leading: CGFloat, slot: CGFloat, centerY: CGFloat) {
-        let size = mark === rowBadge ? CGSize(width: rowBadge.preferredWidth, height: rowBadge.cellSide)
-            : CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize)
-        let scale = window?.backingScaleFactor ?? 1
-        mark.frame = NSRect(x: SidebarStyle.pixelSnapped(leading + (slot - size.width) / 2, scale: scale),
-                            y: SidebarStyle.pixelSnapped(centerY - size.height / 2, scale: scale), width: size.width, height: size.height)
-    }
-
     /// The agent mark's image size: the status mark's when it stands in for the status, the
     /// indicator size when it sits beside the title, so its brand variant matches the box it fills.
     var agentMarkSize: CGFloat {

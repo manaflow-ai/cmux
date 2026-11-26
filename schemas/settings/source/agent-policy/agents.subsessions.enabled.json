@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "How many agent sessions an agent may start, and how deep, is the person's call: an agent must not raise its own limits."
-}

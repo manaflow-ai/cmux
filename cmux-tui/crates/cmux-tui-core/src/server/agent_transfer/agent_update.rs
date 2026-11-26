@@ -101,9 +101,11 @@ impl Drop for ApplySlot {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct PlanParams {}
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ApplyParams {
     ids: Vec<String>,
     #[serde(default)]
@@ -173,6 +175,7 @@ impl Failure {
         match error {
             LinkError::Closed => Self::AcpmuxUnavailable,
             LinkError::Timeout => Self::Timeout,
+            LinkError::Busy => Self::Busy,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
             LinkError::BadList(_) => Self::BadList,
         }

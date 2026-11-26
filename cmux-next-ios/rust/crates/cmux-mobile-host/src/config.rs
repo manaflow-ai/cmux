@@ -53,11 +53,6 @@ pub struct ServiceConfig {
     pub browser: crate::browser::BrowserConfig,
     /// The `surface` service: who starts simulator surface sources, and the running hosts.
     pub surface: crate::surface::SurfaceConfig,
-    /// Viewport sync on `daemon` channels that ask for it (`"viewport_sync": 1`) over a WireGuard
-    /// overlay: the path selector's numbers, `None` for off. Default: on with the default
-    /// selector when `CMUX_MOBILE_VIEWPORT_SYNC=1` ([`crate::viewport_sync::enabled`]);
-    /// [`crate::viewport_sync::SelectorConfig::datagram_first`] forces the datagram path.
-    pub viewport_sync: Option<crate::viewport_sync::SelectorConfig>,
 }
 
 impl ServiceConfig {
@@ -245,20 +240,17 @@ pub fn host_uuid() -> Option<HostUuid> {
 /// At most this many sibling ids per registration (the backend's limit).
 pub const MAX_SIBLINGS: usize = 16;
 
-/// The device ids other cmux builds on this Mac registered for `owner`, read
-/// from their state folders in `app_support` (`<bundle id>/cmux-mobile-host`,
-/// the pre-rename `<bundle id>/cnx-host`, and a standalone host's
-/// `cmux-mobile-host`), without `own`. In each folder: the account's own id
-/// `device-id.<owner>` (the Mac app keeps one per account since 2026-11-12;
-/// skipped when its `device-id.<owner>.machine` names another computer) and an
-/// older build's unkeyed `device-id`. Another account's ids are never read. The backend gives each the
+/// The device ids other cmux builds on this Mac registered, read from their
+/// state folders in `app_support` (`<bundle id>/cmux-mobile-host/device-id`,
+/// the pre-rename `<bundle id>/cnx-host/device-id`, and a standalone host's
+/// `cmux-mobile-host/device-id`), without `own`. The backend gives each the
 /// registering Mac's machine id when it is the same owner's Mac and has none
 /// yet: the record a deleted build left behind is then listed as that
 /// computer's, instead of as another Mac. A folder whose [`MACHINE_MARKER`]
 /// names another machine id came from another Mac and is skipped (a folder
 /// without one is a build from before machine ids). Unreadable folders are
 /// skipped.
-pub fn sibling_device_ids(app_support: &Path, owner: &str, own: &str, machine_id: &str) -> Vec<String> {
+pub fn sibling_device_ids(app_support: &Path, own: &str, machine_id: &str) -> Vec<String> {
     let mut folders = vec![app_support.join("cmux-mobile-host")];
     if let Ok(entries) = std::fs::read_dir(app_support) {
         let mut bundles: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
@@ -268,47 +260,24 @@ pub fn sibling_device_ids(app_support: &Path, owner: &str, own: &str, machine_id
             folders.push(bundle.join("cnx-host"));
         }
     }
-    let elsewhere = |marker: PathBuf| {
-        std::fs::read_to_string(marker)
-            .ok()
-            .and_then(|m| normalize_machine_id(&m))
-            .is_some_and(|m| m != machine_id)
-    };
     let mut ids: Vec<String> = Vec::new();
     for folder in folders {
-        let mut found = Vec::new();
-        if let Some(name) = owner_file_component(owner)
-            && !elsewhere(folder.join(format!("device-id.{name}.machine")))
+        if let Ok(marker) = std::fs::read_to_string(folder.join(MACHINE_MARKER))
+            && normalize_machine_id(&marker).is_some_and(|m| m != machine_id)
         {
-            found.push(folder.join(format!("device-id.{name}")));
+            continue;
         }
-        if !elsewhere(folder.join(MACHINE_MARKER)) {
-            found.push(folder.join("device-id"));
+        let Ok(text) = std::fs::read_to_string(folder.join("device-id")) else { continue };
+        let Ok(id) = uuid::Uuid::parse_str(text.trim()) else { continue };
+        let id = id.to_string();
+        if !id.eq_ignore_ascii_case(own) && !ids.contains(&id) {
+            ids.push(id);
         }
-        for file in found {
-            let Ok(text) = std::fs::read_to_string(file) else { continue };
-            let Ok(id) = uuid::Uuid::parse_str(text.trim()) else { continue };
-            let id = id.to_string();
-            if !id.eq_ignore_ascii_case(own) && !ids.contains(&id) {
-                ids.push(id);
-            }
-        }
-        if ids.len() >= MAX_SIBLINGS {
-            ids.truncate(MAX_SIBLINGS);
+        if ids.len() == MAX_SIBLINGS {
             break;
         }
     }
     ids
-}
-
-/// The file name part the Mac app uses for `owner`'s device id
-/// (CmuxNextMobile `MobileHostDeviceIdentity.component`): the id itself when it
-/// is 1 to 64 ASCII letters, digits, `-` or `_` (Stack user ids are UUIDs).
-/// Any other owner is hashed there; such an id is not read here.
-pub fn owner_file_component(owner: &str) -> Option<&str> {
-    let plain = (1..=64).contains(&owner.len())
-        && owner.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
-    plain.then_some(owner)
 }
 
 /// The other builds a registration names: [`sibling_device_ids`], or none
@@ -318,7 +287,6 @@ pub fn owner_file_component(owner: &str) -> Option<&str> {
 /// that has none yet (old builds, other rigs) and fold them into it for good.
 pub fn registration_siblings(
     app_support: &Path,
-    owner: &str,
     own: &str,
     machine_id: &str,
     overridden: bool,
@@ -326,7 +294,7 @@ pub fn registration_siblings(
     if overridden {
         return Vec::new();
     }
-    sibling_device_ids(app_support, owner, own, machine_id)
+    sibling_device_ids(app_support, own, machine_id)
 }
 
 /// [`HostConfig::machine`] on the fields it reads: the machine id to register
@@ -337,7 +305,6 @@ pub fn registration_machine(
     overridden: bool,
     state_dir: &Path,
     app_support: &Path,
-    owner: &str,
     device_id: &str,
 ) -> (Option<String>, Vec<String>) {
     let Some(id) = id else {
@@ -352,7 +319,7 @@ pub fn registration_machine(
     {
         tracing::warn!("could not write the machine marker: {error}");
     }
-    let siblings = registration_siblings(app_support, owner, device_id, &id, overridden);
+    let siblings = registration_siblings(app_support, device_id, &id, overridden);
     (Some(id), siblings)
 }
 
@@ -378,7 +345,6 @@ impl HostConfig {
             self.machine_id_override.is_some(),
             &self.state_dir,
             &self.app_support,
-            owner,
             &self.device_id,
         )
     }
@@ -428,9 +394,6 @@ impl HostConfig {
             .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
                 default_state_dir().join("mailbox-spent.json"),
             )))
-            .with_mailbox_cursor(std::sync::Arc::new(crate::mailbox::MailboxCursor::load(
-                default_state_dir().join("mailbox-cursor.json"),
-            )))
             .with_activity(std::sync::Arc::new(crate::activity::Activity::file(
                 default_state_dir().join("machine-activity.jsonl"),
             )))
@@ -457,16 +420,12 @@ impl HostConfig {
         // `CMUX_MOBILE_SURFACE_SIMULATORS=0`; an older app sets neither then), and Cloud desktops.
         let surface = match &supplied {
             Some(supplied) if env("CMUX_MOBILE_SURFACE_HOSTS").as_deref() == Some("1") => {
-                let mut config =
-                    crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs);
+                let config = crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs);
                 if env("CMUX_MOBILE_SURFACE_SIMULATORS").as_deref() == Some("0") {
-                    config = config.without_simulators();
+                    config.without_simulators()
+                } else {
+                    config
                 }
-                // The app's source also captures this Mac's displays (`d~<display>`).
-                if env("CMUX_MOBILE_MAC_DISPLAY").as_deref() == Some("1") {
-                    config = config.with_mac_display();
-                }
-                config
             }
             _ => crate::surface::SurfaceConfig::default(),
         };
@@ -514,8 +473,6 @@ impl HostConfig {
                     .unwrap_or_else(|| default_state_dir().join("uploads")),
                 browser,
                 surface,
-                viewport_sync: crate::viewport_sync::enabled()
-                    .then(crate::viewport_sync::SelectorConfig::default),
             },
         })
     }
@@ -524,14 +481,6 @@ impl HostConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The machine id the Mac app computes too (CmuxNextMobile `MobileHostDeviceIdentity.machineTag`):
-    /// both sides must agree on this vector.
-    #[test]
-    fn machine_id_matches_the_mac_apps_vector() {
-        let uuid: [u8; 16] = std::array::from_fn(|i| i as u8);
-        assert_eq!(machine_id("owner-a", &uuid), "932b2e0a89479d962ad858b73cf4db9a");
-    }
 
     /// The Mac app's `ChiefHome.sessionName` for the same home.
     #[test]

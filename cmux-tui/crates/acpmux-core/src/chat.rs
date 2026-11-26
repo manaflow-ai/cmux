@@ -1826,6 +1826,7 @@ fn body_key(field: BodyField) -> &'static str {
         BodyField::Text => "text",
         BodyField::Content => "content",
         BodyField::Input => "input",
+        BodyField::Entries => "entries",
         BodyField::Source => "source",
         BodyField::Images => "images",
         BodyField::Title => "title",

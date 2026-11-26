@@ -2,7 +2,7 @@ import { env, exports } from "cloudflare:workers"
 import { runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it, vi } from "vitest"
-import { formatSlackMessage, postSlackMessage, slackMayAct, validSlackInbound, type SlackInbound } from "../src/chief-slack.ts"
+import { formatSlackMessage, postSlackMessage, validSlackInbound, type SlackInbound } from "../src/chief-slack.ts"
 import { sha256Hex } from "../src/ingress/verify.ts"
 import { drain } from "../src/chief-brain/brain-turn.ts"
 import { formatMessage } from "../src/chief-brain/brain-text.ts"
@@ -176,17 +176,6 @@ describe("Chief Slack bridge", () => {
     expect(await bound.PlatformChief.slackInbound({ ...valid, text: "" })).toEqual({ ok: false, code: "validation.invalid" })
     const rpc = new PlatformChief(createExecutionContext(), { ENVIRONMENT: "production" } as Env)
     expect(await rpc.slackInbound(valid)).toEqual({ ok: false, code: "slack.disabled" })
-  })
-
-  it("acts only for the owner where the channel's binding grants run (RFD 0123)", () => {
-    const valid = input("user_test", "team_test")
-    const actor = { source: "forum" as const, actsAs: "slack:T1/U1", onBehalfOf: "owner", verified: false, bridge: 7 }
-    expect(slackMayAct({ ...valid, isOwner: true })).toBe(true)
-    expect(slackMayAct({ ...valid, isOwner: true, actor: { ...actor, grants: ["read", "reply", "run"] } })).toBe(true)
-    expect(slackMayAct({ ...valid, isOwner: true, actor: { ...actor, grants: ["read", "reply"] } })).toBe(false)
-    expect(slackMayAct({ ...valid, isOwner: false, actor: { ...actor, grants: ["read", "reply", "run"] } })).toBe(false)
-    expect(validSlackInbound({ ...valid, actor: { ...actor, grants: ["read", "reply"] } })).toBe(true)
-    expect(validSlackInbound({ ...valid, actor: { ...actor, grants: ["sudo"] } } as unknown as SlackInbound)).toBe(false)
   })
 
   it("sends exactly one binding-internal attempt and isolates failures", async () => {

@@ -14,9 +14,9 @@ struct TabBarPlaygroundTrailingSpec {
     var toolbarMoreSize: CGFloat = OverflowButton.glyphSize
     /// The toolbar's other icons' side, and its buttons' side.
     var toolbarIconSize: CGFloat = Metrics.tokens.resolve(compact: 20, comfortable: 22)
-    var toolbarButtonSide: CGFloat = Metrics.tabBarControlSide
+    var toolbarButtonSide: CGFloat = Metrics.tokens.toolbarButtonSize
     /// The tab bar's buttons' side.
-    var tabBarButtonSide: CGFloat = Metrics.tabBarControlSide
+    var tabBarButtonSide: CGFloat = TitlebarBandButton.side
     /// Distance from the pane's edge to each last control's center: the tab bar's, the toolbar's.
     var tabBarColumn: CGFloat = Metrics.paneTrailingControlCenter
     var toolbarColumn: CGFloat = Metrics.paneTrailingControlCenter

@@ -17,8 +17,7 @@ import Testing
         let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: ComputerChief(writes: continuation))
         view.cloudComputers = { Self.machines }
         await view.refresh().value
-        // The row stays off screen since #51244 (the Chief has one computer, its own); its picker still writes the pick.
-        #expect(view.computerRow.isHidden)
+        #expect(!view.computerRow.isHidden)
         #expect(view.computerPicker.titleOfSelectedItem == HomeEngineStrings.computerThisMac)
         #expect(view.computerDesktop.isHidden)
         let titles = view.computerPicker.itemArray.filter { !$0.isSeparatorItem }.map(\.title)

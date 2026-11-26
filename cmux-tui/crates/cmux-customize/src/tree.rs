@@ -150,7 +150,7 @@ pub fn locate(roots: &Roots, path: &str) -> Option<PathBuf> {
         ("automations", rest)
             if rest.ends_with("/automation.json") && rest.matches('/').count() == 1 =>
         {
-            Some(roots.automations_dir.join(rest))
+            Some(roots.config_dir.join("automations").join(rest))
         }
         (surface, "theme.css") if STYLE_SURFACES.contains(&surface) => {
             Some(roots.config_dir.join(surface).join("theme.css"))
@@ -244,7 +244,7 @@ pub fn absent_dirs(roots: &Roots) -> Vec<PathBuf> {
         roots.config_dir.clone(),
         roots.customize_dir.clone(),
         roots.config_dir.join("themes"),
-        roots.automations_dir.clone(),
+        roots.config_dir.join("automations"),
     ];
     leaves.extend(STYLE_SURFACES.iter().map(|surface| roots.config_dir.join(surface)));
     let mut out: Vec<PathBuf> = Vec::new();
@@ -302,7 +302,7 @@ pub fn scan(roots: &Roots) -> io::Result<Scan> {
             &roots.config_dir.join(surface).join("theme.css"),
         )?;
     }
-    let automations = roots.automations_dir.clone();
+    let automations = roots.config_dir.join("automations");
     for name in sorted_names(&automations)? {
         if name.starts_with('.') {
             continue;

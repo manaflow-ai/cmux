@@ -661,7 +661,7 @@ fn workspace_place_and_the_personal_lists_decode_typed_snapshots() {
 }
 
 #[test]
-fn workspace_group_snapshots_ignore_fields_a_newer_daemon_adds() {
+fn workspace_group_snapshots_refuse_unknown_fields() {
     let mock = mock(|stream, reader| {
         let list = request(reader, "workspace_group.list");
         let mut group = group_snapshot("Work", Value::Null, false, 0);
@@ -670,8 +670,8 @@ fn workspace_group_snapshots_ignore_fields_a_newer_daemon_adds() {
     });
     let client = mock.client();
     let session = client.session(SessionId::parse(SESSION).unwrap());
-    let groups = session.workspace_groups().unwrap();
-    assert_eq!(groups.len(), 1);
+    let error = session.workspace_groups().unwrap_err();
+    assert!(matches!(error, Error::UnexpectedEnvelope(_)), "{error:?}");
     client.close().unwrap();
     mock.finish();
 }

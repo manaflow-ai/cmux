@@ -47,8 +47,7 @@ pub enum RowKind {
     Notice,
     /// A question to the person (a permission, a choice).
     Ask,
-    /// An agent to-do list. Never written since translator version 12 (cmux shows none); kept so a
-    /// book written before still reads.
+    /// A plan.
     Plan,
     /// An image.
     Image,

@@ -81,7 +81,7 @@ impl Hub {
             if !seen.insert(id.clone()) {
                 continue;
             }
-            let child = self.session_get(&id);
+            let child = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&id).cloned();
             let Some(child) = child else { continue };
             if pending(&child) {
                 return Some(id);

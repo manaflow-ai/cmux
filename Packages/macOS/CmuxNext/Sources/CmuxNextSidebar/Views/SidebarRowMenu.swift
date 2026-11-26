@@ -12,16 +12,6 @@ struct SidebarRowMenu {
 
     func show(for id: WorkspaceID) {
         guard let view = list.rowViews[.workspace(id)] as? WorkspaceRowView, let menu = menu(for: id) else { return }
-        // A menu look that draws (`sidebar.drawnMenus`): the same menu as a GlassMenu under the
-        // button. It does not track modally, so the row keeps its lit button until the menu closes.
-        if DesignSettings.shared.sidebarDrawnMenus, let window = view.window {
-            let glass = GlassMenu(menu: menu)
-            view.showsMenu = true
-            glass.onClose = { [weak view] in view?.showsMenu = false }
-            let anchor = window.convertToScreen(view.convert(view.moreFrame, to: nil))
-            if !glass.show(at: anchor, in: window, preferred: .below) { view.showsMenu = false }
-            return
-        }
         // popUp tracks the menu modally and returns when it closes: the row's controls and its lit more button hold
         // for exactly that long, though the pointer leaves the row for the menu (Leo 2026-10-26).
         view.showsMenu = true

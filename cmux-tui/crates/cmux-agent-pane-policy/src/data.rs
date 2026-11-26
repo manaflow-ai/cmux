@@ -27,7 +27,7 @@ pub enum GestureRule {
     WhenPrompting,
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct KnownParams {
     pub params: BTreeSet<String>,
     pub acpmux: BTreeSet<String>,
@@ -127,8 +127,6 @@ struct Raw {
     question_answers: QuestionAnswers,
     #[serde(default)]
     act_as_me_covers: BTreeSet<String>,
-    #[serde(default)]
-    act_as_me_managed_covers: BTreeSet<String>,
 }
 
 /// The rules.
@@ -193,10 +191,6 @@ pub struct Policy {
     /// is on ([`crate::act_as_me`]): Send and Retry (`session/prompt`) and Approve
     /// (`_acpmux/queue_approve`). Empty (a policy that did not parse) covers nothing.
     pub act_as_me_covers: BTreeSet<String>,
-    /// The frames posted input may grant only while an administrator's profile holds the grant
-    /// ([`crate::act_as_me::Holder::Managed`]): saving a Cloud environment (`cloud.environment.update`,
-    /// `cloud.environment.create`). The person's own grant never reaches them.
-    pub act_as_me_managed_covers: BTreeSet<String>,
 }
 
 pub fn policy() -> &'static Policy {
@@ -240,7 +234,6 @@ pub fn policy() -> &'static Policy {
             path_keys: raw.path_keys,
             question_answers: raw.question_answers,
             act_as_me_covers: raw.act_as_me_covers,
-            act_as_me_managed_covers: raw.act_as_me_managed_covers,
         }
     })
 }

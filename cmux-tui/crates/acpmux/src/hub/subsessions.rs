@@ -118,11 +118,6 @@ fn setting(key: &str, max: u32) -> Option<u32> {
     Some(n.floor().clamp(1.0, f64::from(max)) as u32)
 }
 
-/// [`setting`] for another module's key (`lane_fanout.rs`).
-pub(super) fn setting_u32(key: &str, max: u32) -> Option<u32> {
-    setting(key, max)
-}
-
 /// Where a limit value came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
@@ -531,9 +526,7 @@ impl Hub {
         // was in flight did not see the child: close it now, not orphaned
         // (and its worktree, dropped unkept, is removed).
         if parent.meta().status == SessionStatus::Closed {
-            let why =
-                crate::close_why::CloseWhy::by("daemon", "its parent closed while it started");
-            let _ = self.kill_why(&child, false, why).await;
+            let _ = self.kill(&child, false).await;
             return Err(RpcError::invalid_params(
                 "the session closed while its sub-session started",
             ));
@@ -586,13 +579,6 @@ impl Hub {
                 peers: req.local,
                 // A child's name is made unique before this (`unique_name`).
                 name: None,
-                // A family lives on one daemon: a child starts beside its parent.
-                redirect: false,
-                auto: false,
-                waiting: None,
-                harness: Some(harness.clone()),
-                // The parent's lane holds this child (`lane_fanout.rs`).
-                caller: Some(parent.id.as_str()),
             })
             .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.
@@ -687,8 +673,7 @@ impl Hub {
             return Err(self.close_refused(&probe, e).await);
         }
         if !Self::race_active(parent, req.race_id.as_deref()) {
-            let why = crate::close_why::CloseWhy::by("daemon", "its race ended while it started");
-            let _ = self.kill_why(&probe, false, why).await;
+            let _ = self.kill(&probe, false).await;
             return Err(Self::race_cancelled());
         }
         let cm = probe.meta();
@@ -948,7 +933,7 @@ impl Hub {
         // The last turn's text, and the running turn's again (a turn that changed between the
         // two reads above): a parent may have pasted a key into it, and what it does now is a
         // tool call's title, often a command with its arguments.
-        let turn_text = ["/turn/prompt", "/turn/activity"];
+        let turn_text = ["/turn/prompt", "/turn/activity", "/turn/planStep"];
         for pointer in ["/lastTurn/errorText", "/lastTurn/prompt"].into_iter().chain(turn_text) {
             if let Some(slot) = row.pointer_mut(pointer)
                 && let Some(text) = slot.as_str()
@@ -1069,18 +1054,6 @@ impl Hub {
         target: &Arc<Session>,
         close: bool,
     ) -> Result<Value, RpcError> {
-        let why = crate::close_why::CloseWhy::by("daemon", "a race or review it ran ended");
-        self.subsession_stop_why(target, close, why).await
-    }
-
-    /// `subsession_stop`, recording who closed each session and why (`close_why.rs`): the
-    /// target takes `why`; each session under it is recorded as closed with its ancestor.
-    pub async fn subsession_stop_why(
-        self: &Arc<Self>,
-        target: &Arc<Session>,
-        close: bool,
-        why: crate::close_why::CloseWhy,
-    ) -> Result<Value, RpcError> {
         if !close {
             // A start or message still waiting for a run slot is stopped too: it never runs.
             if self.waits_for_slot(&target.meta()) {
@@ -1107,15 +1080,7 @@ impl Hub {
             // A family prompt still queued would take a run slot later and open it again.
             self.withdraw_family_prompts(s, "closed");
             if s.meta().status != SessionStatus::Closed {
-                let mut why = why.clone();
-                if s.id != target.id {
-                    why.reason = Some(format!(
-                        "closed with its ancestor {}: {}",
-                        target.id,
-                        why.reason.as_deref().unwrap_or("unrecorded")
-                    ));
-                }
-                self.kill_why(s, false, why).await?;
+                self.kill(s, false).await?;
                 closed.push(Value::String(s.id.clone()));
             }
         }

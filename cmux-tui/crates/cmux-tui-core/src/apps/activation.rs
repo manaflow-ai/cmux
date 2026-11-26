@@ -26,9 +26,8 @@ use super::grants::{Decision, ScopeTable};
 use super::supervisor::{HostKey, HostState, Inner, Out, Supervisor};
 use crate::panic_free::RecoverPoison;
 
-/// The background part of a manifest's `activation` (`onInterface:`,
-/// `onOp:` and `onKeybinding` start a host on demand already: a mount, a
-/// run, a contributed key's `apps-run`).
+/// The background part of a manifest's `activation` (`onInterface:` and
+/// `onOp:` start a host on demand already: a mount, a run).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct Activation {
     pub on_startup: bool,

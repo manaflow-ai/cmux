@@ -340,7 +340,7 @@ impl Hub {
 
     /// [`Self::warm_chat`] by id, for a chat the hub holds.
     pub(super) fn warm_chat_id(&self, id: &str) {
-        let live = self.session_get(id);
+        let live = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         if let Some(session) = live {
             self.warm_chat(&session);
         }

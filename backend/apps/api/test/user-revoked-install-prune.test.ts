@@ -69,46 +69,21 @@ describe("UserDO keeps a bounded number of revoked installs", () => {
     expect(installActive(r.state, installPrincipal(MAX_REVOKED_INSTALLS + 5))).toBe(true)
   })
 
-  it("keeps installs named by a live presence key or a push target", () => {
+  it("keeps installs named by a pending SSH revoke, a presence key or a push target", () => {
     const base = seed(MAX_REVOKED_INSTALLS + 10)
     const s = {
       ...base,
-      confirm: { presence_keys: { [id("inst", 1)]: { platform: "ios", revoked_at: null } } },
+      ssh_revoke_pending: { [id("inst", 0)]: { user: USER, teams: [TEAM], at: 10_000 } },
+      confirm: { presence_keys: { [id("inst", 1)]: { platform: "ios", revoked_at: 10_001 } } },
       push_targets: { tok: { token: "tok", topic: "dev.cmux.ios", environment: "production", install: id("inst", 2), device_name: "", registered_at: 1 } }
     } as unknown as UserState
     const after = pruneRevokedInstalls(s)
-    for (const k of [1, 2]) expect(after.installs[id("inst", k)], `inst ${k}`).toBeDefined()
-    expect(after.grants[id("grant", 1)]).toBeDefined()
+    for (const k of [0, 1, 2]) expect(after.installs[id("inst", k)], `inst ${k}`).toBeDefined()
+    expect(after.grants[id("grant", 0)]).toBeDefined()
     // The next oldest unheld ones went instead.
-    for (const k of [0, 3, 11]) expect(after.installs[id("inst", k)], `inst ${k}`).toBeUndefined()
-    expect(after.installs[id("inst", 12)]).toBeDefined()
+    for (const k of [3, 12]) expect(after.installs[id("inst", k)], `inst ${k}`).toBeUndefined()
+    expect(after.installs[id("inst", 13)]).toBeDefined()
     expect(revokedCount(after)).toBe(MAX_REVOKED_INSTALLS)
-  })
-
-  it("a revoked presence key or a pending SSH revoke holds nothing; the dropped install's key goes with it", () => {
-    // The production probe account: every revoke left a revoked presence key and a KRL notice, which
-    // held every revoked install, until the head was full and every install.register was refused.
-    const n = MAX_REVOKED_INSTALLS + 50
-    const base = seed(n)
-    const presence_keys: Record<string, unknown> = {}
-    const ssh_revoke_pending: Record<string, unknown> = {}
-    for (let k = 0; k < n; k++) {
-      presence_keys[id("inst", k)] = { platform: "mac", jwk: jwk(k), registered_at: k, usable_from: k, revoked_at: 10_000 + k }
-      ssh_revoke_pending[id("inst", k)] = { user: USER, teams: [TEAM], at: 10_000 + k }
-    }
-    const s = { ...base, confirm: { presence_keys }, ssh_revoke_pending } as unknown as UserState
-    const after = pruneRevokedInstalls(s)
-    expect(revokedCount(after)).toBe(MAX_REVOKED_INSTALLS)
-    expect(after.installs[id("inst", 0)]).toBeUndefined()
-    expect(after.confirm?.presence_keys[id("inst", 0)]).toBeUndefined()
-    expect(after.confirm?.presence_keys[id("inst", n - 1)]).toBeDefined()
-    expect(Object.keys(after.confirm?.presence_keys ?? {}).length).toBe(MAX_REVOKED_INSTALLS)
-    // The KRL notice still goes out: it needs only the install id, the user and the teams.
-    expect(after.ssh_revoke_pending?.[id("inst", 0)]).toEqual({ user: USER, teams: [TEAM], at: 10_000 })
-    // And a register on such a head succeeds and prunes in the same commit.
-    const r = register(s, 77_777)
-    expect(r.ok, JSON.stringify(r).slice(0, 300)).toBe(true)
-    if (r.ok) expect(revokedCount(r.state)).toBe(MAX_REVOKED_INSTALLS)
   })
 
   it("install.revoke prunes in the same commit; at or under the bound nothing changes", () => {
@@ -116,7 +91,7 @@ describe("UserDO keeps a bounded number of revoked installs", () => {
     expect(pruneRevokedInstalls(under)).toBe(under)
     const r = userDomain.reduce(under, "install.revoke", { install: id("inst", MAX_REVOKED_INSTALLS) }, { principal: session, now: 2_000_000, tx: "txr", newId: idFactory("txr") })
     if (!r.ok) throw new Error(r.message)
-    // The new revocation is the newest, so it stays; the oldest went.
+    // The new revocation is pending its SSH notice, so it stays; the oldest went.
     expect(r.state.installs[id("inst", MAX_REVOKED_INSTALLS)]?.revoked_at).toBe(2_000_000)
     expect(r.state.installs[id("inst", 0)]).toBeUndefined()
     expect(revokedCount(r.state)).toBe(MAX_REVOKED_INSTALLS)

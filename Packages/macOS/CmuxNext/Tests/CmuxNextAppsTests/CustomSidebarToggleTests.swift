@@ -39,8 +39,8 @@ struct CustomSidebarToggleTests {
 
     @Test func theFolderIsTheOneTheDaemonWatches() {
         #expect(CustomizeFolder(environment: ["CMUX_CUSTOMIZE_DIR": "/x/c", "XDG_CONFIG_HOME": "/x/cfg", "HOME": "/x/h"])?.url.path() == "/x/c/")
-        #expect(CustomizeFolder(environment: ["CMUX_CUSTOMIZE_DIR": "", "XDG_CONFIG_HOME": "/x/cfg", "HOME": "/x/h"])?.url.path() == "/x/cfg/cmux-next/customize")
-        #expect(CustomizeFolder(environment: ["HOME": "/x/h"])?.url.path() == "/x/h/.config/cmux-next/customize")
+        #expect(CustomizeFolder(environment: ["CMUX_CUSTOMIZE_DIR": "", "XDG_CONFIG_HOME": "/x/cfg", "HOME": "/x/h"])?.url.path() == "/x/cfg/cmux/customize")
+        #expect(CustomizeFolder(environment: ["HOME": "/x/h"])?.url.path() == "/x/h/.config/cmux/customize")
         #expect(CustomizeFolder(environment: [:]) == nil)
     }
 

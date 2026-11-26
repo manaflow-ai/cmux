@@ -14,8 +14,6 @@
 //!   the diagnostics summary, the team switch and the destructive prompts.
 //! - [`fields`]: the `action.run` result fields of the machine actions.
 //! - [`answers`]: the text and fields of the actions whose answer someone reads.
-//! - [`wake_hint`]: wake on intent: which focus, terminal or unlock signal wakes a paused
-//!   machine, its debounce and cap, and the re-pause of a hint wake nobody used.
 //! - [`repo`]: the `--repo` spec parser, which refuses a login or token in the URL.
 //!
 //! A refusal is a [`Said`]: a key the app turns into its localized text (the
@@ -28,7 +26,6 @@ pub mod fields;
 pub mod repo;
 mod said;
 pub mod time;
-pub mod wake_hint;
 
 pub use said::Said;
 

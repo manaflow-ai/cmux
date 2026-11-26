@@ -56,7 +56,8 @@ public nonisolated struct ManagedPreferences: Sendable, Equatable {
 
     /// Whether `key` names a cmux.json setting (as opposed to a policy key).
     public static func isSettingKey(_ key: String) -> Bool {
-        SettingsRust.answer("managed.is_setting_key", ["key": .string(key)])["valid"]?.boolValue ?? false
+        guard let first = key.unicodeScalars.first else { return false }
+        return CharacterSet.lowercaseLetters.contains(first)
     }
 
     /// Converts a property list value (CFPreferences or a plist file) to JSON.

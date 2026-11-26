@@ -155,7 +155,7 @@ struct SessionStatusSheet: View {
                             }
                         }
                     }
-                    .cmuxMobileSensoryFeedback(.success, trigger: copied)
+                    .sensoryFeedback(.success, trigger: copied)
                 }
             }
             .navigationTitle("Session Status")

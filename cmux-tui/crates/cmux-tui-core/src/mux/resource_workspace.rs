@@ -7,8 +7,6 @@ use cmux_json::JsonSet as _;
 
 impl Mux {
     pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
-        #[cfg(test)]
-        crate::walk_counters::workspace_list_walked(state.workspaces.len());
         state
             .workspaces
             .iter()
@@ -278,7 +276,7 @@ impl Mux {
         workspace_revision?;
         let index = state.workspace_index_by_key(workspace_key)?;
         let workspace = state.workspaces[index].id;
-        let decorations = self.workspace_tree_decorations_in_state(state, index);
+        let decorations = self.tree_decorations_in_state(state);
         let entity = crate::server::tree_entity_json(state, &decorations, kind, workspace)?;
         Some(TreeDelta {
             kind,
@@ -320,9 +318,13 @@ impl Mux {
             expected_generation,
             expected_revision,
             move |state, registry| {
+                anyhow::ensure!(
+                    state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
+                    "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
+                );
                 let key = generated_key.clone();
-                let (name_source, name_revision) =
-                    crate::resource_name::NameSource::for_created_workspace(name.as_deref(), true);
+                let name_source =
+                    crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
                 let name = name.clone().unwrap_or_else(|| self.default_workspace_name(state));
                 let index = state.workspaces.len();
                 let workspace = Workspace {
@@ -331,7 +333,7 @@ impl Mux {
                     key: key.clone(),
                     name: name.clone(),
                     name_source,
-                    name_revision,
+                    name_revision: 0,
                     screens: Vec::new(),
                     active_screen: 0,
                 };
@@ -365,7 +367,7 @@ impl Mux {
                     registry.session_id().as_str(),
                     &public_id,
                     &name,
-                    (name_source, name_revision),
+                    (name_source, 0),
                     index,
                     true,
                 ));
@@ -375,7 +377,7 @@ impl Mux {
                     key: key.clone(),
                     name,
                     name_source,
-                    name_revision,
+                    name_revision: 0,
                     group_key: self.session.clone(),
                 };
                 let mut desired = self.registry_projection(state);
@@ -621,11 +623,21 @@ impl Mux {
                     move |state| {
                         if changed {
                             state.move_workspace(old_index, new_index);
-                            Self::reindex_workspace_positions(
-                                state,
-                                old_index.min(new_index),
-                                old_index.max(new_index),
-                            );
+                            for (workspace_index, _, _) in state.split_screens.values_mut() {
+                                *workspace_index = if *workspace_index == old_index {
+                                    new_index
+                                } else if old_index < new_index
+                                    && (old_index + 1..=new_index).contains(workspace_index)
+                                {
+                                    workspace_index.saturating_sub(1)
+                                } else if new_index < old_index
+                                    && (new_index..old_index).contains(workspace_index)
+                                {
+                                    workspace_index.saturating_add(1)
+                                } else {
+                                    *workspace_index
+                                };
+                            }
                             state.active_workspace = active_slot
                                 .and_then(|slot| state.workspace_index(slot))
                                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));

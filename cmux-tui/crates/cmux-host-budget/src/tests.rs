@@ -12,7 +12,6 @@ pub(super) fn incident() -> Sample {
         psi_some_avg10: None,
         available_ram_fraction: Some(0.34),
         swapout_bytes: Some(40 << 30),
-        ..Sample::default()
     }
 }
 
@@ -38,7 +37,6 @@ pub(crate) fn gray(load: f64, pressure: u32, ram: f64, swap: f64, budget: &Budge
         psi_some_avg10: None,
         available_ram_fraction: Some(ram),
         swapout_bytes: None,
-        ..Sample::default()
     };
     evaluate("gray", &sample, Some(swap), budget)
 }

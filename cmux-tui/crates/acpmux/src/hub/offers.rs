@@ -20,8 +20,8 @@
 //!
 //! - The records are the state: an offer is open until its decision is
 //!   recorded, across daemon restarts. The daemon reads a chat's records
-//!   once, at its first offer call, and keeps its open offers from then on:
-//!   an id and a time each, so a chat holds any number.
+//!   once, at its first offer call, and keeps its open offers from then on.
+//!   A chat holds at most [`OPEN_LIMIT`] open offers.
 //! - Only a chat started after the offer takes it, and only one without a
 //!   parent. A chat a remote device started offers none.
 //! - Title, prompt and folder are the agent's text: the chip shows them as
@@ -37,6 +37,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex as StdMutex};
 
 use crate::offer_mcp::{MAX_PROMPT_CHARS, MAX_TITLE_CHARS};
+pub(super) const OPEN_LIMIT: usize = 8;
 const MAX_NAME_CHARS: usize = 120;
 /// The records of a chat's offers: each offer, then its decision.
 const OFFER_KINDS: &[&str] = &["session_offer", "session_offer_decision"];
@@ -135,6 +136,11 @@ impl Hub {
         let record = offer_record(session, params)?;
         let offer_id = record["offerId"].as_str().unwrap_or_default().to_owned();
         self.with_open_offers(session, |open| {
+            if open.len() >= OPEN_LIMIT {
+                return Err(RpcError::invalid_params(format!(
+                    "this chat already has {OPEN_LIMIT} open offers; wait for the user to answer them"
+                )));
+            }
             open.insert(offer_id.clone(), crate::store::now_ms());
             Ok(())
         })?;

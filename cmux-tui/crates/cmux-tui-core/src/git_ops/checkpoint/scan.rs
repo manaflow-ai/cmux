@@ -193,15 +193,11 @@ impl Untracked {
 }
 
 /// Untracked, nonignored paths in path order. A nested repository is one
-/// entry ending with `/`. None in the home folder's repository, whose
-/// untracked files are the whole home folder (`cmux_git::home`).
+/// entry ending with `/`.
 pub(super) fn untracked(
     repository: &Repository,
     operation: &'static str,
 ) -> Result<Vec<Untracked>, ResourceError> {
-    if !repository.lists_untracked() {
-        return Ok(Vec::new());
-    }
     let arguments = ["ls-files", "-z", "--others", "--exclude-standard"];
     let output = listing(repository, &arguments, operation)?;
     let mut paths = records(&output).map(<[u8]>::to_vec).collect::<Vec<_>>();
@@ -219,16 +215,11 @@ pub(super) fn untracked(
         .collect())
 }
 
-/// Ignored paths, an ignored folder as one entry ending with `/`. None in
-/// the home folder's repository: the listing walks every folder that is not
-/// ignored to find them (`cmux_git::home`).
+/// Ignored paths, an ignored folder as one entry ending with `/`.
 pub(super) fn ignored(
     repository: &Repository,
     operation: &'static str,
 ) -> Result<Vec<Vec<u8>>, ResourceError> {
-    if !repository.lists_untracked() {
-        return Ok(Vec::new());
-    }
     let arguments =
         ["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"];
     let output = listing(repository, &arguments, operation)?;

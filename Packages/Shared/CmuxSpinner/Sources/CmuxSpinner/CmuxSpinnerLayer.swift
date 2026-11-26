@@ -1,4 +1,3 @@
-#if canImport(QuartzCore)
 public import QuartzCore
 
 /// The spinner's drawing: a thin arc (``arcLength`` of the circle, round caps) that turns clockwise
@@ -94,7 +93,9 @@ public final class CmuxSpinnerLayer: CALayer {
     /// The media time a turn of `period` must begin at for its phase now to be Unix time mod `period`.
     static func beginTime(period: CmuxSpinnerPeriod, mediaTime: CFTimeInterval,
                           unixTime: TimeInterval? = nil) -> CFTimeInterval {
-        period.turnBegan(mediaTime: mediaTime, unixTime: unixTime ?? mediaTime + processEpoch)
+        let cycle = period.seconds
+        guard cycle > 0 else { return mediaTime }
+        let into = (unixTime ?? mediaTime + processEpoch).truncatingRemainder(dividingBy: cycle)
+        return mediaTime - (into < 0 ? into + cycle : into)
     }
 }
-#endif

@@ -25,12 +25,7 @@ final class AppSceneTextNSView: AppSceneNodeNSView {
         dateText = AppSceneDateText(node)
         updateTicking()
         let text = shownText
-        if text != before, window != nil, !before.isEmpty, drawsInWidgetTile {
-            transitionContent(from: before, to: text)
-        } else if let motion = changeMotion, previousNode?.props["text"] != node.props["text"] || previousNode?.props["color"] != node.props["color"] {
-            // With an `animation`, a new text or color crossfades in place (a label's color is no layer property).
-            Motion.appScenes.sceneCrossfade(motion, on: label.layer, in: window)
-        }
+        if text != before, window != nil, !before.isEmpty, drawsInWidgetTile { transitionContent(from: before, to: text) }
         label.stringValue = text
         label.font = Self.font(node)
         let lines = node.number("lineLimit").map { max(1, Int($0)) } ?? 0

@@ -360,7 +360,7 @@ impl Hub {
     fn handoff_view(&self, r: &Record) -> Value {
         let coverage = r.coverage();
         let side = |s: &Side| {
-            let live = self.session_get(&s.session_id);
+            let live = self.sessions.lock().unwrap().get(&s.session_id).cloned();
             let enforcement = live
                 .map(|l| self.session_enforcement(&l.meta()))
                 .unwrap_or_else(|| s.enforcement.clone());

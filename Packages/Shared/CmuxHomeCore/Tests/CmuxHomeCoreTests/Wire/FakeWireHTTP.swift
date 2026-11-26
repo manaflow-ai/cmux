@@ -1,10 +1,5 @@
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
-#if canImport(os)
 import os
-#endif
 @testable import CmuxHomeCore
 
 /// A scripted `cmux.wire/1` server for `WireHomeSource` tests: records every

@@ -386,7 +386,7 @@ impl Expiries {
 }
 
 fn session_by_id(v1: &Hub, id: &str) -> Option<Arc<Session>> {
-    v1.session_get(id)
+    v1.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
 }
 
 fn stalled_deadline(

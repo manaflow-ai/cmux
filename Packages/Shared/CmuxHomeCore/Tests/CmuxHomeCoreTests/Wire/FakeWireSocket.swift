@@ -1,10 +1,5 @@
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
-#if canImport(os)
 import os
-#endif
 @testable import CmuxHomeCore
 
 /// One fake `cmux.wire/1` socket: the test pushes owner frames and reads

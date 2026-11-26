@@ -21,7 +21,6 @@ extension GhosttyRuntime {
             paths.append(override)
         }
         paths.append(contentsOf: Self.defaultConfigCandidatePaths())
-        paths.append(Self.importedClassicConfig.path)
         var seen = Set<String>()
         return paths.compactMap { raw in
             let path = URL(fileURLWithPath: raw).standardizedFileURL.path

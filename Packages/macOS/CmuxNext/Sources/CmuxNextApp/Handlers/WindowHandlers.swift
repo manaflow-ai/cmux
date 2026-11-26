@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextDaemon
-import CmuxNextHostPressureTunables
 import CmuxNextKeepAwake
 import CmuxNextNotifications
 import CmuxNextPalette

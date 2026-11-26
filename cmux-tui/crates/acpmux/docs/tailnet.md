@@ -19,39 +19,6 @@ The controls are accepted only on a local, person-proven connection:
   reports that remote sign-out was not confirmed. The error directs the user
   to remove the device in the Tailscale admin console; it never silently
   reports successful remote sign-out or restarts the node to attempt it.
-- `_acpmux/tailnet/join` joins the node to the person's own tailnet with a
-  one-time auth key (`tailnet/embedded_join.rs`). Params (v1, camelCase,
-  unknown fields ignored): `key` (required), `controlUrl` (a Headscale server;
-  absent means Tailscale), `allowHttp`, `hostname`, `tags`, `ephemeral`,
-  `switch`. The reply is the state reply plus `join` (the profile, never the
-  key); `state` carries the same `join` once a node has joined.
-
-### Joining your own tailnet
-
-The request goes through `cmux-tailnet-join`'s `check()` (key shape, server
-URL, DNS-label hostname, `tag:` names) before anything changes. A refusal
-names the field and never echoes the params.
-
-- The key signs in once: it stays in memory until the next start hands it to
-  `Node::new`, and that config is dropped right after. It is never written to
-  disk, a log, argv, settings or a reply. `join.json` in the state directory
-  keeps only the server, hostname, tags and ephemeral flag, so a relaunch's
-  resume reconnects to the same tailnet with the saved node key.
-- If the node is already signed in (`_current-profile` in `tailscaled.state`)
-  or running, a join is refused and changes nothing unless `switch` is set; a
-  switch logs the old node out (clearing its state) first.
-- A plain `http://` server needs `allowHttp` for that join, whatever the
-  address: nothing is auto-detected as private.
-- Logout (leave) removes `tailscaled.state`, the opt-in marker and `join.json`.
-- Tags reach tsnet through `TsnetSetAdvertiseTags` (`patches/0004`).
-- The node is userspace tsnet: the host's own tailscaled, its routes, exit
-  node and DNS are never touched (no accept-routes or advertise-routes).
-- There is no CLI join: the unix socket is shared with agents, and an agent
-  that could join this Mac to a tailnet of its choosing could exfiltrate
-  through it. Only the proven person (the app) may call it.
-- Any UI that offers to remember a key keeps it in the Keychain this-device-only
-  (`kSecAttrAccessibleWhenUnlockedThisDeviceOnly`, `kSecAttrSynchronizable`
-  false), one item per tailnet, with a forget button. acpmux itself stores none.
 
 The state stream is event-driven from the node's IPN bus. It has no polling
 timer. A failed watch clears the node so a later explicit start can retry; a
@@ -74,7 +41,7 @@ action already under way: from then on nothing starts, replaces or retires a
 listener or node (a failure cleanup queued earlier leaves its node to shutdown),
 and the ingress closes through the daemon's WebSocket shutdown (1012 on
 restart) before the node closes.
-Builds with the `tailnet` feature list the five methods in `initialize`'s
+Builds with the `tailnet` feature list the four methods in `initialize`'s
 `extensions`; other builds answer them with `not_built`.
 
 Tailnet ingress receives the controller's live `Node` and the daemon's same

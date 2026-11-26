@@ -128,34 +128,3 @@ extension SidebarRowView {
         if reached != (view.alphaValue > 0) { hoverControlReachChanged(view) }
     }
 }
-
-extension NSView {
-    /// No two icons in a row (this view) share a box, at any width, hovered or not (Leo 2026-11-22: "this too. fucking overlapping
-    /// icons. over 24 hours ago."). The row's last layout pass: `keep` (the controls a person points at: the ✕, the ⋮,
-    /// the pin, a tree chevron, the speaker), then `marks` (the dots, spinners, counts and chips), in priority order.
-    /// Every drawn mark whose box meets an icon drawn before it clears (alpha 0) until the next layout, which shows
-    /// it again by its own rules; a kept control never clears. Half a point of each edge is ignored, so icons that
-    /// only touch do not count. Returns the marks it cleared.
-    @discardableResult
-    func clearMarksMeetingIcons(keep: [NSView?], marks: [NSView?], fades: Bool) -> [NSView] {
-        var taken = keep.compactMap { $0 }.compactMap(drawnIconBox)
-        var cleared: [NSView] = []
-        for mark in marks.compactMap(\.self) {
-            guard let box = drawnIconBox(mark) else { continue }
-            if taken.contains(where: { $0.intersects(box) }) {
-                fadeOpacity(mark, to: 0, fades: fades)
-                cleared.append(mark)
-            } else {
-                taken.append(box)
-            }
-        }
-        return cleared
-    }
-
-    /// `view`'s box in this row's coordinates, less half a point each side, while it draws; nil when it does not.
-    func drawnIconBox(_ view: NSView) -> CGRect? {
-        guard !view.isHidden, view.alphaValue > 0.01, view.frame.width > 0, view.frame.height > 0 else { return nil }
-        let box = view.superview === self ? view.frame : convert(view.bounds, from: view)
-        return box.insetBy(dx: 0.5, dy: 0.5)
-    }
-}

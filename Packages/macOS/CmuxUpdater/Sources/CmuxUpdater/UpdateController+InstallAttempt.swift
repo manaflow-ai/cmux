@@ -21,7 +21,7 @@ extension UpdateController {
             installing.retryTerminatingApplication()
             return
         }
-        let action = attemptCoordinator.requestInstallLatest(currentState: model.state.lifecyclePhase)
+        let action = attemptCoordinator.requestInstallLatest(currentState: model.state)
         if action == .startFreshCheck {
             // The user committed to installing. Arm the watchdog so that if the flow never reaches
             // downloading/installing (or another visible outcome) it surfaces an error instead of
@@ -36,7 +36,7 @@ extension UpdateController {
 
     private func fireInstallWatchdogIfStalled() {
         installWatchdog.disarm()
-        guard installWatchdog.installAttemptStalled(model.state.lifecyclePhase) else { return }
+        guard installWatchdog.installAttemptStalled(model.state) else { return }
         setInstallDidNotStartError(
             diagnostic: "install watchdog fired after \(Int(installWatchdog.timeoutSeconds))s (state=\(model.state))"
         )

@@ -12,10 +12,6 @@ nonisolated enum ClassicPreferenceImport {
         var legacy: [String]? = nil
         /// The value one classic domain holds, nil when it holds none.
         let read: @Sendable (UserDefaults) -> JSONValue?
-
-        func wasImported(in done: Set<String>) -> Bool {
-            done.contains(next.joined(separator: ".")) || legacy.map { done.contains($0.joined(separator: ".")) } == true
-        }
     }
 
     /// The `cmux.json` paths already imported, so each is read once and a
@@ -54,8 +50,6 @@ extension SettingsController {
     @discardableResult
     public func importClassicPreferences(marker: UserDefaults, bundleIdentifier: String? = Bundle.main.bundleIdentifier)
         async throws -> Bool {
-        let done = Set(marker.stringArray(forKey: ClassicPreferenceImport.importedKey) ?? [])
-        guard ClassicPreferenceImport.entries.contains(where: { !$0.wasImported(in: done) }) else { return false }
         // A DEV build never derives its settings from another build's preferences (BuildStatePaths): its own only.
         let others = BuildIdentity(bundleID: bundleIdentifier, bundledTag: nil).isolatesSharedState ? []
             : ClassicShortcutImport.domains.filter { $0 != bundleIdentifier }.compactMap { UserDefaults(suiteName: $0) }
@@ -69,19 +63,23 @@ extension SettingsController {
     @discardableResult
     public func importClassicPreferences(from sources: [UserDefaults], marker: UserDefaults) async throws -> Bool {
         var done = Set(marker.stringArray(forKey: ClassicPreferenceImport.importedKey) ?? [])
-        var edits: [(path: [String], value: JSONValue)] = []
+        var edits: [(path: [String], value: JSONValue?)] = []
         for entry in ClassicPreferenceImport.entries {
-            guard !entry.wasImported(in: done) else { continue }
-            done.insert(entry.next.joined(separator: "."))
+            let id = entry.next.joined(separator: ".")
+            let legacyID = entry.legacy?.joined(separator: ".")
+            guard !done.contains(id), legacyID.map(done.contains) != true else { continue }
+            done.insert(id)
             if let legacy = entry.legacy, try await file.value(at: legacy) != nil { continue }
             guard let value = sources.lazy.compactMap(entry.read).first, try await file.value(at: entry.next) == nil,
                   let descriptor = SettingsSchema.all.first(where: { $0.path == entry.next }),
                   descriptor.accepts(value), value != descriptor.defaultValue else { continue }
             edits.append((entry.next, value))
         }
-        let applied = edits.isEmpty ? [] : try await file.setUnset(edits)
-        if !applied.isEmpty { await reloadAfterWrite() }
+        if !edits.isEmpty {
+            try await file.apply(edits)
+            await reloadAfterWrite()
+        }
         marker.set(done.sorted(), forKey: ClassicPreferenceImport.importedKey)
-        return !applied.isEmpty
+        return !edits.isEmpty
     }
 }

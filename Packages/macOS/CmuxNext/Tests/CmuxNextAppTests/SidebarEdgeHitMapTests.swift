@@ -21,8 +21,8 @@ import Testing
         let scroller: ThinScroller
     }
 
-    /// A window whose sidebar list overflows, with its scroller's knob shown (a scroll just ran, unless `scrolled` is false).
-    static func fixture(appearance: NSAppearance.Name? = nil, scrolled: Bool = true) throws -> Fixture {
+    /// A window whose sidebar list overflows, with its scroller's knob shown (a scroll just ran).
+    static func fixture(appearance: NSAppearance.Name? = nil) throws -> Fixture {
         _ = NSApplication.shared
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let workspaces = (0..<80).map { SidebarNode.workspace(SidebarWorkspace(id: WorkspaceID("ws-\($0)"), title: "workspace \($0)")) }
@@ -40,7 +40,7 @@ import Testing
         root.needsLayout = true
         root.layoutSubtreeIfNeeded()
         let scroller = try #require(container.sidebarView.scrollView.verticalScroller as? ThinScroller)
-        if scrolled { scroller.flash() }
+        scroller.flash()
         return Fixture(window: window, root: root, handle: container.handle, scroller: scroller)
     }
 
@@ -94,75 +94,44 @@ import Testing
         return try Self.draw(f, knob: knob)
     }
 
-    /// Leo 2026-11-22: "when you're near the thumb and the sliding repositioner, it gets confused and
-    /// sometimes goes to the thumb instead of the dragger". With the knob shown, a press at every x
-    /// across the handle's band starts a resize, never a knob grab; the knob's other columns scroll.
-    @Test func aPressAtEveryXAcrossTheBandResizesWithTheKnobShown() throws {
+    /// The band's inner 4 pt lay over the list's scroller: a press on the outer part of the shown
+    /// knob (2 of its 7 pt wide, 2 of 3 pt thin) started a resize instead of a scroll.
+    @Test func everyPointOfTheShownKnobScrolls() throws {
         let f = try Self.fixture()
         defer { f.window.close() }
         let knob = try Self.knob(f)
-        let band = f.root.convert(f.handle.bounds, from: f.handle)
-        for y in [knob.minY + 1, knob.midY, knob.maxY - 1] {
-            for x in stride(from: band.minX + 0.25, to: band.maxX, by: 0.25) {
-                #expect(Self.target(atX: x, y: y, in: f) == .resize, "a press at x \(x - f.root.sidebar.frame.maxX) pt from the edge, on the knob's row")
-            }
-            for x in stride(from: knob.minX + 0.25, to: knob.maxX, by: 0.5) where !(band.minX..<band.maxX).contains(x) {
-                #expect(Self.target(atX: x, y: y, in: f) == .scroller, "a press on the knob at x \(x - f.root.sidebar.frame.maxX) pt from the edge")
+        for x in stride(from: knob.minX + 0.25, to: knob.maxX, by: 0.5) {
+            for y in [knob.minY + 1, knob.midY, knob.maxY - 1] {
+                #expect(Self.target(atX: x, y: y, in: f) == .scroller, "a press at x \(x - f.root.sidebar.frame.maxX) pt from the edge")
             }
         }
     }
 
-    /// https://github.com/manaflow-ai/cmux/issues/53360: the band wins over the scroller at every
-    /// density. Each app density (its gutter and divider metrics) and each sidebar row density keeps
-    /// every band point a resize level with the shown knob, the band at least its minimum width, and
-    /// the knob's columns beside the band a scroll.
-    @Test(arguments: Density.allCases, SidebarDensity.allCases)
-    func theBandWinsOverTheScrollerAtEveryDensity(density: Density, sidebarDensity: SidebarDensity) throws {
-        let savedTokens = DesignSettings.shared.densityTokens
-        let savedFromThemeFile = DesignSettings.shared.densityFromThemeFile
-        let savedSidebar = DesignSettings.shared.sidebarSections.density
-        DesignSettings.shared.density = density
-        DesignSettings.shared.sidebarSections.density = sidebarDensity
-        defer {
-            DesignSettings.shared.densityTokens = savedTokens
-            DesignSettings.shared.densityFromThemeFile = savedFromThemeFile
-            DesignSettings.shared.sidebarSections.density = savedSidebar
-        }
+    /// Beside the knob (above or below it) the band keeps its full width on both sides of the edge.
+    @Test func theBandKeepsItsWidthBesideTheKnob() throws {
         let f = try Self.fixture()
         defer { f.window.close() }
         let knob = try Self.knob(f)
-        let band = f.root.convert(f.handle.bounds, from: f.handle)
-        let label = "\(density)/\(sidebarDensity)"
-        #expect(band.width >= SidebarResizeBand.minimumWidth, "\(label)")
-        for x in stride(from: band.minX + 0.25, to: band.maxX, by: 0.5) {
-            #expect(Self.target(atX: x, y: knob.midY, in: f) == .resize, "\(label): a press at x \(x - band.minX) pt into the band")
+        let edge = f.root.sidebar.frame.maxX
+        let y = knob.maxY + 40 < f.root.bounds.maxY - 40 ? knob.maxY + 40 : knob.minY - 40
+        // bb5fb9695d26 narrowed the band to 2 pt inside the sidebar so trailing accessories remain clear.
+        for offset: CGFloat in [-1.5, -0.5, 0.5, 2, 4, 5.5] {
+            #expect(Self.target(atX: edge + offset, y: y, in: f) == .resize, "a press \(offset) pt from the edge")
         }
-        for x in stride(from: knob.minX + 0.25, to: knob.maxX, by: 0.5) where !(band.minX..<band.maxX).contains(x) {
-            #expect(Self.target(atX: x, y: knob.midY, in: f) == .scroller, "\(label): a press on the knob at x \(x - band.minX) pt from the band")
-        }
+        #expect(Self.width(of: .resize, atY: y, in: f) >= 8)
     }
 
-    /// Hover alone shows no knob (at any x across the strip, the band's included), and a pointer in
-    /// the band does not widen a knob a scroll showed: a press there resizes.
-    @Test func hoverAloneShowsNoKnobAndTheBandDoesNotWidenIt() throws {
-        let f = try Self.fixture(scrolled: false)
+    /// Over the knob the cursor is the arrow (the press scrolls); beside it, the resize cursor.
+    @Test func theCursorFollowsWhoTakesThePress() throws {
+        let f = try Self.fixture()
         defer { f.window.close() }
-        let scroller = f.scroller
-        let scrollView = try #require(scroller.superview)
-        let band = f.root.convert(f.handle.bounds, from: f.handle)
-        let y = f.root.convert(CGPoint(x: 0, y: f.root.bounds.midY), to: scrollView).y
-        let strip = scroller.grabZone
-        for x in stride(from: strip.minX + 0.25, to: strip.maxX, by: 0.5) {
-            scroller.pointerMoved(to: CGPoint(x: x, y: y))
-            #expect(!scroller.isKnobShown, "hover at x \(x) with no scroll shows no thumb")
-        }
-        scroller.flash()
-        let inBand = scrollView.convert(CGPoint(x: band.midX, y: band.midY), from: f.root)
-        scroller.pointerMoved(to: CGPoint(x: inBand.x, y: y))
-        #expect(scroller.isKnobShown)
-        #expect(!scroller.isKnobExpanded, "the pointer in the band does not widen the knob")
-        scroller.pointerMoved(to: CGPoint(x: strip.minX + 1, y: y))
-        #expect(scroller.isKnobExpanded, "beside the band it does")
+        let knob = try Self.knob(f)
+        let edge = f.root.sidebar.frame.maxX
+        let overKnob = f.root.convert(CGPoint(x: min(knob.maxX - 0.5, edge - 1), y: knob.midY), to: nil)
+        let besideY = knob.maxY + 40 < f.root.bounds.maxY - 40 ? knob.maxY + 40 : knob.minY - 40
+        let beside = f.root.convert(CGPoint(x: edge - 1, y: besideY), to: nil)
+        #expect(!f.handle.showsResizeCursor(at: overKnob))
+        #expect(f.handle.showsResizeCursor(at: beside))
     }
 
     /// Renders the window around the edge at 4x with every point's click target tinted.

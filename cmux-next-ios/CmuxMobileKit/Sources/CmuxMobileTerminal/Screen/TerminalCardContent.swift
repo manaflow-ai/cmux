@@ -1,51 +1,43 @@
 import CoreGraphics
 import Foundation
 
-/// What a terminal tab's grid card shows: the Mac's screen, a picture of the page, or nothing.
-/// Never a waiting state or a stand-in (Leo, 2026-11-24, on a grid of black cards, skeletons
-/// and a fake prompt: "wer need to chase all these placeholders doen and prevent them").
+/// What a terminal tab's grid card shows.
 public enum TerminalCardContent: Equatable, Sendable {
-    /// The page's snapshot (the session started in this launch), also while its link is down:
-    /// the last-known page stays, with nothing drawn over it.
+    /// The connecting placeholder over the last frame (the session started).
+    case connecting
+    /// The page's snapshot (the session started in this launch).
     case snapshot
-    /// The Mac's screen as text: fetched for a tab not opened in this launch, or newer than
-    /// the page's snapshot.
+    /// The Mac's screen as text, fetched for a tab not opened in this launch.
     case screenText
     /// A frame saved in an earlier launch, for a tab not opened in this
-    /// launch, until the Mac's screen arrives: drawn at full strength (never
-    /// greyed, Leo 2026-11-24), but not counted as the current screen (VERIFY-round8 Claim 8: old Codex output shown while
+    /// launch, until the Mac's screen arrives: drawn dimmed, never as the
+    /// current screen (VERIFY-round8 Claim 8: old Codex output shown while
     /// the Mac had moved on).
     case savedFrame
-    /// Nothing is known of the tab yet: the card is the terminal's background.
-    case nothing
+    /// The static labeled placeholder.
+    case placeholder
 
     /// `screenTextIsNewer`: the Mac's screen text arrived after the page's
     /// last snapshot (a started tab whose page is off screen while the grid
     /// shows, D6): the text is the current screen then.
-    public static func choose(sessionStarted: Bool, hasSnapshot: Bool, screenText: String?,
+    public static func choose(sessionStarted: Bool, connecting: Bool, hasSnapshot: Bool, screenText: String?,
                               screenTextIsNewer: Bool = false) -> Self {
-        let text = screenText.map { $0.contains(where: { !$0.isWhitespace }) } ?? false
         if sessionStarted {
-            if screenTextIsNewer, text { return .screenText }
-            if hasSnapshot { return .snapshot }
-            return text ? .screenText : .nothing
+            if connecting { return .connecting }
+            if screenTextIsNewer, let screenText, screenText.contains(where: { !$0.isWhitespace }) { return .screenText }
+            return hasSnapshot ? .snapshot : .placeholder
         }
         // Not opened in this launch: a saved frame may be from long ago (or a
         // blank first frame); the Mac's screen now is the truth.
-        if text { return .screenText }
-        return hasSnapshot ? .savedFrame : .nothing
+        if let screenText, screenText.contains(where: { !$0.isWhitespace }) { return .screenText }
+        return hasSnapshot ? .savedFrame : .placeholder
     }
-
-    /// How strongly the card's picture is drawn: always full. A last-known frame is not greyed
-    /// while the Mac's screen is on its way (Leo, 2026-11-24: "all the connecting... indicators
-    /// and the graying out of workspaces, nah let's not do that").
-    public var drawnOpacity: Double { 1 }
 
     /// Whether the card stands for the terminal's screen now.
     public var isCurrent: Bool {
         switch self {
         case .snapshot, .screenText: true
-        case .savedFrame, .nothing: false
+        case .connecting, .savedFrame, .placeholder: false
         }
     }
 }

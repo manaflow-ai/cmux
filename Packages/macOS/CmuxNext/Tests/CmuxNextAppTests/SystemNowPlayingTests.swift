@@ -134,58 +134,6 @@ import Testing
         #expect(source.nowPlaying == nil, "a line after stopping showed")
     }
 
-    /// Play or Pause shows at once: the app reports it a moment later (Spotify says `playing` first
-    /// and the new position after), so the card keeps the asked state until the app's report read
-    /// after the press, and goes back to what the app says when no report comes.
-    @Test func playOrPauseShowsAtOnceUntilTheAppReportsIt() async throws {
-        let adapter = FakeAdapter()
-        let source = SystemNowPlaying(adapter: adapter, ignoring: [], labels: Self.labels, pendingWait: .milliseconds(100))
-        source.run(true)
-        let micros = { (date: Date) in Int64((date.timeIntervalSince1970 * 1_000_000).rounded()) }
-        var paused = Self.spotify
-        paused["playing"] = false
-        paused["timestampEpochMicros"] = micros(Date().addingTimeInterval(-60))
-        paused.removeValue(forKey: "playbackRate")
-        adapter.emit(diff: false, paused)
-        #expect(source.nowPlaying?.isPlaying == false)
-
-        source.perform(.playPause)
-        #expect(adapter.sent == [.togglePlayPause])
-        let asked = try #require(source.nowPlaying)
-        #expect(asked.isPlaying, "Play did not show until the app reported it")
-        #expect(asked.position(at: asked.positionDate) == 60, "Play moved the position")
-        // The app says it plays before it reports the new position: the card stays where it was.
-        adapter.emit(diff: true, ["playing": true])
-        #expect(source.nowPlaying?.positionDate == asked.positionDate, "a position read before the press showed")
-        // Its report read after the press settles it.
-        let after = Date().addingTimeInterval(0.01)
-        adapter.emit(diff: true, ["elapsedTimeMicros": 60_000_000, "timestampEpochMicros": micros(after), "playbackRate": 1])
-        let settled = try #require(source.nowPlaying)
-        #expect(settled.isPlaying && abs(settled.positionDate.timeIntervalSince(after)) < 0.001, "the app's report did not show")
-
-        // A second press before any report flips it back.
-        source.perform(.playPause)
-        #expect(source.nowPlaying?.isPlaying == false, "Pause did not show at once")
-        source.perform(.playPause)
-        #expect(source.nowPlaying?.isPlaying == true, "a second press did not flip it back")
-        // A Pause the app never reports: the card goes back to what the app says.
-        source.perform(.playPause)
-        #expect(source.nowPlaying?.isPlaying == false)
-        try await Self.until { source.nowPlaying?.isPlaying == true }
-        #expect(source.nowPlaying?.isPlaying == true, "the asked Pause stayed with no report")
-        // A seek while a press waits shows where it went; the app's next report wins, here a Pause it ignored.
-        source.perform(.playPause)
-        source.perform(.seek(120))
-        let sought = try #require(source.nowPlaying)
-        #expect(!sought.isPlaying && sought.position(at: sought.positionDate) == 120, "the seek did not show while the press waited")
-        adapter.emit(diff: true, ["elapsedTimeMicros": 120_000_000, "timestampEpochMicros": micros(Date().addingTimeInterval(0.01))])
-        #expect(source.nowPlaying?.isPlaying == true, "the app's report after the press did not win")
-        // Another track settles it at once.
-        source.perform(.playPause)
-        adapter.emit(diff: true, ["title": "Electra", "artist": "Airstream"])
-        #expect(source.nowPlaying?.title == "Electra" && source.nowPlaying?.isPlaying == true, "the asked state carried over to another track")
-    }
-
     @Observable final class Flag {
         var on: Bool
         init(_ on: Bool) { self.on = on }

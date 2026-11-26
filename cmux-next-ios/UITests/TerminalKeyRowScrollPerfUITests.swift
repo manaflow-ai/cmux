@@ -17,28 +17,18 @@ final class TerminalKeyRowScrollPerfUITests: XCTestCase {
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "ws-terminal-idle"]
         app.launch()
 
-        let field = app.textViews["terminal.composer.field"]
-        XCTAssertTrue(field.waitForExistence(timeout: 20))
-        field.tap()
-        let control = app.buttons["terminal.key.control"]
-        XCTAssertTrue(control.waitForExistence(timeout: 5), "key row\n\(app.debugDescription)")
-        // These points stay inside the scroller even after its first keys scroll out of view.
-        let origin = app.coordinate(withNormalizedOffset: .zero)
-        let frame = app.frame
-        let rowY = control.frame.midY - frame.minY
-        let left = origin.withOffset(CGVector(dx: control.frame.midX - frame.minX, dy: rowY))
-        let right = origin.withOffset(CGVector(dx: frame.width * 0.92, dy: rowY))
+        let escape = app.buttons["terminal.key.escape"]
+        XCTAssertTrue(escape.waitForExistence(timeout: 20), "key row\n\(app.debugDescription)")
+        let row = app.buttons["terminal.key.control"]
 
         let options = XCTMeasureOptions()
         options.iterationCount = 5
         measure(metrics: [XCTOSSignpostMetric.scrollingAndDecelerationMetric, XCTCPUMetric(application: app)],
                 options: options) {
-            for _ in 0..<2 {
-                right.press(forDuration: 0.05, thenDragTo: left, withVelocity: .fast, thenHoldForDuration: 0)
-            }
-            for _ in 0..<2 {
-                left.press(forDuration: 0.05, thenDragTo: right, withVelocity: .fast, thenHoldForDuration: 0)
-            }
+            row.swipeLeft(velocity: .fast)
+            row.swipeLeft(velocity: .fast)
+            escape.swipeRight(velocity: .fast)
+            escape.swipeRight(velocity: .fast)
         }
     }
 }

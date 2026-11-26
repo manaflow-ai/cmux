@@ -25,8 +25,7 @@ extension WorkspaceRowView {
             timeText = time
             timeLabel.setString(time)
         }
-        // The leading icon slot holds one glyph: a leading status mark is the corner badge in any style.
-        let corner = style == .corner || shown.statusLeads
+        let corner = style == .corner
         // One glyph (`corner`) or the stack, in the trailing slot. A stack keeps its chips only
         // when glyphs overlap; a lone glyph is bare (no disc behind the spinner or the unread dot,
         // Lawrence 2026-10-18).
@@ -62,12 +61,11 @@ extension WorkspaceRowView {
     /// Lawrence 2026-10-20: every row's dot and spinner share one line; msg 11914: whatever else the
     /// row shows (a count, the keycap, the hover close and more) sits left of it,
     /// so a selected row's dot does not move. Never on the leading icon.
-    /// With the status leading (`statusLeads`) the badge and the status draw before the title instead (`leadingStatusMark`).
     func layoutColumnMark(cy: CGFloat, rowWidth: CGFloat, markReplacesStatus: Bool) -> (view: NSView, trailing: CGFloat)? {
         let columns = SidebarStyle.columns(rowWidth: rowWidth)
         let column = columns.trailingCenter()
         let view: NSView
-        if !statusLeads, !rowBadge.isHidden {
+        if !rowBadge.isHidden {
             // The nearest backing pixel, so the last glyph's center stays on the column (a floor moved it up to a point left).
             // With no window the scale is unknown: whole points, on the pixel grid at every scale (a 2x guess put the 10 pt
             // glyph on a half point, off the 1x grid, when a row's width ended 1.5 pt from the edge).
@@ -75,10 +73,10 @@ extension WorkspaceRowView {
             rowBadge.frame = NSRect(x: SidebarStyle.pixelSnapped(column - width + side / 2, scale: scale),
                                     y: SidebarStyle.pixelSnapped(cy - side / 2, scale: scale), width: width, height: side)
             view = rowBadge
-        } else if !statusLeads, markReplacesStatus {
+        } else if markReplacesStatus {
             agentMark.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
             view = agentMark
-        } else if !statusLeads, activity.showsGlyph {
+        } else if activity.showsGlyph {
             activity.frame = statusGlyphFrame(trailing: column + SidebarStyle.statusGlyphSize / 2, centerY: cy)
             view = activity
         } else if !usageWarningMark.isHidden {

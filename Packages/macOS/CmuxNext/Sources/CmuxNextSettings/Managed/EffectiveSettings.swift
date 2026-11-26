@@ -23,12 +23,7 @@ public nonisolated struct TeamPolicyLayer: Sendable, Equatable {
 
     /// Only keys the settings catalog lists, and their older names (``EffectiveSettings/legacyKeys``).
     public func limitedToCatalog() -> TeamPolicyLayer {
-        // An empty layer (every launch's `.none`) filters to itself: without this, `main` built the whole
-        // schema with its localized texts (`SettingsSchema.all`) on the main thread through
-        // `FontSmoothingSetting.applyBeforeLaunch`, 41 ms before the Dock stopped bouncing (CMUX-631).
-        guard !defaults.isEmpty || !enforced.isEmpty else { return self }
         let ids = Set(SettingsSchema.all.map(\.id)).union(EffectiveSettings.legacyKeys.keys)
-            .union(EffectiveSettings.replacedOldKeys)
         var copy = self
         copy.defaults = defaults.filter { ids.contains($0.key) }
         copy.enforced = enforced.filter { ids.contains($0.key) }
@@ -55,29 +50,53 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
     /// MDM recommended, team default, product default (an absent key).
     /// Lawrence's rule "MDM-managed device setting > team policy > user
     /// setting" is the first three; the rest keeps unmanaged keys customizable.
-    /// Chats are merged by their own rules: roots add up and switches can only be forced off.
-    /// Rust merges (cmux-config app_ops/effective.rs, `effective.merge`); the team layer may only
-    /// set catalog settings (never a whole object, shortcuts or custom actions).
     public static func merge(file: JSONValue, managed: ManagedPreferences, team: TeamPolicyLayer) -> EffectiveSettings {
-        let team = team.limitedToCatalog()
-        let reply = SettingsRust.answer("effective.merge", [
-            "file": file,
-            "managed": ["forced": .object(managed.forced), "recommended": .object(managed.recommended)],
-            "team": ["teamName": .string(team.teamName), "defaults": .object(team.defaults), "enforced": .object(team.enforced)],
-            "legacyKeys": .object(legacyKeys.mapValues(JSONValue.string)),
-            "chats": ["roots": .string(ChatSettings.rootsPath.joined(separator: ".")), "booleans": .array(ChatSettings.booleanKeys.map(JSONValue.string))],
-        ])
-        let managedKeys = (reply["managedKeys"]?.objectValue ?? [:]).mapValues { source in
-            source["team"]?.stringValue.map(ManagedSource.team) ?? .device
+        var root = aliasingLegacyKeys(file.objectValue == nil ? JSONValue.object([:]) : file)
+        // The team layer may only set catalog settings (never a whole object,
+        // shortcuts or custom actions); MDM keys are limited by the reader.
+        var team = team.limitedToCatalog()
+        team.defaults = aliasingLegacyKeys(team.defaults)
+        team.enforced = aliasingLegacyKeys(team.enforced)
+        var managed = managed
+        managed.forced = aliasingLegacyKeys(managed.forced)
+        managed.recommended = aliasingLegacyKeys(managed.recommended)
+        var managedKeys: [String: ManagedSource] = [:]
+        var policy: [String: JSONValue] = [:]
+        var diagnostics: [SettingsDiagnostic] = []
+
+        // Below the file: fill only absent keys; MDM recommended outranks team default.
+        for (key, value) in sortedSettingEntries(managed.recommended) where root.value(at: path(key)) == nil {
+            root = root.setting(value, at: path(key))
         }
-        let diagnostics = (reply["diagnostics"]?.arrayValue ?? []).compactMap { item -> SettingsDiagnostic? in
-            guard let kind = item["kind"]?.stringValue.flatMap(SettingsDiagnostic.Kind.init(rawValue:)),
-                  let path = item["path"]?.stringValue, let message = item["message"]?.stringValue else { return nil }
-            return SettingsDiagnostic(kind: kind, path: path, message: message)
+        for (key, value) in sortedSettingEntries(team.defaults) where root.value(at: path(key)) == nil {
+            root = root.setting(value, at: path(key))
         }
-        return EffectiveSettings(root: reply["root"] ?? .object([:]), fileRoot: file, managedKeys: managedKeys,
-                                 policy: reply["policy"]?.objectValue ?? [:], diagnostics: diagnostics,
-                                 managedChatRoots: (reply["managedChatRoots"]?.arrayValue ?? []).compactMap(\.stringValue))
+        // Above the file: team enforced, then MDM forced overwrites.
+        for (key, value) in sortedSettingEntries(team.enforced) {
+            root = root.setting(value, at: path(key))
+            managedKeys[key] = .team(team.teamName)
+        }
+        for (key, value) in sortedSettingEntries(managed.forced) {
+            root = root.setting(value, at: path(key))
+            managedKeys[key] = .device
+        }
+        for key in team.enforced.keys.sorted() where !ChatSettings.keys.contains(key) {
+            if let device = managed.forced[key], device != team.enforced[key] {
+                diagnostics.append(SettingsDiagnostic(kind: .managedConflict, path: key,
+                                                      message: "the team policy value is ignored: the MDM profile manages this key"))
+            }
+        }
+        for key in managedKeys.keys.sorted() {
+            if let mine = file.value(at: path(key)), mine != root.value(at: path(key)) {
+                diagnostics.append(SettingsDiagnostic(kind: .managedOverride, path: key, message: "managed by your organization; the value in cmux.json is ignored"))
+            }
+        }
+        // Policy keys come from forced values only: non-forced values in the
+        // domain can be written by any local user (`defaults write`).
+        for (key, value) in managed.forced where !ManagedPreferences.isSettingKey(key) { policy[key] = value }
+        var effective = EffectiveSettings(root: root, fileRoot: file, managedKeys: managedKeys, policy: policy, diagnostics: diagnostics)
+        effective.mergeChats(managed: managed, team: team)
+        return effective
     }
 
     static func path(_ key: String) -> [String] { CmuxConfigFile.keyPath(from: key) }
@@ -90,10 +109,27 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
             AgentPaneDisplaySettingsSchema.sessionInfoPlacementPath.joined(separator: "."),
     ]
 
-    /// The dotted names of the retired keys a row replaced (retired-keys.json `replaced_by`), read from
-    /// managed profiles and team policies too, so an older profile keeps its value and its lock.
-    public static var replacedOldKeys: [String] {
-        SettingsSchema.replacedKeys.values.flatMap { $0.map { $0.old.joined(separator: ".") } }.sorted()
+    static func aliasingLegacyKeys(_ values: [String: JSONValue]) -> [String: JSONValue] {
+        var values = values
+        for (old, new) in legacyKeys where values[new] == nil {
+            if let value = values[old] { values[new] = value }
+        }
+        return values
+    }
+
+    static func aliasingLegacyKeys(_ root: JSONValue) -> JSONValue {
+        var root = root
+        for (old, new) in legacyKeys where root.value(at: path(new)) == nil {
+            if let value = root.value(at: path(old)) { root = root.setting(value, at: path(new)) }
+        }
+        return root
+    }
+
+    /// Deterministic order, settings keys only (a shorter key first, so a
+    /// nested key set later wins over an object set at its parent).
+    static func sortedSettingEntries(_ values: [String: JSONValue]) -> [(String, JSONValue)] {
+        values.filter { ManagedPreferences.isSettingKey($0.key) && !ChatSettings.keys.contains($0.key) }
+            .sorted { ($0.key.count, $0.key) < ($1.key.count, $1.key) }
     }
 }
 

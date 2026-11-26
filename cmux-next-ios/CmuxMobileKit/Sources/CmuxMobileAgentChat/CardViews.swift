@@ -5,6 +5,57 @@ import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
 
+/// SPEC 6.7 plan card with live step glyphs.
+struct PlanCard: View {
+    let entries: [ACPPlanEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "list.bullet.clipboard")
+                Text("Plan").font(.headline)
+                Spacer()
+                Text("\(entries.count { $0.status == .completed }) of \(entries.count)")
+                    .font(.footnote.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        glyph(entry.status)
+                        Text(InlineMarkdownCache.shared.attributed(entry.content))
+                            .font(.subheadline)
+                            .foregroundStyle(entry.status == .completed ? .secondary : .primary)
+                            .strikethrough(entry.status == .completed, color: .secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: entries)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private func glyph(_ status: ACPPlanEntry.Status) -> some View {
+        switch status {
+        case .pending:
+            Image(systemName: "circle").foregroundStyle(.tertiary)
+        case .inProgress:
+            Image(systemName: "circle.dotted")
+                .foregroundStyle(.primary)
+                .symbolEffect(.rotate, options: .repeat(.continuous))
+        case .completed:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(Color.cmuxMobileSuccess)
+                .transition(.symbolEffect(.appear))
+        }
+    }
+}
+
 /// SPEC 6.5 permission card in the transcript; resolved requests collapse to a summary row.
 struct PermissionCard: View {
     let record: PermissionRecord
@@ -54,7 +105,7 @@ struct PermissionCard: View {
                 }
             }
             .padding(16)
-            .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
+            .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
             .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
         }
     }
@@ -138,7 +189,7 @@ public struct PermissionActionBar: View {
                     .contentShape(.rect)
             }
         }
-        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
+        .sensoryFeedback(.impact(weight: .light), trigger: taps)
     }
 
     private func style(_ option: ACPPermissionOption) -> CmuxMobileCapsuleButtonStyle.Kind {
@@ -193,7 +244,7 @@ public struct QuestionCard: View {
         .onChange(of: state) { _, new in
             if question.isPending { QuestionDraftStore.shared.save(QuestionDraft(new), for: question.id) }
         }
-        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: submitted)
+        .sensoryFeedback(.impact(weight: .light), trigger: submitted)
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
         #endif
@@ -262,7 +313,7 @@ public struct QuestionCard: View {
             }
         }
         .padding(16)
-        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
+        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
         .clipShape(.rect(cornerRadius: 20, style: .continuous))
     }
 
@@ -298,7 +349,7 @@ public struct QuestionCard: View {
             .contentShape(.rect)
         }
         .buttonStyle(.cmuxPressFill)
-        .cmuxMobileSensoryFeedback(.selection, trigger: chosen)
+        .sensoryFeedback(.selection, trigger: chosen)
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
@@ -422,7 +473,7 @@ struct AnsweredSummary: View {
                         .font(.subheadline)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
-                        .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 16, style: .continuous))
+                        .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 16, style: .continuous))
                 }
             }
         }

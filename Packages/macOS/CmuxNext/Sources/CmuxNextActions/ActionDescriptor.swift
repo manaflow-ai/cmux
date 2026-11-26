@@ -1,7 +1,4 @@
-import Foundation
-#if canImport(AppKit)
 import AppKit
-#endif
 
 /// A shortcut that stands for a numbered family, such as Cmd-1 to Cmd-9.
 public nonisolated enum ShortcutFamily: Sendable, Hashable {

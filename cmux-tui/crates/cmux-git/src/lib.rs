@@ -6,8 +6,7 @@
 //! repository's top level plus the config overrides every read carries.
 //! `parse` reads git's machine output, `diff` turns a scope into the
 //! revisions to compare, `refs` lists branches and suggests a base, and
-//! `head` reads what HEAD is on without a look at the work tree, and `home`
-//! keeps every read of the home folder's own repository to its tracked files.
+//! `head` reads what HEAD is on without a look at the work tree.
 //!
 //! The crate has no terminal, store or protocol types. Errors are its own
 //! enums; callers map them to their wire errors.
@@ -16,7 +15,6 @@ pub mod diff;
 #[cfg(unix)]
 pub mod harness_head;
 pub mod head;
-pub mod home;
 #[cfg(unix)]
 pub mod native_hook;
 mod own_work_tree;

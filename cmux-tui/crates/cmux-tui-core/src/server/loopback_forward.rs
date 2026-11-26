@@ -11,12 +11,8 @@
 //! - Loopback only: the target is `localhost`, `*.localhost`, or a loopback
 //!   IP literal. No DNS lookup decides the target, and the connected peer is
 //!   checked again after connect.
-//! - Bounded per stream, not by a stream count: each costs one socket, two
-//!   threads of `THREAD_STACK_BYTES` (256 KiB) stack, a 64 KiB read buffer
-//!   and at most `DAEMON_RECEIVE_WINDOW` (256 KiB) of queued bytes
-//!   (credit-based flow control in both directions); frames are bounded; an
-//!   audit ring. A socket or thread the machine cannot give refuses that one
-//!   stream (`loopback.limit`).
+//! - Bounded: per-connection and daemon-wide stream limits, credit-based flow
+//!   control in both directions, bounded frames, and an audit ring.
 //! - No new listening socket anywhere.
 //!
 //! Wire (JSON lines, same framing as every v12 command):
@@ -54,6 +50,8 @@ pub(crate) const DAEMON_RECEIVE_WINDOW: usize = 256 * 1024;
 pub(crate) const DEFAULT_CLIENT_WINDOW: usize = 256 * 1024;
 const MIN_CLIENT_WINDOW: usize = 16 * 1024;
 const MAX_CLIENT_WINDOW: usize = 4 * 1024 * 1024;
+pub(crate) const MAX_STREAMS_PER_CLIENT: usize = 128;
+pub(crate) const MAX_STREAMS_TOTAL: usize = 512;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 const AUDIT_CAPACITY: usize = 256;
 const MAX_HOST_BYTES: usize = 253;
@@ -323,7 +321,7 @@ impl OpenError {
             Self::Disabled => "loopback forwarding is turned off on this machine",
             Self::DeniedHost => "only localhost, *.localhost and loopback addresses are forwarded",
             Self::DeniedPort => "this port is not allowed for loopback forwarding",
-            Self::Limit => "this machine could not start another forwarded connection",
+            Self::Limit => "too many forwarded connections",
             Self::Duplicate => "stream id is already in use",
             Self::Refused => "nothing is listening on that loopback port",
             Self::Timeout => "the loopback connection timed out",
@@ -375,6 +373,10 @@ impl LoopbackForwarder {
         let mut state = self.state.lock().recover_poison();
         if state.streams.contains_key(&(client, stream)) {
             return Err(OpenError::Duplicate);
+        }
+        let used = state.slots.get(&client).copied().unwrap_or_default();
+        if used >= MAX_STREAMS_PER_CLIENT || state.total >= MAX_STREAMS_TOTAL {
+            return Err(OpenError::Limit);
         }
         *state.slots.entry(client).or_default() += 1;
         state.total += 1;
@@ -437,6 +439,8 @@ impl LoopbackForwarder {
             "opened": state.opened,
             "refused": state.refused,
             "limits": {
+                "per_client": MAX_STREAMS_PER_CLIENT,
+                "total": MAX_STREAMS_TOTAL,
                 "frame_bytes": MAX_FRAME_BYTES,
                 "daemon_window": DAEMON_RECEIVE_WINDOW,
             },

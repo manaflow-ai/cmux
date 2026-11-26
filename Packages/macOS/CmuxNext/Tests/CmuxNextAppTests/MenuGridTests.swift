@@ -78,21 +78,12 @@ struct MenuGridTests {
         let header = try #require(menu.items.first?.view as? MenuIdentityHeaderView)
         header.frame.size.width = 280
         header.layoutSubtreeIfNeeded()
-        // One column with the native separators and icons (16 pt: AppKit draws a native row 1 pt in from
-        // a row view's frame): the swatch row, rings included, on it; the field's box 1 pt past it on each
-        // side, its text a highlight inset in, as far from the menu's top as from its sides.
-        let column = MenuMetrics.separatorInset + 1
         if let field = header.field {
-            #expect(header.fieldBox.minX == column - 1, "the name field's box at \(header.fieldBox.minX)")
-            #expect(header.bounds.width - header.fieldBox.maxX == column - 1)
-            let text = field.frame.minX + field.textPadding
-            #expect(text == header.fieldBox.minX + MenuMetrics.highlightInset, "the name's text at \(text)")
-            // The menu's own 5 pt over the header, then the header's top inset.
-            #expect(5 + header.bounds.height - header.fieldBox.maxY == header.fieldBox.minX, "the box's top inset equals its side inset")
+            #expect(field.frame.minX == MenuMetrics.highlightInset, "the name field's box at \(field.frame.minX)")
+            #expect(header.bounds.width - field.frame.maxX == MenuMetrics.highlightInset)
         }
         let strip = try #require(header.strip)
-        #expect(strip.frame.minX == column, "the swatch row (its first ring) at \(strip.frame.minX)")
-        #expect(header.bounds.width - strip.frame.maxX == column, "the last ring ends at the column")
+        #expect(strip.frame.minX + MenuSwatchStrip.ringRoom == MenuMetrics.iconX, "the first swatch at \(strip.frame.minX + MenuSwatchStrip.ringRoom)")
     }
 
     /// The sidebar footer's profile menu (Leo 2026-10-21: "left alignment on the profile settings

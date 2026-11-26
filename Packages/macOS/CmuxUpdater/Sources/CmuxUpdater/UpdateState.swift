@@ -33,23 +33,6 @@ public enum UpdateState: Equatable {
     /// The update is installing (and may relaunch the app).
     case installing(Installing)
 
-    /// The phase shared by the install coordinator, watchdog and lifecycle diagnostics.
-    var lifecyclePhase: UpdateLifecyclePhase {
-        switch self {
-        case .idle: .idle
-        case .permissionRequest: .permissionRequest
-        case .preparingCheck: .preparingCheck
-        case .checking: .checking
-        case .updateAvailable: .updateAvailable
-        case .notFound: .notFound
-        case .error: .error
-        case .startingDownload: .startingDownload
-        case .downloading: .downloading
-        case .extracting: .extracting
-        case .installing: .installing
-        }
-    }
-
     /// Whether this is the ``idle`` case.
     public var isIdle: Bool {
         if case .idle = self { return true }

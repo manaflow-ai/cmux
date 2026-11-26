@@ -1,5 +1,4 @@
 import CMUXAuthCore
-import CmuxEgress
 import Foundation
 import struct CmuxMobileModel.ServiceFailureMessage
 import struct CmuxMobileModel.TeamAppearance
@@ -16,7 +15,7 @@ public struct LiveAPI: Sendable {
     /// dev build's requests throw ``CMUXBuildSpaceError``.
     public let buildSpace: CMUXBuildSpaceState
 
-    public init(baseURL: URL, session: URLSession = CmuxEgress.shared(site: "CmuxMobileLive.LiveAPI"), buildSpace: CMUXBuildSpaceState = .nightly,
+    public init(baseURL: URL, session: URLSession = .shared, buildSpace: CMUXBuildSpaceState = .nightly,
                 accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String) {
         self.baseURL = baseURL
         self.session = session
@@ -35,7 +34,7 @@ public struct LiveAPI: Sendable {
         public var teamId: String?
         /// A `presence` frame for a Mac its owner deleted (0.7.0): drop it.
         public var removed: Bool?
-        /// The computer the Mac runs on (added 2026-10-21): shared by its cmux builds of one account; lists do not group by it.
+        /// The computer the Mac runs on (added 2026-10-21): one per computer, shared by its cmux builds.
         public var machineId: String?
         /// Milliseconds since the service last heard the Mac's heartbeat; only for an online Mac
         /// (PROTOCOL.md "Mac freshness"). An older Worker sends none.

@@ -11,29 +11,18 @@ pub(super) const START_HUNG: std::time::Duration = std::time::Duration::from_sec
 /// Whether a start's harness still works (`HarnessState::worked_since`, over its whole process
 /// tree): a thread on a CPU, CPU time, a page read in or a process started since the last read. A
 /// loaded host or short memory slows that down, it does not stop it. A harness not spawned yet,
-/// or one whose state cannot be read (neither macOS nor Linux), is never called hung here.
+/// or one whose state cannot be read (not macOS), is never called hung here: its creator's own
+/// wait bounds that.
+#[derive(Default)]
 pub(super) struct StartWatch {
     /// The read the next is judged against, and when it was taken. Kept until a later read
     /// shows work or a [`WORK_WINDOW`](crate::cpu_class::WORK_WINDOW) has passed, so a short tick
     /// sums a launcher's runtime ticks over a whole window instead of judging each alone.
     last: Option<(crate::cpu_class::HarnessState, std::time::Duration)>,
     idle_since: Option<std::time::Duration>,
-    /// How long no work counts as hung: [`START_HUNG`] unless a test shortened it.
-    hung_after: std::time::Duration,
-}
-
-impl Default for StartWatch {
-    fn default() -> Self {
-        Self::after(START_HUNG)
-    }
 }
 
 impl StartWatch {
-    /// A watch that calls its harness hung after `hung_after` of no work.
-    pub(super) fn after(hung_after: std::time::Duration) -> Self {
-        Self { last: None, idle_since: None, hung_after }
-    }
-
     /// `seen` at `waited` into the start: whether its harness has not worked for `START_HUNG`.
     pub(super) fn hung(
         &mut self,
@@ -59,7 +48,7 @@ impl StartWatch {
             self.idle_since = None;
             return false;
         }
-        waited.saturating_sub(*self.idle_since.get_or_insert(waited)) >= self.hung_after
+        waited.saturating_sub(*self.idle_since.get_or_insert(waited)) >= START_HUNG
     }
 }
 
@@ -71,13 +60,10 @@ mod start_watch_tests;
 /// something no wait cures (input, a lock, a sign-in prompt). Not retryable on this harness (it
 /// is ended), and worded apart from a deadline so its creator does not wait on it again: Chief
 /// tries a fresh harness through its reply ledger and, if none starts, says so (#36028).
-pub(super) fn start_hung(
-    harness: &crate::cpu_class::HarnessSeen,
-    after: std::time::Duration,
-) -> RpcError {
+pub(super) fn start_hung(harness: &crate::cpu_class::HarnessSeen) -> RpcError {
     let mut e = RpcError::new(
         -32000,
-        format!("agent_start: its agent did no work for {} s", after.as_secs()),
+        format!("agent_start: its agent did no work for {} s", START_HUNG.as_secs()),
     )
     .with_data(json!({"reason": "harness_hung", "retryable": false}));
     e.message.push_str(&harness.detail());

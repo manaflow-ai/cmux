@@ -1,4 +1,3 @@
-public import CmuxEgress
 import CmuxNextCloud
 public import Foundation
 import LocalAuthentication
@@ -53,7 +52,7 @@ public struct HTTPServerProbe: LocalServerProbing {
     let session: URLSession
     let timeout: Duration
 
-    public init(session: URLSession = CmuxEgress.shared(site: "CmuxNextCodeRouter.LiveProbes"), timeout: Duration = .milliseconds(800)) {
+    public init(session: URLSession = .shared, timeout: Duration = .milliseconds(800)) {
         self.session = session
         self.timeout = timeout
     }

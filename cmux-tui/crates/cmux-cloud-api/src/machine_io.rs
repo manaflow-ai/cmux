@@ -381,6 +381,3 @@ async fn mint(
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod seeded_tests;

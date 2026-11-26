@@ -3,7 +3,6 @@ import CoreGraphics
 import ImageIO
 import UniformTypeIdentifiers
 import CmuxNextBrowser
-import CmuxNextWakeups
 public import CmuxNextSidebar
 public import Foundation
 public import Observation
@@ -13,9 +12,7 @@ public import Observation
 /// `run(_:)` keeps it running (the card shows). cmux's own entries (its
 /// player and browser tabs, which have their own sources) are left out. The
 /// artwork is drawn into a small PNG once per image; the controls go back to
-/// the app that plays. Play or Pause shows at once: the app reports the change
-/// a moment later (Spotify: up to a second), so until it does, or until
-/// ``pendingWait`` passes with no report, the card shows the asked state.
+/// the app that plays.
 @Observable
 public final class SystemNowPlaying: NowPlayingSource {
     private var feed = SystemNowPlayingFeed()
@@ -28,21 +25,6 @@ public final class SystemNowPlaying: NowPlayingSource {
     nonisolated static let artworkSide = 320
     /// Decodes the shown artwork off the main actor.
     @ObservationIgnored private var artworkTask: Task<Void, Never>?
-    /// A Play or Pause asked for and not reported yet: what the card shows meanwhile.
-    private var pending: Pending?
-    @ObservationIgnored private let pendingTimeout = DemandTimer(owner: "now-playing.system-pending")
-    /// Bumped by each press, so a wait that fires as a new press lands leaves the new one.
-    @ObservationIgnored private var pendingCount = 0
-    /// How long an asked Play or Pause shows with no report before the card goes back to what the app says.
-    @ObservationIgnored let pendingWait: Duration
-
-    /// The asked state for one track: playing or not, from this position at `date`.
-    private struct Pending: Equatable {
-        var playing: Bool
-        var position: TimeInterval?
-        var date: Date
-        var mediaKey: String
-    }
 
     /// A source over `adapter` that leaves out reports from `ignored` (cmux's bundle
     /// identifiers), with the browser media controls' titles.
@@ -52,12 +34,10 @@ public final class SystemNowPlaying: NowPlayingSource {
                                                    previous: BrowserMediaStrings.previous, next: BrowserMediaStrings.next))
     }
 
-    public init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, labels: SidebarNowPlaying.Labels,
-                pendingWait: Duration = .seconds(3)) {
+    public init(adapter: (any SystemNowPlayingAdapter)?, ignoring ignored: Set<String>, labels: SidebarNowPlaying.Labels) {
         self.adapter = adapter
         self.ignored = ignored
         self.labels = labels
-        self.pendingWait = pendingWait
     }
 
     /// Streams Now Playing while `on` (the card follows it, `followNowPlaying`); off stops the
@@ -70,7 +50,6 @@ public final class SystemNowPlaying: NowPlayingSource {
         } else {
             adapter.stop()
             artworkTask?.cancel()
-            settlePending()
             feed = SystemNowPlayingFeed()
             artwork = nil
         }
@@ -90,17 +69,11 @@ public final class SystemNowPlaying: NowPlayingSource {
     public var nowPlaying: SidebarNowPlaying? {
         guard let report else { return nil }
         let image = report.artwork.flatMap { base64 in artwork?.base64 == base64 ? artwork?.data : nil }
-        var shown = SidebarNowPlaying(
+        return SidebarNowPlaying(
             title: report.title, artist: report.artist, artwork: image, isPlaying: report.isPlaying,
             position: report.elapsed, duration: report.duration, rate: report.rate > 0 ? report.rate : 1,
             positionDate: report.timestamp ?? Date(), canPrevious: true, canNext: true, labels: labels,
             app: Self.app(report.parentBundleIdentifier ?? report.bundleIdentifier))
-        if let pending, pending.mediaKey == shown.mediaKey {
-            shown.isPlaying = pending.playing
-            shown.position = pending.position
-            shown.positionDate = pending.date
-        }
-        return shown
     }
 
     /// The names of the apps that played, by bundle identifier. An app not found is looked up again
@@ -126,47 +99,13 @@ public final class SystemNowPlaying: NowPlayingSource {
     public func perform(_ command: SidebarNowPlayingCommand) {
         guard report != nil, let adapter else { return }
         switch command {
-        case .playPause:
-            showPending()
-            adapter.send(.togglePlayPause)
+        case .playPause: adapter.send(.togglePlayPause)
         case .previous: adapter.send(.previous)
         case .next: adapter.send(.next)
-        case .seek(let seconds):
-            // A seek while a press waits shows where it went, still as pressed.
-            if pending != nil { pending?.position = seconds; pending?.date = Date() }
-            adapter.send(.seek(seconds))
+        case .seek(let seconds): adapter.send(.seek(seconds))
         // Another app's video floats in that app.
         case .pictureInPicture: break
         }
-    }
-
-    /// Shows the other state of the shown track at once, from where it is now, until the app
-    /// reports it or ``pendingWait`` passes. A second press before the report flips it back.
-    private func showPending() {
-        guard let shown = nowPlaying else { return }
-        let now = Date()
-        pending = Pending(playing: !shown.isPlaying, position: shown.position(at: now), date: now, mediaKey: shown.mediaKey)
-        pendingCount &+= 1
-        let press = pendingCount
-        pendingTimeout.schedule(after: pendingWait) { @MainActor [weak self] in
-            guard let self, self.pendingCount == press else { return }
-            self.pending = nil
-        }
-    }
-
-    private func settlePending() {
-        pendingTimeout.cancel()
-        if pending != nil { pending = nil }
-    }
-
-    /// Whether the report settles the asked state: the app's report read after the press (playing
-    /// or not, so a seek or Previous it did shows), or with no read time one that plays as asked,
-    /// or another track. A report read before the press holds the old position and changes nothing.
-    private var pendingSettled: Bool {
-        guard let pending else { return false }
-        guard let report, nowPlaying?.mediaKey == pending.mediaKey else { return true }
-        guard let read = report.timestamp else { return report.isPlaying == pending.playing }
-        return read >= pending.date
     }
 
     /// Takes one update of the adapter's stream (decoded off the main actor). New artwork is
@@ -177,7 +116,6 @@ public final class SystemNowPlaying: NowPlayingSource {
         next.apply(update)
         guard next != feed else { return }
         feed = next
-        if pendingSettled { settlePending() }
         let base64 = next.report?.artwork
         guard base64 != artwork?.base64 else { return }
         artworkTask?.cancel()

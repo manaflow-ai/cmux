@@ -96,7 +96,7 @@ extension ConversationViewController {
 
     func applyBackgroundChoice(_ choice: ConversationBackgroundChoice) {
         let rejected: @MainActor (ConversationBackendError) -> Void = { [weak self] _ in
-            ConversationHaptics.notify(.error)
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
             self?.applyBackground(animated: true)
         }
         switch choice {

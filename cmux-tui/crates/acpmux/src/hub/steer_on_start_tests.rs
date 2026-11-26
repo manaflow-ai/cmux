@@ -65,12 +65,6 @@ async fn the_persons_steer_sent_as_a_turn_starts_steers_into_it_not_the_queue() 
     let steer = send(&hub, &s, "sos-b", "steer this in", true, Some(tx));
     let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
     assert_eq!(accepted["queued"], json!(true), "{accepted}");
-    // Its `queued` record says it only waits for the turn to show, so a client keeps its bubble in
-    // the transcript instead of drawing it as a queued row (Leo, 2026-11-24).
-    let queued = hub.events(&s.id, 0, 100_000).unwrap();
-    let queued = queued.iter().find(|r| r.kind == "queued" && r.msg["promptId"] == "sos-b");
-    let queued = queued.expect("the steer's queued record");
-    assert_eq!(queued.msg["steerOnStart"], json!(true), "{}", queued.msg);
 
     // The first turn shows and runs until it is stopped: the steer goes into it, at once.
     release.send(()).unwrap();
@@ -114,10 +108,6 @@ async fn a_prompt_queued_on_purpose_as_a_turn_starts_still_waits_for_it() {
     let later = send(&hub, &s, "sos-d", "after the turn", false, Some(tx));
     let accepted = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
     assert_eq!(accepted["queued"], json!(true), "{accepted}");
-    // A queued row, as it waits for the whole turn.
-    let queued = hub.events(&s.id, 0, 100_000).unwrap();
-    let queued = queued.iter().find(|r| r.kind == "queued" && r.msg["promptId"] == "sos-d");
-    assert!(queued.expect("its queued record").msg.get("steerOnStart").is_none());
     release.send(()).unwrap();
     let running = async {
         while s.turn().is_none() {

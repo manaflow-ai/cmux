@@ -44,7 +44,6 @@ async fn upload_rig(transport: Transport) -> UploadRig {
         agent_tab_host: None,
         uploads_dir: dirs.path().join("uploads"),
         pairing: None,
-        viewport_sync: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -71,9 +70,6 @@ async fn upload_rig(transport: Transport) -> UploadRig {
             include_loopback: true,
             relay_only: false,
             block_udp: false,
-            proxy_only: false,
-            drop_wireguard: false,
-            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,

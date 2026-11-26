@@ -89,10 +89,11 @@ final class LocalServerSource: ServerSource {
     }
 
     /// The user-mode server's files on macOS (cmux-server-core layout): the
-    /// process roles status `<state>/roles/status.json` and `server.json`, in `cmux-next` roots and `cmux` (an older install stays).
+    /// process roles status `<state>/roles/status.json` and `server.json`.
     nonisolated static func watchedFiles(home: URL) -> [URL] {
-        ["cmux-next", "cmux"].flatMap { ["Library/Application Support/\($0)/server/roles/status.json", ".config/\($0)/server.json", "Library/Application Support/\($0)/server/pairing/identity.json"] }
-            .map { home.appendingPathComponent($0) }
+        let state = home.appendingPathComponent("Library/Application Support/cmux/server")
+        return [state.appendingPathComponent("roles/status.json"), home.appendingPathComponent(".config/cmux/server.json"),
+                state.appendingPathComponent("pairing/identity.json")]
     }
 
     // MARK: - ServerSource

@@ -53,13 +53,13 @@ struct FreshInstallGlassTests {
         #expect(otherChannel.url == first.url)
     }
 
-    @Test func aClassicInstallStartsWithOwnEmptySettings() throws {
+    @Test func aClassicInstallIsNotFresh() throws {
         let home = Self.scratchHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let config = home.appending(path: ".config/cmux")
         try FileManager.default.createDirectory(at: config, withIntermediateDirectories: true)
         try Data("{}\n".utf8).write(to: config.appending(path: "cmux.json"))
-        #expect(try CmuxConfigFile.prepareLaunchFile(home: home, environment: [:]).createdEmpty)
+        #expect(try !CmuxConfigFile.prepareLaunchFile(home: home, environment: [:]).createdEmpty)
     }
 
     @Test func anOverriddenFileIsNeverFresh() throws {

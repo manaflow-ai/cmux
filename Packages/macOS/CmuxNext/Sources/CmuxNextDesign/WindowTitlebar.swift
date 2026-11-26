@@ -202,15 +202,6 @@ public struct WindowTitlebar {
 public protocol TitlebarAccessoryHosting: AnyObject {
     /// The accessory's frame in window coordinates, nil when none shows.
     var titlebarAccessoryFrame: CGRect? { get }
-    /// What the top row keeps for the accessory whatever its width now (window coordinates): the
-    /// toolbar band at its fully open width, which the corner hover opens and closes. A control laid
-    /// out after the accessory that must stay still under the pointer (Home's Chats button) keeps
-    /// clear of this instead of the moving frame. Nil: as ``titlebarAccessoryFrame``.
-    var titlebarAccessoryReserve: CGRect? { get }
-}
-
-public extension TitlebarAccessoryHosting {
-    var titlebarAccessoryReserve: CGRect? { titlebarAccessoryFrame }
 }
 
 /// A window that knows where its traffic lights rest while AppKit has them

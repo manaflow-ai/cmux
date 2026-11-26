@@ -10,9 +10,9 @@ import Testing
         #expect(SettingsBuildDefaults.channel(downloadsAutomatically: false, devBuild: true).childEnvironmentValue
                 == #"{"mobile.allowIPhoneConnections":true}"#)
         #expect(SettingsBuildDefaults.channel(downloadsAutomatically: true, devBuild: true).childEnvironmentValue
-                == #"{"mobile.allowIPhoneConnections":true,"updates.automatic":"download"}"#)
+                == #"{"mobile.allowIPhoneConnections":true,"updates.downloadAutomatically":true}"#)
         #expect(SettingsBuildDefaults.channel(downloadsAutomatically: true).childEnvironmentValue
-                == #"{"updates.automatic":"download"}"#)
+                == #"{"updates.downloadAutomatically":true}"#)
     }
 
     @Test func aBuildWithoutDefaultsPassesNothing() {

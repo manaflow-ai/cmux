@@ -31,7 +31,7 @@ pub(super) fn allows(mux: &Mux, client: u64, command: &Command) -> bool {
                     return None;
                 }
                 let terminal = TerminalPublicId::parse(expected_terminal_id.as_deref()?).ok()?;
-                mux.view_surface_for_terminal(&terminal)
+                mux.resource_surface_for_terminal(&terminal)
             });
             surface.is_some_and(|surface| pty(mux, surface))
         }

@@ -11,18 +11,29 @@ extension BackdropSelectionSetting {
     /// Whether a value is valid for `appearance.backgroundRecents`: an array of at most
     /// ``recentsCap`` different background values.
     static func acceptsRecents(_ value: JSONValue) -> Bool {
-        SettingsRust.answer("backdrop.accepts", ["kind": .string("recents"), "value": value])["valid"]?.boolValue ?? false
+        guard let items = value.arrayValue, items.count <= recentsCap else { return false }
+        var seen = Set<String>()
+        return items.allSatisfy { item in
+            guard let text = item.stringValue, accepts(item) else { return false }
+            return seen.insert(text).inserted
+        }
     }
 
     /// The valid recents in `root`, newest first.
     public static func recents(in root: JSONValue) -> [String] {
-        SettingsRust.answer("backdrop.recents", ["root": root])["recents"]?.arrayValue?.compactMap(\.stringValue) ?? []
+        guard let items = root.value(at: recentsPath)?.arrayValue else { return [] }
+        var seen = Set<String>()
+        return items.compactMap { item in
+            guard let text = item.stringValue, accepts(item), seen.insert(text).inserted else { return nil }
+            return text
+        }
     }
 
     /// The background Switch to Previous Background goes to: the newest recent that is not the
     /// current one (cmux-config previous_background).
     public static func previous(in root: JSONValue) -> String? {
-        SettingsRust.answer("backdrop.previous", ["root": root])["value"]?.stringValue
+        let current = root.value(at: configPath)?.stringValue ?? fallback
+        return recents(in: root).first { $0 != current }
     }
 }
 

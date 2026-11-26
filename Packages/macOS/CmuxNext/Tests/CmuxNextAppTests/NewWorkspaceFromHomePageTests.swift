@@ -64,63 +64,9 @@ struct NewWorkspaceFromHomePageTests {
             return nil
         }
         switch placement {
-        case .afterCurrent, .top: #expect(loose == ["c-new", "b-loose"], "\(placement) from Home is the top, not where the daemon anchored it")
-        case .bottom: #expect(loose == ["b-loose", "c-new"], "the app kept the daemon's place")
+        case .afterCurrent: #expect(loose == ["c-new", "b-loose"], "afterCurrent from Home is the top, not after the parked workspace")
+        case .top, .bottom: #expect(loose == ["b-loose", "c-new"], "the app kept the daemon's place")
         }
-        #expect(windows.pendingPlacements.isEmpty)
-    }
-
-    /// Leo 2026-11-22 (cmux#50539): + from Home drew the new row loose right below Home, then it jumped into a group.
-    /// Under `top` the daemon keeps a person's new workspace in its current workspace's group, first in it (Leo
-    /// 2026-11-16), and its current one is its active workspace, which Home leaves on the parked one. This fixture's
-    /// daemon places it as that create does: first in the parked workspace's group. The row ends where it was drawn.
-    @Test func plusFromHomeUnderTopLeavesTheParkedWorkspacesGroup() throws {
-        _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        let store = services.machines.local.store
-        let identity = try PlacementStaleRowsTests.identity(mixedOrder: false)
-        store.noteHandshake(identity)
-        store.connectionState = .connected(identity)
-        let group = WorkspaceGroupID(rawValue: "g-last")
-        // `grouped` in group "last", in this order; the rest loose after them.
-        func tree(_ personal: [String], grouped: Set<String>) -> DaemonTree {
-            var value = PlacementStaleRowsTests.tree(personal, personal: personal)
-            // A local copy: reading and writing `value.personal` in one statement is an exclusivity violation.
-            guard var state = value.personal else { return value }
-            state.groups = [WorkspaceGroupSnapshot(id: group, name: "last", profile: .defaultProfile)]
-            state.workspaces = state.workspaces.map { row in
-                var row = row
-                if grouped.contains(row.workspaceKey.rawValue) { row.group = group }
-                return row
-            }
-            value.personal = state
-            return value
-        }
-        let keys = ["a-last", "b-loose"]
-        store.apply(snapshot: tree(keys, grouped: ["a-last"]))
-        let windows = services.windows
-        windows.ordersWindowsIn = false
-        let controller = try #require(windows.openWindow(workspaces: keys))
-        defer { controller.teardown(); controller.window?.close() }
-        let sidebar = controller.sidebar
-        sidebar.resync()
-        let window = controller.state.id
-        controller.state.page = .home
-        var rule = NewWorkspacePlacements.rule(for: window, in: windows)
-        rule.placement = .top
-
-        NewWorkspacePlacements.expect("c-new", in: window, byDefault: rule, windows: windows)
-        let live = ["c-new", "a-last", "b-loose"]
-        store.apply(snapshot: tree(live, grouped: ["c-new", "a-last"]))
-        windows.registry.apply { $0.openWindow(id: window, workspaceIDs: live) }
-        windows.applyPendingPlacements(live: Set(live))
-
-        #expect(Self.group(of: "c-new", in: sidebar.model.sections) == nil, "the new row jumped into the parked workspace's group")
-        let loose = sidebar.model.sections.flatMap(\.nodes).compactMap { node -> String? in
-            if case let .workspace(row) = node { return row.id.rawValue }
-            return nil
-        }
-        #expect(loose == ["c-new", "b-loose"], "the new row ends at the top it was drawn at")
         #expect(windows.pendingPlacements.isEmpty)
     }
 

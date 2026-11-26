@@ -1,12 +1,7 @@
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Testing
 @testable import CmuxConversationGeometry
 
-#if canImport(CoreGraphics)  // CGPath: Apple only
 /// Reference outlines are `CKBalloonShapeLayer` paths dumped from ChatKit on
 /// iOS 26.3 (iPhone 17 Pro simulator, Large text, radius 20.1436), as
 /// "x,y" points of every curve (controls and ends) in the layer's space.
@@ -165,7 +160,6 @@ import Testing
         }
     }
 }
-#endif
 
 /// Messages' "Select" shows the edit menu under the selected bubble text,
 /// pointing up at it, wherever the bubble sits (iOS 27.0, iPhone 17 Pro:

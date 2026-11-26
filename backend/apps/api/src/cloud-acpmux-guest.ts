@@ -16,8 +16,6 @@
 export const ACPMUX_EXIT_TEAM_VM = 81
 /** Exit status of a prepare on a machine whose cmux-tui has no keyed start. */
 export const ACPMUX_EXIT_UNSUPPORTED = 82
-/** Exit status of a command on a machine whose unprivileged work user is not usable: agents never run as root. */
-export const ACPMUX_EXIT_NO_WORK_USER = 83
 /**
  * The guest kills a keyed start or a person_holds check after this long: under the provider's 5 s
  * background window, so the call that carries the key is never one the provider stores (the
@@ -31,23 +29,16 @@ export const shellQuote = (value: string): string => `'${value.replace(/'/g, `'\
 
 const WORK_USER = "cmux"
 const WORK_HOME = `/home/${WORK_USER}`
+const LEGACY_HOME = "/root"
 const DAEMON_TERMINAL_ENV = 'TERM=xterm-256color TERM_PROGRAM=cmux'
-const NO_WORK_USER_LINE =
-  `cmux: this machine's ${WORK_USER} user is not usable (missing, no setpriv, home not writable or no passwordless sudo), ` +
-  `and agents never run as root. Recreate the machine from a current image to repair it.`
 
-/**
- * CMUX_TUI_USER, _HOME, _BIN and _LAYOUT of the unprivileged work user (web cmuxTuiAgentLayoutSelector).
- * Fails closed: when the work user is not usable the command exits ACPMUX_EXIT_NO_WORK_USER with a
- * clear line on stderr, never falling back to root. The probes are the ones the session daemon's own
- * selector runs, so a usable machine pays nothing extra.
- */
+/** CMUX_TUI_USER, _HOME, _BIN and _LAYOUT of the layout this machine serves (web cmuxTuiLayoutSelector). */
 export const layoutSelector = (): string =>
   `if id -u ${WORK_USER} >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1 && ` +
   `setpriv --reuid=${WORK_USER} --regid=${WORK_USER} --init-groups test -w ${WORK_HOME} 2>/dev/null && ` +
   `setpriv --reuid=${WORK_USER} --regid=${WORK_USER} --init-groups sudo -n true >/dev/null 2>&1; then ` +
   `CMUX_TUI_USER=${WORK_USER}; CMUX_TUI_HOME=${WORK_HOME}; CMUX_TUI_LAYOUT=user; ` +
-  `else echo ${shellQuote(NO_WORK_USER_LINE)} >&2; exit ${ACPMUX_EXIT_NO_WORK_USER}; fi; ` +
+  `else CMUX_TUI_USER=root; CMUX_TUI_HOME=${LEGACY_HOME}; CMUX_TUI_LAYOUT=root; fi; ` +
   `CMUX_TUI_BIN="$CMUX_TUI_HOME/.cmux/bin/cmux-tui"`
 
 /** `command` as the daemon's user through setpriv (web cmuxTuiAsDaemonUser). */

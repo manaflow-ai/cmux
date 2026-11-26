@@ -1,6 +1,5 @@
 #if os(iOS)
 import CmuxMobileBrowserStream
-import CmuxMobileModel
 import Foundation
 import Observation
 
@@ -40,29 +39,8 @@ public final class NativeBrowserTabs {
     /// Whether a Mac serves `localhost` (its `version` says `localhost-forward-v1`).
     @ObservationIgnored public var macForwardsLocalhost: @MainActor (_ macID: String?) -> Bool = { _ in false }
     public static let forwardCapability = "localhost-forward-v1"
-    /// Reads an HTML file on a Mac (`file:///…/report.html`) over its link's `file-preview`
-    /// service, for a tab that shows it on this iPhone (nil: such pages stay on the Mac).
-    @ObservationIgnored public var readMacHTML: (@MainActor (_ url: URL, _ macID: String?) async throws -> String)?
-    /// Settings → Browser → Open New Pages, read when a new tab appears.
-    @ObservationIgnored public var preference: @MainActor () -> BrowserOpenDefault = { BrowserOpenDefault.current() }
 
-    /// Tabs whose first placement was decided (or that were already open when this iPhone
-    /// first saw their Mac): the rule never moves them again. Oldest first, capped.
-    @ObservationIgnored private var placed: [String]
-    @ObservationIgnored private var placedSet: Set<String>
-    /// Macs this iPhone has listed tabs of; their tabs open before that stay as they were.
-    @ObservationIgnored private var seededMacs: Set<String>
-    /// A Mac's first lists can come in pieces: tabs listed this soon after its first list
-    /// were open before too.
-    @ObservationIgnored private var seedingUntil: [String: ContinuousClock.Instant] = [:]
-    static let placedKey = "cmuxMobile.browser.placedTabs"
-    static let seededKey = "cmuxMobile.browser.placedMacs"
-    static let placedCap = 2000
-    @ObservationIgnored public var seedWindow: Duration = .seconds(10)
-    /// The last placement the rule made per tab key (the tab's notice, the DEBUG receipt).
-    @ObservationIgnored public private(set) var lastPlacement: [String: BrowserPagePlacement] = [:]
-
-    public init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.defaultsKey),
            let saved = try? JSONDecoder().decode([String: Entry].self, from: data) {
@@ -71,100 +49,6 @@ public final class NativeBrowserTabs {
             entries = [:]
         }
         nativeKeys = Set(entries.keys)
-        placed = defaults.stringArray(forKey: Self.placedKey) ?? []
-        placedSet = Set(placed)
-        seededMacs = Set(defaults.stringArray(forKey: Self.seededKey) ?? [])
-    }
-
-    // MARK: Placement of new pages (Settings → Browser → Open New Pages)
-
-    /// Whether the tab's first placement was already decided.
-    func isPlaced(tab: String, macID: String?) -> Bool {
-        placedSet.contains(Self.key(tab: tab, macID: macID))
-    }
-
-    /// The rule's answer for a page of the Mac `macID` (nothing changes).
-    public func placement(for url: URL?, macID: String?) -> BrowserPagePlacement {
-        var decision = BrowserPagePlacement.decide(url, preference: preference(), forwardsLocalhost: canForward(macID: macID))
-        // A Mac this iPhone can't read files from: its HTML file stays mirrored.
-        if decision.target == .phone, url.map(BrowserPagePlacement.isMacHTMLFile) == true, readMacHTML == nil {
-            decision = BrowserPagePlacement(.stream, .macOnly)
-        }
-        return decision
-    }
-
-    /// A browser tab that just opened (on this iPhone, or listed new by its Mac): shown
-    /// where the rule says, once. A tab already placed keeps the person's choice.
-    /// `load`: make its web view now (the tab is on screen), else when it is first shown.
-    @discardableResult
-    public func place(tab: String, macID: String?, url: URL?, load: Bool = false) -> BrowserPagePlacement? {
-        let key = Self.key(tab: tab, macID: macID)
-        guard !placedSet.contains(key) else { return nil }
-        markPlaced(key)
-        savePlaced()
-        let decision = placement(for: url, macID: macID)
-        lastPlacement[key] = decision
-        guard decision.target == .phone, !nativeKeys.contains(key) else { return decision }
-        if load {
-            open(tab: tab, macID: macID, at: url)
-        } else {
-            let start = url.flatMap { $0.absoluteString == "about:blank" ? nil : $0 }
-            entries[key] = Entry(url: start?.absoluteString)
-            nativeKeys.insert(key)
-            save()
-        }
-        return decision
-    }
-
-    /// A tab the person sent where it is on purpose: the rule leaves it there.
-    public func keepWhereItIs(tab: String, macID: String?) {
-        let key = Self.key(tab: tab, macID: macID)
-        guard !placedSet.contains(key) else { return }
-        markPlaced(key)
-        savePlaced()
-    }
-
-    /// One Mac's browser tabs as it lists them now. The first list of a Mac this iPhone
-    /// never listed only notes its tabs (they were open before: they stay as they are);
-    /// a tab new after that is placed by the rule. Returns the tabs placed on the phone.
-    @discardableResult
-    public func listed(macID: String, browserTabs: [(id: String, url: URL?)]) -> [String] {
-        let now = ContinuousClock.now
-        let first = !seededMacs.contains(macID)
-        if first {
-            seededMacs.insert(macID)
-            seedingUntil[macID] = now.advanced(by: seedWindow)
-            defaults.set(seededMacs.sorted(), forKey: Self.seededKey)
-        }
-        let seeding = first || seedingUntil[macID].map { now < $0 } ?? false
-        var onPhone: [String] = []
-        var changed = false
-        for tab in browserTabs {
-            let key = Self.key(tab: tab.id, macID: macID)
-            guard !placedSet.contains(key) else { continue }
-            if seeding {
-                markPlaced(key)
-                changed = true
-                continue
-            }
-            if place(tab: tab.id, macID: macID, url: tab.url)?.target == .phone { onPhone.append(tab.id) }
-        }
-        if changed { savePlaced() }
-        return onPhone
-    }
-
-    private func markPlaced(_ key: String) {
-        placed.append(key)
-        placedSet.insert(key)
-        if placed.count > Self.placedCap {
-            let gone = placed.prefix(placed.count - Self.placedCap)
-            placedSet.subtract(gone)
-            placed.removeFirst(gone.count)
-        }
-    }
-
-    private func savePlaced() {
-        defaults.set(placed, forKey: Self.placedKey)
     }
 
     static func key(tab: String, macID: String?) -> String {
@@ -308,13 +192,6 @@ public final class NativeBrowserTabs {
             nativeKeys.insert(next)
             if let model = models[next] { observe(model, key: next) }
         }
-        for (index, key) in placed.enumerated() where Self.tab(ofKey: key) == old {
-            let next = key.replacingOccurrences(of: old, with: new, options: [.anchored, .backwards])
-            placed[index] = next
-            placedSet.remove(key)
-            placedSet.insert(next)
-        }
-        savePlaced()
         save()
     }
 
@@ -349,13 +226,6 @@ public final class NativeBrowserTabs {
         model.loopbackRefusal = { [weak self] url in
             PhoneReach.port(url).flatMap { self?.forwarder?.refusals[$0] }
         }
-        if readMacHTML != nil {
-            let macID = Self.macID(ofKey: key)
-            model.readMacHTML = { [weak self] url in
-                guard let read = self?.readMacHTML else { throw MacHTMLUnavailable() }
-                return try await read(url, macID)
-            }
-        }
     }
 
     private func remember(_ url: URL, for key: String) {
@@ -381,9 +251,6 @@ public final class NativeBrowserTabs {
         }
     }
 }
-
-/// No link reads the Mac's files now.
-struct MacHTMLUnavailable: Error {}
 
 /// Where an address points, seen from this iPhone: a Mac page's `localhost` is
 /// the Mac itself (the phone would load its own), and a tailnet or LAN host may

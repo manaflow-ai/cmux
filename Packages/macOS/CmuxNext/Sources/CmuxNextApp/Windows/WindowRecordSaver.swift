@@ -3,7 +3,6 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
-import CmuxNextLaunchImages
 import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextControl
@@ -53,9 +52,6 @@ final class WindowRecordSaver {
         snapshot: { [weak self] images, socketPath in
             self?.host?.launchRecordSnapshot(images: images, socketPath: socketPath) ?? LaunchRecordSnapshot()
         })
-    private(set) lazy var launchImages = WindowLaunchImages(windows: { [weak self] in self?.owner?.launchImageWindows ?? [] }, // stage 0's frames
-        isTerminating: { [weak self] in self?.owner?.isTerminating ?? true }, work: work,
-        image: { [weak self] window in guard let services = self?.host else { return nil }; return try? await AppWindowImage(services: services).capture(window, overlays: false) }, record: launchRecord, bundleID: host?.environment.launch.bundleID)
     /// Every window's layout, for the next launch to draw already placed.
     private(set) lazy var layoutCache = LayoutCacheWriter(bundleID: host?.environment.launch.bundleID, work: work,
         restored: { [weak self] in self?.host?.windows.restored ?? false }, snapshot: { [weak self] in self?.host?.layoutCacheJSON() })
@@ -125,7 +121,7 @@ final class WindowRecordSaver {
     }
 
     private func requestSave() {
-        launchRecord.schedule(); launchImages.windowsChanged()
+        launchRecord.schedule()
         saves.requested = true
         if let ticket = services?.daemon.openTicket() { saves.tickets.append(ticket) }
         scheduleDrain()
@@ -283,11 +279,16 @@ extension AppServices {
             .map { LaunchRecordSidebarSnapshot(id: $0.id, title: $0.title, iconKey: $0.icon ?? "") }
         let windows = ordered.compactMap { controller -> LaunchRecordWindowSnapshot? in
             guard let window = controller.window else { return nil }
+            let image = images[controller.state.id]
+            let color = controller.themeScope.tokens.surfaceBackground
+            let rgba = (LayoutCacheTheme.byte(color.red), LayoutCacheTheme.byte(color.green), LayoutCacheTheme.byte(color.blue), LayoutCacheTheme.byte(color.alpha))
             let tabs = controller.mountedContents.filter { !$0.isParked }.flatMap { content in
                 content.panes.values.filter { !$0.view.isHiddenOrHasHiddenAncestor }.compactMap { $0.stripModel.selectedID?.rawValue }
             }
-            return WindowLaunchImages.snapshot(id: controller.state.id, window: window, background: controller.themeScope.tokens.surfaceBackground,
-                image: images[controller.state.id], workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
+            return LaunchRecordWindowSnapshot(id: controller.state.id, frame: window.frame, displayID: LayoutCacheDisplay.id(of: window.screen),
+                backgroundRGBA: rgba, barRGBA: rgba, imageKey: image?.key ?? "",
+                imagePixelSize: (image?.pixelWidth ?? 0, image?.pixelHeight ?? 0),
+                workspaceID: controller.state.workspaceID ?? "", tabIDs: tabs)
         }
         return LaunchRecordSnapshot(windows: windows, sidebarRows: sidebars, sessionSocketPath: socketPath)
     }

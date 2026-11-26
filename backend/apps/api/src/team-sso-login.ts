@@ -5,7 +5,6 @@ import { connectionForDomain } from "./domains/team-sso.ts"
 import type { StackServer } from "./stack-server.ts"
 import type { Http } from "./team-domain-external.ts"
 import { openCurrentClientSecret } from "./team-sso-external.ts"
-import type { SsoJoin } from "./team-sso-join.ts"
 import { open, seal, type SealedSecret } from "./integrations/crypto.ts"
 
 /**
@@ -16,10 +15,8 @@ import { open, seal, type SealedSecret } from "./integrations/crypto.ts"
  * identity, and opens a Stack session. The tokens never travel in a URL: the
  * client gets a one-time code and redeems it (POST /v1/sso/redeem).
  *
- * Once the session is recorded, the person joins the team just in time
- * (cmux-platform POST /v1/teams/{team}/sso/join, team-sso-join.ts): an outage
- * there never fails the sign-in, but a person the team removed or deactivated
- * is refused here too.
+ * Until shared teams exist (coordinator decision 2026-10-02), sign-in adds no
+ * team membership.
  */
 const LOGIN_TTL_MS = 10 * 60_000
 const REDEEM_TTL_MS = 2 * 60_000
@@ -86,8 +83,6 @@ export interface LoginDeps {
   readonly stack: StackServer | undefined
   readonly now: number
   readonly submitSystem: (op: string, params: unknown, key: string) => { frames: ReadonlyArray<OwnerFrame> }
-  /** JIT membership on cmux-platform as the new session's access token (team-sso-join.ts). */
-  readonly join: (accessToken: string) => Promise<SsoJoin>
 }
 
 export type LoginError = { ok: false; code: string; message: string }
@@ -220,15 +215,6 @@ export const ssoCallback = async (deps: LoginDeps, state: string, code: string, 
     deps.sql.exec(`INSERT OR REPLACE INTO sso_sessions3 (refresh_token_id, stack_user, connection, signed_in_at, expires_at) VALUES (?, ?, ?, ?, ?)`,
       refreshTokenId, stackUser, c.id, deps.now, deps.now + (ttl ?? SSO_SESSION_MAX_MS))
     if (!deps.kek) return fail("sso.not_configured", "SSO needs INTEGRATIONS_KEK on this deployment")
-    // JIT membership (cmux-platform #1957). The platform checks the row above, so it runs after the insert.
-    const joined = await deps.join(session.access_token).catch((e): SsoJoin => ({ ok: false, refused: false, status: 0, code: "team_sso.unavailable", message: String(e).slice(0, 200) }))
-    if (!joined.ok && joined.refused) {
-      // Removed or deactivated: the tokens never leave this object, and the session no longer counts as this team's SSO.
-      deps.sql.exec(`DELETE FROM sso_sessions3 WHERE refresh_token_id = ?`, refreshTokenId)
-      console.warn(JSON.stringify({ msg: "sso sign-in refused by team membership", connection: c.id, code: joined.code }))
-      return fail("sso.removed", "your access to this team was removed; ask a team admin to add you back")
-    }
-    if (!joined.ok) console.warn(JSON.stringify({ msg: "sso jit join skipped", connection: c.id, status: joined.status, code: joined.code }))
     const redeem = `${deps.team}.${random()}`
     const codeHash = await sha256(redeem)
     const sealed = await seal(deps.kek, JSON.stringify(session), enc.encode(`cmux-sso-redeem-v1|${deps.team}|${codeHash}`))

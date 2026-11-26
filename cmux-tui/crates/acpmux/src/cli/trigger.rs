@@ -184,7 +184,7 @@ pub struct TriggerClient {
 impl TriggerClient {
     pub fn new(origin: String, bearer: Zeroizing<String>) -> Result<Self> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = crate::happy_dial::http_client()
+        let http = reqwest::Client::builder()
             .default_headers(cmux_build_space::headers()?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))

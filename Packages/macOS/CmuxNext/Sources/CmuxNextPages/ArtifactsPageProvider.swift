@@ -1,4 +1,3 @@
-import CmuxEgress
 import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
@@ -187,7 +186,7 @@ public final class ArtifactsPageProvider: PageProvider {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        return CmuxEgress.session(site: "CmuxNextPages.ArtifactsPageProvider", configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+        return URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
     }
 
     /// `read`'s URL under `base`, whose own path (a deployment under a prefix) is kept. Each query

@@ -83,9 +83,9 @@ extension ProfileBarView {
 
 /// One pressable dot for VoiceOver.
 nonisolated final class ProfileDotElement: NSAccessibilityElement {
-    private let onPress: @MainActor @Sendable () -> Bool
+    private let onPress: @MainActor @Sendable () -> Void
 
-    init(label: String, frame: NSRect, parent: Any, onPress: @escaping @MainActor @Sendable () -> Bool) {
+    init(label: String, frame: NSRect, parent: Any, onPress: @escaping @MainActor @Sendable () -> Void) {
         self.onPress = onPress
         super.init()
         setAccessibilityRole(.button)
@@ -104,7 +104,8 @@ nonisolated final class ProfileDotElement: NSAccessibilityElement {
             return false
         }
         let onPress = onPress
-        return MainActor.assumeIsolated { onPress() } // main-proof: guarded by Thread.isMainThread above
+        MainActor.assumeIsolated { onPress() } // main-proof: guarded by Thread.isMainThread above
+        return true
     }
 }
 

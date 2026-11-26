@@ -183,21 +183,7 @@ pub(super) fn callers_own_cloud_vm(mux: &Mux, vm_kind: &Option<Option<String>>) 
 /// never share state. An older caller that supplied the home folder without a
 /// confirmation is treated as the same no-folder choice; an explicitly chosen
 /// folder (including Use Home Folder) is preserved.
-///
-/// `agent-session-prewarm` resolves its folder with this too, so a no-folder chat's agent warms
-/// in the very folder its start then runs in (agent_session_prewarm.rs).
 pub(super) fn owner_cloud_cwd(
-    own: bool,
-    cwd: Option<&str>,
-    home_confirmed: bool,
-    chat_id: u64,
-) -> Option<String> {
-    owner_cloud_cwd_in(crate::platform::home_dir().as_deref(), own, cwd, home_confirmed, chat_id)
-}
-
-/// [`owner_cloud_cwd`] under `home` (tests use a temporary one).
-pub(super) fn owner_cloud_cwd_in(
-    home: Option<&std::path::Path>,
     own: bool,
     cwd: Option<&str>,
     home_confirmed: bool,
@@ -206,16 +192,16 @@ pub(super) fn owner_cloud_cwd_in(
     if !own || home_confirmed {
         return None;
     }
-    let home = home?;
     let no_folder = match cwd {
         None => true,
-        Some(cwd) => std::fs::canonicalize(home)
-            .ok()
-            .zip(std::fs::canonicalize(cwd).ok())
-            .is_some_and(|(home, cwd)| home == cwd),
+        Some(cwd) => {
+            let home =
+                crate::platform::home_dir().and_then(|home| std::fs::canonicalize(home).ok());
+            home.zip(std::fs::canonicalize(cwd).ok()).is_some_and(|(home, cwd)| home == cwd)
+        }
     };
     no_folder
-        .then(|| super::agent_session_folders::own_chat_folder(home, chat_id))
+        .then(|| super::agent_session_folders::own_chat_folder(chat_id, true))
         .flatten()
         .map(|path| path.to_string_lossy().into_owned())
 }
@@ -328,7 +314,3 @@ fn run(mux: &Mux, socket: &std::path::Path, params: &TrustParams) -> Result<Valu
     link.close();
     result
 }
-
-#[cfg(test)]
-#[path = "agent_session_trust_tests.rs"]
-mod tests;

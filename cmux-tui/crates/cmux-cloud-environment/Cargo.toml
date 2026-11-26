@@ -17,7 +17,6 @@ default = ["fetch"]
 fetch = ["dep:reqwest", "dep:rustls"]
 
 [dependencies]
-cmux-egress.workspace = true
 cmux-build-space.workspace = true
 serde.workspace = true
 serde_json.workspace = true

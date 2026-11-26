@@ -27,7 +27,6 @@ mod ops_09;
 mod ops_10;
 mod ops_11;
 mod ops_12;
-mod ops_13;
 mod index;
 
 pub use types_01::*;
@@ -47,5 +46,4 @@ pub use ops_09::*;
 pub use ops_10::*;
 pub use ops_11::*;
 pub use ops_12::*;
-pub use ops_13::*;
 pub use index::{op_names, visit_op};

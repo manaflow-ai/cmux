@@ -35,8 +35,6 @@ use std::time::{Duration, Instant};
 /// How long a worker beyond the first waits for work before it exits.
 const IDLE_WORKER_EXIT: Duration = Duration::from_secs(10);
 /// Upper bound on workers; a ready lane past it waits for a free worker.
-/// Measured: threads; each worker is one OS thread (its stack reserved), so 512 bounds the
-/// pool's threads; nothing is refused past it.
 const MAX_WORKERS: usize = 512;
 
 /// What a lane's run function wants next.

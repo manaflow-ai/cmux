@@ -1,7 +1,5 @@
 import Foundation
-#if canImport(os)
 import os
-#endif
 
 /// Records a device's connectivity events for its signed-in audience.
 ///
@@ -135,7 +133,6 @@ public final class ConnectivityTelemetry: Sendable {
     /// A sink writing each record to the unified log under `subsystem`, category
     /// `connectivity`. The team's records are public, so Console and a sysdiagnose show them
     /// unredacted; everyone's carry only fixed-vocabulary fields.
-    #if canImport(os)
     public static func unifiedLogSink(subsystem: String) -> Sink {
         let logger = Logger(subsystem: subsystem, category: "connectivity")
         return { record in
@@ -146,5 +143,4 @@ public final class ConnectivityTelemetry: Sendable {
             }
         }
     }
-    #endif
 }

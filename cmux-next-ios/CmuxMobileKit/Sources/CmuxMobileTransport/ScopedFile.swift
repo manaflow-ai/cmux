@@ -12,14 +12,8 @@ public protocol SecurityScope: Sendable {
 public struct SystemSecurityScope: SecurityScope {
     public init() {}
 
-    #if canImport(Darwin)
     public func startAccessing(_ url: URL) -> Bool { url.startAccessingSecurityScopedResource() }
     public func stopAccessing(_ url: URL) { url.stopAccessingSecurityScopedResource() }
-    #else
-    // No security scopes off Apple platforms (the Linux test build): every URL is an app file.
-    public func startAccessing(_ url: URL) -> Bool { false }
-    public func stopAccessing(_ url: URL) {}
-    #endif
 }
 
 /// A picked file kept by its URL, never a copy of its bytes (attachments

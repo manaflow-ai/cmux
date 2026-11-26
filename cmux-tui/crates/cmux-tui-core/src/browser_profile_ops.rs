@@ -278,8 +278,8 @@ pub(crate) fn default_engine(mux: &Arc<Mux>) -> &'static str {
 }
 
 /// The engine of a tab for `url` that names none: the person's
-/// `browser.siteEngines` rule for it (none by default: protected media
-/// plays in Chromium), else `browser.defaultEngine`.
+/// `browser.siteEngines` rule for it (Spotify, Netflix and other
+/// protected-media sites are WebKit by default), else `browser.defaultEngine`.
 pub(crate) fn default_engine_for(mux: &Arc<Mux>, url: &str) -> &'static str {
     crate::browser_site_engines::site_engine_for(mux, url).unwrap_or_else(|| default_engine(mux))
 }

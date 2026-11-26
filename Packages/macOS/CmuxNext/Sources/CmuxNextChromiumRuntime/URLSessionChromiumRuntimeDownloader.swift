@@ -1,8 +1,4 @@
-import CmuxEgress
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
 
 /// Downloads a pack with `URLSession`, appending to a partial file with a
 /// `Range` request when one exists.
@@ -40,7 +36,7 @@ public struct URLSessionChromiumRuntimeDownloader: ChromiumRuntimeDownloading {
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
         let delegate = DownloadFileDelegate(handle: handle, existing: existing, progress: progress)
-        let session = CmuxEgress.session(site: "CmuxNextChromiumRuntime.URLSessionChromiumRuntimeDownloader", configuration: configuration, delegate: delegate, delegateQueue: queue)
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: queue)
         defer { session.invalidateAndCancel() }
         let task = session.dataTask(with: request)
         let outcome: DownloadFileDelegate.Outcome = await withTaskCancellationHandler {

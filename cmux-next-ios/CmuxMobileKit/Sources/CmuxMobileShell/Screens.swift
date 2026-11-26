@@ -115,18 +115,9 @@ struct WorkspacesScreen: View {
                     WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs, creator: shell.creator,
                                     openWorkspace: { shell.show(workspace: $0) }, screenSharing: shell.screenSharing)
                 }
-                .cmuxMobileBanner(workspacesBanner, retry: shell.bannerHasAction ? { shell.bannerAction() } : nil)
+                .cmuxMobileBanner(shell.banner, retry: shell.bannerHasAction ? { shell.bannerAction() } : nil)
             }
         }
-    }
-
-    /// The shell's banner, less a link chip ("Mac offline", "Can't reach") while the list's Mac
-    /// panel says the same with its last-seen time and Retry (cmux#52200 walk: the chip sat over
-    /// the panel's icon). A banner with words to read (pairing, signed out) still shows.
-    private var workspacesBanner: ConnectionBannerState? {
-        guard let banner = shell.banner else { return nil }
-        if banner.chip != nil, shell.workspacesPath.isEmpty, shell.workspacesMacPanelShown { return nil }
-        return banner
     }
 
     private var workspaces: some View {
@@ -146,9 +137,7 @@ struct WorkspacesScreen: View {
                     shell.tab = .settings
                     shell.settingsPath = [.account]
                 },
-                filter: shell.macFilter,
-                macPanelShown: { shown in if shell.workspacesMacPanelShown != shown { shell.workspacesMacPanelShown = shown } },
-                rememberedWorkspaceID: shell.lastWorkspaceID
+                filter: shell.macFilter
             ) { workspace in
                 // Two-pane: a workspace replaces the open one beside the list instead of stacking on it.
                 if layout.twoPane { shell.workspacesPath = [workspace] } else { shell.workspacesPath.append(workspace) }

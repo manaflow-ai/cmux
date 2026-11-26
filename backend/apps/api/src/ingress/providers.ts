@@ -15,14 +15,11 @@ export interface Delivery {
   /** Stable provider account key, for example `github:installation:42`, `slack:team:T1`, `linear:org:<uuid>`. */
   readonly account: string
   /**
-   * Dedupe id. Slack's event_id is in the signed body. GitHub's is its `X-GitHub-Delivery` GUID
-   * (`github:<guid>`, kept across GitHub's redeliveries); that header is unsigned, so `digest` keeps
-   * the body hash as a check (ConnectionDO refuses a known body under a new GUID, see
-   * github-deliveries.ts). Linear sends its id in an unsigned header, so its id is the body hash.
+   * Dedupe id from signed content only: Slack's event_id is in the signed body;
+   * GitHub and Linear send their delivery ids in unsigned headers, so the id is
+   * the body hash (their bodies carry unique ids and times).
    */
   readonly delivery_id: string
-  /** GitHub only: `sha256:<40 hex>` of the signed body, the replay check beside the GUID. */
-  readonly digest?: string
   /** Provider event type, for example `pull_request.opened`, `message`, `Issue.create`. */
   readonly event: string
   readonly payload: unknown
@@ -45,9 +42,6 @@ const parse = (text: string): Record<string, unknown> | undefined => {
   }
 }
 
-/** GitHub sends a UUID; anything else (empty, long, odd characters) never becomes a dedupe key. */
-const GITHUB_DELIVERY_GUID = /^[A-Za-z0-9-]{1,80}$/
-
 /** GitHub App webhooks: `X-Hub-Signature-256: sha256=<hex HMAC(secret, body)>`; dedupe by `X-GitHub-Delivery` (GitHub has no signed timestamp). */
 export const verifyGitHub = async (secret: string, headers: Headers, body: string): Promise<Verified> => {
   const sig = headers.get("x-hub-signature-256") ?? ""
@@ -55,24 +49,13 @@ export const verifyGitHub = async (secret: string, headers: Headers, body: strin
   const delivery = headers.get("x-github-delivery")
   const event = headers.get("x-github-event")
   if (!delivery || !event) return bad(400, "missing X-GitHub-Delivery or X-GitHub-Event")
-  if (!GITHUB_DELIVERY_GUID.test(delivery)) return bad(400, "X-GitHub-Delivery is not a delivery GUID")
   const p = parse(body)
   if (!p) return bad(400, "body is not a JSON object")
   const installation = (p.installation as { id?: unknown } | undefined)?.id
   if (typeof installation !== "number") return bad(400, "no installation id (only GitHub App webhooks are accepted)")
   const action = typeof p.action === "string" ? `.${p.action}` : ""
   const signed = (await sha256Hex(body)).slice(0, 40)
-  return {
-    ok: true,
-    delivery: {
-      provider: "github",
-      account: `github:installation:${installation}`,
-      delivery_id: `github:${delivery.toLowerCase()}`,
-      digest: `sha256:${signed}`,
-      event: `${event}${action}`,
-      payload: p
-    }
-  }
+  return { ok: true, delivery: { provider: "github", account: `github:installation:${installation}`, delivery_id: `sha256:${signed}`, event: `${event}${action}`, payload: p } }
 }
 
 /**

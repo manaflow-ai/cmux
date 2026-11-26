@@ -394,17 +394,19 @@ fn a_newer_read_from_the_same_surface_withdraws_the_older_one() {
 }
 
 #[test]
-fn a_frontend_holds_open_reads_past_the_old_cap_of_sixteen() {
+fn a_frontend_holds_at_most_sixteen_open_reads() {
     let mux = mux();
     let frontend = frontend(&mux);
-    let terminals: Vec<String> = (0..64).map(|index| format!("term_{index:032x}")).collect();
+    let terminals: Vec<String> = (0..17).map(|index| format!("term_{index:032x}")).collect();
     let names: Vec<&str> = terminals.iter().map(String::as_str).collect();
     subscribe(&mux, &frontend, &names);
     let mut open = Vec::new();
-    for (index, terminal) in names.iter().enumerate() {
+    for (index, terminal) in names.iter().take(16).enumerate() {
         open.push(ask(&mux, index as u64 + 1, 1, terminal));
         read_event(&frontend.outbound);
     }
+    refused_at_once(&ask(&mux, 99, 1, names[16]));
+    assert_no_event(&frontend.outbound);
     assert!(open.iter().all(|answers| answers.try_recv().is_err()));
 }
 
@@ -447,17 +449,14 @@ fn a_host_cancel_withdraws_the_read_from_its_frontend() {
 }
 
 #[test]
-fn frontends_past_the_old_cap_of_sixteen_subscribe_and_terminals_are_capped_at_256() {
+fn subscriptions_are_capped_at_sixteen_frontends_and_256_terminals() {
     let crowded = mux();
-    let frontends: Vec<Client> = (0..64).map(|_| frontend(&crowded)).collect();
-    let own: Vec<String> = (0..64).map(|index| format!("term_{index:032x}")).collect();
-    for (client, terminal) in frontends.iter().zip(&own) {
-        subscribe(&crowded, client, &[terminal.as_str()]);
+    let frontends: Vec<Client> = (0..17).map(|_| frontend(&crowded)).collect();
+    for client in &frontends[..16] {
+        subscribe(&crowded, client, &[TERMINAL]);
     }
-    // The 64th frontend is asked about its own terminal.
-    let answers = ask(&crowded, 1, 7, &own[63]);
-    read_event(&frontends[63].outbound);
-    assert!(answers.try_recv().is_err());
+    let subscribe_cmd = json!({"cmd": "terminal-clipboard-subscribe", "terminal_ids": [TERMINAL]});
+    assert!(run(&crowded, &frontends[16], subscribe_cmd).is_err(), "a 17th frontend");
     // A subscribed frontend may still replace its own subscription.
     subscribe(&crowded, &frontends[0], &[OTHER_TERMINAL]);
 

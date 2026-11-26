@@ -96,10 +96,9 @@ impl Mux {
         let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
-        // A retry carries the same fields (the fingerprint), so the same source. The name a
-        // `workspace.create` caller gives (CLI and MCP `--name`) is its own, pinned (#56422).
-        let (name_source, name_revision) =
-            crate::resource_name::NameSource::for_created_workspace(name.as_deref(), true);
+        // A retry carries the same fields (the fingerprint), so the same source.
+        let name_source =
+            crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
         let reserved_name = name.unwrap_or_else(|| self.default_workspace_name(&state));
         let proposed_intent = json!({
             "workspace_public_id":WorkspacePublicId::random()?,
@@ -143,6 +142,10 @@ impl Mux {
             }
             ResourceCreationPreparation::Execute { intent, .. } => intent,
         };
+        anyhow::ensure!(
+            state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
+            "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
+        );
         let workspace_slot = self.next_id();
         let public_id = WorkspacePublicId::parse(
             intent["workspace_public_id"]
@@ -166,7 +169,7 @@ impl Mux {
             key: key.clone(),
             name: name.clone(),
             name_source,
-            name_revision,
+            name_revision: 0,
             screens: Vec::new(),
             active_screen: 0,
         };
@@ -204,7 +207,7 @@ impl Mux {
             registry.session_id().as_str(),
             &public_id,
             &name,
-            (name_source, name_revision),
+            (name_source, 0),
             index,
             focus,
         ));
@@ -215,7 +218,7 @@ impl Mux {
             key: key.clone(),
             name: name.clone(),
             name_source,
-            name_revision,
+            name_revision: 0,
             group_key: self.session.clone(),
         };
         let mut desired = self.registry_projection(&state);

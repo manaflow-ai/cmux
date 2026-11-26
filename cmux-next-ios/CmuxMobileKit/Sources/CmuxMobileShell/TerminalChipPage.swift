@@ -16,15 +16,12 @@ struct TerminalChipPage: View {
         case c
     }
 
-    /// Only the states a chip still draws: a link still trying draws nothing (Leo, 2026-11-24,
-    /// item 3; ``ConnectionChip/Kind/paints``), so the gallery shows what ships.
     static let states: [ConnectionChip.Content] = [
-        ConnectionChip.Content(.connecting, sentence: "Connecting to Mac Studio…"),
-        ConnectionChip.Content(.reconnecting, sentence: "Reconnecting to Mac Studio…"),
-        ConnectionChip.Content(.macOffline, sentence: "Mac Studio is offline"),
-        ConnectionChip.Content(.offline, sentence: "Offline"),
-        ConnectionChip.Content(.cantReach, sentence: "Can't reach this terminal"),
-    ].filter { $0.paints }
+        .init(.connecting, sentence: "Connecting to Mac Studio…"),
+        .init(.reconnecting, sentence: "Reconnecting to Mac Studio…"),
+        .init(.macOffline, sentence: "Mac Studio is offline"),
+        .init(.cantReach, sentence: "Can't reach this terminal"),
+    ]
 
     static let lineCount = 6
 

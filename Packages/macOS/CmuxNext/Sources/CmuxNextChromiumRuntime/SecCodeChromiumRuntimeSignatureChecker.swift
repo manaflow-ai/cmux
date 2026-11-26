@@ -1,5 +1,3 @@
-#if canImport(Security)
-// Code signatures are Apple-only; a Linux build has no signature checker.
 public import Foundation
 import Security
 
@@ -29,4 +27,3 @@ public struct SecCodeChromiumRuntimeSignatureChecker: ChromiumRuntimeSignatureCh
         }
     }
 }
-#endif

@@ -25,27 +25,12 @@ impl LocalApi {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let token = base64::engine::general_purpose::STANDARD.encode(format!(":{cred}"));
         // This client carries the private LocalAPI password. Never use proxies or redirects.
-        let agent = cmux_egress::blocking_client_builder("cmux_tailnet::localapi")
+        let agent = reqwest::blocking::Client::builder()
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(Duration::from_secs(10))
-            // LocalAPI is plain http on loopback and needs no TLS roots. The
-            // platform verifier fails to build where the host has no CA bundle
-            // (a bare Linux container), which stopped every node before it
-            // joined; trusting no roots also keeps this client off https.
-            .tls_certs_only(std::iter::empty())
             .build()
-            // A builder error names a TLS or platform setup failure; it never
-            // carries the password, which only goes into a request header.
-            .map_err(|error| {
-                let mut reason = error.to_string();
-                let mut source = std::error::Error::source(&error);
-                while let Some(cause) = source {
-                    reason.push_str(&format!(": {cause}"));
-                    source = cause.source();
-                }
-                Error(format!("could not create LocalAPI client: {reason}"))
-            })?;
+            .map_err(|_| Error("could not create LocalAPI client".into()))?;
         Ok(Self { base: format!("http://{addr}"), authorization: format!("Basic {token}"), agent })
     }
 
@@ -157,41 +142,4 @@ fn encode_query(value: &str) -> String {
             _ => format!("%{byte:02X}"),
         })
         .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::LocalApi;
-
-    const CHILD: &str = "CMUX_TAILNET_LOCALAPI_NO_ROOTS_CHILD";
-
-    /// A host with no CA store (a bare container, some Macs and VMs) still gets a LocalAPI
-    /// client: it is plain HTTP on loopback. The check runs in a child process so the empty
-    /// `SSL_CERT_FILE` / `SSL_CERT_DIR` never reach another test.
-    #[test]
-    fn the_client_builds_without_any_system_roots() {
-        if std::env::var_os(CHILD).is_some() {
-            if let Err(error) = LocalApi::new("127.0.0.1:1", "credential") {
-                panic!("{}", error.0);
-            }
-            return;
-        }
-        let empty =
-            std::env::temp_dir().join(format!("cmux-tailnet-no-roots-{}", std::process::id()));
-        std::fs::create_dir_all(&empty).unwrap();
-        let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "localapi::tests::the_client_builds_without_any_system_roots"])
-            .env(CHILD, "1")
-            .env("SSL_CERT_FILE", empty.join("none.pem"))
-            .env("SSL_CERT_DIR", &empty)
-            .output()
-            .unwrap();
-        let _ = std::fs::remove_dir(&empty);
-        assert!(
-            output.status.success(),
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
 }

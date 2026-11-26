@@ -42,7 +42,7 @@ pub async fn run(options: Options) -> Result<()> {
     )
     .map_err(anyhow::Error::msg)?;
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = crate::happy_dial::http_client()
+    let client = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .user_agent(concat!("acpmux-uniichat/", env!("CARGO_PKG_VERSION")))
         .build()?;

@@ -1,8 +1,4 @@
-#if canImport(Darwin)
 import Darwin
-#else
-import Glibc
-#endif
 import Foundation
 
 /// A literal IP address, parsed strictly (`inet_pton`: dotted quads and

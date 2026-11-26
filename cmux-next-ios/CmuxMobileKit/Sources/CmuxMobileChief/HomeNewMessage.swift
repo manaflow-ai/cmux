@@ -2,7 +2,6 @@
 import CmuxConversationCore
 import CmuxConversationUI
 import CmuxMobileAgentChat
-import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSupport
 import Foundation
@@ -338,7 +337,6 @@ final class EmbeddedConversation: UIViewController, ConversationComposeEmbeddabl
         self.session = session
         self.carrying = carrying
         conversation = ConversationViewController(store: session.store, options: .chief, keyboard: keyboard)
-        conversation.dismissesKeyboardAfterSend = { CmuxMobilePreferences.dismissKeyboardAfterSend() }
         // New Message keeps its title and X.
         conversation.hidesNavigationBar = false
         conversation.showsHeader = false

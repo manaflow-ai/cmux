@@ -2,8 +2,9 @@ public import Foundation
 
 /// Whether this launch sends crash reports, and how they are labeled.
 ///
-/// The consent rule: the person's `sendAnonymousTelemetry` choice (off until
-/// the person turns it on: a fresh install sends nothing), the `DisableTelemetry` managed policy
+/// The consent rule is the main app's (`TelemetrySettings` +
+/// `MacSentryStartupPolicy`): the user's `sendAnonymousTelemetry` choice
+/// (on until the user turns it off), the `DisableTelemetry` managed policy
 /// winning over it, read once per launch, never inside a test process, and
 /// only for a build that identifies as cmux (forks keep the public source
 /// and its DSN; their reports must not reach us).
@@ -83,12 +84,9 @@ public nonisolated struct CrashReportingPolicy: Sendable, Equatable {
             && !Self.isTestProcess(processEnvironment)
     }
 
-    /// The person's choice in `defaults`: off until the person turns it on (Settings > Privacy and
-    /// Security > Send Crash Reports and Analytics writes it, `AnonymousTelemetryConsent`). A
-    /// fresh install, with the key unset, sends nothing (Leo, 2026-11-24: "whatever we do, we need
-    /// to make sure it's opt out by defautl i assume?").
+    /// The user's choice in `defaults`: on until the user turns it off.
     public static func telemetryOptIn(in defaults: UserDefaults) -> Bool {
-        (defaults.object(forKey: telemetryKey) as? Bool) ?? false
+        defaults.object(forKey: telemetryKey) == nil ? true : defaults.bool(forKey: telemetryKey)
     }
 
     /// The channel and tag of a cmux bundle, or nil for a foreign build.

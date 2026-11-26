@@ -26,8 +26,7 @@ open class PopupRowView: NSView {
         /// The highlight's inset from the row's bounds.
         public var fillInset = NSSize.zero
         /// The highlight's corner radius; nil for the popup row radius (``PopupStyle/rowCornerRadius``).
-        /// A ``GlassMenu`` sets its own, concentric with its panel, or the theme file's
-        /// `appearance.menu.highlightRadius` (``MenuLook``).
+        /// A ``GlassMenu`` sets its own, concentric with its panel.
         public var fillRadius: CGFloat?
         /// The pointer over the row draws the highlight. Off when the owner drives the one
         /// highlight itself (a menu that the keyboard and the pointer share): ``onHover`` reports

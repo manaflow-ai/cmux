@@ -29,7 +29,6 @@ final class TerminalSurfacePrediction {
     private weak var view: TerminalSurfaceView?
     private var expiry: Timer?
     private var enabled: Bool
-    private var fullScreenApps: Bool
 
     /// Draws predicted glyphs in the terminal's colors (its Mac's terminal theme).
     func setColors(background: UIColor, foreground: UIColor) {
@@ -40,9 +39,7 @@ final class TerminalSurfacePrediction {
 
     init(view: TerminalSurfaceView, alternateScreen: Bool) {
         enabled = CmuxMobilePreferences.predictiveEcho()
-        fullScreenApps = CmuxMobilePreferences.predictiveEchoFullScreen()
         engine = TerminalPrediction(enabled: enabled, remote: true)
-        _ = engine.setFullScreenApps(on: fullScreenApps)
         engine.seedAlternateScreen(active: alternateScreen)
         self.view = view
         overlay.isUserInteractionEnabled = false
@@ -104,11 +101,6 @@ final class TerminalSurfacePrediction {
 
     /// Settings → Terminal → Predictive echo.
     func applySetting() {
-        let fullScreen = CmuxMobilePreferences.predictiveEchoFullScreen()
-        if fullScreen != fullScreenApps {
-            fullScreenApps = fullScreen
-            if engine.setFullScreenApps(on: fullScreen) { refresh() }
-        }
         let on = CmuxMobilePreferences.predictiveEcho()
         guard on != enabled else { return }
         enabled = on

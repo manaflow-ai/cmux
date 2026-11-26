@@ -119,10 +119,11 @@ import Testing
             let inset = try Self.inset(list)
             var starts: [(String, CGFloat)] = []
             let home = try HomePinnedRowAlignmentTests.item(list, Self.home.id)
-            // Home's house stands at the rows' glyph height, a little wider than its column: its ink starts on the column
-            // and spills past the trailing edge only (Lucas 2026-11-24).
+            // Home's house stands at the rows' glyph height, a little wider than its column, spilling evenly past both edges:
+            // its column starts that spill after its ink.
             let homeInk = try #require(home.glyphInkFrame, "Home drew no glyph")
-            starts.append(("Home's glyph", Self.x(list, homeInk.minX, in: home)))
+            let homeSpill = max(0, (homeInk.width - SidebarStyle.rowGlyphOpticalSide) / 2)
+            starts.append(("Home's glyph", Self.x(list, homeInk.minX + homeSpill, in: home)))
             for id in Self.iconRows {
                 let row = try HomePinnedRowAlignmentTests.row(list, id)
                 let ink = try #require(try Self.inkMinX(row.icon), "\(id.rawValue) drew no icon")

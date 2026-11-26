@@ -74,61 +74,16 @@ final class ComposerControlsGalleryUITests: XCTestCase {
         }
     }
 
-    /// Every placement but Off (Leo, 2026-11-23: "should be maybe 4. side of the send button. left
-    /// if always showing? idk, whatever chatgpt/claude do."), each checked and shot:
-    /// "In Send Button" (the empty draft's send circle is voice), "Beside Send" (voice just left of
-    /// send, which stays send) and "Left of Field" (its own circle after +).
-    static let placements = ["sendButton", "besideSend", "leading"]
-
+    /// Turned on: "In Send Button" (the empty draft's send circle is voice) and "Left of Field".
     @MainActor
     func testVoiceWhenTurnedOn() {
-        for placement in Self.placements {
-            for dark in [true, false] {
-                let app = launch(["-cmux-mobile-demo", "voice-terminal", "-composer.voiceButton", placement], dark: dark)
-                let voice = app.buttons["terminal.composer.voice"]
-                XCTAssertTrue(voice.waitForExistence(timeout: 30), "\(placement): voice shows\n\(app.debugDescription)")
-                let send = app.buttons["terminal.composer.send"]
-                XCTAssertEqual(send.exists, placement != "sendButton",
-                               "\(placement): the send circle is voice only for In Send Button")
-                let attach = app.descendants(matching: .any)["terminal.composer.attach"].firstMatch
-                if placement == "besideSend", send.exists {
-                    XCTAssertLessThan(voice.frame.maxX, send.frame.minX + 2, "besideSend: voice sits left of send")
-                    XCTAssertLessThan(send.frame.minX - voice.frame.maxX, 24, "besideSend: right beside it")
-                    if attach.exists {
-                        XCTAssertGreaterThan(voice.frame.minX - attach.frame.maxX, app.frame.width * 0.4,
-                                             "besideSend: the field keeps its width")
-                    }
-                }
-                if placement == "leading", attach.exists {
-                    XCTAssertLessThan(attach.frame.midX, voice.frame.midX, "leading: + comes first")
-                    XCTAssertLessThan(voice.frame.maxX, app.frame.width * 0.4, "leading: left of the field")
-                }
-                shoot(app, "voice-\(placement)-\(dark ? "dark" : "light")")
-                app.terminate()
-            }
-        }
-    }
-
-    /// The agent chat's composer reads the same setting: each placement, checked and shot.
-    @MainActor
-    func testAgentChatVoiceWhenTurnedOn() {
-        for placement in Self.placements {
-            let app = launch(["-cmux-mobile-demo", "voice-chat", "-composer.voiceButton", placement])
-            // The agent chat shows its composer collapsed ("Reply to ...") until tapped.
-            let capsule = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
-            if capsule.waitForExistence(timeout: 30) { capsule.tap() }
-            let field = app.textViews["chat.composer.field"]
-            XCTAssertTrue(field.waitForExistence(timeout: 30), "\(placement): the composer shows\n\(app.debugDescription)")
-            let voice = app.buttons["agentChat.composer.voice"]
-            XCTAssertTrue(voice.waitForExistence(timeout: 10), "\(placement): voice shows\n\(app.debugDescription)")
-            let send = app.buttons["agentChat.composer.send"]
-            XCTAssertEqual(send.exists, placement != "sendButton",
-                           "\(placement): the empty draft's send circle is voice only for In Send Button")
-            if placement == "besideSend", send.exists {
-                XCTAssertLessThan(voice.frame.maxX, send.frame.minX + 2, "besideSend: voice sits left of send")
-                XCTAssertLessThan(send.frame.minX - voice.frame.maxX, 24, "besideSend: right beside it")
-            }
-            shoot(app, "agent-voice-\(placement)")
+        for placement in ["sendButton", "leading"] {
+            let app = launch(["-cmux-mobile-demo", "voice-terminal", "-composer.voiceButton", placement])
+            let voice = app.buttons["terminal.composer.voice"]
+            XCTAssertTrue(voice.waitForExistence(timeout: 30), "\(placement): voice shows\n\(app.debugDescription)")
+            XCTAssertEqual(app.buttons["terminal.composer.send"].exists, placement == "leading",
+                           "\(placement): the send circle is voice only for In Send Button")
+            shoot(app, "voice-\(placement)")
             app.terminate()
         }
     }
@@ -143,12 +98,6 @@ final class ComposerControlsGalleryUITests: XCTestCase {
         XCTAssertTrue(picker.label.contains("Off") || (picker.value as? String)?.contains("Off") == true,
                       "off by default: \(picker.label) \(String(describing: picker.value))")
         shoot(app, "setting")
-        // The menu lists all four choices.
-        picker.tap()
-        for title in ["Off", "In Send Button", "Beside Send", "Left of Field"] {
-            XCTAssertTrue(app.buttons[title].waitForExistence(timeout: 5), "the menu offers \(title)\n\(app.debugDescription)")
-        }
-        shoot(app, "setting-choices")
         app.terminate()
     }
 }

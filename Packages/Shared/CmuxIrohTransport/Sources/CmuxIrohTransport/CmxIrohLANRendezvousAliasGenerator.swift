@@ -1,8 +1,4 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 public import Foundation
 
 /// Derives short-lived, account-private Bonjour names for verified Iroh bindings.

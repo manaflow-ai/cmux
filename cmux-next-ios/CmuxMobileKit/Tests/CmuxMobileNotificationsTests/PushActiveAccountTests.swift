@@ -1,13 +1,7 @@
-#if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
-#endif
 import Foundation
 import Testing
-#if canImport(UserNotifications)
 import UserNotifications
-#endif
 @testable import CmuxMobileNotifications
 
 /// A paired phone keeps its decryption key at logout. Only the account with
@@ -35,7 +29,6 @@ import UserNotifications
         #expect(marker.permits(keys.trust()))
     }
 
-    #if canImport(UserNotifications)
     /// A signed-in phone that never paired with a sealing Mac has no trust
     /// record: its unsealed notifications keep working, and still stop at logout.
     @Test func signedInWithoutPairingStillPermitsUnsealedPushes() throws {
@@ -51,9 +44,7 @@ import UserNotifications
         try marker.update(userID: nil)
         #expect(ServicePush().withheld(content, keys: keys)?.userInfo.isEmpty == true)
     }
-    #endif
 
-    #if canImport(UserNotifications)
     /// No shared keychain (a build signed without one): nothing is retained
     /// to withhold, so behavior is unchanged.
     @Test func noKeychainKeepsTheUnsealedPath() {
@@ -61,7 +52,6 @@ import UserNotifications
         content.userInfo = SealedPushTests.question.userInfo
         #expect(ServicePush().withheld(content, keys: nil) == nil)
     }
-    #endif
 
     /// A Keychain write failure must be visible to the sign-out owner; the
     /// old marker is still authorized until the owner handles revocation.
@@ -79,7 +69,6 @@ import UserNotifications
         #expect(marker.userID() == "u1")
     }
 
-    #if canImport(UserNotifications)
     @Test func queuedSealedPushIsGenericUntilTheCorrectAccountSignsIn() throws {
         let (keys, macKey, publicKey) = try SealedPushTests.setUp()
         let raw = try SealedPushTests.sealedPush(macKey: macKey, pushKey: publicKey, payload: SealedPushTests.question)
@@ -108,9 +97,7 @@ import UserNotifications
         try marker.update(userID: nil)
         #expect(service.opened(content, keys: keys) == nil)
     }
-    #endif
 
-    #if canImport(UserNotifications)
     @Test func legacyPlaintextPushIsAlsoWithheldAfterLogout() throws {
         let keys = PushKeys(store: PushMemoryStore(), enclave: false)
         keys.trust(mac: "mac-1", identityKey: "04aa", boxKey: nil, user: "u1", phone: "p1")
@@ -127,7 +114,6 @@ import UserNotifications
         try marker.update(userID: "u2")
         #expect(service.withheld(content, keys: keys)?.body.contains("private file") == false)
     }
-    #endif
 
     @Test func aStaleAccountCannotUseEvenAPlaintextAction() {
         let payload = SealedPushTests.question

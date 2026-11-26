@@ -241,28 +241,6 @@
   }
  },
  {
-  "name": "the daemon gets the app's settings file but terminals do not",
-  "op": "daemon_environment",
-  "request": {
-   "login": {
-    "PATH": "/usr/bin",
-    "LANG": "en_US.UTF-8"
-   },
-   "base": {
-    "HOME": "/h",
-    "PATH": "/usr/bin",
-    "CMUX_NEXT_CONFIG_FILE": "/side/config/cmux-next.json"
-   },
-   "overrides": {}
-  },
-  "expect": {
-   "PATH": "/usr/bin",
-   "HOME": "/h",
-   "LANG": "en_US.UTF-8",
-   "CMUX_NEXT_CONFIG_FILE": "/side/config/cmux-next.json"
-  }
- },
- {
   "name": "the identity keys",
   "op": "daemon_identity_keys",
   "request": {},

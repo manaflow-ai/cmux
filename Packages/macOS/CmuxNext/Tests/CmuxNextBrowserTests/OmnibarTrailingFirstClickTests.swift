@@ -23,6 +23,7 @@ struct OmnibarTrailingFirstClickTests {
         ])
         bar.update(url: URL(string: "https://github.com/manaflow-ai/cmux"), security: .secure)
         bar.setBookmarkStar(.off)
+        bar.setProfileBadge(BrowserProfileBadge(monogram: "A", color: nil, name: "Austin"))
         bar.setMachineBadge("cmux-lawrence", help: "cmux-lawrence")
         bar.setFocusModeBadge(armed: false)
         window.contentView!.layoutSubtreeIfNeeded()
@@ -53,6 +54,7 @@ struct OmnibarTrailingFirstClickTests {
         }
         return [
             ("bookmark star", bar.starButton),
+            ("profile badge", find(ProfileBadgeView.self, in: bar)),
             ("machine badge", find(MachineBadgeView.self, in: bar)),
             ("focus mode badge", bar.focusModeBadgeView),
         ].compactMap { name, view in view.map { (name, $0) } }
@@ -62,7 +64,7 @@ struct OmnibarTrailingFirstClickTests {
         let (bar, window) = shownBar()
         defer { window.closeAfterTest() }
         let shown = badges(bar)
-        #expect(shown.count == 3)
+        #expect(shown.count == 4)
         for (name, badge) in shown {
             #expect(!badge.isHidden, "\(name) shows")
             let target = try #require(hit(at: badge, in: window), "\(name): nothing at its center")

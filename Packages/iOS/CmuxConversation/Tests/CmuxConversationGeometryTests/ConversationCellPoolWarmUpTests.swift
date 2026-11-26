@@ -1,9 +1,5 @@
 import CmuxConversationGeometry
-#if canImport(CoreGraphics)
 import CoreGraphics
-#else
-import Foundation
-#endif
 import Testing
 
 /// Where the open lays the transcript out once so every reuse queue gets

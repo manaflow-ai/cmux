@@ -58,8 +58,7 @@ import Testing
     }
 
     nonisolated static func fakeAcpmux(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max,
-                                   emptyOlderPageOnce: Bool = false, older: OlderReads = .answer,
-                                   turnOpener: Bool = false) -> MockMacLink {
+                                   emptyOlderPageOnce: Bool = false, older: OlderReads = .answer) -> MockMacLink {
         let older: OlderReads = emptyOlderPageOnce ? .emptyOnce : older
         return MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -86,31 +85,10 @@ import Testing
                 return #""hasMore":\#(more),"events":[\#(picked.map(\.json).joined(separator: ","))]"#
             }
             switch method {
-            // A current Mac: it names its capabilities, so the attach the first connection
-            // pipelines with `initialize` asks the kinds it serves and is read, not asked again
-            // (#56036; a Mac naming none is an older one and is asked twice).
-            case "initialize": return [reply(#"{"protocolVersion":1,"_meta":{"acpmux":{"capabilities":["elevation-cards-v1"]}}}"#)]
+            case "initialize": return [reply(#"{"protocolVersion":1}"#)]
             case "_acpmux/watch": return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
             case "_acpmux/attach":
                 requests.append(method, params)
-                if turnOpener {
-                    // As acpmux sends it (`requests/turn_opener.rs`): the prompt the page starts
-                    // inside, when the page starts past a turn's prompt with older records.
-                    let body = page()
-                    let isPrompt = { (json: String) in json.contains(#""kind":"user_message""#) }
-                    let limit = min((params["limit"] as? NSNumber)?.intValue ?? 400, pageLimit)
-                    let maxBytes = (params["maxBytes"] as? NSNumber)?.intValue ?? Int.max
-                    var count = 0, bytes = 0
-                    for record in log.reversed() {
-                        guard count < limit, count == 0 || bytes + record.json.utf8.count <= maxBytes else { break }
-                        count += 1
-                        bytes += record.json.utf8.count
-                    }
-                    let first = log.count - count
-                    let opener = first > 0 && !isPrompt(log[first].json)
-                        ? log[..<first].last { isPrompt($0.json) }?.json ?? "null" : "null"
-                    return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"turnOpener":\#(opener),\#(body)}"#)]
-                }
                 return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},\#(page())}"#)]
             case "_acpmux/events":
                 requests.append(method, params)
@@ -194,42 +172,6 @@ import Testing
         let reads = requests.all.filter { $0.method == "_acpmux/events" }
         #expect(reads.count == 1)
         #expect(reads.first?.params["kinds"] as? [String] == ["user_message"])
-    }
-
-    /// The same chat against an acpmux that sends the turn's prompt with the page
-    /// (`turnOpener`): the turn shows on the attach alone, no read of its own.
-    @Test func newestPageWithNoPromptShowsItsTurnFromTheAttachsOpener() async throws {
-        let requests = Requests()
-        let prompt = (seq: 1, json: #"{"sessionId":"s1","seq":1,"at":1,"dir":"mux","kind":"user_message","msg":{"text":"keep going","promptId":"p0","turnId":"t0"}}"#)
-        let chunks = (2...3000).map { seq in
-            (seq: seq, json: #"{"sessionId":"s1","seq":\#(seq),"at":3,"dir":"in","kind":"agent_message_chunk","msg":{"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"w\#(seq) "}}}}}"#)
-        }
-        let hub = AcpmuxHub()
-        await hub.bind(try await Self.fakeAcpmux([prompt] + chunks, requests, turnOpener: true)
-            .openChannel(service: "acpmux", args: [:]))
-        let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
-        await Self.waitUntil { store.turns.first?.id == "t0" }
-
-        #expect(store.turns.map(\.id) == ["t0"])
-        #expect(store.turns.first?.prompt == "keep going")
-        #expect(!store.hasEarlierHistory, "the opener is the log's first record")
-        #expect(requests.count("_acpmux/attach") == 1)
-        #expect(requests.count("_acpmux/events") == 0, "the opener came with the attach: \(requests.all.map(\.method))")
-    }
-
-    /// A page that starts on a prompt needs no opener: acpmux sends null and nothing changes.
-    @Test func aPageStartingOnAPromptIgnoresANullOpener() async throws {
-        let requests = Requests()
-        let (hub, store) = try await Self.open((0..<1000).flatMap(Self.turnRecords), requests)
-        _ = hub
-        let hub2 = AcpmuxHub()
-        let requests2 = Requests()
-        await hub2.bind(try await Self.fakeAcpmux((0..<1000).flatMap(Self.turnRecords), requests2, turnOpener: true)
-            .openChannel(service: "acpmux", args: [:]))
-        let store2 = AgentChatStore(source: hub2.source(sessionID: "s1", summary: Self.summary))
-        await Self.waitUntil { store.turns.last?.id == "t999" && store2.turns.last?.id == "t999" }
-        #expect(store2.turns.map(\.id) == store.turns.map(\.id))
-        #expect(requests2.count("_acpmux/events") == 0)
     }
 
     /// Scrolling up reads the page before the oldest turn shown and puts whole turns in front,

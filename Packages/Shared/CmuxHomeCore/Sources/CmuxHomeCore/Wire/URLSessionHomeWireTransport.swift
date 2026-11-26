@@ -1,8 +1,4 @@
-public import CmuxEgress
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
 
 /// The production ``HomeWireHTTP`` and ``HomeWireSocketConnecting`` over one
 /// `URLSession`. The app makes one per server choice and passes it to
@@ -12,7 +8,7 @@ public struct URLSessionHomeWireTransport: HomeWireHTTP, HomeWireSocketConnectin
 
     /// - Parameter session: The session every request and socket uses
     ///   (default: an ephemeral one, so no cookie or cache outlives the app).
-    public init(session: URLSession = CmuxEgress.session(site: "CmuxHomeCore.URLSessionHomeWireTransport", configuration: .ephemeral)) {
+    public init(session: URLSession = URLSession(configuration: .ephemeral)) {
         self.session = session
     }
 
@@ -40,7 +36,7 @@ public struct URLSessionHomeWireTransport: HomeWireHTTP, HomeWireSocketConnectin
     }
 
     public func connect(_ request: URLRequest) -> any HomeWireSocket {
-        let task = CmuxEgress.websocket(session, with: request, site: "CmuxHomeCore.URLSessionHomeWireTransport")
+        let task = session.webSocketTask(with: request)
         task.resume()
         return URLSessionHomeWireSocket(task: task)
     }

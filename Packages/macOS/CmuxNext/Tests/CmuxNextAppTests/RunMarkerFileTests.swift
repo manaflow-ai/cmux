@@ -69,15 +69,4 @@ import Testing
         decoder.dateDecodingStrategy = .secondsSince1970
         #expect(try decoder.decode(PreviousRun.self, from: data).context?.footprintMegabytes == 977)
     }
-
-    @Test func aSignalLessHighFootprintRunIsClassifiedAsLikelyOOM() {
-        var run = PreviousRun(pid: 4242, launched: Date(), recovery: false, survived: true, signal: nil)
-        run.context = CrashContext(updated: Date(), windows: 1, workspaces: 1, tabKinds: ["browser"],
-                                   focusedPane: "browser", browserEngine: "ready", browserFailures: 0,
-                                   footprintMegabytes: MemoryPressureReporter.defaultHighFootprintMegabytes, actions: [])
-        #expect(run.wasLikelyOOM)
-        #expect(LaunchRecovery.decide(previous: run).previous != nil)
-        run.quitting = true
-        #expect(!run.wasLikelyOOM)
-    }
 }

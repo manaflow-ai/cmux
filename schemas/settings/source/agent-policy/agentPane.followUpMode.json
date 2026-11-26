@@ -1,4 +1,0 @@
-{
-  "agent": "settable",
-  "why": "What Return does with a message sent mid-turn (steer or queue): a chat preference a profile or the person's agent may set, like the composer's other choices."
-}

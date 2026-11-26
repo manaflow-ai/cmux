@@ -24,10 +24,10 @@ struct ImportScannerTests {
         deinit { try? FileManager.default.removeItem(at: url) }
     }
 
-    static func scanner(_ home: Home, imported: Set<String> = [], classic: ClassicImportAvailability = .unavailable,
+    static func scanner(_ home: Home, imported: Set<String> = [], classic: Int? = nil,
                         probe: @escaping @Sendable (URL) -> FileAccess = FileAccess.probe) -> ImportScanner {
         ImportScanner(home: home.url, environment: ImportEnvironment(homeDirectory: home.url, locateApp: { _ in nil }),
-                      variables: [:], importedProfiles: imported, classicAvailability: classic, probe: probe)
+                      variables: [:], importedProfiles: imported, classicWorkspaces: { classic }, probe: probe)
     }
 
     static let chrome = "Library/Application Support/Google/Chrome"
@@ -124,18 +124,20 @@ struct ImportScannerTests {
         #expect(Self.scanner(home) { _ in .missing }.scan().isEmpty)
     }
 
-    @Test func ghosttyIsInUseAndClassicCanBeOfferedWithoutReadingItsWorkspaces() throws {
+    @Test func ghosttyIsInUseAndClassicCountsItsWorkspaces() throws {
         let home = try Home([".config/ghostty/config"])
-        let found = Self.scanner(home, classic: .available) { _ in .missing }.scan()
+        let found = Self.scanner(home, classic: 7) { _ in .missing }.scan()
         #expect(found.first { $0.kind == .ghostty }?.access == .inUse)
-        let classic = try #require(found.first { $0.kind == .cmuxClassic })
-        #expect(classic.count == nil && !classic.offersNothingNew)
+        #expect(found.first { $0.kind == .cmuxClassic }?.count == 7)
+    }
 
-        let accepted = Self.scanner(home, classic: .alreadyImported) { _ in .missing }.scan()
-        let finished = try #require(accepted.first { $0.kind == .cmuxClassic })
-        #expect(finished.count == 0 && finished.offersNothingNew)
-        let deck = ImportCardDeck(findings: [finished], state: .init(), jobs: .init())
-        #expect(deck.cards().first?.primary?.title == ImportSuggestionStrings.importAgain)
+    /// Classic has a saved session and all of it is already here: the card stays (Settings ›
+    /// Import offers the import again); no saved session means no card.
+    @Test func classicWithEverythingHereIsStillFound() throws {
+        let home = try Home()
+        let found = Self.scanner(home, classic: 0) { _ in .missing }.scan()
+        #expect(found.first { $0.kind == .cmuxClassic }?.count == 0)
+        #expect(Self.scanner(home, classic: nil) { _ in .missing }.scan().allSatisfy { $0.kind != .cmuxClassic })
     }
 
     /// Conductor's workspaces are counted from its folders; its database alone is enough for a

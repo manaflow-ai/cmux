@@ -72,7 +72,7 @@ final class SidebarPriorityPanelView: NSView {
         archivedMore.isHidden = true
         document.addSubview(archivedHeader)
         document.addSubview(archivedMore)
-        SystemScrollers.followThin(scroll, scrollOnly: true)
+        SystemScrollers.followThin(scroll)
         empty.isHidden = true
         [header, count, fade, empty].forEach(addSubview)
         setAccessibilityElement(true)

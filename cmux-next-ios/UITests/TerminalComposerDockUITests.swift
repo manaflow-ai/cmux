@@ -1,7 +1,8 @@
 import XCTest
 
-/// The terminal's key row follows the soft keyboard. Return in the
-/// composer starts a new line, the compose key reveals,
+/// The terminal's bottom dock behaves like classic cmux iOS's
+/// (verify/composer-classic-parity.md): the key row shows with the keyboard
+/// down, Return in the composer starts a new line, the compose key reveals,
 /// closes and reopens the composer, and Hide Toolbar folds the dock until the
 /// next terminal tap. Runs on a workspace's terminal tab as the app shows it
 /// (TabsKit chrome), with mock sign-in and the mock terminal session.
@@ -23,15 +24,14 @@ final class TerminalComposerDockUITests: XCTestCase {
         let control = app.buttons["terminal.key.control"]
         XCTAssertTrue(field.waitForExistence(timeout: 20), "composer field\n\(app.debugDescription)")
 
-        XCTAssertFalse(keyboardKey.exists, "the key row is hidden at rest")
+        // At rest, keyboard down: the key row is already there (classic), above the composer.
+        XCTAssertTrue(composeKey.exists && control.exists && keyboardKey.exists, "key row at rest\n\(app.debugDescription)")
+        XCTAssertLessThan(control.frame.maxY, field.frame.minY, "the key row sits above the composer")
+        XCTAssertEqual(keyboardKey.label, "Show Keyboard")
         attach(app, "rest")
 
         // Return in the field starts a new line; it does not send.
         field.tap()
-        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 5))
-        XCTAssertTrue(control.waitForExistence(timeout: 5))
-        XCTAssertLessThan(control.frame.maxY, field.frame.minY, "the key row sits above the composer")
-        XCTAssertEqual(keyboardKey.label, "Hide Keyboard")
         field.typeText("echo one\nls")
         XCTAssertEqual(field.value as? String, "echo one\nls", "Return inserted a new line")
 
@@ -51,18 +51,12 @@ final class TerminalComposerDockUITests: XCTestCase {
         // Drag the key row's scroller (right of the pinned keys) to its end.
         let window = app.windows.firstMatch.frame
         let rowY = (keyboardKey.frame.midY - window.minY) / window.height
-        // The row is ~1240 pt wide: up to 16 drags reach its end.
-        // On screen, not `isHittable`: XCUITest's accessibility hit test at a 28 pt key's middle
-        // answers the dock's backing view (no touches; a finger's tap reaches the key), so it reads
-        // every scroller key as not hittable. Tap the key's middle as a finger does.
-        let onScreen = { hide.exists && hide.frame.width > 0 && hide.frame.minX >= window.minX && hide.frame.maxX <= window.maxX }
-        for _ in 0..<16 where !onScreen() {
+        for _ in 0..<8 where !(hide.exists && hide.isHittable) {
             let from = app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: rowY))
             from.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.38, dy: rowY)))
         }
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in onScreen() }, object: nil)
-        XCTAssertEqual(XCTWaiter().wait(for: [settled], timeout: 5), .completed, "Hide Toolbar at the row's end\n\(app.debugDescription)")
-        hide.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        XCTAssertTrue(hide.waitForExistence(timeout: 5), "Hide Toolbar at the row's end\n\(app.debugDescription)")
+        hide.tap()
         XCTAssertTrue(composeKey.waitForNonExistence(timeout: 5), "Hide Toolbar hides the key row")
         XCTAssertFalse(field.exists, "and the composer")
         attach(app, "hidden")

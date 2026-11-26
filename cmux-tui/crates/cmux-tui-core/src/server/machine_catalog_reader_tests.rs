@@ -139,10 +139,7 @@ fn cmux_next_machine_reader_opt_in_is_typed_and_cannot_extend_session_routes() {
         assert_eq!(reply["ok"], false, "{reply}");
         assert_eq!(reply["error"]["code"], "validation.invalid");
     }
-    // `catalog` is no param of a session route: it is dropped unread, so the
-    // reply is the plain session list.
     let session = read(&reader, &mux, "session.list", json!({"machine":"current","catalog":true}));
-    let plain = read(&reader, &mux, "session.list", json!({"machine":"current"}));
-    assert_eq!(session["ok"], true, "{session}");
-    assert_eq!(session["result"], plain["result"]);
+    assert_eq!(session["ok"], false, "{session}");
+    assert_eq!(session["error"]["code"], "validation.invalid");
 }

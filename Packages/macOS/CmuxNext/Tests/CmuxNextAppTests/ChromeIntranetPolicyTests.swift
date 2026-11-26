@@ -8,7 +8,7 @@ import Testing
 /// values are fixed here, never this Mac's profiles.
 @Suite struct ChromeIntranetPolicyTests {
     private func behavior(forced: [String: JSONValue] = [:], recommended: [String: JSONValue] = [:]) -> IntranetRedirectBehavior {
-        IntranetRedirectBehavior(policyValue: ChromeIntranetPolicy(reader: FixedManagedPreferenceReader(ManagedPreferences(forced: forced, recommended: recommended))).policyValue())
+        ChromeIntranetPolicy(reader: FixedManagedPreferenceReader(ManagedPreferences(forced: forced, recommended: recommended))).behavior()
     }
 
     @Test func unsetIsChromesDefault() {

@@ -1,4 +1,3 @@
-#if canImport(QuartzCore)  // Core Animation: Apple only
 import CmuxConversationCore
 @testable import CmuxConversationGeometry
 import Foundation
@@ -89,4 +88,3 @@ import Testing
         #expect((layer.sublayers ?? []).isEmpty)
     }
 }
-#endif

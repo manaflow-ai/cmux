@@ -1,8 +1,6 @@
 internal import CMUXAuthCore
 import Foundation
-#if canImport(OSLog)
 import OSLog
-#endif
 
 private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 

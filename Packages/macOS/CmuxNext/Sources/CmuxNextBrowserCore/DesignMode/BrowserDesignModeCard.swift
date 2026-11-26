@@ -20,13 +20,9 @@ public nonisolated struct BrowserDesignModeCard: Sendable, Equatable {
     public var comment: String
     /// The pick's number, as its pin on the page shows it (1 for the first pick).
     public var number: Int
-    /// The pick's page selector (its key on the page); a browser comment thread names it.
-    public var selector: String
-    /// The picked element's text, trimmed (a browser comment's `quote`); empty for a drawn region.
-    public var quote: String
 
     public init(id: String, name: String, text: String, bounds: CGRect, viewportWidth: Double, pickedVariation: Int? = nil,
-                comment: String = "", number: Int = 1, selector: String = "", quote: String = "") {
+                comment: String = "", number: Int = 1) {
         self.id = id
         self.name = name
         self.text = text
@@ -35,7 +31,5 @@ public nonisolated struct BrowserDesignModeCard: Sendable, Equatable {
         self.pickedVariation = pickedVariation
         self.comment = comment
         self.number = number
-        self.selector = selector
-        self.quote = quote
     }
 }

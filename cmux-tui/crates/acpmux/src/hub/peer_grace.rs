@@ -165,7 +165,7 @@ impl Hub {
                     continue;
                 }
                 () = cache_wait => {
-                    let dirty: Vec<_> = self.peers.load()
+                    let dirty: Vec<_> = self.peers.lock().unwrap_or_else(|e| e.into_inner())
                         .values()
                         .filter(|p| p.cache_is_dirty())
                         .map(|p| (p.name.clone(), p.generation))
@@ -175,7 +175,7 @@ impl Hub {
                     }
                     // A save that runs now, failed, or was put off again leaves its peer dirty:
                     // one more round then. Nothing dirty: no timer until the next kick.
-                    let still = self.peers.load()
+                    let still = self.peers.lock().unwrap_or_else(|e| e.into_inner())
                         .values()
                         .any(|p| p.cache_is_dirty());
                     cache_due = still
@@ -199,7 +199,8 @@ impl Hub {
         }
         let dirty: Vec<_> = self
             .peers
-            .load()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .values()
             .filter(|p| p.cache_is_dirty())
             .map(|p| (p.name.clone(), p.generation))

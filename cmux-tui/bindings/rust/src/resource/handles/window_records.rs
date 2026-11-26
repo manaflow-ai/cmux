@@ -13,6 +13,7 @@ pub const WINDOW_RECORD_MAX_BYTES: usize = 64 * 1024;
 
 /// One window record.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct WindowRecordSnapshot {
     /// `<install_id>/<window_id>`; the id of the record's state changes.
     pub id: String,
@@ -31,6 +32,7 @@ pub struct WindowRecordSnapshot {
 
 /// The record `window_record.delete` removed.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct WindowRecordDeleteResult {
     pub id: String,
     /// The revision the record had when it was deleted.

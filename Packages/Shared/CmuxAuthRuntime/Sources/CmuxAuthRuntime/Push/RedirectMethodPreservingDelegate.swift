@@ -1,10 +1,5 @@
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
-#if canImport(OSLog)
 import OSLog
-#endif
 
 nonisolated private let pushRedirectLog = Logger(
     subsystem: "ai.manaflow.cmux",

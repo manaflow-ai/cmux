@@ -1,9 +1,6 @@
 internal import CMUXMobileCore
 public import CmuxIrohTransport
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
 
 public enum IrxBrokerServiceError: Error, Sendable {
     case notRegistered

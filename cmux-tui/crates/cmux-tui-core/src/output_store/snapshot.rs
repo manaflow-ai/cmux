@@ -1,5 +1,5 @@
 //! Snapshot files of the output store: one per terminal, the screen plus
-//! up to [`super::SNAPSHOT_HISTORY_LINES`] recent lines as a VT replay,
+//! about [`super::SNAPSHOT_HISTORY_LINES`] recent lines as a VT replay,
 //! gzip-compressed, replaced atomically (temporary file, fsync, rename).
 //!
 //! A terminal's snapshot is written only when its content changed: the
@@ -48,12 +48,8 @@ use crate::workspace_registry::terminal_respawn_store::TerminalReplay;
 
 pub(super) const MAGIC: &[u8] = b"CMUXSNAP1\n";
 pub(super) const SUFFIX: &str = "snap";
-/// The largest uncompressed replay one snapshot holds: the respawn seed's
-/// own budget ([`crate::surface::SEED_REPLAY_MAX_BYTES`]), so a snapshot that
-/// fills it still seeds the respawned terminal whole. It was 4 MiB (and a
-/// 2,000-line estimate below it), which cut a long terminal's history at
-/// the snapshot well before its live scrollback did.
-pub(crate) const MAX_SNAPSHOT_REPLAY_BYTES: usize = crate::surface::SEED_REPLAY_MAX_BYTES;
+/// The largest uncompressed replay one snapshot holds.
+pub(crate) const MAX_SNAPSHOT_REPLAY_BYTES: usize = 4 * 1024 * 1024;
 /// The smallest replay budget, so a narrow terminal still keeps its lines.
 const MIN_SNAPSHOT_REPLAY_BYTES: usize = 256 * 1024;
 /// A snapshot file larger than this is not read back (corrupt or foreign).
@@ -765,10 +761,9 @@ fn content_digest(terminal: &mut ghostty_vt::Terminal) -> Option<u64> {
     Some(hasher.finish())
 }
 
-/// Bytes for the screen plus up to [`SNAPSHOT_HISTORY_LINES`] lines. The VT
-/// replay remains bounded by the configured per-terminal byte cap and keeps
-/// the newest rows that fit.
-pub(super) fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
+/// Bytes for the screen plus about [`SNAPSHOT_HISTORY_LINES`] lines (a VT
+/// replay is bounded in bytes; it keeps the newest rows that fit).
+fn replay_budget(cols: u16, rows: u16, max_per_terminal: u64) -> usize {
     let lines = SNAPSHOT_HISTORY_LINES + usize::from(rows);
     let estimate = lines.saturating_mul(usize::from(cols).max(1)).saturating_mul(3);
     let cap = usize::try_from(max_per_terminal)
@@ -786,7 +781,7 @@ pub(super) fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf 
     directory.join(format!("{}.{SUFFIX}", terminal_id.as_str()))
 }
 
-pub(super) fn write(
+fn write(
     directory: &Path,
     terminal_id: &TerminalPublicId,
     generation: &str,

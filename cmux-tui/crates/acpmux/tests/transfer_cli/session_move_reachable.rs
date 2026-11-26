@@ -185,10 +185,7 @@ fn move_command(source: &Daemon, id: &str, to: &Path) -> tokio::process::Command
 async fn committed(src: &mut Rpc, id: &str) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(45);
     loop {
-        // The row this machine keeps: a plain `{sessionId}` info of a chat that moved to a
-        // connected peer is answered from its copy there (`MOVED_FORWARDED`, #52853).
-        let listed = src.call("_acpmux/info", json!({"sessionIds": [id], "row": true})).await;
-        let info = &listed["rows"][0];
+        let info = src.call("_acpmux/info", json!({"sessionId": id})).await;
         if info["status"] == "closed" && info["movedTo"]["host"] == "target" {
             return;
         }

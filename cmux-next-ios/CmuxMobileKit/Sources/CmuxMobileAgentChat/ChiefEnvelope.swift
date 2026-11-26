@@ -75,7 +75,7 @@ struct ChiefContextRow: View {
                     .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.cmuxPressLine)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityValue(open ? "Expanded" : "Collapsed")
                 Button {
                     UIPasteboard.general.string = context
@@ -95,7 +95,7 @@ struct ChiefContextRow: View {
                         .padding(12)
                 }
                 .frame(maxHeight: 320)
-                .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 14, style: .continuous))
+                .background(Color.cmuxMobileBubble.opacity(0.5), in: .rect(cornerRadius: 14, style: .continuous))
                 .transition(.disclosureReveal)
             }
         }

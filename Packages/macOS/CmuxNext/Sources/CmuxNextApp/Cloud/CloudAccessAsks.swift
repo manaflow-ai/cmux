@@ -1,6 +1,5 @@
 import CmuxNextAgentPane
 import CmuxNextCloud
-import CmuxNextCloudPlace
 import CmuxNextDaemon
 import Foundation
 

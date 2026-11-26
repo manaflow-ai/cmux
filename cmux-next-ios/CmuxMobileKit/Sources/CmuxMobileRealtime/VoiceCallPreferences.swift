@@ -46,11 +46,6 @@ public enum ComposerVoicePlacement: String, CaseIterable, Sendable, Identifiable
     /// With an empty draft the send circle is the voice button, send once
     /// there is text (the ChatGPT composer). Takes no width of its own.
     case sendButton
-    /// A waveform just left of send, inside the field's right end, and send
-    /// always shows: the arrangement of Claude's and ChatGPT's iOS composers,
-    /// which keep their voice controls beside send (Leo, 2026-11-23: "should
-    /// be maybe 4. side of the send button.").
-    case besideSend
     /// Its own circle left of the field.
     case leading
 
@@ -60,19 +55,9 @@ public enum ComposerVoicePlacement: String, CaseIterable, Sendable, Identifiable
         switch self {
         case .off: String(localized: "Off")
         case .sendButton: String(localized: "In Send Button")
-        case .besideSend: String(localized: "Beside Send")
         case .leading: String(localized: "Left of Field")
         }
     }
-
-    /// Whether the send circle is the voice button right now: only "In Send
-    /// Button", and only with nothing to send (or while voice mode runs).
-    public func sendCircleIsVoice(nothingToSend: Bool, voiceActive: Bool) -> Bool {
-        self == .sendButton && (nothingToSend || voiceActive)
-    }
-
-    /// Whether the voice button sits just left of send, which stays send.
-    public var voiceBesideSend: Bool { self == .besideSend }
 }
 
 /// This phone's choices for Chief calls: model and voice. Not secret, so

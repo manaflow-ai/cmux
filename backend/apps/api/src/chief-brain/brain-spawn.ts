@@ -2,7 +2,6 @@ import { Type } from "@earendil-works/pi-ai"
 import type { ToolRegistration } from "@earendil-works/pi-durable"
 import type { Env } from "../env.ts"
 import type { Principal } from "@cmux/ownership"
-import { conversation } from "@cmux/home-core"
 import { liveFrame, postWork, runChanged } from "./brain-io.ts"
 import type { BrainConfig } from "./brain-store.ts"
 import { oneLine, replyTarget, SHARED_CHIEF } from "./brain-text.ts"
@@ -44,8 +43,8 @@ const TASK_MAX = 8_000
 const BRIEF_MAX = 16_000
 /** A report the parent reads (the view doc: messages up to 30,000 characters). */
 const REPORT_MAX = 30_000
-/** Work-card preview shown to members: home-core's whole cap, so the person reads the result itself, not its first lines (Leo, 2026-11-24). */
-export const PREVIEW_BYTES_SHOWN = conversation.MAX_PREVIEW_BYTES
+/** Work-card preview shown to members (home-core allows 4096 bytes). */
+const PREVIEW_BYTES_SHOWN = 600
 /** A child that has not reported after this long is failed in the parent (its "still at work" line ends). */
 export const CHILD_LOST_MS = 60 * 60_000
 /** A running slot older than this is free again (a child run is bounded by TURN_MS = 10 min). */
@@ -260,7 +259,7 @@ export const archiveOf = (run: unknown, steps: ReadonlyArray<Record<string, unkn
 export const takeReport = (sql: SqlStorage, n: number, status: "done" | "failed", report: string, now: number): boolean =>
   sql.exec(`UPDATE cb_spawn SET state = ?, report = ?, ended = ? WHERE n = ? AND state IN ('queued', 'enqueued') RETURNING n`, status, report.slice(0, REPORT_MAX), now, n).toArray().length > 0
 
-export const clipBytes = (text: string, max: number): string => {
+const clipBytes = (text: string, max: number): string => {
   const enc = new TextEncoder()
   if (enc.encode(text).length <= max) return text
   let out = [...text].slice(0, max)

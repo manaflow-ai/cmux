@@ -1,7 +1,4 @@
 public import Foundation
-#if canImport(FoundationNetworking)
-public import FoundationNetworking
-#endif
 
 /// External effects required by the shared control owner.
 public struct V2ControlDependencies: Sendable {

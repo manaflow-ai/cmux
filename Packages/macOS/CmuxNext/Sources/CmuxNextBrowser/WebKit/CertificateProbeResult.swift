@@ -1,4 +1,3 @@
-import CmuxEgress
 import Foundation
 
 /// What a TLS check of a host found before WebKit may load its page
@@ -15,8 +14,7 @@ nonisolated enum CertificateProbeResult: Sendable, Equatable {
     /// server trust off the main thread; no request is sent.
     static func probe(_ url: URL) async -> CertificateProbeResult {
         let (results, report) = AsyncStream.makeStream(of: CertificateProbeResult.self, bufferingPolicy: .bufferingNewest(1))
-        CmuxEgress.allowNamed(url)   // the page the person is opening
-        let session = CmuxEgress.session(site: "CmuxNextBrowser.CertificateProbeResult", configuration: .ephemeral, delegate: CertificateProbeDelegate(report: report), delegateQueue: nil)
+        let session = URLSession(configuration: .ephemeral, delegate: CertificateProbeDelegate(report: report), delegateQueue: nil)
         defer { session.invalidateAndCancel() }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         request.httpMethod = "HEAD"

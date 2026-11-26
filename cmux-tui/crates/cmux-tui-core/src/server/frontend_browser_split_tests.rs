@@ -177,6 +177,7 @@ fn malformed_frontend_browser_tab_splits_are_refused() {
         browser(json!({"pane":source,"split":{"direction":"sideways"}})),
         browser(json!({"pane":source,"split":{"direction":"right","pane_id":"nope"}})),
         browser(json!({"pane":source,"split":{"direction":"right","split_id":"nope"}})),
+        browser(json!({"pane":source,"split":{"direction":"right","extra":1}})),
         browser(json!({"pane":source,"split":{}})),
         browser(json!({"pane":source,"after":terminal,"split":{"direction":"right"}})),
     ];

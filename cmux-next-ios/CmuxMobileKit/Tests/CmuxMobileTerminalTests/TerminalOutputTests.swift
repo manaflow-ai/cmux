@@ -84,32 +84,7 @@ import Testing
         #expect(!clipping.isActivatable(CGRect(x: 310, y: 0, width: 40, height: 34), in: visible)) // under the joystick
         #expect(clipping.isActivatable(CGRect(x: 0, y: 0, width: 40, height: 34), in: nil))
     }
-
-    /// iOS release bar read-back, "no clipped keys": the row's trailing edge cut a key in half.
-    @Test func aKeyTheEdgeCutsIsNotWhole() {
-        let clipping = KeyBarClipping()
-        let visible = CGRect(x: 0, y: 0, width: 300, height: 28)
-        #expect(clipping.isWhole(CGRect(x: 250, y: 0, width: 40, height: 28), in: visible))
-        #expect(!clipping.isWhole(CGRect(x: 280, y: 0, width: 40, height: 28), in: visible)) // the trailing sliver
-        #expect(!clipping.isWhole(CGRect(x: -10, y: 0, width: 40, height: 28), in: visible))
-    }
 }
-
-#if os(iOS)
-@MainActor @Suite struct KeyBarClippedKeysTests {
-    @Test func cutKeysAreDrawnOnlyWhileScrolling() {
-        let keys = KeyBarClippedKeys()
-        keys.set(.paste, cut: true)
-        #expect(!keys.draws(.paste))
-        #expect(keys.draws(.composer))
-        keys.resting = false
-        #expect(keys.draws(.paste))
-        keys.resting = true
-        keys.set(.paste, cut: false)
-        #expect(keys.draws(.paste))
-    }
-}
-#endif
 
 @MainActor @Suite struct TerminalArtifactCollectorTests {
     @Test func scansOffTheMainThreadAndPublishesInOrder() async {

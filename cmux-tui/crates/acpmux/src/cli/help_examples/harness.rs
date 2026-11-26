@@ -124,7 +124,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
     (
         "harness codex-runtime",
         &[
-            ("Download the pinned Codex package", "acpmux harness codex-runtime install"),
+            ("Download the pinned Codex release", "acpmux harness codex-runtime install"),
             ("See whether the managed Codex is ready", "acpmux harness codex-runtime status"),
         ],
     ),

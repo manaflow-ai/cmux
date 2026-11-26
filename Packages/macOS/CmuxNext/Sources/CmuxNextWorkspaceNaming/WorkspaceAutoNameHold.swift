@@ -14,10 +14,6 @@
 public final class WorkspaceAutoNameHold {
     /// By workspace id, then by namer (`WorkspaceAutoNameReader.namer`): the name it gave last.
     private var held: [String: [String: String]] = [:]
-    /// By workspace id: the launch name and chat of a workspace its launcher named after that chat's agent. acpmux
-    /// keeps only a few `formerNames` and drops one another session takes, so after enough renames the launch name
-    /// is no longer among them; this keeps the workspace following its agent anyway.
-    private var launcherNamed: [String: String] = [:]
 
     public init() {}
 
@@ -27,17 +23,6 @@ public final class WorkspaceAutoNameHold {
         guard let label else { return held[workspace]?[namer] }
         if held[workspace]?[namer] != label { held[workspace, default: [:]][namer] = label }
         return label
-    }
-
-    /// Whether `workspace`, named `name`, is launcher-named after the agent of `session`: `matches` (its name is
-    /// one the agent has had) now, or it matched before under the same name and chat. Remembers a match.
-    func launcherNamed(workspace: String, name: String, session: String, matches: Bool) -> Bool {
-        let key = session + "\u{0}" + name
-        if matches {
-            if launcherNamed[workspace] != key { launcherNamed[workspace] = key }
-            return true
-        }
-        return launcherNamed[workspace] == key
     }
 
     /// The user named `workspace`: nothing held for it outlives that name.

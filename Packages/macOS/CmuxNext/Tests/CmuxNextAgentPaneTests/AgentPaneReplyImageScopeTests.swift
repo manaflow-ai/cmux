@@ -60,33 +60,6 @@ struct AgentPaneReplyImageScopeTests {
         #expect(color?.redComponent ?? 0 < 0.2)
     }
 
-    /// A web GIF of several frames reaches the page as a GIF, so it animates; a one-frame GIF is
-    /// re-encoded as PNG like any other web image.
-    @Test func aWebAnimatedGIFStaysAGIF() async throws {
-        let animated = await AgentPaneReplyImages.remote(try #require(Self.gif(frames: 3)))
-        guard case .success(let moving) = animated else { Issue.record("animated GIF refused: \(animated)"); return }
-        #expect(moving.hasPrefix("data:image/gif;base64,"))
-        let still = await AgentPaneReplyImages.remote(try #require(Self.gif(frames: 1)))
-        guard case .success(let flat) = still else { Issue.record("one-frame GIF refused: \(still)"); return }
-        #expect(flat.hasPrefix("data:image/png;base64,"))
-    }
-
-    private static func gif(frames: Int) -> Data? {
-        let output = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(output, UTType.gif.identifier as CFString, frames, nil) else { return nil }
-        for index in 0..<frames {
-            guard let context = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0,
-                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-            context.setFillColor(CGColor(red: CGFloat(index) / CGFloat(max(frames, 1)), green: 0.2, blue: 0.9, alpha: 1))
-            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
-            guard let image = context.makeImage() else { return nil }
-            CGImageDestinationAddImage(destination, image, [kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFDelayTime: 0.1]] as CFDictionary)
-        }
-        guard CGImageDestinationFinalize(destination) else { return nil }
-        return output as Data
-    }
-
     private static let largePNG: Data = {
         let width = 3708, height = 2468
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,

@@ -97,11 +97,10 @@ extension VerticalTabListView {
         let iconX = iconOnly ? frame.midX - size / 2 : frame.minX + metrics.padding
         let iconFrame = CGRect(x: pixel(iconX), y: pixel(frame.midY - size / 2), width: size, height: size)
         drawIcon(item, in: iconFrame, tint: item.tint?.markColor ?? text, alpha: alpha)
-        let close = closeFrame(row).map(viewRect)
-        // The hovered close replaces the status. Rows without a close keep their mark in place.
-        if !(isHovered && close != nil), let badge = badgeColor(item) {
+        if let badge = badgeColor(item) {
+            // Unread or status: a dot on the icon's corner while titles are hidden, else at the row's end.
             let dot = metrics.iconSize * 0.4
-            let place = iconOnly || close != nil
+            let place = iconOnly || isHovered || closeFrame(row) != nil
                 ? CGRect(x: iconFrame.maxX - dot * 0.6, y: iconFrame.minY - dot * 0.4, width: dot, height: dot)
                 : CGRect(x: frame.maxX - metrics.padding - dot, y: frame.midY - dot / 2, width: dot, height: dot)
             badge.setFill()
@@ -109,7 +108,7 @@ extension VerticalTabListView {
         }
         guard !iconOnly else { return }
         var titleEnd = frame.maxX - metrics.padding
-        if let close {
+        if let close = closeFrame(row).map(viewRect) {
             drawClose(in: close, hovered: hoveredClose == item.id, pressed: press?.target == .close(item.id))
             titleEnd = close.minX - Metrics.space1
         }

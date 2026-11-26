@@ -362,7 +362,6 @@ struct TaskComposerScreen: View {
     @ViewBuilder private var agentsMenu: some View {
         switch phase {
         case .loading:
-            // placeholder-ok: this Mac has never supplied an agent catalog to this phone.
             Button("Loading agents…") {}
                 .disabled(true)
                 .accessibilityIdentifier("taskComposer.agents.loading")
@@ -578,13 +577,7 @@ struct TaskComposerScreen: View {
             phase = .failed(TaskStartBlocker.noMac.message)
             return
         }
-        let cache = AgentCatalogCache.shared
-        let cached = cache.load(macID: mac.id)
-        if let cached {
-            phase = .loaded(cached)
-        } else {
-            phase = .loading
-        }
+        phase = .loading
         do {
             let catalog = try await creator.agentCatalog(on: mac.id)
             // A Mac switched meanwhile: its own load answers.
@@ -592,13 +585,8 @@ struct TaskComposerScreen: View {
             // Picks the Mac no longer offers (or a phone can't start) are dropped.
             creator.taskDraft.picks = creator.taskDraft.picks.filter { catalog.harness($0.harness)?.canStart == true }
             phase = .loaded(catalog)
-            cache.save(catalog, for: mac.id)
         } catch {
             guard !Task.isCancelled else { return }
-            if let cached {
-                phase = .loaded(cached)
-                return
-            }
             phase = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
         }
     }

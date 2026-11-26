@@ -1045,7 +1045,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The space is already at the edge."
+            "value" : "the space is already at the edge"
           }
         },
         "ar" : {
@@ -1569,7 +1569,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "There is no space that way."
+            "value" : "there is no space that way"
           }
         },
         "ar" : {

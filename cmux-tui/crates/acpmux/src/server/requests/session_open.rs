@@ -70,9 +70,7 @@ pub(super) fn load(
                     method::MUX_EVENT,
                     super::super::event_value(&s.id, &rec),
                 ));
-            } else if fresh
-                && conn.client_features.hears_any(&[crate::capabilities::SESSION_MESSAGES])
-            {
+            } else if fresh {
                 conn.send(&Message::notification(method::MUX_MESSAGE, rec.msg.clone()));
             }
         } else if rec.dir == "in"

@@ -55,6 +55,7 @@ impl Hub {
         let mut entries: Vec<Entry> = Vec::new();
         let mut assistant: Option<Entry> = None;
         let mut tool_calls = 0usize;
+        let mut plan = false;
         // The latest compaction summary, and the record it came from.
         let mut summary: Option<(u64, String)> = None;
         let flush = |assistant: &mut Option<Entry>, entries: &mut Vec<Entry>| {
@@ -76,6 +77,7 @@ impl Hub {
                     assistant = None;
                     entries.clear();
                     tool_calls = 0;
+                    plan = false;
                     summary = Some((rec.seq, t.to_owned()));
                     return true;
                 }
@@ -107,6 +109,7 @@ impl Hub {
                         }
                     }
                     "tool_call" => tool_calls += 1,
+                    "plan" => plan = true,
                     _ => {}
                 }
                 true
@@ -127,7 +130,7 @@ impl Hub {
             let (text, context, transcript) =
                 summary_capsule(&lead, *seq, summary, &entries, to_seq, total_bytes);
             let mut coverage = vec![transcript];
-            coverage.extend(other_coverage(source, tool_calls));
+            coverage.extend(other_coverage(source, tool_calls, plan));
             return Ok(Built { text, context, coverage });
         }
         let (mut text, context, kept) = if entries.is_empty() {
@@ -196,7 +199,7 @@ impl Hub {
             )
         };
         let mut coverage = vec![transcript];
-        coverage.extend(other_coverage(source, tool_calls));
+        coverage.extend(other_coverage(source, tool_calls, plan));
         Ok(Built { text, context, coverage })
     }
 }
@@ -265,7 +268,7 @@ fn summary_capsule(
 }
 
 /// Coverage of everything a capsule leaves out besides the transcript.
-fn other_coverage(source: &SessionMeta, tool_calls: usize) -> Vec<Coverage> {
+fn other_coverage(source: &SessionMeta, tool_calls: usize, plan: bool) -> Vec<Coverage> {
     let tool_output = if tool_calls > 0 {
         Coverage::new(
             "tool_output",
@@ -274,6 +277,11 @@ fn other_coverage(source: &SessionMeta, tool_calls: usize) -> Vec<Coverage> {
         )
     } else {
         Coverage::new("tool_output", "omitted", Some("no tool calls".into()))
+    };
+    let plan = if plan {
+        Coverage::new("plan", "omitted", Some("the source's plan updates are not carried".into()))
+    } else {
+        Coverage::new("plan", "unavailable", Some("the source reported no plan".into()))
     };
     let files = Coverage::new(
         "files",
@@ -288,5 +296,5 @@ fn other_coverage(source: &SessionMeta, tool_calls: usize) -> Vec<Coverage> {
         ),
         None => Coverage::new("model", "unavailable", None),
     };
-    vec![tool_output, files, model]
+    vec![tool_output, plan, files, model]
 }

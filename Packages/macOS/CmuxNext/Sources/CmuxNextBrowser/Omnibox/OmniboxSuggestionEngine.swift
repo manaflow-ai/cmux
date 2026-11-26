@@ -220,7 +220,6 @@ public final class OmniboxSuggestionEngine {
         maxResults = configuration.maxRows
         sources = OmniboxSource.defaultOrder + (configuration.calculator ? [.calculator] : [])
         if display.showsFullURLs != configuration.showFullURLs { display.showsFullURLs = configuration.showFullURLs }
-        if display.quietIcons != configuration.quietIcons { display.quietIcons = configuration.quietIcons }
     }
 
     /// Enter loaded typed text as `url`.

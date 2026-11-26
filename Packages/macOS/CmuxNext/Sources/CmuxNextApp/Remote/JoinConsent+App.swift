@@ -20,7 +20,7 @@ extension JoinConsentServices {
     static let askShownKey = "cmux.join.consentAskShown"
 
     static func app(_ services: AppServices) -> JoinConsentServices {
-        let cli = SSHService.bundledCLI?.onPlatform(of: services.environment.terminalEnvironment)
+        let cli = SSHService.bundledCLI
         #if DEBUG
         let fixtures = services.debugFixtures
         #endif
@@ -111,7 +111,6 @@ extension JoinConsentModel {
             }
             panel?.setShown(shown)
         }
-        model.openSettings = { [weak services] in try? services?.settingsWindow.show(section: nil, setting: "devices.join.\($0.rawValue)") }
         model.redraw = { [weak model] in
             guard let model, model.ask != nil else { return }
             panel?.setShown(true)

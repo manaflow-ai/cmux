@@ -70,7 +70,6 @@ impl Mux {
             stored_live: &stored_live,
             active_terminal_hosts: None,
             rows: WorkspaceRows::All,
-            order_unchanged: false,
             unplaced_terminals: false,
         };
         let projection = self.project_live_tree(&input, state, result)?;
@@ -128,35 +127,10 @@ impl Mux {
         let mut public = Vec::new();
         let mut screens = PublishedScreens::default();
 
-        // A scoped walk whose rows state no workspace outside the scope (`Added` at the live count)
-        // has nothing to do for any other workspace: it visits the scope's workspaces, in list order,
-        // and not each live workspace (4,000 of them cost a split 20 ms).
-        let scope_only = match (scope, input.rows) {
-            (Some(scope), WorkspaceRows::Added(first)) if first >= state.workspaces.len() => {
-                let mut indexes = scope
-                    .iter()
-                    .filter_map(|workspace| state.resource_indexes.workspaces.get(workspace))
-                    .filter_map(|id| state.workspace_index(*id))
-                    .collect::<Vec<_>>();
-                indexes.sort_unstable();
-                indexes.dedup();
-                Some(indexes)
-            }
-            _ => None,
-        };
-        let visited = match scope_only {
-            Some(indexes) => indexes,
-            None => {
-                #[cfg(test)]
-                crate::walk_counters::workspace_list_walked(state.workspaces.len());
-                (0..state.workspaces.len()).collect()
-            }
-        };
         #[cfg(test)]
         scoped_projection::WORKSPACES_PROJECTED
-            .with(|count| count.set(count.get() + visited.len() as u64));
-        for workspace_index in visited {
-            let Some(workspace) = state.workspaces.get(workspace_index) else { continue };
+            .with(|count| count.set(count.get() + state.workspaces.len() as u64));
+        for (workspace_index, workspace) in state.workspaces.iter().enumerate() {
             let in_scope = scope.is_none_or(|scope| scope.contains(&workspace.public_id));
             if !in_scope && !input.rows.states(workspace_index) && input.rows.scope_frame() {
                 // `before` holds no row of this workspace and the walk states none: there is
@@ -522,15 +496,13 @@ impl Mux {
                 .push(ResourceChange::UpsertTerminal { public_id: terminal_id.clone(), terminal });
             public.push(("terminal", terminal_id.to_string(), value));
         }
-        if !input.order_unchanged {
-            changes.push(ResourceChange::SetWorkspaceOrder {
-                workspace_ids: state
-                    .workspaces
-                    .iter()
-                    .map(|workspace| workspace.public_id.clone())
-                    .collect(),
-            });
-        }
+        changes.push(ResourceChange::SetWorkspaceOrder {
+            workspace_ids: state
+                .workspaces
+                .iter()
+                .map(|workspace| workspace.public_id.clone())
+                .collect(),
+        });
         changes.push(ResourceChange::SetActiveWorkspace {
             workspace_id: state
                 .workspaces

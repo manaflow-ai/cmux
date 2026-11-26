@@ -2,9 +2,10 @@ import AppKit
 import CmuxNextDesignTokens
 
 /// What every native tooltip draws on its glass (``TooltipMetrics``): the text, regular 12 pt in the
-/// tooltip ink, one line that ends in an ellipsis past ``TooltipMetrics/maxWidth``, then the shortcut's keys as plain
-/// glyphs in the hint ink (``CmuxDialogKeycapView``, ``CmuxDialogKeycapStyle/plainGlyph``, as the web's one key hint),
-/// centred on the line and ending at the inline padding. ``TooltipPanel`` (a view's themed tooltip) and ``WebPopupHost`` (a
+/// tooltip ink, one line that ends in an ellipsis past ``TooltipMetrics/maxWidth``, then the shortcut's keys on the dialogs'
+/// keycap plate (``CmuxDialogKeycapView``, ``CmuxDialogKeycapStyle/linearKbd``), centred on the first
+/// line and inset ``TooltipMetrics/keycapInset`` from the top and the end, so its corner is
+/// concentric with the tooltip's. ``TooltipPanel`` (a view's themed tooltip) and ``WebPopupHost`` (a
 /// page's tooltip shown past its window's edge) both draw it, so the two never differ.
 @MainActor
 final class TooltipContentView: NSView {
@@ -47,7 +48,7 @@ final class TooltipContentView: NSView {
         if next != self.shortcut || (next != nil && keycap == nil) {
             keycap?.removeFromSuperview()
             keycap = next.map { keys in
-                let made = CmuxDialogKeycapView(keys.keycapText, style: .plainGlyph)
+                let made = CmuxDialogKeycapView(keys.keycapText, style: .linearKbd, cornerRadius: TooltipMetrics.keycapRadius * Self.scale)
                 made.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(made)
                 return made
@@ -57,7 +58,7 @@ final class TooltipContentView: NSView {
         needsLayout = true
     }
 
-    /// Colors the text (`ink`) and the shortcut's keys (`hint`).
+    /// Colors the text (`ink`) and the keycap (its plate the ink, faint; its keys `hint`).
     func paint(ink: NSColor, hint: NSColor) {
         text.textColor = ink
         keycap?.paint(ink: ink, glyph: hint)
@@ -69,11 +70,11 @@ final class TooltipContentView: NSView {
         value.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
     }
 
-    /// The keys' size (their glyphs' natural size), zero without them.
+    /// The keycap's size, zero without one.
     private var keycapSize: NSSize {
         guard let keycap else { return .zero }
-        let natural = keycap.label.naturalSize
-        return NSSize(width: ceil(natural.width), height: ceil(natural.height))
+        let height = TooltipMetrics.keycapHeight * Self.scale
+        return NSSize(width: keycap.width(forHeight: height), height: height)
     }
 
     /// The surface's size for the current text: as narrow as its one line, at most `maxWidth` wide (David Beyer,
@@ -83,14 +84,15 @@ final class TooltipContentView: NSView {
         let padBlock = TooltipMetrics.paddingBlock * scale
         let padInline = TooltipMetrics.paddingInline * scale
         let key = keycapSize
-        // With keys, they end at the inline padding, and the gap sits between them and the text.
-        let trailing = keycap == nil ? padInline : padInline + key.width + TooltipMetrics.keycapGap * scale
+        // With a keycap, the end's room is the keycap's inset, and the gap sits between it and the text.
+        let trailing = keycap == nil ? padInline : TooltipMetrics.keycapInset * scale + key.width + TooltipMetrics.keycapGap * scale
         // The label's natural frame holds its line padding each side of the glyphs; the surface counts the glyphs.
         let natural = text.naturalSize
         let glyphs = min(natural.width - LabelText.padding * 2, max(1, maxWidth - padInline - trailing))
-        // One line is one height, keys or not.
+        // One line is one height, keycap or not: the line height, or the keycap and its inset.
         let line = max(natural.height, TooltipMetrics.lineHeight * scale)
-        return NSSize(width: ceil(padInline + glyphs + trailing), height: ceil(line + padBlock * 2))
+        let minHeight = keycap == nil ? 0 : key.height + TooltipMetrics.keycapInset * scale * 2
+        return NSSize(width: ceil(padInline + glyphs + trailing), height: ceil(max(line + padBlock * 2, minHeight)))
     }
 
     override func layout() {
@@ -98,7 +100,7 @@ final class TooltipContentView: NSView {
         let scale = Self.scale
         let padInline = TooltipMetrics.paddingInline * scale
         let key = keycapSize
-        let trailing = keycap == nil ? padInline : padInline + key.width + TooltipMetrics.keycapGap * scale
+        let trailing = keycap == nil ? padInline : TooltipMetrics.keycapInset * scale + key.width + TooltipMetrics.keycapGap * scale
         // The label's frame: its line plus its own line padding (LabelText.padding) each side of the glyphs, cut to
         // the room before the keycap (its text then ends in an ellipsis).
         let natural = text.naturalSize
@@ -115,8 +117,8 @@ final class TooltipContentView: NSView {
             // Centred on the line, as a menu's shortcut is: the label's own line height (the font's, in whole points),
             // not the nominal ``TooltipMetrics/lineHeight``, from the text's unrounded place, so an odd line (15 pt
             // at 12 pt) does not round the text and then the keycap down a point each.
-            let y = (middleY + (textSize.height - key.height) / 2).rounded()
-            keycap.frame = NSRect(x: bounds.width - padInline - key.width, y: y,
+            let y = max(TooltipMetrics.keycapInset * scale, (middleY + (textSize.height - key.height) / 2).rounded())
+            keycap.frame = NSRect(x: bounds.width - TooltipMetrics.keycapInset * scale - key.width, y: y,
                                   width: key.width, height: key.height)
         }
     }

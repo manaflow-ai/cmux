@@ -52,6 +52,7 @@ extension TopPageRoute {
             switch ref.value {
             case homeAppID: return .home
             case appStoreAppID: return .page(.appStore)
+            case CodeRouterPageTab.appID: return .page(.coderouter)
             default: return .page(AppPanePage.pageID(ref.value))
             }
         }
@@ -62,7 +63,6 @@ extension TopPageRoute {
         case .history: return .page(.history)
         case .bookmarks: return .page(.bookmarks)
         case .automations: return .page(.automations)
-        case .forum: return .page(.forum)
         default: return nil
         }
     }

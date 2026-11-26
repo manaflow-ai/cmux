@@ -46,7 +46,6 @@ mod clock;
 mod color;
 mod fade;
 mod flight;
-pub mod goo;
 pub mod hover;
 mod light;
 mod marquee;

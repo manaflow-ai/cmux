@@ -18,12 +18,6 @@ import Testing
         #expect(LastOpenRestore.decide(saved: list, workspaces: workspaces, macPhase: live) == .showList)
     }
 
-    @Test func listMarksTheRememberedWorkspaceWhenItStillExists() {
-        #expect(LastOpenRestore.listTarget(savedWorkspaceID: "ws-cmux", workspaces: workspaces) == "ws-cmux")
-        #expect(LastOpenRestore.listTarget(savedWorkspaceID: "ws-gone", workspaces: workspaces) == nil)
-        #expect(LastOpenRestore.listTarget(savedWorkspaceID: nil, workspaces: workspaces) == nil)
-    }
-
     @Test func reopensTheWorkspaceOnTheSavedTab() {
         let saved = LastOpenLocation(rootTab: "workspaces", workspaceID: "ws-cmux", macID: "mac-studio", tabID: "t-zsh")
         #expect(LastOpenRestore.decide(saved: saved, workspaces: workspaces, macPhase: live)
@@ -71,15 +65,5 @@ import Testing
         #expect(LastOpenMemory(defaults: defaults).load() == saved)
         LastOpenMemory(defaults: defaults).save(nil)
         #expect(LastOpenMemory(defaults: defaults).load() == nil)
-    }
-
-    @Test func remembersTheLastWorkspaceSeparatelyFromTheLaunchLocation() throws {
-        let suite = "cmuxMobile.lastWorkspace.tests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
-        defer { defaults.removePersistentDomain(forName: suite) }
-        LastWorkspaceMemory(defaults: defaults).save("ws-cmux")
-        #expect(LastWorkspaceMemory(defaults: defaults).load() == "ws-cmux")
-        LastWorkspaceMemory(defaults: defaults).save(nil)
-        #expect(LastWorkspaceMemory(defaults: defaults).load() == nil)
     }
 }

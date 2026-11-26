@@ -41,8 +41,13 @@ public final nonisolated class ManagedKeyGuard: Sendable {
     /// the path is a managed key or inside one, or `value` (an object at an
     /// ancestor) contains a managed key.
     public func checkSet(_ value: JSONValue?, at path: [String]) throws {
-        if let managed = Self.managed(from: SettingsRust.answer("managed.guard_set", request(path, value: value))) {
-            throw managed
+        try state.withLock { managed in
+            for (managedPath, entry) in managed {
+                if path.starts(with: managedPath) { throw SettingManaged(key: entry.key, source: entry.source) }
+                if managedPath.starts(with: path), let value, value.value(at: Array(managedPath.dropFirst(path.count))) != nil {
+                    throw SettingManaged(key: entry.key, source: entry.source)
+                }
+            }
         }
     }
 
@@ -50,24 +55,10 @@ public final nonisolated class ManagedKeyGuard: Sendable {
     /// an ancestor object is allowed (it only prunes the user's file; the
     /// managed value still applies from its layer).
     public func checkRemove(_ path: [String]) throws {
-        if let managed = Self.managed(from: SettingsRust.answer("managed.guard_remove", request(path))) {
-            throw managed
-        }
-    }
-
-    private func request(_ path: [String], value: JSONValue? = nil) -> JSONValue {
-        var result: [String: JSONValue] = ["managed": .object(state.withLock { managed in
-            Dictionary(managed.values.map { ($0.key, $0.source.pageInfo) }, uniquingKeysWith: { first, _ in first })
-        }), "path": .array(path.map(JSONValue.string))]
-        if let value { result["value"] = value }
-        return .object(result)
-    }
-
-    private static func managed(from reply: JSONValue) -> SettingManaged? {
-        guard let key = reply["key"]?.stringValue, let source = reply["source"]?.stringValue else { return nil }
-        switch source {
-        case "team": return SettingManaged(key: key, source: .team(reply["team"]?.stringValue ?? ""))
-        default: return SettingManaged(key: key, source: .device)
+        try state.withLock { managed in
+            for (managedPath, entry) in managed where path.starts(with: managedPath) {
+                throw SettingManaged(key: entry.key, source: entry.source)
+            }
         }
     }
 }

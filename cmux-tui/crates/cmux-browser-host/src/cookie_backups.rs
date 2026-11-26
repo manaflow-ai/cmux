@@ -7,7 +7,7 @@
 //!   directory. `<state>` is `$CMUX_BROWSER_HOST_STATE_DIR`, else
 //!   `$XDG_STATE_HOME/cmux/browser-host`, else
 //!   `~/.local/state/cmux/browser-host` (Linux) or
-//!   `~/Library/Application Support/cmux-next/browser-host` (macOS).
+//!   `~/Library/Application Support/cmux/browser-host` (macOS).
 //! - Encryption: XChaCha20-Poly1305 with a 32-byte key in a separate file,
 //!   `<state>/cookie-backup.key` (0600, made once from the OS random
 //!   source); a fresh 24-byte nonce per backup; the backup id is the
@@ -313,8 +313,7 @@ pub fn default_dir() -> Option<PathBuf> {
         return Some(dir);
     }
     if cfg!(target_os = "macos") {
-        return var("HOME")
-            .map(|home| home.join("Library/Application Support/cmux-next/browser-host"));
+        return var("HOME").map(|home| home.join("Library/Application Support/cmux/browser-host"));
     }
     var("XDG_STATE_HOME")
         .map(|state| state.join("cmux/browser-host"))

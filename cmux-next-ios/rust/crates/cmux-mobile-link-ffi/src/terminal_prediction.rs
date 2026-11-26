@@ -6,9 +6,8 @@
 //! Every terminal on the phone runs its shell on another machine (a Mac, a
 //! Cloud VM), so each one is remote. The engine still draws nothing until the
 //! remote echoed two typed characters in a row and the measured echo is slower
-//! than its threshold, so a fast link or a password prompt never sees a
-//! predicted glyph. A full-screen program (an agent's TUI) sees one only with
-//! its own setting on (`set_full_screen_apps`), each key confirmed in its cell.
+//! than its threshold, so a fast link, a password prompt or a full-screen
+//! program never sees a predicted glyph.
 //!
 //! One object per terminal. Input comes on the main thread and output on the
 //! surface's output queue, so the engine sits behind a mutex held only for
@@ -86,13 +85,6 @@ impl TerminalPrediction {
         let drew = !engine.glyphs().is_empty();
         *engine = TerminalPredictionEngine::new(engine.configuration, enabled, remote);
         drew
-    }
-
-    /// Predicts inside full-screen programs too (an agent's TUI, an editor's
-    /// insert mode), each key confirmed by the program printing it in its
-    /// cell. The setting, off by default. Answers whether anything drawn went.
-    pub fn set_full_screen_apps(&self, on: bool) -> bool {
-        self.engine().set_predicts_in_full_screen_apps(on)
     }
 
     /// Whether a full-screen program already owns the screen, read from the
