@@ -12,6 +12,7 @@
 .chief-web__empty{display:flex;flex:1;min-height:0;flex-direction:column;justify-content:center;align-items:center;gap:var(--ds-space-fixed-4);padding:var(--ds-space-fixed-5);text-align:center}
 .chief-web__empty h2{max-width:280px;margin:0;font-size:var(--text-title);line-height:var(--text-title--line-height);font-weight:600}
 .chief-web__empty p{margin:0;color:var(--agent-muted)}
+.chief-web__still-loading{color:var(--agent-muted)}
 .chief-web__action{padding:var(--ds-space-fixed-2) var(--ds-space-fixed-4);min-height:var(--chief-touch-target);box-sizing:border-box;border:1px solid var(--agent-border);border-radius:12px;background:var(--agent-surface);font:inherit}
 .chief-web__dock{flex:none;padding:var(--ds-space-fixed-2) max(var(--chief-inset),env(safe-area-inset-right)) max(var(--ds-space-fixed-3),env(safe-area-inset-bottom)) max(var(--chief-inset),env(safe-area-inset-left));display:flex;flex-direction:column;gap:var(--ds-space-fixed-2)}
 .chief-web .guest-composer{gap:var(--ds-space-fixed-1);padding:var(--ds-space-fixed-2);border:1px solid var(--agent-border);border-radius:16px;align-items:flex-end}
