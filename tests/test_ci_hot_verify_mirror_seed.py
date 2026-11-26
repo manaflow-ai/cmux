@@ -46,10 +46,12 @@ class HotVerifyMirrorSeedTest(unittest.TestCase):
         action, mirror = self._publisher_steps()
         self.assertEqual(action["if"], "${{ !startsWith(runner.name, 'cmux-runner-pool-') }}")
         self.assertEqual(mirror["if"], "${{ startsWith(runner.name, 'cmux-runner-pool-') }}")
+        self.assertEqual(mirror["timeout-minutes"], 8)
         self.assertEqual(mirror["env"]["SPARSE"], action["with"]["sparse-checkout"])
         run = mirror["run"]
         for expected in (
             "/var/lib/cmux-git/cmux.git/objects",
+            'mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}/objects"',
             "objects/info/alternates",
             "git fetch --no-tags --no-recurse-submodules --depth=1",
             "git config core.sparseCheckout true",

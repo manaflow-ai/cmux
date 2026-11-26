@@ -691,6 +691,7 @@ jobs:
           sparse-checkout-cone-mode: false
       - name: "Pool mirror: checkout the publisher"
         if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        timeout-minutes: 8
         env:
           SHA: ${{ github.sha }}
           TOKEN: ${{ github.token }}
@@ -699,7 +700,7 @@ jobs:
         # can stall while the mirror backfills blobs. The unfiltered fetch only transfers objects the mirror lacks.
         run: |
           set -euo pipefail
-          mirror=/var/lib/cmux-git/cmux.git/objects
+          mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}/objects"
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
