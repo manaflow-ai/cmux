@@ -34,18 +34,6 @@
 .lg-spacer {
   flex: 1;
 }
-.lg-kbd {
-  padding: 0 var(--ds-space-1);
-  border: 1px solid var(--lg-line);
-  border-radius: 4px;
-  font: inherit;
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  color: var(--page-text-2);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--text-caption--letter-spacing);
-}
-
 /* ---------- List ---------- */
 /* Transparent: the window's material shows through, as the native sidebar. */
 .lg-list {
@@ -89,11 +77,6 @@
 }
 .lg-search span {
   flex: 1;
-}
-.lg-search kbd {
-  font: inherit;
-  font-size: var(--text-caption);
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 .lg-search:hover {
   color: var(--page-text-2);
@@ -1727,6 +1710,7 @@
 /* The lightbox: the page dims and blurs behind one image (board principle 9). */
 .hc-lightbox-backdrop {
   background: color-mix(in srgb, var(--lg-solid) 72%, transparent);
+  /* one-material-allow: the lightbox's modal scrim (the dialog above it is the glass), not a glass surface */
   backdrop-filter: var(--surface-blur);
 }
 .hc-lightbox.ui-dialog {

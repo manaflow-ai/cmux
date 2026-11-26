@@ -29492,6 +29492,7 @@
         "auth.sso_required",
         "auth.unauthenticated",
         "client.too_old",
+        "cloud.machine.not_found",
         "cloud.member_budget.reached",
         "cloud.no_snapshot_configured",
         "cloud.plan.required",
@@ -29531,7 +29532,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
+      "docs": "Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine; cloud.machine.not_found {machine} when the machine it made or claimed is gone before it answers (deleted in between): retry with a new key. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -38534,6 +38535,619 @@
         },
         "required": [
           "delivered"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "cloud.vm.machine.request": {
+      "class": "mutation",
+      "idempotency": "none",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "machine": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MachineId"
+            }
+          },
+          "vcpu": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "mem_gib": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "fanout": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "kind": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "linux",
+                "mac",
+                "gpu"
+              ]
+            }
+          },
+          "for": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 500
+            }
+          },
+          "until": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 32
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "outcome": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "fits",
+                    "grow",
+                    "over_plan",
+                    "fanout",
+                    "unavailable",
+                    "refused"
+                  ]
+                }
+              },
+              "message": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "machine": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "size": {
+                "required": false,
+                "type": {
+                  "kind": "object",
+                  "fields": {
+                    "name": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "vcpu": {
+                      "required": true,
+                      "type": {
+                        "kind": "union",
+                        "variants": [
+                          {
+                            "kind": "primitive",
+                            "name": "float64"
+                          },
+                          {
+                            "kind": "enum",
+                            "values": [
+                              "Infinity",
+                              "-Infinity",
+                              "NaN"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "mem_gib": {
+                      "required": true,
+                      "type": {
+                        "kind": "union",
+                        "variants": [
+                          {
+                            "kind": "primitive",
+                            "name": "float64"
+                          },
+                          {
+                            "kind": "enum",
+                            "values": [
+                              "Infinity",
+                              "-Infinity",
+                              "NaN"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "code": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "fanout": {
+                "required": false,
+                "type": {
+                  "kind": "object",
+                  "fields": {
+                    "handle": {
+                      "required": true,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "width": {
+                      "required": true,
+                      "type": {
+                        "kind": "union",
+                        "variants": [
+                          {
+                            "kind": "primitive",
+                            "name": "float64"
+                          },
+                          {
+                            "kind": "enum",
+                            "values": [
+                              "Infinity",
+                              "-Infinity",
+                              "NaN"
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "each": {
+                      "required": true,
+                      "type": {
+                        "kind": "object",
+                        "fields": {
+                          "name": {
+                            "required": false,
+                            "type": {
+                              "kind": "primitive",
+                              "name": "string"
+                            }
+                          },
+                          "vcpu": {
+                            "required": true,
+                            "type": {
+                              "kind": "union",
+                              "variants": [
+                                {
+                                  "kind": "primitive",
+                                  "name": "float64"
+                                },
+                                {
+                                  "kind": "enum",
+                                  "values": [
+                                    "Infinity",
+                                    "-Infinity",
+                                    "NaN"
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          "mem_gib": {
+                            "required": true,
+                            "type": {
+                              "kind": "union",
+                              "variants": [
+                                {
+                                  "kind": "primitive",
+                                  "name": "float64"
+                                },
+                                {
+                                  "kind": "enum",
+                                  "values": [
+                                    "Infinity",
+                                    "-Infinity",
+                                    "NaN"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "slots": {
+                      "required": true,
+                      "type": {
+                        "kind": "array",
+                        "items": {
+                          "kind": "object",
+                          "fields": {
+                            "index": {
+                              "required": true,
+                              "type": {
+                                "kind": "union",
+                                "variants": [
+                                  {
+                                    "kind": "primitive",
+                                    "name": "float64"
+                                  },
+                                  {
+                                    "kind": "enum",
+                                    "values": [
+                                      "Infinity",
+                                      "-Infinity",
+                                      "NaN"
+                                    ]
+                                  }
+                                ]
+                              }
+                            },
+                            "status": {
+                              "required": true,
+                              "type": {
+                                "kind": "enum",
+                                "values": [
+                                  "created",
+                                  "refused",
+                                  "unconfirmed"
+                                ]
+                              }
+                            },
+                            "machine": {
+                              "required": false,
+                              "type": {
+                                "kind": "primitive",
+                                "name": "string"
+                              }
+                            },
+                            "code": {
+                              "required": false,
+                              "type": {
+                                "kind": "primitive",
+                                "name": "string"
+                              }
+                            },
+                            "message": {
+                              "required": false,
+                              "type": {
+                                "kind": "primitive",
+                                "name": "string"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "upgrade_plan": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "cloud.machine.not_found",
+        "cloud.rate_limited",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "execute",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a kind not offered); past one machine, makes a fan-out of K machines and answers its handle (each machine's id). Never waits for a machine to be ready. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "machine": {
+            "$ref": "#/$defs/MachineId"
+          },
+          "vcpu": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096
+          },
+          "mem_gib": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 16384
+          },
+          "fanout": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "linux",
+              "mac",
+              "gpu"
+            ]
+          },
+          "for": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "until": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32
+          }
+        },
+        "required": [
+          "machine",
+          "vcpu",
+          "for"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MachineId": {
+            "type": "string",
+            "pattern": "^vm_[a-z0-9]{20}$",
+            "description": "A Cloud machine."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "fits",
+              "grow",
+              "over_plan",
+              "fanout",
+              "unavailable",
+              "refused"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "machine": {
+            "type": "string"
+          },
+          "size": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "vcpu": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "mem_gib": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "vcpu",
+              "mem_gib"
+            ],
+            "additionalProperties": true
+          },
+          "code": {
+            "type": "string"
+          },
+          "fanout": {
+            "type": "object",
+            "properties": {
+              "handle": {
+                "type": "string"
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "each": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "vcpu": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "mem_gib": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "vcpu",
+                  "mem_gib"
+                ],
+                "additionalProperties": true
+              },
+              "slots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Infinity",
+                            "-Infinity",
+                            "NaN"
+                          ]
+                        }
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "created",
+                        "refused",
+                        "unconfirmed"
+                      ]
+                    },
+                    "machine": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "status"
+                  ],
+                  "additionalProperties": true
+                }
+              }
+            },
+            "required": [
+              "handle",
+              "width",
+              "each",
+              "slots"
+            ],
+            "additionalProperties": true
+          },
+          "upgrade_plan": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome",
+          "message",
+          "machine"
         ],
         "additionalProperties": true,
         "$defs": {}
@@ -63057,7 +63671,7 @@
               "kind": "primitive",
               "name": "string",
               "max_length": 512,
-              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
+              "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-next|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
             }
           },
           "expected_revision": {
@@ -63168,7 +63782,7 @@
           "return_to": {
             "type": "string",
             "maxLength": 512,
-            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
+            "pattern": "^(?:cmux|cmux-nightly|cmux-rc|cmux-next|cmux-dev(?:-[a-z0-9-]{1,40})?):\\/\\/(?:(?:workspace\\/ws_|pane\\/pane_|tab\\/tab_)[0-9a-f]{32}(?:\\?machine=machine_[0-9a-f]{32})?|session\\/[A-Za-z0-9._-]{1,200}(?:\\?machine=machine_[0-9a-f]{32})?(?:#turn-[A-Za-z0-9._-]{1,200})?|agent\\/[a-z0-9-]{1,64}\\/[A-Za-z0-9._:-]{1,256}(?:\\?(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}(?:&(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}){0,2})?|integration\\/complete)$"
           }
         },
         "required": [
