@@ -5274,7 +5274,8 @@ Both check out with `filter: blob:none` on a reused `cmux-linux` workspace. The 
 blob-less and takes a second; the blobs come later, from the promisor remote during `git checkout`, which
 actions/checkout does not retry. On cmux#55016 (runner cmux-runner-pool-s1c-0044) that blob fetch hit
 `curl 28 Operation too slow` after 63 s and failed path routing, so every job that needs it skipped and the PR
-had no verdict until a re-run. As in swift test (note-184): retry once from a fresh repository.
+had no verdict until a re-run. As in swift test (note-184): `generated-files-linux` retries once from a fresh
+repository; `path_route` tries three times with a pause between (its own steps' comment).
 
 ## note-cloud-journey-pr-wall
 
