@@ -8,6 +8,7 @@ mod app_id;
 mod backdrop;
 mod build_defaults;
 mod chat_roots;
+mod file_keys;
 mod json_schema;
 mod retired;
 pub mod shape;
@@ -32,9 +33,10 @@ pub use backdrop::{
 };
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
+pub use file_keys::{FileKey, file_key, file_keys};
 pub use retired::{
-    Replaced, Retired, replaced_by_row, replaced_keys, retired_entries, retired_keys,
-    retired_reason,
+    Replaced, Retired, aliasing_replaced, replaced_by_row, replaced_keys, replaced_old_keys,
+    replaced_value, retired_entries, retired_keys, retired_reason,
 };
 pub use sidebar_rows::problems as sidebar_row_problems;
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
