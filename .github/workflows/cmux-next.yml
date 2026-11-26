@@ -2473,6 +2473,7 @@ jobs:
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
+        env: { TOOLCHAIN_R2_ALL: "1" }
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
@@ -4308,6 +4309,7 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         shell: bash
         continue-on-error: true
+        env: { TOOLCHAIN_R2_ALL: "1" }
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
@@ -4822,6 +4824,7 @@ jobs:
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
+        env: { TOOLCHAIN_R2_ALL: "1" }
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
@@ -5434,6 +5437,7 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         shell: bash
         continue-on-error: true
+        env: { TOOLCHAIN_R2_ALL: "1" }
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
@@ -6514,6 +6518,7 @@ jobs:
         if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
         shell: bash
         continue-on-error: true
+        env: { TOOLCHAIN_R2_ALL: "1" }
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
@@ -7159,6 +7164,7 @@ jobs:
         if: steps.dev-product.outputs.hit != 'true'
         shell: bash
         continue-on-error: true
+        env: { TOOLCHAIN_R2_ALL: "1" }
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
