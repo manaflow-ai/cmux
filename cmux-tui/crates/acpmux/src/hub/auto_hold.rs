@@ -36,7 +36,7 @@ impl Hub {
     /// `needsRun` for `session`: a turn running, a prompt queued, or a background task at work
     /// (`idle.rs` `at_work`). Reads the chat's process records, so call it off the async workers.
     pub(crate) fn auto_needs_run(&self, session: &Session) -> bool {
-        self.at_work(session).is_some()
+        self.at_work(session, crate::store::now_ms()).is_some()
     }
 
     /// Changes each time a continuation of a cut turn stops waiting for `session`
@@ -330,6 +330,44 @@ impl Hub {
     pub(crate) async fn auto_kill_tree(&self, session: &Arc<Session>) -> usize {
         self.detach_child(session).await;
         0
+    }
+
+    /// The person's prompts that wait in the chat's queue and were put there after record
+    /// `after`: `(prompt id, text)`, in the queue's order. With `after` the last record of this
+    /// machine's log that the store has, these are the prompts the Cloud's copy of the chat
+    /// never had. One that waits behind a failed turn is among them: a laptop with no network
+    /// fails its turn, and losing the chat kills the turn that ran. Left out: what the daemon
+    /// or another agent queued, a message that came from the Cloud inbox, a prompt that waits
+    /// for its owner, and one with no text. Blocking: it reads the log.
+    pub(crate) fn auto_unsent(&self, session: &Session, after: u64) -> Vec<(String, String)> {
+        let mut late = std::collections::HashSet::new();
+        let read = self.scan_events(&session.id, after, &mut |record| {
+            if record.kind == "queued"
+                && let Some(id) = record.msg.get("promptId").and_then(Value::as_str)
+            {
+                late.insert(id.to_owned());
+            }
+            true
+        });
+        if let Err(error) = read {
+            tracing::warn!(session = %session.id, "auto session: the log was not read: {error:#}");
+            return Vec::new();
+        }
+        let persons = |queued: &super::queue::QueuedPrompt| {
+            queued.client != AUTO_CLIENT
+                && queued.run.agent.is_none()
+                && queued.run.provenance.is_none()
+                && !queued.awaiting_owner
+        };
+        let waiting: std::collections::HashSet<String> = session
+            .queue()
+            .iter()
+            .filter(|queued| late.contains(&queued.prompt_id) && persons(queued))
+            .map(|queued| queued.prompt_id.clone())
+            .collect();
+        let mut unsent = self.auto_queue(session);
+        unsent.retain(|(id, text)| waiting.contains(id) && !text.trim().is_empty());
+        unsent
     }
 
     /// The chat's queued prompts, each with its id and its whole text (a snapshot's `queue`).

@@ -185,7 +185,7 @@ final class AppServices {
     let wideningGate = PageWideningGate()
     /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
     private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.machineAPI)
-    let machineHealth = MachineHealthStore(); var hostsSidebar: HostsSidebar.Host { .init(rows: { [weak self] in self.map { MachineSectionRow.rows($0.machines, health: $0.machineHealth, joined: $0.joinedMachines, signedIn: $0.serverReach.signedIn.joinedByMachine) } ?? [] }, add: { [weak self] in _ = self?.registry.perform("device.add") }, openConnected: { [weak self] machine in _ = self?.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(machine)])) }, openJoined: { [weak self] machine in guard let self else { return }; Task { await MachineSectionHostView.signedInDial(self).open(machine) } }, openOffline: { [weak self] machine in guard let self, let session = self.machines.sshSession(machine.id) else { return }; let context = AppActionContext(services: self); if machine.isConnecting { RemoteHandlers.showWhenConnected(session, context) } else { _ = self.registry.perform("remote.connect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID), arguments: ["destination": .string(session.host.destination.description)], origin: .user)) } }, joined: joinedMachines, enabled: { [weak self] in self?.settings?.snapshot.hostsSidebar == true }) }
+    let machineHealth = MachineHealthStore(); let peerAutoCloud = PeerAutoCloudStore(); var hostsSidebar: HostsSidebar.Host { .init(rows: { [weak self] in self.map { MachineSectionRow.rows($0.machines, health: $0.machineHealth, joined: $0.joinedMachines, signedIn: $0.serverReach.signedIn.joinedByMachine) } ?? [] }, add: { [weak self] in _ = self?.registry.perform("device.add") }, openConnected: { [weak self] machine in _ = self?.registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(machine)])) }, openJoined: { [weak self] machine in guard let self else { return }; Task { await MachineSectionHostView.signedInDial(self).open(machine) } }, openOffline: { [weak self] machine in guard let self, let session = self.machines.sshSession(machine.id) else { return }; let context = AppActionContext(services: self); if machine.isConnecting { RemoteHandlers.showWhenConnected(session, context) } else { _ = self.registry.perform("remote.connect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID), arguments: ["destination": .string(session.host.destination.description)], origin: .user)) } }, joined: joinedMachines, enabled: { [weak self] in self?.settings?.snapshot.hostsSidebar == true }) }
     /// The process's one guard of the Keychain UI switch: every store of cmux's own Keychain items gets this one.
     let loginKeychain = LoginKeychain()
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
@@ -238,9 +238,10 @@ final class AppServices {
     #endif
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
+    private(set) lazy var paletteUsage = DaemonPaletteUsageStore(services: self)
     private(set) lazy var palette: PaletteController = {
         let palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
-                                        usage: DaemonPaletteUsageStore(services: self))
+                                        usage: paletteUsage)
         palette.hiddenActionIDs = {
             AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"]
         }
@@ -400,6 +401,9 @@ final class AppServices {
     let homeSwitchKeys = HomeSwitchKeysSource()
     /// The app's one kernel memory pressure source, shared by every owner that reacts to pressure.
     let memoryPressure = MemoryPressureEvents(source: KernelMemoryPressureSource())
+    /// Sentry's bounded memory-pressure and high-footprint reporter.
+    var memoryPressureReporter: MemoryPressureReporter?  // set after the first frame (AppServices+AfterFirstFrame)
+    var memoryPressureReportingObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     /// One prewarmed new tab page per window (instant open).
     private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
     /// The New Tab bar's palette actions, read as background work after the page shows (``NewTabPage/fillPaletteActions(_:)``).
@@ -579,6 +583,7 @@ final class AppServices {
     /// (plans/cmux-next/hovercards.md).
     let hoverCards = HoverCardCoordinator()
     let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
+    private(set) lazy var customizeExperiments = CustomizeExperiments(cli: { [bundled = bundledCLI] in await bundled.resolve() }, settingsFile: { [weak self] in self?.settings?.file.url }) // PRs whose pages are on: the sidebar mark
     private(set) lazy var healthFeeds = AppHealthFeeds(daemon: daemon, stateDirectory: environment.daemonStateDirectory, work: work) // app health (CmuxNextAppHealth)
     let toasts = CmuxToastOverlayHost(drawing: .shared) // the shared center's toasts draw as native views on the window's overlay
     /// Refusal messages for keyboard and menu runs.
@@ -683,7 +688,7 @@ final class AppServices {
         cache.machineBadge = { [weak self] key, url in self?.browserMachineBadge(key: key, url: url) }
         cache.crashedPages = crashRecovery.recovery.crashedPages
         cache.pageFrames = BrowserPageFrames(beside: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        cache.pageFrames?.prefetch(on: work) // read off the main thread while windows restore
+        if let read = cache.pageFrames?.prefetch(on: work) { Task { [weak cache] in await read.value; cache?.phonePictures?.heldChanged() } } // read off the main thread while windows restore; then the phones get the cards of tabs not shown since the relaunch (task-owner: one read; ends on its own)
         cache.onRestoredPageStart = { [weak crashRecovery] key in crashRecovery?.marker?.notePageStarted(key) }
         // Any browser tab, by any path, is a use of the browser: its tip never shows (feature tips).
         cache.onBrowserTab = { AgentPaneFeatureTipRecords().noteFeatureUsed(AgentPaneFeatureTipRecords.browserFeature) }
@@ -706,17 +711,9 @@ final class AppServices {
         }
         wireBrowserTabMachines()
         cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
-        cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
+        cache.profileBadge = { [weak self] key in self?.browserProfiles.toolbarBadge(forTab: key) }
         // Customize Menu… at the end of a right-click menu opens Settings > Menus on that menu.
         registry.customizeMenu = { [weak self] context in self?.settingsWindow.showMenus(context) }
-        cache.profileBadgeMenu = { [weak self] key in
-            guard let self, let tab = cache.tabModel(key) else { return nil }
-            let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
-            // The badge's tab names the place: New Tab with Browser Profile and Manage Extensions
-            // open in that tab's pane, not in whichever pane has the focus (on Home, the chat dock).
-            return self.registry.makeContextMenu(for: .browserProfile, target: target,
-                                                 arguments: ["tab": .target(ActionTargetRef(kind: .tab, id: tab.id))])
-        }
         cache.browserTabs.browserEnabled = { [weak self] in self?.settings?.snapshot.linkRouting.browserEnabled ?? true }
         cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
             guard let self else { return explicit }

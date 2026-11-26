@@ -152,6 +152,28 @@ describe("Mac freshness", () => {
     p.ws.close()
   })
 
+  it("keeps the reap alarm for a new Mac whose first ping has not come yet", async () => {
+    const owner = "fresh-new"
+    const team = `personal-${owner}`
+    const t = await token(owner)
+    const mac = await register(t, "mac", team, "New Mac")
+    const m = await connect(t, team, mac)
+    await m.until((s) => s.frames.some((f) => f.type === "hello"))
+    // An alarm before the Mac's first ping (another Mac's deadline, the TURN cache) must not end the chain.
+    expect(await runDurableObjectAlarm(hubOf(owner))).toBe(true)
+    const again = await runInDurableObject(hubOf(owner), (_hub, state) => state.storage.getAlarm())
+    expect(again).not.toBeNull()
+    expect(again!).toBeLessThanOrEqual(Date.now() + GONE_MS)
+    // Then it is known to ping (the runtime's ping time cannot be moved back here, so one on record stands in)
+    // and goes silent past GONE_MS: the re-armed alarm closes it.
+    await runInDurableObject(hubOf(owner), (_hub, state) => {
+      state.storage.sql.exec(`UPDATE macs SET last_ping_at = ? WHERE device_id = ?`, String(Date.now() - 200_000), mac)
+    })
+    await ageSocket(owner, mac, GONE_MS + 5_000)
+    expect(await runDurableObjectAlarm(hubOf(owner))).toBe(true)
+    await m.until((s) => s.closed === true)
+  })
+
   it("never retires the socket of a host that predates application pings", async () => {
     const owner = "fresh-old"
     const team = `personal-${owner}`

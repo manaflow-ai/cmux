@@ -252,6 +252,10 @@
         ],
         "suggested_inputs_more": 677
       },
+      "fast-gates-fail-fast": {
+        "why": "head fail-fast: runs only once the job it needs has failed on a same-repo pull request (scripts/ci/head_fail_fast.py); it reads no paths, so it has no inputs to declare",
+        "suggested_inputs": []
+      },
       "panic-ratchet": {
         "why": "routed by its workflow's own job (needs.fast-gates.outputs.ratchet in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
         "suggested_inputs": [
@@ -422,6 +426,10 @@
       "security-holes": {
         "why": "gitleaks reads every path a pull request adds (a secret can land in any file), so it runs on every pull request; zizmor's half finishes in a second when no workflow changed",
         "suggested_inputs": []
+      },
+      "tooling-tests-fail-fast": {
+        "why": "head fail-fast: runs only once the job it needs has failed on a same-repo pull request (scripts/ci/head_fail_fast.py); it reads no paths, so it has no inputs to declare",
+        "suggested_inputs": []
       }
     },
     ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml": {
@@ -481,7 +489,7 @@
           "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
           "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
           "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
-          "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+          "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
           "Resources/markdown-viewer/marked.min.js",
           "cmux-tui/crates/cmux-action-catalog/src/bindings.rs",
           "cmux-tui/crates/cmux-computer-use/src/server.rs",
@@ -565,7 +573,7 @@
           "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
           "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
           "Packages/macOS/CmuxNext/ci-target-graph.json",
-          "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+          "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
           "backend/packages/protocol/",
           "backend/packages/protocol/scripts/export-client.ts",
           "clients/ts/cloud/src/generated.ts",
@@ -619,6 +627,31 @@
           "scripts/ci/init-submodule.sh",
           "scripts/cmux-next/",
           "scripts/install-zig-ci.sh"
+        ]
+      },
+      "settings-exports-linux": {
+        "why": "routed by its workflow's own job (needs.action-areas.outputs.settings, needs.generated-exports.outputs.hit in its if:), as action-exports is, which it stands in for on Linux for the settings exports",
+        "suggested_inputs": [
+          ".github/checkout-lean.json",
+          "Packages/macOS/CmuxNext/Sources/",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift",
+          "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
+          "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
+          "cmux-tui/crates/cmux-action-catalog/src/bindings.rs",
+          "docs/mdm/",
+          "plans/cmux-next/action-surfaces.json",
+          "schemas/defaults/",
+          "schemas/settings/",
+          "schemas/settings/generator/",
+          "schemas/settings/retired-keys.json",
+          "schemas/settings/settings-schema.json",
+          "schemas/settings/source/",
+          "scripts/ci/defaults_guard.py",
+          "scripts/cmux-next/check-generator-inputs.sh",
+          "scripts/cmux-next/gen-settings-sources.py",
+          "scripts/cmux-next/regenerate-settings-exports-linux.sh",
+          "web/scripts/export-docs-shortcuts.ts"
         ]
       }
     },
@@ -1046,6 +1079,12 @@
       }
     },
     ".github/workflows/pr-router.yml": {
+      "machine-channel-pr-head": {
+        "why": "a pr-router caller: route starts it (scripts/ci/pr_router.json cmux-machine-channel.yml), and its plan job decides by the v2 tree key, not by paths",
+        "suggested_inputs": [
+          ".github/workflows/cmux-machine-channel.yml"
+        ]
+      },
       "pipeline": {
         "why": "undeclared: runs on every pull request until its inputs are declared (added by job_inputs.py fix)",
         "suggested_inputs": [

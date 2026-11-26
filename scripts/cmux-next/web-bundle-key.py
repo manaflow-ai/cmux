@@ -61,7 +61,9 @@ INPUTS = [
 # narrows it to the catalogs gen-strings.mjs names (gen_strings_catalogs below).
 CATALOG_GLOB = ":(glob)Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
 GEN_STRINGS = "webviews/scripts/pages/gen-strings.mjs"
-GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings)["'`]""")
+# A catalog is a file or a one-file-per-key directory (`<Table>.xcstrings.d`, scripts/cmux-next/string_catalogs.py);
+# a directory is a pathspec of every file in it.
+GEN_STRINGS_FILE = re.compile(r"""\bfile:\s*["'`]([^"'`]+\.xcstrings(?:\.d)?)["'`]""")
 GEN_STRINGS_CONST = re.compile(r"""^const (\w+) = ["']([^"'$]+)["'];""", re.M)
 
 # What the builders write (build-web-bundles.sh).

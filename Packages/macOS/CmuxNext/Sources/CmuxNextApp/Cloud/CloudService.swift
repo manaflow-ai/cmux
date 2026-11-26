@@ -74,7 +74,8 @@ final class CloudService {
     /// The local side event subscription for `cloud.link.changed` (app link).
     @ObservationIgnored private var linkEvents: UInt64?
     @ObservationIgnored var portChanged: @MainActor (CloudPortChange) -> Void = { _ in }
-    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth) { [weak self] in self?.spareReadiness.prime($0) } // in the install token's team (CloudSpareReadiness.Dependencies.team)
+    @ObservationIgnored var signedIn: @MainActor () -> Void = {} // an account just signed in: the App warms its spare (CloudStartChat.wireSetup), called only in front (CloudSpareReadiness.warmsAtSignIn)
+    @ObservationIgnored private lazy var machineWire = CloudMachineWire(apiBaseURL: configuration.ownerAPIBaseURL(), auth: auth, teams: { [weak self] active in guard let self else { return nil }; return await CloudMoveCLI.wireTeams(binary: self.move.cli, identity: self.installIdentity, active: active) }, onSpareReady: { [weak self] in self?.spareReadiness.prime($0) }).onPausing { [weak self] in if let session = self?.machines.session($0), session.machine.status.isLive { session.suspend() } } // hears readiness in every team Rust's wireTeams names (the active one and the install token's); primes in the install token's team (CloudSpareReadiness.Dependencies.team); a machine the platform is about to pause parks its link before any list shows it (the list's live-to-paused edge repeats it harmlessly; a pause that never lands reconnects on the next attach)
     @ObservationIgnored private(set) lazy var spareReadiness = CloudSpareReadiness(CloudStartChat.spareReadiness(self)) // the warm spare keyed and linked ahead of its claim
     /// The `credential` provider family on the local daemon (cx-wb5.63):
     /// app servers' Cloud API calls, sent with the install token.
@@ -196,7 +197,7 @@ final class CloudService {
         let shareDefault = shareAPI == ownerAPI ? identity : install(shareAPI, "install-share")
         shareInstalls = ShareInstalls(root: paths.root, given: [(ownerAPI, identity), (shareAPI, shareDefault)], fallback: shareDefault,
                                      accepts: { [configuration] in configuration.acceptsShareAPI($0) }, make: install)
-        let machineIO = CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work)
+        let machineIO = auth.runningPersonCalls(on: CloudMachineIO(bundleResources: Bundle.main.resourceURL, cloudRoot: paths.root, work: work))
         machineAPI = CloudAPIClient.workerMachines(baseURL: configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
                                                    teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) },
                                                    machineIO: machineIO, installToken: { try await identity.installToken() }, buildSpace: configuration.buildSpace)
@@ -276,20 +277,20 @@ final class CloudService {
         // must not restore auth or start the credential relay/Cloud observers.
         guard !configuration.apiBaseURL.isFileURL else { return }
         installIDs.preload(localStore: machines.local.store)
-        auth.start(); changes.start(); changes.startPush(machineAPI.statePush(baseURL: configuration.relayAPIBaseURL()), connection: { [machines] in machines.local.connection }) { [weak self] record in if let self, let session = machines.session(record.id) { apply(record, to: session, read: beginRecordRead(machineID: record.id)) } }
+        auth.start(); changes.start(); changes.startPush(machineAPI.stateWatch(baseURL: configuration.relayAPIBaseURL(), connection: { [machines] in machines.local.connection })) { [weak self] record in if let self, let session = machines.session(record.id) { apply(record, to: session, read: beginRecordRead(machineID: record.id)) } }
         startCredentialProvider()
         if linkEvents == nil {
             // `cloud.link.changed` arrives on the local daemon as an app server event.
-            let machines = machines
+            let machines = machines, changes = changes
             linkEvents = machines.local.store.sideEvents.subscribe { event in
-                guard let change = CloudLinkChange(event) else { return }
+                guard let change = CloudLinkChange(event) else { changes.machineState(event); return }
                 machines.session(change.key.machine)?.linkChanged(change)
             }
             // task-owner: observers; cancelled in stop()
             observers.append(Task {
                 // A reconnected local connection is a new daemon client: subscribe it again.
                 for await state in ObservationStream({ machines.local.store.connectionState }) {
-                    guard case .connected = state, !machines.cloud.isEmpty else { continue }
+                    guard case .connected = state else { changes.daemonDisconnected(); continue }; changes.rewatch(); guard !machines.cloud.isEmpty else { continue }
                     await CloudAppLinks.resubscribe(local: machines.local)
                 }
             })
@@ -299,7 +300,7 @@ final class CloudService {
             await auth.awaitRestored()
             var scope: String?? // The account and team: a change fences the old link, machine wire and carriers before any await.
             for await accountScope in ObservationStream({ self.auth.isSignedIn ? "\(self.auth.user?.id ?? "")\u{0}\(self.auth.teamID ?? "")" : nil }) {
-                if let previous = scope ?? nil, previous != accountScope { self.desktopStreams.endAll(); self.spareReadiness.reset() }; scope = accountScope // a spare's link made ahead too
+                if let previous = scope ?? nil, previous != accountScope { self.desktopStreams.endAll(); self.spareReadiness.reset() }; let signedInNow = CloudSpareReadiness.warmsAtSignIn(previous: scope, now: accountScope); scope = accountScope // a spare's link made ahead too
                 if accountScope != nil {
                     self.machineWire.stop()
                     // mayCallCloud also fences a managed team that is missing: no socket without its team scope.
@@ -312,6 +313,7 @@ final class CloudService {
                     // The install first: the app server path's first list sends its token through the credential relay.
                     self.capability.drop() // another account's or team's pre-approval never rides on this one's calls
                     await self.installSignedIn()
+                    if signedInNow, NSApplication.shared.isActive { self.signedIn() } // the spare keyed and linked from the sign-in on, not from the first start: an activation before it warmed nothing
                     if self.mayCallCloud { await self.capability.prefetch(self.installIdentity) }
                     self.hands.start(); self.gateway.start()
                     await self.ensureLink()
@@ -727,7 +729,7 @@ final class CloudService {
         creating += 1
         defer { creating -= 1 }
         let onSent: @MainActor @Sendable () async -> Void = { [weak creation] in creation?.note(.creating) }
-        let policy = agentCreatePolicy(), asksFirst = !startedByPerson && policy.asksFirst
+        let policy = agentCreatePolicy(), asksFirst = !startedByPerson && policy.asksFirst; var spare = "spare=unread" // why it took or skipped a spare (Rust's note)
         let idlePause = request.idlePauseMinutes(startedByPerson: startedByPerson, pauseAgentMachines: policy.pauseAgentMachines)
         var machine = try await CloudMachineCap.creating(person: startedByPerson && capCard, cap: { [weak self] error in
             guard case CloudMachineCreateFlow.Failure.upgradeRequired(let reason) = error else { return CloudMachineCap.refusal(error) }
@@ -736,9 +738,9 @@ final class CloudService {
                                                          pause: { [weak self] in try await self?.pauseMachine($0) }) { again in
             var request = request // after a Pause, a new key: the first one's stored answer is the refusal
             if again { request.idempotencyKey = UUID().uuidString }
-            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
+            return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent, onAnswer: { spare = CloudStartCore().spareNote(answer: $0) })
         }
-        let answeredAt = ContinuousClock.now; logger.info("created machine \(machine.id, privacy: .public)")
+        let answeredAt = ContinuousClock.now; logger.notice("created machine \(machine.id, privacy: .public) \(spare, privacy: .public)")
         try proceed()
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.

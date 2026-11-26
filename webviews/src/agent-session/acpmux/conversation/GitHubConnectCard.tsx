@@ -5,11 +5,15 @@
 // chat's Continue once the person is back, so the session goes on by itself. Its look is the
 // turn's failure card's (TurnRows.tsx TurnFailure), the notice the reader already knows.
 import { useContext, useEffect, useState } from "react";
+import { Popover } from "../../../ui/Popover";
+import { usePopoverTrigger } from "../../../ui/popoverTrigger";
 import { useT, type StringKey } from "../i18n";
 import { actionRefusal } from "../actionRefusal";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
+import { settingsAskCard } from "./settingsAskCard.experiment";
 import { GitHubMark } from "./icons";
+import "../needsYou/needsYou.css";
 import { useTranscriptReadOnly } from "./readOnly";
 import { TurnActionsContext } from "./turnActions";
 import {
@@ -25,6 +29,7 @@ const CAUSE: Record<GitHubConnectNeed["reason"], StringKey> = {
   "not-connected": "githubConnect.notConnected",
   "needs-reauth": "githubConnect.needsReauth",
   "not-covered": "githubConnect.notCovered",
+  asked: "githubConnect.asked",
 };
 
 /// The card as drawn for one phase. `offer` absent: a pane that cannot run the app's actions (View
@@ -35,18 +40,31 @@ export function GitHubConnectCardView({
   offer,
   onConnect,
   onContinue,
+  askKey,
 }: {
   need: GitHubConnectNeed;
   phase: GitHubConnectPhase;
   offer: boolean;
   onConnect?: () => void;
   onContinue?: () => void;
+  /// The ask's identity (chat, turn and call), so its popover opens by itself once, never on a redraw.
+  askKey?: string;
 }) {
   const t = useT();
-  const arm = experimentArm(turnErrorCard);
+  // An agent's own ask (`settings_ask`) draws as the settings-ask-card experiment says; a failed
+  // call's card keeps the turn error card's look.
+  const asked = need.reason === "asked";
+  const askArm = asked ? experimentArm(settingsAskCard) : undefined;
+  const arm = askArm === "needs" ? "card" : (askArm ?? experimentArm(turnErrorCard));
   const repo = need.repo;
-  const cause =
-    need.reason === "not-covered" && repo
+  const cause = asked
+    ? (need.why ??
+      (repo
+        ? t("githubConnect.askedOrg", { org: repo })
+        : need.org
+          ? t("githubConnect.askedOrg", { org: need.org })
+          : t("githubConnect.asked")))
+    : need.reason === "not-covered" && repo
       ? t("githubConnect.notCoveredRepo", { repo })
       : repo && need.reason === "not-connected"
         ? t("githubConnect.notConnectedRepo", { repo })
@@ -59,10 +77,42 @@ export function GitHubConnectCardView({
         : phase.kind === "refused"
           ? (phase.reason ?? t("githubConnect.notRun"))
           : cause;
+  if (askArm === "popover")
+    return (
+      <SettingsAskPopover
+        line={line}
+        phase={phase}
+        offer={offer}
+        onConnect={onConnect}
+        onContinue={onContinue}
+        askKey={askKey}
+      />
+    );
+  if (askArm === "needs")
+    return (
+      <section
+        className="cv-settings-ask cv-github-connect"
+        data-github-connect={phase.kind}
+        data-settings-ask="needs"
+        role={phase.kind === "refused" ? "alert" : undefined}
+        aria-live={phase.kind === "refused" ? undefined : "polite"}
+        aria-label={t("githubConnect.needsYou")}
+      >
+        <div className="cv-settings-ask__header">{t("githubConnect.needsYou")}</div>
+        <div className="cv-settings-ask__row">
+          <GitHubMark size={16} className="cv-settings-ask__icon" />
+          <span className="cv-settings-ask__line text-fg">{line}</span>
+          {offer && phase.kind !== "continuing" && (
+            <ConnectButton phase={phase} onConnect={onConnect} onContinue={onContinue} />
+          )}
+        </div>
+      </section>
+    );
   return (
     <div
       className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""} cv-github-connect`}
       data-github-connect={phase.kind}
+      data-settings-ask={askArm}
       role={phase.kind === "refused" ? "alert" : undefined}
       aria-live={phase.kind === "refused" ? undefined : "polite"}
     >
@@ -72,25 +122,123 @@ export function GitHubConnectCardView({
       </span>
       {offer && phase.kind !== "continuing" && (
         <span className="cv-turn-error__actions">
-          {phase.kind === "waiting" ? (
-            // GitHub's page is open: the chat goes on when the person is back. Continue is the same
-            // step by hand, for a return the page did not see.
-            <button type="button" className="cv-turn-auth-action" onClick={onContinue}>
-              {t("turn.continue")}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="cv-turn-auth-action cv-turn-error__primary"
-              disabled={phase.kind === "opening"}
-              onClick={onConnect}
-            >
-              {phase.kind === "refused" ? t("githubConnect.tryAgain") : t("githubConnect.connect")}
-            </button>
-          )}
+          <ConnectButton phase={phase} onConnect={onConnect} onContinue={onContinue} />
         </span>
       )}
     </div>
+  );
+}
+
+/// Asks whose popover has opened by itself already (or was put away): a redraw, or the transcript
+/// drawing the turn again, keeps it as the person left it.
+const shownAsks = new Set<string>();
+
+/// The settings-ask-card experiment's `popover` arm (Leo, 2026-11-25: "what about just a simple
+/// styled consistently popover for that specific setting? a la something similar to needs you or
+/// whatever"): a chip under the turn with the Needs you mark, and anchored to it the Needs you
+/// popover's surface (needsYou.css `.acpmux-needs-you`) holding just that one setting's control. It
+/// opens by itself once, without taking the composer's focus; Escape or a press outside puts it
+/// away, and the chip opens it again.
+function SettingsAskPopover({
+  line,
+  phase,
+  offer,
+  onConnect,
+  onContinue,
+  askKey,
+}: {
+  line: string;
+  phase: GitHubConnectPhase;
+  offer: boolean;
+  onConnect?: () => void;
+  onContinue?: () => void;
+  askKey?: string;
+}) {
+  const t = useT();
+  const done = phase.kind === "continuing";
+  const [open, setOpenState] = useState(() => !done && !(askKey !== undefined && shownAsks.has(askKey)));
+  const [chip, setChip] = useState<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (askKey !== undefined) shownAsks.add(askKey);
+  }, [askKey]);
+  const setOpen = (next: boolean) => setOpenState(next && !done);
+  const trigger = usePopoverTrigger(open && !done, setOpen);
+  return (
+    <div
+      className="cv-settings-ask-anchor cv-github-connect"
+      data-github-connect={phase.kind}
+      data-settings-ask="popover"
+      aria-live="polite"
+    >
+      <button
+        type="button"
+        ref={setChip}
+        className="cv-settings-ask-chip"
+        data-open={open && !done ? "true" : undefined}
+        aria-label={`${t("githubConnect.needsYou")}: ${line}`}
+        {...trigger}
+      >
+        <span className="cv-settings-ask-chip__dot" aria-hidden="true" />
+        <GitHubMark size={14} className="cv-settings-ask__icon" />
+        <span className="cv-settings-ask-chip__label">{done ? line : t("githubConnect.connect")}</span>
+      </button>
+      <Popover
+        id={trigger["aria-controls"]}
+        open={open && !done && chip !== null}
+        onOpenChange={(next) => setOpen(next)}
+        anchor={chip}
+        label={t("githubConnect.needsYou")}
+        className="acpmux-needs-you cv-settings-ask-popover"
+        side="top"
+        align="start"
+        initialFocus={false}
+      >
+        <div
+          className="cv-settings-ask-popover__panel"
+          data-github-connect={phase.kind}
+          role={phase.kind === "refused" ? "alert" : undefined}
+        >
+          <div className="acpmux-needs-you-head">
+            <span className="acpmux-needs-you-title">{t("githubConnect.needsYou")}</span>
+          </div>
+          <div className="cv-settings-ask__row">
+            <GitHubMark size={16} className="cv-settings-ask__icon" />
+            <span className="cv-settings-ask__line text-fg">{line}</span>
+            {offer && <ConnectButton phase={phase} onConnect={onConnect} onContinue={onContinue} />}
+          </div>
+        </div>
+      </Popover>
+    </div>
+  );
+}
+
+/// The card's one button: Connect GitHub (Try again after a refusal), or Continue while GitHub's
+/// page is open.
+function ConnectButton({
+  phase,
+  onConnect,
+  onContinue,
+}: {
+  phase: GitHubConnectPhase;
+  onConnect?: () => void;
+  onContinue?: () => void;
+}) {
+  const t = useT();
+  return phase.kind === "waiting" ? (
+    // GitHub's page is open: the chat goes on when the person is back. Continue is the same
+    // step by hand, for a return the page did not see.
+    <button type="button" className="cv-turn-auth-action" onClick={onContinue}>
+      {t("turn.continue")}
+    </button>
+  ) : (
+    <button
+      type="button"
+      className="cv-turn-auth-action cv-turn-error__primary"
+      disabled={phase.kind === "opening"}
+      onClick={onConnect}
+    >
+      {phase.kind === "refused" ? t("githubConnect.tryAgain") : t("githubConnect.connect")}
+    </button>
   );
 }
 
@@ -147,7 +295,7 @@ export function GitHubConnectCard({ need, phaseKey }: { need: GitHubConnectNeed;
   const connect = () => {
     if (!offer) return;
     set({ kind: "opening" });
-    offer.connect(need.repo).then(
+    offer.connect(need.repo, need.org).then(
       () => cardPhase(phaseKey).kind === "opening" && set({ kind: "waiting", left: false }),
       (error: unknown) => set({ kind: "refused", reason: actionRefusal(error) }),
     );
@@ -159,6 +307,7 @@ export function GitHubConnectCard({ need, phaseKey }: { need: GitHubConnectNeed;
       offer={offer !== undefined}
       onConnect={connect}
       onContinue={goOn}
+      askKey={phaseKey}
     />
   );
 }

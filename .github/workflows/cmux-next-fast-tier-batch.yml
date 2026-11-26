@@ -80,7 +80,9 @@ jobs:
           persist-credentials: false
           submodules: false
           fetch-depth: 1
-          sparse-checkout: scripts/cmux-next/fast-tier.json
+          sparse-checkout: |
+            scripts/cmux-next/fast-tier.json
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Run every Swift entry on the build fleet
@@ -99,7 +101,7 @@ jobs:
             echo "::warning title=Fast tier batch (Swift): no verdict::$client is not installed on runner $RUNNER_NAME"
             exit 0
           fi
-          # Each package's suites, from the registry (the same entries fast-tier.py --kind swift runs).
+          # Each package's suites, from the registry (the same Swift entries fast-tier.py runs; here they run on the build fleet, not this runner).
           mapfile -t packages < <(python3 -I -c 'import json, sys
           suites = {}
           for e in json.load(open(sys.argv[1]))["entries"]:

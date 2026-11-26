@@ -154,6 +154,42 @@ impl Overlay {
         Ok(self.hydrate(&files, bytes))
     }
 
+    /// Warms the cache with the files at or under `paths`, picked in the order given, up to
+    /// `max_files` files and `max_bytes` bytes (a file that would pass the byte cap is skipped,
+    /// the walk goes on): fetched into the LRU like a read's (its folder's read-ahead too), so
+    /// nothing is pinned, recorded or kept apart, and `pins` never shows it. The Mac names what the agent likely reads first (its instruction
+    /// files, the files it changed, the newest) as soon as the folder is mounted, so those reads
+    /// find their bytes on disk instead of waiting on the Mac. A path this manifest lacks is
+    /// skipped; the walk stops at the first `EHOSTDOWN`, as a pin's does.
+    pub fn warm(&self, paths: &[String], max_files: usize, max_bytes: u64) -> PinReport {
+        let mut picked = HashSet::new();
+        let mut bytes = 0u64;
+        'paths: for path in paths {
+            let Ok(path) = normalize(path) else { continue };
+            let Ok((under, _)) = self.files_under(&path) else { continue };
+            let mut under: Vec<u32> = under.into_iter().collect();
+            under.sort_unstable();
+            for file in under {
+                if picked.len() >= max_files {
+                    break 'paths;
+                }
+                let Some(size) = self.manifest.entry(file).map(|entry| entry.size) else {
+                    continue;
+                };
+                if picked.contains(&file) || bytes.saturating_add(size) > max_bytes {
+                    continue;
+                }
+                picked.insert(file);
+                bytes += size;
+            }
+        }
+        if !self.fetch.cache() {
+            // A source on the machine's disk (a git object store) is warm already.
+            return PinReport { files: picked.len() as u64, bytes, ..PinReport::default() };
+        }
+        self.hydrate(&picked, bytes)
+    }
+
     /// Unpins `path`; its files not under another pin go back to the LRU (and down to the cap).
     pub fn unpin(&self, path: &str) -> Result<(), i32> {
         let path = normalize(path)?;
@@ -197,7 +233,7 @@ impl Overlay {
     }
 
     /// Every file under every pin this manifest has, and their bytes.
-    fn pinned_files(&self) -> (HashSet<u32>, u64) {
+    pub(super) fn pinned_files(&self) -> (HashSet<u32>, u64) {
         let mut all = HashSet::new();
         for path in self.pins() {
             if let Ok((files, _)) = self.files_under(&path) {
@@ -252,7 +288,7 @@ impl Overlay {
     }
 
     /// The cache keys file `file` of `size` bytes is stored under.
-    fn keys_of(file: u32, size: u64) -> impl Iterator<Item = Key> {
+    pub(super) fn keys_of(file: u32, size: u64) -> impl Iterator<Item = Key> {
         let chunks = if size <= CHUNK { 0 } else { size.div_ceil(CHUNK) };
         let whole = (chunks == 0).then_some((file, WHOLE));
         whole

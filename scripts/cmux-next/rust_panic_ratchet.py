@@ -421,8 +421,16 @@ def main():
     if missing and not args.init_baseline:
         print("::warning title=rust panic ratchet::baseline crates not checked by this run (a -p run, a removed "
               "member, or a bin with required-features): " + ", ".join(missing), file=sys.stderr)
+    # A reasonless allow in a file this change never touched is the base's, not the change's: the scan walks the
+    # whole tree, so one base commit's slip (cmux-layout-reducer-ffi in #55909) turned every PR's check red.
+    # With no changed-file list (git cannot say) every hit still fails, as before.
+    changed = changed_files(args.repo)
     for line in allow_without_reason(args.repo):
-        failures.append(line)
+        where = line.split(":", 1)[0].split("cmux-tui/", 1)[-1]
+        if changed and where not in changed:
+            base_reds.append(f"{line} (a file this change did not touch: the base's red, not this change's)")
+        else:
+            failures.append(line)
 
     if args.update_baseline:
         if failures:

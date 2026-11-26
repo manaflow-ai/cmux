@@ -78,7 +78,7 @@ jobs:
   base-gallery:
     name: base gallery
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -119,13 +119,32 @@ jobs:
             /web/data/model-catalog/
             /release-notes/next/highlights/
             /first-party-apps/*/preview/scenes.json
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -166,7 +185,7 @@ jobs:
   plan:
     name: plan
     if: ${{ (inputs.only == '' || inputs.only == 'health') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     outputs:
       all: ${{ steps.entries.outputs.all }}
@@ -213,13 +232,32 @@ jobs:
             /web/data/model-catalog/
             /release-notes/next/highlights/
             /first-party-apps/*/preview/scenes.json
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -337,7 +375,7 @@ jobs:
     # Blacksmith org vCPU cap starved every pool, and 16 shards of 16 vCPU asked 256 vCPU of it per push.
     # From the numbers above, 8 vCPU renders the 73 cases in 17.3 s against 13.4 s, at 138 vCPU-seconds
     # against 214: a shard takes about a third longer and the run 35% fewer vCPU-seconds, at half the peak.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     # As many shards as the run's cases need (the plan job): at most MAX_CASES_PER_SHARD each, so a shard runs in
     # under 10 minutes as the gallery grows. At eight fixed shards, with three cases at once, a shard's render took
@@ -388,6 +426,15 @@ jobs:
             /web/data/model-catalog/
             /release-notes/next/highlights/
             /first-party-apps/*/preview/scenes.json
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Resolve the head and the merge
@@ -421,11 +468,21 @@ jobs:
           { echo "head_sha=$head"; echo "merge_sha=$merge"; echo "base_sha=$base"; } >> "$GITHUB_OUTPUT"
           echo "head $head, rendering $merge${base:+ (merged with base $base)}"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -481,6 +538,10 @@ jobs:
           set -euo pipefail
           bun install --frozen-lockfile
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+          # The UI font is the macOS system font (SF Pro), which Linux lacks: without the pin the stack
+          # falls to DejaVu Sans, a much wider face, so every stage wraps and sizes text unlike the Mac.
+          # Inter, as the browser tests draw it (B7 webviews-linux-parity, scripts/gallery-matrix/parity.py).
+          "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       # A red here is judged state by state against the base in the next step, so the step goes on.
       - name: Render the gallery and judge it

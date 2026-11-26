@@ -65,12 +65,15 @@ final class PaneOverlayView: NSView {
     /// The ring flashed when focus arrives without a click (`focus.flashOnMove`): its own layer, so
     /// the ring's opacity updates never cut the flash short.
     private let focusFlash = CALayer()
+    /// The wallpaper's rim light on the content edge (`appearance.wallpaperLighting`, ``WallpaperRimLayer``).
+    private lazy var wallpaperRim = WallpaperRimLayer(host: self)
     /// Chats sit directly on the window glass. These decorative layers otherwise draw above
     /// their page menus when the overlay plane is hosted above Chromium child windows.
     var showsContentFrame = true {
         didSet {
             guard showsContentFrame != oldValue else { return }
             for layer in [border, ring, glowClip, focusFlash] { layer.isHidden = !showsContentFrame }
+            wallpaperRim.suppressed = !showsContentFrame
         }
     }
     /// This pane was the focused one at the last update.
@@ -118,6 +121,7 @@ final class PaneOverlayView: NSView {
             sublayer.opacity = 0
             layer?.addSublayer(sublayer)
         }
+        layer?.addSublayer(wallpaperRim)
         glow.opacity = 1
         ring.borderWidth = 1
         applyRingGlow()
@@ -218,6 +222,9 @@ final class PaneOverlayView: NSView {
     var dimFrame: CGRect { dimLayer.frame }
     var dimCornerRadius: CGFloat { dimLayer.cornerRadius }
     var dimCorners: CACornerMask { dimLayer.maskedCorners }
+    /// The inactive dim's resting opacity, and whether it is fading there now (for tests).
+    var dimOpacity: Float { dimLayer.opacity }
+    var dimFades: Bool { dimLayer.animation(forKey: "opacity") != nil }
     /// The color the focus ring strokes with (for tests).
     var ringColor: CGColor? { ring.borderColor }
     /// The border's line width in points and color override (for tests).
@@ -279,6 +286,7 @@ final class PaneOverlayView: NSView {
         if glowPath != nil || glow.shadowPath != nil { glow.shadowPath = glowPath }
         attention.borderWidth = attentionSettings.width
         refreshAttentionShadowPath()
+        wallpaperRim.place(rect, cornerRadius: radius, lineWidth: max(1, border.borderWidth))
         CATransaction.commit()
     }
 

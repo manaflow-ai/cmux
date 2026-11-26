@@ -20,7 +20,7 @@ package nonisolated struct KeychainHTTPCredentialStore: BrowserHTTPCredentialSto
 
     /// The app's store, under this bundle's `<bundle id>.browser-http-auth`.
     package static func standard(loginKeychain: LoginKeychain) -> KeychainHTTPCredentialStore {
-        KeychainHTTPCredentialStore(service: "\(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app").browser-http-auth", loginKeychain: loginKeychain)
+        KeychainHTTPCredentialStore(service: "\(Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next").browser-http-auth", loginKeychain: loginKeychain)
     }
 
     private func base(_ key: BrowserHTTPCredentialKey) -> [String: Any] {

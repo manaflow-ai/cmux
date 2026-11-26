@@ -1115,6 +1115,7 @@ fn same_team(path: &Path) -> Result<(), String> {
 
 /// Fetches and checks every file and the Screen Sharing helper, then swaps them
 /// in: nothing in the app changes before every byte is here and checked.
+#[cfg(test)]
 fn try_live(
     app: &Path,
     files: &[Wanted],

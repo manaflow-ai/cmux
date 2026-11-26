@@ -1,4 +1,4 @@
-# cmux-next.yml: the longer notes
+# cmux-next.yml: the longer notes (frozen: a new note is its own file in [`docs/ci/cmux-next-workflow-notes/`](cmux-next-workflow-notes/README.md))
 
 GitHub refuses a workflow file over 500 KB (512,000 bytes) before any job starts, so every pull request
 and push loses the whole workflow (2026-11-10: #40348 took the file to 512,883 bytes). The longest
@@ -663,7 +663,8 @@ Above `fast-tier: timeout-minutes` in `.github/workflows/cmux-next.yml`.
 A cold package build can exceed the 5-minute target; the job still runs
 the entries so a cold mini reports, and the summary shows the time.
 The fleet's `queued` hand-back always runs cold on Blacksmith 6 vCPU macOS, whose fast-tier p90 was
-19.8 minutes (#38181's data), so it gets 35: a slow cold build still gives the verdict.
+19.8 minutes (#38181's data), so it gets 60 (it was 35; a 2026-11-24 sample of cancels at the cap
+showed a dense tail of passes just past 35): a slow cold build still gives the verdict.
 
 An app FFI re-pin (`ffi_repin`) changes the CCmuxAppFFI binary target, so every
 CmuxNext module rebuilds cold before `HandlerCoverageTests` runs. With 20
@@ -1338,8 +1339,13 @@ Release step), so a push keeps it.
 
 Above `path_route: EVENT_LABELS` in `.github/workflows/cmux-next.yml`.
 
-The labels at the push. A re-run keeps that event, so it reads them
-live: adding full-ci or dev-build and re-running routes on them.
+The event's labels, used only when the live read fails. path_route reads
+the pull request's labels live on every attempt and exports them as
+`needs.path_route.outputs.labels` (`,a,b,`); every job reads that, not
+`github.event.pull_request.labels`. On 2026-11-25 (#53099, cmux#56909) a
+synchronize event delivered after full-ci was added carried no labels; it
+shared the concurrency group, cancelled the labeled run, and deferred every
+Mac tier. Adding full-ci or dev-build and re-running also routes on them.
 
 ## note-98
 
@@ -3097,6 +3103,8 @@ a refused request did nothing on GitHub's side, so the retry is safe.
 Above `pr-red-checks` in `.github/workflows/cmux-next.yml`.
 
 compared with the base's run: ci.yml and cmux-next-guards.yml call it after their own checks.
+
+It starts only when `checks` ran (not skipped). A call after a skipped `checks` has no red of its own to add, and cmux-next-guards.yml's call on every head already writes the `ran` line and clears an older head's red from all of that head's check runs. On 11-25 03Z..11Z, 1,387 runs paid this job about 1.3 min each (about 5.6k runner-min a day), almost all of them after a skipped `checks`.
 
 ## note-341
 
@@ -5151,6 +5159,21 @@ cmux-next-tab-switch.yml's admission. Past 1200 s it lists no fleet job: fast-ti
 `cmux-next fast tier` keeps the route the cascade gave it, with the reason in placement's summary. The
 gateway job still runs nothing but the client. An unreadable status lists the job as before (fail open).
 
+## note-head-fail-fast
+
+Above each `*-fail-fast:` job in `.github/workflows/cmux-next.yml` (and the same callers in
+`cmux-next-fast-gates.yml`, `cmux-next-guards.yml`, and `pr-router.yml`'s `pipeline-fail-fast`, which watches its `pipeline` call of `pr-pipeline.yml`: pr-pipeline.yml takes only ci/steps.toml jobs).
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." Over 2026-11-23T20..2026-11-24T20Z
+(controller timing feed, manaflow-ai/cmux pull request jobs), once a non-advisory job of a head had failed, the
+head's other jobs kept running for 238,776 runner-min a day. A red head never lands as it is. So when one of the
+jobs a head most often first fails on (app compile, fast tier, fast tier cargo, web bundles, generated files, fast
+gates, tooling-tests, pr pipeline) fails, a caller job that needs only that job runs
+`head-fail-fast.yml`: unless the failed job is red on the base too (land-judge excuses that red), it cancels the
+head's other heavy pull_request runs still queued or running, never its own run, and lists them in its summary.
+Replayed on that day's jobs, these triggers fire on 2,053 heads and cut about 51.7k runner-min a day net (54.2k no longer spent after the trigger, less 2.4k re-spent on the 250 heads later rerun). The failed check stays the head's verdict. `vars.CI_HEAD_FAIL_FAST` set to `0` turns it off; a full-ci label or a
+fork's pull request never cancels. Rules: `scripts/ci/head_fail_fast.py`.
+
 ## note-559
 
 Above the fast-tier-cargo job's env in `.github/workflows/cmux-next.yml`, its "List the changed paths" and run
@@ -5218,3 +5241,56 @@ cmux-linux for every routed push, with or without an idle gateway, and only read
 fail runs the Mac canary, which prints the errors; no verdict prints `::warning title=mac fallback::` and runs
 the Mac canary, the job's only fallback. macos-placement still judges the gateway for it (GATEWAY_JOBS), which
 now only keeps the canary out of the cascade's runner count.
+
+## note-560
+
+Above fast-tier-fleet and fast-tier-fleet-mac in `.github/workflows/cmux-next.yml`, their consumers' verdict
+reads, and `scripts/ci/fleet_fast_tier_result.py`.
+
+Leo, 2026-11-25: "i need us to be defo making sure it runs on our scheduler, which has far more capabilities
+than github actions. github actions is just there at the start and end or whatever maybe i guess, but we own the
+in-between. all of it". fast-tier-fleet held a gateway Mac for up to 50 minutes only to submit two light steps
+and wait on them. The controller now submits those same steps itself when the job is queued (cmuxterm-hq
+`cmux_next_fast_tier_check.go`, hooked on the job name) and judges them, so the job runs on `cmux-linux` and
+reads one verdict: `GET /compile-checks/v1/<sha>?repo=...&phase=fast-tier[&ffi_repin=1]`.
+
+The reader trusts a 200 only when it names phase `fast-tier`, this sha and repo, the asked number of steps, and
+steps that ran this head. A controller that predates the phase answers its tip compile receipt, which the reader
+turns into `unavailable`, so the two sides merge in either order. `queued` past 20 minutes hands back as the
+client's exit 75 did; `unavailable` (no record after 5 minutes, an outage past 2 minutes, a step with no
+verdict, still running at 45 minutes) exits 0 and leaves the decision to fast-tier-fleet-mac.
+
+fast-tier-fleet-mac is the old gateway client, unchanged but for its `::warning title=mac fallback::`, and runs
+only on `unavailable` while the placement still names a gateway runner for this attempt. Its name differs, so
+the controller's hook never fires on it. Consumers read `fast-tier-fleet-mac`'s verdict and result when it ran,
+else fast-tier-fleet's; an `unavailable` with no fallback leaves cmux-next fast tier to run the suites itself,
+as when no fleet job ran.
+## note-cloud-journey-pr-wall
+
+Above `seed`, the R2 restore steps and the workflow `env` in `.github/workflows/cloud-journey-pr.yml`, and
+`scripts/cmux-next/cloud-journey-cargo-key.sh`.
+
+`Cloud journey (PR CLI on staging)` was about 24 minutes of a pull request's wall, and most of it was a cold
+`cargo build -p cmux-tui` with no cargo cache. In run 45528981033 (PR 55112, Freestyle runner) the job took 37 min:
+queue about 3 s, checkout 23 s, submodules 14 s, apt, Rust and Zig setup 39 s, build 30.75 min (624 crates, 489 of
+them dependencies; the `cmux-tui` crate alone 18 min at `opt-level = 1` with full debuginfo), staging journey 5 min.
+Twelve recent runs: build 11 to 31 min, journey 5 to 9 min, total 20 to 37 min. Path routing was already in place,
+and only 1 of 21 recent matching pull requests matched through test files alone, so routing was not the cause.
+
+Three changes, the check unchanged:
+
+- The compiled dependencies come from R2 (note-210b's store: public reads, so pull requests restore with no
+  credentials). `seed` builds the same binary on a feat-cmux-next push that changes the key's inputs (lockfiles,
+  toolchain, this workflow, the key script) or on a dispatch there. It skips when the exact key exists, strips
+  the workspace's own output (`cargo_target_strip.py`) and saves the target and the registry. It is its own job
+  because the R2 write keys live in `next-cache-writer` (tests/test_ci_pull_request_caches_are_read_only.py), and
+  `journey` already holds `cmux-next-vm-image-dev`. A miss or a slow restore (4 min bound, continue-on-error)
+  builds cold as before.
+- The workspace crates build at `opt-level 0` with `debug = line-tables-only` and no incremental output
+  (`CARGO_PROFILE_DEV_*`, `CARGO_INCREMENTAL` in the workflow env). Dependencies keep `profile.dev.package."*"`
+  (opt-level 3). The journey is network-bound, and a panic still has file and line. The key hashes these
+  variables, so `seed` and `journey` cannot drift.
+- `*_tests.rs` and `tests/` under cmux-tui no longer start the journey: neither reaches the binary.
+
+Not changed here: backend.yml's journey-staging, cloud-resume-matrix.yml and migrate-journey-pr.yml run the same
+uncached build.

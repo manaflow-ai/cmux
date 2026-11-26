@@ -26,6 +26,14 @@ extension AgentPaneModel {
         String(localized: "agentPane.error.capture", defaultValue: "The screen capture failed.", bundle: .localizedModule)
     }
 
+    /// A folder the person picked for a chat that no longer exists (a reboot wiped a temporary
+    /// folder, a worktree was removed): which one, and the way out.
+    static func folderMissingMessage(_ path: String) -> String {
+        String(format: String(localized: "agentPane.error.folderMissing",
+                              defaultValue: "The folder %@ no longer exists. Pick another folder.", bundle: .localizedModule),
+               path)
+    }
+
     /// The host's acpmux socket refused a page frame or could not connect (AgentPaneTransport).
     static var transportFailedMessage: String {
         String(localized: "agentPane.error.transport", defaultValue: "The app refused the agent connection.", bundle: .localizedModule)
@@ -365,6 +373,14 @@ extension AgentPaneModel {
     /// The folder menu's Connect GitHub after the API refused the link the person came back with (an expired state).
     static var gitHubLinkExpiredMessage: String {
         String(localized: "agentPane.github.linkExpired", defaultValue: "The link expired; connect again.", bundle: .localizedModule)
+    }
+
+    /// The folder menu after the person asked an organization's owners to install the App (GitHub's `setup_action=request`).
+    static func gitHubRequestedMessage(owner: String?) -> String {
+        guard let owner else {
+            return String(localized: "agentPane.github.requested", defaultValue: "Asked the organization's owners to approve cmux. Its repositories appear here once they do.", bundle: .localizedModule)
+        }
+        return String(localized: "agentPane.github.requestedOwner", defaultValue: "Asked the owners of \(owner) to approve cmux. Its repositories appear here once they do.", bundle: .localizedModule)
     }
 
     /// Connect GitHub with no cmux account signed in and no sign-in to start (`github.signed_out`).

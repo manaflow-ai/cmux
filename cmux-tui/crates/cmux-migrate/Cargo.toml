@@ -15,6 +15,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml.workspace = true
 cmux-git.workspace = true
+# T3 Code's statev2.sqlite, opened read-only (sources::t3code).
+rusqlite.workspace = true
 # .gitpod.yml; the version cmux-host already builds.
 yaml-rust = "0.4.5"
 

@@ -42,14 +42,33 @@ pub struct NetworkWatch {
 }
 
 /// The write end of the watch thread's wake pipe: dropped, it hangs up the thread's read end.
+#[cfg(unix)]
 #[derive(Debug)]
 struct OwnerEnd(#[allow(dead_code)] std::os::fd::OwnedFd);
 
 /// The read end the watch thread polls beside the routing socket: hung up when its owner drops.
+#[cfg(unix)]
 #[derive(Debug)]
 struct Ended(std::os::fd::OwnedFd);
 
+/// No wake pipe off unix: [`imp::open`] finds no socket there, so no watch thread starts.
+#[cfg(not(unix))]
+#[derive(Debug)]
+struct OwnerEnd;
+
+/// No wake pipe off unix (see [`OwnerEnd`]).
+#[cfg(not(unix))]
+#[derive(Debug)]
+struct Ended;
+
+/// Off unix there is no pipe(2), and no kernel watch for one to end.
+#[cfg(not(unix))]
+fn owner_pipe() -> Option<(OwnerEnd, Ended)> {
+    None
+}
+
 /// A wake pipe (both ends close on exec), or None when the system has no fd for one.
+#[cfg(unix)]
 fn owner_pipe() -> Option<(OwnerEnd, Ended)> {
     use std::os::fd::FromRawFd;
     let mut fds = [0; 2];

@@ -555,6 +555,8 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
   });
   if (!blockwise) return write(doc);
   if (doc.childCount === 1) {
+    const plain = plainLine(doc.child(0));
+    if (plain !== undefined) return `${plain}\n`;
     const lines = linewiseMarkdown(doc, doc.child(0), write, inline);
     return lines === undefined ? write(doc) : `${lines}\n`;
   }
@@ -567,12 +569,35 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
       markdown =
         !block.content.size && block.type.name === "paragraph"
           ? EMPTY_PARAGRAPH
-          : (linewiseMarkdown(doc, block, write, inline) ?? write(doc.copy(Fragment.from(block))).replace(/\n+$/, ""));
+          : (plainLine(block) ??
+            linewiseMarkdown(doc, block, write, inline) ??
+            write(doc.copy(Fragment.from(block))).replace(/\n+$/, ""));
       kept.set(block, markdown);
     }
     parts.push(markdown);
   });
   return `${parts.join("\n\n")}\n`;
+}
+
+/// Text the serializer writes unchanged: letters, digits and the punctuation it never escapes
+/// mid-line, starting and ending with a letter, digit or that punctuation, never a space.
+const PLAIN_LINE = /^[A-Za-z0-9,'?!](?:[A-Za-z0-9 ,'?!.]*[A-Za-z0-9,'?!.])?$/;
+/// What would make the serializer escape a `.` in such text: a list number at the start (`1.`),
+/// or an autolink literal's `www.` (GFM escapes the dot after a `w` that a word character follows).
+const ESCAPED_DOT = /^\d+\.|[Ww]\.[\w.-]/;
+
+/** One paragraph of plain prose, unmarked, as its text: what the serializer writes for it, without
+ * running the serializer, which every key into such a prompt ran (Milkdown's whole remark pipeline
+ * for one line; composer-typing bench --profile). Undefined for anything else. */
+function plainLine(paragraph: ProseNode): string | undefined {
+  if (paragraph.type.name !== "paragraph" || !paragraph.childCount) return undefined;
+  let text = "";
+  for (let at = 0; at < paragraph.childCount; at += 1) {
+    const child = paragraph.child(at);
+    if (!child.isText || child.marks.length) return undefined;
+    text += child.text!;
+  }
+  return PLAIN_LINE.test(text) && !ESCAPED_DOT.test(text) ? text : undefined;
 }
 
 /** A paragraph with hard breaks, written line by line from each line's kept markdown, or undefined
@@ -975,7 +1000,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     if (!tell || composing.current) return;
     const next = slashTriggerAt(state);
     const told = slashTold.current;
-    if (next?.query === told?.query && next?.length === told?.length && next?.leading === told?.leading) return;
+    if (
+      next?.query === told?.query &&
+      next?.length === told?.length &&
+      next?.leading === told?.leading &&
+      next?.mark === told?.mark
+    )
+      return;
     slashTold.current = next;
     tell(next);
   };
@@ -1128,6 +1159,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       // Set from a passed-on Return the field took until its key comes up: the paragraph an input
       // method may still insert for that key is the same Return, not a second one.
       let returnTaken = false;
+      // Whether a Return key is down: a paragraph input with no key behind it (Dictation's "new
+      // paragraph", a voice tool typing a message) is a line in the draft, never a send that splits it.
+      let returnKeyDown = false;
       // Whether the selection held the whole draft at the last update (`onWholeSelection`).
       let wholeNow = false;
       // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
@@ -1173,6 +1207,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   endPasteStep(_view, pasteStep.current);
                   joinsStep.current = false;
                   returnTaken = false;
+                  returnKeyDown = isReturnKey(event);
                   // A caret the browser moved on its own (an arrow key ProseMirror leaves to it) reaches
                   // the editor's state only at the next selectionchange, a task later. A key that
                   // comes first saw the old selection: after ArrowRight collapsed a selected New Tab
@@ -1250,11 +1285,24 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   }
                   event.preventDefault();
                   if (returnTaken) returnTaken = false;
-                  else returnInput();
+                  else if (returnKeyDown || !lines.current) returnInput();
+                  else {
+                    // No Return key behind it: the input adds the line Shift-Return would, so a
+                    // dictated message with paragraphs stays one draft (Leo: "wait that message got
+                    // split up and queued").
+                    const item = _view.state.schema.nodes.list_item;
+                    const enter = baseKeymap.Enter!;
+                    chainCommands(...(item ? [splitListItem(item), enter] : [enter]))(
+                      _view.state,
+                      _view.dispatch,
+                      _view,
+                    );
+                  }
                   return true;
                 },
                 keyup: () => {
                   returnTaken = false;
+                  returnKeyDown = false;
                   return false;
                 },
                 compositionstart: () => {

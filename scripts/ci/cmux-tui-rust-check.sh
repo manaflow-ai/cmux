@@ -43,8 +43,9 @@
 # channel: the feat-cmux-next channel candidate, built and tested by our scheduler with no Actions
 # job (civ2-channel-roll; Leo, 2026-11-23: "but why is it a job. we own/should own the in-between.
 # like ci v2. we own the end to end."). The cmux_next_ daemon tests (the targets of
-# cmux-tui-artifacts.yml "cargo test cmux_next_"), then acpmux for x86_64-unknown-linux-musl as the
-# machine channel builds it (acpmux-standalone with the shipping features, thin profile), and
+# cmux-tui-artifacts.yml "cargo test cmux_next_") and, beside them, acpmux for x86_64-unknown-linux-musl
+# as the machine channel builds it (acpmux-standalone with the shipping features, thin profile: LTO
+# off, 16 codegen units), with incremental off so sccache serves unchanged workspace crates, and
 # .build/artifacts/channel/{acpmux-x86_64-unknown-linux-musl,candidate.json} (commit, tree key,
 # sha256, test summary). The hq controller's channel roll (build-fleet/cmd/controller/channel_roll.go)
 # runs it at each feat-cmux-next tip on our own Linux workers; its pass is the channel marker lane
@@ -147,8 +148,10 @@ if [[ -n "$shard" ]]; then
   echo "gate-notice: shard $shard (nextest --partition count:$shard)"
 fi
 # test FILTER SCOPE (a third argument) names where the filter's tests are: crate names with commas
-# (-p for each), or one CRATE:TARGET for one integration test target (cmux-tui:startup_timings is
-# cmux-tui/crates/cmux-tui/tests/startup_timings.rs: -p cmux-tui --test startup_timings; CRATE:lib is
+# (-p for each), or one CRATE:TARGET for one integration test target (acpmux:admission is
+# cmux-tui/crates/acpmux/tests/admission.rs: -p acpmux --test admission; a crate whose tests/ files
+# are modules of one `it` binary (autotests = false, tests/it/main.rs: cmux-tui, #56677) takes
+# --test it for a file that has no [[test]] of its own, and the filter picks its tests; CRATE:lib is
 # the library's unit tests, -p CRATE --lib, so a unit test of a big crate like acpmux skips its ~40
 # test binaries, whose cold build overran a 143 GiB pool slot, 2026-11-25). cargo
 # then builds the test binaries of that scope only; a filtered run of the whole workspace builds
@@ -171,7 +174,15 @@ if [[ -n "$crate_scope" ]]; then
       # CRATE:lib is the crate's library unit tests (cargo --lib); cargo has no test target named lib.
       test_scope=(-p "${BASH_REMATCH[1]}" --lib)
     else
-      test_scope=(-p "${BASH_REMATCH[1]}" --test "${BASH_REMATCH[2]}")
+      scope_crate="${BASH_REMATCH[1]}" scope_target="${BASH_REMATCH[2]}"
+      scope_manifest="cmux-tui/crates/$scope_crate/Cargo.toml"
+      if [[ -f "cmux-tui/crates/$scope_crate/tests/it/main.rs" ]] &&
+        grep -qE '^autotests *= *false' "$scope_manifest" &&
+        ! grep -qE "^name *= *\"$scope_target\"" "$scope_manifest"; then
+        echo "gate-notice: $scope_crate's tests/$scope_target.rs is a module of its one test binary: --test it"
+        scope_target=it
+      fi
+      test_scope=(-p "$scope_crate" --test "$scope_target")
     fi
   elif [[ "$crate_scope" =~ ^$scope_name(,$scope_name){0,7}$ ]]; then
     test_scope=()
@@ -970,14 +981,16 @@ channel_daemon_tests() {
 }
 channel_build_acpmux() {
   local features cargo_build=(cargo build)
-  rustup target add "$channel_triple" >/dev/null || return 1
+  # shellcheck source=scripts/lib/rust-targets.sh
+  source "$root/scripts/lib/rust-targets.sh"
+  ensure_rust_targets "$channel_triple" >/dev/null || return 1
   # cargo-zigbuild where the worker has it (as cmux-tui-build-package.yml builds the leg), else
   # cargo with the musl target and musl-gcc.
   if cargo zigbuild --version >/dev/null 2>&1; then cargo_build=(cargo zigbuild); fi
   features="$(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$channel_triple")"
   CMUX_TUI_BUILD_COMMIT="$(git -C "$root" rev-parse HEAD)" \
     CMUX_TUI_GHOSTTY_COMMIT="$(git -C "$root/ghostty-next" rev-parse HEAD 2>/dev/null || echo unknown)" \
-    CARGO_PROFILE_RELEASE_LTO=off \
+    CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
     "${cargo_build[@]}" --release --locked --target "$channel_triple" \
       --config profile.release.package.acpmux.codegen-units=16 \
       -p acpmux-standalone --bin acpmux-standalone ${features:+"$features"} || return 1
@@ -1010,9 +1023,37 @@ if [[ "$mode" == channel ]]; then
   rm -rf "$channel_out"
   mkdir -p "$channel_out"
   warm_target_guard
+  # The roll lands on a fresh pool worker, so the slot's target is cold (step 8a2104ca at
+  # 3edfb62c4, 2026-11-25: 2.2 GiB kept, 1201 s: daemon tests 784 s, of which the test build
+  # 11m21s, then the musl build 348 s, run one after the other at a mean 4.8 of 32 cores).
+  # Two changes, neither touching what the binary does:
+  #  - No incremental compile here. sccache cannot cache an incremental unit ("429 not
+  #    cacheable (incremental workspace crates...)"), so every workspace crate compiled from
+  #    nothing on each roll; without it the crates this commit did not change come from the
+  #    shared cache like the registry crates do.
+  #  - The musl release build runs beside the daemon tests: different profile and target
+  #    directories (cargo locks each apart), and the box was mostly idle. The candidate is
+  #    still written only when both passed.
+  export CARGO_INCREMENTAL=0
   step go ensure_go
+  channel_build_t0=$SECONDS
+  channel_build_log="$channel_out/acpmux-build.txt"
+  # Its own target dir: one cargo target dir is one lock, so a shared one would make the build wait for the
+  # tests instead of running beside them (ci-v2.md step 10b).
+  channel_musl_target="$root/.build/cmux-tui-channel-musl-target"
+  (export CARGO_TARGET_DIR="$channel_musl_target"; channel_build_acpmux) >"$channel_build_log" 2>&1 &
+  channel_build_pid=$!
   step "channel daemon tests" channel_daemon_tests
-  [[ "$first_rc" -ne 0 ]] || step "channel acpmux $channel_triple" channel_build_acpmux
+  channel_build_rc=0
+  wait "$channel_build_pid" || channel_build_rc=$?
+  echo "=== step channel acpmux $channel_triple: channel_build_acpmux (beside the daemon tests)"
+  cat "$channel_build_log"
+  if [[ "$channel_build_rc" -eq 0 ]]; then
+    step_rows+=("channel acpmux $channel_triple"$'\t'"pass"$'\t'"$((SECONDS - channel_build_t0))")
+  else
+    step_rows+=("channel acpmux $channel_triple"$'\t'"FAIL (exit $channel_build_rc)"$'\t'"$((SECONDS - channel_build_t0))")
+    [[ "$first_rc" -ne 0 ]] || first_rc=$channel_build_rc
+  fi
   [[ "$first_rc" -ne 0 ]] || step "channel candidate" channel_candidate
   finish
 fi
@@ -1143,7 +1184,11 @@ if [[ "$mode" == clippy || "$mode" == test || "$mode" == all ]]; then
   step go ensure_go
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
-  step fmt cargo fmt --all --check
+  # A crate whose tests/ files are modules of one `it` binary (tests/it/main.rs, #56677) reaches them
+  # through a generated list cargo fmt cannot follow, so they are named to rustfmt.
+  fmt_tests=()
+  for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done
+  step fmt cargo fmt --all --check ${fmt_tests[@]+-- "${fmt_tests[@]}"}
 fi
 if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   # The frozen holder fixture (cmux-holder-v3) is an old shipped holder, never edited: no new
