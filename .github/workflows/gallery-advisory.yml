@@ -100,6 +100,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Mark the gallery section stale
         env:
@@ -125,7 +126,7 @@ jobs:
     # The capture step may fail (a browser or gallery build unavailable); the
     # frame check after it decides the job's result, and the artifact step
     # always runs.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
       - name: Initialize evidence directory
@@ -178,6 +179,7 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
@@ -475,6 +477,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/pr_status.py
             scripts/ci/gallery_select.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Download the receipt
         continue-on-error: true
