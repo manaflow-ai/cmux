@@ -100,8 +100,8 @@ where
 }
 
 /// [`race`], with the attempts still in flight when the winner answered handed back as
-/// [`Losers`] instead of dropped. Each keeps its own timeout (the last attempt has none, so
-/// bound the wait on them).
+/// [`Losers`] instead of dropped. Each keeps its policy timeout, including
+/// [`RacePolicy::last_attempt_timeout`] for the final attempt.
 ///
 /// # Errors
 /// The race's error: the last attempt's.
