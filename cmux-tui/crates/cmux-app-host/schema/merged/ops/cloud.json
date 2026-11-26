@@ -168,7 +168,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "money",
-      "digest": "0e5c01ef5e37ba4e"
+      "digest": "8b49f3a3ff528f5b"
     },
     "cloud.machine.delete": {
       "source": "cloud",
