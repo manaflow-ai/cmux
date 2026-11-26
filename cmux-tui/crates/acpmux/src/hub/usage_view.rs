@@ -223,7 +223,15 @@ impl Hub {
     /// [`READ_WAIT`].
     pub(crate) async fn read_usage_for_list(self: &Arc<Self>) {
         if !self.usage_stats.warm.load(Ordering::SeqCst) {
-            let _ = tokio::time::timeout(READ_WAIT, self.refresh_usage_stats()).await;
+            // The pass runs as its own task, and the read waits on its handle: a read that
+            // stops waiting drops only the handle. Dropping the pass itself at the wait left
+            // its blocking read writing stats with no row told after it, so a closed row
+            // cached meanwhile kept no `usageStats` for good (`read_usage`).
+            let hub = self.clone();
+            let pass = self
+                .scope
+                .spawn_named("usage-first-pass", async move { hub.refresh_usage_stats().await });
+            let _ = tokio::time::timeout(READ_WAIT, pass).await;
             return;
         }
         self.revalidate_usage();

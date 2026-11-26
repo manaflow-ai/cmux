@@ -180,7 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // This launch's times and stages (LaunchStages), in every build, for `cmux app launch-times` (CMUX-571): after the first frame, at Home's reveal or 10 s on (a relaunch into another workspace never shows Home).
         let binderLaps = LaunchBinderLaps()
         if let bundleID = environment.launch.bundleID, let file = LaunchTimesFile.app(bundleID: bundleID) {
-            let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:], listen: AgentPaneLaunchTimings.shared.listen, marks: DebugTimings.launchMarkTimes, binders: binderLaps.times) { StagedUpdatePrewarm.consumeLaunchMarker(build: $0, bundleIdentifier: bundleID) }
+            let recorder = LaunchTimesRecorder(file: file, work: services.work, info: Bundle.main.infoDictionary ?? [:], listen: AgentPaneLaunchTimings.shared.listen, marks: DebugTimings.launchMarkTimes, binders: binderLaps.times) { StagedUpdatePrewarm.consumeLaunchVerdict(build: $0, bundleIdentifier: bundleID).record }
             firstFrame.whenOpen { [launchReveal = services.launchReveal, weak services] in launchReveal.whenReady(.home, orAfter: .seconds(10)) { recorder.write(marks: DebugTimings.launchMarkTimes(), workspaces: services?.daemon.store.workspaces.count) } }
         }
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
@@ -291,7 +291,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         DebugTimings.markLaunch("dfl.home_history")
         services.windows.layoutCache = launchReads.shell.layoutCache // the last run's layout, read before stage 0's commit
-        services.windows.restoreWhenLoaded(); if services.windows.controllers.first?.window?.commitFirstFrameNow() == true { DebugTimings.markLaunch("first_window_flushed") } // CMUX-629: the frame now, not after the queued launch work
+        services.windows.restoreWhenLoaded(); if services.windows.controllers.first?.window?.commitFirstFrameNow(mark: { DebugTimings.markLaunch($0) }) == true { DebugTimings.markLaunch("first_window_flushed") } // CMUX-629: the frame now, not after the queued launch work
         firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule(); services?.windows.recordSaver.layoutCache.note() }
         DebugTimings.markLaunch("dfl.windows")
         // The runtime pack check wires the engine reason at once; its download waits until asked.
