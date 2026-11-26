@@ -83,6 +83,7 @@ mod tab_icon;
 mod tasks;
 mod terminal;
 mod theme;
+mod two_tone;
 mod vertical_tabs;
 mod viewer;
 mod voice_room;
@@ -152,6 +153,7 @@ pub static GROUPS: &[&[Action]] = &[
     help_link::ACTIONS,
     density::ACTIONS,
     chrome_style::ACTIONS,
+    two_tone::ACTIONS,
     backdrop::ACTIONS,
     pane_background::ACTIONS,
     divider::ACTIONS,
