@@ -322,12 +322,42 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def curl_download(url: str, destination: Path) -> None:
-    subprocess.run(["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "4",
+GITHUB_RELEASE_URL = re.compile(r"^https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+/[^/]+)$")
+
+
+def release_proxy_url(url: str, environ=os.environ) -> str | None:
+    """The fleet controller's copy of a GitHub release asset, or None.
+
+    While GitHub refuses a fleet Mac's address (403 to every anonymous request from the office, 2026-11-26),
+    its worker sets CMUX_CI_GITHUB_RELEASE_PROXY to the controller's release route, which downloads
+    https://github.com/OWNER/NAME/releases/download/TAG/FILE once with its own read token and caches it
+    (cmuxterm-hq build-fleet/cmd/controller/github_release_proxy.go). The checksum is still checked here.
+    """
+    proxy = environ.get("CMUX_CI_GITHUB_RELEASE_PROXY", "").strip().rstrip("/")
+    match = GITHUB_RELEASE_URL.match(url)
+    if not proxy or not match:
+        return None
+    return f"{proxy}/{match.group(1)}/{match.group(2)}"
+
+
+def curl_fetch(url: str, destination: Path, retries: str = "4") -> None:
+    subprocess.run(["curl", "--fail", "--location", "--silent", "--show-error", "--retry", retries,
                     "--retry-all-errors", "--connect-timeout", "30", "--max-time", "1800",
                     "--speed-limit", GIT_HTTP_LOW_SPEED_LIMIT, "--speed-time", GIT_HTTP_LOW_SPEED_TIME,
                     "--output", str(destination), url],
                    check=True, timeout=1800)
+
+
+def curl_download(url: str, destination: Path, fetch=curl_fetch, environ=os.environ) -> None:
+    """Download `url`, through the controller's release proxy first when the worker names one."""
+    proxied = release_proxy_url(url, environ)
+    if proxied:
+        try:
+            fetch(proxied, destination, "2")
+            return
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            warn(f"the controller's release proxy failed for {url} ({error}); trying GitHub")
+    fetch(url, destination)
 
 
 def stored_artifact(url: str, checksum: str, store: Path, download=curl_download) -> Path:

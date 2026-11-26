@@ -146,5 +146,32 @@ class EveryOwnedMacKeepStepSeeds(unittest.TestCase):
         self.assertGreaterEqual(found, 6)
 
 
+class DownloadsThroughTheControllerWhileGitHubRefuses(unittest.TestCase):
+    """GitHub answered every release download from the office Macs 403 (cmux23, 2026-11-26), so SwiftPM ended
+    "binary target 'CCmuxAppFFI' could not be mapped"; the worker then names the controller's release proxy."""
+
+    PROXY = {"CMUX_CI_GITHUB_RELEASE_PROXY": "http://ctl:18765/v1/github-release/"}
+
+    def test_a_release_url_maps_onto_the_proxy(self) -> None:
+        self.assertEqual(PREFETCH.release_proxy_url(URL, self.PROXY),
+                         "http://ctl:18765/v1/github-release/getsentry/sentry-cocoa/9.28.0/Sentry.xcframework.zip")
+        self.assertIsNone(PREFETCH.release_proxy_url(URL, {}))
+        self.assertIsNone(PREFETCH.release_proxy_url("https://example.com/a.zip", self.PROXY))
+
+    def test_the_proxy_goes_first_and_github_is_the_fallback(self) -> None:
+        seen = []
+
+        def fetch(url, destination, retries="4"):
+            seen.append(url)
+            if "ctl" in url:
+                raise PREFETCH.subprocess.CalledProcessError(22, ["curl"])
+
+        PREFETCH.curl_download(URL, Path("/nonexistent"), fetch=fetch, environ=self.PROXY)
+        self.assertEqual(seen, [PREFETCH.release_proxy_url(URL, self.PROXY), URL])
+        seen.clear()
+        PREFETCH.curl_download(URL, Path("/nonexistent"), fetch=fetch, environ={})
+        self.assertEqual(seen, [URL])
+
+
 if __name__ == "__main__":
     unittest.main()
