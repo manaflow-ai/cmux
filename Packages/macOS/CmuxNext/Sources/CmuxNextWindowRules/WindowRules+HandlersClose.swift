@@ -117,6 +117,35 @@ extension WindowRules {
         return call("handlers_close_tab_prompt", Request(warning: facts, titles: titles), as: TabClosePrompt.self)
     }
 
+    // MARK: TabLifecycle
+
+    /// Where a new agent tab or New Tab page goes.
+    public nonisolated struct ChatRoute: Decodable, Equatable, Sendable {
+        /// A tab of this pane (Option-click on the +).
+        public var asTab: Bool
+        /// The chat column's placement picks the strip first.
+        public var column: Bool
+        /// Bound for the chat dock: not moved to a slot.
+        public var docks: Bool
+    }
+
+    /// The route of a new chat (`page`: a New Tab page) from a pane (`shown`: it has a controller). With no answer: a
+    /// person's chat goes to the strip first, nothing docks.
+    public func chatRoute(page: Bool, user: Bool, shown: Bool, plusChatIsTab: Bool, keepsNewTabPage: Bool, placedHere: Bool) -> ChatRoute {
+        struct Request: Encodable { var kind: String, user, shown, plusChatIsTab, keepsNewTabPage, placedHere: Bool }
+        let request = Request(kind: page ? "page" : "agent", user: user, shown: shown, plusChatIsTab: plusChatIsTab, keepsNewTabPage: keepsNewTabPage, placedHere: placedHere)
+        return call("handlers_close_chat_route", request, as: ChatRoute.self) ?? ChatRoute(asTab: false, column: user && shown, docks: false)
+    }
+
+    /// The reopen on the other engine from `tabs::reopen`'s answer: `reopen`, `same`, or its refusal
+    /// (`proxiedTabStaysInChromium`, `chromiumUnavailable`, `notABrowserTab`: the answer when the FFI does not).
+    public func reopenStep(_ answer: Reopen?, hasTab: Bool) -> String {
+        struct Request: Encodable { var decision: String?, reason: String?, hasTab: Bool }
+        struct Reply: Decodable { var kind: String, refusal: String? }
+        let reply = call("handlers_close_reopen_step", Request(decision: answer?.decision, reason: answer?.reason, hasTab: hasTab), as: Reply.self)
+        return reply.map { $0.refusal ?? $0.kind } ?? "notABrowserTab"
+    }
+
     // MARK: TabRestart, HistoryHandlers
 
     /// What `tab.restart` does: `restart`, `refuseNotATerminal` or `refuseTabNotDead` (the answer when the FFI does not).
