@@ -66,6 +66,9 @@ final class MacSession {
     var stallTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
     var chatsError: String?
+    /// The chats channel bound again by itself after it failed on a link that stayed up (bounded,
+    /// `RetryBounds.chatsRebindDelay`); a newer link or a bind that succeeds ends it.
+    var chatsRebind: Task<Void, Never>?
     var daemonError: String?
     var workspacesTimeout: Task<Void, Never>?
     /// The link fed this Mac's data and connection state (cleared when it closes).
