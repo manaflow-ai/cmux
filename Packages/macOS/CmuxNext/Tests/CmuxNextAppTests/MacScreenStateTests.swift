@@ -159,6 +159,15 @@ struct MacScreenStateControlTests {
         return try #require(answer.objectValue?["tabs"]?.arrayValue).compactMap(\.objectValue)
     }
 
+    /// A still screen (the host's fresh heartbeat counts no frame this Mac lacks) reads apart from a stall
+    /// (frames the host sent that never arrived) and from a host gone quiet.
+    @Test func aStillScreenReadsApartFromAStall() {
+        #expect(MacScreenPages.screenStill(hostFrames: 3, hostStatsAgeMs: 1200, decoded: 2, dropped: 1) == true)
+        #expect(MacScreenPages.screenStill(hostFrames: 90, hostStatsAgeMs: 800, decoded: 2, dropped: 0) == false)
+        #expect(MacScreenPages.screenStill(hostFrames: 3, hostStatsAgeMs: 9000, decoded: 3, dropped: 0) == false)
+        #expect(MacScreenPages.screenStill(hostFrames: nil, hostStatsAgeMs: nil, decoded: 2, dropped: 0) == nil)
+    }
+
     /// A device tab reads its device, phase and timings; a home tab is not listed. The first
     /// frame through the pane's own counter sets `first_frame_ms` and `frames_dropped`.
     @Test func aDeviceTabReadsItsPhaseAndFirstFrame() throws {
@@ -183,6 +192,10 @@ struct MacScreenStateControlTests {
         // Nothing asked the hub: the read says so, rather than only "ended" and "no_answer".
         #expect(idle["hub_phase"]?.stringValue == "idle")
         #expect(idle["waits_to_show"]?.boolValue == false)
+        // No window on screen yet: nothing for a capture to find; no hub session streams.
+        #expect(idle["window_id"] == CmuxNextSettings.JSONValue.null && idle["window_pid"] == CmuxNextSettings.JSONValue.null)
+        #expect(idle["window_on_primary_display"]?.boolValue == false)
+        #expect(idle["hub_session"] == CmuxNextSettings.JSONValue.null && idle["session_scope"] == CmuxNextSettings.JSONValue.null)
 
         let start = ContinuousClock.now
         session.timings.connectStarted(at: Date(timeIntervalSince1970: 1_700_000_000), start)
@@ -215,6 +228,8 @@ struct MacScreenStateControlTests {
         let first = try #require(live["first_frame_ms"]?.doubleValue)
         #expect(first >= 0 && first < 10_000)
         #expect(live["frames_dropped"]?.doubleValue == 2)
+        // No host `stats` line yet: nothing says whether the screen is still.
+        #expect(live["host_frames"] == CmuxNextSettings.JSONValue.null && live["screen_still"] == CmuxNextSettings.JSONValue.null)
         #expect(live["rtt_ms_window"]?.objectValue?["p50"]?.doubleValue == 18)
         #expect(live["frame_interval_ms"]?.objectValue?["count"]?.doubleValue == 1)
         #expect(live["decode_ms"]?.objectValue?["p50"]?.doubleValue == 3)

@@ -87,7 +87,7 @@ public final class NavigationPaletteProvider: PaletteProvider {
 
     @MainActor
     static func item(_ entry: PaletteNavigationEntry, recencyBoost: Int, source: (any PaletteNavigationSource)?) -> PaletteItem {
-        let open = PaletteCommand(id: "select", title: commandTitle(entry.kind), symbol: "return", effect: .perform { [weak source] in
+        let open = PaletteCommand(id: "select", title: commandTitle(entry.kind), symbol: "return", namesRow: true, effect: .perform { [weak source] in
             source?.open(entry)
         })
         let parents = [entry.workspaceTitle, entry.groupTitle].compactMap { $0?.isEmpty == false ? $0 : nil }
@@ -124,6 +124,8 @@ public final class NavigationPaletteProvider: PaletteProvider {
             item.actionRefs = [PaletteActionRef("tab.focus", target: target, title: open.title),
                                PaletteActionRef("closeTab", target: target, title: PaletteStrings.closeTab, isDestructive: true)]
         }
+        // Read only for the row the preview pane shows (`experiments.palettePreview`).
+        item.facts = { PaletteFacts.navigation(entry, now: Date()) }
         return item
     }
 
@@ -182,4 +184,29 @@ public final class NavigationPaletteProvider: PaletteProvider {
         guard let host = URL(string: url)?.host(), !host.isEmpty else { return nil }
         return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
+}
+
+/// Go to Workspace's groups, panes and tabs narrowed by `filter` (the v2 scope bar's This Workspace and Sessions,
+/// `PaletteScopeFilter`), listed before the user types.
+final class ScopedNavigationPaletteProvider: PaletteProvider {
+    let id: String
+    let showsItemsForEmptyQuery = true
+    private weak var source: (any PaletteNavigationSource)?
+    private let filter: @MainActor ([PaletteNavigationEntry]) -> [PaletteNavigationEntry]
+
+    init(id: String, source: any PaletteNavigationSource, filter: @escaping @MainActor ([PaletteNavigationEntry]) -> [PaletteNavigationEntry]) {
+        self.id = id
+        self.source = source
+        self.filter = filter
+    }
+
+    // Released like `NavigationPaletteProvider` (#17590): teardown needs no main-actor hop.
+    nonisolated deinit {}
+
+    var immediateItems: [PaletteItem]? {
+        guard let source else { return [] }
+        return NavigationPaletteProvider.items(filter(source.navigationEntries()), source: source)
+    }
+
+    func items() async -> [PaletteItem] { immediateItems ?? [] }
 }

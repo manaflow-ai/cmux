@@ -8,7 +8,7 @@
 // to the completion (hub/tool_read_images.rs), so its row draws the image the same way.
 import { useMemo } from "react";
 import { componentEntry } from "../../../gallery/format";
-import { mergeToolItem } from "../direct";
+import { mergeToolItem } from "../toolActivity";
 import { ImageViewerContext } from "./imageViewerContext";
 import type { ToolRow as ToolRowComponent } from "./ToolRow";
 

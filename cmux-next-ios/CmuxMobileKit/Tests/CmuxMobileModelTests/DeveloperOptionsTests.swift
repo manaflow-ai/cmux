@@ -4,7 +4,17 @@ import Testing
 
 /// Production launches remove stored developer settings, and mock content
 /// needs the explicit developer switch.
-@Suite struct DeveloperOptionsTests {
+///
+/// Serialized: one test writes `UserDefaults.argumentDomain`, which is
+/// process-wide, so a test running beside it reads its `setupComplete=NO`
+/// over its own suite's stored value (flaked on cmux#51591, run 45367758224).
+@Suite(.serialized) struct DeveloperOptionsTests {
+    #if canImport(Darwin)
+    static let appleUserDefaults = true
+    #else
+    static let appleUserDefaults = false
+    #endif
+
     @Test func productionSanitizationRemovesEveryDeveloperKey() throws {
         let suite = "cmuxMobile.tests.developer-options.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
@@ -27,10 +37,16 @@ import Testing
     /// A launch argument starts setup and setup can still finish it: before
     /// seeding, the argument domain hides the app's own write (the App Review
     /// gate's onboarding walk stayed on "Choose a space").
-    @Test func launchArgumentSeedsSetupCompleteInsteadOfPinningIt() throws {
+    /// Apple's argument domain only: swift-corelibs-foundation (the Linux run) keeps a replaced volatile
+    /// argument domain's old values, so this runs on the iOS simulator (cmux-next-ios-kit.yml).
+    @Test(.enabled(if: Self.appleUserDefaults)) func launchArgumentSeedsSetupCompleteInsteadOfPinningIt() throws {
         let suite = "cmuxMobile.tests.developer-options.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
-        let key = "cmuxMobile.setupComplete"
+        // The argument domain is the process's, read by every suite: a launch value on the real
+        // key here showed "NO" to AccountPreferencesTests running beside it (#53107; the
+        // intermittent read in #50907). The same seeding runs on a key only this test reads.
+        #expect(DeveloperOptions.launchSeededKeys.contains("cmuxMobile.setupComplete"))
+        let key = "cmuxMobile.tests.setupComplete.\(UUID().uuidString)"
         let original = defaults.volatileDomain(forName: UserDefaults.argumentDomain)
         defer {
             defaults.setVolatileDomain(original, forName: UserDefaults.argumentDomain)
@@ -44,7 +60,7 @@ import Testing
         defaults.set(true, forKey: key)
         #expect(!defaults.bool(forKey: key))
 
-        DeveloperOptions.seedLaunchArguments(into: defaults)
+        DeveloperOptions.seedLaunchArguments(into: defaults, keys: [key])
 
         #expect(!defaults.bool(forKey: key), "the launch value is the starting value")
         defaults.set(true, forKey: key)
@@ -56,7 +72,9 @@ import Testing
 
     @Test func storedKeysCoverTheDeveloperPage() {
         let keys = Set(DeveloperOptions.storedKeys)
-        #expect(keys.isSuperset(of: [DeveloperOptions.mockDataKey, DeveloperOptions.launchDemoKey, DeveloperOptions.relayOnlyKey]))
+        #expect(keys.isSuperset(of: [DeveloperOptions.mockDataKey, DeveloperOptions.launchDemoKey, DeveloperOptions.relayOnlyKey,
+                                     DeveloperOptions.blockUDPKey, DeveloperOptions.forceRelayKey,
+                                     DeveloperOptions.proxyOnlyKey, DeveloperOptions.dropWireGuardKey]))
     }
 
     #if DEBUG

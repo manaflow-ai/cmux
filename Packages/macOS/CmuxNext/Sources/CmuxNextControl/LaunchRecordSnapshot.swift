@@ -12,6 +12,14 @@ public nonisolated struct LaunchRecordWindowSnapshot: Sendable {
     public var imagePixelSize: (width: UInt32, height: UInt32)
     public var workspaceID: String
     public var tabIDs: [String]
+    /// The display's backing scale, its frame, the system appearance (1 dark) and full screen when
+    /// written (launch record v2): stage 0 draws the image only when all still hold
+    /// (cmux-launch-shell `plan`). Scale 0 reads as unknown, so no image is drawn.
+    public var backingScale: Double = 0
+    public var screenFrame: CGRect = .zero
+    public var appearance: UInt8 = 0
+    public var appearanceFollowsSystem: Bool = true
+    public var fullscreen: Bool = false
 
     public init(id: String, frame: CGRect, displayID: UInt32 = 0, backgroundRGBA: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 255),
                 barRGBA: (UInt8, UInt8, UInt8, UInt8) = (0, 0, 0, 255), imageKey: String = "", imagePixelSize: (UInt32, UInt32) = (0, 0),

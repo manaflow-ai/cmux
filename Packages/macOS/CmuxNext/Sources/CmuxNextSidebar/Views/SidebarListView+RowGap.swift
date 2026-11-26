@@ -47,9 +47,10 @@ extension SidebarListViewComponents {
 
     /// The base y a document drag's drop is hit-tested at, from the rest shape's centre `displayY`; nil keeps the
     /// drag's target (a turn back short of its hysteresis).
-    func docDragBaseY(_ drag: SidebarListDrag, geometry: SidebarDragGeometry, rows: [String: SidebarRow], displayY: CGFloat, x: CGFloat) -> CGFloat? {
+    func docDragBaseY(_ drag: SidebarListDrag, geometry: SidebarDragGeometry, rows: [String: SidebarRow], displayY: CGFloat, x: CGFloat, edges: Bool = true) -> CGFloat? {
         guard let gap = rowGap(drag) else { return baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases) } // tiles: the centre
         var y = SidebarDragGeometry.baseY(displayY: displayY, gapY: gap.y, gapHeight: gap.height)
+        if !edges { return gap.held(y, in: geometry, x: x) } // on the stuck header the centre alone decides
         // A row moves by its edges too (Lawrence 2026-10-20): its top past the middle of the row above moves it up,
         // its bottom past the middle of the row below moves it down (`SidebarDragGeometry.edgeY`). The rest shape's
         // edges, as for the centre, so a morph does not move them.

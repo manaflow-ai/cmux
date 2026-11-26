@@ -42,6 +42,14 @@ python3 scripts/media/media_polish.py sbs before.mp4 after.mp4 --out diff.mp4   
   labeled side-by-side clip of at most 15 s (`--max`) with its gif and poster. The
   sidecar's `trim` records the cut and the differing span. Clips that never differ
   are refused: that before/after measured nothing.
+- Start a scripted or replayed scenario at its interesting state, not at its
+  beginning: the chat simulator's `--start-at S` (seconds into the scenario) or
+  `--seek-to-event SEQ --lead S` (S seconds before record SEQ) applies every
+  earlier step at once, so the state there is exact, then plays the rest at its
+  recorded pace (`webviews/src/agent-session/acpmux/sim/seek.ts`; the browser
+  page's `window.__chatSim.seek(name, options)` draws that state for a recorder).
+  Then cut the pair with `sbs` (above). Keep proof clips under about 15 s; a
+  minute-long clip whose difference is in its last 10 s does not show it.
 - Crop so sidebars with machine or account names are outside the frame;
   `redact --rect` is the fallback. `scan` reads no text and refuses nothing: the
   privacy check (`scripts/ci/pr_media_privacy.py check`, which `pr-media.py` runs

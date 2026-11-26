@@ -13,11 +13,14 @@
 //! - `jsonc.strip` `{source}` answers `{text}` or `{problem}`.
 //! - `jsonc.position` `{source, path}` answers `{line, column}` of the key at
 //!   `path`, or `{}`.
-//! - The areas: [`theme`], [`effective`], [`looks`].
+//! - The areas: [`theme`], [`effective`], [`looks`], [`shortcut`].
 
+pub mod chrome_theme;
 pub mod effective;
 pub mod jsonc;
 pub mod looks;
+pub mod schema;
+pub mod shortcut;
 pub mod theme;
 
 use serde_json::Value;
@@ -40,6 +43,9 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
         _ => theme::call(op, request)
             .or_else(|| effective::call(op, request))
             .or_else(|| looks::call(op, request))
+            .or_else(|| chrome_theme::call(op, request))
+            .or_else(|| shortcut::call(op, request))
+            .or_else(|| schema::call(op, request))
             .unwrap_or(Err(OpError::Unknown)),
     }
 }

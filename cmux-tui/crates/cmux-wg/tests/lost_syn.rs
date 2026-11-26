@@ -4,7 +4,8 @@
 //! retransmission timeout, RFC 6298's 1 s. A connection's first segment is
 //! its SYN, so one lost SYN (3% of them on the `lossy-3` phone profile) held
 //! a cold dial for a full second. The tunnel sets the initial timeout to
-//! 300 ms.
+//! twice the path's round trip, at least 300 ms (the handshake's on this
+//! 10 ms link).
 //!
 //! The client's underlay below drops the first data message that carries a
 //! segment (the SYN), with any copy sent beside it, once. The connection must open about 300 ms later, not
@@ -137,6 +138,41 @@ async fn a_lost_syn_is_resent_after_300_ms_not_one_second() {
         opened < Duration::from_millis(400),
         "open after {opened:?}, not 300 ms plus the round trip"
     );
+    drop(stream);
+    client.shutdown().await;
+    server.shutdown().await;
+}
+
+/// A cold dial on a 400 ms path: the dial waits for the WireGuard session,
+/// whose handshake times the path, so its SYN starts with an 800 ms RTO
+/// instead of 300 ms resending it (and the SYN-ACK) before the answer can
+/// arrive. The stream opens one round trip after the handshake.
+#[tokio::test(start_paused = true)]
+async fn a_cold_dial_on_a_400_ms_path_opens_one_round_trip_after_the_handshake() {
+    let sim = SimNet::new();
+    let link = LinkProfile { latency: Duration::from_millis(200), ..LinkProfile::default() };
+    sim.set_link(addr(CLIENT), addr(SERVER), link);
+    let configs = config_pair(addr(SERVER));
+    let server_path = SocketPath::new(sim.bind(addr(SERVER)).unwrap(), None);
+    let server = WgNet::start_with_underlay(configs.server, server_path).unwrap();
+    let mut listener = server.listen(7000).await.unwrap();
+    tokio::spawn(async move { while listener.accept().await.is_some() {} });
+    let client_path = SocketPath::new(sim.bind(addr(CLIENT)).unwrap(), Some(addr(SERVER)));
+    let client = WgNet::start_with_underlay(configs.client, client_path).unwrap();
+
+    let started = Instant::now();
+    let stream = tokio::time::timeout(
+        Duration::from_secs(10),
+        client.connect(SocketAddr::new(configs.server_v4, 7000)),
+    )
+    .await
+    .expect("connect within 10 s")
+    .expect("connect");
+    let opened = started.elapsed();
+    eprintln!("connection open after {opened:?} (simulated)");
+    // The handshake's round trip, then the SYN's.
+    assert!(opened >= Duration::from_millis(790), "open after {opened:?}: under two round trips");
+    assert!(opened < Duration::from_millis(900), "open after {opened:?}, not two round trips");
     drop(stream);
     client.shutdown().await;
     server.shutdown().await;

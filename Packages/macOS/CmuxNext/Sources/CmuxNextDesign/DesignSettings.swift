@@ -8,6 +8,7 @@ public import CmuxNextDesignTokens
 public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case sidebarWidth
     case sidebarRowHeight
+    case spaceButtonSpacing
     case tabStripHeight
     case tabMaxWidth
     /// Chrome's tab minimums (design-tokens.json `motion.tabStrip`): crowding shrinks every tab
@@ -26,6 +27,31 @@ public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case tabFontSize
     /// The unified titlebar height (cmux-browser's header height reads the same key).
     case titlebarHeight
+    /// A look's proportions (Leo 2026-11-19: "the layout and proportions as well"); unset, each is the density's.
+    /// The gap between a sidebar row's fill and the sidebar's edges (`SidebarRowTuning.outerInset`).
+    case sidebarRowInset
+    /// The room between a sidebar row's fill and its content (`SidebarRowTuning.contentInset`).
+    case sidebarRowPadding
+    /// The gap between two sidebar rows (`SidebarRowTuning.rowGap`).
+    case sidebarRowGap
+    /// A sidebar row with a detail line (`SidebarDensityTokens.rowHeightWithSubtitle`), such as a two-line card.
+    case sidebarRowHeightWithSubtitle
+    /// The side of the chrome's icon buttons (`TopRowSpacing.buttonSide`).
+    case toolbarButtonSize
+    /// The gap between neighboring top-row buttons (`TopRowSpacing.groupGap`).
+    case toolbarButtonGap
+    /// The corner of a toolbar button's hover, pressed and active fill (`Metrics.toolbarButtonCornerRadius(side:)`).
+    case toolbarButtonCornerRadius
+    /// A share (not points) of the text color under a toolbar button that is on (`ChromeHover` lit).
+    case toolbarButtonActiveFill
+    /// A share (not points): the tab row's divider strength under the header (`Metrics.tabRowDividerStrength`).
+    case headerDivider
+    /// A multiplier (not points) on the spacing grid, `Metrics.space1`...`space6`.
+    case spacingScale
+    /// The chat composer's inner padding (`--cmux-composer-inset`).
+    case composerPadding
+    /// The chat composer's one-line box height (`--cmux-composer-box`).
+    case composerMinHeight
 }
 
 /// Live, user-configurable design settings. The App fills this from
@@ -86,17 +112,24 @@ public final class DesignSettings {
             + "window.dispatchEvent(new Event('cmux-ui-scale-change'))"
     }
     /// New Tab scales its Default page values together with one zoom.
+    /// The `appearance.metrics.*` values the page script carries (a look's composer padding and height): read in a page
+    /// host's observation, a look applied or removed re-sends the script, live.
+    public var pageMetrics: [CGFloat?] { [overrides[.composerPadding], overrides[.composerMinHeight]] }
     private var composerScript: String {
         let tokens = Metrics.tokens.tokens
         let values: [(String, String?)] = [
             ("--cmux-composer-zoom", tokens["composerZoom"].map { Self.cssNumber($0) }),
             ("--cmux-composer-column", tokens["composerMaxWidth"].map { "min(\(Self.cssNumber($0))px, 100%)" }),
             ("--cmux-composer-pad-block", nil),
+            // A look's composer padding (`appearance.metrics.composerPadding`); unset keeps the density's.
+            ("--cmux-composer-inset", overrides[.composerPadding].map { "\(Self.cssNumber(Double($0)))px" }),
             ("--cmux-composer-text-size", nil),
             ("--cmux-composer-icon-size", nil),
             ("--cmux-composer-chip-text-size", nil),
             ("--cmux-composer-row-radius-extra", nil),
             ("--cmux-chat-editor-min", tokens["chatEditorMin"].map { "\(Self.cssNumber($0))px" }),
+            // A look's one-line composer height (`appearance.metrics.composerMinHeight`); unset keeps the density's.
+            ("--cmux-composer-box", overrides[.composerMinHeight].map { "\(Self.cssNumber(Double($0)))px" }),
         ]
         return values.map { name, value in
             "document.documentElement.style.setProperty('\(name)', '\(value ?? "")');"
@@ -162,6 +195,26 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.wallpaperLighting`: treats the desktop wallpaper as a light source (glass edges
+    /// facing its brightest part catch its color, the composer glows with it, the glass leans toward
+    /// its hue). Off by default and until the setting reaches it (``SettingsApplier``).
+    public var wallpaperLighting = false {
+        didSet {
+            guard wallpaperLighting != oldValue else { return }
+            BackdropImageStore.shared.light.enabled = wallpaperLighting
+            BackdropImageStore.shared.desktop.lightingEnabled = wallpaperLighting
+        }
+    }
+    /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
+    /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
+    public var liveWallpaperFrameRate = 30
+    /// `appearance.agentSignature`: sidebar agent rows and the agent pane's running line draw
+    /// each agent's dot glyph (acpmux `session/signature`). Off until the setting reaches it
+    /// (``SettingsApplier``); off, no glyph draws and no request goes out. A change repaints, so open
+    /// agent pages get it with the theme (`AgentPaneTheme`) and the sidebar rows redraw (`SidebarTunablesWatch`).
+    public var agentSignature = false {
+        didSet { if agentSignature != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
     /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
     /// entry is centered and fills (today's look). Every window and pane backdrop observes it
     /// (`WindowMaterialView.observePlacement`).
@@ -183,7 +236,13 @@ public final class DesignSettings {
     /// `home.chiefPetEnabled`: the floating Chief pet shows; the empty Chief conversation's pet row follows it.
     public var homeChiefPetEnabled = false
     /// Per-metric overrides in points, clamped by `setOverride`.
-    public private(set) var overrides: [MetricKey: CGFloat] = [:]
+    public private(set) var overrides: [MetricKey: CGFloat] = [:] {
+        didSet {
+            // A look's active fill and header divider are paint: a change repaints, as the tab shape does.
+            let painted: [MetricKey] = [.toolbarButtonActiveFill, .headerDivider]
+            if painted.contains(where: { overrides[$0] != oldValue[$0] }) { ThemeScope.app.store.repaintAll() }
+        }
+    }
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
     /// clamped by `setPaneChrome`.
     public private(set) var paneChrome = PaneChromeOverrides()
@@ -212,6 +271,9 @@ public final class DesignSettings {
     /// `experiments.agentBadges` and `experiments.agentBadgesBeam` (Settings > Advanced > Experiments): count pills on
     /// tabs, a status pill (and, `beam`, a running edge light) on sidebar rows; off is the shipped tabs and rows.
     public var agentBadges: AgentBadgesExperiment = .off
+    /// `experiments.terminalAgentMark` (Settings > Advanced > Experiments, off by default): an agent running in a terminal
+    /// tab draws its mark on a soft rounded square of its tint, so it is told from a GUI agent chat's bare mark.
+    public var terminalAgentMarks = false
     /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
     /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
     public var groupWallpaperTint: WallpaperTint?
@@ -269,6 +331,9 @@ public final class DesignSettings {
     public var layoutRows = true
     /// `layout.focusFollowsMouse`: hovering or scrolling an unfocused pane focuses it (default off).
     public var focusFollowsMouse = false
+    /// `layout.fadeInactivePanes`: panes without the focus fade under the pane fill and fade back
+    /// when they take it (default off).
+    public var fadeInactivePanes = false
     /// `layout.scrollAreas`: a split that cannot fit scrolls instead of squashing its panes
     /// (plans/cmux-next/scroll-areas-DESIGN.md). Off by default.
     public var layoutScrollAreas = false
@@ -283,6 +348,8 @@ public final class DesignSettings {
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
     /// `focusRing.*`: the focused pane's ring or glow.
     public var focusRing = FocusRingSettings()
+    /// Theme Flourishes: the accent glow, tab close colors, sidebar header and pane art.
+    public var flourishes = ThemeFlourishes.none
     /// `sidebar.border` and `sidebar.borderWidth`.
     public var sidebarBorder = SidebarBorder()
     /// `notifications.attention.*`: the unread pane's attention ring.
@@ -305,6 +372,11 @@ public final class DesignSettings {
     /// The full Ghostty `font-family` fallback chain, in config precedence order.
     public var terminalConfigFontFamilies: [String] = [] {
         didSet { if terminalConfigFontFamilies != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// The active theme file's `slots` (slot id to variant id), as the daemon resolved them
+    /// (`theme.slots.resolve`). Pages get them with the theme as is (``WebTheme/slots``).
+    public var themeSlots: [String: String] = [:] {
+        didSet { if themeSlots != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// The family the terminal draws in: cmux.json's, else the Ghostty config's; nil when
     /// neither names one (Ghostty's built-in face). Pages that show code follow it (`WebTheme`).
@@ -333,17 +405,36 @@ public final class DesignSettings {
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).
     public var fontSmoothing: FontSmoothing = .auto
+    /// `appearance.appFont`: the family cmux's interface draws in, nil for the system font. Every web
+    /// page takes it as its `--font-ui` live (``WebTheme/appFontStack(_:)``); native chrome text made
+    /// through ``Typography/system(_:size:weight:)`` takes it too while the `experiments.appFontChrome`
+    /// switch is on (``CheckedFont``), as each view makes its font again.
+    public var appFont: String?
     /// `experiments.*` (Settings > Experimental > Experiments, schemas/settings/source/experiments.json):
     /// each boolean key by its name (`menuStyleV2`), only the ones turned on. ``WebTheme`` sends it to
     /// every cmux page (`window.cmuxExperimentSettings`; webviews/src/experiments/hostSettings.ts maps
     /// a name to its experiment's arm); native code reads ``experiment(_:)``. A change repaints, so
     /// every page gets its theme, and with it the switches, again.
     public var experiments: [String: Bool] = [:] {
-        didSet { if experiments != oldValue { ThemeScope.app.store.repaintAll() } }
+        didSet {
+            guard experiments != oldValue else { return }
+            // cmux Remote's prompts read the theme the app leaves for them only while Themed Floating Prompts is on.
+            if experiments["themedPrompts"] != oldValue["themedPrompts"] {
+                PromptThemeFile.publish(ThemeScope.app.store.tokens, enabled: themedPrompts)
+            }
+            ThemeScope.app.store.repaintAll()
+        }
     }
 
     /// Whether the `experiments.<name>` switch is on (`DesignSettings.shared.experiment("menuStyleV2")`).
     public func experiment(_ name: String) -> Bool { experiments[name] == true }
+    /// `experiments.themedPrompts` (Settings > Experiments > Themed Floating Prompts, off by default: Leo's UI merge
+    /// hold, 2026-11-24): prompts that float over every app draw the ``SurfaceRole/prompt`` look
+    /// (``CmuxDialogView/overApps``), and cmux Remote's wear the app's theme (``PromptThemeFile``). Off keeps the
+    /// system-glass prompts as they were. A test turns it on for its own task only (``themedPromptsOverride``).
+    public var themedPrompts: Bool { Self.themedPromptsOverride ?? experiment("themedPrompts") }
+    /// A test's answer for ``themedPrompts`` in its own task, so tests in parallel never see each other's switch.
+    @TaskLocal public static var themedPromptsOverride: Bool?
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
@@ -364,6 +455,10 @@ public final class DesignSettings {
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.menu.*` and `appearance.popover.*` (``MenuLook``): the menu and popover look a theme file
+    /// sets; ``MenuLook/standard`` (every key unset) is today's. The App's menus read it at each open, and
+    /// pages get it through ``WebTheme`` (``WebTheme/pushInputs`` carries it, so a save repaints every page).
+    public var menuLook = MenuLook.standard
     /// `appearance.cornerFlush`: how the selected tab meets the content card (``CornerFlush``); nil while the key is
     /// unset, so the default (`flush`, no goo) draws only over the stock chrome (``CornerFlush/current``). A Debug
     /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
@@ -375,6 +470,14 @@ public final class DesignSettings {
     public var tabShape: TabShape = .block {
         didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
     }
+    /// `appearance.gooeyTabs`: off (the default), subtle or full goo (``GooeyTabs``). Under subtle and full the corner
+    /// resolves to flush-goo (``CornerFlush/current``) and the tone to Subtle Tone (``effectiveTitleAreaTone``)
+    /// without writing either setting. A change repaints, as the corner does.
+    public var gooeyTabs: GooeyTabs = .off {
+        didSet { if gooeyTabs != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// The title area's tone in effect: Subtle Tone under gooey tabs (subtle or full), else `titleAreaTone`.
+    public var effectiveTitleAreaTone: TitleAreaTone { gooeyTabs.isOn ? .subtleTone : titleAreaTone }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
     /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
@@ -431,6 +534,7 @@ public final class DesignSettings {
         switch key {
         case .sidebarWidth: 160...420
         case .sidebarRowHeight: 20...48
+        case .spaceButtonSpacing: 18...48
         case .tabStripHeight: 22...44
         case .tabMaxWidth: 120...320
         case .tabMinActiveWidth: 32...200
@@ -444,6 +548,17 @@ public final class DesignSettings {
         case .chromeFontSize: 10...20
         case .tabFontSize: 10...18
         case .titlebarHeight: 24...56
+        case .sidebarRowInset, .sidebarRowPadding: 0...24
+        case .sidebarRowGap: 0...12
+        case .sidebarRowHeightWithSubtitle: 28...96
+        case .toolbarButtonActiveFill: 0...0.4
+        case .headerDivider: 0...1
+        case .toolbarButtonSize: 16...40
+        case .toolbarButtonGap: 0...16
+        case .toolbarButtonCornerRadius: 0...20
+        case .spacingScale: 0.5...2
+        case .composerPadding: 0...24
+        case .composerMinHeight: 32...160
         }
     }
 

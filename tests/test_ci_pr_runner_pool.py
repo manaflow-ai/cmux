@@ -3019,7 +3019,7 @@ class IOSRouting(unittest.TestCase):
         self.assertTrue(route.persistent)
         # glaeda knows these jobs, so they take the pool label even with a root count.
         self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
-        # mobile-core-package needs no simulator.
+        # A host-only SwiftPM job needs no simulator.
         self.assertEqual(json.loads(route.package_runs_on), MINI)
         self.assertEqual(json.loads(route.retry_runs_on), SMALL)
 
@@ -3722,6 +3722,94 @@ class IOSRouting(unittest.TestCase):
         outputs = dict(line.split("=", 1) for line in out.getvalue().splitlines())
         self.assertEqual((outputs["jobs"], outputs["sim_jobs"]), ("1", "0"))
 
+    def test_the_same_repository_default_is_granted_with_the_simulator_and_xcode(self):
+        # Leo, 2026-11-24: "we can do it better, no? simply have a scheduler that does better."
+        base = dict(fork=False, owner="manaflow-ai", requested="auto", variable="", blocker="", overflow="",
+                    pr_xcode_app=PR_XCODE)
+        granted = ios_pool.granted_default(ios_pool.ephemeral(SMALL), **base)
+        self.assertEqual(json.loads(granted.runs_on), ["cmux-mac", IOS_SIM, "xcode-26.6"])
+        self.assertEqual(json.loads(granted.build_runs_on), ["cmux-mac", IOS_SIM, "xcode-26.6"])
+        self.assertEqual(json.loads(granted.package_runs_on), ["cmux-mac", "xcode-26.6"])
+        self.assertEqual((granted.label, json.loads(granted.retry_runs_on), granted.persistent),
+                         ("cmux-mac", SMALL, False))
+        # The variable naming the default itself, an overflow pool the simple picker chose, and the plain
+        # overflow switch value are the default too; with no Xcode variable the macOS 26 pin names the Xcode.
+        for route, changes in ((ios_pool.ephemeral(SMALL), {"variable": SMALL}),
+                               (ios_pool.ephemeral(LARGE), {}),
+                               (ios_pool.ephemeral(SMALL), {"overflow": "cmux-mac", "requested": ""})):
+            self.assertEqual(json.loads(ios_pool.granted_default(route, **{**base, **changes}).runs_on),
+                             ["cmux-mac", IOS_SIM, "xcode-26.6"], changes)
+        self.assertEqual(ios_pool.pinned_xcode("26"), "26.6")
+        self.assertEqual(json.loads(ios_pool.granted_default(ios_pool.ephemeral(SMALL),
+                                                             **{**base, "pr_xcode_app": ""}).runs_on),
+                         ["cmux-mac", IOS_SIM, f"xcode-{ios_pool.pinned_xcode('26')}"])
+        # Unchanged: a fork, another owner, an owned route, a blocker, an explicit runner or variable, a
+        # non-Blacksmith route, and an outage's overflow label.
+        owned = ios_pool.Route(MINI, SMALL, True)
+        for route, changes in ((ios_pool.ephemeral(SMALL), {"fork": True}),
+                               (ios_pool.ephemeral(SMALL), {"owner": "someone"}),
+                               (owned, {}),
+                               (ios_pool.ephemeral(SMALL), {"blocker": "a release call stays on Blacksmith"}),
+                               (ios_pool.ephemeral(SMALL), {"requested": SMALL}),
+                               (ios_pool.ephemeral(LARGE), {"variable": LARGE}),
+                               (ios_pool.ephemeral("macos-26"), {}),
+                               (ios_pool.ephemeral(SMALL), {"overflow": SMALL}),
+                               (ios_pool.ephemeral(SMALL), {"event": "push"}),
+                               (ios_pool.ephemeral(SMALL), {"event": "workflow_dispatch"}),
+                               (ios_pool.ephemeral(SMALL), {"event": "schedule"})):
+            self.assertIs(ios_pool.granted_default(route, **{**base, **changes}), route, changes)
+        # A pull request run takes the grant: the controller's bound re-runs it off a starved label.
+        for event in ("pull_request", "pull_request_target"):
+            self.assertEqual(ios_pool.granted_default(ios_pool.ephemeral(SMALL), **{**base, "event": event}).label,
+                             "cmux-mac", event)
+
+    def test_no_free_runner_keeps_the_default_it_logged_instead_of_the_grant(self):
+        # cmux#53546: the picker logged "staying on blacksmith-6vcpu-macos-26" and the job still took
+        # cmux-mac + glaeda-ios-sim + xcode-26.6, a 39 min queue. With 0 runners free the labels match the log.
+        base = dict(fork=False, owner="manaflow-ai", requested="auto", variable="", blocker="", overflow="",
+                    pr_xcode_app=PR_XCODE, event="pull_request")
+        for pool_free, sim_free in ((0, 0), (2, 0), (0, 2)):
+            messages = []
+            route = self.live(pool_free, sim_free, log=messages.append)
+            self.assertTrue(route.starved, (pool_free, sim_free))
+            self.assertIn(f"staying on {SMALL}", messages[-1])
+            granted = ios_pool.granted_default(route, **{**base, "log": messages.append})
+            self.assertIs(granted, route)
+            self.assertEqual((json.loads(granted.runs_on), json.loads(granted.package_runs_on), granted.grant_labels),
+                             (SMALL, SMALL, ()))
+            self.assertIn(f"staying on {SMALL}, not cmux-mac", messages[-1])
+        # The snapshot path: no simulator free keeps the default as well.
+        busy = ios_route(sim_fleet(), device_family="iphone", ios_since=2)[0]
+        self.assertTrue(busy.starved)
+        self.assertIs(ios_pool.granted_default(busy, **base), busy)
+        # A route the picker did not measure (no token, an unread queue) is still granted.
+        unread = ios_route(measure=lambda: (_ for _ in ()).throw(RuntimeError("no token")))[0]
+        self.assertFalse(unread.starved)
+        self.assertEqual(ios_pool.granted_default(unread, **base).label, "cmux-mac")
+        # Free runners still take the owned pool.
+        self.assertTrue(self.live(2, 2).persistent)
+
+    def test_main_grants_the_same_repository_default_and_keeps_a_forks(self):
+        def run(args, env):
+            out = io.StringIO()
+            with unittest.mock.patch("sys.stdout", out), unittest.mock.patch("sys.stderr", io.StringIO()):
+                self.assertEqual(ios_pool.main(args, env=env), 0)
+            return dict(line.split("=", 1) for line in out.getvalue().splitlines())
+        args = ["--lane", "kit", "--pr-xcode-app", PR_XCODE]
+        outputs = run(args, {"GITHUB_REPOSITORY": "manaflow-ai/cmux"})
+        self.assertEqual({k: outputs[k] for k in ("label", "runs_on", "package_runs_on", "retry_runs_on", "persistent")},
+                         {"label": "cmux-mac", "runs_on": json.dumps(["cmux-mac", IOS_SIM, "xcode-26.6"]),
+                          "package_runs_on": json.dumps(["cmux-mac", "xcode-26.6"]),
+                          "retry_runs_on": json.dumps(SMALL), "persistent": "false"})
+        # A fork, an outage's overflow label and another repository keep the simple picker's Blacksmith pool.
+        for extra, env in ((["--fork", "true"], {"GITHUB_REPOSITORY": "manaflow-ai/cmux"}),
+                           ([], {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "CI_OVERFLOW_MAC": SMALL}),
+                           ([], {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_EVENT_NAME": "push"}),
+                           ([], {})):
+            runs_on = json.loads(run(args + extra, env)["runs_on"])
+            self.assertIsInstance(runs_on, str, (extra, env))
+            self.assertTrue(runs_on.startswith("blacksmith-"), (extra, env, runs_on))
+
     def live(self, pool_free, sim_free, **kwargs):
         load = ios_pool.IOSLoad(None, live=ios_pool.LiveFree(pool=pool_free, sim=sim_free))
         return ios_route(measure=lambda: load, **kwargs)[0]
@@ -4268,13 +4356,14 @@ class IOSWiring(unittest.TestCase):
 
     def test_test_ios_macos_jobs_take_the_runner_jobs_pool(self):
         jobs = self.workflow("test-ios.yml")["jobs"]
-        self.assertEqual(runs_on_of(jobs["mobile-core-package"]), self.TEST_IOS_RUNS_ON.replace(
-            "needs.runner.outputs.runs_on", "needs.runner.outputs.package_runs_on"))
+        # The mobile-core packages test on Linux; no macOS job reads package_runs_on.
+        self.assertNotIn("mobile-core-package", jobs)
+        self.assertNotIn("package_runs_on", jobs["runner"]["outputs"])
         # ios-simulator-build reads its own output first (Build placement), runs_on when a picker has none.
         self.assertEqual(runs_on_of(jobs["ios-simulator-build"]), self.TEST_IOS_RUNS_ON.replace(
             "|| needs.runner.outputs.runs_on)", "|| needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on)"))
         self.assertEqual(jobs["runner"]["outputs"]["build_runs_on"], "${{ steps.pool.outputs.build_runs_on }}")
-        for name in ("mobile-core-package", "ios-simulator-build"):
+        for name in ("ios-simulator-build",):
             self.assertIn("runner", jobs[name]["needs"], name)
             self.assertIn("needs.runner.result == 'success'", jobs[name]["if"], name)
         self.assertIn("runner", jobs["ios-tests"]["needs"])
@@ -4296,7 +4385,7 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(step["env"]["SEED_CACHE"], "${{ inputs.seed_cache }}")
         self.assertIn('--seed-cache "$SEED_CACHE"', step["run"])
         pin = IOS_XCODE_PIN
-        for name in ("mobile-core-package", "ios-simulator-build"):
+        for name in ("ios-simulator-build",):
             self.assertEqual(env_of(jobs[name])["CMUX_CI_XCODE_APP"], pin, name)
         # PyYAML reads the `on:` key as True.
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]

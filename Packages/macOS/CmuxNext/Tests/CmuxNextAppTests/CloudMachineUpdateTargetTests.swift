@@ -283,6 +283,28 @@ struct CloudMachineUpdateTargetTests {
         #expect(!gate.contains("vm-2"), "a failed start holds nothing")
     }
 
+    /// cmux#55519: the composer's start holds its machine from before the link connects, through the hand-over to the start's
+    /// steps, so the automatic update its handshake offers answers busy. RED before: the gate was entered only after the
+    /// connect and the route check, and the update restarted the daemon under the start (a warm spare, about 21 s).
+    @Test func theComposersStartHoldsItsMachineFromBeforeTheConnectWithNoGap() async throws {
+        var clock = ContinuousClock.now
+        let gate = CloudStartGate(now: { clock }) // the update's `starting` is `gate.contains` (CloudMachineUpdates.target)
+        let heldDuringConnect = try await gate.entering("vm-1") { gate.contains("vm-1") } // the handshake's offer, mid-connect
+        #expect(heldDuringConnect, "no restart while the link comes up")
+        #expect(gate.contains("vm-1"), "still held between the connect and the start's steps")
+        let inside = try await gate.holding("vm-1", entered: true) { gate.contains("vm-1") }
+        #expect(inside, "the steps take the same hold over")
+        #expect(gate.contains("vm-1"), "and through the first turn")
+        clock += CloudStartGate.firstTurnHold
+        #expect(!gate.contains("vm-1"), "one hold, not two: it ends after the first turn")
+        struct Refused: Error {}
+        _ = try? await gate.entering("vm-2") { throw Refused() }
+        #expect(!gate.contains("vm-2"), "a connect that failed holds nothing")
+        gate.enter("vm-3")
+        _ = try? await gate.holding("vm-3", entered: true) { throw Refused() }
+        #expect(!gate.contains("vm-3"), "a start that failed after its connect lets go of the hold it took over")
+    }
+
     /// A refused daemon can't connect, so nothing on it is in use through the app: it goes first,
     /// though its build is unknown.
     @Test func anIncompatibleMachineUpdatesRightAway() async throws {

@@ -43,6 +43,21 @@ enum PageImageBackground {
         return fill(page, color)
     }
 
+    /// `image` drawn over `color` when `color` is opaque (the page's clear pixels take it); `image` itself, clear
+    /// pixels kept, when it is not (the window's backdrop shows through, as it does through the live page).
+    @MainActor
+    static func flattened(_ image: CGImage, over color: ThemeRGB) -> CGImage {
+        guard isOpaque(color), image.width > 0, image.height > 0,
+              let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return image }
+        let bounds = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        context.setFillColor(color.cgColor)
+        context.fill(bounds)
+        context.draw(image, in: bounds)
+        return context.makeImage() ?? image
+    }
+
     /// `page` drawn over `color` at the snapshot's pixel size when `color` is opaque; `page`
     /// itself, clear pixels kept, when the page is transparent (`color` with alpha below 1).
     @MainActor

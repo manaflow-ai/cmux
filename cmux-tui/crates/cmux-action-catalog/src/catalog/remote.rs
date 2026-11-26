@@ -17,7 +17,7 @@ pub static ACTIONS: &[Action] = &[
         category: "remote",
         symbol: "cable.connector",
         surfaces: PALETTE | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 201).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         arguments: &[args::DESTINATION, args::SESSION_2.optional(), args::BINARY.optional(), args::STATE_DIR.optional(), args::NAME.optional()],
         cli_name: "remote connect",
         main_menu: Some("file"),
@@ -31,7 +31,7 @@ pub static ACTIONS: &[Action] = &[
         category: "remote",
         symbol: "ipad.and.iphone",
         surfaces: PALETTE | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 202).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         arguments: &[args::WAY.optional()],
         cli_name: "device add",
         main_menu: Some("file"),
@@ -62,6 +62,7 @@ pub static ACTIONS: &[Action] = &[
         palette_target: Some("machine"),
         targets: &["machine"],
         cli_name: "machine doctor",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -125,7 +126,7 @@ pub static ACTIONS: &[Action] = &[
         category: "remote",
         symbol: "rectangle.stack.badge.plus",
         surfaces: PALETTE | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 200).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         arguments: &[args::DESTINATION_2, args::NAME.optional()],
         cli_name: "remote new-group",
         ..Action::DEFAULT
@@ -269,6 +270,7 @@ pub static ACTIONS: &[Action] = &[
         targets: &["machine"],
         cli_name: "remote install",
         is_destructive: true,
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -316,6 +318,7 @@ pub static ACTIONS: &[Action] = &[
         targets: &["machine"],
         cli_name: "remote forget",
         is_destructive: true,
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

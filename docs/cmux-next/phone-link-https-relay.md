@@ -62,10 +62,20 @@ through, and an inspecting proxy that passes WebSocket upgrades passes it.
 **Auth.** The Worker verifies the token, then asks the caller's own hub
 (`TeamHub.relayPeer`) for the other party of that session: the hub bound each
 session id to its initiator and responder at its first admitted signal, and
-admission already requires the same user (and build space). Only those two
-devices get a socket; the device ids the object uses come from the Worker in
-headers a client cannot set. Each frame goes only to the other party, with its
-peer id overwritten with the sender's. The relay sees ciphertext only.
+admission already requires the same user (and build space). The joining device
+must also present its own relay ticket, a random value the hub stamped
+(`relayTicket`) only on the signals it forwarded to that device's own
+signaling socket, so another device of the same user cannot pass a party's id.
+Only those two devices get a socket; the device ids the object uses come from
+the Worker in headers a client cannot set. Each frame goes only to the other
+party, with its peer id overwritten with the sender's. The relay sees
+ciphertext only. The hub closes the live sockets when the session ends or a
+device is removed, and the kill switch closes them at their next frame.
+
+**Per-user budget.** What a socket relays is first granted by the user's
+hub from one budget across all of that user's sessions (480 MiB a minute by
+default, `LINK_RELAY_USER_MIB_PER_MIN`), so the relay is not a free pipe that
+grows with the number of sessions a user opens.
 
 **When it engages.** Both sides offer it in `wg-init` / `wg-resp` (`relay:
 "ready"`, or `"now"` when that side has no other path: no plain UDP and no TURN

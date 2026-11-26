@@ -62,6 +62,10 @@ export default agentPaneEntry({
       note: "The turn ends on a tagged ask: the card under the prose, three answers, ⌘↩ on the first.",
       snapshot: turn(ASK),
     },
+    "waiting-view-only": {
+      note: "The same turn in View Only: the same card read only, its last row says to take over.",
+      snapshot: ((snapshot) => ({ ...snapshot, summary: { ...snapshot.summary!, watching: "claude" } }))(turn(ASK)),
+    },
     answered: {
       note: "The person clicked Not now: the card folds to the question and the answer.",
       snapshot: turn(ASK, "Not now"),

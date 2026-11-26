@@ -45,6 +45,11 @@ public final class AgentPaneGitLink {
     /// Whether the session host answers `diff.comments.send`, as its last handshake said.
     public var sendsDiffComments: Bool { daemon.identity?.supports(DaemonCapability.diffCommentsSend.rawValue) == true }
 
+    /// Whether the session host supports threaded diff comment mutations and sends.
+    public var supportsDiffCommentThreads: Bool {
+        daemon.identity?.supports(DaemonCapability.diffCommentsThreads.rawValue) == true
+    }
+
     /// The operation's result as JSON for the page. Throws an
     /// ``AgentPaneGitFailure``: the session host's resource error, or why
     /// the read got no answer (no connection, a timeout).
@@ -91,6 +96,11 @@ public final class AgentPaneGitLink {
         try JSONEncoder().encode(result)
     }
 
+    /// A mutation's params as the page sent them (a comment or review body of any length): decoded off the main actor.
+    @concurrent private nonisolated static func object(_ params: Data) async -> [String: JSONValue]? {
+        try? JSONDecoder().decode([String: JSONValue].self, from: params)
+    }
+
     /// The mutation's `MutationResult` as JSON for the page, run under the
     /// page's idempotency key. Throws like ``read(_:)``; a commit or push
     /// that may have run without an answer is `native.timed_out`, and the
@@ -117,7 +127,7 @@ public final class AgentPaneGitLink {
     /// `idempotencyKey`, on the write connection (the diff page's `diff.comments.save` and
     /// `.delete`). Throws like ``write(_:in:)``; params that are no JSON object are `native.failed`.
     public func mutate(_ operation: String, params: Data, idempotencyKey: String) async throws(AgentPaneGitFailure) -> Data {
-        guard let params = try? JSONDecoder().decode([String: JSONValue].self, from: params) else { throw AgentPaneGitFailure.failed }
+        guard let params = await Self.object(params) else { throw AgentPaneGitFailure.failed }
         let connection: DaemonConnection
         do {
             let writes = writeLink ?? AgentPaneGitLink(daemon: daemon, clientName: clientName + "-write")
@@ -140,7 +150,7 @@ public final class AgentPaneGitLink {
     /// commands behind it. A daemon the app did not start (another machine's) has no such
     /// connection: `native.not_connected`. Throws like ``mutate(_:params:idempotencyKey:)``.
     public func userMutate(_ operation: String, params: Data, idempotencyKey: String) async throws(AgentPaneGitFailure) -> Data {
-        guard let params = try? JSONDecoder().decode([String: JSONValue].self, from: params) else { throw AgentPaneGitFailure.failed }
+        guard let params = await Self.object(params) else { throw AgentPaneGitFailure.failed }
         guard let hello = daemon.clientHello else { throw AgentPaneGitFailure.notConnected }
         let connection: DaemonConnection
         do {

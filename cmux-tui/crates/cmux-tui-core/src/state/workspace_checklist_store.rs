@@ -10,10 +10,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 /// Items one workspace may hold.
+/// Measured: the bytes of one change; every change sends the whole checklist as one
+/// `workspace_checklist` state upsert, at most 50 × (2 KB of text + 20 × ~5.2 KB of
+/// attachments) ≈ 5.3 MB.
 pub(crate) const MAX_CHECKLIST_ITEMS: usize = 50;
 /// Longest accepted item text, in characters, after trimming.
 pub(crate) const MAX_ITEM_TEXT_CHARS: usize = 500;
 /// Attachments one item may hold.
+/// Measured: the bytes of one change; an attachment is up to ~5.2 KB (4096-byte path, 256-char
+/// name, id), and every change re-sends the item's whole list, so 20 is ~104 KB per item.
 pub(crate) const MAX_ITEM_ATTACHMENTS: usize = 20;
 /// Longest accepted attachment path, in bytes.
 pub(crate) const MAX_ATTACHMENT_PATH_BYTES: usize = 4096;
