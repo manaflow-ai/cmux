@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
 from test_nightly_owned_minis_only import (HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS, HOSTED_TAIL_JOBS,  # noqa: E402
-                                           JIT_LABEL, NIGHTLY_NEXT_ONLY_OWNED, NIGHTLY_PINNED_JOBS, hosted_route)
+                                           JIT_LABEL, NIGHTLY_LINUX_CONTROLS, NIGHTLY_NEXT_ONLY_OWNED, NIGHTLY_PINNED_JOBS, hosted_route)
 import workflow_jobs  # noqa: E402
 
 MINI, BUILDER, SIGN = "glaeda-nightly-mini", "glaeda-nightly-mini-builder", "glaeda-trusted-next-signing"
@@ -42,7 +42,9 @@ MODE = {"vars.CI_NIGHTLY_MINI": MINI, "vars.CI_NIGHTLY_MINI_BUILDER": BUILDER, "
 SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-nightly-next-notarization",
            "publish-nightly", "sign-nightly-identity-legacy", "generate-nightly-deltas",
            "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
-           "sign-live-code-variant"}
+           "sign-live-code-variant",
+           # nine signers since #56641 (521e22e5, #54859): signs, notarizes and uploads the pre-warming .pkg
+           "nightly-next-pkg"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
 LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
@@ -67,6 +69,8 @@ def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, f
         return SIGN
     if name == "build-nightly-app":
         return BUILDER
+    if name in NIGHTLY_LINUX_CONTROLS:  # App-key dispatchers (#56483): the reserved Linux label, never the mini
+        return PINNED_LINUX if first else "cmux-linux"
     if name in NIGHTLY_PINNED_JOBS and first:
         return PINNED_LINUX
     if name in LINUX_POOL_JOBS:
