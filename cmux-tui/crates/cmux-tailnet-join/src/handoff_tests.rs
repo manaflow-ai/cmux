@@ -92,5 +92,8 @@ fn adopt_starts_a_handshake_with_every_online_peer_once_running() {
     // Through WireGuard (a disco ping starts no handshake), detached, bounded, skipping offline peers.
     assert!(s.contains("--self=false") && s.contains("!~ / offline/") && s.contains("head -n 64"));
     assert!(s.contains(" -c 1 --timeout 3s"));
+    // Waits (bounded, 2 s) until the node knows its own endpoints, so the first handshake can go direct.
+    let wait = s.find("--peers=false").expect("waits for its own endpoints");
+    assert!(wait < kick && s.contains("[ $i -gt 20 ] && break"));
     assert!(s.contains("</dev/null >/dev/null 2>&1 &"), "never holds the adopt run's output");
 }
