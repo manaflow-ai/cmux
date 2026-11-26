@@ -8,7 +8,7 @@ import Foundation
 /// upload starts then, not on Send, and every stage can be cancelled
 /// (design/attachment-upload.md).
 @MainActor
-public protocol TerminalAttachmentSending: AnyObject {
+public protocol TerminalAttachmentSending: AnyObject, Sendable {
     /// Starts sending the attachment; nil when there is no Mac to send it to.
     func start(_ attachment: ComposerAttachment) -> String?
     /// Stops it at any stage, at once.
@@ -39,7 +39,8 @@ public final class EngineAttachmentSender: TerminalAttachmentSending {
         guard let url = attachment.fileURL else { return nil }
         guard attachment.kind == .video else { return client.start(url, name: attachment.name, to: destination) }
         let id = client.reserve(name: attachment.name, to: destination)
-        exports[id] = Task { [weak self] in
+        exports[id] = Task { [weak self, pickedMovie = attachment.pickedMovie] in
+            defer { withExtendedLifetime(pickedMovie) {} }
             let prepared = await VideoCompressor.prepare(ScopedFile(url)) { fraction in
                 self?.client.compressProgress(id, fraction: fraction)
             }

@@ -236,7 +236,7 @@ import Testing
         do {
             let movie = try PickedMovieCopy(copying: source)
             copied = movie.url
-            model.attachmentLoaded(tile.id, thumbnail: nil, byteCount: 3, fileURL: movie.url, pickedMovie: movie)
+            model.attachmentLoaded(tile.id, .movie(movie, thumbnail: nil, byteCount: 3))
         }
         model.send()
         model.cancelSend()
@@ -253,6 +253,87 @@ import Testing
         #expect(files.fileExists(atPath: source.path))
     }
 
+    @Test func removingAMovieDropsItsCopyEvenIfPhotosFinishesAfterRemoval() async throws {
+        let files = FileManager.default
+        let source = files.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
+        try Data([1, 2, 3]).write(to: source)
+        defer { try? files.removeItem(at: source) }
+        for removeWhileLoading in [false, true] {
+            let model = Self.model()
+            let sender = FakeSender()
+            model.attachmentSender = sender
+            let tile = ComposerAttachment(kind: .video, name: "Clip.mov", isLoading: true)
+            var copied: URL?
+            var waiting: CheckedContinuation<Void, Never>?
+            model.loadPickedAttachment(tile) {
+                let movie = try PickedMovieCopy(copying: source)
+                copied = movie.url
+                await withCheckedContinuation { waiting = $0 }
+                return .movie(movie, thumbnail: nil, byteCount: 3)
+            }
+            try #require(await Self.waitFor { waiting != nil })
+            let directory = try #require(copied).deletingLastPathComponent()
+            if removeWhileLoading { model.removeAttachment(tile.id) }
+            waiting?.resume()
+            if !removeWhileLoading {
+                try #require(await Self.waitFor { sender.started.count == 1 })
+                #expect(files.fileExists(atPath: directory.path))
+                model.removeAttachment(tile.id)
+            }
+            #expect(await Self.waitFor { !files.fileExists(atPath: directory.path) })
+            #expect(sender.started.count == (removeWhileLoading ? 0 : 1))
+            #expect(model.attachments.isEmpty)
+            #expect(model.attachmentError == nil)
+            #expect(files.fileExists(atPath: source.path))
+        }
+    }
+
+    @Test func reconnectMovesLoadingPicksAndRemovalIgnoresLateCompletion() async throws {
+        let before = Self.model()
+        let after = Self.model()
+        let sender = FakeSender()
+        after.attachmentSender = sender
+        let keep = ComposerAttachment(kind: .image, name: "one", isLoading: true)
+        let remove = ComposerAttachment(kind: .image, name: "two", isLoading: true)
+        var waiting: [UUID: CheckedContinuation<Void, Never>] = [:]
+        var cancelled: [UUID] = []
+        for tile in [keep, remove] {
+            before.loadPickedAttachment(tile) {
+                await withCheckedContinuation { waiting[tile.id] = $0 }
+                if Task.isCancelled { cancelled.append(tile.id) }
+                return .image(Data([1]), thumbnail: nil)
+            }
+        }
+        try #require(await Self.waitFor { waiting.count == 2 })
+        after.adoptComposer(from: before)
+        after.removeAttachment(remove.id)
+        for continuation in waiting.values { continuation.resume() }
+        #expect(await Self.waitFor { cancelled == [remove.id] && sender.started.count == 1 })
+        #expect(after.attachments.map(\.id) == [keep.id])
+        #expect(after.attachments.first?.isLoading == false)
+        #expect(after.attachments.first?.data == Data([1]))
+        #expect(after.attachmentError == nil)
+        #expect(before.attachments.isEmpty)
+    }
+
+    @Test func stopAfterReconnectCancelsTheSenderThatOwnsTheExport() {
+        let before = Self.model()
+        let after = Self.model()
+        let original = FakeSender()
+        let replacement = FakeSender()
+        before.attachmentSender = original
+        after.attachmentSender = replacement
+        before.addAttachment(Self.video())
+        after.adoptComposer(from: before)
+        after.send()
+        after.cancelSend()
+        #expect(original.cancelled == ["u1"])
+        #expect(replacement.cancelled.isEmpty)
+        after.send()
+        #expect(replacement.started == ["u1"])
+        after.cancelSend()
+    }
+
     @Test func aFailedUploadShowsWhyAndSendStartsItAgain() async {
         let model = Self.model()
         let sender = FakeSender()
@@ -260,13 +341,13 @@ import Testing
         model.addAttachment(Self.video())
         model.send()
         sender.finish("u1", .failure(LinkUploadTestFailure()))
-        await Self.settle()
-        #expect(!model.isUploading)
+        #expect(await Self.waitFor { !model.isUploading })
         #expect(model.attachmentError?.contains("clip.mov") == true)
         model.send()
         #expect(sender.started == ["u1", "u2"])
         #expect(model.attachments.first?.uploadID == "u2")
         #expect(model.isUploading)
+        model.cancelSend()
     }
 
     struct LinkUploadTestFailure: Error {}
