@@ -782,11 +782,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
         run: bun test scripts/cmux-next/machine-join-e2e.test.ts
 
-      # The deploy check's retries: a failed Cloud journey runs once more, and db-release waits out a
+      # The Auto journey's S4 phone sends, and the deploy check's retries: a failed Cloud journey runs once more, and db-release waits out a
       # full database (fake bun and fake connect; no network, no secret).
       - name: Validate the Cloud journey and deploy gate retries
         if: ${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}
-        run: bun test scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
+        run: bun test scripts/cmux-next/auto-journey-s4.test.ts scripts/cmux-next/cloud-journey.test.ts scripts/cmux-next/cloud-journey-retry.test.ts scripts/cmux-next/cloud-journey-first-text.test.ts scripts/cmux-next/cloud-journey-window.test.ts scripts/cmux-next/cloud-journey-preclaim-login.test.ts scripts/cmux-next/cloud-journey-teammate.test.ts
 
       # The staging test account sweep's picker: age, state, activity and creator decide what goes (pure; no
       # network, no secret).
@@ -1017,6 +1017,10 @@ jobs:
       - name: Validate the Linux-capable Swift package list
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_swift_linux_packages.py
+
+      - name: Validate the Linux Swift target ratchet (count only goes up)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_swift_linux_targets.py
 
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1454,6 +1458,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_tui_daemon_tests_gate.py
 
+      - name: Validate the feat-cmux-next channel keeper
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_tui_channel_keeper.py
+
       - name: Validate the tui publish dispatch budget
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_tui_publish_dispatch_budget.py
@@ -1551,6 +1559,10 @@ jobs:
       - name: Validate the git mirror bundle publisher
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_git_mirror_bundle.py
+
+      - name: Validate the pinned files mirror
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pinned_files_mirror.py
 
       - name: Validate the R2 binaries pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1858,6 +1870,10 @@ jobs:
       - name: Validate the cmux-tui tree hand-off cap
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_tree_handoff.py
+
+      - name: Validate the hand-off of a tree owner that ended in startup_failure
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_stranded_owner_sweep.py
 
       - name: Validate that recovery jobs run after a timeout
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
