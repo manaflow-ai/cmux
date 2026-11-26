@@ -1474,11 +1474,29 @@ def build_failed_tip(cur):
             and any(isinstance(p, dict) and p.get("state") == "build_failed" for p in (cur.get("parts") or {}).values()))
 
 
+# A build part's failure that ran nothing of the commit: the fleet could not fetch its source (NOT_STARTED_RE, and the
+# shapes of it a record keeps once its 200-character why cuts that suffix off). Such a tip says nothing about the base.
+BUILD_NEVER_RAN_RE = re.compile(r"source download failed \d+ times?, before the job started|GitHub refused the fetch"
+                                r"|no reviewed tip could be fetched|not fetched \(git: unable to access")
+
+
 def last_tip_build_failed(state):
-    """The newest finished tip measurement in the history failed to build its app (finish_measurement) (pure)."""
+    """The newest finished tip measurement in the history failed to build its app (finish_measurement) (pure). A build
+    that never ran (BUILD_NEVER_RAN_RE) is no failure of the app: tip c2b1760e's checkout was refused (HTTP 403,
+    2026-11-26) before the controller's NOT_STARTED_RE yield existed, and the next tip, 60a23ed3, whose source fetch
+    the controller's git proxy answered 503, then took it for a broken base and held the Mac behind its Linux parts."""
     entry = next((e for e in reversed(state.get("history") or []) if isinstance(e, dict) and e.get("kind") == "tip"), None)
-    return bool(entry) and (bool(entry.get("build_failed"))
-                            or "build_failed" in (entry.get("failed_why") or {}).values())
+    if not entry:
+        return False
+    if BUILD_NEVER_RAN_RE.search(str((entry.get("failed_why") or {}).get("build") or "")):
+        return False
+    return bool(entry.get("build_failed")) or "build_failed" in (entry.get("failed_why") or {}).values()
+
+
+def build_never_ran(cur):
+    """The tip in flight's build part failed before it ran anything of the commit (BUILD_NEVER_RAN_RE) (pure)."""
+    build = (cur.get("parts") or {}).get("build") if isinstance(cur, dict) else None
+    return isinstance(build, dict) and build.get("state") == "failed" and bool(BUILD_NEVER_RAN_RE.search(str(build.get("why") or "")))
 
 
 def unread_missing(state, cur):
@@ -1511,7 +1529,11 @@ def supersede_for_unread(state, t, newest, supported_parts):
         # while the newer tip, with the unread part, waited (tip 12aa19c2, 2026-11-23: Mac parts superseded, then
         # web-ui-growth unanswered 23 h, so chat-size never ran). A record with no `at` predates this bound: ends now.
         since = parse_started(gave.get("at"))
-        if since and hours_between(since, t) < SUPERSEDED_LINUX_HOURS:
+        # A tip superseded for its build while the base looked broken keeps its Linux parts for the bound; once that
+        # judgement no longer holds (its build never ran, or the tip before built), they end now, as below.
+        base_ok = str(gave.get("why") or "").startswith("its app build failed") and (
+            build_never_ran(cur) or not last_tip_build_failed(state))
+        if since and hours_between(since, t) < SUPERSEDED_LINUX_HOURS and not base_ok:
             return None
         for name in list(cur["parts_todo"]):
             cur["parts"][name] = {"state": "superseded", "reason": gave.get("why") or "superseded"}
@@ -1523,7 +1545,7 @@ def supersede_for_unread(state, t, newest, supported_parts):
         # 10:32Z with 24 Linux parts to do, and tabs, which NOW's tabs-keep-speed reads, had no row for 8 days).
         why = f"its app build failed; {newest[:12]} is newer"
         cur["superseded"] = {"by": newest, "why": why, "at": iso(t)}
-        if not last_tip_build_failed(state):
+        if build_never_ran(cur) or not last_tip_build_failed(state):
             # The Mac waits on no Linux part: the tip ends now and the newer tip claims the Mac at this tick, its own
             # Linux parts running at once with it (decide). The Linux parts that ran with the build already reported
             # in that tick; the rest end 'superseded', and the build's failure stays on record (finish_measurement).
@@ -2972,6 +2994,45 @@ def streak_parts(streak):
     return sorted(set.intersection(*sets)) if sets else []
 
 
+# The issue's task block: one entry per open bisect group with its stage, so an agent (or the next one) resumes where
+# the last left off instead of reading lane memory (docs/reading/2026-11-25-openai-performance-factory.md in hq: "a
+# perf alert becomes a task that agents carry to recovery"). The cron writes the stages it can judge itself; a lane
+# that names a root cause or opens a fix says so in a comment, since the next tick rewrites this block.
+TASK_MARK = "<!-- cmux-next-perf-task -->"
+TASK_NEXT = {
+    "needs investigation": "the cron bisects the range a step per tick; nothing to do until a culprit is named",
+    "culprit named": "disprove the culprit: does a revert of it recover the rows, did the rows move at it on another "
+                     "host? Then comment the root cause, or that the culprit is wrong",
+    "recovering": "within threshold again; the cron closes the rows after their recovery runs, nothing to do",
+}
+
+
+def task_stage(rows, rng, regs):
+    """A bisect group's stage: recovering (every row within its threshold in its latest run), culprit named (the
+    bisect ended on one commit), else needs investigation."""
+    by = {r["name"]: r for r in regs}
+    if rows and all(by.get(n, {}).get("recovering") for n in rows):
+        return "recovering"
+    return "culprit named" if rng.get("culprit") else "needs investigation"
+
+
+def task_block(state):
+    """The issue's task block: {"tasks": [{id, stage, next, rows, opened_at, range, culprit, pr}]} as fenced JSON."""
+    regs = state.get("regressions") or []
+    tasks = []
+    for g in bisect_groups(state):
+        rng, rows = g["range"], g["rows"]
+        opened = [str((r.get("first_bad") or {}).get("measured_at") or "") for r in regs if r["name"] in rows]
+        opened = sorted(o for o in opened if o)
+        named = next((c for c in reversed(state.get("culprits") or []) if c.get("sha") == rng.get("culprit")), None)
+        stage = task_stage(rows, rng, regs)
+        tasks.append({"id": f"{str(rng['good'])[:11]}..{str(rng['bad'])[:11]}", "stage": stage, "next": TASK_NEXT[stage],
+                      "rows": rows, "opened_at": opened[0] if opened else None,
+                      "range": {"good": rng["good"], "bad": rng["bad"], "steps": rng.get("steps", 0)},
+                      "culprit": rng.get("culprit"), "pr": (named or {}).get("pr")})
+    return [TASK_MARK, "```json", json.dumps({"tasks": tasks}, sort_keys=True), "```"]
+
+
 def issue_body(state, repo, now):
     good = state.get("last_good")
     last = state.get("last") or {}
@@ -3011,6 +3072,7 @@ def issue_body(state, repo, now):
             lines.append(f"| {r['name']} | {fmt(r.get('base'))} {r.get('unit', '')} | {fmt(r.get('p95'))} {r.get('unit', '')} | {change} | "
                          f"{fmt(r.get('target'))} | {hz(r.get('refresh_ms'))} | {why} | "
                          f"{str(rng.get('good') or '?')[:7]}..{str(rng.get('bad') or '?')[:7]} |")
+        lines += ["", "Task state (one entry per culprit range; the cron rewrites it each tick):", "", *task_block(state)]
     else:
         lines.append("No confirmed regression.")
     lines += ["", *budget_issue_lines(state, now)]
@@ -5207,10 +5269,21 @@ def result_plan(o, state, t):
     write_outputs(o.output, out)
 
 
+# The controller's error for a step that never started: its source download (the checkout's fetch) failed every
+# try (build-fleet ci_step.go). On 2026-11-26 GitHub refused cmux20-bench's fetch with HTTP 403 and tip c2b1760e's
+# build part failed so; result_files called it a build failure, which ended all 25 Mac parts (tabs among them) as
+# build_failed though no build ran.
+NOT_STARTED_RE = re.compile(r"source download failed \d+ times?, before the job started")
+
+
 def result_files(value):
     """result.json for record_part from the controller's result (pure): a failed build part ends the other Mac
-    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded."""
+    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded. A step that
+    failed before it started (NOT_STARTED_RE: the fleet could not fetch the source) ran nothing of the commit: it is
+    a yield, so the part runs again (MAX_YIELDS bounds it), and a build part's is no build failure."""
     tail = [line for line in (value.get("error"),) if line]
+    if value["state"] == "failed" and NOT_STARTED_RE.search(str(value.get("error") or "")):
+        value = {**value, "state": "yielded"}
     return {"state": value["state"], "step_id": value.get("step_id"), "seconds": value.get("seconds"),
             "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"),
             "worker": LINUX_FLEET_CLASS if is_linux_part(value.get("part")) else value.get("worker"),
