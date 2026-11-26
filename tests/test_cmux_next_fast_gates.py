@@ -855,8 +855,9 @@ class WorkflowShape(unittest.TestCase):
         # A red that keeps going must still fail the job: every continue-on-error step, an action's too, has an id
         # whose outcome the last step reads.
         # The same-input receipt steps (#49946) are the exception: they fail open by design (an error runs the shard
-        # in full) and the last two run after the gate, so none of them is a verdict.
-        receipt_steps = ("same-input receipt", "the receipt's results")
+        # in full) and the last two run after the gate, so none of them is a verdict. The React Compiler transform
+        # cache steps fail open the same way: a miss or a broken cache only makes the shard compile from scratch.
+        receipt_steps = ("same-input receipt", "the receipt's results", "React Compiler transform cache")
         for step in steps:
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
