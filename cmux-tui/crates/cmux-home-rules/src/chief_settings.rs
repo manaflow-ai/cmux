@@ -145,6 +145,9 @@ pub struct Strings {
     pub chief_name: String,
     /// `HomeStrings.title` (Home's localized title, an old default chief title).
     pub home_title: String,
+    /// Engine error texts by error kind (`home.engine.error.*`; `refused` is the `%@` format,
+    /// `agentsDisabled` is `HomeStrings.chiefAgentsDisabled`), over the English ones.
+    pub errors: BTreeMap<String, String>,
 }
 
 impl Default for Strings {
@@ -163,6 +166,7 @@ impl Default for Strings {
             hints: BTreeMap::new(),
             chief_name: "Chief".into(),
             home_title: "Home".into(),
+            errors: BTreeMap::new(),
         }
     }
 }
