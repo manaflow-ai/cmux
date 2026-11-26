@@ -128,8 +128,6 @@ struct ChatRowView: View {
                 let turnID = row.turnID
                 DiffSnippet(call: call, previews: files) { await context.changeSet(turnID: turnID, fallbackID: call.id) }
             }
-        case .plan(let entries):
-            PlanCard(entries: entries)
         case .permission(let record, let offersChoices):
             let surface = context.surface
             PermissionCard(record: record, agentName: store.summary.agentName,

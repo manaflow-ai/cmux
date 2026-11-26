@@ -18,35 +18,13 @@ struct ClassicGhosttyLayerTests {
         return support
     }
 
-    @Test @MainActor func classicsTerminalSettingsApplyAfterTheUpdate() throws {
-        // A stale legacy `config` beside a non-empty `config.ghostty` is not read, as in classic.
-        let support = try Self.support(["com.cmuxterm.app/config.ghostty": "font-size = 17\n",
-                                        "com.cmuxterm.app/config": "font-size = 9\n"])
-        defer { try? FileManager.default.removeItem(at: support) }
-        #expect(GhosttyRuntime.defaultFilesFontSize(applicationSupportDirectory: support) == 17)
-    }
-
-    @Test @MainActor func aNightlyBuildFallsBackToStablesLayer() throws {
-        let support = try Self.support(["com.cmuxterm.app/config": "font-size = 15\n"])
-        defer { try? FileManager.default.removeItem(at: support) }
-        #expect(GhosttyRuntime.defaultFilesFontSize(applicationSupportDirectory: support,
-                                                    bundleIdentifier: "com.cmuxterm.app.nightly") == 15)
-    }
-
-    @Test @MainActor func stableNeverReadsAnotherChannelsLayer() throws {
-        // Classic's stable app had no fallback; an old nightly file must not recolor it.
-        let support = try Self.support(["com.cmuxterm.app.nightly/config": "font-size = 15\n"])
-        defer { try? FileManager.default.removeItem(at: support) }
-        #expect(GhosttyRuntime.defaultFilesFontSize(applicationSupportDirectory: support,
-                                                    bundleIdentifier: "com.cmuxterm.app") != 15)
-    }
-
-    @Test @MainActor func thisChannelsLayerWins() throws {
-        // Next nightly ships as classic nightly's bundle: its own layer, not stable's.
-        let support = try Self.support(["com.cmuxterm.app/config.ghostty": "font-size = 17\n",
-                                        "com.cmuxterm.app.nightly/config.ghostty": "font-size = 15\n"])
-        defer { try? FileManager.default.removeItem(at: support) }
-        #expect(GhosttyRuntime.defaultFilesFontSize(applicationSupportDirectory: support,
-                                                    bundleIdentifier: "com.cmuxterm.app.nightly") == 15)
+    @Test @MainActor func onlyTheImportedCopyChangesTheTerminal() throws {
+        let root = try Self.support(["com.cmuxterm.app/config.ghostty": "font-size = 79\n"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let layer = root.appending(path: "next/classic-ghostty/config.ghostty")
+        #expect(GhosttyRuntime.defaultFilesFontSize(importedLayer: layer) != 79)
+        try FileManager.default.createDirectory(at: layer.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("font-size = 79\n".utf8).write(to: layer)
+        #expect(GhosttyRuntime.defaultFilesFontSize(importedLayer: layer) == 79)
     }
 }

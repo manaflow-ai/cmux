@@ -148,5 +148,9 @@ fn contributed_keybindings_list_in_keybindings_json_form() {
         ],
         "a bare first stroke the validator refuses is left out"
     );
-    assert_eq!(super::super::activation::Activation::of(&package), Default::default(), "onKeybinding keeps no host up");
+    assert_eq!(
+        super::super::activation::Activation::of(&package),
+        Default::default(),
+        "onKeybinding keeps no host up"
+    );
 }
