@@ -145,20 +145,20 @@ struct AccessibilityEnabledRuntimeTests {
     }
 }
 
-private class PressWithoutEnabledFixture: NSAccessibilityElement {
+nonisolated private class PressWithoutEnabledFixture: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool { true }
 }
 
-private final class InheritedPressFixture: PressWithoutEnabledFixture {}
+nonisolated private final class InheritedPressFixture: PressWithoutEnabledFixture {}
 
-private class PressWithEnabledFixture: NSAccessibilityElement {
+nonisolated private class PressWithEnabledFixture: NSAccessibilityElement {
     override func isAccessibilityEnabled() -> Bool { true }
     override func accessibilityPerformPress() -> Bool { true }
 }
 
-private final class InheritedEnabledFixture: PressWithEnabledFixture {}
+nonisolated private final class InheritedEnabledFixture: PressWithEnabledFixture {}
 
-private final class StaticTextFixture: NSAccessibilityElement {
+nonisolated private final class StaticTextFixture: NSAccessibilityElement {
     override func accessibilityLabel() -> String? { "text" }
 }
 
