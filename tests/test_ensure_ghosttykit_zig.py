@@ -62,6 +62,8 @@ class EnsureGhosttyKitZigTests(unittest.TestCase):
             GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull,
             CMUX_GHOSTTYKIT_CACHE_DIR=str(root / "cache"),
             CMUX_GHOSTTYKIT_NO_PREBUILT="1",
+            # The mirror prefetch (zig-fetch-all.sh) is covered by test_ghostty_cli_helper_cache.sh.
+            CMUX_GHOSTTY_PREFETCH="0",
             TEST_ROOT=str(root),
         )
         for args in (
