@@ -38,6 +38,7 @@
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextAgentUpdates",
+        "CmuxNextBrowser",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -47,6 +48,7 @@
         "CmuxNextIcons",
         "CmuxNextOnboarding",
         "CmuxNextPages",
+        "CmuxNextPopups",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
@@ -363,6 +365,7 @@
         "CmuxNextHomeEngine",
         "CmuxNextHomeModel",
         "CmuxNextHostPressure",
+        "CmuxNextHostPressureTunables",
         "CmuxNextHostedChief",
         "CmuxNextIcons",
         "CmuxNextImportCards",
@@ -528,6 +531,7 @@
         "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextHomeModel",
+        "CmuxNextHostPressureTunables",
         "CmuxNextHostedChief",
         "CmuxNextImportCards",
         "CmuxNextImportSuggestions",
@@ -1037,6 +1041,7 @@
         "CmuxNextActions",
         "CmuxNextCloud",
         "CmuxNextCloudUI",
+        "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextPages",
         "CmuxNextSettings",
@@ -1095,7 +1100,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUsePreview",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextCompat",
         "CmuxNextDaemon",
+        "CmuxNextDesign",
+        "CmuxNextSettings",
         "CmuxNextTerminal"
       ],
       "packages": []
@@ -1630,9 +1638,7 @@
     "CmuxNextHostPressure": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure",
-      "targets": [
-        "CmuxNextDesignTokens"
-      ],
+      "targets": [],
       "packages": []
     },
     "CmuxNextHostPressureTests": {
@@ -1643,6 +1649,15 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextHostPressureTunables": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressureTunables",
+      "targets": [
+        "CmuxNextDesignTokens",
+        "CmuxNextHostPressure"
+      ],
+      "packages": []
     },
     "CmuxNextHostedChief": {
       "kind": "regular",
@@ -2284,6 +2299,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",
@@ -2560,6 +2576,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWakeups",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextSignposts"
       ],

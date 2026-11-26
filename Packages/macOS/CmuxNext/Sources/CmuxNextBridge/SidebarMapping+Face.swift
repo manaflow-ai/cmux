@@ -238,6 +238,8 @@ extension SidebarMapping {
             folder: facts.bucket
         )
         row.focusedTab = focused.map { TabID($0.id) }
+        // The row's agent chat's acpmux session, whose dot glyph `appearance.agentSignature` draws.
+        row.agentSessionID = agentTab?.agentSession?.session.flatMap { $0.isEmpty ? nil : $0 }
         // Who the row's agent is (acpmux `displayName`, `formerNames`): its hover card's agent line.
         if let ref = agentTab?.agentSession {
             row.agentDisplayName = AgentTurnStateStore.shared.displayName(for: ref)
