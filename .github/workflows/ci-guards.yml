@@ -210,6 +210,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_app_spend_mark.py
 
+      - name: Validate every recurring github.token spender stops at a floor
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_job_token_floor.py
+
       - name: Validate fast checks take their size from the linux runner pool
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
@@ -882,6 +886,10 @@ jobs:
       - name: Validate the GITHUB_TOKEN budget warning
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_github_token_budget.py
+
+      - name: Validate scheduled workflows dispatch on the cmux bot App token
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cron_dispatch_token_lint.py
 
       - name: Validate the nightly-next tick waits through GitHub API rate limits
         if: ${{ matrix.group == 'ci' }}
