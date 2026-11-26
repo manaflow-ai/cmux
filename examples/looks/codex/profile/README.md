@@ -13,6 +13,8 @@ cmux setup remove manaflow-ai/codex-profile   # everything you had comes back
 ## What is in it
 
 - `cmux-setup.json`: the settings, with each pending key as a comment naming its pull request.
+- `themes/codex-app.json`: the colors `appearance.themeFile: codex-app` loads (the codex-app recipe's), shipped in
+  the pack so a fresh install finds it.
 - `agent-pane/theme.css`: every composer icon button highlights as a circle (`--cv-composer-icon-radius`).
 - `keybindings.json`: the reference app's keys.
 - `customize/`: one customize app, `local/customize`, with the Chats section, the thread hover card,
