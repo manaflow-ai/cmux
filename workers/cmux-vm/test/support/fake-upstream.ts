@@ -16,6 +16,7 @@ export interface FakeVm {
   metadata: Record<string, string>;
   snapshotId: string | null;
   maxRunTotalSeconds?: number | null;
+  ttlSeconds?: number | null;
 }
 
 export interface FakeSnapshot {
@@ -86,6 +87,7 @@ const vmBody = (vm: FakeVm) => ({
   resources: vm.resources,
   idleTimeoutSeconds: vm.idleTimeoutSeconds,
   maxRunTotalSeconds: vm.maxRunTotalSeconds ?? null,
+  ...(vm.ttlSeconds === undefined ? {} : { ttlSeconds: vm.ttlSeconds }),
   displayName: vm.displayName,
   metadata: { ...vm.metadata, cmuxTenant: "leak-check" },
   createdAt: "2026-10-01T00:00:00Z",
@@ -212,6 +214,7 @@ export function makeFakeUpstream(apiKey: string) {
               ? Object.fromEntries(Object.entries(metadata).map(([key, value]) => [key, String(value)]))
               : {},
           snapshotId: typeof snapshotId === "string" ? snapshotId : null,
+          ...(typeof read("ttlSeconds") === "number" ? { ttlSeconds: Number(read("ttlSeconds")) } : {}),
         };
         const wanted = read("networks");
         const first: unknown = Array.isArray(wanted) ? wanted[0] : undefined;

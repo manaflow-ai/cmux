@@ -2629,6 +2629,11 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub snapshot_id: ::std::option::Option<CreateVmRequestSnapshotId>,
+        #[serde(
+            rename = "ttlSeconds",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub ttl_seconds: ::std::option::Option<i64>,
     }
     ///a string at most 100 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -3001,6 +3006,12 @@ pub mod types {
         pub resources: VmResources,
         ///starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name.
         pub state: ::std::string::String,
+        ///Deletes the VM this many seconds after it was created, whatever it is doing; nothing resets it. Null: never.
+        #[serde(
+            rename = "ttlSeconds",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub ttl_seconds: ::std::option::Option<f64>,
         #[serde(rename = "updatedAt")]
         pub updated_at: ::std::string::String,
     }
@@ -5562,6 +5573,11 @@ pub mod types {
             skip_serializing_if = "::std::option::Option::is_none"
         )]
         pub max_run_seconds: ::std::option::Option<i64>,
+        #[serde(
+            rename = "ttlSeconds",
+            skip_serializing_if = "::std::option::Option::is_none"
+        )]
+        pub ttl_seconds: ::std::option::Option<i64>,
     }
     ///a string at most 100 character(s) long
     #[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -12859,6 +12875,12 @@ pub mod types {
         pub resources: VmResources,
         ///starting: booting. running: up. pausing/paused: frozen with memory kept; resume continues it exactly. stopped: shut down, disk kept, memory gone; start boots it again. unknown: a state this API version does not name.
         pub state: ::std::string::String,
+        ///Deletes the VM this many seconds after it was created, whatever it is doing; nothing resets it. Null: never.
+        #[serde(
+            rename = "ttlSeconds",
+            deserialize_with = "::std::option::Option::deserialize"
+        )]
+        pub ttl_seconds: ::std::option::Option<f64>,
         #[serde(rename = "updatedAt")]
         pub updated_at: ::std::string::String,
     }

@@ -38,6 +38,7 @@ export const UpstreamVm = Schema.Struct({
   idleTimeoutSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   maxRunSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   autoDeleteSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
+  ttlSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   maxRunTotalSeconds: Schema.optional(Schema.NullOr(Schema.Number)),
   createdAt: Schema.String,
   updatedAt: Schema.String,
@@ -87,6 +88,8 @@ export interface CreateVmSpec {
   readonly idleTimeoutSeconds: number;
   readonly maxRunSeconds?: number;
   readonly autoDeleteSeconds?: number;
+  /** Deletes the VM this many seconds after creation, whatever its state; omitted sends nothing. */
+  readonly ttlSeconds?: number;
   /** Without a source snapshot: the size to boot; picks the base image size. */
   readonly size?: SizeRequest;
   /** Deployment name (staging, production, ...), tagged on the upstream VM. */

@@ -10827,6 +10827,7 @@
           "idleTimeoutSeconds",
           "maxRunSeconds",
           "autoDeleteSeconds",
+          "ttlSeconds",
           "createdAt",
           "updatedAt"
         ],
@@ -10897,6 +10898,17 @@
               }
             ],
             "description": "Deletes the VM once it has gone this long without running; each start resets the clock. Null: never."
+          },
+          "ttlSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deletes the VM this many seconds after it was created, whatever it is doing; nothing resets it. Null: never."
           },
           "createdAt": {
             "type": "string"
@@ -11127,6 +11139,13 @@
             "minimum": -1,
             "maximum": 31536000
           },
+          "ttlSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Delete the VM this many seconds after it is created, whether it is running, paused or stopped. A deadline, not an idle window: nothing resets it, not even a start. -1 or omitted: never.",
+            "title": "between(-1, 31536000)",
+            "minimum": -1,
+            "maximum": 31536000
+          },
           "labels": {
             "$ref": "#/components/schemas/Labels"
           },
@@ -11309,6 +11328,7 @@
           "idleTimeoutSeconds",
           "maxRunSeconds",
           "autoDeleteSeconds",
+          "ttlSeconds",
           "createdAt",
           "updatedAt"
         ],
@@ -11379,6 +11399,17 @@
               }
             ],
             "description": "Deletes the VM once it has gone this long without running; each start resets the clock. Null: never."
+          },
+          "ttlSeconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deletes the VM this many seconds after it was created, whatever it is doing; nothing resets it. Null: never."
           },
           "createdAt": {
             "type": "string"
@@ -11549,6 +11580,13 @@
           "autoDeleteSeconds": {
             "$ref": "#/components/schemas/Int",
             "description": "Delete the VM once it has gone this many seconds without running; each start resets the clock, and a running VM is never deleted for this. 0 deletes it as soon as it stops. -1 or omitted: never.",
+            "title": "between(-1, 31536000)",
+            "minimum": -1,
+            "maximum": 31536000
+          },
+          "ttlSeconds": {
+            "$ref": "#/components/schemas/Int",
+            "description": "Delete the VM this many seconds after it is created, whether it is running, paused or stopped. A deadline, not an idle window: nothing resets it, not even a start. -1 or omitted: never.",
             "title": "between(-1, 31536000)",
             "minimum": -1,
             "maximum": 31536000

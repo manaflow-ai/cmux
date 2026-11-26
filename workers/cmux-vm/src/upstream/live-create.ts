@@ -95,6 +95,7 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       idleTimeoutSeconds: spec.idleTimeoutSeconds,
       ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
       ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
+      ...(spec.ttlSeconds === undefined ? {} : { ttlSeconds: spec.ttlSeconds }),
       ...initialNetworkBody(network),
       ...((sourceId ?? imageId ?? baseImageFor(spec.size)) === null ? {} : { snapshotId: sourceId ?? imageId ?? baseImageFor(spec.size) }),
     };

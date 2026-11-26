@@ -1566,6 +1566,8 @@ export interface components {
             maxRunSeconds: number | null;
             /** @description Deletes the VM once it has gone this long without running; each start resets the clock. Null: never. */
             autoDeleteSeconds: number | null;
+            /** @description Deletes the VM this many seconds after it was created, whatever it is doing; nothing resets it. Null: never. */
+            ttlSeconds: number | null;
             createdAt: string;
             updatedAt: string;
             /**
@@ -1659,6 +1661,11 @@ export interface components {
              * @description Delete the VM once it has gone this many seconds without running; each start resets the clock, and a running VM is never deleted for this. 0 deletes it as soon as it stops. -1 or omitted: never.
              */
             autoDeleteSeconds?: components["schemas"]["Int"];
+            /**
+             * between(-1, 31536000)
+             * @description Delete the VM this many seconds after it is created, whether it is running, paused or stopped. A deadline, not an idle window: nothing resets it, not even a start. -1 or omitted: never.
+             */
+            ttlSeconds?: components["schemas"]["Int"];
             labels?: components["schemas"]["Labels"];
             /** @description Create the VM on this mesh's private network, so it is on the network from its first boot. Needs the mesh:write scope and a mesh of the caller's team (404 otherwise). The VM is reachable only after PUT /v1/meshes/{meshId}/vms/{vmId}, which applies the mesh's access rules; that call is still required, and is faster for a VM created this way. Omit to create the VM on no network. */
             meshId?: string;
@@ -1754,6 +1761,8 @@ export interface components {
             maxRunSeconds: number | null;
             /** @description Deletes the VM once it has gone this long without running; each start resets the clock. Null: never. */
             autoDeleteSeconds: number | null;
+            /** @description Deletes the VM this many seconds after it was created, whatever it is doing; nothing resets it. Null: never. */
+            ttlSeconds: number | null;
             createdAt: string;
             updatedAt: string;
             /**
@@ -1819,6 +1828,11 @@ export interface components {
              * @description Delete the VM once it has gone this many seconds without running; each start resets the clock, and a running VM is never deleted for this. 0 deletes it as soon as it stops. -1 or omitted: never.
              */
             autoDeleteSeconds?: components["schemas"]["Int"];
+            /**
+             * between(-1, 31536000)
+             * @description Delete the VM this many seconds after it is created, whether it is running, paused or stopped. A deadline, not an idle window: nothing resets it, not even a start. -1 or omitted: never.
+             */
+            ttlSeconds?: components["schemas"]["Int"];
             labels?: {
                 [key: string]: string;
             };

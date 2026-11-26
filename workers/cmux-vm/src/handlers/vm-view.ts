@@ -28,6 +28,7 @@ export const toVm = (
     idleTimeoutSeconds: upstream.idleTimeoutSeconds ?? null,
     maxRunSeconds: limitOf(upstream.maxRunSeconds),
     autoDeleteSeconds: limitOf(upstream.autoDeleteSeconds),
+    ttlSeconds: limitOf(upstream.ttlSeconds),
     createdAt: upstream.createdAt,
     updatedAt: upstream.updatedAt,
     ...(row.committed === false ? { creation: "pending" as const } : {}),
