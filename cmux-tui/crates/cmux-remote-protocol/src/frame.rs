@@ -198,8 +198,8 @@ impl FrameFlags {
     const KNOWN: u16 = {
         let mut mask = 0;
         let mut i = 0;
-        while i < Self::NAMED.len() {
-            mask |= Self::NAMED[i].1.0;
+        while let Some((_, flag)) = Self::NAMED.get(i) {
+            mask |= flag.0;
             i += 1;
         }
         mask
