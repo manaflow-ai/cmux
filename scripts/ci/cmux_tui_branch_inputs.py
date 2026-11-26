@@ -90,7 +90,10 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     if "".join(trailer.split()).lower() == "run":
         return False, f"{sha[:12]} carries Cmux-Daemon-Tests: run"
     base_ref = f"refs/remotes/origin/{base}"
-    git("fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "--filter=tree:0", f"--shallow-since={since}", "origin",
+    # Only a shallow checkout fetches shallow: a full clone must not turn shallow.
+    shallow = git("rev-parse", "--is-shallow-repository", deadline=deadline).strip() == "true"
+    since_flag = [f"--shallow-since={since}"] if shallow else []
+    git("fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "--filter=tree:0", *since_flag, "origin",
         f"+refs/heads/{base}:{base_ref}", sha, lazy=True, deadline=deadline)
     try:
         merge_base = git("merge-base", sha, base_ref, deadline=deadline)
@@ -103,8 +106,9 @@ def verdict(ref: str, sha: str, base: str, since: str) -> tuple[bool, str]:
     # No haves: the server sends each commit's whole tree, not just what a shallow have implies.
     wanted = [rev for rev in dict.fromkeys((merge_base, base_tip if base_moved_gate else merge_base)) if rev != sha]
     if wanted:
+        depth_flag = ["--depth=1"] if shallow else []
         git("-c", "fetch.negotiationAlgorithm=noop", "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", "--filter=blob:none",
-            "--depth=1", "origin", *wanted, lazy=True, deadline=deadline)
+            *depth_flag, "origin", *wanted, lazy=True, deadline=deadline)
     for revision in {sha, merge_base, *wanted}:
         # tree_key reads the inputs list blob with lazy fetches off; bring that one blob in.
         git("cat-file", "blob", f"{revision}:{tree_key.INPUTS_PATH}", lazy=True, deadline=deadline)

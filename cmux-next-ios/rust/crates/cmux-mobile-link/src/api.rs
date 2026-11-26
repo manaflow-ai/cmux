@@ -183,10 +183,18 @@ impl ApiClient {
         }
     }
 
-    /// A new HTTP client with the API's timeouts.
+    /// Ask the system for the service's proxy now, off the runtime's threads
+    /// (a PAC file may be fetched and run), so the client's proxy callback
+    /// finds the answer cached instead of asking on a worker thread.
+    async fn find_proxy(&self) {
+        crate::egress::proxy::warm(&self.base).await;
+    }
+
+    /// A new HTTP client with the API's timeouts, through the system's proxy
+    /// and verifying against the OS trust store ([`crate::egress`]).
     pub fn http_client() -> reqwest::Client {
         crate::install_crypto_provider();
-        reqwest::Client::builder()
+        crate::egress::http_client_builder("cmux_mobile_link::api")
             .timeout(std::time::Duration::from_secs(20))
             .pool_idle_timeout(std::time::Duration::from_secs(90))
             .build()
@@ -204,6 +212,7 @@ impl ApiClient {
 
     /// `GET /v1/ice`.
     pub async fn ice(&self) -> Result<IceConfig, ApiError> {
+        self.find_proxy().await;
         let response = self
             .request(reqwest::Method::GET, "/v1/ice")
             .send()
@@ -217,6 +226,7 @@ impl ApiClient {
         &self,
         registration: &DeviceRegistration,
     ) -> Result<serde_json::Value, ApiError> {
+        self.find_proxy().await;
         let response = self
             .request(reqwest::Method::POST, "/v1/devices")
             .json(registration)
@@ -236,6 +246,7 @@ impl ApiClient {
         mac_device_id: &str,
         event: &NotifyEvent,
     ) -> Result<serde_json::Value, ApiError> {
+        self.find_proxy().await;
         let response = self
             .request(reqwest::Method::POST, &format!("/v1/devices/{mac_device_id}/notify"))
             .json(event)
@@ -251,6 +262,7 @@ impl ApiClient {
         mac_device_id: &str,
         body: &serde_json::Value,
     ) -> Result<serde_json::Value, ApiError> {
+        self.find_proxy().await;
         let response = self
             .request(reqwest::Method::POST, &format!("/v1/devices/{mac_device_id}/notify"))
             .json(body)
@@ -266,6 +278,7 @@ impl ApiClient {
         struct Devices {
             devices: Vec<MyDevice>,
         }
+        self.find_proxy().await;
         let response = self
             .request(reqwest::Method::GET, "/v1/me/devices")
             .send()
@@ -282,6 +295,7 @@ impl ApiClient {
         struct Macs {
             macs: Vec<crate::signaling::MacPresence>,
         }
+        self.find_proxy().await;
         let response = self
             .request(reqwest::Method::GET, &format!("/v1/teams/{team_id}/macs"))
             .send()

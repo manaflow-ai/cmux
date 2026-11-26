@@ -24,6 +24,7 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
+  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
@@ -32,16 +33,16 @@ import {
   type AgentsState,
   type ChannelsProgress,
   type ChannelSwitch,
-  type PreviousBuild,
   type ChannelsState,
   type AccountsState,
   type DevicesJoinState,
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
+  type LooksGallery,
+  type LooksRun,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -51,7 +52,11 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -63,40 +68,38 @@ import {
   type ThemeOverride,
   type WorkspaceBackground,
   type CustomizeTryOn,
-  type KeysState,
+  type LibraryListing,
+  type LibraryRun,
   type ModelsRun,
   type ModelsState,
-  type ComputerUseApproval,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
-  type McpServersRun,
-  type McpServersState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
+  type AllotmentSet,
+  type AllotmentView,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type AgentHooksRun,
   type AgentHooksState,
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
-  type AllotmentSet,
-  type AllotmentView,
+  type AccountsRunReply,
+  type AgentSkillRow,
   type HubRun,
   type HubState,
-  type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
-  type AgentSkillRow,
-  type ConnectionsRun,
-  type ConnectionsState,
-  type ChecklistFact,
   type AutocloudAction,
   type AutocloudState,
+  type ConnectionsRun,
+  type ConnectionsState,
   type ArchivedRun,
   type ArchivedState,
+  type ChecklistFact,
+  type PreviousBuild,
 } from "./ops";
+import { mockLooks, previewLook, runLooks } from "./mockLooks";
 import { rowsByKey, schema, hostRowsByKey } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
@@ -148,6 +151,12 @@ export type MockOptions = {
   previousBuild?: PreviousBuild | null;
   /** The host's refusal of that row's Go Back; default none (it runs). */
   previousBuildRefusal?: string;
+  /** Settings > Appearance > Looks (`cmux setup gallery`); default the catalog, nothing installed. */
+  looks?: LooksGallery;
+  /** The CLI refuses every Looks change with this message. */
+  looksRefusal?: string;
+  /** Looks whose repo has no preview image (`setup.preview_missing`). */
+  looksPreviewMissing?: string[];
   /** Writes of these keys the daemon refuses with this reason and details (a json row's
    * `accepted.problems`, as cmux-config's refusal carries them). */
   refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
@@ -163,17 +172,25 @@ export const mockDevicesJoin: DevicesJoinState = {
   known: true,
   revoke_all: null,
   switches: [
-    { surface: "screen", title: "Screen sharing", help: "Your team's machines can see this screen", on: false },
+    {
+      surface: "screen",
+      title: "Screen sharing",
+      help: "Your team's machines can see this screen",
+      keywords: ["screen sharing", "share screen", "see my screen", "let my team see"],
+      on: false,
+    },
     {
       surface: "control",
       title: "Control",
       help: "Your team's machines can move the pointer and type here",
+      keywords: ["remote control", "let my team control", "take control", "mouse and keyboard"],
       on: false,
     },
     {
       surface: "signedInMachines",
       title: "Your other Macs",
       help: "Your other Macs signed in to this account can open workspaces and terminals here",
+      keywords: ["other macs", "open workspaces", "remote workspaces", "same account"],
       on: false,
     },
   ],
@@ -343,6 +360,9 @@ export class MockSettingsProvider {
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     if (options.library) this.library = options.library;
     if (options.libraryRefusal) this.libraryRefusal = options.libraryRefusal;
+    if (options.looks) this.looks = options.looks;
+    if (options.looksRefusal) this.looksRefusal = options.looksRefusal;
+    if (options.looksPreviewMissing) this.looksPreviewMissing = options.looksPreviewMissing;
     if (options.doctor) this.doctor = options.doctor;
     if (options.doctorRefusal) this.doctorRefusal = options.doctorRefusal;
     this.importable = options.importable ?? null;
@@ -728,6 +748,7 @@ export class MockSettingsProvider {
       "cmux.settings.archived.list": () => this.archived,
       "cmux.settings.archived.run": (params) => this.runArchived(params as ArchivedRun),
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
+      "cmux.settings.looks": (params) => this.runLooks(params as LooksRun),
       "cmux.settings.customize.checklist": (params) => ({
         checklist: mockChecklist(this.values, (params as { has?: ChecklistFact[] }).has ?? []),
       }),
@@ -1125,6 +1146,7 @@ export class MockSettingsProvider {
       "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
+      "cmux.settings.looks",
       "cmux.settings.customize.checklist",
       "cmux.settings.shares.revoke",
       "cmux.settings.archived.list",
@@ -1291,6 +1313,12 @@ export class MockSettingsProvider {
     if (!("name" in run)) return { code: "customize.library", message: `unknown verb "${run.verb}"` };
     this.libraryRuns.push(run);
     if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
+    const code = this.library.entries.find((item) => item.name === run.name)?.code;
+    if (run.verb === "on" && code && !code.web) {
+      const lines = code.needs_build?.join("; ");
+      const why = lines ? `needs a build: ${lines}` : "it needs a build";
+      return { code: "customize.library", message: `${run.name} has nothing that applies to a running cmux; ${why}` };
+    }
     const next = runLibrary(this.library, run);
     if (!next) return { code: "customize.library", message: `there is no library entry "${run.name}"` };
     this.library = next;
@@ -1765,6 +1793,35 @@ export class MockSettingsProvider {
   previousBuild: PreviousBuild | null = null;
   /** Why the host refuses that row's Go Back; null: it runs. */
   previousBuildRefusal: string | null = null;
+
+  /** What `cmux setup gallery` lists (Settings > Appearance > Looks). */
+  looks: LooksGallery = mockLooks();
+  /** The CLI's refusal of every Looks change; null: changes run. */
+  looksRefusal: string | null = null;
+  /** Looks whose repo has no preview image. */
+  looksPreviewMissing: string[] = [];
+  /** Every Looks verb the page ran but `gallery` and `preview`, in order (tests). */
+  readonly looksRuns: LooksRun[] = [];
+
+  /** `cmux --json setup VERB`: its JSON, or the CLI's error envelope as the host answers it (a
+   * refusal, and an install's consent card, are answers, not failed calls). */
+  private runLooks(run: LooksRun): unknown {
+    if (run.verb === "gallery") return this.looks;
+    if (run.verb === "preview") return previewLook(run.id, run.scheme, this.looksPreviewMissing);
+    this.looksRuns.push(run);
+    if (this.looksRefusal && !(run.verb === "install" && !run.yes))
+      return { code: "setup.refused", message: this.looksRefusal, details: {} };
+    const outcome = runLooks(this.looks, run);
+    if ("refusal" in outcome) return { code: "setup.refused", message: outcome.refusal, details: {} };
+    if ("consent" in outcome)
+      return {
+        code: "setup.needs_consent",
+        message: "nothing was changed: show the person this card, then run it again with --yes (install)",
+        details: outcome.consent,
+      };
+    this.looks = outcome.gallery;
+    return { ok: true, verb: run.verb };
+  }
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
   /** The build the card's last Switch asked for. */

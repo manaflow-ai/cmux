@@ -283,3 +283,64 @@ test("F3: Open Chat shows only where the host can go", async () => {
   await render([failing], [], { ...actions, canOpen: () => true });
   expect(host.textContent).toContain("Open Chat");
 });
+
+test("review r2 F1: an ask with no one-click answer offers Open Chat only where it can go", async () => {
+  // Another computer's chat waiting on the person: an `input` item with no answers, which goTo
+  // cannot open (useNeedsYou's openElsewhere skips a peer).
+  const peer = chat("Release notes", { peer: "studio", indicator: "input" });
+  const local = chat("Tab strip review", { indicator: "input" });
+  const went: string[] = [];
+  const asApp = (sessions: Session[]): Actions => ({
+    ...actions,
+    goTo: (item) => {
+      went.push(item.sessionId);
+    },
+    canOpen: (sessionId) => !sessions.some((entry) => entry.sessionId === sessionId && entry.peer),
+  });
+  await render([peer], [], asApp([peer]));
+  expect(q(".acpmux-status-island[data-expanded]")).not.toBeNull();
+  expect(q(".acpmux-status-island__ask")).not.toBeNull();
+  expect(host.textContent).not.toContain("Open Chat");
+  expect(q(".acpmux-status-island__actions")).toBeNull();
+
+  // A chat on this computer still opens at its source.
+  await render([local], [], asApp([local]));
+  expect(host.textContent).toContain("Open Chat");
+  await click(
+    [...host.querySelectorAll<HTMLElement>(".acpmux-status-island__action")].find(
+      (b) => b.textContent === "Open Chat",
+    )!,
+  );
+  expect(went).toEqual(["Tab strip review"]);
+});
+
+test("review r2 F2: the card stops at the pane's foot and scrolls, so every answer stays reachable", async () => {
+  const css = await Bun.file(
+    new URL("../src/agent-session/acpmux/statusIsland/statusIsland.css", import.meta.url),
+  ).text();
+  const card = css.match(/\.acpmux-status-island__card \{([^}]*)\}/)?.[1] ?? "";
+  expect(card).toContain("max-height: calc(var(--acpmux-status-island-room, 100vh) - var(--ds-space-3));");
+  expect(card).toContain("overflow-y: auto;");
+  // Its rows keep their height under the cap, so the ask line scrolls rather than shrinks away.
+  expect(css).toMatch(/\.acpmux-status-island__card > \* \{\s*flex-shrink: 0;\s*\}/);
+
+  // The island measures the room under its top in the pane it floats over (its offset parent).
+  const proto = dom.window.HTMLElement.prototype;
+  const shell = dom.window.document.createElement("div");
+  const keep = ["offsetParent", "offsetTop", "clientHeight"].map(
+    (key) => [key, Object.getOwnPropertyDescriptor(proto, key)] as const,
+  );
+  Object.defineProperty(proto, "offsetParent", { configurable: true, get: () => shell });
+  Object.defineProperty(proto, "offsetTop", { configurable: true, get: () => 40 });
+  Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 220 });
+  try {
+    await act(async () => root.render(<></>));
+    await render([chat("Tab strip review")], [ask]);
+    const island = q(".acpmux-status-island")!;
+    expect(island.style.getPropertyValue("--acpmux-status-island-room")).toBe("180px");
+  } finally {
+    for (const [key, descriptor] of keep)
+      if (descriptor) Object.defineProperty(proto, key, descriptor);
+      else delete (proto as unknown as Record<string, unknown>)[key];
+  }
+});

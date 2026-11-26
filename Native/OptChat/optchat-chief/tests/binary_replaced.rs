@@ -49,7 +49,7 @@ fn a_replaced_binary_waits_for_the_running_turn_past_the_update_deadline() {
     h.connect();
     h.say("user_local", "a long task");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     // The update handoff's deadline would cut this turn; a replaced binary does not.
     h.brain.set_handoff_deadline(Duration::from_millis(100));

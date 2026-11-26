@@ -76,7 +76,7 @@ let package = Package(
         // extensions link it without the app's modules (verify/rich-push.md).
         .target(name: "CmuxMobileNotifications"),
         // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
-        .target(name: "CmuxMobileModel", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore")], resources: [.process("Resources")]),
+        .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore")], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
             name: "CmuxMobileLinkFFI",
@@ -84,9 +84,10 @@ let package = Package(
             path: "Sources/CmuxMobileLinkFFI",
             // uniffi's generated Swift is not Swift 6 concurrency-clean.
             swiftSettings: [.swiftLanguageMode(.v5)],
-            linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration")]
+            // CFNetwork: the system's proxy settings and PAC (cmux-mobile-link egress/apple.rs).
+            linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration"), .linkedFramework("CFNetwork")]
         ),
-        .target(name: "CmuxMobileTransport", dependencies: [.target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))]),
+        .target(name: "CmuxMobileTransport", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))]),
         // Markdown: native block renderer for transcripts, WKWebView renderer (pooled) for the Feed and math.
         .target(name: "CmuxMobileMarkdown", dependencies: ["CmuxMobileDesign", "CmuxMobileModel"], resources: [.copy("Resources/web")]),
         // Diff model (line + word diff, unified parser) and the GitHub-mobile-style viewer.
@@ -139,6 +140,8 @@ let package = Package(
         .target(name: "CmuxMobileWorkspaces", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileBrowserStream",
+            // Close Tab as one traced user action (PhoneTrace, CMUX_TRACE_FILE).
+            "CmuxMobileTransport",
             // The + menu's Screen Sharing: the account's Macs and the viewer.
             "CmuxMobileScreenSharing",
             .product(name: "CmuxTabsKit", package: "CmuxTabsKit"),
@@ -200,6 +203,8 @@ let package = Package(
         .target(name: "CmuxMobileScreenSharing", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             "CmuxMobileDesign", "CmuxMobileModel",
+            // Mac Screen over Link: the Mac's display as rd/1 on the paired Mac's link (`d~0`).
+            "CmuxMobileBrowserStream",
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxScreenKitUI", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
@@ -266,6 +271,7 @@ let package = Package(
         ]),
         .testTarget(name: "CmuxMobileScreenSharingTests", dependencies: [
             "CmuxMobileScreenSharing",
+            "CmuxMobileBrowserStream",
             .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
             .product(name: "CmuxScreenKit", package: "CmuxScreenKit", condition: .when(platforms: [.iOS])),
         ]),

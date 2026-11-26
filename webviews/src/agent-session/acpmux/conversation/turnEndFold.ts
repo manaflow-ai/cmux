@@ -32,10 +32,10 @@ import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath, isLiveClockNode } from "./turnFold";
-import { ACTIVITY_LINE, LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
-import { isLineRow, type AcpmuxRow } from "../model";
+import { LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
+import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
-import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
+import { turnEndCrossLook, turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
 /// rows that stay slide over it. `tuck`: the copies slide up under the folded line as they fade, as
@@ -161,6 +161,46 @@ export const TURN_END_RECAP_ATTR = "data-turn-end-recap";
 export type TurnEndSubagent = "slide" | "swap" | "dip";
 export const TURN_END_SUBAGENTS: readonly TurnEndSubagent[] = ["slide", "swap", "dip"];
 export const TURN_END_SUBAGENT_ATTR = "data-turn-end-subagent";
+/// How the fold plays when it crosses the person's message (`foldCrossesPerson`; Leo, 2026-11-25: "we
+/// simply need to make sure it looks good while doing so. aka fast fades and comfy (maybe eased) and fast
+/// and snappy"). One transition, the `fade` look's: the work's copies fade out on the house ease-out over
+/// `fadeMs`, then every row that stays moves to its place as one over `moveMs` on `easing`; a row that
+/// lands on the other side of the person's message (the answer under a late steer) goes with the copies
+/// and is drawn whole where it lands, so nothing slides over the bubble and nothing is drawn twice. Only
+/// where the reader sees it (`captureTurnEnd`, rule 1); `snap` (before) draws the swap in one frame.
+export type TurnEndCross = "snap" | "quick" | "even" | "eased";
+export const TURN_END_CROSSES: readonly TurnEndCross[] = ["snap", "quick", "even", "eased"];
+export const TURN_END_CROSS_ATTR = "data-turn-end-cross";
+/// Each arm's clocks on the house scale (schemas/motion-scale): the shipped `quick` is the house motion
+/// itself, its fade the `micro` step and its move the settle (`--cmux-motion-settle` on
+/// `--cmux-ease-settle`, the one fold length every web fold shares), read from the page so one token
+/// times every fold and ui.animationSpeed scales this one too; `even` and `eased` are that same clock
+/// a beat longer. Reduce Motion and a 0 ms token fold at once (`playTurnEnd` reads `foldMs` first).
+const CROSS_TIMING: Record<
+  Exclude<TurnEndCross, "snap">,
+  (settled: { ms: number; easing: string }, scale: number) => { fadeMs: number; moveMs: number; easing: string }
+> = {
+  quick: (settled, scale) => ({ fadeMs: MOTION_MS.micro * scale, moveMs: settled.ms, easing: settled.easing }),
+  even: (settled, scale) => ({ fadeMs: 140 * scale, moveMs: 200 * scale, easing: settled.easing }),
+  eased: (_settled, scale) => ({ fadeMs: 160 * scale, moveMs: 220 * scale, easing: "cubic-bezier(0.4, 0, 0.2, 1)" }),
+};
+
+/// The crossing fold set over `node`, else the dev setting's, else the shipped `quick`.
+export function turnEndCross(node: Element): TurnEndCross {
+  const set = node.closest(`[${TURN_END_CROSS_ATTR}]`)?.getAttribute(TURN_END_CROSS_ATTR);
+  if (TURN_END_CROSSES.includes(set as TurnEndCross)) return set as TurnEndCross;
+  const arm = experimentArm(turnEndCrossLook);
+  return TURN_END_CROSSES.includes(arm) ? arm : "quick";
+}
+
+/// The crossing fold's clocks over `node`, on the page's settle token: undefined for `snap`.
+export function turnEndCrossTiming(node: HTMLElement): { fadeMs: number; moveMs: number; easing: string } | undefined {
+  const cross = turnEndCross(node);
+  if (cross === "snap") return undefined;
+  const settled = settle(node);
+  return CROSS_TIMING[cross](settled, settled.ms / MOTION_SETTLE_MS);
+}
+
 /// The subagent block's rows: the group's header and its start and done lines.
 const SUBAGENT_CLASSES = ["acpmux-subagents", "acpmux-subagentStarted", "acpmux-subagentDone"];
 const isSubagentNode = (node: Element) => SUBAGENT_CLASSES.some((name) => node.classList.contains(name));
@@ -184,7 +224,7 @@ const LIVE_LINE = LIVE_THINKING;
 /// Whether `rows` holds a running turn's line near its end.
 export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
   for (let index = rows.length - 1; index >= 0 && index >= rows.length - LINE_TAIL; index -= 1)
-    if (rows[index]!.id === LIVE_LINE || rows[index]!.kind === ACTIVITY_LINE) return true;
+    if (rows[index]!.id === LIVE_LINE) return true;
   return false;
 }
 
@@ -219,6 +259,18 @@ export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readon
   return prompt === undefined || after.some((row) => row.id === prompt);
 }
 
+/// Whether `snapshot`'s rows are a copy the page drew before acpmux's attach of the chat answered: a
+/// kept tail (a restored tab after Restart to Update, a cache-first open) or the page's saved snapshot.
+/// A copy keeps rows, not whether its turn still runs, so a turn its rows show running may have ended
+/// long before; the attach that says so is no end the reader is watching (Leo, 2026-11-22, after
+/// Restart to Update: "the crazy [very] stupid folding animations somehow replay even though these
+/// messages had already been seen by me"). The transcript draws that end in place, as it does a turn
+/// that ended while the page was away (VirtualTranscript.tsx `turnEnds`).
+export function drawsCopy(snapshot: Pick<AcpmuxSnapshot, "chatAttached" | "drewKeptTail" | "connection">): boolean {
+  if (snapshot.chatAttached === true) return false;
+  return snapshot.drewKeptTail === true || snapshot.connection.startsWith("connecting");
+}
+
 /// A row drawn at the swap: where its top was in the view, and its copy when the swap takes it away.
 /// `clip`: how much of its bottom a clip hid then (tailGlide.ts clips the row above a row gliding down
 /// under it at that row's drawn top), with `shown`, the bottom of what it drew.
@@ -230,6 +282,9 @@ type Drawn = {
   person?: boolean;
   replacesHeader?: boolean;
   copy?: HTMLElement;
+  /// A kept row the swap draws on the other side of a person's message (`landsAcrossPerson`): its copy
+  /// goes where it was, and it comes in at its new place once nothing moving crosses it.
+  crosses?: boolean;
   /// A kept row's picture as drawn at the swap, for the looks that replace it in place.
   snapshot?: HTMLElement;
   clip?: number;
@@ -318,8 +373,7 @@ export function captureTurnEnd(
 ): TurnEndCapture | undefined {
   if (!thread || !scroller || foldMs(thread) <= 0) return undefined;
   const nodes = [...mounted(thread)];
-  const liveLine = (node: HTMLElement) =>
-    node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`);
+  const liveLine = (node: HTMLElement) => node.dataset.rowId === LIVE_LINE;
   if (!held && !nodes.some(liveLine)) return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
   const first = Math.max(
@@ -360,6 +414,7 @@ export function captureTurnEnd(
   };
   if (!nodes.some((node) => seen(node) && ((!held && liveLine(node)) || goes(node))))
     return { rows: [], scrollTop: scroller.scrollTop, sessionId, silent: true };
+  const crosses = landsAcrossPerson(nodes, after, kept);
   const rows = nodes.map((node) => {
     const box = node.getBoundingClientRect();
     const priorId = node.dataset.rowId!;
@@ -377,11 +432,38 @@ export function captureTurnEnd(
       ...(isPersonMessage(node) && { person: true }),
       ...(header && kept.has(id) && { replacesHeader: true }),
       ...(clip > 0 && { clip, shown: box.bottom - clip }),
-      ...(!kept.has(id) && { copy: ghostOf(node) }),
-      ...(kept.has(id) && (replaces || (swapsSubagents && isSubagentNode(node))) && { snapshot: snapshotOf(node, id) }),
+      ...((!kept.has(id) || crosses.has(id)) && { copy: ghostOf(node) }),
+      ...(crosses.has(id) && { crosses: true }),
+      ...(kept.has(id) &&
+        !crosses.has(id) &&
+        (replaces || (swapsSubagents && isSubagentNode(node))) && { snapshot: snapshotOf(node, id) }),
     };
   });
   return { rows, scrollTop: scroller.scrollTop, sessionId };
+}
+
+/// The kept rows the swap draws on the other side of a message the person sent than they are drawn now
+/// (turns.ts `lateSteersLast`: the answer drawn over a late steer lands under it). Such a row goes with
+/// the copies and is drawn whole where it lands, never slid across the bubble. O(rows mounted).
+function landsAcrossPerson(nodes: readonly HTMLElement[], after: readonly AcpmuxRow[], kept: ReadonlySet<string>) {
+  const crosses = new Set<string>();
+  const person = new Set(nodes.filter(isPersonMessage).map((node) => node.dataset.rowId!));
+  if (person.size === 0) return crosses;
+  const placeAfter = new Map(after.map((row, index) => [row.id, index]));
+  // Each kept row's count of the person's kept messages above it, before and after the swap.
+  const personAt = after.flatMap((row, index) => (person.has(row.id) ? [index] : []));
+  let above = 0;
+  for (const node of nodes) {
+    const id = node.dataset.rowId!;
+    if (person.has(id)) {
+      if (placeAfter.has(id)) above += 1;
+      continue;
+    }
+    const at = placeAfter.get(id);
+    if (at === undefined || !kept.has(id)) continue;
+    if (personAt.filter((index) => index < at).length !== above) crosses.add(id);
+  }
+  return crosses;
 }
 
 /// A kept row's picture as drawn now: its copy, marked with the row it pictures.
@@ -1140,13 +1222,17 @@ export function playTurnEnd(
   // Out of the reader's view there is nothing to play: its caller has settled what the turn's end
   // settles (the fold before it, the follow motion, the tail glide) and the swap is already drawn.
   if (capture.silent || capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
-  // Never across a message the person sent: the swap stays as it rendered, in one frame.
-  if (foldCrossesPerson(capture)) return undefined;
-  const look = turnEndLook(thread);
+  // Across a message the person sent, the crossing fold's one transition (`TurnEndCross`), or for
+  // `snap` none: the swap stays as it rendered, in one frame.
+  const cross = foldCrossesPerson(capture) ? turnEndCrossTiming(thread) : undefined;
+  if (foldCrossesPerson(capture) && !cross) return undefined;
+  const look = cross ? "fade" : turnEndLook(thread);
   if (REPLACE_LOOKS.has(look)) return playReplace(thread, capture, look, scroller);
   const recapLook = turnEndRecap(thread);
   const subagentLook = turnEndSubagent(thread);
-  const { ms: settleMs, easing: settleEasing } = lookTiming(look, settle(thread));
+  const { ms: settleMs, easing: settleEasing } = cross
+    ? { ms: cross.moveMs, easing: cross.easing }
+    : lookTiming(look, settle(thread));
   // The fold's one clock: the settle's length, its curve flattened as a pass finds a longer move
   // (turnEndFoldTiming). Rows the virtualizer mounts above after the swap move the rows under them
   // again, so the first pass's moves are not the longest (turn-transition-jumps `tool-group`: 2 px at
@@ -1176,7 +1262,9 @@ export function playTurnEnd(
       ? WAIT_HOLD_MS
       : look === "crossfade" || look === "cascade" || ridesSheet(look)
         ? 0
-        : exitLeadMs(ms, 1, thread);
+        : cross
+          ? cross.fadeMs
+          : exitLeadMs(ms, 1, thread);
   /// The first painted frame (the exit's clock), and when the move's clock starts.
   let startedAt: number | undefined;
   let movesAt: number | undefined;
@@ -1245,6 +1333,7 @@ export function playTurnEnd(
   const was = new Map(capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]));
   const gone = capture.rows.filter((row) => row.copy);
   const goneByCopy = new Map(gone.map((row) => [row.copy!, row]));
+  const crossed = new Set(gone.filter((row) => row.crosses).map((row) => row.id));
   const moving = new Map<HTMLElement, Moving>();
   const copyMoves = new Map<HTMLElement, Moving>();
   /// Where each row's or copy's motion on the current clock starts (a top in the view, as `tops`),
@@ -1362,7 +1451,10 @@ export function playTurnEnd(
         lowestWas = before.top;
       }
     });
-    const arrives = (node: HTMLElement, index: number) => !was.has(node.dataset.rowId!) && tops[index]! > lowest;
+    // A row drawn across the person's message arrives too, wherever it lands: carried, it ran through
+    // the steer's text as the two swapped places; it holds at no ink until nothing moving crosses it.
+    const arrives = (node: HTMLElement, index: number) =>
+      !was.has(node.dataset.rowId!) && (tops[index]! > lowest || crossed.has(node.dataset.rowId!));
     // The ended turn's own footer (direct.ts `summary-TURN`) comes in with the swap where its live line was,
     // and takes only that line's place, not its work's: a turn that ended on its calls, no answer under
     // them, lost their copy on the fold's first frame, and the view stood blank 108 ms while the rows above
@@ -1650,7 +1742,18 @@ export function playTurnEnd(
       if (!before) {
         // A row the swap added fades in where it lands, unless it plays its own entrance.
         if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
-        const from = starts.get(node)?.opacity ?? 0;
+        // It holds at no ink while a kept row sliding into place still crosses its box, as a row that
+        // arrives does (above): the "Worked for" of the work after a steer lands under the steer, and
+        // the steer slides up out of that box as the rows above close the fold. Fading from the
+        // move's start, the line's ink drew inside the steer's box over the first frames (11.5 px
+        // in steer-fold-boundary-browser.test.ts's turn end; Leo, 2026-11-22, ask-6cbe3d05b7: the
+        // fold swept rows up past his steer). Read again each pass, as the arriving row's hold is.
+        const clear = ms * clearFraction(index);
+        const last = moving.get(node);
+        const running = !grew && last?.fades && (last.hold ?? 0) <= elapsed;
+        const hold = clear > elapsed ? clear : running ? (last.hold ?? 0) : 0;
+        holds = Math.max(holds, hold);
+        const from = hold > elapsed ? 0 : (starts.get(node)?.opacity ?? 0);
         // Its band is where it lands. Out of view it is drawn there at full ink instead: a fade no one
         // sees is a half-state to whoever scrolls to it (the closed "Worked for" of a turn that ended
         // above the view).
@@ -1658,8 +1761,9 @@ export function playTurnEnd(
           node,
           moving,
           { from: tops[index]!, to: tops[index]!, height: heights[index]! },
-          { delta: 0, fades: true, animations: [] },
+          { delta: 0, fades: true, animations: [], ...(hold > 0 && { hold }) },
           () => [[{ opacity: from }, { opacity: 1 }]],
+          hold > 0 ? { delay: hold, fill: "backwards" } : {},
         );
         return;
       }

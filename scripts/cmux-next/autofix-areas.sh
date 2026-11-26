@@ -37,10 +37,10 @@ area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/'
 # Package.swift#CCmuxAppFFI, which base-autofix-ffi-pin.sh adds when the pin
 # moved (the rest of Package.swift is not an input).
 area actions 'Packages/macOS/CmuxNext/Package\.swift#CCmuxAppFFI|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|action-catalog\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
-# The settings exports (regenerated on a Mac: regenerate-settings-exports.sh) read
+# The settings exports (regenerated on Linux: regenerate-settings-exports-linux.sh, or a Mac) read
 # CmuxNextSettings and the two export tests. Their source stamp is derived
 # (defaults_guard.py source-stamp), never committed.
-area settings 'schemas/settings/(source|generator)/|schemas/settings/retired-keys\.json|Packages/macOS/CmuxNext/Sources/CmuxNextSettings/|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift|schemas/settings/settings-schema\.json|docs/mdm/|scripts/cmux-next/regenerate-settings-exports\.sh|scripts/ci/defaults_guard\.py'
+area settings 'schemas/settings/(source|generator)/|schemas/settings/retired-keys\.json|Packages/macOS/CmuxNext/Sources/CmuxNextSettings/|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift|schemas/settings/settings-schema\.json|docs/mdm/|scripts/cmux-next/regenerate-settings-exports(-linux)?\.sh|scripts/cmux-next/export-settings-linux\.sh|scripts/cmux-next/linux-exports/|scripts/ci/defaults_guard\.py'
 # The docs shortcuts read the catalog export and the action string catalogs.
 area shortcuts 'plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|web/scripts/export-docs-shortcuts\.ts|web/scripts/export-next-docs\.ts'
 # The app-host generated files read the operation catalogs, the action export and the apps' fragments;

@@ -652,7 +652,13 @@ def check(root: Path, tree: git_tree.GitTree) -> list[str]:
     problems = []
     for job in jobs:
         text = (root / job.workflow).read_text(encoding="utf-8")
-        inputs = graph.inputs(job)
+        try:
+            inputs = graph.inputs(job)
+        except (git_tree.Unreadable, ValueError, KeyError) as why:  # tomllib.TOMLDecodeError is a ValueError
+            # One job's unreadable crate graph is that job's problem: it used to end the whole check, so a base
+            # whose Cargo.toml did not parse hid every other job's missing path (#53846 landed one that way).
+            problems.append(f"{job.workflow}: the inputs of {job.name} could not be read: {why}")
+            continue
         for event in ("pull_request", "push"):
             globs = workflow_paths(text, event)
             if globs is None:
