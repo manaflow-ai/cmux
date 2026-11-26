@@ -1,5 +1,0 @@
-# host age_seconds class ceiling occupied cores cpu_percent ram_gib used_gib memory_budget_gib yielding
-mini 0 standard 4 0 14 0 48 0 32 no
-ultra 0 ultra 9 0 30 0 96 0 72 no
-busy 0 standard 4 2 14 60 48 24 32 yes
-stale 31 standard 4 0 14 0 48 0 32 no

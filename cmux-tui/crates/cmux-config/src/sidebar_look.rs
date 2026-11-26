@@ -26,6 +26,8 @@ use crate::value::{value_at, with_value};
 
 /// The setting that picks the look.
 pub const SETTING_KEY: &str = "sidebar.look";
+/// An explicit group style overrides the look even when it equals the schema default.
+pub(crate) const GROUP_BACKGROUND: &str = "sidebar.groupHeader.background";
 /// cmux's own sidebar: no file, nothing filled.
 pub const DEFAULT: &str = "cmux";
 /// Every look, the default first: the setting's choices.
@@ -39,7 +41,7 @@ pub const FOLDER_NAME: &str = "sidebar-looks";
 /// docs/cmux-next/sidebar-customization.md "No shift").
 pub const GRID_KEYS: [&str; 12] = [
     "sidebar.groupBy",
-    "sidebar.groupHeader.background",
+    GROUP_BACKGROUND,
     "sidebar.groupHeader.memberCount",
     "sidebar.groupHeader.unreadCount",
     "sidebar.sectionLook",
@@ -149,9 +151,14 @@ impl SidebarLook {
     }
 }
 
+/// The shipped look selected by the settings layers above the preset.
+pub(crate) fn selected(root: &Value, schema: &Schema, domains: &Domains) -> Option<SidebarLook> {
+    look_in(root).and_then(|name| SidebarLook::shipped(name, schema, domains))
+}
+
 /// `root` with the look it picks filled in under it (unchanged for `cmux`).
 pub fn filled(root: &Value, schema: &Schema, domains: &Domains) -> Value {
-    match look_in(root).and_then(|name| SidebarLook::shipped(name, schema, domains)) {
+    match selected(root, schema, domains) {
         Some(look) => look.filling(root),
         None => root.clone(),
     }

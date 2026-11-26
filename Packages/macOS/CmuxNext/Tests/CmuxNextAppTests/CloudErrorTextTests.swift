@@ -142,4 +142,14 @@ struct CloudErrorTextTests {
     @Test func anActionFailureReadsAsItsMessage() {
         #expect(CloudStrings.errorText(ActionFailure(message: "No Cloud machine is selected.")) == "No Cloud machine is selected.")
     }
+
+    /// A create's failure reads as the ensure's or the CLI's own sentence, not "Something went wrong."
+    /// (start-matrix environment and repo rows, 2026-11-24).
+    @Test func aCreateFailureReadsAsItsOwnSentence() {
+        #expect(CloudStrings.errorText(CloudAppOpFailure(code: "cmux.cloud.environment_not_found", message: "No environment named web.")) == "No environment named web.")
+        #expect(CloudStrings.errorText(CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "")) == "cmux.cloud.bad_response")
+        let refused = "backend capability refused: machine_create.bootstrap (backend https://cloud-api.cmux.dev)"
+        #expect(CloudStrings.errorText(CloudEnvironmentBootstrap.CreateRefused(stderr: Data((refused + "\n").utf8))) == refused)
+        #expect(CloudStrings.errorText(CloudEnvironmentBootstrap.CreateRefused(stderr: Data())) != PlainErrorText.generic)
+    }
 }

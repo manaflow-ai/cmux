@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import CMUXMobileCore
 import Foundation
 import IrohLib
@@ -365,3 +366,4 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         )
     }
 }
+#endif

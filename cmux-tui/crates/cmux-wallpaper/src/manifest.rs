@@ -59,8 +59,15 @@ pub struct Manifest {
     pub id: String,
     pub name: String,
     pub description: String,
-    /// The program, relative to the wallpaper's folder.
+    /// The program, relative to the wallpaper's folder; empty for a scene
+    /// (`scene` or `lottie` is set instead: plans/cmux-next/motion-scenes.md).
     pub shader: String,
+    /// A motion scene (`scene.json`), drawn by the first-party scene engine.
+    pub scene: Option<String>,
+    /// A Lottie file, translated to a scene when the wallpaper loads.
+    pub lottie: Option<String>,
+    /// The pack it belongs to in the picker ("Blueprint Gradient"), if any.
+    pub pack: Option<String>,
     /// The program's own frame cap, 1..=60.
     pub fps: u32,
     /// The backing scale it renders at, 0.25..=1.
@@ -116,7 +123,7 @@ impl fmt::Display for ManifestError {
 
 impl std::error::Error for ManifestError {}
 
-fn err(
+pub(crate) fn err(
     kind: ManifestErrorKind,
     pointer: impl Into<String>,
     message: impl Into<String>,
@@ -124,17 +131,17 @@ fn err(
     ManifestError { kind, pointer: pointer.into(), message: message.into() }
 }
 
-type Result<T> = std::result::Result<T, ManifestError>;
+pub(crate) type Result<T> = std::result::Result<T, ManifestError>;
 
-fn escape(key: &str) -> String {
+pub(crate) fn escape(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
-fn object<'a>(v: &'a Value, at: &str) -> Result<&'a Map<String, Value>> {
+pub(crate) fn object<'a>(v: &'a Value, at: &str) -> Result<&'a Map<String, Value>> {
     v.as_object().ok_or_else(|| err(ManifestErrorKind::WrongType, at, "must be an object"))
 }
 
-fn only_keys(o: &Map<String, Value>, at: &str, allowed: &[&str]) -> Result<()> {
+pub(crate) fn only_keys(o: &Map<String, Value>, at: &str, allowed: &[&str]) -> Result<()> {
     match o.keys().find(|k| !allowed.contains(&k.as_str())) {
         Some(k) => Err(err(
             ManifestErrorKind::UnknownKey,
@@ -145,11 +152,11 @@ fn only_keys(o: &Map<String, Value>, at: &str, allowed: &[&str]) -> Result<()> {
     }
 }
 
-fn required<'a>(o: &'a Map<String, Value>, at: &str, key: &str) -> Result<&'a Value> {
+pub(crate) fn required<'a>(o: &'a Map<String, Value>, at: &str, key: &str) -> Result<&'a Value> {
     o.get(key).ok_or_else(|| err(ManifestErrorKind::Missing, at, format!("{key} is required")))
 }
 
-fn string(v: &Value, at: &str, max_chars: usize) -> Result<String> {
+pub(crate) fn string(v: &Value, at: &str, max_chars: usize) -> Result<String> {
     let s = v.as_str().ok_or_else(|| err(ManifestErrorKind::WrongType, at, "must be a string"))?;
     let n = s.chars().count();
     if n == 0 || n > max_chars {
@@ -165,7 +172,7 @@ fn string(v: &Value, at: &str, max_chars: usize) -> Result<String> {
     Ok(s.to_string())
 }
 
-fn number(v: &Value, at: &str, min: f64, max: f64) -> Result<f32> {
+pub(crate) fn number(v: &Value, at: &str, min: f64, max: f64) -> Result<f32> {
     let n = v.as_f64().ok_or_else(|| err(ManifestErrorKind::WrongType, at, "must be a number"))?;
     // Compare at the precision the value is stored in: a param's `min` of 0.1 is kept as
     // 0.1f32 (0.10000000149...), so a `default` or variant value of 0.1 must compare as
@@ -202,7 +209,7 @@ fn is_param_name(s: &str) -> bool {
 }
 
 /// A relative path inside the folder: no leading `/`, no `..`, no backslash.
-fn is_relative_path(s: &str) -> bool {
+pub(crate) fn is_relative_path(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 256
         && !s.starts_with('/')
@@ -241,6 +248,9 @@ impl Manifest {
                 "name",
                 "description",
                 "shader",
+                "scene",
+                "lottie",
+                "pack",
                 "fps",
                 "scale",
                 "interactive",
@@ -266,17 +276,45 @@ impl Manifest {
         }
         let name = string(required(o, "", "name")?, "/name", 60)?;
         let description = string(required(o, "", "description")?, "/description", 300)?;
-        let shader_v = required(o, "", "shader")?;
-        let shader = shader_v
-            .as_str()
-            .ok_or_else(|| err(ManifestErrorKind::WrongType, "/shader", "must be a string"))?;
-        if !is_relative_path(shader) || !shader.ends_with(".wgsl") {
-            return Err(err(
-                ManifestErrorKind::BadFormat,
-                "/shader",
-                format!("{shader:?} must be a .wgsl file inside the wallpaper's folder"),
-            ));
+        let source_path = |key: &str, ext: &str| -> Result<Option<String>> {
+            let Some(v) = o.get(key) else { return Ok(None) };
+            let at = format!("/{key}");
+            let path = v.as_str().ok_or_else(|| {
+                err(ManifestErrorKind::WrongType, at.as_str(), "must be a string")
+            })?;
+            if !is_relative_path(path) || !path.ends_with(ext) {
+                return Err(err(
+                    ManifestErrorKind::BadFormat,
+                    at,
+                    format!("{path:?} must be a {ext} file inside the wallpaper's folder"),
+                ));
+            }
+            Ok(Some(path.to_string()))
+        };
+        let shader = source_path("shader", ".wgsl")?;
+        let scene = source_path("scene", ".json")?;
+        let lottie = source_path("lottie", ".json")?;
+        match [&shader, &scene, &lottie].iter().filter(|s| s.is_some()).count() {
+            0 => {
+                return Err(err(
+                    ManifestErrorKind::Missing,
+                    "",
+                    "shader is required (or scene, or lottie)",
+                ));
+            }
+            1 => {}
+            _ => {
+                return Err(err(
+                    ManifestErrorKind::Duplicate,
+                    "",
+                    "name only one of shader, scene and lottie",
+                ));
+            }
         }
+        let pack = match o.get("pack") {
+            None => None,
+            Some(p) => Some(string(p, "/pack", 40)?),
+        };
         let fps_v = required(o, "", "fps")?;
         let fps = fps_v
             .as_u64()
@@ -316,7 +354,10 @@ impl Manifest {
             id: id.to_string(),
             name,
             description,
-            shader: shader.to_string(),
+            shader: shader.unwrap_or_default(),
+            scene,
+            lottie,
+            pack,
             fps: u32::try_from(fps).unwrap_or(30),
             scale,
             interactive,
@@ -343,11 +384,27 @@ impl Manifest {
     /// The manifest as JSON with every optional key filled in: the shape the
     /// app reads (`cmux_wallpaper_validate_manifest`).
     pub fn to_json(&self) -> Value {
+        let mut v = self.to_json_common();
+        // Only the source that applies, and no null: the parser refuses both.
+        if let Some(o) = v.as_object_mut() {
+            let source = match (&self.scene, &self.lottie) {
+                (Some(s), _) => ("scene", s.clone()),
+                (None, Some(l)) => ("lottie", l.clone()),
+                (None, None) => ("shader", self.shader.clone()),
+            };
+            o.insert(source.0.into(), json!(source.1));
+            if let Some(p) = &self.pack {
+                o.insert("pack".into(), json!(p));
+            }
+        }
+        v
+    }
+
+    fn to_json_common(&self) -> Value {
         json!({
             "id": self.id,
             "name": self.name,
             "description": self.description,
-            "shader": self.shader,
             "fps": self.fps,
             "scale": self.scale,
             "interactive": self.interactive,

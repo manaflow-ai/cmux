@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.tabs.tabFontSize.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Text size of tab titles. Unset, tabs follow the interface size."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "タブタイトルの文字サイズ。未設定の場合はインターフェイスのサイズに従います。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حجم نص عناوين علامات التبويب. إذا لم يُعيَّن، تتبع علامات التبويب حجم الواجهة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Veličina teksta naslova kartica. Ako nije postavljeno, kartice prate veličinu interfejsa."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tekststørrelse for fanetitler. Hvis den ikke er angivet, følger fanerne grænsefladens størrelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Textgröße der Tab-Titel. Ohne Wert folgen die Tabs der Oberflächengröße."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tamaño del texto de los títulos de las pestañas. Si no se define, las pestañas siguen el tamaño de la interfaz."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Taille du texte des titres d’onglets. Si elle n’est pas définie, les onglets suivent la taille de l’interface."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dimensione del testo dei titoli delle schede. Se non è impostata, le schede seguono la dimensione dell’interfaccia."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទំហំអក្សរនៃចំណងជើងផ្ទាំង។ បើមិនកំណត់ ផ្ទាំងនឹងតាមទំហំចំណុចប្រទាក់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "탭 제목의 텍스트 크기입니다. 설정하지 않으면 탭은 인터페이스 크기를 따릅니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tekststørrelse for fanetitler. Hvis den ikke er angitt, følger fanene grensesnittstørrelsen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rozmiar tekstu tytułów kart. Gdy nie jest ustawiony, karty używają rozmiaru interfejsu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tamanho do texto dos títulos das abas. Sem valor definido, as abas seguem o tamanho da interface."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Размер текста заголовков вкладок. Если не задан, вкладки следуют размеру интерфейса."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ขนาดข้อความของชื่อแท็บ หากไม่ได้ตั้งค่า แท็บจะใช้ขนาดอินเทอร์เฟซ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sekme başlıklarının metin boyutu. Ayarlanmazsa sekmeler arayüz boyutunu izler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Розмір тексту заголовків вкладок. Якщо не задано, вкладки відповідають розміру інтерфейсу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cỡ chữ của tiêu đề tab. Nếu không đặt, tab theo cỡ giao diện."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "标签页标题的文字大小。未设置时，标签页跟随界面大小。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分頁標題的文字大小。未設定時，分頁會跟隨介面大小。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

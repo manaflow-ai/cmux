@@ -1,4 +1,8 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 
 /// The composer row while an audio message is recorded or reviewed, as
 /// Messages draws it on iOS 26 (read at @3x, frame by frame, from a screen

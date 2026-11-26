@@ -224,15 +224,27 @@ fn parity_from_the_authenticated_origin_rebuilds_without_sending_parity() {
     assert_eq!(wire.lock().unwrap().len(), 1, "no parity goes out");
 }
 
-/// A side with the mode off keeps nothing until the peer's first trusted
-/// parity: a loss in that first group stays lost (TCP retransmits it),
-/// and every later group is rebuilt.
+/// A side with the mode off keeps no bulk datagram until the peer's first
+/// trusted parity: a loss in that first group stays lost (TCP retransmits
+/// it), and every later group is rebuilt.
 #[test]
-fn an_off_receiver_rebuilds_from_the_second_group_on() {
+fn an_off_receiver_rebuilds_bulk_from_the_second_group_on() {
     let index = [7, 7, 7, 7];
     let peer = origin(1);
-    let (first_group, first_parity) = group_of(index, 0, 4);
-    let (second_group, second_parity) = group_of(index, 4, 4);
+    let big = |first| {
+        let sent: Vec<Vec<u8>> =
+            (0..4).map(|i| data(index, first + i, FLOOR_MAX_DATAGRAM, i as u8)).collect();
+        let group = Group {
+            index,
+            first,
+            ciphertexts: sent.iter().map(|d| d[WG_DATA_HEADER..].to_vec()).collect(),
+            priority: None,
+        };
+        let parities = parity_datagrams(&group, 4, 1);
+        (sent, parities)
+    };
+    let (first_group, first_parity) = big(0);
+    let (second_group, second_parity) = big(4);
     let mut inbox: Vec<_> = [0, 1, 3].map(|i| (first_group[i].clone(), peer)).to_vec();
     inbox.push((first_parity[0].clone(), peer));
     inbox.extend([0, 2, 3].map(|i| (second_group[i].clone(), peer)));
@@ -242,6 +254,35 @@ fn an_off_receiver_rebuilds_from_the_second_group_on() {
     assert!(!out.contains(&first_group[2]), "the first group is not rebuilt: {out:?}");
     assert_eq!(out.last(), Some(&second_group[1]), "the second group is: {out:?}");
     assert_eq!(ultra.counters.snapshot().recovered, 1);
+}
+
+/// Auto's floor on the peer: a fresh receiver with the mode off, whose
+/// first protected keystroke is lost, rebuilds it from the parity of its
+/// group of one right away (no second keystroke needed): small datagrams
+/// are kept before the first parity.
+#[test]
+fn an_off_receiver_rebuilds_the_first_lost_keystroke_from_its_parity() {
+    let index = [7, 7, 7, 8];
+    let peer = origin(1);
+    let (earlier, _) = rs_group(index, 0, &[80], 1);
+    let (keystroke, parity) = rs_group(index, 1, &[80], 1);
+    let inbox = vec![(earlier[0].clone(), peer), (parity[0].clone(), peer)];
+    let authentic = [earlier[0].clone(), keystroke[0].clone()];
+    let (ultra, out, _) = receive(UltraMode::Off, Some(peer), inbox, &authentic);
+    assert_eq!(out, vec![earlier[0].clone(), keystroke[0].clone()], "rebuilt at once");
+    assert_eq!(ultra.counters.snapshot().recovered, 1);
+}
+
+/// The same with a first group of four small datagrams, one lost.
+#[test]
+fn an_off_receiver_rebuilds_a_small_first_group() {
+    let index = [7, 7, 7, 9];
+    let peer = origin(1);
+    let (sent, parity) = group_of(index, 0, 4);
+    let mut inbox: Vec<_> = [0, 1, 3].map(|i| (sent[i].clone(), peer)).to_vec();
+    inbox.push((parity[0].clone(), peer));
+    let (_, out, _) = receive(UltraMode::Off, Some(peer), inbox, &sent);
+    assert_eq!(out.last(), Some(&sent[2]), "the first group is rebuilt: {out:?}");
 }
 
 /// An on-path attacker drops a genuine datagram and sends its unchanged
@@ -266,12 +307,14 @@ fn rewrapped_genuine_ciphertext_does_not_switch_the_mode() {
     let inbox = vec![
         (sent[0].clone(), peer),
         (rewrapped[0].clone(), peer), // stands in for the dropped counter 1
-        (sent[2].clone(), peer),      // places the counter epoch
+        (sent[2].clone(), peer),
     ];
     let (mut ultra, out, wire) = receive(UltraMode::Off, Some(peer), inbox, &sent);
+    // The small first datagram is kept with the mode off and places the
+    // counter epoch, so the parity rebuilds as soon as it arrives.
     assert_eq!(
         out,
-        vec![sent[0].clone(), sent[2].clone(), sent[1].clone()],
+        vec![sent[0].clone(), sent[1].clone(), sent[2].clone()],
         "the genuine datagram is rebuilt and authenticates"
     );
     assert_eq!(ultra.mode, UltraMode::Off, "the attacker's mode is not adopted");
@@ -654,4 +697,117 @@ fn a_liveness_datagram_goes_alone_and_unrepaired() {
     ultra.flush();
     let parity = wire.lock().unwrap().iter().filter(|d| d[0] == TAG).count();
     assert!(parity >= 1, "the data datagram keeps its repair");
+}
+
+#[test]
+fn the_congestion_controller_defaults_to_bbr_and_cubic_goes_back() {
+    use smoltcp::socket::tcp::CongestionControl;
+    assert_eq!(congestion_from(None), CongestionControl::Bbr);
+    assert_eq!(congestion_from(Some("bbr")), CongestionControl::Bbr);
+    assert_eq!(congestion_from(Some(" Cubic ")), CongestionControl::Cubic);
+    assert_eq!(congestion_from(Some("none")), CongestionControl::None);
+    assert_eq!(congestion_from(Some("bogus")), CongestionControl::Bbr);
+}
+
+/// An idle keepalive (an empty data message) leaves as one datagram in every
+/// mode and with Auto's floor: no copies, no parity. The session's first one
+/// (counter 0, which confirms a handshake) keeps its repair, and so does
+/// data around a keepalive.
+#[test]
+fn an_idle_keepalive_goes_alone_and_unrepaired() {
+    let index = [4, 4, 4, 4];
+    let keepalive = |counter| data(index, counter, WG_KEEPALIVE_LEN - WG_DATA_HEADER, 0);
+    for mode in [
+        UltraMode::SETTING,
+        UltraMode::fec(8, 2).unwrap(),
+        UltraMode::Duplicate { copies: 3 },
+        UltraMode::Off,
+    ] {
+        for metered in [false, true] {
+            let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+            let wire = Arc::clone(&script.sent);
+            let mut ultra = UltraUnderlay::new(Box::new(script), mode, Arc::default());
+            ultra.set_floor(true);
+            ultra.set_metered(metered);
+            for counter in 1..4 {
+                ultra.send(&keepalive(counter));
+                ultra.flush();
+            }
+            assert_eq!(wire.lock().unwrap().len(), 3, "{mode:?} metered={metered}");
+            let stats = ultra.counters.snapshot();
+            assert_eq!(stats.parity_sent + stats.copies_sent, 0, "{mode:?}");
+        }
+    }
+    let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+    let wire = Arc::clone(&script.sent);
+    let mut ultra = UltraUnderlay::new(Box::new(script), UltraMode::SETTING, Arc::default());
+    ultra.send(&keepalive(0));
+    ultra.flush();
+    assert!(wire.lock().unwrap().len() > 1, "the handshake's confirming keepalive is repaired");
+    wire.lock().unwrap().clear();
+    ultra.send(&data(index, 1, 40, 0));
+    ultra.send(&keepalive(2));
+    ultra.flush();
+    let parity = wire.lock().unwrap().iter().filter(|d| d[0] == TAG).count();
+    assert!(parity >= 1, "the data datagram keeps its repair");
+}
+
+/// What `n` datagrams of `class` leave as under `mode`, with the loss window
+/// at `lost` of `total`: (datagrams on the wire, parity or copies sent).
+fn class_cost(mode: UltraMode, class: Priority, lost: u64, total: u64) -> (usize, usize) {
+    let script = Script { inbox: VecDeque::new(), sent: Arc::default() };
+    let wire = Arc::clone(&script.sent);
+    let mut ultra = UltraUnderlay::new(Box::new(script), mode, Arc::default());
+    ultra.window.add(LossSample { lost, received: total - lost, ..LossSample::default() });
+    for counter in 0..8 {
+        ultra.send_classified(&data([5, 5, 5, 5], counter, 60, counter as u8), class);
+    }
+    ultra.flush();
+    let sent = wire.lock().unwrap().len();
+    (sent, sent - 8)
+}
+
+const REPAIR_MODES: [UltraMode; 3] = [
+    UltraMode::Duplicate { copies: 2 },
+    UltraMode::Fec { group: 8, parity: 2 },
+    UltraMode::SETTING,
+];
+
+#[test]
+fn bulk_keeps_the_modes_repair() {
+    for mode in REPAIR_MODES {
+        for (lost, total) in [(0, 1000), (200, 1000)] {
+            assert!(class_cost(mode, Priority::Bulk, lost, total).1 > 0, "{mode:?}");
+        }
+    }
+}
+
+#[test]
+fn interactive_is_repaired_at_any_measured_loss() {
+    for mode in REPAIR_MODES {
+        for (lost, total) in [(0, 1000), (5, 1000), (20, 1000)] {
+            assert!(class_cost(mode, Priority::Interactive, lost, total).1 > 0, "{mode:?}");
+        }
+    }
+}
+
+#[test]
+fn screen_is_repaired_only_above_one_percent_loss() {
+    for mode in REPAIR_MODES {
+        assert_eq!(class_cost(mode, Priority::Screen, 0, 1000).1, 0, "{mode:?}: clean");
+        assert_eq!(class_cost(mode, Priority::Screen, 5, 1000).1, 0, "{mode:?}: 0.5 %");
+        assert_eq!(class_cost(mode, Priority::Screen, 10, 1000).1, 0, "{mode:?}: exactly 1 %");
+        assert!(class_cost(mode, Priority::Screen, 20, 1000).1 > 0, "{mode:?}: 2 %");
+    }
+}
+
+#[test]
+fn the_loss_window_forgets_old_loss() {
+    let mut window = LossWindow::default();
+    window.add(LossSample { lost: 100, received: 900, ..LossSample::default() });
+    assert!(window.above_one_percent());
+    for _ in 0..20 {
+        window.add(LossSample { received: 1000, ..LossSample::default() });
+    }
+    assert!(!window.above_one_percent());
 }

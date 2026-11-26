@@ -14,9 +14,7 @@ pub(super) async fn verified_parent(
     if let Some(verified) = meta.fork_parent_verified {
         return verified;
     }
-    let Some(session) =
-        hub.sessions.lock().ok().and_then(|sessions| sessions.get(&meta.id).cloned())
-    else {
+    let Some(session) = hub.session_get(&meta.id) else {
         return false;
     };
     let (hub, meta, parent) = (hub.clone(), meta.clone(), parent.meta());

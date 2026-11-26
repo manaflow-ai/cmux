@@ -2,7 +2,7 @@
 //
 // Auto as where a new chat runs (autoWhereModel.ts), in each look, every state drawn by the shipped
 // components: the Where chip (EnvironmentPicker with Auto picked, and with This Mac picked), its menu
-// (open it: Auto heads the list), and the arrival line (AutoArrival) while deciding, after it kept the
+// (open it: This Mac, Auto, Cloud, Other devices), and the arrival line (AutoArrival) while deciding, after it kept the
 // chat here, after it put it on Cloud, and when no Cloud machine was there to take it. Leo, 2026-11-22:
 // "MAKE IT FUCKING LOOK SPECIAL. BUT CONSSITENT TEXT-WISE." The words are the same in every look; the
 // look is the icon, its colour and a little motion, which holds still under reduced motion.
@@ -120,8 +120,12 @@ export default componentEntry<Props>({
   height: 380,
   anchors: [{ selector: ".auto-where-board" }],
   variants: {
+    split: {
+      note: 'Ships. Split: half a computer, half a cloud, cut by an angled slash (Leo 2026-11-24: "the auto icon i assume necessarily has to be the half and half computer/cloud icon with the angled slash").',
+      props: { look: "split" },
+    },
     orbit: {
-      note: "Ships. Orbit: your chat as a still centre and three machine-coloured dots going round it at every spinner's one period while Auto is picked, on hover and while deciding.",
+      note: "Orbit: your chat as a still centre and three machine-coloured dots going round it at every spinner's one period while Auto is picked, on hover and while deciding.",
       props: { look: "orbit" },
     },
     constellation: {

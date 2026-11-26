@@ -182,7 +182,11 @@ public struct StackAuthClient: AuthClient {
     }
 
     public func signInWithOAuth(provider: String, anchor: any AuthPresentationAnchoring) async throws {
+#if canImport(AuthenticationServices)
         try await stack.signInWithOAuth(provider: provider, presentationContextProvider: anchor)
+#else
+        throw AuthClientError.unsupported
+#endif
     }
 
     /// The access token exactly as stored: a raw read, no freshness check,

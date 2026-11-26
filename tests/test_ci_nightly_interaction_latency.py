@@ -31,6 +31,8 @@ class FakeRunner:
     def __call__(self, cmd, cwd=None):
         bench, out = cmd[cmd.index("--only") + 1], cmd[cmd.index("--out") + 1]
         self.ran.append(bench)
+        self.timeouts = getattr(self, "timeouts", {})
+        self.timeouts[bench] = cmd[cmd.index("--timeout-s") + 1]
         if bench in self.fail:
             report = {"rows": [], "failed": [{"bench": bench, "why": "timed out after 105 s"}]}
         else:
@@ -56,6 +58,15 @@ class Tests(unittest.TestCase):
         for key, (bench, _words, _own) in nil.INTERACTIONS.items():
             self.assertIn(f'name: "{bench}"', suite, key)
             self.assertIn(bench, nil.TIMEOUT_S, key)
+
+    def test_each_bench_runs_with_its_own_timeout(self):
+        # The suite's timeouts fit the perf runner; the nightly's slower runner timed out three benches on every
+        # nightly from 2026-11-22, so each bench gets TIMEOUT_S as --timeout-s.
+        fake = FakeRunner()
+        planned = {"run": [{"key": "thread_rail_jump", "bench": "thread-rail-jump"}]}
+        with tempfile.TemporaryDirectory() as d:
+            nil.run(planned, d, d, runner=fake)
+        self.assertEqual(fake.timeouts, {"thread-rail-jump": str(nil.TIMEOUT_S["thread-rail-jump"])})
 
     def test_touched_by_path(self):
         hit = nil.touched(["webviews/src/sidebar/List.tsx", "README.md"])

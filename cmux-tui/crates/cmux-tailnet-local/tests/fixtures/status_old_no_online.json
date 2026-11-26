@@ -1,0 +1,2 @@
+{"BackendState":"Running","Self":{"HostName":"laptop","TailscaleIPs":["100.64.0.1"]},
+ "Peer":{"k":{"HostName":"legacy","TailscaleIPs":["100.64.0.2"],"Relay":"sfo"}}}

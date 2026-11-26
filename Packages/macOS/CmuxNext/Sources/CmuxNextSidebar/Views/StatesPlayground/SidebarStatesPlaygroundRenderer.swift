@@ -67,7 +67,6 @@ struct SidebarStatesPlaygroundRenderer {
         root.addSubview(sidebar)
         window.orderFrontRegardless()
         let list = sidebar.list
-        list.openDoneFolds.insert(.archive) // the archived row shows under the open Archive section
         list.onGroupEditorItem = { _, _ in } // a group header offers its + (the empty group's) only with a handler
         sidebar.layoutSubtreeIfNeeded()
         list.reload(animated: false)

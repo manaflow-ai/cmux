@@ -22,7 +22,7 @@ env:
 
 jobs:
   notices:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -32,7 +32,16 @@ jobs:
           fetch-depth: 0
 
       - name: Restore the crate source cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux-notices
+          key: cmux-notices-v1-${{ hashFiles('cmux-tui/Cargo.lock', 'first-party-apps/cloud/server/Cargo.lock', 'Native/DiffSidecar/Cargo.lock', 'Native/OptChat/optchat-chief/Cargo.lock', 'cmux-next-ios/rust/Cargo.lock', 'scripts/cmux-next/remote-browser-host.pin.json', 'Packages/macOS/CmuxNext/Package.resolved', 'scripts/cmux-next/cmux-tui.pin') }}
+          restore-keys: cmux-notices-v1-
+
+      - name: Restore the crate source cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/cmux-notices
           key: cmux-notices-v1-${{ hashFiles('cmux-tui/Cargo.lock', 'first-party-apps/cloud/server/Cargo.lock', 'Native/DiffSidecar/Cargo.lock', 'Native/OptChat/optchat-chief/Cargo.lock', 'cmux-next-ios/rust/Cargo.lock', 'scripts/cmux-next/remote-browser-host.pin.json', 'Packages/macOS/CmuxNext/Package.resolved', 'scripts/cmux-next/cmux-tui.pin') }}

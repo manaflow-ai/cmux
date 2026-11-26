@@ -219,7 +219,7 @@ test("a started chat has no strip, even when its tab's menu offers Move to Cloud
 
 // Leo (2026-10-30): "WHEN I OPEN UP A FUCKING EXISTING TAB I SHOULDN'T FUCKING SEE CHOOSE PROJECT
 // CHOOSE ENVIRONMENT AT THE TOP OF THE FFUCKING COMPOSER". An existing tab's page draws its composer
-// before the host's handshake answers ("Waiting for the agent service") and before its session
+// before the host's handshake answers and before its session
 // attaches; that snapshot is empty and looks like a new chat's. The pane knows a chat is new only
 // from the handshake (`newSession`) or from the session itself once it arrives.
 test("which chats the pane knows enough about to draw the strip for", async () => {

@@ -22,7 +22,7 @@ public struct CmuxNextApp {
         if StagedUpdatePrewarm.isChromiumPrewarm(CommandLine.arguments) { _ = cmux_early_malloc_zone_registration(); _exit(CEFStagedPrewarm().run(application: CmuxApplication.shared).rawValue) }; MacScreenStreamChild(arguments: CommandLine.arguments)?.run() // _exit: no static destructors under Chromium's threads; the Screen Sharing helper's child (the iPhone viewer's screen host) runs and exits, no app starts
         if case let epoch = cmux_next_first_initializer_epoch(), epoch > 0 { DebugTimings.markLaunch("premain.first_initializer", at: Date(timeIntervalSince1970: epoch)) } // process start to here: exec and dyld; to main_start: static initializers
         announceBenchHooksBuild()
-        ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch() // defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
+        ClassicFolderItemsMove.moveConfigItems(paths: .current); ScrollerStylePin().apply(to: .standard); FontSmoothingSetting.applyBeforeLaunch() // concurrency-allow: a few lstats, and once the renames of NEXT's files out of classic's config folder, before anything reads the settings file; defaults AppKit reads once as it starts: overlay scrollers, any mouse or setting; appearance.fontSmoothing
         // First, while the process has one thread: install the delegating
         // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped
@@ -58,7 +58,7 @@ public struct CmuxNextApp {
             environment.relaunchBehind = UpdateRelaunchFocus.consume(
                 build: UpdateBuildIdentity.main().build,
                 reopenedBehind: ProcessInfo.processInfo.arguments.contains(UpdateRelaunchFocus.reopenArgument))
-        }
+        }; DebugTimings.markLaunch("main.environment")
         // concurrency-allow: one lstat, and once one rename of the folder older builds kept in classic's cmux, before anything reads it
         StateFolderMove().run(build: environment.launch.build)
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
@@ -69,7 +69,7 @@ public struct CmuxNextApp {
         AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting.
-        let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()
+        DebugTimings.markLaunch("main.state_folder"); let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()
         let launchSnapshot = LaunchSnapshot.readAtLaunch(work: work, build: environment.launch.build) // first on the lane: the launch window is drawn from it
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state), chromium = CEFLaunchPrefetch()
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }; chromium.start(on: work, when: launchImages.savedPagesExist) // a restored Chromium page's framework
@@ -77,15 +77,15 @@ public struct CmuxNextApp {
         relaunchWake.begin(on: work)
         // The bundled CLI's Cloud environment read, off the main thread while AppKit starts; the daemon starts after it.
         let cloudEnvironment = CloudEnvironmentBootstrap.startAtLaunch(work: work)
-        // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
-        CrashOnExceptions.register()
+        DebugTimings.markLaunch("main.reads_started") // DEV and NIGHTLY crash at an exception's throw site (cx-r3q), before NSApp exists.
+        CrashOnExceptions.register(); DebugTimings.markLaunch("main.crash_handlers")
         // Instantiate the CEF-ready subclass before anything touches NSApp.
-        let app = CmuxApplication.shared
+        let app = CmuxApplication.shared; DebugTimings.markLaunch("main.nsapp_made")
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
             || environment.relaunchBehind != nil
         let delegate = AppDelegate(environment: environment, // stage 0 (LaunchShell): its plan and image decode while AppKit starts; none for agent, test and relaunch-behind launches
                                    launchReads: (work, launchImages, relaunchWake, chromium, LaunchShell.atLaunch(bundleID: environment.noActivate || environment.testWindow != nil || environment.relaunchBehind != nil ? nil : environment.launch.bundleID, session: environment.daemonSession) { DebugTimings.markLaunch($0) }), cloudEnvironment: cloudEnvironment, launchSnapshot: launchSnapshot)
-        app.delegate = delegate; app.setActivationPolicy(.regular)
+        DebugTimings.markLaunch("main.delegate_made"); app.delegate = delegate; app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp"); DebugTimings.markLaunch("main.run")
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
