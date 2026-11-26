@@ -17,6 +17,8 @@ on:
     paths:
       - "cmux-tui/crates/cmux-rd-host/**"
       - ".github/workflows/cmux-rd-windows-host-build.yml"
+      # Prose alone starts no run (tests/test_ci_docs_only_prs.py).
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:

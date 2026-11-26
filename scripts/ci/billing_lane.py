@@ -31,6 +31,8 @@ WEB = ROOT / "web"
 LANE_PATTERNS = (
     ".github/workflows/billing.yml",
     "scripts/ci/billing_lane.py",
+    # tests/test_ci_billing_lane.py reads the Swift Linux package list.
+    "scripts/ci/swift-linux-packages.txt",
     "tests/test_ci_billing_lane.py",
     "web/scripts/run-db-behavior-tests.sh",
 )
