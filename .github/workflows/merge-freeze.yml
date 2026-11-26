@@ -31,11 +31,14 @@ jobs:
   check:
     # A draft cannot merge; it is checked when marked ready (ready_for_review
     # above). Mergers read the freezes again at merge time either way.
-    # A fix-cause:* label on a closed pull request starts no job (tests/test_ci_fix_cause_labels_start_no_jobs.py).
-    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:'))
-    name: merge freeze
+    # Only freeze-ok changes the verdict, so any other label event (risk:* set by risk tier, area:*,
+    # fix-cause:*) starts no job: it takes another name and its own concurrency group, so it neither
+    # reads as a passed "merge freeze" (#38003) nor cancels the real run
+    # (tests/test_ci_fix_cause_labels_start_no_jobs.py).
+    if: github.event_name == 'pull_request_target' && !github.event.pull_request.draft && !((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok')
+    name: ${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' && 'merge freeze label (ignored)' || 'merge freeze' }}
     concurrency:
-      group: merge-freeze-${{ github.event.pull_request.number }}
+      group: merge-freeze-${{ github.event.pull_request.number }}${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'freeze-ok' && format('-label-{0}', github.run_id) || '' }}
       cancel-in-progress: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: pull_request_target with a read token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 20
@@ -64,7 +67,43 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
+      # The base files over raw.githubusercontent.com at a commit sha (seconds), with actions/checkout below as
+      # the fallback. A sparse blobless checkout of a file or two took 30 to 180 s on Blacksmith (the promisor blob
+      # fetch at `git checkout`, or a ref listing the git mirror proxy answered with a 502 after 90 s): most of this
+      # job's runner time. These are files of a base commit named by sha, never the pull request's head, and nothing
+      # from the pull request runs. scripts/ci/api_call_log is left out: it switched itself off on 2026-11-23.
+      # (tests/test_ci_prt_raw_base_files.py)
+      - name: Read the checker from main
+        id: raw
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          # The job's read token: an unauthenticated raw read is rate limited per address (429), and runner
+          # addresses are shared. Sent only to raw.githubusercontent.com.
+          RAW_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # A pull_request_target run's github.sha is main's newest commit when the event fired.
+          SHA: ${{ github.sha }}
+          FILES: scripts/ci/merge_freeze.py
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          part="$RUNNER_TEMP/raw-base-files"
+          rm -rf "$part"
+          for f in $FILES; do
+            mkdir -p "$part/$(dirname "$f")"
+            code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -o "$part/$f" -w '%{http_code}' \
+              -H "Authorization: token $RAW_TOKEN" \
+              "https://raw.githubusercontent.com/$REPO/$SHA/$f")" || code=000
+            if [ "$code" != 200 ]; then
+              echo "::notice::$f read $code over raw; actions/checkout reads the files instead."
+              exit 1
+            fi
+          done
+          cp -R "$part"/. .
+          echo "ok=true" >> "$GITHUB_OUTPUT"
       - name: Checkout the checker from main
+        if: steps.raw.outputs.ok != 'true'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: main
