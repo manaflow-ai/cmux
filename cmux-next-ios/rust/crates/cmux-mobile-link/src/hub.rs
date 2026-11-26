@@ -146,10 +146,11 @@ async fn join(params: &HubParams, side: HubSide) -> Result<Socket, HubError> {
     if let Some(space) = &params.build_space {
         headers.insert(crate::build_space::HEADER, http_value(space.as_str())?);
     }
-    let (socket, response) = tokio::time::timeout(HUB_JOIN_WAIT, tokio_tungstenite::connect_async(request))
-        .await
-        .map_err(|_| HubError::Connect(format!("no answer within {}s", HUB_JOIN_WAIT.as_secs())))?
-        .map_err(|e| join_error(&e))?;
+    let (socket, response) =
+        tokio::time::timeout(HUB_JOIN_WAIT, cmux_egress::ws::connect_async(request, "cmux_mobile_link::hub"))
+            .await
+            .map_err(|_| HubError::Connect(format!("no answer within {}s", HUB_JOIN_WAIT.as_secs())))?
+            .map_err(|e| join_error(&e))?;
     let selected = response.headers().get("sec-websocket-protocol").and_then(|v| v.to_str().ok());
     match hub_join_outcome(response.status().as_u16(), selected) {
         HubJoin::Hub => Ok(socket),

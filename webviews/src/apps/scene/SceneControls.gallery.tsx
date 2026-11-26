@@ -143,6 +143,7 @@ export default componentEntry<{ look?: Look }>({
       },
     },
     failed: {
+      // retry-prompt-ok: the kept Reload re-runs the app's script.
       note: "A failed mount: the native failure row's words with Reload, Copy Error and Details.",
       props: { look: "failed" },
       play: ready,
