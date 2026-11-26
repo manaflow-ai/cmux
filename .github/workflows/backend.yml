@@ -1078,6 +1078,11 @@ jobs:
       deployment: false
     timeout-minutes: 50
     steps:
+      # The journey's deadline, from the job's own start: 47 of its 50 min, whatever the build took. The journey
+      # step stops each run before it and retries only when another run fits (cloud-journey-ci.sh), so a slow
+      # run ends red with its verdict and summary instead of being killed by a step timeout with neither.
+      - name: Set the journey's deadline
+        run: echo "JOURNEY_DEADLINE_EPOCH=$(( $(date +%s) + 47 * 60 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -1184,8 +1189,9 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey (staging)
-        # Under the job's 50 so a slow journey fails as a step and rust-cache's post step still saves the build.
-        timeout-minutes: 32
+        # A backstop past JOURNEY_DEADLINE_EPOCH (the script ends by it) and under the job's 50, so the post steps
+        # still run. 32 cut run 45874526877's retry 3 min in: a 28 min first pass left no room for one.
+        timeout-minutes: 48
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
