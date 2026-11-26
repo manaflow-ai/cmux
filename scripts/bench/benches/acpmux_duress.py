@@ -64,7 +64,7 @@ class AcpmuxDuress(Bench):
         # Validate all cells before publishing any rows. Failures remain measured outcomes;
         # missing operations/counters or an incomplete setup are not measurements.
         for leg in legs:
-            if leg.get("error") or leg.get("setupErrors") != []:
+            if leg.get("error") or leg.get("setupErrors") != {}:
                 raise BenchError(f"acpmux-duress: incomplete {leg['leg']} setup")
             ops = leg.get("ops", [])
             required = {"ls", "send"} | ({"status", "send-far"} if leg["leg"] == "rfd0050" else set())
