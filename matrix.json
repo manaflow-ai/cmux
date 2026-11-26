@@ -33,6 +33,17 @@
     "numbers": ""
   },
   {
+    "id": "network_flaps",
+    "axis": "network",
+    "case": "200 seeded network flaps (3 s to 5 min), half returning with no path change, dials and presence hanging",
+    "suite": "ios",
+    "test": "cellNetworkFlaps",
+    "asserts": "path change reconnects <= 2 s; no path change p50 and p95 below the old backoff's, worst <= 30 s; every flap reconnects",
+    "gate": true,
+    "status": "not run",
+    "numbers": ""
+  },
+  {
     "id": "network_wifi_to_cellular",
     "axis": "network",
     "case": "Wi-Fi to cellular handoff (machine)",
@@ -165,6 +176,61 @@
     "numbers": ""
   },
   {
+    "id": "nearby_no_internet",
+    "axis": "nearby",
+    "case": "Mac on the same LAN, no internet (the Worker refuses); WebRTC and WireGuard",
+    "suite": "rust",
+    "test": "with_no_internet_the_hub_is_the_whole_dial",
+    "asserts": "link up over the Mac's LAN hub, no signaling; data echoed",
+    "gate": true,
+    "status": "not run",
+    "numbers": ""
+  },
+  {
+    "id": "nearby_hung_worker",
+    "axis": "nearby",
+    "case": "Mac on the LAN, the Worker accepts and never upgrades (captive portal, dying uplink)",
+    "suite": "rust",
+    "test": "the_hub_wins_against_a_hung_worker",
+    "asserts": "hub link < 2 s; data echoed",
+    "gate": true,
+    "status": "not run",
+    "numbers": ""
+  },
+  {
+    "id": "nearby_stale_ad",
+    "axis": "nearby",
+    "case": "the Mac's ad outlived its network (hub accepts, says nothing)",
+    "suite": "rust",
+    "test": "a_stale_local_ad_does_not_delay_the_service_dial",
+    "asserts": "service link within 500 ms of the no-ad dial",
+    "gate": true,
+    "status": "not run",
+    "numbers": ""
+  },
+  {
+    "id": "nearby_network_change",
+    "axis": "nearby",
+    "case": "the phone changes network with ads from the old one",
+    "suite": "rust",
+    "test": "a_network_change_forgets_the_local_ads",
+    "asserts": "the old network's ads are forgotten",
+    "gate": true,
+    "status": "not run",
+    "numbers": ""
+  },
+  {
+    "id": "nearby_race_loser_dropped",
+    "axis": "nearby",
+    "case": "the hub wins while the service dial waits on ICE; the Mac then leaves the LAN",
+    "suite": "rust",
+    "test": "the_losing_service_dial_leaves_the_pool_sound",
+    "asserts": "next dial reuses the loser's socket, fetches ICE, echoes",
+    "gate": true,
+    "status": "not run",
+    "numbers": ""
+  },
+  {
     "id": "app_background_then_foreground",
     "axis": "app state",
     "case": "background 1 min and 8 h, then active",
@@ -245,11 +311,11 @@
     "id": "tick_reconnects",
     "axis": "tick",
     "case": "10,000 link losses of 100 ms to 8 h on virtual time; dial results lost, late and duplicated; background, resume and presence noise (TickHarness)",
-    "suite": "ios",
+    "suite": "tick",
     "test": "cellTickTenThousandReconnects",
     "asserts": "every reconnect within its bound after the network is back; no stale result moves the machine; backoff holds; same seed replays",
     "gate": false,
-    "reason": "reported, not gating: new cells added no CI gate under the 2026-10-23 no-new-CI rule, since lifted. Runs alone (CMUX_TICK_HARNESS=1): cmux-next-ios-sim.sh test only=CmuxMobileLiveTests/TickHarnessCellsTests; TICK_SEED=N replays a seed",
+    "reason": "reported, not gating: new cells added no CI gate under the 2026-10-23 no-new-CI rule, since lifted. Runs alone (CMUX_TICK_HARNESS=1) in the nightly and dispatched matrix runs (the ios job's second xcodebuild, suite tick); by hand: cmux-next-ios-sim.sh test only=CmuxMobileLiveTests/TickHarnessCellsTests; TICK_SEED=N replays a seed",
     "status": "not run",
     "numbers": ""
   },
@@ -257,11 +323,11 @@
     "id": "tick_deltas",
     "axis": "tick",
     "case": "10,000 workspace deltas over 200 workspaces (and 2,000 over 1,000 for the cost per delta); 1% lost, 2% duplicated, 2% reordered (TickHarness)",
-    "suite": "ios",
+    "suite": "tick",
     "test": "cellTickTenThousandDeltas",
     "asserts": "rows equal the Mac's at the end; duplicates and overtaken deltas change nothing; at most one re-list per gap",
     "gate": false,
-    "reason": "reported, not gating: new cells added no CI gate under the 2026-10-23 no-new-CI rule, since lifted. Runs alone (CMUX_TICK_HARNESS=1): cmux-next-ios-sim.sh test only=CmuxMobileLiveTests/TickHarnessCellsTests; TICK_SEED=N replays a seed",
+    "reason": "reported, not gating: new cells added no CI gate under the 2026-10-23 no-new-CI rule, since lifted. Runs alone (CMUX_TICK_HARNESS=1) in the nightly and dispatched matrix runs (the ios job's second xcodebuild, suite tick); by hand: cmux-next-ios-sim.sh test only=CmuxMobileLiveTests/TickHarnessCellsTests; TICK_SEED=N replays a seed",
     "status": "not run",
     "numbers": ""
   },
@@ -269,11 +335,11 @@
     "id": "tick_feed_pressure_disk",
     "axis": "tick",
     "case": "10,000 Feed events with memory warnings and the spill's folder refusing writes (disk full) now and then (TickHarness)",
-    "suite": "ios",
+    "suite": "tick",
     "test": "cellTickFeedUnderPressureAndDiskFull",
     "asserts": "memory holds the window (100 after a warning) plus open asks; no open ask lost; disk at the spill cap and flat from 5,000 to 10,000 events; scrolling to the end brings every spilled row back once",
     "gate": false,
-    "reason": "reported, not gating: new cells added no CI gate under the 2026-10-23 no-new-CI rule, since lifted. Runs alone (CMUX_TICK_HARNESS=1): cmux-next-ios-sim.sh test only=CmuxMobileLiveTests/TickHarnessCellsTests; TICK_SEED=N replays a seed",
+    "reason": "reported, not gating: new cells added no CI gate under the 2026-10-23 no-new-CI rule, since lifted. Runs alone (CMUX_TICK_HARNESS=1) in the nightly and dispatched matrix runs (the ios job's second xcodebuild, suite tick); by hand: cmux-next-ios-sim.sh test only=CmuxMobileLiveTests/TickHarnessCellsTests; TICK_SEED=N replays a seed",
     "status": "not run",
     "numbers": ""
   },

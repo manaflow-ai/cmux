@@ -5171,6 +5171,14 @@ as before, only sooner. A cache step that passes its bound continues (`continue-
 cache miss, so the bound never fails a job that would have passed. No step that runs code is bounded here, and no
 job limit changes.
 
+2026-11-26, more jobs: the checks job, `swift-test` and `daemon-test` in `cmux-next.yml`, `pr-pipeline.yml`'s `mac`,
+and `cmux-tui-spec.yml`'s `clippy`. In step samples from 2026-11-25/26, a passing checkout took at most 100 s
+(checks), 485 s (swift test), 395 s (daemon tests), 693 s (mac) and 246 s (clippy), and stalled ones held their
+jobs up to 152 min. Each bound is at least 1.8 times the longest passing checkout (6, 15, 12, 21 and 8 min). A first
+checkout past its bound continues to one retry from a fresh `.git`, as the Release compile's does, so a single
+stall costs one bound instead of the job's limit, and a retry that also stalls fails the job. No job limit changes:
+each one is already under 2x its p95 successful duration or at its longest passing run.
+
 Stalls these bounds cannot reach: a job that hangs in the runner's own `Set up runner` or `Complete runner` (5 of the
 30), before or after every workflow step. Those are the runner pools' to fix (goal-linux-pool for cmux-runner-pool,
 freestyle-ci-first-class for fsr), or a shorter job `timeout-minutes` on the light jobs they hit.
