@@ -107,6 +107,8 @@ struct CmuxMobileApp: App {
             #if DEBUG
             if BrowserEventsDemoRoot.isRequested {
                 BrowserEventsDemoRoot()
+            } else if BrowserPlacementDemoRoot.isRequested {
+                BrowserPlacementDemoRoot()
             } else if RecoveryGalleryRoot.isRequested {
                 RecoveryGalleryRoot()
             } else if ShellScreenSharingDemo.isRequested {
