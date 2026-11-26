@@ -721,13 +721,30 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
+      # A stalled fetch held this Mac up to 152 min (2026-11-26); a passing checkout here took at most 693 s.
+      # Bounded a little under 2x that, then one retry from a fresh .git (docs/ci/cmux-next-workflow-notes.md#note-stall-step-bounds).
       - name: Checkout the merge commit and the base tip
+        id: checkout
+        continue-on-error: true
+        timeout-minutes: 21
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
           submodules: false
           # An owned Mac reuses its workspace: keep the ignored SwiftPM builds a clean would delete.
+          clean: false
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 21
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          submodules: false
           clean: false
       - name: List the changed paths
         run: |
