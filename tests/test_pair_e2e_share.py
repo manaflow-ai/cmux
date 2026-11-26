@@ -258,6 +258,11 @@ class ShareLogTests(unittest.TestCase):
                          "share-host log: share-host: session s1: no helper: none at <url> | "
                          "share-host: end not sent: <cut>")
 
+    def test_the_daemons_stop_line_is_kept(self):
+        with self.host.log.open("w") as log:
+            log.write("INFO acpmux: stopping: its app quit (app pid 9)\n")
+        self.assertEqual(self.host.share_log(), "share-host log: INFO acpmux: stopping: its app quit (app pid 9)")
+
     def test_a_missing_log_says_so(self):
         self.assertEqual(self.host.share_log(), "share-host log: FileNotFoundError")
 
