@@ -641,6 +641,16 @@ def test_settings_schema_only_diff_runs_the_web_checks() -> None:
     assert web_subareas.classify_paths([path], ROOT).react_apps is True
 
 
+def test_relay_params_rule_runs_the_page_params_contract() -> None:
+    # cmux#46563: the page sent a key the relay's params rule refused. The webviews contract test
+    # reads the rule and its Rust mirror, so a PR changing only those still runs react-apps-check.
+    for path in sorted(module.RELAY_PARAMS_RULE):
+        assert (ROOT / path).is_file(), path
+        assert module.classify_files([path]).web is True, path
+        assert web_subareas.classify_paths([path], ROOT).react_apps is True, path
+        assert path in web_subareas.REACT_EXACT, path
+
+
 def test_every_web_bundle_input_outside_webviews_runs_the_web_checks() -> None:
     # Derived, not listed: whatever web-bundle-key.py finds a webviews source
     # importing (or gen-strings.mjs reading) routes the web area and its

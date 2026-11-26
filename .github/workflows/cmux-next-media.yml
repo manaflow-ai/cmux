@@ -331,8 +331,9 @@ jobs:
     # The job's clock runs from the runner's setup. On 2026-11-25 (job
     # 139295566977) setup, both builds and the before/after capture took 116
     # min, so a 120 min cap cancelled "Record What's New clips" 4 min into its
-    # own 45 and the media hand-off after it: no clip that night. 180 leaves
-    # that step its whole 45 and the hand-off its time.
+    # own 45 and the media hand-off after it: no clip that night. The clips now
+    # stop on the job's clock, 12 min before this cap, so the hand-off keeps
+    # its time whenever the clip step starts.
     timeout-minutes: 180
     # actions: read finds and downloads another run's base app artifact.
     permissions:
@@ -553,14 +554,15 @@ jobs:
         run: |
           set -euo pipefail
           ci="$GITHUB_WORKSPACE/scripts/ci"
-          if [ ! -f "$ci/media_app_cache.py" ] || [ ! -f "$ci/media_build_app.sh" ]; then
+          if [ ! -f "$ci/media_app_cache.py" ] || [ ! -f "$ci/media_build_app.sh" ] ||
+              [ ! -f "$ci/media_tree_submodules.sh" ]; then
             git fetch --no-tags origin "$GITHUB_SHA"
             ci="$RUNNER_TEMP/media-tour-ci"
             mkdir -p "$ci"
-            for script in media_app_cache.py media_build_app.sh media_module_cache_stamp.py; do
+            for script in media_app_cache.py media_build_app.sh media_module_cache_stamp.py media_tree_submodules.sh; do
               git show "$GITHUB_SHA:scripts/ci/$script" > "$ci/$script"
             done
-            chmod +x "$ci/media_build_app.sh"
+            chmod +x "$ci/media_build_app.sh" "$ci/media_tree_submodules.sh"
           fi
           # The workflow itself comes from GITHUB_SHA (the merge ref of a pull request).
           git cat-file -e "$GITHUB_SHA^{commit}" 2>/dev/null || git fetch --no-tags origin "$GITHUB_SHA"
@@ -618,7 +620,9 @@ jobs:
           # mid-add leaves the entry locked, which prune skips: -f -f takes it.
           git worktree prune
           git worktree add -f -f --detach "$RUNNER_TEMP/cmux-next-base" "$MERGE_BASE"
-          git -C "$RUNNER_TEMP/cmux-next-base" submodule update --init --recursive
+          # ghostty and ghostty-next only, from this checkout's clones when the
+          # pin matches, one commit deep, three tries (media_tree_submodules.sh).
+          "$MEDIA_TOUR_CI/media_tree_submodules.sh" "$RUNNER_TEMP/cmux-next-base"
           (cd "$RUNNER_TEMP/cmux-next-base" && \
             GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh)
 
@@ -723,7 +727,13 @@ jobs:
           export CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}"
           [ -z "${BASE_TUI_TREE_KEY:-}" ] || export CMUX_TUI_TREE_KEY="$BASE_TUI_TREE_KEY"
           ci="$MEDIA_TOUR_CI"
-          "$ci/media_build_app.sh" "$RUNNER_TEMP/cmux-next-base" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-base.out" base_app
+          # A base that does not build costs its befores, not the afters: run 45875892479 (job 140104053998)
+          # failed here on the base tree's own webviews error (a99f6659), and the whole job, every after
+          # included, was lost. base_app stays empty; the clips and capture steps leave the befores out.
+          if ! "$ci/media_build_app.sh" "$RUNNER_TEMP/cmux-next-base" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-base.out" base_app; then
+            echo "::warning title=What's New clip::the base app at ${MERGE_BASE:-the merge base} did not build; its befores are left out, the afters still record"
+            exit 0
+          fi
           # Pack it for later tours (the share step uploads it). Best effort.
           # An app built on a stand-in cmux-tui tree is not this commit's app.
           # A nightly tour shares its head instead: the next tip's tour asks
@@ -782,6 +792,10 @@ jobs:
         id: capture
         if: steps.scope.outputs.is_ui == 'true'
         continue-on-error: true
+        # A base that did not build leaves BASE_APP empty: --base-app is left off so its befores are
+        # marked unavailable (an empty --base-app would be the path ".").
+        env:
+          BASE_APP: ${{ steps.build_base.outputs.base_app }}
         # --fresh-state: the ci-media tag's saved workspaces would otherwise
         # carry one tour's windows into the next run on the same Mac.
         # exec: the runner signals the step's shell on cancel, and bash would
@@ -792,7 +806,7 @@ jobs:
           rm -rf "$media_dir"
           python3 scripts/cmux-next/media/capture_paths.py \
             --paths-file "$RUNNER_TEMP/changed-paths.txt" \
-            --base-app "${{ steps.build_base.outputs.base_app }}" \
+            ${BASE_APP:+--base-app "$BASE_APP"} \
             --head-app "${{ steps.build_head.outputs.head_app }}" \
             --out "$media_dir" \
             --receipt "$media_dir/capture-receipt.json"
@@ -808,7 +822,12 @@ jobs:
         id: clips
         if: steps.scope.outputs.is_ui == 'true' && steps.scope.outputs.clips != '0' && steps.scope.outputs.clips != ''
         continue-on-error: true
-        timeout-minutes: 45
+        # The job's clock below stops the clips 12 min before the job's cap, so this step's own cap
+        # sits above that clock and never fires first. At 45 it did: run 45880649238 (job
+        # 140119006420) recorded its afters, then cloned and built the warn-before-quit-shortcut /
+        # space-button-spacing before app at a644014a for 41 min and was killed at 20:48Z, 3 min
+        # into that app's reload and 17 min before the clock, so both befores were lost.
+        timeout-minutes: 168
         env:
           BASE_APP: ${{ steps.build_base.outputs.base_app }}
           HEAD_APP: ${{ steps.build_head.outputs.head_app }}
@@ -846,6 +865,8 @@ jobs:
           }
           record() {  # ROLE APP [--before SHA]
             local role="$1" app="$2"; shift 2
+            # No app for this role (the base did not build): its clips are left out, the rest still record.
+            [ -n "$app" ] || { echo "::warning title=What's New clip::no $role app; its $role clips are left out"; return 0; }
             # Highlight ids are lowercase words and dashes: one path per word.
             # shellcheck disable=SC2046 # split on purpose, one tour path per word
             set -- $(python3 "$clips" tours --plan "$out/plan.json" --role "$role" --dir "$RUNNER_TEMP/clip-tours" "$@")
@@ -859,10 +880,12 @@ jobs:
               --before "${CLIPS_BASE:-$MERGE_BASE}" --other-befores); do
             [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || continue
             tree="$RUNNER_TEMP/cmux-next-clip-before"
-            git fetch --no-tags --quiet --depth=1 origin "$sha" \
+            # Each network step runs on the job's clock too: the ghostty-next clone alone took 5.5 min
+            # in job 140119006420, and a stalled one must not run the step into the job's cap.
+            bounded git fetch --no-tags --quiet --depth=1 origin "$sha" \
               && git worktree add -f -f --detach "$tree" "$sha" \
-              && git -C "$tree" submodule update --init --recursive \
-              && (cd "$tree" && GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh) \
+              && bounded "$MEDIA_TOUR_CI/media_tree_submodules.sh" "$tree" \
+              && (cd "$tree" && GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" bounded ./scripts/download-prebuilt-ghosttykit.sh) \
               && CMUX_NEXT_OPTCHAT_CHIEF_TARGET_DIR="$HOME/Library/Caches/cmux-ci-media/optchat-chief-target/${RUNNER_NAME:?}" \
                 bounded "$MEDIA_TOUR_CI/media_build_app.sh" "$tree" "${TOUR_TAG}-base" "$RUNNER_TEMP/reload-clip-before.out" clip_before_app \
               || { echo "::warning title=What's New clip::no app at $sha; its befores wait"; continue; }

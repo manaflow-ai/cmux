@@ -542,14 +542,95 @@ jobs:
           path: lint-${{ env.LANE }}.json
           retention-days: 3
 
-  reviewer-path:
+  # The app and the gate for testing, built once on the build fleet (Linux) as each leg's Mac built them
+  # (Debug, arm64, CMUX_MOBILE_APPLE_SIGN_IN=YES, TARGETED_DEVICE_FAMILY=1: `cmux-ci ios-build --what
+  # gate-products`), so a leg's Mac only walks. Only when the gate's UI tests and rejection history at gate_sha are
+  # the app's own at sha: the fleet builds the app's commit as it is, with no overlay. Anything else (another gate
+  # commit, a red or unanswered build, a fork, outside manaflow-ai) leaves `use` empty and every leg builds on its
+  # Mac as before, so the walk judges the same products either way. It never fails the run.
+  # The job id ends in -fleet: the build-fleet gateway runner's job-started hook takes only thin cmux-ci client
+  # jobs, by that suffix (run 45889626981 had it refused as gate-products).
+  gate-products-fleet:
     needs: plan
+    name: Build the app and the gate for testing (build fleet)
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) }}
+    continue-on-error: true
+    # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY }}
+    timeout-minutes: 45  # the client waits up to 600 s queued plus 1800 s running
+    outputs:
+      use: ${{ steps.done.outputs.use }}
+    steps:
+      - name: Checkout the app's gate files
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          path: app
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            cmux-next-ios/UITests/AppReviewGateUITests.swift
+            cmux-next-ios/AppStoreReview/rejection-history.json
+      - name: Checkout the gate's files
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.plan.outputs.gate_sha }}
+          path: gate
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            cmux-next-ios/UITests/AppReviewGateUITests.swift
+            cmux-next-ios/AppStoreReview/rejection-history.json
+      - name: Build on the build fleet
+        id: build
+        env:
+          SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          set -uo pipefail
+          for f in cmux-next-ios/UITests/AppReviewGateUITests.swift cmux-next-ios/AppStoreReview/rejection-history.json; do
+            if ! cmp -s "app/$f" "gate/$f"; then
+              echo "::notice title=gate products::$f at the gate's commit is not the app's; every leg builds on its Mac"
+              exit 0
+            fi
+          done
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          [[ -x "$client" ]] || { echo "::warning title=gate products::cmux-ci is not installed on runner $RUNNER_NAME; every leg builds on its Mac"; exit 0; }
+          out="$RUNNER_TEMP/out"
+          status=0
+          "$client" ios-build --what gate-products --ref "$SHA" --out "$out" --timeout 1800 --queue-timeout 600 || status=$?
+          if [[ "$status" != 0 || ! -f "$out/ios-sim-build.tar.gz" ]]; then
+            echo "::warning title=gate products::the build fleet gave no products for $SHA (exit $status); every leg builds on its Mac"
+            exit 0
+          fi
+          ls -la "$out"
+          echo "out=$out" >> "$GITHUB_OUTPUT"
+      - name: Upload the products
+        id: upload
+        if: steps.build.outputs.out != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # Not review-gate-*: the report downloads those.
+          name: ios-gate-products-${{ needs.plan.outputs.lane }}
+          path: ${{ steps.build.outputs.out }}/ios-sim-build.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+      - name: Hand them to the legs
+        id: done
+        if: steps.upload.outcome == 'success'
+        run: echo "use=true" >> "$GITHUB_OUTPUT"
+
+  reviewer-path:
+    needs: [plan, gate-products-fleet]
     name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
-    # One job per device, side by side: each builds the app (about 6
-    # minutes) and walks one device (about 20), where one job walking all
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it. It runs whether
+    # gate-products built, skipped or failed (a leg with no products builds them itself).
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.plan.result == 'success' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+    # One job per device, side by side: each walks one device (about 20
+    # minutes) on the products gate-products built, or builds them first
+    # (about 6) when it has none, where one job walking all
     # three in a row took about 45 minutes. A family with no simulator on
     # the image skips its build. No leg cancels another: the report needs
     # every family's result.
@@ -565,6 +646,8 @@ jobs:
     timeout-minutes: 120
     env:
       LANE: ${{ needs.plan.outputs.lane }}
+      # 'false' when gate-products built this commit's products: the leg takes them and builds nothing.
+      BUILD_HERE: ${{ needs.gate-products-fleet.outputs.use != 'true' }}
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.plan.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - name: Result paths
@@ -640,7 +723,7 @@ jobs:
       # credential; seed-link-ffi below writes it on feat-cmux-next.
       - name: The framework's inputs
         id: ffi-key
-        if: env.UDID != ''
+        if: env.UDID != '' && env.BUILD_HERE == 'true'
         run: |
           set -euo pipefail
           # A ref from before the key script, or a key that fails, builds as before.
@@ -651,7 +734,7 @@ jobs:
           fi
       - name: Restore the framework built from the same inputs
         id: ffi
-        if: env.UDID != '' && steps.ffi-key.outputs.key != ''
+        if: env.UDID != '' && env.BUILD_HERE == 'true' && steps.ffi-key.outputs.key != ''
         uses: ./.github/actions/cache-restore
         env:
           CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
@@ -665,7 +748,7 @@ jobs:
           key: ios-link-ffi-xcframework-${{ steps.ffi-key.outputs.key }}
       - name: Put the restored framework in place
         id: ffi-place
-        if: env.UDID != '' && steps.ffi.outputs.cache-hit == 'true'
+        if: env.UDID != '' && env.BUILD_HERE == 'true' && steps.ffi.outputs.cache-hit == 'true'
         # An incomplete entry builds the framework instead of failing the leg.
         continue-on-error: true
         run: |
@@ -679,10 +762,10 @@ jobs:
           cp "$RUNNER_TEMP/link-ffi/CmuxMobileLinkFFI.swift" "$kit/Sources/CmuxMobileLinkFFI/"
       # cmux-next-ios/rust pins the same toolchain as cmux-tui.
       - name: Set up pinned Rust
-        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
+        if: env.UDID != '' && env.BUILD_HERE == 'true' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Cache cargo
-        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
+        if: env.UDID != '' && env.BUILD_HERE == 'true' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
@@ -692,7 +775,7 @@ jobs:
           workspaces: cmux-next-ios/rust
           key: ios-review-gate-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
       - name: Build CmuxMobileLinkFFI.xcframework
-        if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
+        if: env.UDID != '' && env.BUILD_HERE == 'true' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         env:
           JOBS: "6"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
@@ -700,7 +783,7 @@ jobs:
       # what it built to seed-link-ffi.
       - name: Stage the framework for the cache writer
         id: ffi-out
-        if: env.UDID != '' && steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name == 'push' && matrix.family == 'iphone'
+        if: env.UDID != '' && env.BUILD_HERE == 'true' && steps.ffi-key.outputs.key != '' && steps.ffi.outputs.cache-hit != 'true' && github.event_name == 'push' && matrix.family == 'iphone'
         continue-on-error: true
         env:
           FFI_KEY: ${{ steps.ffi-key.outputs.key }}
@@ -730,7 +813,7 @@ jobs:
       # same inputs resolve offline (-skipPackageUpdates). Otherwise the step fetches with
       # three tries, and as a last resort resolves from whatever clones the slot keeps.
       - name: Resolve packages
-        if: env.UDID != ''
+        if: env.UDID != '' && env.BUILD_HERE == 'true'
         working-directory: cmux-next-ios
         run: |
           set -euo pipefail
@@ -770,7 +853,7 @@ jobs:
             printf '%s\n' "$inputs_sha" > "$stamp"
           fi
       - name: Build the app and the gate for testing
-        if: env.UDID != ''
+        if: env.UDID != '' && env.BUILD_HERE == 'true'
         working-directory: cmux-next-ios
         run: |
           set -euo pipefail
@@ -791,6 +874,23 @@ jobs:
             build-for-testing 2>&1 | tee "$RESULTS/build.log" | { grep -E 'error:|BUILD' || true; }
           # xcodebuild's own status: `|| true` on the pipeline would replace it.
           test "${PIPESTATUS[0]}" -eq 0
+      # gate-products' build of this commit: Products/ with the .xctestrun, the app and its UI test runner.
+      - name: Download the products the build fleet built
+        if: env.UDID != '' && env.BUILD_HERE != 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ios-gate-products-${{ env.LANE }}
+          path: ${{ runner.temp }}/gate-products
+      - name: Put the products in place
+        if: env.UDID != '' && env.BUILD_HERE != 'true'
+        run: |
+          set -euo pipefail
+          # Its own directory, not the derived data slot: a slot's earlier Build/Products is not this commit.
+          mkdir -p "$RUNNER_TEMP/gate-build"
+          tar -xzf "$RUNNER_TEMP/gate-products/ios-sim-build.tar.gz" -C "$RUNNER_TEMP/gate-build"
+          echo "PRODUCTS=$RUNNER_TEMP/gate-build/Products" >> "$GITHUB_ENV"
+          echo "built by the build fleet (gate-products, run $GITHUB_RUN_ID); this leg built nothing" > "$RESULTS/build.log"
+          find "$RUNNER_TEMP/gate-build/Products" -maxdepth 2 \( -name '*.xctestrun' -o -name '*.app' \) -print
       - name: Walk the reviewer path on ${{ matrix.family }}
         if: env.UDID != ''
         env:
@@ -803,7 +903,7 @@ jobs:
           set -uo pipefail
           family="$FAMILY"
           udid="$UDID"
-          xctestrun="$(find "$DERIVED/Build/Products" -name '*.xctestrun' | head -n 1)"
+          xctestrun="$(find "${PRODUCTS:-$DERIVED/Build/Products}" -name '*.xctestrun' | head -n 1)"
           xcrun simctl boot "$udid" 2>/dev/null || true
           xcrun simctl bootstatus "$udid" -b
           # A fixed status bar: the clock and battery are not the app, and the

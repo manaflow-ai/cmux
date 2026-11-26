@@ -718,6 +718,24 @@ pub fn peers_in(get: &dyn Get, index: &str) -> Vec<Remote> {
 /// How long a URL index's answer is reused (the controller forgets a seed after three minutes).
 const INDEX_FRESH: Duration = Duration::from_secs(60);
 
+/// How old a URL index's last answer may be and still stand in when the index can't be read (the
+/// controller restarting, or its tailnet identity lookup stalling past the 2 s deadline: on
+/// one lane VM, 2026-11-26, every mount from 07:44Z to 12:17Z sent all its missing blobs to
+/// git, while 14 of 25 seeds would have served them). A peer is untrusted transport and every
+/// answer is checked against its git id, so an old list costs a deadline per seed that has since
+/// gone, never a wrong byte.
+const INDEX_STALE_MAX: Duration = Duration::from_secs(6 * 60 * 60);
+
+/// The text and age of the answer kept at `cache` when it is younger than `max`.
+fn cached_index(cache: Option<&Path>, max: Duration) -> Option<(Duration, String)> {
+    let cache = cache?;
+    let age = std::fs::metadata(cache).ok()?.modified().ok()?.elapsed().ok()?;
+    if age >= max {
+        return None;
+    }
+    std::fs::read_to_string(cache).ok().map(|text| (age, text))
+}
+
 /// Where a URL index's last answer is kept: the user cache dir, one file per index URL.
 fn index_cache(index: &str) -> Option<PathBuf> {
     let dir = std::env::var_os("XDG_CACHE_HOME")
@@ -732,14 +750,11 @@ fn index_cache(index: &str) -> Option<PathBuf> {
 
 /// [`peers_in`] with the answer cache at `cache`: a URL index answered under [`INDEX_FRESH`] ago
 /// is read from it, so back-to-back checkouts ask the controller once a minute.
+/// When the index can't be read, an answer kept under [`INDEX_STALE_MAX`] ago stands in.
 #[must_use]
 pub fn peers_in_cached(get: &dyn Get, index: &str, cache: Option<&Path>) -> Vec<Remote> {
     let text = if index.starts_with("http://") || index.starts_with("https://") {
-        let fresh = cache.and_then(|cache| {
-            let age = std::fs::metadata(cache).ok()?.modified().ok()?.elapsed().ok()?;
-            (age < INDEX_FRESH).then(|| std::fs::read_to_string(cache).ok()).flatten()
-        });
-        if let Some(text) = fresh {
+        if let Some((_, text)) = cached_index(cache, INDEX_FRESH) {
             text
         } else {
             match get.get(index, None, Duration::from_secs(2)) {
@@ -755,8 +770,16 @@ pub fn peers_in_cached(get: &dyn Get, index: &str, cache: Option<&Path>) -> Vec<
                     text
                 }
                 _ => {
-                    eprintln!("cmux-projection: peer index {index} unreadable; no peers");
-                    String::new()
+                    if let Some((age, text)) = cached_index(cache, INDEX_STALE_MAX) {
+                        eprintln!(
+                            "cmux-projection: peer index {index} unreadable; using its answer from {} s ago",
+                            age.as_secs()
+                        );
+                        text
+                    } else {
+                        eprintln!("cmux-projection: peer index {index} unreadable; no peers");
+                        String::new()
+                    }
                 }
             }
         }
