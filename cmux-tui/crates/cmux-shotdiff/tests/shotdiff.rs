@@ -310,3 +310,21 @@ fn bad_names_are_refused() {
     }
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn worst_tile_ssim_catches_a_short_label_change_the_ratio_misses() {
+    // 800x600; erase one 24x6 text run (a shortened label): 144 px, 0.03% of the picture.
+    let a = screen(800, 600);
+    let mut b = a.clone();
+    paint(&mut b, 300, 102, 24, 6, [246, 246, 248, 255]);
+    let v = compare(&a, &b, &Spec::default()).verdict;
+    assert!(v.pass, "the 1% ratio and mean SSIM let it through: {:?}", v.reasons);
+    let t = v.worst_tile.expect("a worst tile");
+    assert!(t.x <= 300 && 300 < t.x + 32 + 8 && t.y <= 108 && 102 < t.y + 32 + 8, "{t:?}");
+    assert!(t.ssim < 0.9, "{t:?}");
+    let strict = Spec { min_tile_ssim: 0.9, ..Spec::default() };
+    let v = compare(&a, &b, &strict).verdict;
+    assert!(!v.pass && v.reasons.iter().any(|r| r.starts_with("tile ")), "{:?}", v.reasons);
+    // The same spec passes an identical picture.
+    assert!(compare(&a, &a.clone(), &strict).verdict.pass);
+}
