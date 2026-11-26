@@ -97,9 +97,14 @@ struct TerminalComposer: View {
         }
         .fullScreenCover(isPresented: $showCamera) {
             TerminalCameraPicker { image in
-                guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-                model.addAttachment(ComposerAttachment(kind: .image, name: "Camera \(Self.stamp()).jpg",
-                                                       thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+                guard let data = image.jpegData(compressionQuality: ComposerImageOptimizer.jpegQuality) else { return }
+                let name = "Camera \(Self.stamp()).jpg"
+                let thumbnail = image.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                // A camera frame is 12 MP: shrink it as the chat composer does, before it is attached.
+                Task {
+                    let optimized = await ComposerImageOptimizer.optimizeAsync(data)
+                    model.addAttachment(ComposerAttachment(kind: .image, name: name, thumbnail: thumbnail, data: optimized))
+                }
             }
             .ignoresSafeArea()
         }
@@ -356,8 +361,13 @@ struct TerminalComposer: View {
         switch route {
         case .image:
             guard let image = board.image, let data = image.pngData() else { return }
-            model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
-                                                   thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+            let name = "Pasted image \(Self.stamp()).png"
+            let thumbnail = image.preparingThumbnail(of: CGSize(width: 168, height: 168))
+            Task {
+                let optimized = await ComposerImageOptimizer.optimizeAsync(data)
+                model.addAttachment(ComposerAttachment(kind: .image, name: ComposerImageOptimizer.filename(name, for: optimized),
+                                                       thumbnail: thumbnail, data: optimized))
+            }
         case .file(let url):
             Task { await loadFiles([url]) }
         case .text(let text):
@@ -386,7 +396,11 @@ struct TerminalComposer: View {
             } else if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
                 let thumbnail = await image.byPreparingThumbnail(ofSize: CGSize(width: 168, height: 168))
                 let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(ext)", thumbnail: thumbnail, data: data))
+                // The library's original (HEIC or JPEG, 12 MP) shrinks to 2048 px before it is
+                // attached, as the chat composer's photos do, so the link carries the small copy.
+                let optimized = await ComposerImageOptimizer.optimizeAsync(data)
+                let name = ComposerImageOptimizer.filename("Photo \(stamp)\(suffix).\(ext)", for: optimized)
+                model.addAttachment(ComposerAttachment(kind: .image, name: name, thumbnail: thumbnail, data: optimized))
             }
         }
     }
