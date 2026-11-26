@@ -3087,6 +3087,24 @@ def load_owner_live():
     return module
 
 
+def own_pushed_files(repo: Path, own) -> list[str]:
+    """The files OWN's push itself changes: those its new non-merge commits touch (not on the merged upstream
+    own.base, nor on any range's head in own.before: the branch's old remote head), that still differ from
+    own.base at the head. base..head alone named every file of the branch's whole diff on each push, and with a
+    stale upstream ref every file a merge of feat-cmux-next brought in: owners heard of pushes that changed
+    nothing of theirs (2026-11-24: perf-budgets.json notices on a base merge, a WIP checkpoint, and a PR that
+    never touches it)."""
+    if not own.base:
+        return []
+    differ = {f for f in git(repo, "diff", "--name-only", own.base, own.head).split("\n") if f}
+    seen = [f"^{a}" for _, a in getattr(own, "before", ()) or () if a]
+    try:  # a ref git cannot read (an old head never fetched) keeps the whole diff, never stops the push
+        touched = git(repo, "log", "--no-merges", "--format=", "--name-only", own.head, f"^{own.base}", *seen)
+    except SystemExit:
+        return sorted(differ)
+    return sorted(differ & {f for f in touched.split("\n") if f})
+
+
 def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None = None) -> list[str]:
     """The push's owned areas, each with the live session that holds it now (owner_live.holder), which gets one
     notice per area and pushed head. LISTING: owner_live.list_sessions() unless given (tests). Lines for the
@@ -3100,8 +3118,7 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
             owners = parse_owners(git(repo, "show", f"{own.head}:{OWNERS}"))
         except (Exception, SystemExit):
             continue
-        names = [f for f in git(repo, "diff", "--name-only", own.base, own.head).split("\n") if f] if own.base else []
-        for area, cell, doc, files in owner_hits(names, owners):
+        for area, cell, doc, files in owner_hits(own_pushed_files(repo, own), owners):
             prev = hits.get(area)
             hits[area] = (cell, doc, sorted(set(files) | set(prev[2] if prev else [])), own.head)
     if not hits:

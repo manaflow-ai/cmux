@@ -212,6 +212,60 @@ class Route(unittest.TestCase):
             guardrails.owner_route(repo, [own2], (rows, None), "host-a/coordinator")
         self.assertEqual(sent[1][2], sent[0][2])
 
+    def test_a_base_merge_or_an_unrelated_push_tells_no_owner(self):
+        """Only files the push's own non-merge commits change reach an owner: a merge of the upstream, or a push of
+        other files on a branch whose diff already holds the owned file, tells nobody (2026-11-24 perf-budgets
+        notices on base merges and a WIP checkpoint)."""
+        guardrails = _load("cmux_next_guardrails_owner_live_merge_test", "scripts/cmux-next/guardrails.py")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name)
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*args):
+            return subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+
+        def commit(path, text, message):
+            f = repo / path
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(text)
+            git("add", "-A")
+            git("commit", "-qm", message)
+            return git("rev-parse", "HEAD")
+
+        git("init", "-q", "-b", "main")
+        fork = commit("plans/cmux-next/OWNERS.md", "| Area | Paths | Owner | Read first |\n|---|---|---|---|\n"
+                      f"| acpmux daemon | `cmux-tui/crates/acpmux/` | {CELL} | [a.md](a.md) |\n", "base")
+        git("checkout", "-qb", "lane")
+        old = commit("cmux-tui/crates/acpmux/src/lib.rs", "// lane's own change\n", "own")
+        git("checkout", "-q", "main")
+        upstream = commit("cmux-tui/crates/acpmux/src/hub.rs", "// landed upstream\n", "upstream")
+        git("checkout", "-q", "lane")
+        git("merge", "-q", "--no-edit", "main")
+        merged = git("rev-parse", "HEAD")
+        rows = [row("host-b/acpmux-keeper", owns="PL-acpmux")]
+
+        def route(base, head, before):
+            own = types.SimpleNamespace(base=base, head=head, before=before)
+            sent = []
+            with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+                guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+            return sent
+
+        # The merge: judged over the upstream it merged, less the old remote head's range.
+        self.assertEqual(route(upstream, merged, ((fork, old),)), [])
+        # A later push of another file: the branch's diff still holds lib.rs, but this push did not touch it.
+        other = commit("docs/notes.md", "notes\n", "wip checkpoint")
+        self.assertEqual(route(upstream, other, ((upstream, merged),)), [])
+        # A push that changes the owned file again tells its holder, naming only that file.
+        again = commit("cmux-tui/crates/acpmux/src/lib.rs", "// changed again\n", "own again")
+        (sent,) = route(upstream, again, ((upstream, other),))
+        self.assertEqual(sent[:3], ("host-b/acpmux-keeper", "acpmux daemon", again))
+        self.assertIn("cmux-tui/crates/acpmux/src/lib.rs", sent[3])
+        self.assertNotIn("hub.rs", sent[3])
+
 
 if __name__ == "__main__":
     unittest.main()
