@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seed SwiftPM's binary-artifact cache with curl before a Linux `swift build|test`.
+"""Seed SwiftPM's binary-artifact cache with curl before a `swift build|test` (Linux, and owned Macs).
 
 Linux SwiftPM (Swift 6.2 and 6.3) downloads a package's binary targets with FoundationNetworking, which
 crashes (signal 4, `try!` in EasyHandle.swift:312, libcurl code 43) when several redirected downloads run at
@@ -24,10 +24,22 @@ Trust: `dump-package` evaluates the snapshot's own manifests, which the command 
 the same job anyway (contents: read, no secrets), so this adds no reach; the store only ever serves a file
 whose SHA-256 matches the manifest that asks for it.
 
+Owned Macs (glaeda runners): every runner slot on a mini runs as one user, so all share one SwiftPM cache
+(~/Library/Caches/org.swift.swiftpm). On a cache miss SwiftPM downloads the artifact and copies it in at its
+cache name, and a second SwiftPM that missed the same URL at the same moment fails with "failed downloading
+'<url>' ... /artifacts/<name> already exists in file system" (cmux#43892's daemon test, six artifacts new to
+cmux11s-mac-mini, 2026-11-15). Seeded first, SwiftPM only reads the cache ("Fetching binary artifact ...
+from cache"): each file goes in with an atomic rename, and an exclusive lock on the store (.seed.lock) makes
+jobs starting together download each artifact once, the later ones waiting and then linking the store's
+copy. The cache stays the host's own and warm; nothing is per runner. The Mac store defaults to MAC_STORE,
+on the cache's volume, so a cache entry is a hard link to it.
+
 Fails soft: a manifest that does not evaluate, or an artifact that does not download, is reported with a
 ::warning:: and left for SwiftPM to fetch itself. A checksum that does not match the manifest is never cached.
 
-    swiftpm_prefetch_binary_artifacts.py --store DIR (--package-path PATH | --command CMD [--directory DIR])
+    swiftpm_prefetch_binary_artifacts.py [--store DIR] (--package-path PATH | --command CMD [--directory DIR])
+
+--store is required on Linux; on macOS it defaults to MAC_STORE.
 
 --command takes the shell command fast checks runs: it seeds only for `swift build|test` (or swift-build,
 swift-test), at its --package-path (else --directory), and does nothing for any other command.
@@ -37,15 +49,19 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
+import pwd
 import re
 import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 SWIFTPM_VERBS = ("build", "test")
@@ -55,6 +71,16 @@ SWIFTPM_INFO = ("-h", "-help", "--version", "--show-bin-path")
 CHECKSUM = re.compile(r"[0-9a-f]{64}")
 MANIFEST = re.compile(r"Package(@swift-[0-9.]+)?\.swift")
 PIN_CACHE_VERSION = 1
+MAC_STORE = Path(pwd.getpwuid(os.getuid()).pw_dir) / "Library/Caches/cmux-swiftpm-artifact-store"
+SEED_LOCK = ".seed.lock"
+# How long a seed waits for another job's seed on the host before going on without the lock (still safe:
+# every write is an atomic rename). Above a cold download of every artifact on a mini (about 2 GB).
+SEED_LOCK_WAIT_SECONDS = 900
+# A slow GitHub response must end and be retried instead of holding a worker for the full transfer timeout.
+# Keep these aligned with the nightly network helpers: a healthy release asset can be large, but a transfer
+# below 1 KB/s for two minutes is a stalled upstream, not useful progress.
+GIT_HTTP_LOW_SPEED_LIMIT = "1000"
+GIT_HTTP_LOW_SPEED_TIME = "120"
 
 
 def warn(message: str) -> None:
@@ -65,15 +91,99 @@ def say(message: str) -> None:
     print(f"swiftpm prefetch: {message}", flush=True)
 
 
-def command_env(command: str) -> dict[str, str]:
-    """The NAME=VALUE assignments before the SwiftPM word of `command` (after an optional `env`): a manifest
-    that reads one (CMUX_TERMINAL_CLIENT_MODEL_ONLY) is evaluated as the command will evaluate it."""
+SHELLS = ("bash", "sh", "zsh", "dash")
+# `bash -c 'cd A && bash -c "swift test"'` is as deep as a real command goes; deeper is not followed.
+SHELL_DEPTH = 3
+
+
+def _segments(command: str) -> list[list[str]] | None:
+    """`command`'s simple commands, split at `;`, `&&`, `||`, `|`, `&` and parentheses; None if shlex cannot read it."""
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|()")
+    lexer.whitespace_split = True
     try:
-        words = shlex.split(command)
+        tokens = list(lexer)
     except ValueError:
+        return None
+    segments: list[list[str]] = [[]]
+    for token in tokens:
+        if token and set(token) <= set(";&|()"):
+            segments.append([])
+        else:
+            segments[-1].append(token)
+    return [segment for segment in segments if segment]
+
+
+def _shell_script(rest: list[str]) -> str | None:
+    """The script of `bash|sh|zsh [options] -c SCRIPT ...`, or None when the shell is not given -c."""
+    given_c, skip = False, False
+    for word in rest:
+        if skip:
+            skip = False
+        elif word in ("-o", "+o"):
+            skip = True
+        elif word.startswith("-") and not word.startswith("--") and len(word) > 1:
+            given_c = given_c or "c" in word[1:]
+        elif word.startswith("--"):
+            continue
+        else:
+            return word if given_c else None
+    return None
+
+
+def swiftpm_invocations(command: str, directory: str = ".", depth: int = 0) -> list[tuple[list[str], str]]:
+    """Each `swift build|test` (or swift-build|swift-test) `command` runs, as (its words from any leading
+    NAME=VALUE or wrapper word on, the directory it runs in). Follows the simple commands of a `;`/`&&`/`|`
+    chain, a `cd DIR` before one, and a `bash|sh|zsh -c SCRIPT` (how `cmux-ci test -- bash -c '...'` passes
+    a command): `bash -c 'set -o pipefail; cd Packages/macOS/CmuxNext && swift test'` names that package."""
+    segments = _segments(command)
+    if segments is None:
+        return []
+    cwd = directory or "."
+    found: list[tuple[list[str], str]] = []
+    for words in segments:
+        i = 0
+        while i < len(words) and (words[i] in COMMAND_PREFIXES or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[i])):
+            i += 1
+        if i >= len(words):
+            continue
+        name, rest = os.path.basename(words[i]), words[i + 1:]
+        if name == "cd" and i == 0:
+            if rest and rest[0] != "-":
+                cwd = os.path.normpath(os.path.join(cwd, os.path.expanduser(rest[0])))
+            continue
+        if name in SHELLS and depth < SHELL_DEPTH:
+            script = _shell_script(rest)
+            if script is not None:
+                found += swiftpm_invocations(script, cwd, depth + 1)
+            continue
+        if (name == "swift" and rest and rest[0] in SWIFTPM_VERBS) or name in SWIFTPM_TOOLS:
+            found.append((words, cwd))
+    return found
+
+
+def _swiftpm_options(words: list[str]) -> list[str] | None:
+    """The SwiftPM options of one invocation's words (before `--`), or None for an info-only command."""
+    i = 0
+    while i < len(words) and (words[i] in COMMAND_PREFIXES or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[i])):
+        i += 1
+    rest = words[i + 1:]
+    if os.path.basename(words[i]) == "swift":
+        rest = rest[1:]
+    options = rest[: rest.index("--")] if "--" in rest else rest
+    if any(option in SWIFTPM_INFO or option.startswith("--help") for option in options):
+        return None
+    return options
+
+
+def command_env(command: str) -> dict[str, str]:
+    """The NAME=VALUE assignments before the SwiftPM word of `command`'s first `swift build|test` (after an
+    optional `env`): a manifest that reads one (CMUX_TERMINAL_CLIENT_MODEL_ONLY) is evaluated as the command
+    will evaluate it."""
+    invocations = swiftpm_invocations(command)
+    if not invocations:
         return {}
     found = {}
-    for word in words:
+    for word in invocations[0][0]:
         if word in COMMAND_PREFIXES:
             continue
         match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_]*)=(.*)", word)
@@ -84,57 +194,42 @@ def command_env(command: str) -> dict[str, str]:
 
 
 def command_cache_path(command: str, directory: str = ".") -> str | None:
-    """The --cache-path a `swift build|test` command passes, resolved against `directory`, or None."""
-    try:
-        words = shlex.split(command)
-    except ValueError:
+    """The --cache-path `command`'s first `swift build|test` passes, resolved against where it runs, or None."""
+    invocations = swiftpm_invocations(command, directory)
+    if not invocations:
         return None
-    if "--" in words:
-        words = words[:words.index("--")]
+    words, cwd = invocations[0]
     found = None
-    for j, word in enumerate(words):
+    for j, word in enumerate(_swiftpm_options(words) or []):
         if word == "--cache-path" and j + 1 < len(words):
-            found = words[j + 1]
+            found = (_swiftpm_options(words) or [])[j + 1] if j + 1 < len(_swiftpm_options(words) or []) else None
         elif word.startswith("--cache-path="):
             found = word.split("=", 1)[1]
     if found is None:
         return None
     found = os.path.expanduser(found)
-    return found if os.path.isabs(found) else os.path.abspath(os.path.join(directory or ".", found))
+    return found if os.path.isabs(found) else os.path.abspath(os.path.join(cwd, found))
 
 
 def package_paths(command: str, directory: str = ".") -> list[str]:
-    """The package directories `command` builds when it is `swift build|test` (or swift-build|swift-test),
-    possibly after env assignments or a wrapper word; [] for anything else, or a command shlex cannot read.
-    Only the first command of a `&&`/`;` chain is read."""
-    try:
-        words = shlex.split(command)
-    except ValueError:
-        return []
-    for stop, word in enumerate(words):
-        if word in ("&&", "||", ";", "|"):
-            words = words[:stop]
-            break
-    i = 0
-    while i < len(words) and (words[i] in COMMAND_PREFIXES or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", words[i])):
-        i += 1
-    if i >= len(words):
-        return []
-    name, rest = os.path.basename(words[i]), words[i + 1:]
-    if name == "swift" and rest and rest[0] in SWIFTPM_VERBS:
-        rest = rest[1:]
-    elif name not in SWIFTPM_TOOLS:
-        return []
-    options = rest[: rest.index("--")] if "--" in rest else rest
-    if any(option in SWIFTPM_INFO or option.startswith("--help") for option in options):
-        return []
-    package = "."
-    for j, option in enumerate(options):
-        if option == "--package-path" and j + 1 < len(options):
-            package = options[j + 1]
-        elif option.startswith("--package-path="):
-            package = option.split("=", 1)[1]
-    return [os.path.normpath(os.path.join(directory or ".", package))]
+    """The package directories `command` builds: every `swift build|test` (or swift-build|swift-test) it
+    runs (swiftpm_invocations), at its --package-path or else the directory it runs in; [] for anything
+    else, an info-only SwiftPM command, or a command shlex cannot read."""
+    paths: list[str] = []
+    for words, cwd in swiftpm_invocations(command, directory):
+        options = _swiftpm_options(words)
+        if options is None:
+            continue
+        package = "."
+        for j, option in enumerate(options):
+            if option == "--package-path" and j + 1 < len(options):
+                package = options[j + 1]
+            elif option.startswith("--package-path="):
+                package = option.split("=", 1)[1]
+        path = os.path.normpath(os.path.join(cwd, package))
+        if path not in paths:
+            paths.append(path)
+    return paths
 
 
 def swiftpm_cache_key(url: str) -> str:
@@ -148,11 +243,14 @@ def swiftpm_cache_key(url: str) -> str:
     return "_" + mangled[1:] if mangled[:1].isdigit() else mangled
 
 
-def swiftpm_artifact_cache(env=os.environ, cache_path: str | None = None) -> Path:
-    """SwiftPM's shared binary-artifact cache on Linux: <--cache-path>/artifacts when the command passes one,
-    else FileManager's caches directory ($XDG_CACHE_HOME, else ~/.cache) / org.swift.swiftpm / artifacts."""
+def swiftpm_artifact_cache(env=os.environ, cache_path: str | None = None, platform: str = sys.platform) -> Path:
+    """SwiftPM's shared binary-artifact cache: <--cache-path>/artifacts when the command passes one, else
+    FileManager's caches directory / org.swift.swiftpm / artifacts: the account's ~/Library/Caches on macOS
+    (Foundation reads the account's home there, not $HOME), $XDG_CACHE_HOME else ~/.cache on Linux."""
     if cache_path:
         return Path(os.path.expanduser(cache_path)) / "artifacts"
+    if platform == "darwin":
+        return Path(pwd.getpwuid(os.getuid()).pw_dir) / "Library" / "Caches" / "org.swift.swiftpm" / "artifacts"
     caches = env.get("XDG_CACHE_HOME") or os.path.join(env.get("HOME") or os.path.expanduser("~"), ".cache")
     return Path(caches) / "org.swift.swiftpm" / "artifacts"
 
@@ -215,7 +313,9 @@ def dump_package(path: Path, swift: str = "swift", env: dict[str, str] | None = 
 def pin_manifests(location: str, revision: str, into: Path) -> None:
     """Write the pin's root Package*.swift files at `revision` into `into` (one-commit, blob-less fetch)."""
     git = ["git", "-C", str(into)]
-    env = dict(os.environ, GIT_TERMINAL_PROMPT="0")
+    env = dict(os.environ, GIT_TERMINAL_PROMPT="0",
+               GIT_HTTP_LOW_SPEED_LIMIT=os.environ.get("GIT_HTTP_LOW_SPEED_LIMIT", GIT_HTTP_LOW_SPEED_LIMIT),
+               GIT_HTTP_LOW_SPEED_TIME=os.environ.get("GIT_HTTP_LOW_SPEED_TIME", GIT_HTTP_LOW_SPEED_TIME))
     subprocess.run(git + ["init", "-q"], check=True, env=env, timeout=60)
     subprocess.run(git + ["fetch", "-q", "--depth=1", "--filter=blob:none", "--no-tags", location, revision],
                    check=True, env=env, timeout=600, capture_output=True)
@@ -293,7 +393,9 @@ def sha256(path: Path) -> str:
 
 def curl_download(url: str, destination: Path) -> None:
     subprocess.run(["curl", "--fail", "--location", "--silent", "--show-error", "--retry", "4",
-                    "--retry-all-errors", "--connect-timeout", "30", "--output", str(destination), url],
+                    "--retry-all-errors", "--connect-timeout", "30", "--max-time", "1800",
+                    "--speed-limit", GIT_HTTP_LOW_SPEED_LIMIT, "--speed-time", GIT_HTTP_LOW_SPEED_TIME,
+                    "--output", str(destination), url],
                    check=True, timeout=1800)
 
 
@@ -322,8 +424,8 @@ def link_into_cache(blob: Path, cache: Path, url: str) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     entry = cache / swiftpm_cache_key(url)
     if entry.is_file() and not entry.is_symlink() and entry.stat().st_size == blob.stat().st_size \
-            and os.path.samefile(entry, blob):
-        return entry
+            and (os.path.samefile(entry, blob) or sha256(entry) == blob.stem):
+        return entry  # already the right file (SwiftPM's own download of it, too): never swapped under a reader
     tmp = entry.with_name(f".{entry.name}.{os.getpid()}.tmp")
     tmp.unlink(missing_ok=True)
     try:
@@ -332,6 +434,28 @@ def link_into_cache(blob: Path, cache: Path, url: str) -> Path:
         shutil.copyfile(blob, tmp)
     tmp.replace(entry)
     return entry
+
+
+@contextlib.contextmanager
+def seed_lock(store: Path, wait: float = SEED_LOCK_WAIT_SECONDS):
+    """The host's seed lock on `store`, held exclusively; after `wait` seconds of another holder, go on without."""
+    store.mkdir(parents=True, exist_ok=True)
+    with open(store / SEED_LOCK, "a") as handle:
+        deadline = time.monotonic() + wait
+        said = False
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    warn(f"another job held {store / SEED_LOCK} for {wait:.0f}s; seeding without it")
+                    break
+                if not said:
+                    say(f"waiting for another job's seed ({store / SEED_LOCK})")
+                    said = True
+                time.sleep(1)
+        yield  # closing the file releases the lock
 
 
 def seed(packages: list[Path], store: Path, cache: Path, swift: str = "swift", download=curl_download,
@@ -347,20 +471,23 @@ def seed(packages: list[Path], store: Path, cache: Path, swift: str = "swift", d
         except Exception as error:  # noqa: BLE001 - SwiftPM fetches whatever is not seeded
             warn(f"could not list {package}'s binary artifacts: {error}")
     missed = 0
-    for url, checksum in sorted(artifacts.items()):
-        try:
-            entry = link_into_cache(stored_artifact(url, checksum, store, download), cache, url)
-            say(f"cached {url} ({checksum[:12]}) at {entry}")
-        except Exception as error:  # noqa: BLE001 - SwiftPM downloads it as before
-            missed += 1
-            warn(f"left {url} for SwiftPM to download: {error}")
+    with seed_lock(store):
+        for url, checksum in sorted(artifacts.items()):
+            try:
+                entry = link_into_cache(stored_artifact(url, checksum, store, download), cache, url)
+                say(f"cached {url} ({checksum[:12]}) at {entry}")
+            except Exception as error:  # noqa: BLE001 - SwiftPM downloads it as before
+                missed += 1
+                warn(f"left {url} for SwiftPM to download: {error}")
     say(f"{len(artifacts) - missed} of {len(artifacts)} binary artifacts are in {cache}")
     return missed
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--store", required=True, type=Path, help="persistent store (checksum-keyed)")
+    darwin = sys.platform == "darwin"
+    parser.add_argument("--store", type=Path, required=not darwin, default=MAC_STORE if darwin else None,
+                        help=f"persistent store (checksum-keyed); macOS default {MAC_STORE}")
     parser.add_argument("--package-path", action="append", default=[])
     parser.add_argument("--command", help="the shell command about to run; seeds only for swift build|test")
     parser.add_argument("--directory", default=".", help="the directory --command runs in")
