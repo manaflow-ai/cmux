@@ -5809,6 +5809,8 @@ jobs:
         timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           VARIANT_PATTERN: ${{ steps.source.outputs.variant_pattern }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --pattern "$VARIANT_PATTERN" --out nightly-out --connections 32
 
@@ -6491,6 +6493,8 @@ jobs:
         timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           DSYMS_ARTIFACT: ${{ steps.producer.outputs.artifact }}
           DSYMS_RUN: ${{ steps.producer.outputs.run }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --artifact-id "$DSYMS_ARTIFACT" --run-id "$DSYMS_RUN" --out "$RUNNER_TEMP/published-dsyms/dSYMs" --connections 32
@@ -6767,6 +6771,8 @@ jobs:
         timeout-minutes: 10
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Spent hour: download-run-artifact.py moves to a CI pool's token at once (run 45823496118).
+          GH_TOKEN_SPARES: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
         run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out nightly-delta/input --connections 32
 
@@ -8506,6 +8512,20 @@ jobs:
           CHANNEL_APP_NAME: ${{ needs.published-build.outputs.app_name }}
         with:
           script: |
+            // A rate-limited request waits for its reset and goes again, as report-nightly-failure's do (run
+            // 45823496118 lost this close to one, 2026-11-26). 10 min of waits in all: this job holds a nightly Mac.
+            const deadline = Date.now() + 10 * 60 * 1000;
+            github.hook.wrap('request', async (request, options) => {
+              for (let attempt = 1; ; attempt += 1) {
+                try { return await request(options); } catch (error) {
+                  const h = (error.response && error.response.headers) || {};
+                  if (!((error.status === 403 || error.status === 429) && (h['x-ratelimit-remaining'] === '0' || h['retry-after'] !== undefined || /rate limit/i.test(String(error.message)))) || Date.now() >= deadline) throw error;
+                  const ms = Math.max(5000, Math.min(Number(h['retry-after']) * 1000 || Number(h['x-ratelimit-reset']) * 1000 - Date.now() + 2000 || 60000 * attempt, deadline - Date.now()));
+                  core.warning(`GitHub API rate limited (${error.status}) on ${options.method} ${options.url}; retrying in ${Math.round(ms / 1000)} s`);
+                  await new Promise((resolve) => setTimeout(resolve, ms));
+                }
+              }
+            });
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const open = await github.rest.issues.listForRepo({ owner, repo, labels: `${process.env.CHANNEL_RELEASE_TAG}-failure`, state: 'open', per_page: 10 });
