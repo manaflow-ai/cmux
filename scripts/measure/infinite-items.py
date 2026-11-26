@@ -665,19 +665,6 @@ class Run:
               f"{json.dumps(out)}", flush=True)
         return out
 
-    def heap_profile(self):
-        """--heap-profile: a dhat-heap acpmux (ACPMUX_DHAT_OUT) writes its profile now, after the last sample, and
-        answers its live bytes then and at the peak (`_acpmux/heap_profile`): a daemon stopped by a signal can be
-        killed before it writes. Prints INFINITE-HEAPPROFILE."""
-        try:
-            c = Acp(self.acp_sock, timeout=600)
-            out = c.call("_acpmux/heap_profile", {})
-            c.close()
-        except (OSError, RuntimeError, ValueError) as exc:
-            self.error("heap profile", exc)
-            return
-        print(f"INFINITE-HEAPPROFILE {self.count} cap={self.args.resident_cap} {json.dumps(out)}", flush=True)
-
     @staticmethod
     def drain(conn):
         try:
@@ -885,8 +872,6 @@ def run_count(args, count):
                 dhat_mark(number)
         if args.open_probe > 0:
             result["open_ms"] = run.open_probe(args.open_probe)
-        if args.heap_profile:
-            run.heap_profile()
     finally:
         result["errors"] = run.errors
         run.stop()
@@ -1011,8 +996,6 @@ def main():
                         "freeing tier does to hibernated workspaces when workspaces.freeing is on (off by default)")
     p.add_argument("--dhat-mark-days", default="",
                    help="days after whose sample a dhat-heap cmux-tui ends a heap window (comma list; heap_profile.rs)")
-    p.add_argument("--heap-profile", action="store_true",
-                   help="after the last sample, ask a dhat-heap acpmux to write its profile (_acpmux/heap_profile)")
     p.add_argument("--out")
     args = p.parse_args()
     args.dhat_mark_days = sorted({int(d) for d in args.dhat_mark_days.split(",") if d})

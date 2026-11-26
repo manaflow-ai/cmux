@@ -2823,13 +2823,6 @@ async fn dispatch_request_with_identity(
             serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
         }
         method::MUX_STATUS => Ok(hub.status().await),
-        // A dhat-heap build's profile, written now (`heap_profile.rs`); the local socket only.
-        method::MUX_HEAP_PROFILE => {
-            if conn.origin != Origin::Local {
-                return Err(RpcError::method_not_found(m));
-            }
-            Ok(crate::heap_profile::dump())
-        }
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
         // own clients only, like the perf watch beside it.
         method::MUX_FELT_SNAPSHOT => {

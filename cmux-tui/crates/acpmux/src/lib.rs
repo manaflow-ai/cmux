@@ -169,6 +169,7 @@ pub mod harness_limits;
 pub(crate) mod harness_secret_ref;
 pub(crate) mod heap_future;
 pub mod heap_profile;
+pub mod heap_return;
 pub(crate) mod home_fs;
 #[cfg(test)]
 mod home_writers_by_path_tests;

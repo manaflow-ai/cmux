@@ -28,30 +28,3 @@ pub fn finish() {
     #[cfg(feature = "dhat-heap")]
     drop(PROFILER.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take());
 }
-
-/// `_acpmux/heap_profile`: writes the profile now, while the daemon still runs, and answers the
-/// heap's bytes and blocks then and at its peak. A bench asks it after its last sample: a daemon
-/// stopped by a signal can be killed before it reaches [`finish`]. Recording ends with the write;
-/// a second ask answers `written: false`. In a build without `dhat-heap`, `available: false`.
-pub fn dump() -> serde_json::Value {
-    #[cfg(feature = "dhat-heap")]
-    {
-        let mut slot = PROFILER.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(profiler) = slot.take() else {
-            return serde_json::json!({"available": true, "written": false});
-        };
-        let stats = dhat::HeapStats::get();
-        drop(profiler);
-        serde_json::json!({
-            "available": true,
-            "written": true,
-            "currBytes": stats.curr_bytes,
-            "currBlocks": stats.curr_blocks,
-            "maxBytes": stats.max_bytes,
-            "maxBlocks": stats.max_blocks,
-            "totalBytes": stats.total_bytes,
-        })
-    }
-    #[cfg(not(feature = "dhat-heap"))]
-    serde_json::json!({"available": false, "written": false})
-}
