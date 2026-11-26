@@ -4,6 +4,7 @@
 // The page prices nothing and computes no limit; "See plans" links the public plans page. Get opens
 // the create sheet on that size, the host confirms the create natively (a money op), and the new
 // machine opens in a workspace once it runs (store `openWhenRunning`).
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import { useLoadingShown } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import { AccountPanel } from "./AccountPanel";
@@ -36,6 +37,9 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
   const full = !!plan && plan.limits.max_active > 0 && plan.usage.active >= plan.limits.max_active;
   const firstAllowed = choices.find((choice) => choice.allowed)?.mb;
   const planLoadingShown = useLoadingShown(signedIn && !plan && !state.planFailed);
+  // A failed plan read is read again on its own (a read: nothing to decide), with no button; only one
+  // that lasts says so, quietly, where the sizes go.
+  const planRetry = useAutoRetry(signedIn && !plan && !!state.planFailed, () => void store.retryPlan());
   const cta = () => {
     if (!signedIn)
       return state.unavailable.includes(AccountOps.signIn) ? (
@@ -93,11 +97,8 @@ export function Storefront({ store, state, strings }: { store: CloudStore; state
             {plan && <Availability plan={plan} full={full} strings={strings} />}
           </header>
           {!plan && state.planFailed ? (
-            <p className="cloud-muted cloud-store-no-plan" role="alert">
-              {t(L.storePlanFailed)}{" "}
-              <button type="button" className="cloud-link-button" onClick={() => void store.retryPlan()}>
-                {t(L.retry)}
-              </button>
+            <p className="cloud-muted cloud-store-no-plan">
+              {planRetry.stillTrying ? t(L.storePlanStillTrying) : null}
             </p>
           ) : !plan ? (
             // The plan read says nothing while it is quick, as the page's first read (ui/lasting.ts).

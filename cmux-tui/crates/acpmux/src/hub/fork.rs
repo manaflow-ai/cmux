@@ -488,7 +488,7 @@ impl Hub {
             let made = if target.is_some() {
                 // Onto another harness: its agent reads the subagent's turns (`rehydrate`), not
                 // the copy, which no one resumes.
-                let _ = std::fs::remove_file(&copy.file);
+                let _ = crate::home_fs::remove_file(&copy.file);
                 Made::Fresh
             } else {
                 Made::Copy(copy.copy.clone())
@@ -969,6 +969,8 @@ impl Hub {
                 agent_id: Some(c.agent_id.clone()),
                 name: c.name.clone(),
             }),
+            // A fork is a new chat: Auto, whatever its parent was pinned to.
+            place_mode: None,
         };
         // The subagent's name and its last prompt, as an adopted chat's past sets them.
         if let Some(c) = &sub_copy {
