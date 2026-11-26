@@ -42,13 +42,14 @@ public import Foundation
 /// both, so it is the one place that knows whether a navigation may still be
 /// allowed: an admission gets `false` for one that is gone.
 ///
-/// ``admit(_:url:admission:)`` takes a callback, not `async`. Taking the gate
-/// and telling WebKit to allow the navigation have to be one main-actor step.
-/// A continuation would resume its caller in a later job, and until then the
-/// web view would hold the gate for a navigation WebKit has not been told to
-/// allow. If the web view reported an outcome in that gap, say an earlier
-/// load of its committing, the gate would go to the next web view and both
-/// navigations would then be allowed.
+/// ``admit(_:url:admission:)`` takes a callback, not `async`. The gate's
+/// answer has to be acted on in the main-actor step that gives it. A
+/// continuation would resume its caller in a later job, and a stop or a
+/// newer navigation in between would leave it holding a `true` that is no
+/// longer so: the caller would need a check of its own again, which is the
+/// knowledge the gate exists to hold. Whether the gate stays with the owner
+/// is also known only once WebKit has been told to allow the navigation,
+/// and the gate needs that before it admits anyone else.
 ///
 /// A test passes its own check instead of asking macOS:
 ///
@@ -122,19 +123,21 @@ public final class BrowserSingleSignOnNavigationGate {
     ///
     /// Call it for every such navigation, whether or not it goes on to
     /// ``admit(_:url:admission:)``: the navigation the owner was asked about
-    /// before is gone. If that one was waiting its turn it is cancelled now;
-    /// if it has not reached the gate yet it is cancelled when it does.
+    /// before counts as gone. If that one was waiting its turn it is cancelled
+    /// now; if it has not reached the gate yet it is cancelled when it does.
     ///
     /// - Parameter owner: The web view the navigation belongs to. Held weakly.
     /// - Returns: The navigation, to pass to ``admit(_:url:admission:)``.
     public func begin(owner: AnyObject) -> UndecidedNavigation {
-        cancelWaiters(of: owner)
         undecided.removeAll { entry in
             guard let entryOwner = entry.navigation?.owner else { return true }
             return entryOwner === owner
         }
         let navigation = UndecidedNavigation(owner: owner)
         undecided.append(WeakNavigation(navigation: navigation))
+        // Last: a cancelled admission may begin a navigation of its own, and
+        // that one is then the newest.
+        cancelWaiters(of: owner)
         return navigation
     }
 

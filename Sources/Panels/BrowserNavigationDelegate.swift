@@ -364,9 +364,11 @@ import WebKit
         ).closure
 
         // The gate hears of every main-frame action, before any branch below
-        // decides it: WebKit has dropped the navigation this web view was
-        // asked about before, whatever becomes of this one. A redirect of a
-        // load already under way counts too, as it does for the local-file
+        // decides it: a web view that starts a navigation has dropped the one
+        // it was asked about before, whatever becomes of the new one. WebKit
+        // also asks about a redirect of a load already under way, and nothing
+        // here tells the two apart, so a redirect cancels a navigation still
+        // awaiting its decision as well, as it does in the local-file
         // encoding probe.
         let mainFrameNavigation = navigationAction.targetFrame?.isMainFrame == true
             ? singleSignOnGate(for: webView).begin(owner: webView)
