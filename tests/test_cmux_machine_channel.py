@@ -957,7 +957,7 @@ class LinuxReleaseTree(unittest.TestCase):
 
 
 class CloudMachineRollback(unittest.TestCase):
-    """`rollback` (cmux-tui-artifacts.yml machine-channel-settle): a regressed build's channel moves back to the
+    """`rollback` (cloud-machine-channel-journey.yml machine-channel-settle): a regressed build's channel moves back to the
     last proven build, its commit and URLs, past the regressed build's commit time, so the forward-only channel
     and the machines' updaters take it; the regressed commit's later (fat) point then finds the channel newer."""
 

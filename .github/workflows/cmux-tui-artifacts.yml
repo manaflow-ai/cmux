@@ -5547,6 +5547,30 @@ jobs:
           scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
 
 
+  # The Cloud machine channel's journey verdict, minutes after point-machine-channel-early moves it, and its
+  # rollback to the last proven build: .github/workflows/cloud-machine-channel-journey.yml (a baseline while
+  # this commit builds, the verdict once the channel names it, then the settle). Its own file keeps the
+  # journey's leaked-machine age bound off this workflow's long jobs.
+  machine-channel-journey-baseline:
+    needs: [tree-preflight, tree-owner-wait]
+    if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.tree-owner-wait.outputs.takeover == 'true' || needs.tree-preflight.outputs.owns_key == 'true') }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cloud-machine-channel-journey.yml
+    with:
+      phase: baseline
+    secrets: inherit
+
+  machine-channel-journey:
+    needs: [point-machine-channel-early, machine-channel-journey-baseline]
+    if: ${{ !cancelled() && needs.point-machine-channel-early.result == 'success' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/cloud-machine-channel-journey.yml
+    with:
+      phase: after
+    secrets: inherit
+
   # point-machine-channel-early-linux adds the aarch64 build once both thin legs are done: the same
   # commit's file with every target, which web-ota-pointer.py newer takes over the x86_64-only one when the
   # x86_64 bytes match (completes), so no x86_64 machine downloads again. Its early claim is

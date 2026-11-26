@@ -6,7 +6,7 @@
 # misnamed secret, as backend.yml journey-preview's CMUX_JOURNEY_DEV_STACK_* was, cmuxterm-hq#8702) is an
 # error and exit 1, verdict not-run: a journey never skips silently. A baseline (below) still exits 0.
 #
-# Around a deploy (cmux-vm.yml; cmux-tui-artifacts.yml's machine-channel-journey for the Cloud machine
+# Around a deploy (cmux-vm.yml; cloud-machine-channel-journey.yml for the Cloud machine
 # channel): JOURNEY_PHASE=baseline before it (never fails the job), then
 # JOURNEY_PHASE=after: exit 3 when a step that passed on the baseline fails now (the deploy's own red,
 # which rolls the Worker back), 1 for a red that was already red before, 0 when green.
