@@ -222,6 +222,7 @@ alloc_env() {
     glibc-a2) echo "MALLOC_ARENA_MAX=2" ;;
     glibc-a4) echo "MALLOC_ARENA_MAX=4" ;;
     glibc-a16) echo "MALLOC_ARENA_MAX=16" ;;
+    glibc-notrim) echo "CMUX_MALLOC_QUIET_TRIM=0" ;;
     glibc-thr) echo "GLIBC_TUNABLES=$thr" ;;
     glibc-a4thr) echo "MALLOC_ARENA_MAX=4 GLIBC_TUNABLES=$thr" ;;
     *) echo "infinite-items-linux.sh: unknown glibc arm $1" >&2; exit 2 ;;
