@@ -357,10 +357,12 @@ def check_verdicts():
             # Pull request heads are read over git too (refs/pull/N/head), never commits/{sha}/pulls.
             git_cases = [
                 ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", [], None),
-                # Build on request (#53129): a pull request's head alone no longer asks for its tree, so
-                # the one lookup left is whether a cmux-next dispatch did.
+                # Build on request (#53129): a pull request's head alone builds nothing; a dispatch asked for it runs.
                 ("a current lane/ head with a pull request nobody asked about is superseded",
                  "refs/heads/lane/current", {dispatch_path: no_dispatch}, "true", [dispatch_path], head),
+                ("a current lane/ head with a pull request a dispatch asked for runs",
+                 "refs/heads/lane/current", {dispatch_path: (200, {"total_count": 1, "workflow_runs": [{"id": 1}]})},
+                 "false", [dispatch_path], head),
                 ("a current lane/ head no pull request has is still superseded", "refs/heads/lane/current",
                  {dispatch_path: no_dispatch}, "true", [dispatch_path], None),
                 ("a current lane/ head another pull request's head does not match is superseded",
@@ -490,8 +492,7 @@ def check_wiring():
            "owner hand-off recheck stays off the shared workflow-token budget")
     _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
-    # cmux-next-daemon-tests takes next-cache-writer on feat-cmux-next (its cache bucket write); neither job
-    # takes the routing environment it does not use.
+    # #55067 gave the daemon tests next-cache-writer (feat-cmux-next's cache write credentials): no routing token.
     for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
         _check("ci-routing-agent" not in str(all_jobs[name].get("environment", "")),
                f"{name} has no unused routing environment")

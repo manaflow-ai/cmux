@@ -17,6 +17,7 @@ use std::time::SystemTime;
 
 fn repo_root() -> PathBuf {
     // affected-reads: scripts/cmux-next/rust-live.py cmux-tui
+    // affected-reads: scripts/cmux-next/rust-live.py cmux-tui .gitmodules
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").canonicalize().unwrap()
 }
 
