@@ -315,6 +315,81 @@ DECLARED_FIXTURE = """\
 """ % WORKFLOW
 
 
+GATE_WORKFLOW = ".github/workflows/gates.yml"
+GATE_FILES = {
+    GATE_WORKFLOW: textwrap.dedent("""\
+        on: [pull_request]
+        jobs:
+          tooling-tests:
+            runs-on: ubuntu-24.04
+            steps:
+              - name: The gate's own test
+                id: tt-gate
+                run: python3 tests/test_gate.py
+              - name: A test that only lists the tests folder
+                id: tt-registry
+                run: python3 tests/test_registry.py
+        """),
+    # tests/test_ci_package_lane_prebuild.py's shape: copy the scripts folder into a scratch repo and run the gate
+    # by its path there. The walker sees a directory read, not an import, so before this the reason was "reads
+    # directory", which --pr-scope defers to the post-merge batch.
+    "tests/test_gate.py": textwrap.dedent("""\
+        import shutil, subprocess, tempfile
+        from pathlib import Path
+        ROOT = Path(__file__).resolve().parents[1]
+        scratch = Path(tempfile.mkdtemp())
+        shutil.copytree(ROOT / "scripts/gates", scratch / "scripts/gates")
+        subprocess.run(["python3", "scripts/gates/check_gate.py"], cwd=scratch, check=True)
+        """),
+    "scripts/gates/check_gate.py": "ALLOWED = ['a']\n",
+    "scripts/gates/other_gate.py": "print('other')\n",
+    "tests/test_registry.py": textwrap.dedent("""\
+        from pathlib import Path
+        ROOT = Path(__file__).resolve().parents[1]
+        NAMES = sorted(p.name for p in (ROOT / "tests").glob("test_*.py"))  # tests/test_gate.py among them
+        """),
+}
+
+
+class GateScriptRunsItsTest(unittest.TestCase):
+    """A pull request that changes a gate script runs the tooling-tests step whose own test runs that script by its
+    path, even under --pr-scope. cmux#57119 edited scripts/cmux-next/check_app_crate_licenses.py and its pinned test
+    went red on feat-cmux-next; a gate whose test runs it as a subprocess (not an import) was deferred to the
+    post-merge batch, so its pull request could not see that red at all."""
+
+    def setUp(self):
+        self.scratch = tempfile.TemporaryDirectory()
+        self.root = Path(self.scratch.name)
+        git_fixture_env.init_repo(self.root)
+        for rel, text in GATE_FILES.items():
+            path = self.root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True, env=git_fixture_env.fixture_env())
+
+    def tearDown(self):
+        self.scratch.cleanup()
+
+    def steps(self, changed):
+        decision = tooling_steps.route(self.root, GATE_WORKFLOW, "tooling-tests", changed, "pull_request",
+                                       added_deleted=[], pr_scope=True)
+        return {s.key: s for s in decision.steps}
+
+    def test_a_changed_gate_script_runs_the_test_that_runs_it_by_path(self):
+        step = self.steps(["scripts/gates/check_gate.py"])["tt-gate"]
+        self.assertTrue(step.run, step.reason)
+        self.assertIn("scripts/gates/check_gate.py", step.reason)
+
+    def test_a_sibling_the_test_never_names_stays_deferred(self):
+        step = self.steps(["scripts/gates/other_gate.py"])["tt-gate"]
+        self.assertFalse(step.run, step.reason)
+        self.assertTrue(step.reason.startswith(tooling_steps.DEFERRED), step.reason)
+
+    def test_a_test_naming_another_test_is_not_a_gate_under_test(self):
+        step = self.steps(["tests/test_gate.py"])["tt-registry"]
+        self.assertFalse(step.run, step.reason)
+
+
 class DeclaredInputs(unittest.TestCase):
     """scripts/ci/tooling-step-inputs.json: a step the walker cannot read whole runs only when a changed path matches
     its declared globs or its resolved inputs; a bad or missing file declares nothing (every such step runs)."""
@@ -573,6 +648,29 @@ class RealWorkflow(unittest.TestCase):
             ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift"], "pull_request")
         step = next(s for s in decision.steps if s.key == "tt-ios-placeholder-bounds")
         self.assertTrue(step.run, step.reason)
+
+    def test_cmux_57119s_files_run_the_license_gate_test_in_both_jobs(self):
+        # cmux#57119's diff (merge 19a767c7c0b1): it changed the license gate's allowlist and not the test that pins
+        # it, and feat-cmux-next went red on tt-app-crate-licenses. The pull request's own tooling-tests must run it.
+        changed = [".github/workflows/app-ffi-release.yml", "cmux-tui/crates/cmux-app-ffi/Cargo.lock",
+                   "cmux-tui/crates/cmux-app-ffi/Cargo.toml", "cmux-tui/crates/cmux-app-ffi/src/lib.rs",
+                   "scripts/cmux-next/build-app-ffi.sh", "scripts/cmux-next/check_app_crate_licenses.py"]
+        for workflow in (".github/workflows/cmux-next-guards.yml", ".github/workflows/cmux-next-tooling-tests-batch.yml"):
+            for pr_scope in (False, True):
+                decision = tooling_steps.route(ROOT, workflow, "tooling-tests", changed, "pull_request",
+                                               added_deleted=[], pr_scope=pr_scope)
+                step = next(s for s in decision.steps if s.key == "tt-app-crate-licenses")
+                self.assertTrue(step.run, f"{workflow} pr_scope={pr_scope}: {step.reason}")
+
+    def test_a_gate_script_its_test_runs_by_path_runs_that_test(self):
+        # Gate scripts whose tests run them as a subprocess by path: --pr-scope deferred these steps to the
+        # post-merge batch before gate_under_test.
+        for changed, key in (("scripts/ci/package-test-lane.sh", "tt-package-lane-prebuild"),
+                             ("scripts/cmux-next/generate-third-party-notices.sh", "tt-origin-net")):
+            decision = tooling_steps.route(ROOT, ".github/workflows/cmux-next-guards.yml", "tooling-tests", [changed],
+                                           "pull_request", added_deleted=[], pr_scope=True)
+            step = next(s for s in decision.steps if s.key == key)
+            self.assertTrue(step.run, f"{changed} -> {key}: {step.reason}")
 
     def test_the_runner_step_runs_after_every_setup_and_before_every_step_it_runs(self):
         steps = self.job["steps"]
