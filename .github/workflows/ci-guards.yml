@@ -607,6 +607,10 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_cloud_vm_skill_coverage.py
 
+      - name: Test the production probe team plan grant
+        if: ${{ matrix.group == 'preflight' }}
+        run: python3 tests/test_cloud_probe_team_grant.py
+
       - name: Test XCStrings catalog lint
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_lint_xcstrings.py
