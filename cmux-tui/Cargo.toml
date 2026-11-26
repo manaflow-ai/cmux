@@ -44,6 +44,7 @@ members = [
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-sync",
+    "crates/cmux-team-messaging",
     "crates/cmux-message-preview",
     "crates/cmux-share-approval",
     "crates/cmux-chief",
