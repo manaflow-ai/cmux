@@ -142,6 +142,7 @@ import { usePasteAnywhere } from "../composer/pasteAnywhere";
 import { focusRoute } from "../../../ui/focusRoute";
 import { HelpSheet } from "../HelpSheet";
 import { SlashMenu } from "../SlashMenu";
+import { useEmojiCompletion } from "../composer/useEmojiCompletion";
 import { fillPrompt, refreshSavedPrompts, savedPromptCommands, useSavedPrompts, wordEnd } from "../savedPrompts";
 import { NEW_TAB_STASH } from "../composer/draftStash";
 import { StashedChip } from "../composer/StashedChip";
@@ -174,9 +175,9 @@ import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
 import { reportInputReadyWhenFocused } from "./inputReady";
 import { rememberNewChatPlace } from "../lastNewChatPlace";
+import { KeyHint } from "../../../ui/KeyHint";
 import type { EvacuateState } from "../place/placeModel";
 import type { ComputerUsePlace } from "../computerUse/computerUseState";
-import { KEYCAP_THEN, keycapLegend, keycapStrokes } from "../../../ui/keycapLegend";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 /// Where a browser pick of the page opens: by default it navigates the page's own tab; `beside` asks for a
@@ -675,7 +676,6 @@ export function NewTabScreen(props: Props) {
     originalUploads,
     unsettled,
     cancel,
-    retry,
     revive,
     attachError,
     drop,
@@ -807,6 +807,7 @@ export function NewTabScreen(props: Props) {
   /// A send that resumes after a wait (`resumeSend`): its Computer Use hold only says why (`holdsSend`).
   const sendResuming = useRef(false);
   const resumeSend = <T,>(run: () => T): T => runResumed(sendResuming, run);
+  /// retry-prompt-ok: a start's Retry sends the draft to the agent again, a paid model request.
   const continueAfterSetup = useRef<(harness: string, model?: string, empty?: boolean) => void>(() => {});
   // One function for the screen's life: the chips take it (Add harness), and a new one each render rendered them
   // again on each key. `onSetup` is read when it runs.
@@ -1067,6 +1068,7 @@ export function NewTabScreen(props: Props) {
         // A chat on another machine installs nothing here: its agent is set up on that machine.
         local: !args[6]?.peer,
         // Retry asks the same agent again with the draft as it is now (`continueAfterSetup`).
+        // retry-prompt-ok: it sends the draft to the agent again, a paid model request.
         retry: () => continueAfterSetup.current(args[0], args[3]),
       });
     };
@@ -1195,7 +1197,6 @@ export function NewTabScreen(props: Props) {
     setAttachments,
     pending: reading,
     cancel,
-    retry,
     revive,
     originalFailures,
     codex: harness === "codex",
@@ -1355,6 +1356,9 @@ export function NewTabScreen(props: Props) {
   const menuWord = menuQuery === undefined ? undefined : `${atOpen ? "@" : (commandAt?.mark ?? "/")}${menuQuery}`;
   if (commandArrowedAt !== undefined && (!commandsOpen || menuWord !== commandArrowedAt))
     setCommandArrowedAt(undefined);
+  // The chat composer's `:` emoji list, the same lifecycle (composer/useEmojiCompletion.tsx). Leo,
+  // 2026-11-22: "for some reason i can't do :pleading_face: with the emoji here."
+  const emoji = useEmojiCompletion({ field, off: shell || commandsOpen || profilePick !== undefined });
   // A `/word` further on that names no command is the person's text (a path): the rows stay.
   const commandTyping = (commandAt !== undefined && (commandAt.leading || commandMatches.length > 0)) || atOpen;
   const commandIndex = Math.min(commandActive, Math.max(0, menuMatches.length - 1));
@@ -1609,6 +1613,8 @@ export function NewTabScreen(props: Props) {
           setStartError({
             error: errorMessage(error) || t("switch.unknownError"),
             local: true,
+            // retry-prompt-ok: an open moves the person to the chat's workspace; asked again on its own it
+            // would pull them away later, so only their click opens it again.
             retry: () => (setStartError(undefined), openCard(id)),
           });
         });
@@ -1616,6 +1622,7 @@ export function NewTabScreen(props: Props) {
         setStartError({
           error: errorMessage(error) || t("switch.unknownError"),
           local: true,
+          // retry-prompt-ok: an open moves the person to the chat's workspace (as above).
           retry: () => (setStartError(undefined), openCard(id)),
         });
       }
@@ -1634,6 +1641,7 @@ export function NewTabScreen(props: Props) {
       setStartError({
         error: errorMessage(error) || t("switch.unknownError"),
         local: true,
+        // retry-prompt-ok: Compress or Decompress changes the chat; the person chooses to run it again.
         retry: () => {
           setStartError(undefined);
           coldArchiveCard(id, archived);
@@ -1658,6 +1666,13 @@ export function NewTabScreen(props: Props) {
   // The suggestions' popover (Leo 2026-10-12) hangs under the composer box, on the popup layer:
   // it floats over every section, never covered and never moving the page.
   const [box, setBox] = useState<HTMLDivElement | null>(null);
+  // The emoji table loads when the field is first focused (idle), so a first paste converts too.
+  const requestEmoji = emoji.request;
+  useEffect(() => {
+    if (!box) return;
+    box.addEventListener("focusin", requestEmoji);
+    return () => box.removeEventListener("focusin", requestEmoji);
+  }, [box, requestEmoji]);
   // Focus-visible in the box (focusVisibleMark.ts), the box's own state: the box, the composer around
   // it and the suggestions' popover read it as `data-focused` (and the popover's `nt-popover-focused`,
   // a class since Popover takes no attributes), never a `body:has(.nt-box :focus-visible)` checked
@@ -1822,6 +1837,7 @@ export function NewTabScreen(props: Props) {
   };
   const edit = (next: string) => {
     touch();
+    emoji.request();
     setTouched(true);
     // The profile search's text names a profile: no shell mode, no prompt to warm an agent for.
     if (profilePick) {
@@ -2183,6 +2199,8 @@ export function NewTabScreen(props: Props) {
         return;
       }
     }
+    // The emoji list owns arrows, Return, Tab and Esc while it shows, as in the chat composer.
+    if (emoji.keyDown(event)) return;
     if (isStashKey(event) && !shell) {
       event.preventDefault();
       toggleStash();
@@ -2490,6 +2508,7 @@ export function NewTabScreen(props: Props) {
         if (choice !== projectChoice.current) return dropReplaced();
         if (held()) heldAsk.current = undefined;
         setLocalGitHubPick(undefined);
+        // retry-prompt-ok: New Worktree makes a git worktree and branch on disk; the person chooses to again.
         setWorktreeError({ retry: () => void newWorktreeHere(cwd, github) });
       },
     );
@@ -2899,6 +2918,7 @@ export function NewTabScreen(props: Props) {
           />
         )}
         {browseError && props.onBrowseProject && (
+          // retry-prompt-ok: Browse opens a folder picker the person answers; it is theirs to open again.
           <BrowseFailure error={browseError} onRetry={browseProject} onDismiss={() => setBrowseError(undefined)} />
         )}
         {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
@@ -2935,17 +2955,21 @@ export function NewTabScreen(props: Props) {
           inert={props.cloudStarting === true}
         >
           {/* Drawn out of the card's glass, above it, as the chat composer's (backdropLayer.tsx). */}
-          {commandsOpen && (
+          {(commandsOpen || emoji.menu) && (
             <ComposerListAnchor box={box} inert={props.cloudStarting === true}>
               <ComposerListLayer>
-                <SlashMenu
-                  mark={atOpen ? "@" : (commandAt?.mark ?? "/")}
-                  matches={menuMatches}
-                  active={commandIndex}
-                  empty={t("composer.noMatchingCommands")}
-                  onHover={setCommandActive}
-                  onPick={pickCommand}
-                />
+                {commandsOpen ? (
+                  <SlashMenu
+                    mark={atOpen ? "@" : (commandAt?.mark ?? "/")}
+                    matches={menuMatches}
+                    active={commandIndex}
+                    empty={t("composer.noMatchingCommands")}
+                    onHover={setCommandActive}
+                    onPick={pickCommand}
+                  />
+                ) : (
+                  emoji.menu
+                )}
               </ComposerListLayer>
             </ComposerListAnchor>
           )}
@@ -2990,7 +3014,6 @@ export function NewTabScreen(props: Props) {
               inline.cancel(id);
               field.current?.focus();
             }}
-            onRetry={retry}
             onExpand={inline.expand}
             originalFailures={originalFailures}
             onReorder={inline.reorder}
@@ -3035,7 +3058,11 @@ export function NewTabScreen(props: Props) {
                   setReadyField(field.current);
                 }}
                 onBeforeInput={(data, state) =>
-                  !shell && state.paste && !state.composing ? pastedChips.take(data) : false
+                  shell
+                    ? false
+                    : state.paste && !state.composing
+                      ? pastedChips.take(data)
+                      : emoji.beforeInput(data, state)
                 }
                 onCaret={() => {
                   const current = field.current;
@@ -3061,6 +3088,8 @@ export function NewTabScreen(props: Props) {
                 onFirstInput={touch}
                 slashNames={commandNames}
                 onSlash={setCommandTrigger}
+                onEmoji={emoji.onEmoji}
+                transformPaste={shell ? undefined : emoji.transformPaste}
                 onInlineViews={!shell ? inline.onInlineViews : undefined}
                 isInlineAttachment={!shell ? inline.known : undefined}
                 attributes={{
@@ -3068,22 +3097,24 @@ export function NewTabScreen(props: Props) {
                   "data-focus-ring": "none",
                   "aria-label": shell ? t("composer.shell") : placeholder,
                   "data-dictation-listening": dictating && !shell ? "" : undefined,
-                  "aria-controls": commandsOpen ? "acpmux-slash-menu" : "nt-rows",
+                  "aria-controls": commandsOpen ? "acpmux-slash-menu" : emoji.at ? "acpmux-emoji-menu" : "nt-rows",
                   "aria-activedescendant": commandsOpen
                     ? `acpmux-slash-${commandIndex}`
-                    : rows[current]
-                      ? `nt-row-${current}`
-                      : undefined,
+                    : emoji.at
+                      ? `acpmux-emoji-${emoji.selected}`
+                      : rows[current]
+                        ? `nt-row-${current}`
+                        : undefined,
                   // One completion UI: the system's spelling bubble and inline predictions stay off
                   // while the slash list shows, as in the chat composer.
-                  spellcheck: spellChecking && !shell && !commandsOpen ? "true" : "false",
+                  spellcheck: spellChecking && !shell && !commandsOpen && !emoji.at ? "true" : "false",
                   autocapitalize: "off",
                   autocorrect: "off",
-                  writingsuggestions: commandsOpen ? "false" : undefined,
+                  writingsuggestions: commandsOpen || emoji.at ? "false" : undefined,
                 }}
               />
               {/* The attachments placed in the text draw inside the field at their place, as Messages
-                shows them, each with its remove, cancel and retry (the strip below leaves them out). */}
+                shows them, each with its remove and cancel (the strip below leaves them out). */}
               {!shell && attachmentView !== "strip" && inline.chips}
             </div>
             {/* The card's bar, under the field (Lucas 2026-11-25, newtab-composer-lab "Unified Card"): +, the
@@ -3233,7 +3264,8 @@ export function NewTabScreen(props: Props) {
               template === "console" ? " nt-popover-console" : ""
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
-          hostGlass={false}
+          // One material with the box (composerStates.css, ONE MATERIAL FAMILY): the App's popover glass,
+          // with its cover, as Popover draws by default (#50119).
           // The rows are the live answer to what is typed in the field (ui/popupSettle.ts).
           popupSettle="results"
           initialFocus={false}
@@ -3282,23 +3314,12 @@ export function NewTabScreen(props: Props) {
                 <span className="nt-row-title">{rowTitle(nt, row)}</span>{" "}
                 {rowDetail(row) && <span className="nt-row-detail">{rowDetail(row)}</span>}
                 {row.type === "action" && !!row.keycaps?.length && (
-                  <span className="nt-row-shortcut" data-popup-skip>
-                    {keycapStrokes(row.keycaps).map((stroke, strokeIndex) => (
-                      <React.Fragment key={strokeIndex}>
-                        {strokeIndex > 0 && <span className="nt-row-then">{KEYCAP_THEN}</span>}
-                        {stroke.map((cap, index) => (
-                          <kbd key={index}>{cap}</kbd>
-                        ))}
-                      </React.Fragment>
-                    ))}
-                  </span>
+                  <KeyHint keys={row.keycaps} className="nt-row-shortcut" data-popup-skip />
                 )}
                 {/* Return's row says so: a "return" cap at its end. The Ask row needs none: it is what
                     Return does with plain text, as its name says. */}
                 {index === current && row.type !== "ask" && (
-                  <kbd className="nt-row-return" aria-hidden="true" data-popup-skip>
-                    {keycapLegend("↩")}
-                  </kbd>
+                  <KeyHint keys="↩" className="nt-row-return" aria-hidden="true" data-popup-skip />
                 )}
               </div>
             ))}

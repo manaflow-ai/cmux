@@ -69,6 +69,7 @@ impl Hub {
             vm_boundary,
             // A Cloud VM gets its own GitHub App token; the Mac's login is not lent to it.
             github_broker: false,
+            group: None,
         };
         // The peer is marked leased before publication. The writer lock orders its
         // registry identity with a renewal or removal under the same name.

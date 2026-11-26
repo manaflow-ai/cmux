@@ -613,7 +613,7 @@ public final class SettingsModels {
         if let presentSignInPage, await presentSignInPage(url, owner) {
             return
         }
-        if let open = harnesses?.openSignInPage, await open(url) != nil { return }
+        if let open = harnesses?.openSignInPage, await open(url, []) != nil { return }
         openURL(url)
     }
 

@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { runSimulation, type RowProbe, type SimResult, createSimulation } from "../src/agent-session/acpmux/sim/run";
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
-import { SCENARIOS, longRun } from "../src/agent-session/acpmux/sim/scenarios";
+import { SCENARIOS, longRun, FORK_MID_STREAM, forkMidStream } from "../src/agent-session/acpmux/sim/scenarios";
 import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "chat-sim");
@@ -98,6 +98,20 @@ test("chat simulator: a person's prompt keeps the block gap over Working for", (
   const trace = result.traces.find((step) => step.rows?.some(isHead));
   const head = trace!.rows!.find(isHead)!;
   expect(head.gap).toBeGreaterThanOrEqual(24);
+});
+
+// Fork-hammer's invariant, the pane's half (#50021, #50094, #50089): a fork made mid-stream draws exactly the
+// turns its records hold (its prompts, and the cut-off reply), and is idle; the daemon's half checks those
+// turns are the ones its agent holds (acpmux tests/hub_integration/fork_context.rs).
+test("chat simulator: a fork made mid-stream draws the turns its records hold, the cut-off reply too, and is idle", () => {
+  const result = runSimulation(forkMidStream());
+  const last = result.traces.at(-1)!;
+  expect(last.working).toBe(false);
+  const rows = last.rows ?? [];
+  expect(rows.filter((row) => row.live)).toEqual([]);
+  const prompts = rows.filter((row) => row.opens).map((row) => row.text);
+  expect(prompts).toEqual(FORK_MID_STREAM.prompts.map((p) => p.slice(0, 80)));
+  expect(rows.some((row) => row.text?.startsWith(FORK_MID_STREAM.partial.slice(0, 40)))).toBe(true);
 });
 
 const replayed = () => {
@@ -266,7 +280,29 @@ test("chat simulator: compact-steer: one Worked for, under the steer, at every s
     .at(-1)!
     .rows!.filter((row) => row.turn >= 2)
     .map((row) => row.kind);
-  expect(last.slice(0, 4)).toEqual(["user", "compaction", "user", "worked"]);
+  expect(last.slice(0, 4)).toEqual(["user", "user", "compaction", "worked"]);
+});
+
+// Leo, 2026-11-25: "the animation for compaction and a message sent/steered during compaction is
+// weird ... layout shifts and awkward looking animations". Once the steer and the compaction's note
+// are drawn, nothing lands above either: the note ends where its live line stood, under the steer,
+// and the steer's Working for goes under the note, live and once the turn ends.
+test("chat simulator: compact-steer: the steer and the compaction's note never move once drawn", () => {
+  const result = runSimulation(SCENARIOS["compact-steer"]!());
+  const placed = new Map<string, number>();
+  for (const step of result.traces) {
+    const own = (step.rows ?? []).filter((row) => row.turn >= 2);
+    for (const [name, at] of [
+      ["steer", own.findIndex((row) => row.kind === "user" && row.text?.startsWith("then add a test"))],
+      ["note", own.findIndex((row) => row.kind === "compaction")],
+    ] as const) {
+      if (at < 0) continue;
+      const first = placed.get(name) ?? at;
+      placed.set(name, first);
+      expect({ step: step.step, name, at }).toEqual({ step: step.step, name, at: first });
+    }
+  }
+  expect([...placed.keys()].sort()).toEqual(["note", "steer"]);
 });
 
 // Leo, 2026-11-25: "this is extremely strange": a turn a background task's end opened (a notice

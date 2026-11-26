@@ -19,7 +19,6 @@ package final class SettingsPaletteSource: PaletteSettingsSource {
     private let themeColors: @MainActor () -> [ThemeRGB]
     /// Every Ghostty theme and its swatch strip, for theme settings (R98).
     private let themes: (any SettingsPaletteThemes)?
-    private let openSetting: @MainActor (String) -> Void
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.settings")
     /// Values committed whose write has not landed, by setting id: the rows show them at once
     /// (nil: the default). Each write's token, so only the latest write of a row clears it.
@@ -28,13 +27,21 @@ package final class SettingsPaletteSource: PaletteSettingsSource {
     private var writeCount = 0
     /// The palette's page reload (`observeChanges`).
     private var onChange: (@MainActor () -> Void)?
+    /// Opens the Settings page at a row (the `openSettings setting:` action); nil offers no Show in Settings.
+    private let openSetting: (@MainActor (String) -> Void)?
 
-    package init(settings: SettingsController, themes: (any SettingsPaletteThemes)? = nil, openSetting: @escaping @MainActor (String) -> Void = { _ in },
+    package init(settings: SettingsController, themes: (any SettingsPaletteThemes)? = nil, openSetting: (@MainActor (String) -> Void)? = nil,
          themeColors: @escaping @MainActor () -> [ThemeRGB]) {
         self.settings = settings
         self.themes = themes
         self.themeColors = themeColors
         self.openSetting = openSetting
+    }
+
+    package var revealsInSettings: Bool { openSetting != nil }
+
+    package func reveal(row: String) {
+        openSetting?(row)
     }
 
     /// What the rows are built from. The loaded settings, managed keys and theme files change only in a
@@ -82,7 +89,7 @@ package final class SettingsPaletteSource: PaletteSettingsSource {
             id: key, title: title, symbol: "cloud", section: SettingsPaletteProvider.section,
             keywords: ["settings", "cloud models", "Claude", "ChatGPT", "API key", "endpoint"],
             primary: PaletteCommand(id: "open", title: title, symbol: "return",
-                                    effect: .perform { [openSetting] in openSetting(key) })
+                                    effect: .perform { [openSetting] in openSetting?(key) })
         )
         item.hidesWhenQueryEmpty = true
         return [item]
@@ -98,7 +105,7 @@ package final class SettingsPaletteSource: PaletteSettingsSource {
             settings.endPreview()
             return
         }
-        settings.preview(descriptor, Self.value(option))
+        settings.preview(descriptor, SettingOption.value(option))
     }
 
     package func commit(row: String, option: String) {
@@ -106,7 +113,7 @@ package final class SettingsPaletteSource: PaletteSettingsSource {
         let value: JSONValue? = switch option {
         case "on": .bool(true)
         case "off": .bool(false)
-        default: Self.value(option)
+        default: SettingOption.value(option)
         }
         commitValue(descriptor, value)
     }
@@ -143,7 +150,7 @@ package final class SettingsPaletteSource: PaletteSettingsSource {
     private func row(_ descriptor: SettingDescriptor, current: JSONValue?, inherited: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
         let isFont = descriptor.kind == .fontFamily
         let options = if descriptor.kind == .theme, let themes {
-            Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
+            SettingOption.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
                               strip: themes.swatches(for:))
         } else if isFont {
             settings.recentFonts.options(current: current?.stringValue, families: AppFontSetting.families(for: descriptor.id, fixedPitch: TerminalFontSetting.installedFamilies), defaultLabel: descriptor.defaultLabel ?? descriptor.title)
@@ -184,28 +191,6 @@ package final class SettingsPaletteSource: PaletteSettingsSource {
         case .sound, .url, .theme, .fontFamily, .text:
             PaletteSettingCustomInput(placeholder: descriptor.title) { descriptor.value(typed: $0) != nil }
         }
-    }
-
-    /// The value behind an option id (`SettingOption.id`): "reset" is nil.
-    static func value(_ option: String) -> JSONValue? {
-        guard option != "reset" else { return nil }
-        return (try? JSONValue.parse(Data(option.utf8))) ?? .string(option)
-    }
-
-    /// A theme setting's values (R98): the Ghostty config (reset) first,
-    /// onboarding's themes, then every other theme in `names`, each with its
-    /// swatch strip from `strip`; a current value not listed (a light/dark
-    /// pair, a path) is kept after the config row.
-    static func themeOptions(current: String?, names: [String], defaultLabel: String,
-                             strip: (String) -> [ThemeRGB]) -> [SettingOption] {
-        let curated = ActionArgument.curatedThemes.filter(names.contains)
-        let listed = curated + names.filter { !curated.contains($0) }
-        var options = [SettingOption(value: nil, title: defaultLabel, isCurrent: current == nil)]
-        if let current, !listed.contains(current) {
-            options.append(SettingOption(value: .string(current), title: current, swatches: strip(current), isCurrent: true))
-        }
-        options += listed.map { SettingOption(value: .string($0), title: $0, swatches: strip($0), isCurrent: current == $0) }
-        return options
     }
 
     /// A color setting's swatches from `tokens`: the foreground, the

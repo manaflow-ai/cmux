@@ -682,6 +682,110 @@ async fn rename_reaches_a_session_only_the_hub_reaches_and_no_verb_answers_no_se
     assert_ne!(typo.pointer("/data/reason"), Some(&json!("mesh.read_unsupported")), "{typo}");
 }
 
+/// `acpmux session hold|release HOST/ID` and `acpmux session tag HOST/ID` for a session only the
+/// hub reaches run there, as a rename does. 2026-11-26: a fleet pause's wake of a held lane only
+/// the hub reaches from the waking machine refused at `session release` ("the mesh hub does not
+/// carry _acpmux/session_hold"), pass after pass, while its `send` went through. A sender granted
+/// `read` alone holds and tags nothing.
+#[tokio::test]
+async fn hold_release_and_tag_reach_a_session_only_the_hub_reaches() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "held-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+    let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+    let row = crate::mesh::BookSession {
+        name: "held-e2e".into(),
+        session_id: session.clone(),
+        host: "machine-b".into(),
+        daemon_id: "inst_b".into(),
+        harness: "fake".into(),
+        state: "idle".into(),
+        last_seen_at: 1,
+        ..Default::default()
+    };
+    a.set_mesh_book(hosts, vec![row]);
+    let tag_on_b =
+        |key: &str| b.resolve(&session).unwrap().meta().tags.get(key).map(|t| t.value.clone());
+    let by_id = format!("machine-b/{session}");
+    let hold_tag = crate::hub::session_hold::TAG;
+
+    // `acpmux session hold machine-b/ID`, twice (the hub may lease a message again): held once.
+    for _ in 0..2 {
+        let held =
+            call(&a, method::MUX_SESSION_HOLD, json!({"sessionId": by_id, "held": true})).await;
+        assert_eq!(held["held"], true, "{held}");
+        assert_eq!((held["peer"].as_str(), held["via"].as_str()), (Some("machine-b"), Some("hub")));
+    }
+    assert_eq!(tag_on_b(hold_tag).as_deref(), Some("on"));
+    assert!(b.session_held(&b.resolve(&session).unwrap()));
+    // `acpmux session release machine-b/held-e2e`, by name.
+    let released = call(
+        &a,
+        method::MUX_SESSION_HOLD,
+        json!({"sessionId": "machine-b/held-e2e", "held": false}),
+    )
+    .await;
+    assert_eq!(
+        (released["held"].as_bool(), released["was"].as_bool()),
+        (Some(false), Some(true)),
+        "{released}"
+    );
+    assert!(!b.session_held(&b.resolve(&session).unwrap()));
+
+    // `acpmux session tag machine-b/ID k=v`, then `--remove k`.
+    let tagged =
+        call(&a, method::MUX_TAG, json!({"sessionId": by_id, "set": {"fleet-pause.held": "x"}}))
+            .await;
+    assert_eq!(tagged["via"], "hub", "{tagged}");
+    assert_eq!(tag_on_b("fleet-pause.held").as_deref(), Some("x"));
+    call(&a, method::MUX_TAG, json!({"sessionId": by_id, "remove": ["fleet-pause.held"]})).await;
+    assert_eq!(tag_on_b("fleet-pause.held"), None);
+    // The receiver keeps its own rules: the tag only `acpmux register` sets is refused there.
+    let reserved = call_error(
+        &a,
+        method::MUX_TAG,
+        json!({"sessionId": by_id, "set": {crate::hub::register::REGISTERED_TAG: "1"}}),
+    )
+    .await;
+    assert!(
+        reserved["message"].as_str().unwrap_or_default().contains("acpmux register"),
+        "{reserved}"
+    );
+
+    // A sender B trusts only to read holds and tags nothing.
+    let read_only = Loopback {
+        hook: super::super::MeshControlHook::new(
+            vec![MeshControlFrom {
+                same_user: true,
+                ops: vec!["read".into()],
+                ..Default::default()
+            }],
+            Some(dir.path().join("mesh-controls-read.json")),
+        )
+        .with_own_user(Arc::new(|| Some("person-1".to_owned()))),
+        ..Loopback::new(&b, dir.path(), "person-1")
+    };
+    for (m, params) in [
+        (method::MUX_SESSION_HOLD, json!({"held": true})),
+        (method::MUX_TAG, json!({"set": {"taken": "over"}})),
+    ] {
+        let refused = read(&read_only, "machine-b", &session, m, &params).await.unwrap_err();
+        assert!(refused.message.contains("mesh.control_not_allowed"), "{m}: {refused:?}");
+    }
+    assert!(!b.session_held(&b.resolve(&session).unwrap()));
+    assert_eq!(tag_on_b("taken"), None);
+}
+
 /// [`call`]'s error, for a request that must fail.
 async fn call_error(hub: &Arc<Hub>, m: &str, params: Value) -> Value {
     let (tx, in_rx) = mpsc::channel(16);

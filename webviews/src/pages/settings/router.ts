@@ -35,6 +35,8 @@ export type SettingsSearch = {
   machineName?: string;
   environment?: string;
   recoverySession?: string;
+  /** `cmux://slack/connected` hints to re-read the connection. */
+  slack?: "connect" | "connected";
   open?: string;
   fromSend?: true;
 };
@@ -66,6 +68,10 @@ export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSe
   }
   if (open) out.open = open;
   if (raw.fromSend === true || raw.fromSend === "1") out.fromSend = true;
+  if ((raw.slack === "connect" || raw.slack === "connected") && text(raw.open)) {
+    out.slack = raw.slack;
+    out.open = text(raw.open);
+  }
   if (raw.changed === true || raw.changed === "1" || raw.changed === 1) out.changed = true;
   return out;
 }

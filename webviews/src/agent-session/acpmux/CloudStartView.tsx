@@ -406,6 +406,7 @@ function SizeLockedActions({
         )}
         {onRetry && (
           <button type="button" className="acpmux-cloud-ask__button acpmux-cloud-start__retry" onClick={onRetry}>
+            {/* retry-prompt-ok: Retry sends the start prompt again and starts a billed Cloud machine. */}
             {t("retry.action")}
           </button>
         )}
@@ -593,6 +594,7 @@ function WayOnActions({
   const label = (id: (typeof shown)[number]["id"]) => {
     switch (id) {
       case "retry":
+        // retry-prompt-ok: the start prompt goes again and starts a billed Cloud machine.
         return t("retry.action");
       case "pick-folder":
         return t("cloudStart.pickFolder");
@@ -1093,6 +1095,7 @@ export function CloudStartView({
               {...(needsGitHub ? {} : { "data-role": "default" })}
               onClick={onRetry}
             >
+              {/* retry-prompt-ok: Retry sends the start prompt again and starts a billed Cloud machine. */}
               {t("retry.action")}
             </button>
           )}

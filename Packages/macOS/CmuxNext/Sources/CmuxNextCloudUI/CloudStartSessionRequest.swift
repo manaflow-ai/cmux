@@ -101,6 +101,7 @@ package struct CloudStartSessionRequest: Equatable {
         else if refused.family == "claude", let name { link.queryItems = [URLQueryItem(name: "machineName", value: name)] }
         let explainLocalLogin = refused.family != "claude" && refused.localLogin
         return CloudStartSessionStrings.setupRequired(agent: agent, family: refused.family, localLogin: explainLocalLogin,
-                                                      link: link.string ?? "", command: command)
+                                                      link: link.string ?? "", command: command, gatewayTeam: refused.gateway?.team,
+                                                      gatewayCode: refused.gateway.map { $0.errorCode ?? "not_serving" })
     }
 }

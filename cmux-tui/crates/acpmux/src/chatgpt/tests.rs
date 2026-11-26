@@ -1219,11 +1219,16 @@ async fn chatgpt_reconnect_rejects_another_account_and_add_another_accepts_it() 
 fn callback_pages_use_the_cmux_sign_in_page_styles() {
     use super::oauth::{AUTH_PAGE_CSS, Page};
     let ok = Page::signed_in().html();
-    assert!(ok.contains("<h1>Signed in to cmux</h1>"));
+    assert!(ok.contains("<h1>Signed in to ChatGPT</h1>"));
+    assert!(ok.contains("You can close this tab and return to cmux."));
+    assert!(ok.contains("class=\"card\"") && ok.contains("<svg"));
+    // Self-contained: no fetched font, script or image.
+    assert!(!ok.contains("@import") && !ok.contains("<script") && !ok.contains("http"), "{ok}");
     assert!(ok.contains("data-auth-state=\"ok\""));
     let err = Page::failed("access_denied").html();
     assert!(err.contains("data-auth-state=\"error\""));
-    assert!(err.contains("<p class=\"code\">access_denied</p>"));
+    assert!(err.contains("<h1>Couldn\u{2019}t sign in to ChatGPT</h1>"));
+    assert!(err.contains("<p class=\"code\">Error code <span>access_denied</span></p>"));
     assert!(err.contains("cancelled"));
     // A code never injects markup.
     let odd = Page::failed("<script>").html();
@@ -1253,7 +1258,7 @@ fn callback_pages_use_the_cmux_sign_in_page_styles() {
         rest[..rest.find("\";").unwrap()].to_owned()
     };
     let own = css_of(include_str!("oauth.rs"));
-    for other in ["Native/OptChat/optchat-chief/src/mcp_hub/oauth.rs", "coderouter/src/oauth.rs"] {
+    for other in ["Native/OptChat/optchat-chief/src/mcp_hub/oauth.rs"] {
         let path = format!("{}/../../../{other}", env!("CARGO_MANIFEST_DIR"));
         let text = std::fs::read_to_string(&path).expect(other);
         assert_eq!(css_of(&text), own, "{other} drifted from the sign-in page styles");

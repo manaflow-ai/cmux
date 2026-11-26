@@ -61,7 +61,7 @@ extension CloudService {
         }
         try checkScope()
         if let environment, let cli = move.cli {
-            let access = try await auth.tokens().access
+            let access = try await identity.installToken() // The platform route verifies the install token’s team claim.
             await onSent()
             try checkScope()
             let id = try await CloudMoveCLI(binary: cli).machineInEnvironment(

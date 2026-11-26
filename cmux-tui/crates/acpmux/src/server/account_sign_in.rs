@@ -13,6 +13,9 @@
 //!   `Claude <n>`, `~/.cmux/accounts/<id>`, a shadow home for Codex) and lists its route only
 //!   once the sign-in succeeded: a cancelled, failed or expired add lists nothing and removes
 //!   only the home it made. GitHub runs gh's own device flow (`agent_login::github`).
+//!   The start answers `pageHosts` too: the hosts its page is still the sign-in's own on
+//!   (`agent_login::parse::page_hosts`). The app that opened the page in a tab closes that tab
+//!   when the sign-in is cancelled, finishes or expires, only while it shows one of them.
 //! - `sign_in.finish {loginId, code?}` waits for it (Claude takes the pasted code);
 //!   `sign_in.cancel {loginId}` stops it.
 //! - `switch {account}`: Codex and Claude make it their family's default (a built-in login:
@@ -427,10 +430,13 @@ async fn sign_in(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
     // A GitHub add has no login until gh names it at finish: until then its account is the
     // family (`github`), and finish answers the `github:<login>` it signed in.
     let shown = account.clone().unwrap_or_else(|| agent.name().to_owned());
+    // The hosts the app may still close this sign-in's own tab on once it ended.
+    let page_hosts = login::parse::page_hosts(agent, &started.url);
     let mut reply = json!({
         "account": shown,
         "loginId": started.login_id,
         "url": started.url,
+        "pageHosts": page_hosts,
         "needsCode": started.needs_code,
         "expiresAtMs": started.expires_at_ms,
         "added": added,
@@ -505,6 +511,8 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             return Err(error(e));
         }
     };
+    // Whether git on this machine now uses the GitHub sign-in (GitHub only).
+    let mut git = None;
     let account = match (&p.add, p.agent) {
         (Some(add), _) => {
             let (dir, _) = routes::places(&*hub.config.read().await);
@@ -526,12 +534,23 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             }
         }
         (None, Agent::Github) => match cli(hub, Agent::Github).await {
-            Ok(cli) => github::accounts(&cli)
-                .await
-                .into_iter()
-                .find(|a| a.active)
-                .map(|a| format!("{GITHUB_PREFIX}{}", a.login))
-                .or(p.account.clone()),
+            Ok(cli) => {
+                // git on this machine signs in through gh too, so clone and push work (a
+                // Cloud machine's "Sign in with GitHub"); a failure keeps the gh sign-in.
+                git = Some(match github::setup_git(&cli).await {
+                    Ok(()) => true,
+                    Err(e) => {
+                        tracing::warn!(error = %e.message, "account sign-in: gh auth setup-git");
+                        false
+                    }
+                });
+                github::accounts(&cli)
+                    .await
+                    .into_iter()
+                    .find(|a| a.active)
+                    .map(|a| format!("{GITHUB_PREFIX}{}", a.login))
+                    .or(p.account.clone())
+            }
             Err(_) => p.account.clone(),
         },
         (None, _) => p.account.clone(),
@@ -547,7 +566,11 @@ async fn finish(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             tracing::warn!(agent = p.agent.name(), error = %e.message, "account sign-in: mark chats");
         }
     }
-    Ok(json!({"signedIn": true, "account": account}))
+    let mut reply = json!({"signedIn": true, "account": account});
+    if let (Some(git), Some(obj)) = (git, reply.as_object_mut()) {
+        obj.insert("git".to_owned(), Value::Bool(git));
+    }
+    Ok(reply)
 }
 
 async fn switch(hub: &Arc<Hub>, id: &str) -> Result<Value, RpcError> {

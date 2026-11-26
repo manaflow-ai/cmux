@@ -124,6 +124,7 @@ export default settingsPageEntry({
     ),
     "chatgpt-error": variant(
       mockModels.chatgptError,
+      // retry-prompt-ok: the ChatGPT Try Again opens its sign-in again.
       "The ChatGPT sign-in came back without plan access: the reason in plain words and Try Again.",
       [...pick("chatgpt"), wait('[data-chatgpt="error"]')],
     ),

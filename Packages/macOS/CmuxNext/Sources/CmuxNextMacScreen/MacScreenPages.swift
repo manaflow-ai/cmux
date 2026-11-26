@@ -116,6 +116,8 @@ public final class MacScreenPages {
     /// Send System Shortcuts to the Remote Mac: the app's one system shortcut tap.
     public let systemShortcuts: MacScreenSystemShortcuts
     public var events = MacScreenTabEvents()
+    /// What a Sign In on the home page or a card signs in to ("Signs in to cmux.com"), the line under it.
+    public var signInBackend: String?
     /// Kept apart from app tab events so replacing those cannot disconnect the registered action.
     var shareThisMac: () -> Void = {}
     /// The app's shortcut matcher: true keeps a key down in cmux.
@@ -152,6 +154,14 @@ public final class MacScreenPages {
         didSet {
             guard maxFpsCap != oldValue else { return }
             for tab in tabs.values { tab.pane?.session?.maxFpsCap = maxFpsCap }
+        }
+    }
+    /// Settings > Customize "Sharper Text from Linux Machines" (`remoteDesktop.sharpLinuxText`): whether a
+    /// session's hello offers `video.sharp_text`. An open session takes it at its next connect.
+    public var sharpLinuxText = false {
+        didSet {
+            guard sharpLinuxText != oldValue else { return }
+            for tab in tabs.values { tab.pane?.session?.offersSharpText = sharpLinuxText }
         }
     }
     /// Tab key -> the record a person opened in it.
@@ -607,6 +617,7 @@ public final class MacScreenPages {
         actions.openDevice = { [weak self] id, scope in self?.openDeviceFromHome(id, scope: scope, in: key) }
         actions.openDeviceInNewTab = { [weak self] id, scope in self?.openDeviceInNewTab(id, scope: scope, from: key) }
         actions.signIn = { [weak self] in self?.events.signIn() }
+        actions.signInBackend = signInBackend
         actions.shareThisMac = { [weak self] in self?.shareThisMac() }
         // In the tab's theme scope: Settings > Appearance changes show at once. The page fills the tab.
         return MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts, devices: MacScreenHomeDevices(pages: self))
@@ -636,9 +647,11 @@ public final class MacScreenPages {
         pane.session?.encodeProfile = encodeProfile
         pane.session?.offersClipboard = RemoteClipboardPolicy.allows(clipboardSetting, ownDevice: isOwnDevice(deviceID, among: viewableDevices))
         pane.session?.maxFpsCap = maxFpsCap
+        pane.session?.offersSharpText = sharpLinuxText
         pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
         pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
         pane.handlers.signIn = { [weak self] in self?.events.signIn() }
+        pane.handlers.signInBackend = signInBackend
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
         pane.model.systemShortcuts = systemShortcuts
