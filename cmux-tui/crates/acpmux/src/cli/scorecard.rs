@@ -184,7 +184,7 @@ fn replay_text(a: &Value) -> String {
         let n = s["violations"].as_array().map_or(0, Vec::len);
         out.push_str(&format!(
             "{} {:<8} {} calls {} inits  {}\n",
-            &id[..id.len().min(12)],
+            id.chars().take(12).collect::<String>(),
             s["harness"].as_str().unwrap_or(""),
             s["calls"],
             s["inits"],
@@ -240,8 +240,8 @@ async fn replay(args: ReplayArgs, json_out: bool) -> Result<()> {
         print!("{}", replay_text(&answer));
     }
     // A violation or a missing session fails the command (exit 1), for CI.
-    let violations = answer["violations"].as_u64().unwrap_or(0);
-    let missing = answer["missing"].as_array().map_or(0, Vec::len);
+    let violations = answer.get("violations").and_then(Value::as_u64).unwrap_or(0);
+    let missing = answer.get("missing").and_then(Value::as_array).map_or(0, Vec::len);
     if violations > 0 || missing > 0 {
         anyhow::bail!("scorecard replay: {violations} violation(s), {missing} missing session(s)");
     }
@@ -355,5 +355,14 @@ mod tests {
         assert!(t.contains("invariant 5 cacheAgrees at seq 9: collapsed"), "{t}");
         assert!(t.contains("nope: no such session"), "{t}");
         assert!(t.contains("1, 3 not yet"), "{t}");
+    }
+
+    #[test]
+    fn scorecard_replay_text_preserves_unicode_session_prefix() {
+        let answer = json!({"sessions": [{"session": "abcdefghijké-more", "harness": "claude",
+            "calls": 0, "inits": 0, "violations": []}], "missing": [], "violations": 0,
+            "notYet": []});
+        let text = replay_text(&answer);
+        assert!(text.starts_with("abcdefghijké claude"), "{text}");
     }
 }
