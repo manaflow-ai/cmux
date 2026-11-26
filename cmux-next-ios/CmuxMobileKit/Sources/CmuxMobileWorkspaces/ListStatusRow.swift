@@ -7,13 +7,13 @@ import SwiftUI
 /// over the list (``ConnectionChip``), never as this row: a row pushes every other row down
 /// (Leo, 2026-11-21: "stop layout shifting"). The row stays for the recovery gallery's history.
 ///
-/// The quiet line at the top of a list whose rows stay on screen while it reads again: updating,
+/// The quiet line at the top of a list whose rows stay on screen while it reads again:
 /// reconnecting to the Mac (a blip the list rides out on its own), or showing the rows read last
-/// (the Mac stayed unreachable). Never an alert, never a raw timeout (Leo 2026-11-21). Picked
+/// (the Mac stayed unreachable). A refresh over rows the list has says nothing (Leo, 2026-11-24:
+/// "they dont need to know that it's updating before they KNOW it's updating"). Never an alert, never a raw timeout (Leo 2026-11-21). Picked
 /// in the recovery gallery's `reconnect` scene (variant A) over a floating pill and a top bar.
 public struct ListStatusRow: View {
     public enum State: Equatable, Sendable, CaseIterable {
-        case updating
         case reconnecting
         case stale
     }
@@ -25,7 +25,6 @@ public struct ListStatusRow: View {
 
     private var text: LocalizedStringKey {
         switch state {
-        case .updating: "Updating…"
         case .reconnecting: "Reconnecting to your Mac…"
         case .stale: "Can't reach your Mac. Showing chats from earlier."
         }
@@ -55,8 +54,6 @@ public extension ListStatusRow.State {
     /// One or two words for ``ConnectionChip``; the sentence is its VoiceOver label.
     var chip: ConnectionChip.Content {
         switch self {
-        case .updating:
-            .init(.updating, sentence: String(localized: "Updating…"))
         case .reconnecting:
             .init(.reconnecting, sentence: String(localized: "Reconnecting to your Mac…"))
         case .stale:

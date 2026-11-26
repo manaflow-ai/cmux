@@ -27,14 +27,20 @@ fn env_dir(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
-/// `$XDG_CONFIG_HOME/cmux/screen-host`, else `~/.config/cmux/screen-host`.
+/// cmux's folder under the config base: `cmux-next` on macOS, where `cmux`
+/// is cmux Classic's; `cmux` elsewhere.
+#[cfg(unix)]
+const CONFIG_DIR_NAME: &str = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+
+/// `$XDG_CONFIG_HOME/cmux/screen-host`, else `~/.config/cmux/screen-host`
+/// (`cmux-next` instead of `cmux` on macOS).
 #[cfg(unix)]
 pub fn config_dir() -> Res<PathBuf> {
     let base = match env_dir("XDG_CONFIG_HOME") {
         Some(dir) => dir,
         None => env_dir("HOME").ok_or("HOME is not set")?.join(".config"),
     };
-    Ok(base.join("cmux").join("screen-host"))
+    Ok(base.join(CONFIG_DIR_NAME).join("screen-host"))
 }
 
 /// `%APPDATA%\cmux\screen-host` (the roaming profile's application data).

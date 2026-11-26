@@ -1192,12 +1192,14 @@ pub fn default_state_dir() -> Option<PathBuf> {
         return Some(path.into());
     }
     // Every Apple target keeps app state under Library/Application Support;
-    // on iOS HOME is the app's sandbox container.
+    // on iOS HOME is the app's sandbox container. On macOS cmux NEXT owns
+    // `Application Support/cmux-next`; `Application Support/cmux` is Classic's.
     #[cfg(target_vendor = "apple")]
     {
+        let app_dir = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
         std::env::var_os("HOME")
             .map(PathBuf::from)
-            .map(|home| home.join("Library/Application Support/cmux/remote"))
+            .map(|home| home.join("Library/Application Support").join(app_dir).join("remote"))
     }
     #[cfg(not(target_vendor = "apple"))]
     {

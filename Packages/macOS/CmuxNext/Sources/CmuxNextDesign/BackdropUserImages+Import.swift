@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 import AVFoundation
 import ImageIO
@@ -157,7 +158,8 @@ private nonisolated final class LinkDownload: NSObject, URLSessionDataDelegate, 
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 600
         configuration.urlCache = nil
-        let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+        CmuxEgress.allowNamed(link)   // the link the person pasted
+        let session = CmuxEgress.session(site: "CmuxNextDesign.BackdropUserImages+Import", configuration: configuration, delegate: self, delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in

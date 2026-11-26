@@ -138,6 +138,51 @@ fn github_token_asks_get_one_reply_line() {
     result.unwrap().unwrap();
 }
 
+/// Every client of the agent socket is answered, however many hold it open (the old cap
+/// answered the 17th "busy").
+#[test]
+fn every_agent_socket_client_is_answered_past_the_old_cap() {
+    use std::io::{BufRead, BufReader};
+    let root = tempfile::tempdir().unwrap();
+    let paths = Paths::new(root.path());
+    let (ours, theirs) = UnixStream::pair().unwrap();
+    let worker_paths = paths.clone();
+    let thread = std::thread::spawn(move || {
+        let mut worker = Worker::new(
+            worker_paths,
+            "vm-1".to_owned(),
+            None,
+            theirs,
+            Arc::default(),
+            Arc::default(),
+        )?;
+        worker.run()
+    });
+    let socket = paths.at(AGENT_SOCKET);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !socket.exists() {
+        assert!(Instant::now() < deadline, "the agent socket never appeared");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let held: Vec<UnixStream> = (0..40).map(|_| UnixStream::connect(&socket).unwrap()).collect();
+    std::thread::sleep(Duration::from_millis(100));
+    for mut client in held {
+        client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        client
+            .write_all(b"{\"github_token\": {\"repo\": \"o/r\", \"permissions\": {\"contents\": \"read\"}}}\n")
+            .unwrap();
+        let mut reply = String::new();
+        BufReader::new(client).read_line(&mut reply).unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply["error"]["code"], "vm.unbound", "{reply}");
+    }
+    let mut control = ours;
+    control.write_all(b"stop\n").unwrap();
+    let result = thread.join();
+    assert!(result.is_ok(), "the worker thread panicked");
+    result.unwrap().unwrap();
+}
+
 /// A fake daemon socket that answers `identify` with `reply` (one write per item,
 /// `gap` apart), then holds the connection open for `hold`.
 fn fake_daemon(

@@ -153,6 +153,22 @@ fn installs_sync_here_and_offer_install_on_this_mac_for_the_rest() {
     assert!(crate::apps::store_op_mutates("cmux.apps.community.synced.put"));
 }
 
+#[test]
+fn synced_put_takes_more_items_than_the_old_cap() {
+    // `apps.community.synced.put` once refused more than 500 items.
+    let f = fixture();
+    with_registry(&f, vec![]);
+    let items: Vec<Value> = (0..600)
+        .map(|index| json!({ "ref": format!("github.com/acme/app-{index}"), "kind": "extension", "commit": SHA_A }))
+        .collect();
+    let synced = store(
+        &f,
+        "apps.community.synced.put",
+        json!({ "idempotency_key": "many", "items": items }),
+    );
+    assert_eq!(synced["elsewhere"].as_array().unwrap().len(), 600);
+}
+
 /// `cmux/demo` installed from `github.com/acme/demo` at `commit` (the git
 /// install path's sources.json).
 fn git_installed(f: &Fixture, commit: &str) {

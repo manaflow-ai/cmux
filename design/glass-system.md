@@ -77,6 +77,82 @@ does. Native glass (the window, sidebar, native menus, the native tooltip) is no
 9. **Fallbacks.** Reduce Transparency and Liquid Glass off draw the opaque surface and its hairline.
    Increase Contrast on macOS 26 turns Reduce Transparency on, so the same path covers it.
 
+## One material per surface (2026-11-21)
+
+Leo: "our shitty multi layer glass + web view. we need to properly do that once and for all." Every
+floating web surface (menu, popover, combobox, tooltip, hover card and hover preview, toast, dialog,
+floating composer) draws exactly one material.
+
+- **R1.** Either the App's host glass (`data-host-glass`; the page lays no fill, tint, rim or
+  shadow) or the page's one `.ui-glass` with its level tokens. Never both, never neither.
+- **R2.** On a surface the App draws, the only `backdrop-filter` left is the tint-free in-place blur
+  of the page's own pixels under it (`seeThroughBlur.ts`, `data-glass-over`). No fill.
+- **R3.** Nothing outside `.ui-glass` declares its own `backdrop-filter` with a translucent fill. A
+  blur that is no surface's material (a masked scroll edge, a scrim) says so on its rule:
+  `/* one-material-allow: <reason> */`. That list only shrinks.
+- **R4.** The composer and its pickers are one family: the same blur, edge and shadow tokens as
+  the popups (the transient material: 80% light / 72% dark, 32px, `--elevation-2`), and text on
+  it keeps 4.5:1. One departure: the composer's tint base stays `--acpmux-composer-solid` (Leo's
+  lift) rather than `--glass-surface`.
+- **R5.** No glass inside glass: nothing inside a floating surface is itself a material. Controls
+  on glass are plain controls.
+- **R6.** One stroke, from the theme: a floating surface's edge is the theme's edge token
+  (`--glass-edge`), never a literal colour, never a border plus a ring.
+
+Who decides: glass.css's HOST GLASS rule clears the page's material, and `hostGlass.ts` decides what
+the App is told. They read the same attributes, so they agree:
+
+| State of a marked surface | Who draws | Page fill / blur |
+| --- | --- | --- |
+| Not seen yet (no `data-host-glass-drawn`, host glass on) | nobody, for one frame | hidden (`filter: opacity(0)`) |
+| `drawn="1"`, not a cover, or a cover with `data-glass-over` | the App | none / none (only the in-place blur under it) |
+| `drawn="1"`, a cover with nothing blurred in place | the page | `.ui-glass` (the App is not told: cmux#49499) |
+| `drawn="1"` over the composer (`data-glass-keeps-underlay`) | the page | `.ui-glass` (the App is not told: cmux#49499) |
+| `drawn="0"`: past the 50 ms deadline, an older App, past `HOST_GLASS_MAX` | the page | `.ui-glass` |
+| Closing (`data-ending-style`) | the page | `.ui-glass`, fading with its content |
+| WebKit without `data-host-glass-engines="all"`, an opaque page, the lens | the page | `.ui-glass` |
+| Reduce Transparency | the page | the opaque surface, no blur |
+
+Until cmux#49499 lands, the two "the App is not told" rows still get App glass under the page's
+(the double glass that PR removes).
+
+Checks, all in `bun run check:one-material` (in `check:pieces` and CI's web lint list):
+
+- `webviews/scripts/check-one-material.ts` (R1 to R3; `test/one-material.test.ts`). Allowed blurs
+  outside `.ui-glass`, each with a `one-material-allow:` reason: pinned at 25 (`ALLOWED_MAX`), counted
+  per line. They are: the diff viewer's own film (`styles.css`, `acpmux/styles.css`,
+  `pierre-options.ts`); modal scrims (file search, both lightboxes); sticky veils over scrolling rows
+  (sidebar project headers, transcript header, the tab row, the notes chip row, the outputs edge
+  fade); the tooltip and hint fallback paint in `pages/shared/desktop.css` for a page without
+  glass.css; a `.ui-glass` tip's arrow; the composer strip and the Updated card (the composer's
+  material, one surface); the token sheet's specimen.
+- `webviews/scripts/check-no-nested-glass.ts` (R5; `test/no-nested-glass.test.ts`). One allowed:
+  the DiffToolbar submenu (`NESTED_ALLOWED_MAX = 1`).
+- `webviews/scripts/check-one-stroke.ts` (R6, web; `test/one-stroke.test.ts`) and the `[hard-edge]`
+  rule of `scripts/cmux-next/check-overlay-glass.py` (R6, native). No allowances
+  (`EDGE_ALLOWED_MAX = 0`); in-flow edges (not floating surfaces) are listed there with reasons.
+- `webviews/test/one-material-browser.test.ts` mounts each floating primitive (menu, popover,
+  tooltip, hover card, notice, dialog, the rail's preview card, the link hover card) in Chromium and
+  reads its computed fill, blur, rim and anything nested in every state above, light and dark.
+
+Census (2026-11-21):
+
+| Surface | Before | After |
+| --- | --- | --- |
+| Rail preview card (`PreviewCard.tsx`) | private 72% fill and blur, unmarked | `.ui-glass` transient, host popover |
+| Link hover card's Open \| chevron (`linkCard.css`) | framed capsule on the card's glass | no frame, one hairline between the halves |
+| Composer's active chip (`composerV2.css`) | its own shadow on the composer | plain |
+| New Tab widget previews (`AddWidgetGallery.tsx`) | `.ui-glass` inside the gallery | plain card fill |
+| DiffToolbar submenu | glass in a menu | allowed (1) |
+| Paste-loading chips (`PASTE_LOADING_CLASS`) | glass in the composer | kept: Leo asked for them to be glass |
+| Tab hover preview's edge (native `HoverCardPanel`) | the system's dark outline | the theme's edge, one device pixel |
+
+The tab hover preview's black border: `HoverCardPanel.swift` makes
+`Glass.makeOverlayPanel(tone: .neutralGlass(.transient))`, whose `.appKitRegular` variant does not
+draw a rim (`OverlayGlassVariant.swift`), so `OverlaySurface.installRim` skipped it and
+NSGlassEffectView's own dark outline showed. `ThemeEdgeView` now lays the theme's edge there; with
+Borders set to none it is clear.
+
 ## The levels
 
 `color-mix` percentages of `--glass-surface` (the theme surface). Before is the base of this page's
@@ -246,6 +322,8 @@ look people see daily:
 
 - `webviews/scripts/check-glass-levels.ts`: every web blur names a level.
 - `webviews/scripts/check-glass-never-opaque.ts`: no glass is opaque outside Reduce Transparency.
+- `webviews/scripts/check-one-material.ts`, `check-no-nested-glass.ts`, `check-one-stroke.ts`: one
+  material per surface, no glass in glass, one stroke (above).
 - `gen-design-scale.mjs` refuses a level whose saturation is not the one saturation, a dark tint
   denser than its light one, an underlay over 50%, and a menu level out of step with the transient
   material.

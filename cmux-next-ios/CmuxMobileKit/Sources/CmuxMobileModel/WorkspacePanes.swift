@@ -7,8 +7,8 @@ import Foundation
 /// with a split tree of panes, each pane with its tabs). The phone shows one tab at a time;
 /// the Panes page reads this to show which tabs share a pane and to act on panes as the
 /// Mac's pane menus do (verify/parity-mac.md, Panes).
-public struct WorkspaceLayout: Hashable, Sendable {
-    public struct Pane: Identifiable, Hashable, Sendable {
+public struct WorkspaceLayout: Hashable, Sendable, Codable {
+    public struct Pane: Identifiable, Hashable, Sendable, Codable {
         /// The Mac's pane id (what `split`, `zoom-pane`, `close-pane` and the rest name).
         public var id: Int
         /// The name the person gave the pane on the Mac (Rename Pane…), empty when none.
@@ -37,14 +37,14 @@ public struct WorkspaceLayout: Hashable, Sendable {
     }
 
     /// Side by side (`right`: a vertical divider) or stacked (`down`).
-    public enum Axis: String, Hashable, Sendable {
+    public enum Axis: String, Hashable, Sendable, Codable {
         case horizontal = "right"
         case vertical = "down"
     }
 
     /// The Mac's split tree (`layout`): a pane, a split of two nodes, or a stack of panes
     /// of which one is shown.
-    public indirect enum Node: Hashable, Sendable {
+    public indirect enum Node: Hashable, Sendable, Codable {
         case pane(Int)
         /// `ratio` is the first node's share.
         case split(id: Int, axis: Axis, ratio: Double, first: Node, second: Node)
@@ -141,7 +141,7 @@ public struct WorkspaceLayout: Hashable, Sendable {
     }
 
     /// One split's ratio now and the ratio Equalize Splits gives it.
-    public struct EqualizedSplit: Hashable, Sendable {
+    public struct EqualizedSplit: Hashable, Sendable, Codable {
         public var split: Int
         public var ratio: Double
         public var equalized: Double
@@ -158,7 +158,7 @@ public struct WorkspaceLayout: Hashable, Sendable {
 
     /// One divider of a screen, as Resize Pane moves it (`set-split-ratio {split, ratio}`): the
     /// panes before it (left or above) and after it, and the first side's share.
-    public struct ResizableSplit: Hashable, Sendable, Identifiable {
+    public struct ResizableSplit: Hashable, Sendable, Identifiable, Codable {
         public var split: Int
         public var axis: Axis
         public var ratio: Double
@@ -196,9 +196,9 @@ public struct WorkspaceLayout: Hashable, Sendable {
     /// A horizontal viewport column of a screen (`columns`): as wide as the Mac draws it (a share
     /// of its viewport; the columns together may be wider than the window, which scrolls), docked
     /// to an edge or scrolling, holding a split tree or rows of them.
-    public struct Column: Hashable, Sendable {
+    public struct Column: Hashable, Sendable, Codable {
         /// One row of a column with rows (`rows-v1`), top to bottom.
-        public struct Row: Hashable, Sendable {
+        public struct Row: Hashable, Sendable, Codable {
             /// Permille of the column's viewport height (the rows may scroll past 1000).
             public var height: Double
             public var root: Node
@@ -210,8 +210,8 @@ public struct WorkspaceLayout: Hashable, Sendable {
         }
 
         /// A column pinned to a viewport edge (`dock`, `dock-columns-v1`, `edge-docks-v1`).
-        public struct Dock: Hashable, Sendable {
-            public enum Edge: String, Hashable, Sendable { case left, right, top, bottom }
+        public struct Dock: Hashable, Sendable, Codable {
+            public enum Edge: String, Hashable, Sendable, Codable { case left, right, top, bottom }
             public var edge: Edge
             /// `mode: "overlay"`: a side dock floats over the scrolling columns, which keep the
             /// full width. A docked one (the default) takes its width out of theirs.
@@ -260,7 +260,7 @@ public struct WorkspaceLayout: Hashable, Sendable {
         }
     }
 
-    public struct Screen: Identifiable, Hashable, Sendable {
+    public struct Screen: Identifiable, Hashable, Sendable, Codable {
         public var id: Int
         public var name: String
         /// The screen the workspace shows on the Mac.

@@ -72,6 +72,11 @@ public enum TerminalSessionChoice {
             // A Codex-like inline TUI streaming history (reproduction harness).
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex") { return FakeCodexSession() }
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
+            // `-CmuxMobileColdFrameDemo`: a tab that never attaches, over its cached frame
+            // (`TerminalColdFrameDemo`, PaneLayersUITests).
+            if ProcessInfo.processInfo.arguments.contains("-CmuxMobileColdFrameDemo") {
+                return PendingTerminalSession(macName: macName, programName: programName)
+            }
             // `-cmux-mobile-term-no-intro`: the prompt at once, no scripted commands (LaunchTTIUITests types into it).
             let intro = !ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-no-intro")
             // `CMUX_MOBILE_MOCK_LINK`: slow answers each key a burst later; down is offline.

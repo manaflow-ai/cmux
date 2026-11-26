@@ -19,8 +19,8 @@ const MANY_SLOTS = Symbol("many");
 /// ending whole (a repair read back chunks before or after it, or split a reply a lost call had
 /// joined), 40 characters of it, and the shorter is at least half as long, so a short reply is never
 /// taken for part of a long one, nor two replies for one by a common opening line. Linear in the longer; under 8 characters, only itself.
-function sameWords(a: string | undefined, b: string | undefined): boolean {
-  const [x, y] = [a?.trim() ?? "", b?.trim() ?? ""];
+/// Takes texts already trimmed: ``adoptFrames`` trims each once, not once per pair.
+function sameTrimmed(x: string, y: string): boolean {
   if (!x || !y) return false;
   if (x === y) return true;
   const [short, long] = x.length <= y.length ? [x, y] : [y, x];
@@ -239,6 +239,17 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   /// The frame each message a rebuild made under a new id keeps drawing in (``adoptFrames``).
   private readonly frames = new Map<string, string>();
+  /// The running turn's rows the open read, by id, with how many of their items it read: each row
+  /// written carries it as `readAtOpen` (the client's `noteReadWork`). The client's, so a refold keeps it.
+  readAtOpen: ReadonlyMap<string, number> | undefined;
+
+  /// Writes `ids` again, so each carries `readAtOpen` as it is now.
+  restampRead(ids: Iterable<string>): void {
+    for (const id of ids) {
+      const row = this.get(id);
+      if (row) this.set(id, row, false);
+    }
+  }
 
   /// Keeps on screen, in the element it drew in, each prompt and reply a rebuild made again under a
   /// new id. A reply's id is the first of its chunks the pane held, so a turn repaired from its
@@ -276,21 +287,32 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     // a frame a row since took: a frame in use is never given again, so no two rows share one.
     const inUse = new Set<string>();
     for (const row of this.values()) inUse.add(rowFrameKey(row));
+    // Each fresh text trimmed once; a pair whose lengths ``sameTrimmed`` refuses is passed over unread.
+    const texts = fresh.map((row) => row.text?.trim() ?? "");
     for (const old of gone) {
       const frame = rowFrameKey(old);
       if (inUse.has(frame)) continue;
-      const length = old.text?.trim().length ?? 0;
+      const text = old.text?.trim() ?? "";
+      const length = text.length;
+      if (length === 0) continue;
       let best: AcpmuxRow | undefined;
+      let bestLength = 0;
       // A tie goes to the newer row: the one a rebuild named anew is the newest of its copies.
-      for (const row of fresh)
+      for (let at = 0; at < fresh.length; at += 1) {
+        const row = fresh[at]!;
+        const other = texts[at]!;
+        const shorter = Math.min(length, other.length);
         if (
-          row.kind === old.kind &&
-          !this.frames.has(row.id) &&
-          sameWords(old.text, row.text) &&
-          (!best ||
-            Math.abs((row.text?.trim().length ?? 0) - length) <= Math.abs((best.text?.trim().length ?? 0) - length))
+          row.kind !== old.kind ||
+          (other.length !== length && (shorter < 8 || shorter * 2 < Math.max(length, other.length))) ||
+          this.frames.has(row.id) ||
+          !sameTrimmed(text, other) ||
+          (best && Math.abs(other.length - length) > Math.abs(bestLength - length))
         )
-          best = row;
+          continue;
+        best = row;
+        bestLength = other.length;
+      }
       if (!best) continue;
       inUse.add(frame);
       this.frames.set(best.id, frame);
@@ -303,6 +325,13 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   override set(id: string, row: AcpmuxRow, summaryChanged = !row.streaming): this {
     const adopted = this.frames.get(id);
     if (adopted !== undefined && row.frame !== adopted) row = { ...row, frame: adopted };
+    const read = this.readAtOpen?.get(id);
+    if (row.readAtOpen !== read) {
+      if (read === undefined) {
+        const { readAtOpen: _read, ...rest } = row;
+        row = rest;
+      } else row = { ...row, readAtOpen: read };
+    }
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;

@@ -88,6 +88,14 @@
       "pending": "As claude: the default composer look, page storage only until #43272 or #45843 lands."
     },
     {
+      "id": "codex-composer",
+      "surface": "composer",
+      "setup": "codex/composer",
+      "addon": "codex/composer",
+      "builtIn": null,
+      "pending": "The ChatGPT replica's round composer, opt-in only: the in-box composer (agentPane.composerLook studio) and a circular + highlight (--cv-composer-icon-radius). cmux's own composers keep the app's corner; there is no built-in twin."
+    },
+    {
       "id": "send-pop",
       "surface": "transcript",
       "setup": "claude-code/send-pop",

@@ -221,6 +221,10 @@ fn respond_tabs(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> {
             let request: Text = read(request)?;
             json!({ "text": panes::shell_quoted(&request.text) })
         }
+        b"window_panes_go_to_directory" => {
+            let request: Text = read(request)?;
+            json!({ "text": panes::go_to_directory_input(&request.text) })
+        }
         _ => return Err(ERR_INVALID),
     };
     serde_json::to_vec(&answer).map_err(|_| ERR_INVALID)

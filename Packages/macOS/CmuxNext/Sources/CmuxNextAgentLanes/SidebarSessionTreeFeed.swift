@@ -46,9 +46,8 @@ public final class SidebarSessionTreeFeed {
     nonisolated struct Pass: Equatable, Sendable {
         var state: SidebarSessionTreeState
         var asks: Set<String>
-        /// The session tree (`sidebar.sessionTree`) or lineage nesting (`SidebarTunables.lineageNesting`, on by
-        /// default) is on: the pass writes `SidebarSessionTree.state`. Off, the pass runs only for the pull request
-        /// badges and the Priority view's Red CI.
+        /// The session tree (`sidebar.sessionTree`) is on, or some session has a parent (an agent started it: it
+        /// nests or hides, `sidebar.showAgentSessions`): the pass writes `SidebarSessionTree.state`.
         var showsTree = true
         /// The pull request reads run (the tree, the Priority view or a row's badge wants them). Nesting alone asks
         /// GitHub nothing.
@@ -90,9 +89,8 @@ public final class SidebarSessionTreeFeed {
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         listTask = Task { [weak self] in
             for await trigger in ObservationStream({ () -> ObservationTrigger<[WorkspaceModel]?> in
-                let sections = DesignSettings.shared.sidebarSections
-                let runs = Self.readsPullRequests(sections) || Self.readsBadges(sections) || SidebarTunables.lineageNesting.value
-                return ObservationTrigger(runs ? workspaces() : nil)
+                // The lineage always runs: it nests agent-started sessions (`sidebar.showAgentSessions` on) or hides them.
+                ObservationTrigger(workspaces())
             }) {
                 guard let self else { return }
                 guard let models = trigger.value else {
@@ -109,8 +107,8 @@ public final class SidebarSessionTreeFeed {
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 let sections = DesignSettings.shared.sidebarSections
-                let reads = Self.readsPullRequests(sections) || Self.readsBadges(sections), nests = SidebarTunables.lineageNesting.value
-                guard reads || nests else { return nil }
+                // Lineage always: agent-started sessions nest (`sidebar.showAgentSessions` on) or hide (off, the default).
+                let reads = Self.readsPullRequests(sections) || Self.readsBadges(sections), nests = true
                 // Until acpmux's watch delivers its page (a launch, a gap) the lanes hold no `spawnedBy`: the lineage
                 // drawn last stands in, so no row un-nests now and nests again when the lanes land.
                 let lanesLive = lanes.live, held = lanesLive || !nests ? [:] : tree.savedParents

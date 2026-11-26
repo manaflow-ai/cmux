@@ -40,6 +40,7 @@ impl ClientFeatures {
     }
 
     /// Whether this client sent a `features` list at all.
+    #[cfg(test)]
     pub(crate) fn listed(&self) -> bool {
         self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
     }

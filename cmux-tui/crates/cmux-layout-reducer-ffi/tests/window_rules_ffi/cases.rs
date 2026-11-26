@@ -208,6 +208,10 @@ fn panes_terminal_tables_answer_over_the_channel() {
     assert_eq!(body, json!({"kind": "timed out"}));
     let (_, body) = call_json(c"window_panes_shell_quote", &json!({"text": "it's"}));
     assert_eq!(body, json!({"text": "'it'\\''s'"}));
+    let (_, body) = call_json(c"window_panes_go_to_directory", &json!({"text": "~/a b"}));
+    assert_eq!(body, json!({"text": "\u{15}cd -- ~/'a b'\r"}));
+    let (_, body) = call_json(c"window_panes_go_to_directory", &json!({"text": " "}));
+    assert_eq!(body, json!({"text": null}));
     assert_eq!(call(c"window_tabs_nope", b"{}").0, ERR_INVALID);
     assert_eq!(call(c"window_panes_split", b"[").0, ERR_INVALID);
 }
@@ -936,6 +940,23 @@ fn launch_landing_reopens_the_last_workspace_and_tab() {
     assert_eq!(call(c"window_launch_landing", b"[").0, ERR_INVALID);
 }
 
+/// A Home landing that waits for Home's workspace lands in the saved front window, not the active one.
+#[test]
+fn launch_pending_home_waits_then_lands_in_the_front_window() {
+    let waits =
+        json!({"window": "front", "active": "second", "windowOpen": true, "homeReady": false});
+    assert_eq!(call_json(c"window_launch_pending_home", &waits), (OK, json!({"step": "wait"})));
+    let ready =
+        json!({"window": "front", "active": "second", "windowOpen": true, "homeReady": true});
+    assert_eq!(
+        call_json(c"window_launch_pending_home", &ready).1,
+        json!({"step": "land", "window": "front"})
+    );
+    let moved = json!({"window": "front", "windowOpen": true, "homeReady": true, "moved": true});
+    assert_eq!(call_json(c"window_launch_pending_home", &moved).1, json!({"step": "stop"}));
+    assert_eq!(call(c"window_launch_pending_home", b"[").0, ERR_INVALID);
+}
+
 /// Open in Editor: the table the app reads, and the pick with the person's `editor.default`.
 #[test]
 fn editors_table_and_pick_answer_the_app() {
@@ -979,4 +1000,14 @@ fn launch_fresh_landing_answers_home_new_tab_or_wait() {
         json!({"kind": "waitForHome"})
     );
     assert_eq!(call(c"window_launch_fresh_landing", b"[").0, ERR_INVALID);
+}
+
+/// Review F1 of #46087: once the person left the restored place, coming back before Home is listed lands nothing.
+#[test]
+fn launch_pending_home_stays_dropped_once_the_person_left() {
+    let back = json!({
+        "window": "front", "active": "front", "windowOpen": true, "homeReady": true,
+        "moved": false, "movedSinceRestore": true
+    });
+    assert_eq!(call_json(c"window_launch_pending_home", &back), (OK, json!({"step": "stop"})));
 }

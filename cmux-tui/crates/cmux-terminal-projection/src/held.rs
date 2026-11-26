@@ -335,6 +335,61 @@ pub fn paint_back(term: &Terminal, held: &HeldRows, back: usize) -> Vec<u8> {
     out
 }
 
+/// A full-screen app's held rows and its screen as one document, for the
+/// phone to scroll as a plain scroll view (Leo, 2026-11-24: "we can just
+/// treat the scroll like any pedestrian scroll"): VT bytes for a fresh
+/// terminal of the app's columns (after `ESC c`), one row a line, so its
+/// scrollback is the held rows and its screen ends with the app's last row.
+/// Returns the bytes, the document's rows and the row the app's screen
+/// begins at (the held rows above it).
+pub fn paint_document(term: &Terminal, held: &HeldRows) -> (Vec<u8>, usize, usize) {
+    let screen = term.screen_rows();
+    let mut rows: Vec<&Row> = Vec::with_capacity(held.len() + screen.len());
+    rows.extend(held.rows.iter());
+    rows.extend(screen.iter());
+    let screen_top = held.len();
+    let mut out = Vec::with_capacity(rows.len() * (term.cols + 8));
+    out.extend_from_slice(b"\x1b[0m\x1b[H\x1b[2J");
+    let mut style = Style::default();
+    for (n, row) in rows.iter().enumerate() {
+        if n > 0 {
+            out.extend_from_slice(b"\r\n");
+        }
+        let mut width = 0;
+        // Plain blanks past the last glyph are not written (the fresh
+        // terminal's cells are blank already).
+        let keep = row
+            .cells
+            .iter()
+            .rposition(|c| !c.is_empty_or_space() || c.style != 0)
+            .map_or(0, |i| i + 1);
+        for cell in row.cells.iter().take(keep) {
+            if width >= term.cols {
+                break;
+            }
+            if cell.kind == WIDE_TAIL || cell.kind == SPACER_HEAD {
+                continue;
+            }
+            let next = term.styles.get(cell.style);
+            if next != style {
+                write_style(term, &mut out, Some(style), next);
+                style = next;
+            }
+            if cell.ch == 0 {
+                out.push(b' ');
+            } else {
+                term.write_cell(*cell, &mut out);
+            }
+            width += cell.width();
+        }
+        if style != Style::default() {
+            write_style(term, &mut out, Some(style), Style::default());
+            style = Style::default();
+        }
+    }
+    (out, rows.len(), screen_top)
+}
+
 /// Every row at its place, from a known state (synchronized, the cursor
 /// hidden, origin mode off, ASCII character sets, default pen).
 fn paint_rows(term: &Terminal, rows: &[&Row], out: &mut Vec<u8>) {

@@ -10,7 +10,7 @@ async fn a_handle_of_an_ended_peer_link_holds_no_place() {
     let media = RemoteMedia::default();
     let epoch = peer.link_epoch();
     media.with(|table| {
-        for n in 0..MAX_HANDLES {
+        for n in 0..MAX_OPEN {
             let remote = Remote {
                 peer: peer.clone(),
                 session: "s".into(),

@@ -32,10 +32,10 @@
 //!
 //! The launch and seed (`terminal_respawn/launch.rs`) and the pre-fill
 //! (`terminal_respawn/prefill.rs`): an agent session's resume runs at the
-//! shell's own empty prompt ("Resume Agents After Restart", on by default)
-//! unless its flags turn approvals off; a resume command a person set, or an
-//! agent resume with approvals off, is typed without Return (#22292); a
-//! command never runs again, and the marker line names it. The manual
+//! shell's own empty prompt ("Resume Agents After Restart", on by default),
+//! through the launcher and with the flags it was started with (`sr2 claude
+//! --resume <id> ...`); a resume command a person set is typed without
+//! Return; a command never runs again, and the marker line names it. The manual
 //! restart of a tab this path leaves dead (`terminal_respawn/manual.rs`,
 //! `restart-tab`) runs the same worker, in the same gate: a frontend restarts
 //! every kept tab of a restored session at its connect, and those launches

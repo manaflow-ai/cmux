@@ -39,3 +39,41 @@ fn add_params_leave_defaults_to_the_daemon() {
         json!({"sessions": ["a"], "once": true, "to": "c", "until": ["done"], "match": "x"})
     );
 }
+
+#[test]
+fn time_params_turn_at_every_and_until_into_epoch_ms() {
+    let now = 1_700_000_000_000;
+    assert_eq!(when_ms("+30m", now), Ok(now + 1_800_000));
+    assert_eq!(when_ms("1h30m", now), Ok(now + 5_400_000), "the + may be left out");
+    assert_eq!(when_ms("2023-11-14T22:13:20Z", now), Ok(1_700_000_000_000));
+    assert!(when_ms("tomorrow", now).unwrap_err().contains("RFC 3339"));
+    assert_eq!(
+        time_params(Some("c".into()), None, Some("1h"), Some("+1d"), Some("check CI".into()), now),
+        Ok(
+            json!({"to": "c", "everyMs": 3_600_000, "endMs": now + 86_400_000, "prompt": "check CI"})
+        )
+    );
+    assert_eq!(
+        time_params(None, Some("+10s"), None, None, Some("hi".into()), now),
+        Ok(json!({"atMs": now + 10_000, "prompt": "hi"}))
+    );
+    assert!(time_params(None, Some("+10s"), None, None, None, now).is_err(), "no prompt");
+    assert!(time_params(None, Some("+10s"), None, Some("+1h"), Some("x".into()), now).is_err());
+}
+
+#[test]
+fn time_watch_text_shows_the_next_due_time() {
+    let added = json!({"id": "w2", "to": "coord", "sessions": [], "until": [], "active": true,
+        "nextDueMs": 1_700_000_000_000u64, "everyMs": 5_400_000, "endMs": null, "prompt": "check CI"});
+    assert_eq!(
+        text(method::MUX_WATCH_ADD, &added),
+        "Watch w2: wakes coord next at 2023-11-14T22:13:20Z, every 1h30m: \"check CI\".\n\
+             List with acpmux watch ls; remove with acpmux watch rm w2."
+    );
+    let listed = json!({"watches": [{"id": "w3", "to": "coord", "sessions": [], "until": [],
+        "active": false, "nextDueMs": null, "prompt": "once"}], "deliveries": []});
+    assert_eq!(
+        text(method::MUX_WATCH_LS, &listed),
+        "w3  wakes coord fired: \"once\"  (resolved, wake pending)"
+    );
+}

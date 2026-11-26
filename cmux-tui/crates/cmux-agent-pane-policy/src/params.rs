@@ -56,7 +56,13 @@ pub fn breaks_params_rule(
     // A prompt held for the folder trust answer redeems its ticket beside its
     // acpmux.promptId (AcpmuxPaneMethods.swift `breaksParamsRule`).
     let prompt = method == "session/prompt";
-    if meta.keys().any(|k| k != "acpmux" && !(prompt && *k == p.gesture_ticket_key)) {
+    if meta
+        .keys()
+        .any(|k| k != "acpmux" && k != TRACEPARENT_KEY && !(prompt && *k == p.gesture_ticket_key))
+    {
+        return true;
+    }
+    if meta.get(TRACEPARENT_KEY).is_some_and(|v| !is_traceparent(v)) {
         return true;
     }
     let Some(raw_acpmux) = meta.get("acpmux") else { return false };
@@ -74,6 +80,21 @@ pub fn breaks_params_rule(
     // A start's model is a spawn parameter (Claude Code's `--model`, `${model}`
     // in a harness's argv or env): one model id, never a flag or anything else.
     method == "session/new" && acpmux.get("model").is_some_and(|m| !is_model_id(m))
+}
+
+/// The one `_meta` key besides `acpmux` any request may carry: the W3C trace
+/// context of the user action that sent it (one trace id per action,
+/// cmux#55505), which acpmux writes into its `CMUX_TRACE_FILE` trace. Mirrors
+/// AcpmuxPaneMethods+Params.swift `traceparentKey`.
+pub const TRACEPARENT_KEY: &str = "traceparent";
+
+/// `00-<32 hex trace id>-<16 hex parent id>-<2 hex flags>`, lowercase, nothing
+/// else (Swift `isTraceparent`).
+pub fn is_traceparent(value: &Value) -> bool {
+    let Some(text) = value.as_str() else { return false };
+    let parts: Vec<&str> = text.split('-').collect();
+    parts.iter().map(|p| p.len()).eq([2, 32, 16, 2])
+        && parts.iter().all(|p| p.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
 }
 
 /// P0, before the params rule: `object` with every key the method's lists
@@ -129,7 +150,8 @@ pub fn stripping_unknown_params(
     {
         let prompt = method == "session/prompt";
         meta.retain(|k, _| {
-            let kept = k == "acpmux" || (prompt && *k == p.gesture_ticket_key);
+            let kept =
+                k == "acpmux" || k == TRACEPARENT_KEY || (prompt && *k == p.gesture_ticket_key);
             if !kept {
                 dropped.push(format!("_meta.{k}"));
             }

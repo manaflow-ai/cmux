@@ -3,7 +3,7 @@ import CmuxMobileDesign
 import SwiftUI
 import UIKit
 
-/// SPEC 4.6 code card: `codeBg`, radius 20, 40 pt header with language and
+/// SPEC 4.6 code card: the content card level, radius 20, 40 pt header with language and
 /// copy, mono body in a horizontal scroll view, capped height with a fade and
 /// "Show all N lines".
 public struct CodeCard: View {
@@ -56,27 +56,33 @@ public struct CodeCard: View {
             .trailingOverflowFade()
             .frame(maxHeight: isCapped ? maxHeight - 40 : nil, alignment: .top)
             .clipped()
-            .overlay(alignment: .bottom) {
+            // Capped: the code fades out above "Show all" through an alpha mask, so the card stays
+            // see-through (an opaque band would paint over the Mac's picture).
+            .mask {
                 if isCapped {
                     VStack(spacing: 0) {
-                        LinearGradient(colors: [.cmuxMobileCodeBackground.opacity(0), .cmuxMobileCodeBackground], startPoint: .top, endPoint: .bottom)
+                        Rectangle()
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
                             .frame(height: 48)
-                        Button("Show all \(lineCount) lines") {
-                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expanded = true }
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, minHeight: 40)
-                        .background(Color.cmuxMobileCodeBackground)
+                        Color.clear.frame(height: 40)
                     }
+                } else {
+                    Rectangle()
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if isCapped {
+                    Button("Show all \(lineCount) lines") {
+                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expanded = true }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .contentShape(.rect)
                 }
             }
         }
-        .background(Color.cmuxMobileCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
-        }
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
     }
 
     private var header: some View {
@@ -105,7 +111,7 @@ public struct CodeCard: View {
         .padding(.leading, 16)
         .padding(.trailing, 8)
         .frame(height: 40)
-        .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
+        .cmuxMobileSensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in new }
     }
 
     private var isShell: Bool {

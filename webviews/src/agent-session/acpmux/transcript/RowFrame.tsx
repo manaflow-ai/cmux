@@ -1,4 +1,12 @@
-import React, { useLayoutEffect, useRef, useState, useEffectEvent, useCallback } from "react";
+import React, {
+  useLayoutEffect,
+  useRef,
+  useState,
+  useEffectEvent,
+  useCallback,
+  Component as ReactComponent,
+  type ErrorInfo,
+} from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
@@ -7,9 +15,11 @@ import { NEXT_STEP } from "../conversation/turns";
 import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER } from "../model";
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
+import { useLiveThoughtRow } from "../liveThought";
 import { noteMounted, noteUnmounted } from "../flickerLog";
 import { useT, type Translate } from "../i18n";
 import { type ReferenceScope, ReferenceScopeContext } from "../conversation/bareReferences";
+import { DisclosureRow } from "../conversation/transcriptDisclosureModel";
 import { rovingTabStopProps } from "../../../ui/listRowKeyboard";
 import { playSendMorph } from "../conversation/sendMorph";
 import { type RowProps, type OpenDiff } from "../rows/rowProps";
@@ -44,9 +54,13 @@ export const RowContent = React.memo(
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    // A running command's output that moved on without the pane: this row alone draws it.
-    const row = useLiveToolRow(props.row, liveTools);
-    return <Component {...props} row={row} />;
+    // What moved on without the pane (a running command's output, a thought): this row alone draws it.
+    const row = useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools);
+    return (
+      <RowBoundary row={row}>
+        <Component {...props} row={row} />
+      </RowBoundary>
+    );
   },
   (previous, next) => {
     const keys = Object.keys(next) as (keyof RowContentProps)[];
@@ -54,6 +68,56 @@ export const RowContent = React.memo(
     return keys.every((key) => Object.is(previous[key], next[key]));
   },
 );
+
+/// One row's own error boundary. A row that throws while drawing (a tool card, a diff, a plan) draws
+/// as one note line in its frame, and every other row keeps drawing; before, only a reply's markdown
+/// had a boundary (conversation/MessageBoundary.tsx), so any other row's throw reached PaneBoundary
+/// and the whole pane read "could not be drawn", and its reload painted the same rows again from the
+/// saved snapshot (Leo, 2026-11-22: "the agent pane just blanked out entirely"). The row's next
+/// version (or another row in its frame) tries its renderer again.
+type RowBoundaryState = { id: string; version: number; failed: boolean };
+export class RowBoundary extends ReactComponent<{ row: AcpmuxRow; children?: React.ReactNode }, RowBoundaryState> {
+  state: RowBoundaryState = { id: this.props.row.id, version: this.props.row.version, failed: false };
+
+  static getDerivedStateFromProps(
+    props: { row: AcpmuxRow },
+    state: RowBoundaryState,
+  ): Partial<RowBoundaryState> | null {
+    const { id, version } = props.row;
+    return id === state.id && version === state.version ? null : { id, version, failed: false };
+  }
+
+  static getDerivedStateFromError(): Partial<RowBoundaryState> {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    // Logged as the pane logs its own failure (PaneBoundary), with the row it was.
+    console.error("agent pane row failed to draw", {
+      row: this.props.row.id,
+      kind: this.props.row.kind,
+      version: this.props.row.version,
+      message: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+      ...(info.componentStack ? { componentStack: info.componentStack } : {}),
+    });
+  }
+
+  render() {
+    return this.state.failed ? <UnrenderedRow /> : this.props.children;
+  }
+}
+
+/// A failed row's one line, in the unrendered message's note style (conversation.css `.cv-unrendered`).
+/// One line of fixed text, so the frame's measured height holds while the row stays failed.
+function UnrenderedRow() {
+  const t = useT();
+  return (
+    <div className="cv-unrendered cv-unrendered--row" role="note" data-row-failed="true">
+      <p className="cv-unrendered__note">{t("row.renderFailed")}</p>
+    </div>
+  );
+}
 
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
@@ -81,6 +145,7 @@ export const RowFrame = React.memo(function RowFrame({
   queueDrawn,
   sendThinking,
   enter,
+  enterUnseen,
   onEntered,
   loadFade,
   onLoadFaded,
@@ -151,6 +216,9 @@ export const RowFrame = React.memo(function RowFrame({
   sendThinking: boolean;
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
+  /// The row arrived out of view (rowFrames `entersUnseen`): it draws in place, with no entrance, and
+  /// its arrival is still consumed. Read on the first mount only.
+  enterUnseen?: boolean;
   onEntered: (id: string) => void;
   /// The row arrived while the chat loaded and mounts now, its first time: it fades in once.
   loadFade: boolean;
@@ -177,7 +245,8 @@ export const RowFrame = React.memo(function RowFrame({
   if (acpmuxPerf.enabled) acpmuxPerf.render(`row:${row.id}`);
   const t = useT();
   const ref = useRef<HTMLElement>(null);
-  const [entering] = useState(enter);
+  const [arrived] = useState(enter);
+  const [entering] = useState(enter && enterUnseen !== true);
   // Prompts and replies get the message-specific entrance. Tool/status rows keep the existing
   // generic rise, while the row's reserved height and absolute placement stay unchanged.
   // Hidden user rows render no content and keep the empty-row geometry. Notice rows are user-kind
@@ -236,7 +305,12 @@ export const RowFrame = React.memo(function RowFrame({
   // repositories (sameRowFrame compares it so): a new object would redraw its content's chips.
   const [scope, setScope] = useState(referenceScope);
   if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
-  const content = <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>;
+  // The row a disclosure inside it is drawn in: its toggle's transition anchors on it (useDisclosure.ts).
+  const content = (
+    <DisclosureRow.Provider value={row.id}>
+      <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>
+    </DisclosureRow.Provider>
+  );
   useLayoutEffect(() => {
     if (acpmuxPerf.enabled) acpmuxPerf.render(`frame:${row.id}`);
   });
@@ -261,7 +335,7 @@ export const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => fadeInOnMount(), []);
   // Only the first mount enters.
   const enterOnMount = useEffectEvent(() => {
-    if (entering) onEntered(rowFrameKey(row));
+    if (arrived) onEntered(rowFrameKey(row));
   });
   useLayoutEffect(() => enterOnMount(), []);
   // A generic row's entrance starts on the frame that first draws it, not at this commit: WebKit

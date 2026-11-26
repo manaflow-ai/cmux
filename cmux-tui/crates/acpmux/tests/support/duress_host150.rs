@@ -600,7 +600,7 @@ impl Presence {
                     }
                 }
                 // Once a second: the daemon's tree, the load, swap, RSS and memory pressure.
-                if tick_n % 4 == 0 {
+                if tick_n.is_multiple_of(4) {
                     out.seen.extend(descendants(daemon_pid));
                     if let Some(l) = load1() {
                         out.load1.push(l);

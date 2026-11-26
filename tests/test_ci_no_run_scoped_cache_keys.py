@@ -269,5 +269,43 @@ class NoPerRefCacheSaves(unittest.TestCase):
         self.assertFalse(_workflow_base_only({"on": ["pull_request"]}))
 
 
+# --- rust-cache keys that move with the lockfile --------------------------------------------
+# With `add-rust-environment-hash-key: false` (note-210) and a key that never changes, the first
+# entry saved is restored forever: rust-cache skips the save when the restore was an exact match,
+# so third-party crates added or bumped since rebuild on every run (run 45512288219: 70 crates
+# built in the debug and release `cargo test`). The key carries a `hashFiles` of the lockfile,
+# so a lockfile change makes a new entry that a base push saves.
+# The two iOS ones get theirs in #55162; cloud-journey-prod runs main's copy on its schedule and needs a main twin PR. Drop the entries once they land.
+LOCK_KEY_PENDING = {"first-user-journey-ios.yml", "ios-reliability-matrix.yml", "cloud-journey-prod.yml"}
+
+
+def rust_cache_keys_without_lockfile() -> list[str]:
+    bad: list[str] = []
+    for path in _files():
+        if path.name in LOCK_KEY_PENDING:
+            continue
+        doc = yaml.safe_load(path.read_text())
+        for step in _steps(doc):
+            if not str(step.get("uses", "")).startswith("Swatinem/rust-cache@"):
+                continue
+            inputs = step.get("with") or {}
+            if str(inputs.get("add-rust-environment-hash-key", "")).lower() != "false":
+                continue
+            keys = f"{inputs.get('key', '')} {inputs.get('shared-key', '')}"
+            if "hashFiles(" not in keys or "Cargo.lock" not in keys:
+                bad.append(f"{_label(path)}: {step.get('name') or step.get('uses')}")
+    return bad
+
+
+class RustCacheKeyFollowsLockfile(unittest.TestCase):
+    def test_every_rust_cache_key_hashes_a_lockfile(self) -> None:
+        bad = rust_cache_keys_without_lockfile()
+        self.assertEqual(bad, [], (
+            "\nrust-cache with add-rust-environment-hash-key: false needs a key (or shared-key) that includes "
+            "hashFiles('<toolchain file>', '<workspace>/Cargo.lock', '.cargo/config.toml'), or a stale entry is "
+            "restored forever:\n" + "\n".join(bad)
+        ))
+
+
 if __name__ == "__main__":
     unittest.main(argv=sys.argv[:1] + sys.argv[1:], verbosity=1)

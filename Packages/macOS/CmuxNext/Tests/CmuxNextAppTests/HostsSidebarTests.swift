@@ -70,31 +70,28 @@ struct HostsSidebarTests {
         let rows = HostsSidebar.rows(machines: machines, expanded: true)
         #expect(rows.dropFirst().map(\.info.caption) == ["Add Host…", nil, "Offline", "Resuming…", "Failed"])
         #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.activity == .idle)
+        #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.isMissing == false)
         #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == false)
     }
 
-    /// Leo, 2026-11-14: "i also want all our connectivity stuff to shut the f*** up". A machine's row said
-    /// "Connecting…" with a spinner from the first frame of every launch connect and redial, with nothing to press
-    /// and no bound. It now says nothing for ``NoticeTiming/connectionQuiet``; a connect that lasts says so, and a
-    /// resume the person started still says "Resuming…" at once. Leo, 2026-11-24: "let's just keep
-    /// optimistically connecting": a connect that lasts says nothing either.
-    @Test func aConnectSaysNothingEvenPastTheBound() async throws {
+    /// Leo, 2026-11-24: "all the connecting... indicators and the graying out of workspaces, nah let's not do that.
+    /// let's just keep optimistically connecting and reinforcing the connection and sync-ups can be satisfying
+    /// instead of making the user think they're constsntly suspended in a state of connection limbo". A machine's row
+    /// said "Connecting…" with a spinner once a launch connect or redial lasted 10 s. It now never does: no words, no
+    /// spinner, not greyed, however long the connect lasts. A resume the person started still says "Resuming…".
+    @Test func aConnectNeverSaysConnecting() async throws {
         let machines = [Self.machine("connecting", "Joining", connected: false, connecting: true),
                         Self.machine("resuming", "Waking", connected: false, connecting: true, state: .resuming, kind: .cloud)]
-        let quiet = HostsSidebar(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in }))
-        defer { quiet.stop() }
-        let first = quiet.rows()
-        let joining = try #require(first.first { $0.item.id.rawValue.hasSuffix("connecting") })
-        #expect(joining.info.caption == nil && joining.info.activity == .idle, "no words and no spinner inside the bound")
-        #expect(first.first { $0.item.id.rawValue.hasSuffix("resuming") }?.info.caption == "Resuming…")
-
-        let lasting = HostsSidebar(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in }),
-                                   connectQuiet: .milliseconds(1))
-        defer { lasting.stop() }
-        _ = lasting.rows()
-        try await Task.sleep(for: .milliseconds(50)) // wakeup-allow: bounded test wait past the 1 ms hold
-        let said = lasting.rows().first { $0.item.id.rawValue.hasSuffix("connecting") }
-        #expect(said?.info.caption == nil && said?.info.activity == .idle, "a connect that lasts still says nothing")
+        let hosts = HostsSidebar(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in }))
+        defer { hosts.stop() }
+        for _ in 0..<3 {
+            let rows = hosts.rows()
+            let joining = try #require(rows.first { $0.item.id.rawValue.hasSuffix("connecting") })
+            #expect(joining.info.caption == nil && joining.info.activity == .idle && !joining.info.isMissing)
+            #expect(rows.first { $0.item.id.rawValue.hasSuffix("resuming") }?.info.caption == "Resuming…")
+            #expect(rows.first?.info.activity == .working, "the header spins only for the resume the person started")
+            try await Task.sleep(for: .milliseconds(20)) // wakeup-allow: proves no timer turns the row into "Connecting…"
+        }
     }
 
     @Test func addAndHostClicksUseTheSharedMachineRows() throws {
