@@ -49,7 +49,9 @@ _spec.loader.exec_module(base)
 # and only cmux-vm's own lines say which provider operation failed with which status. Its lines name no machine or
 # team, so a cmux-vm service reads only `window`.
 VM_SERVICES = ("cmux-vm-production", "cmux-vm-staging")
-SERVICES = ("cmux-platform-production", "cmux-platform-staging") + VM_SERVICES
+# cmux-platform-development lives in the same account: its never_bound and bind_late lines (bind_probe) are the guest
+# facts a Cloud lane reads after a fresh create, and cmux-platform's worker-log-read.yml gets 403 on it too.
+SERVICES = ("cmux-platform-production", "cmux-platform-staging", "cmux-platform-development") + VM_SERVICES
 PAGES = base.PAGES
 MAX_ROWS = base.MAX_ROWS
 ID_INPUT = re.compile(r"^(vm|team)_[A-Za-z0-9_-]{1,64}$")
@@ -161,6 +163,13 @@ PLATFORM_MSGS = frozenset({
     "cloud.spend_cap.warning",
     # A submit answer cut off with its intent still pending (cmux-platform CloudCore, retro r2b92b756): op and ms waited.
     "cloud.submit.cut_off",
+    # A chat's work VM (cmux-platform src/server/cloud/WorkMachine.ts workMachineLog, CloudDO.ts): whether one started,
+    # its size and pause policy, and why not. Kept only as work_machine()'s typed projection (RFD agent-work-placement).
+    "cloud.work_machine.failed",
+    "cloud.work_machine.not_ready",
+    "cloud.work_machine.ready",
+    "cloud.work_machine.skipped",
+    "cloud.work_machine.started",
     "cloud_environment.vault_edge_grants",
     "config.team_id_kind",
     "connector.repo_token.requested",
@@ -307,7 +316,8 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
-                 "mode": TOKEN, "attempt": INT, "total_ms": INT}
+                 "mode": TOKEN, "attempt": INT, "total_ms": INT, "path": TOKEN, "fallback": TOKEN, "behind": INT,
+                 "paused_for_ms": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
@@ -322,6 +332,27 @@ TRACE_STEPS = frozenset({
     "prepare_network", "principal", "rate_limit", "real_state", "resources", "scaler", "setup", "spare_claim",
     "stale_submit", "submit",
 })
+
+
+# machines.spare.claim and machines.spare.finish (cmux-platform Scaler.ts claimSpare): `skipped`, each fixed reason a
+# claim passed a spare over for (warming, paused, gateway_rule, generation, lost_*, ...) with its count, and `ms`, the
+# cumulative ms per fixed step. Without them a claim that saw a spare and still created reads only `spares: 1`
+# (production 2026-11-26 16:09Z and 16:46Z, hq#29939, hq#29940). A key that is not a plain token, or a count that is
+# not an int, is dropped; an id-like key is hashed (base.typed TOKEN).
+SPARE_COUNT_MSGS = frozenset({"machines.spare.claim", "machines.spare.finish"})
+SPARE_COUNTS_MAX = 24
+
+
+def token_counts(counts):
+    """{token: int} from a dict of fixed words to counts or ms; anything else is dropped. None when nothing is left."""
+    if not isinstance(counts, dict):
+        return None
+    out = {}
+    for k, v in counts.items():
+        key, n = base.typed(TOKEN, k), base.typed(INT, v)
+        if key is not None and n is not None and len(out) < SPARE_COUNTS_MAX:
+            out[key] = n
+    return dict(sorted(out.items())) or None
 
 
 def trace_steps(steps):
@@ -437,6 +468,35 @@ def idle_kept(j):
     return out
 
 
+# cloud.work_machine.*'s typed fields (CloudDO.ts): `work` is the work VM's id; the rest are sizes and timings.
+WORK_MACHINE_FIELDS = {"team": ID, "machine": ID, "work": ID, "cpu": INT, "memory_mb": INT, "ms": INT,
+                       "create_ms": INT, "history": INT}
+# A skip's reasons; a failure's `why` is the create answer's code, kept as a token. Anything else prints as "other".
+WORK_MACHINE_SKIPPED = frozenset({"no_plan", "agent_is_enough", "max_active", "max_machines", "rate", "budget"})
+# PausePolicy.ts PAUSE_POLICY_NAMES, plus "deployment" when the policy write was refused.
+WORK_MACHINE_POLICIES = frozenset({"current", "aggressive", "turn_end", "deployment"})
+
+
+def work_machine(j):
+    """cloud.work_machine.*'s typed projection: ids hashed, sizes and timings as ints, a fixed why and pause policy."""
+    msg = j["msg"]
+    out = {"msg": msg}
+    for k, kind in WORK_MACHINE_FIELDS.items():
+        v = base.typed(kind, j.get(k)) if k in j else None
+        if v is not None:
+            out[k] = v
+    why = j.get("why")
+    if isinstance(why, str):
+        if msg == "cloud.work_machine.skipped":
+            out["why"] = why if why in WORK_MACHINE_SKIPPED else "other"
+        else:
+            out["why"] = base.typed(TOKEN, why) or "other"
+    p = j.get("pause_policy")
+    if isinstance(p, str):
+        out["pause_policy"] = p if p in WORK_MACHINE_POLICIES else "other"
+    return out
+
+
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
@@ -446,6 +506,8 @@ def public_log(j):
         return None, "unlisted"
     if msg == "cloud.idle.kept":
         return idle_kept(j), None
+    if msg.startswith("cloud.work_machine."):
+        return work_machine(j), None
     out = {"msg": msg}
     for k, kind in PUBLIC_FIELDS.items():
         if k in j:
@@ -462,6 +524,11 @@ def public_log(j):
         steps = trace_steps(j.get("steps"))
         if steps is not None:
             out["steps"] = steps
+    if msg in SPARE_COUNT_MSGS:
+        for k in ("skipped", "ms"):
+            counts = token_counts(j.get(k))
+            if counts is not None:
+                out[k] = counts
     if msg == "cloud.machine.start_overdue" and "bind_probe" in j:
         probe = bind_probe(j["bind_probe"])
         if probe is not None:
@@ -659,7 +726,8 @@ def window_totals(events, needles):
             key["version"] = base.tag(version)
         log = rec.get("log")
         if log is not None:
-            key["log"] = {k: v for k, v in log.items() if PUBLIC_FIELDS.get(k) != ID}
+            key["log"] = {k: v for k, v in log.items()
+                          if PUBLIC_FIELDS.get(k) != ID and WORK_MACHINE_FIELDS.get(k) != ID}
         k = json.dumps(key, sort_keys=True)
         totals[k] = totals.get(k, 0) + 1
     rows = [{**json.loads(k), "n": n} for k, n in sorted(totals.items())]

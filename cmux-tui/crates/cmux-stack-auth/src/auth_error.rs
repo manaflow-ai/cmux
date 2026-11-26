@@ -28,11 +28,29 @@ pub enum AuthError {
     Cancelled,
     /// Stack answered 429; the session is untouched and the flow retries on its own.
     RateLimited,
+    /// Stack refused the sign-in's redirect address (`REDIRECT_URL_NOT_WHITELISTED`): the auth
+    /// project does not trust it. Carries the refused origin when Stack named it. The screen says
+    /// "This build's sign-in address isn't allowed on <backend>." instead of the generic error.
+    RedirectNotAllowed { origin: Option<String> },
+}
+
+/// The origin (`scheme://host[:port]`) of the redirect URL a `REDIRECT_URL_NOT_WHITELISTED`
+/// answer names in its `details.redirect_url`, when it names one.
+pub fn rejected_redirect_origin(error: &StackError) -> Option<String> {
+    let StackError::Known { details: Some(details), .. } = error else {
+        return None;
+    };
+    let url = details.get("redirect_url")?.as_str()?;
+    let (scheme, rest) = url.split_once("://")?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let authority = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    (!scheme.is_empty() && !authority.is_empty())
+        .then(|| format!("{}://{}", scheme.to_ascii_lowercase(), authority.to_ascii_lowercase()))
 }
 
 /// The Stack codes the sign-in screen renders by itself: the display-safe mapping leaves them.
 /// Matched upper-cased, so the SDK's own lower-case `parse_error` and `invalid_url` count too.
-const RENDERED_CODES: [&str; 26] = [
+const RENDERED_CODES: [&str; 25] = [
     "SCHEMA_ERROR",
     "USER_EMAIL_ALREADY_EXISTS",
     "VERIFICATION_CODE_ERROR",
@@ -45,7 +63,6 @@ const RENDERED_CODES: [&str; 26] = [
     "PASSKEY_AUTHENTICATION_FAILED",
     "PASSKEY_WEBAUTHN_ERROR",
     "INVALID_TOTP_CODE",
-    "REDIRECT_URL_NOT_WHITELISTED",
     "OAUTH_PROVIDER_ACCOUNT_ID_ALREADY_USED_FOR_SIGN_IN",
     "INVALID_APPLE_CREDENTIALS",
     "APPLE_SIGNIN_NOT_CONFIGURED",
@@ -72,6 +89,9 @@ impl AuthError {
         let code = error.code().to_ascii_uppercase();
         if code == "OAUTH_CANCELLED" {
             return Some(AuthError::Cancelled);
+        }
+        if code == "REDIRECT_URL_NOT_WHITELISTED" {
+            return Some(AuthError::RedirectNotAllowed { origin: rejected_redirect_origin(error) });
         }
         if RENDERED_CODES.contains(&code.as_str()) {
             return None;
@@ -121,6 +141,7 @@ impl AuthError {
             AuthError::AuthFailure => "AUTH_FAILURE".to_owned(),
             AuthError::Cancelled => "CANCELLED".to_owned(),
             AuthError::RateLimited => "RATE_LIMITED".to_owned(),
+            AuthError::RedirectNotAllowed { .. } => "REDIRECT_URL_NOT_WHITELISTED".to_owned(),
         }
     }
 }

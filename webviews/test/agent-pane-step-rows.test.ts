@@ -19,6 +19,7 @@
 //
 // This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: its steps are finished
 // calls and thoughts of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
+import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -217,7 +218,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       }),
     );
     // The finished thought is folded to one line too.
-    expect(rows.map((row) => row.height)).toEqual(rows.map(() => 22));
+    expect(rows.map((row) => row.height)).toEqual(rows.map(() => ROW_METRIC.height));
     expect(new Set(rows.map((row) => row.fontSize)).size).toBe(1);
     const pairs = rows.slice(1).map((row, index) => ({
       above: rows[index]!,
