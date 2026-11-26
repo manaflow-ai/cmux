@@ -54,7 +54,7 @@ def table(steps: str, jobs: str = 'linux = "l"\nadvisory = "a"') -> ci_steps.Tab
 # tests/test_ci_label_events_skip_full_ci.py, exactly as #54886 put them on every gated workflow. The router (a
 # workflow_call caller) passes its pull_request event through, so the same expression reads the same head.
 PIPELINE_LAND_TIER_JOBS = ("linux", "web-browser")
-PIPELINE_LAND_TIER = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
+PIPELINE_LAND_TIER = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && (github.event.action != 'synchronize' || (vars.CI_LAND_PUSH_CHEAP || '1') == '0')) || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
 PIPELINE_LABEL_GUARD = '!(github.event_name == \'pull_request\' && github.event.pull_request.base.ref == \'feat-cmux-next\' && (github.event.action == \'labeled\' || github.event.action == \'unlabeled\') && !contains(fromJSON(\'["full-ci","ready-to-land"]\'), github.event.label.name))'
 
 class TableRulesTest(unittest.TestCase):
@@ -897,7 +897,8 @@ class PipelineTest(unittest.TestCase):
         for label in ("ready-to-land", "full-ci"):
             with self.subTest(label=label):
                 self.assertEqual(ready("labeled", [label], label)[0], ["pr-pipeline.yml"])
-                self.assertEqual(ready("synchronize", [label])[0], ["pr-pipeline.yml"])
+                # A push onto a ready-to-land head waits for land's `labeled` event (head_tier's land push rule).
+                self.assertEqual(ready("synchronize", [label])[0], [] if label == "ready-to-land" else ["pr-pipeline.yml"])
         draft_full_ci = {"action": "labeled", "label": {"name": "full-ci"},
                          "pull_request": {"draft": True, "labels": [{"name": "full-ci"}]}}
         self.assertEqual(pr_router.route(draft_full_ci, callees, web)[0], ["pr-pipeline.yml"])
