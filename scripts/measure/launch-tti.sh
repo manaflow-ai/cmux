@@ -2,13 +2,14 @@
 # Launch to first interaction (startup-tti) of a cmux NEXT NIGHTLY on a fleet Mac with a console session: the nightly
 # launch-tti leg (cmuxterm-hq next-dogfood.yml) run on demand, so a number comes now and not at the next nightly.
 # scripts/ci/launch_tti_check.py does the driving: 120 workspaces, cold and warm relaunches, process start to a typed
-# key taken (the terminal's echo; the chat composer has no input mark yet).
+# key taken (the terminal's echo; the chat composer's agent_pane.input_echoed).
 #   cmux-ci run --class exclusive --measurement --label measure --display \
 #     --script scripts/measure/launch-tti.sh --ref <landed sha> [--arg=dmg=nightly|URL] [--arg=input=auto|posted|in_app] \
 #     [--arg=plan=warm:terminal,warm:terminal] [--arg=workspaces=120] [--arg=control=500] [--arg=session=auto|own] --artifact .build/launch-tti/report.tgz --timeout 2400
 #   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
 #   input=       who types (the check's --input): auto posts keys when this process holds the PostEvent grant and
-#                otherwise has the app type its own first-frame key (CMUX_NEXT_LAUNCH_TYPE_PROBE=1)
+#                otherwise has the app type its own key: a terminal round's at its first frame (CMUX_NEXT_LAUNCH_TYPE_PROBE=1),
+#                a chat round's when the chat first drew (CMUX_NEXT_LAUNCH_TYPE_PROBE_CHAT=1)
 #   control=MS   the bench's positive control: the plan runs twice on the same build, as is (base/) and with
 #                CMUX_NEXT_LAUNCH_TEST_DELAY_MS=MS (delayed/: the app waits MS before any window, LaunchTestDelay;
 #                1-5000), then launch_tti_control.py prints CONTROL delta_ms=X expected=MS pass|fail per metric
