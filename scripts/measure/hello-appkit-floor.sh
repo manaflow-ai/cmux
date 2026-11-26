@@ -236,11 +236,11 @@ echo "== launch-ready probe arm reps=$REPS"
 xcrun swiftc -O -o "$WORK/launch-ready" scripts/measure/launch-ready.swift >"$WORK/probe-swiftc.log" 2>&1 \
   || { echo "probe build failed"; cat "$WORK/probe-swiftc.log"; exit 3; }
 mkdir -p "$WORK/probe-home"
-"$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" prime 0.3 /tmp/hf-$$.sock >"$WORK/probe-prime.txt" 2>&1 || true
+"$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" prime 0.3 "$WORK/hf.sock" >"$WORK/probe-prime.txt" 2>&1 || true
 : >"$WORK/probe.jsonl"
 for i in $(seq 1 "$REPS"); do
   sleep "$(awk "BEGIN{print $GAP_MS/1000}")"
-  "$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" "run$i" 0.3 /tmp/hf-$$.sock 2>/dev/null \
+  "$WORK/launch-ready" "$WORK/HelloFloor.app" "$WORK/probe-home" "run$i" 0.3 "$WORK/hf.sock" 2>/dev/null \
     | grep '^LR-RUN ' | sed 's/^LR-RUN //' | tee -a "$WORK/probe.jsonl" \
     | python3 -I -c 'import json,sys; r=json.loads(sys.stdin.read()); print("probe", r["label"], "request_to_start=%s window_on_screen=%s finished_launching=%s" % (r["request_to_start"], r["window_on_screen"], r["finished_launching"]))' || echo "probe run$i failed"
 done
@@ -258,5 +258,5 @@ for k in ("request_to_start", "finished_launching", "window_on_screen", "request
     print("probe_summary n=%d %s p50=%.1f p95=%.1f min=%.1f" % (len(xs), k, statistics.median(xs), p(xs, 0.95), min(xs)) if xs else "probe_summary %s none" % k)
 ' "$WORK/probe.jsonl"
 
-rm -f "$OUT" "$OUT.tmp" "/tmp/hf-$$.sock"
+rm -f "$OUT" "$OUT.tmp"
 echo "load_after=$(sysctl -n vm.loadavg)"

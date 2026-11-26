@@ -16,6 +16,8 @@
 
 use std::collections::BTreeMap;
 
+pub mod service;
+
 /// Bytes the list catch-up is counted at: an `unchanged` answer or a few changed rows.
 pub const LIST_ESTIMATE_BYTES: u64 = 4 * 1024;
 /// Bytes one wake may spend (the design's per-wake budget).

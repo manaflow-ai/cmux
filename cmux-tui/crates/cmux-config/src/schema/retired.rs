@@ -32,6 +32,8 @@ struct RetiredFile {
 #[derive(Deserialize)]
 struct RetiredEntry {
     key: String,
+    #[serde(default)]
+    migrated_by_app: bool,
     reason: String,
     replaced_by: Option<String>,
     values: Option<Vec<ValueMap>>,
@@ -77,6 +79,8 @@ pub struct Retired {
     pub reason: String,
     /// The row that took its place (`None`: removed outright).
     pub replaced_by: Option<String>,
+    /// The app owns a value transform on its settings file. Leave the source for it.
+    pub migrated_by_app: bool,
     /// When the old name stopped being the setting (`YYYY-MM-DD` or a cmux version).
     pub since: Option<String>,
     /// The end of the deprecation window (`YYYY-MM-DD` or a cmux version).
@@ -92,6 +96,7 @@ pub fn retired_entries() -> &'static [Retired] {
             .into_iter()
             .map(|entry| Retired {
                 key: entry.key,
+                migrated_by_app: entry.migrated_by_app,
                 reason: entry.reason,
                 replaced_by: entry.replaced_by,
                 since: entry.since,

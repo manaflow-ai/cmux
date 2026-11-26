@@ -99,6 +99,13 @@ pub enum SignalPayload {
         /// which never join.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         relay: Option<String>,
+        /// The dialer asks the service for its own relay ticket now, as a
+        /// `wg-ticket` back to it (PROTOCOL.md "Early relay ticket"), so it
+        /// can join the relay while the answer is still on its way. Set only
+        /// by a dialer that will join at once (its only path is the relay);
+        /// absent from older phones. Older services and Macs ignore it.
+        #[serde(rename = "ticketEarly", default, skip_serializing_if = "std::ops::Not::not")]
+        ticket_early: bool,
     },
     #[serde(rename = "wg-resp")]
     WgResp {
@@ -156,6 +163,12 @@ pub enum SignalPayload {
     /// relay (`relay` in its `wg-init` / `wg-resp`).
     #[serde(rename = "wg-relay")]
     WgRelay {},
+    /// From the service, never from a peer: the dialer's own relay ticket
+    /// (`relayTicket` on the envelope), sent back the moment the service
+    /// forwards a `wg-init` that set `ticketEarly` (PROTOCOL.md "Early relay
+    /// ticket"). Only a dialer that asked gets it.
+    #[serde(rename = "wg-ticket")]
+    WgTicket {},
     #[serde(rename = "bye")]
     Bye {
         #[serde(default)]
@@ -476,6 +489,52 @@ fn connect_error(error: tokio_tungstenite::tungstenite::Error) -> SignalingError
     }
 }
 
+/// The upgrade, on a TCP stream that left through the system's proxy for the
+/// service when the settings name one (`CONNECT`, PAC included), with TLS
+/// verified against the OS trust store ([`crate::egress`]): a network whose
+/// only way out is its proxy, or that inspects TLS with a company root,
+/// reaches the service as URLSession does.
+type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+async fn open_socket(
+    request: tokio_tungstenite::tungstenite::handshake::client::Request,
+    egress: crate::egress::Egress,
+) -> Result<Socket, SignalingError> {
+    let uri = request.uri().clone();
+    let secure = uri.scheme_str() == Some("wss");
+    let host = uri.host().ok_or_else(|| SignalingError::BadUrl(uri.to_string()))?;
+    let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
+    let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
+    // Direct: the base's raced, remembered dial (`signal_dial`, IPv6 and IPv4
+    // racing). Through a proxy: `CONNECT` or SOCKS5 to the proxy.
+    let direct = |_: &str, _: u16| {
+        let request = &request;
+        async move {
+            crate::signal_dial::connect_tcp(request)
+                .await
+                .map_err(|error| crate::egress::EgressError::Io(error.to_string()))
+        }
+    };
+    let (tcp, via) = crate::egress::connect_tcp_with(&host, port, secure, &egress, direct)
+        .await
+        .map_err(|error| SignalingError::Connect(error.to_string()))?;
+    if let crate::egress::Via::Proxy(hop) = &via {
+        tracing::info!(%hop, host, "signaling through the proxy");
+    }
+    let connector = if secure {
+        let config = crate::egress::tls::client_config(&egress.trust).map_err(SignalingError::Connect)?;
+        tokio_tungstenite::Connector::Rustls(config)
+    } else {
+        tokio_tungstenite::Connector::Plain
+    };
+    let (socket, _) = tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
+        .await
+        .map_err(connect_error)?;
+    // After the handshake: the verifier has marked a TLS-inspected host by now.
+    crate::egress::note(crate::egress::PathKind::of(&via, &host));
+    Ok(socket)
+}
+
 impl SignalingClient {
     /// Connect with `Authorization: Bearer <token>` and no build space.
     pub async fn connect(
@@ -496,18 +555,36 @@ impl SignalingClient {
         device_id: &str,
         build_space: Option<&crate::build_space::BuildSpace>,
     ) -> Result<Self, SignalingError> {
-        let url = signal_url(base_url, team_id, device_id)?;
-        Self::open(url, token, device_id, build_space).await
+        Self::connect_via(base_url, token, team_id, device_id, build_space, &crate::egress::Egress::default())
+            .await
     }
 
-    /// Open the socket at `url` (a [`signal_url`], maybe with more query).
+    /// [`Self::connect_in`] leaving this device as `egress` says (tests: a
+    /// given proxy, given roots); the others follow the system's settings.
+    pub async fn connect_via(
+        base_url: &str,
+        token: &str,
+        team_id: &str,
+        device_id: &str,
+        build_space: Option<&crate::build_space::BuildSpace>,
+        egress: &crate::egress::Egress,
+    ) -> Result<Self, SignalingError> {
+        crate::install_crypto_provider();
+        let url = signal_url(base_url, team_id, device_id)?;
+        Self::open(url, token, device_id, build_space, egress).await
+    }
+
+    /// Open the socket at `url` (a [`signal_url`], maybe with more query),
+    /// leaving this device as `egress` says.
     async fn open(
         url: String,
         token: &str,
         device_id: &str,
         build_space: Option<&crate::build_space::BuildSpace>,
+        egress: &crate::egress::Egress,
     ) -> Result<Self, SignalingError> {
         crate::install_crypto_provider();
+        let egress = egress.clone();
         let mut request = url.into_client_request().map_err(|e| SignalingError::BadUrl(e.to_string()))?;
         request.headers_mut().insert(
             "authorization",
@@ -528,8 +605,8 @@ impl SignalingClient {
         // there too. Within `CONNECT_WAIT`: an upgrade a loaded host or a lost answer stalls
         // would otherwise hold the reconnect, and the Mac stays offline, with no end.
         let connecting = crate::liveness::spawn(async move {
-            match tokio::time::timeout(CONNECT_WAIT, crate::signal_dial::connect_async(request)).await {
-                Ok(connected) => connected.map(|(socket, _)| socket).map_err(connect_error),
+            match tokio::time::timeout(CONNECT_WAIT, open_socket(request, egress)).await {
+                Ok(connected) => connected,
                 Err(_) => Err(SignalingError::Connect(format!(
                     "no answer to the upgrade within {}s",
                     CONNECT_WAIT.as_secs()
@@ -664,7 +741,9 @@ impl SignalingClient {
             crate::local::HUB_VERSION_PARAM,
             crate::local::HUB_VERSION
         );
-        let client = Self::open(url, token, device_id, None).await?;
+        // A hub on this network: never through a proxy (its address is local).
+        let local = crate::egress::Egress { proxy: crate::egress::ProxyConfig::Direct, ..Default::default() };
+        let client = Self::open(url, token, device_id, None, &local).await?;
         client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(client)
     }
@@ -1068,6 +1147,38 @@ mod tests {
             serde_json::json!({"type":"mailbox_ack","results":[{"id":"r1","applied":true,"sig":"ab"},
                 {"id":"r2","applied":false,"reason":"replayed"}]})
         );
+    }
+
+    /// Early relay ticket, both ways: an older phone's `wg-init` (no
+    /// `ticketEarly`) reads as not asking, a new one that does not ask writes
+    /// no field an older service or Mac could trip on, and only an asking one
+    /// writes `ticketEarly: true`. `wg-ticket` carries nothing but its kind.
+    #[test]
+    fn early_ticket_is_asked_only_by_a_new_dialer() {
+        let old: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-init","publicKey":"k","endpoints":[],"overlayIP":"10.77.0.2","relay":"now"}))
+        .unwrap();
+        assert!(matches!(old, SignalPayload::WgInit { ticket_early: false, .. }));
+        let init = |ticket_early| SignalPayload::WgInit {
+            public_key: "k".into(),
+            endpoints: Vec::new(),
+            overlay_ip: "10.77.0.2".into(),
+            lanes: Vec::new(),
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+            version: 0,
+            relay: Some(RELAY_NOW.into()),
+            ticket_early,
+        };
+        let quiet = serde_json::to_value(init(false)).unwrap();
+        assert!(quiet.get("ticketEarly").is_none(), "{quiet}");
+        let asking = serde_json::to_value(init(true)).unwrap();
+        assert_eq!(asking["ticketEarly"], serde_json::json!(true));
+        let ticket: SignalEnvelope = serde_json::from_value(serde_json::json!(
+            {"to":"phone","from":"mac","sessionId":"s","payload":{"kind":"wg-ticket"},"relayTicket":"t"}))
+        .unwrap();
+        assert!(matches!(ticket.payload, SignalPayload::WgTicket {}));
+        assert_eq!(ticket.relay_ticket.as_deref(), Some("t"));
     }
 
     #[test]

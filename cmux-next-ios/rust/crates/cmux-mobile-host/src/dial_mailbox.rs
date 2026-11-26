@@ -242,10 +242,10 @@ pub async fn run(args: &Args) -> Result<Vec<Value>> {
                     let answer = send(&http, args, &request).await;
                     match (&request, answer) {
                         (Request::Post { .. }, Ok((status, body))) => {
-                            tracker.on_post(status, &body, unix_ms())
+                            tracker.on_post(status, &body, unix_ms());
                         }
                         (Request::Poll { .. }, Ok((status, body))) => {
-                            tracker.on_poll(status, &body, unix_ms())
+                            tracker.on_poll(status, &body, unix_ms());
                         }
                         (_, Err(_)) => tracker.on_transport_error(unix_ms()),
                     }

@@ -325,7 +325,10 @@ async fn a_mac_without_the_relay_is_named_as_the_reason() {
     let DialError::Blocked(failures) = error else { panic!("not blocked: {error}") };
     assert_eq!(failures.relay.as_deref(), Some("peer_cannot"));
     assert!(started.elapsed() < Duration::from_secs(5));
-    assert_eq!(rig.server.relay_joins(), 0);
+    // A phone with no other path joins on its early ticket before the Mac's
+    // answer says it cannot relay (PROTOCOL.md "Early relay ticket"); that
+    // join is aborted, never more than the one.
+    assert!(rig.server.relay_joins() <= 1, "{}", rig.server.relay_joins());
 }
 
 /// Plain UDP is lost on both sides (this test's switch); `drop_udp_to`
@@ -487,6 +490,100 @@ async fn a_relay_reset_does_not_keep_the_session_on_the_relay() {
     connected.link.close("done");
 }
 
+/// A network whose only way out is its HTTP proxy (P6, PROTOCOL.md
+/// "Corporate networks"): the relay join leaves through `CONNECT`, as
+/// signaling and TURN over TLS do, with or without Basic sign-in, and the
+/// link rides the relay. "Proxy only" never goes around the proxy.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_relay_goes_through_the_system_http_proxy() {
+    use cmux_mobile_link::egress::Egress;
+    use cmux_mobile_link::testing::{ProxyAuth, TestProxy};
+    for auth in [ProxyAuth::None, ProxyAuth::Basic("ann@corp".into(), "s3cret:pw".into())] {
+        let proxy = TestProxy::start(auth.clone()).await;
+        let rig = rig(FakeOptions::default(), options(), true).await;
+        let phone = DialOptions {
+            force_relay: true,
+            relay: relay(&rig.server, &rig.phone_id),
+            egress: Egress { proxy: proxy.config(), require_proxy: true, ..Egress::default() },
+            ..options()
+        };
+        let started = std::time::Instant::now();
+        let connected =
+            dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+                .await
+                .unwrap_or_else(|error| panic!("{auth:?}: {error}"));
+        eprintln!("{auth:?}: relay through the proxy, link up in {:?}", started.elapsed());
+        echo(&connected.link, 2).await;
+        assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay, "{auth:?}");
+        let service = rig.server.base_url.trim_start_matches("http://").trim_end_matches('/').to_owned();
+        assert!(
+            proxy.tunnels().contains(&service),
+            "{auth:?}: the join skipped the proxy: {:?}",
+            proxy.tunnels()
+        );
+        assert_eq!(proxy.refused(), 0, "{auth:?}");
+        connected.link.close("done");
+    }
+}
+
+/// A proxy the relay join cannot sign in to (NTLM or Kerberos only): the
+/// join fails at once as the proxy's refusal (407), not as a timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_proxy_the_relay_cannot_sign_in_to_is_a_refusal() {
+    use cmux_mobile_link::dial::relay::{RelayCarrier, RelayFailure};
+    use cmux_mobile_link::egress::Egress;
+    use cmux_mobile_link::testing::{ProxyAuth, TestProxy};
+    let proxy = TestProxy::start(ProxyAuth::NtlmOrNegotiate).await;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mut endpoint = RelayEndpoint::with_token(
+        server.base_url.clone(),
+        None,
+        uuid::Uuid::new_v4().to_string(),
+        "user:alice",
+    );
+    endpoint.egress = Egress { proxy: proxy.config(), require_proxy: true, ..Egress::default() };
+    let started = std::time::Instant::now();
+    let failure = RelayCarrier::join(
+        &endpoint,
+        &uuid::Uuid::new_v4().to_string(),
+        &uuid::Uuid::new_v4().to_string(),
+        None,
+    )
+    .await
+    .expect_err("refused by the proxy");
+    assert!(matches!(failure, RelayFailure::Refused { status: 407, .. }), "{failure:?}");
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(server.relay_joins(), 0);
+}
+
+/// A network that needs a proxy with none set for the relay: the join fails
+/// at once as the proxy's refusal, not a service `403`, and is tried again
+/// (the proxy settings can change with the network).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_relay_join_the_proxy_policy_refuses_is_tried_again() {
+    use cmux_mobile_link::dial::relay::{RelayCarrier, RelayFailure};
+    use cmux_mobile_link::egress::Egress;
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mut endpoint = RelayEndpoint::with_token(
+        server.base_url.clone(),
+        None,
+        uuid::Uuid::new_v4().to_string(),
+        "user:alice",
+    );
+    endpoint.egress = Egress { require_proxy: true, ..Egress::default() };
+    let failure = RelayCarrier::join(
+        &endpoint,
+        &uuid::Uuid::new_v4().to_string(),
+        &uuid::Uuid::new_v4().to_string(),
+        None,
+    )
+    .await
+    .expect_err("no proxy to carry it");
+    assert!(matches!(failure, RelayFailure::ProxyRefused { .. }), "{failure:?}");
+    assert!(!failure.is_final());
+    assert_eq!(server.relay_joins(), 0);
+}
+
 /// The Mac's network drops UDP, so its trickled answer takes its own TURN
 /// allocation after the tunnel starts, and that allocation is slow (its TLS
 /// connection takes 3.2 s, past the relay's 3 s). The relay waits for it: the
@@ -540,4 +637,100 @@ async fn a_slow_turn_allocation_on_the_mac_gets_its_window_before_the_relay() {
     );
     assert!(matches!(rig.mac_path(), Some(LinkPath::Turn | LinkPath::TurnTls)), "{:?}", rig.mac_path());
     connected.link.close("done");
+}
+
+/// Disco over the relay (ledger 13h): two devices on one LAN whose signaling
+/// carried no direct endpoint (an older or stripping signaling path, a
+/// relay-only meeting) meet on cmux's relay. Plain UDP between them works, so
+/// once the tunnel is up they must swap their LAN endpoints through it and
+/// move the link to the direct path: relayed -> direct, both sides.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn peers_that_met_on_the_relay_swap_lan_endpoints_and_go_direct() {
+    met_on_the_relay_goes_direct(false, "nearby_disco_over_relay").await;
+}
+
+/// The same with each side taking the other for an older peer (no `version`
+/// in wg-init or wg-resp): the endpoints ride the roam announcement, which
+/// older builds already take, so nothing new is negotiated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_older_peer_met_on_the_relay_also_goes_direct() {
+    met_on_the_relay_goes_direct(true, "nearby_disco_over_relay_old_peer").await;
+}
+
+async fn met_on_the_relay_goes_direct(old_peer: bool, cell: &str) {
+    let fake =
+        FakeOptions { strip_direct_endpoints: true, strip_wg_version: old_peer, ..FakeOptions::default() };
+    let rig = rig(fake, options(), true).await;
+    let phone = DialOptions { relay: relay(&rig.server, &rig.phone_id), ..options() };
+    let started = std::time::Instant::now();
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial with no direct endpoint in signaling");
+    echo(&connected.link, 1).await;
+    let up_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let first = *connected.path.borrow();
+    let up = std::time::Instant::now();
+    let deadline = up + Duration::from_secs(10);
+    loop {
+        echo(&connected.link, 1).await;
+        if *connected.path.borrow() == LinkPath::Direct && rig.mac_path() == Some(LinkPath::Direct) {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "still {:?} (mac {:?}) 10 s after the link came up on {first:?}",
+            *connected.path.borrow(),
+            rig.mac_path()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    println!(
+        "MATRIX {{\"cell\": \"{cell}\", \"first_path\": \"{first:?}\", \"up_ms\": {up_ms:.1}, \"direct_after_ms\": {:.1}}}",
+        up.elapsed().as_secs_f64() * 1000.0
+    );
+    connected.link.close("done");
+}
+
+/// PROTOCOL.md "Early relay ticket", new and old hub: a phone with no path but
+/// the relay asks for its ticket in its `wg-init`; a hub that answers
+/// (`wg-ticket`) lets its join run while a slow Mac answers, and the session
+/// takes that join (one join per side). A hub that never answers leaves the
+/// phone joining after `wg-resp`, as before. Prints both dial times.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_early_ticket_joins_while_the_mac_answers_and_an_older_hub_still_works() {
+    let mut took = Vec::new();
+    for old_hub in [false, true] {
+        let fake = FakeOptions {
+            no_early_ticket: old_hub,
+            answer_delay: Duration::from_millis(600),
+            relay_join_delay: Duration::from_millis(400),
+            ..FakeOptions::default()
+        };
+        let rig = rig(fake, options(), true).await;
+        let phone = DialOptions { force_relay: true, relay: relay(&rig.server, &rig.phone_id), ..options() };
+        let started = std::time::Instant::now();
+        let connected =
+            dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+                .await
+                .expect("dial through the relay");
+        echo(&connected.link, 2).await;
+        took.push(started.elapsed());
+        assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+        let session = rig.server.sessions_with("wg-init").remove(0);
+        let resp = rig.server.forwarded_at(&session, "wg-resp").expect("wg-resp forwarded");
+        let joins = rig.server.relay_joins_of(&rig.phone_id);
+        assert_eq!(joins.len(), 1, "old hub {old_hub}: the phone joined once: {joins:?}");
+        if old_hub {
+            assert!(joins[0] > resp, "an older hub: the phone joins after wg-resp");
+        } else {
+            assert!(joins[0] < resp, "the early ticket's join ran before wg-resp");
+        }
+        connected.link.close("done");
+    }
+    eprintln!(
+        "relay-only dial with a 600 ms Mac answer: early ticket {:?}, older hub {:?}",
+        took[0], took[1]
+    );
+    assert!(took[0] < took[1], "{took:?}");
 }

@@ -943,6 +943,8 @@ pub struct Mux {
     terminal_reaper: Mutex<terminal_reap::TerminalReaperSlot>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
+    /// Immediate-write requests to that writer (`flush-launch-snapshot`).
+    launch_snapshot_flush: Mutex<Option<Arc<crate::server::LaunchSnapshotFlush>>>,
     /// The settings owner (the settings file), started on first use or at
     /// daemon start (mux/settings.rs).
     settings: settings::SettingsSlot,

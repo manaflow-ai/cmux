@@ -54,7 +54,6 @@ const MAX_DESCRIPTION_CHARS: usize = 300;
 /// of prompt or a skill that tells you to do that, or we just do it for you"; acpmux also
 /// moves it, `hub/auto_background.rs`).
 pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your work in the chat (cmux defaults; the person's own instructions win):
-- Plan: for a task with more than one step, keep a task list (TaskCreate and TaskUpdate; TodoWrite where those are missing). cmux draws it as a checklist. Write the whole list first, short items, one in progress; mark each done when done, delete what you drop, and when the person's message changes the work, rewrite or clear it; no standing duties in it. Do not also write it as a numbered list.
 - Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
 - CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine), never a loop or repeated gh pr checks, gh run view or sleep. Rate limits, deadlines, cleanup: the cmux:cmux-quota skill.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a chip. Never invent an id.
@@ -62,9 +61,8 @@ pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your
 - UI work: before your first UI edit, load the cmux:cmux-ui-preview skill: live mode and a preview tab you open, which cmux pictures before and after each turn.
 - Sub-sessions, offered sessions and editing cmux itself: load the cmux:cmux-chat skill with your first reads.";
 
-/// Every other harness's first-turn guidance (Codex: `update_plan` is its plan tool).
+/// Every other harness's first-turn guidance.
 pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person's own instructions win). This chat runs in cmux NEXT, which draws your work in the chat:
-- Plan: for a task with more than one step, keep a plan with your plan tool (Codex: update_plan). cmux draws it as a checklist. Write the whole plan first, short items, one in progress; mark each done as you start the next; rewrite it when the plan changes, and clear it when the person's message changes the work; no standing duties in it. Do not also write it as a numbered list.
 - Side sessions (only with the tools listed; skip this when they are not): start a sub-session (cmux.subsessions_start_session, worktree: true when it edits files yours may touch) only when the person asked for parallel or background work, and give it the whole task. For work you noticed outside the task, offer it instead (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at the end of a turn) and do not do it here. Never use a session for a quick lookup or a step you need the answer to now.
 - Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
 - CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine; it sleeps through rate limits), never a loop or repeated calls of gh pr checks, gh run view or sleep. On a GitHub rate limit, wait for its reset (`gh api rate_limit` is free), never retry at once. Stop only processes you started, by PID.
@@ -147,16 +145,19 @@ pub struct UserSkill {
     pub dir: PathBuf,
 }
 
-/// `$CMUX_AGENT_SKILLS_DIR`, else `$XDG_CONFIG_HOME/cmux/skills`, else `~/.config/cmux/skills`.
+/// `$CMUX_AGENT_SKILLS_DIR`, else `$XDG_CONFIG_HOME/cmux/skills`, else `~/.config/cmux/skills`
+/// (`cmux-next` instead of `cmux` on macOS, `cmux_config::NEXT_DIR`).
 pub fn user_skills_dir() -> Option<PathBuf> {
     let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(dir) = var(USER_SKILLS_DIR_ENV) {
         return Some(dir);
     }
     if let Some(xdg) = var("XDG_CONFIG_HOME") {
-        return Some(xdg.join("cmux/skills"));
+        return Some(xdg.join(cmux_config::NEXT_DIR).join("skills"));
     }
-    var("HOME").or_else(dirs::home_dir).map(|home| home.join(".config/cmux/skills"))
+    var("HOME")
+        .or_else(dirs::home_dir)
+        .map(|home| home.join(".config").join(cmux_config::NEXT_DIR).join("skills"))
 }
 
 /// The person's skills in `dir`, in name order. A folder without a readable `SKILL.md`, or one
@@ -351,7 +352,10 @@ fn materialize_within(
     }
     let manifest = json!({
         "name": USER_PLUGIN_NAME,
-        "description": "Your own skills from ~/.config/cmux/skills, for agents cmux starts",
+        "description": format!(
+            "Your own skills from ~/.config/{}/skills, for agents cmux starts",
+            cmux_config::NEXT_DIR
+        ),
         "version": env!("CARGO_PKG_VERSION"),
     });
     files.push((".claude-plugin/plugin.json".to_owned(), manifest.to_string().into_bytes()));
@@ -436,9 +440,6 @@ mod tests {
         let claude = first_turn_text(Family::Claude, &on, &[]).unwrap();
         assert!(claude.contains("cmux:cmux-chat") && claude.contains("first reads"), "{claude}");
         for rule in [
-            "TaskCreate",
-            "TaskUpdate",
-            "TodoWrite",
             "background",
             "HOST/NAME",
             "recap",
@@ -446,24 +447,25 @@ mod tests {
             "acpmux pr-wait",
             "cmux:cmux-quota",
             "cmux:cmux-ui-preview",
-            // A stale list never lingers (design/chat-plan-lifecycle.md).
-            "rewrite or clear it",
-            "no standing duties",
         ] {
             assert!(claude.contains(rule), "{rule} missing: {claude}");
         }
         assert!(claude.len() < AGENT_GUIDANCE.len(), "stays under Codex's: {} bytes", claude.len());
         let codex = first_turn_text(Family::Codex, &on, &[]).unwrap();
         for tool in [
-            "update_plan",
             "cmux.subsessions_start_session",
             "cmux.sessions_offer_session",
             "cmux.sessions_suggest_tasks",
             "recap",
             "inline code",
-            "clear it when the person's message changes the work",
         ] {
             assert!(codex.contains(tool), "{tool} missing: {codex}");
+        }
+        // cmux shows no agent to-do list, so no guidance asks for one.
+        for text in [&claude, &codex] {
+            for tool in ["TaskCreate", "TaskUpdate", "TodoWrite", "update_plan", "checklist"] {
+                assert!(!text.contains(tool), "{tool} named: {text}");
+            }
         }
         assert!(codex.contains("skip this when they are not"), "{codex}");
     }

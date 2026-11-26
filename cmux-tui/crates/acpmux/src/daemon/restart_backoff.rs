@@ -12,9 +12,11 @@
 
 use std::time::Duration;
 
-/// How long a daemon serves before its death counts as a new one rather than part of a loop:
-/// the unit's longest delay, so a loop at that delay never resets itself.
-pub(crate) const STEADY: Duration = Duration::from_secs(60);
+/// How long a daemon serves before its death counts as a new one rather than part of a loop.
+/// Shorter than two faults a minute apart (a carrier fault run, 2026-11-23: with 60 s the counter
+/// was still at 3, and systemd waited 10.1 s to restart); a daemon that dies after it is restarted
+/// every `RestartSec` + 15 s at most, which is no hot loop.
+pub(crate) const STEADY: Duration = Duration::from_secs(15);
 
 // timeout: cleanup for a wedged systemctl; nothing waits on the reset.
 const RESET_BUDGET: Duration = Duration::from_secs(5);

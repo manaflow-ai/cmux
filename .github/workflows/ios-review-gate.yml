@@ -177,9 +177,14 @@ permissions:
 
 concurrency:
   group: ios-review-gate-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.lane || 'appstore' }}
-  # Latest wins for pull requests and feat-cmux-next pushes; a dispatched or
-  # called run (a submission) always finishes.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
+  # Latest wins for pull requests. A feat-cmux-next push run finishes: the
+  # group holds one running and one pending run, and a newer push replaces
+  # only the pending one, so base gets a verdict at its tip every run's length.
+  # With cancel-in-progress on push, 99 of 100 base runs (2026-11-24 21:24Z to
+  # 2026-11-25 03:26Z) were cancelled by the next push and base had no verdict
+  # for the release-bar probe to read. A dispatched or called run (a
+  # submission) always finishes.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -286,6 +291,7 @@ jobs:
             scripts/ci/simple_pool_picker.py
             scripts/ci/deadline_http.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Which device legs take a Mac
         id: devices
@@ -682,7 +688,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
-          key: ios-review-gate
+          key: ios-review-gate-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
       - name: Build CmuxMobileLinkFFI.xcframework
         if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         env:
@@ -769,6 +775,16 @@ jobs:
           xcrun xcresulttool get test-results tests --path "$RESULTS/$family.xcresult" > "$RESULTS/$family.json" || true
           mkdir -p "$RESULTS/screens/$family"
           xcrun xcresulttool export attachments --path "$RESULTS/$family.xcresult" --output-path "$RESULTS/screens/$family" >/dev/null 2>&1 || true
+          # The iPad's stills at half size (1032x1376 on a 13-inch): full size they were 411 MB,
+          # which the report's Linux runner could not download in its 6 min (3 of 4 pull request
+          # runs on 2026-11-23) nor fetch as the baseline within the screen diff's 180 s. Only the
+          # screen diff reads them, comparing like with like; same input, same resample.
+          if [ "$family" = ipad ]; then
+            find "$RESULTS/screens/$family" -name '*.png' -type f -print0 | while IFS= read -r -d '' png; do
+              long="$(sips -g pixelWidth -g pixelHeight "$png" 2>/dev/null | awk '/pixel/ { if ($2 > m) m = $2 } END { print int(m / 2) }')"
+              if [ "${long:-0}" -gt 0 ]; then sips --resampleHeightWidthMax "$long" "$png" >/dev/null 2>&1 || true; fi
+            done
+          fi
           # The report job decides; this step only records.
           exit 0
       - name: Upload results
@@ -836,6 +852,7 @@ jobs:
             scripts/select-ci-xcode.sh
             scripts/ci/xcode-pins.txt
             .xcode-version
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Checkout the app source (data only)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -846,6 +863,7 @@ jobs:
           sparse-checkout: |
             cmux-next-ios/project.yml
             cmux-next-ios/AppStoreReview
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Select Xcode
         run: ./gate/scripts/select-ci-xcode.sh
@@ -943,6 +961,7 @@ jobs:
             .github/actions/cache-save
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Save the framework for later runs
         if: steps.staged.outputs.key != ''

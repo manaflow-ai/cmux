@@ -24,7 +24,7 @@ pub static ACTIONS: &[Action] = &[
         category: "cloud",
         symbol: "cloud",
         surfaces: KEYBOARD | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 200).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarNew", "create", 1)], ..SurfacePlan::DEFAULT },
         targets: &["machine"],
         cli_name: "cloud new-workspace",
         main_menu: Some("file"),
@@ -197,6 +197,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::PATH.optional(), args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -211,6 +212,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 1).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud bring-back",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -276,6 +278,20 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "chatPriority.set",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chatPriority.set", "Set Keep Running"),
+        keywords: &["vm", "cloud", "priority", "keep", "running", "hybrid", "chat", "agent"],
+        category: "cloud",
+        symbol: "icloud",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[Argument { name: "priority", title: t("Localizable", "argument.chatPriority", "Priority"), kind: ArgKind::String, required: true, suggestions: None, is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false }],
+        targets: &["tab"],
+        cli_name: "action chat-priority-set",
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "chatMove.cancel",
         group: GROUP,
         title: t("ActionCatalog", "action.chatMove.cancel", "Cancel Chat Move"),
@@ -316,6 +332,7 @@ pub static ACTIONS: &[Action] = &[
         surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "move", 2).folder("move")], ..SurfacePlan::DEFAULT },
         targets: &["tab"],
         cli_name: "cloud transfer-local",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {
@@ -331,6 +348,7 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::MACHINE.optional()],
         targets: &["tab"],
         cli_name: "cloud move-to-machine",
+        waits_for_result: true,
         ..Action::DEFAULT
     },
     Action {

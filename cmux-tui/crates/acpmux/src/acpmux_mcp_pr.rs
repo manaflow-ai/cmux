@@ -51,7 +51,7 @@ const NAMES_SHOWN: usize = 3;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "One pull request's state in one call, instead of several gh commands in a shell. The first line is the outcome (\"#1609 open at 4db9066b: mergeable, 1 failing check (ws-check), SHIP at head\" or \"#1557 merged as f0175fe0\"); then head and base, mergeability, failing checks by name and the pending count, the newest review receipt (a `Review (...): SHIP at <sha>` or `BLOCK at <sha>` comment line) and whether it is at the head, and HOLD lines or hold labels. structuredContent.status is ok, failed (a failing check, or BLOCK at head), running (checks pending) or cancelled (a check whose newest run was cancelled, nothing newer; a cancel replaced by a newer run of the same check is not counted).",
+        "description": "One pull request's state in one call, instead of gh in a shell. The first line is the outcome (\"#1609 open at 4db9066b: mergeable, 1 failing check (ws-check), SHIP at head\" or \"#1557 merged as f0175fe0\"); then head and base, mergeability, failing and pending checks, the newest SHIP/BLOCK review receipt and whether it is at the head, and holds. structuredContent.status is ok, failed (a failing check or BLOCK at head), running or cancelled (a check's newest run was cancelled).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -67,7 +67,7 @@ pub(super) fn tool() -> Value {
 pub(super) fn wait_tool() -> Value {
     json!({
         "name": WAIT_NAME,
-        "description": "Wait for a pull request to settle (no check pending, or merged or closed), or with until \"change\" for its state line to change, then answer as pr_state does. The wait runs in the cmux daemon, whose one GitHub poller every chat on this machine shares, so waiting costs no GitHub calls of yours; use it instead of polling gh. It returns at timeoutSecs (default 45; call it again to keep waiting) with structuredContent.timedOut true.",
+        "description": "Wait for a pull request to settle (no check pending, or merged or closed), or with until \"change\" for its state line to change, then answer as pr_state does. The daemon's one shared GitHub poller does the waiting; use it instead of polling gh. It returns at timeoutSecs (default 45; call again to keep waiting) with structuredContent.timedOut true.",
         "inputSchema": {
             "type": "object",
             "properties": {

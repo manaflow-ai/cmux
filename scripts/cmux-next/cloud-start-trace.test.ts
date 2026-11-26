@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { floorOnce, floorRoute, modelFloor, p50, snappyParts, snappyReport, snappyRun, SNAPPY_PARTS, stepParts } from "./cloud-start-trace.ts";
+import { floorOnce, floorRoute, mintSendTrace, modelFloor, readSendTrace, sendTraceRows, sendTraceTable, p50, snappyParts, snappyReport, snappyRun, SNAPPY_PARTS, stepParts } from "./cloud-start-trace.ts";
 
 const marks = { create: 0, created: 2658, running: 2701, login: 3082, login_ready: 3082, session_start: 6320, session_ready: 10089, send: 10092, sent: 10558, first_text: 14000 };
 
@@ -48,6 +48,14 @@ describe("snappy-bench/v1 cloud leg", () => {
     expect(p50([3, 1, 2, 4])).toBe(3);
   });
 
+  test("guest-timed parts and the probe route's share sit beside the parts", () => {
+    const runs = [5000, 7000, 6000].map((g, i) => snappyRun({ steps: [{ step: "reply", fields: { create_marks_ms: marks, guest_ms: { first_token: g, harness_spawn: 400 + i } } }] })!);
+    const r = snappyReport(runs, null, { at: new Date(0) });
+    expect(r.rows.guest_parts).toEqual({ first_token: 6000, harness_spawn: 401 });
+    expect(r.rows.exec_route_ms?.first_token).toBe(runs[0].parts.first_token - 6000);
+    expect(snappyReport([snappyRun({ create_marks_ms: marks })!], null).rows).not.toHaveProperty("guest_parts");
+  });
+
   test("the floor picks its route from the environment and never puts a token in its answer", async () => {
     expect(floorRoute({})).toBeNull();
     expect(floorRoute({ ANTHROPIC_API_KEY: "k" })?.via).toBe("api-key");
@@ -62,5 +70,45 @@ describe("snappy-bench/v1 cloud leg", () => {
     expect(JSON.parse(body).system).toContain("Claude Code");
     const denied = await modelFloor({ CLAUDE_CODE_OAUTH_TOKEN: "secret-token" }, "m", "hi", (async () => new Response("secret-token", { status: 401 })) as any);
     expect(denied).toEqual({ ms: null, runs: [], via: "oauth", missing: "HTTP 401" });
+  });
+});
+
+describe("send trace (one journey send as one W3C trace)", () => {
+  test("mints 32 lowercase hex, carried as traceparent and x-cmux-start-trace", () => {
+    const t = mintSendTrace();
+    expect(t.id).toMatch(/^[0-9a-f]{32}$/);
+    expect(t.headers.traceparent).toMatch(new RegExp(`^00-${t.id}-[0-9a-f]{16}-01$`));
+    expect(t.headers["x-cmux-start-trace"]).toBe(t.id);
+    expect(mintSendTrace().id).not.toBe(t.id);
+  });
+
+  test("an all-zero draw is drawn again", () => {
+    let n = 0;
+    const t = mintSendTrace((k: number) => new Uint8Array(k).fill(n++ === 0 ? 0 : 0xab));
+    expect(t.id).toBe("ab".repeat(16));
+  });
+
+  test("rows from the array and the object forms, in trace order, hop ms floor_ms", () => {
+    const events = [
+      { name: "process_name", ph: "M", args: { name: "cmux-platform" } },
+      { name: "first_token", ph: "X", ts: 9_000_000, dur: 1_234_400, args: { trace_id: "x", hop: "first_token", floor_ms: 30 } },
+      { name: "api", ph: "X", ts: 1_000_000, dur: 45_000, args: { trace_id: "x", hop: "api", floor_ms: 30 } },
+      { name: "boot", ph: "X", ts: 2_000_000, dur: 700_000, args: { hop: "boot" } },
+    ];
+    const rows = sendTraceRows(events);
+    expect(rows).toEqual([{ hop: "api", ms: 45, floor_ms: 30 }, { hop: "boot", ms: 700, floor_ms: null }, { hop: "first_token", ms: 1234, floor_ms: 30 }]);
+    expect(sendTraceRows({ traceEvents: events })).toEqual(rows);
+    expect(sendTraceRows({ error: "x" })).toEqual([]);
+    const table = sendTraceTable(rows).split("\n");
+    expect(table[0]).toMatch(/^hop\s+ms\s+floor_ms$/);
+    expect(table[2]).toMatch(/^boot\s+700\s+-$/);
+  });
+
+  test("a 404 or a thrown read is missing, never an error", async () => {
+    expect(await readSendTrace(async () => ({ status: 404, body: { error: { code: "not_found" } } }), "a".repeat(32))).toEqual({ missing: expect.stringContaining("HTTP 404") });
+    expect(await readSendTrace(async () => { throw new Error("offline"); }, "a".repeat(32))).toEqual({ missing: "offline" });
+    let route = "";
+    expect(await readSendTrace(async (_m: string, r: string) => ((route = r), { status: 200, body: [] }), "ab".repeat(16))).toEqual({ body: [] });
+    expect(route).toBe(`/v1/cloud/start-traces/${"ab".repeat(16)}/chrome`);
   });
 });

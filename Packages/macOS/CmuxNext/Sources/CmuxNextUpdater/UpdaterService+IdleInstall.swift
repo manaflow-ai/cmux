@@ -1,5 +1,5 @@
 import CmuxUpdater
-import Foundation
+public import Foundation
 
 /// A nightly's automatic install (`installsUpdatesWhenIdle`) runs the same preflight as a click
 /// (What's New record and rollback copy) before handing the staged update to Sparkle. The app's
@@ -61,6 +61,48 @@ extension UpdaterService {
             self?.controller?.relaunchHeldInstallThroughSparkle()
         })
         return true
+    }
+
+    /// A click's install (Restart to Update, `cmux settings install-available-update`) in an app
+    /// launched in a custom home (HOME or CFFIXED_USER_HOME other than the account's, as the
+    /// release rollback drill's throwaway home) quits and reopens itself in that home: Sparkle's
+    /// relaunch goes through LaunchServices, which starts the new build with launchd's environment
+    /// and so in the account's home. Sparkle installs as the app exits, then ``UpdateRelaunchBehind``
+    /// opens the new build in front with `open --env`. A launch in the account's own home lets
+    /// Sparkle relaunch, as before.
+    public func updaterQuitsForInstall(build: String) -> Bool {
+        guard !launchHomeOptions().isEmpty, let reopenInFront else { return false }
+        log.append("will install \(build)")
+        updaterWillInstallUpdate(build: build)
+        log.append("relaunching in the launch home: quitting for the install, then open")
+        reopenInFront({ [weak self] in
+            guard let self else { return false }
+            // A second click took the install over (Sparkle relaunches it): the helper must not quit as well.
+            guard self.controller?.waitsToQuitForInstall ?? true else { return false }
+            self.controller?.commitQuitInstall()
+            self.updaterWillRelaunchApplication()
+            return true
+        }, { [weak self] in self?.quitForInstallDeclined() })
+        return true
+    }
+
+    /// Wires the helpers that quit and reopen the app (``UpdateRelaunchBehind``): behind for an
+    /// automatic install (``relaunchBehind``), in front in the launch home for a click's install in
+    /// a custom home (``reopenInFront``). `onQuitRefused` hands the App's quit-refused hook the
+    /// helper's stop: a quit the user refuses (a quit dialog's Cancel) stops the helper and stages
+    /// the update again.
+    public func useReopenHelpers(app: URL, bundleIdentifier: String,
+                                 onQuitRefused: @escaping @MainActor (_ stop: @escaping @MainActor () -> Void) -> Void) {
+        relaunchBehind = { willQuit, declined, inFront in
+            let behind = UpdateRelaunchBehind(app: app, bundleIdentifier: bundleIdentifier)
+            onQuitRefused { behind.quitRefused() }
+            behind.start(willQuit: willQuit, declined: declined, inFront: inFront)
+        }
+        reopenInFront = { willQuit, declined in
+            let reopen = UpdateRelaunchBehind(app: app, bundleIdentifier: bundleIdentifier, inBackground: false)
+            onQuitRefused { reopen.quitRefused() }
+            reopen.start(willQuit: willQuit, declined: declined, inFront: {})
+        }
     }
 
     /// An install nobody clicked, in an app the user was not in when it started and is not in now.

@@ -2763,6 +2763,65 @@
             "module": "CmuxNextDesign"
           },
           "swift_owner": "TabShapeSetting"
+        },
+        {
+          "key": "appearance.gooeyTabs",
+          "note": "How gooey the tab strip is (GooeyTabs, CmuxNextDesign; plans/cmux-next/gooey-tabs.md). off (the default) changes nothing: appearance.cornerFlush and appearance.titleAreaTone apply as set. subtle and full draw the selected tab as flush-goo (CornerFlush.current, unless compact density keeps the pill) over Subtle Tone (DesignSettings.effectiveTitleAreaTone), as effective values that never write those two settings, and run the goo springs (GooTunables). Leo 2026-11-23: \"presumably a less intense version should have a better case to be the default. so you guys need to try that. like. subtle goo.\"",
+          "title": {
+            "key": "settings.appearance.gooeyTabs",
+            "text": "Gooey Tabs"
+          },
+          "help": {
+            "key": "settings.appearance.gooeyTabs.help",
+            "text": "Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more."
+          },
+          "summary": {
+            "key": "settings.appearance.gooeyTabs.summary",
+            "text": "Off, subtle or full goo for the tab strip"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.gooeyTabs.off",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.gooeyTabs.subtle",
+                "text": "Subtle"
+              }
+            },
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.choice.gooeyTabs.full",
+                "text": "Full"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "goo",
+            "gooey",
+            "liquid",
+            "spring",
+            "springy",
+            "wobble",
+            "stretch",
+            "tab animation",
+            "selected tab",
+            "tab shape"
+          ],
+          "swift_enum": {
+            "name": "GooeyTabs",
+            "generated": false,
+            "module": "CmuxNextDesign"
+          },
+          "swift_owner": "GooeyTabsSetting"
         }
       ]
     },
@@ -3282,6 +3341,662 @@
           },
           "default": false,
           "keywords": []
+        }
+      ]
+    },
+    {
+      "name": "menuLook",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.menuLook",
+        "text": "Menus and Popovers"
+      },
+      "rows": [
+        {
+          "key": "appearance.menu.cornerRadius",
+          "name": "menuCornerRadius",
+          "note": "The menu panel's corner (GlassMenu and every web menu). Unset: today's popup radius (the design scale's popup radius, 8 on the web).",
+          "title": {
+            "key": "settings.appearance.menu.cornerRadius",
+            "text": "Menu Corner Radius"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 8
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "menu",
+            "context menu",
+            "popover",
+            "corner",
+            "radius",
+            "rounded"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.borderOpacity",
+          "name": "menuBorderOpacity",
+          "note": "The panel's hairline edge, as a share of the text color (the web's --menu-border). Unset: today's 12%.",
+          "title": {
+            "key": "settings.appearance.menu.borderOpacity",
+            "text": "Menu Border Opacity"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction",
+            "placeholder": 0.12
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "menu",
+            "border",
+            "rim",
+            "opacity",
+            "contrast"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.shadow",
+          "name": "menuShadow",
+          "note": "The menu panel's drop shadow: standard is today's raised elevation step (0 2px 6px black 11%); subtle is the card step (0 1px 2px black 7%); strong a soft, larger drop (0 8px 24px black 28%); none draws no shadow.",
+          "title": {
+            "key": "settings.appearance.menu.shadow",
+            "text": "Menu Shadow"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            },
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.subtle",
+                "text": "Subtle"
+              }
+            },
+            {
+              "value": "strong",
+              "title": {
+                "key": "settings.choice.strong",
+                "text": "Strong"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "shadow",
+            "elevation",
+            "drop shadow",
+            "depth"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.fill",
+          "name": "menuFill",
+          "note": "The menu panel's fill as #RRGGBB or #RRGGBBAA, over the glass. Unset: today's glass (its tint and veil).",
+          "title": {
+            "key": "settings.appearance.menu.fill",
+            "text": "Menu Fill"
+          },
+          "kind": "color",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.glass",
+            "text": "Glass"
+          },
+          "keywords": [
+            "menu",
+            "fill",
+            "background",
+            "color",
+            "opaque",
+            "panel"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.padding",
+          "name": "menuPadding",
+          "note": "The panel's inner padding, which is also the hover fill's inset from its edges (the web's --menu-padding); labels, shortcuts and separators keep their place on the menu grid. Unset: the grid's 5.",
+          "title": {
+            "key": "settings.appearance.menu.padding",
+            "text": "Menu Padding"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 5
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "menu",
+            "padding",
+            "inset",
+            "spacing"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.highlightRadius",
+          "name": "menuHighlightRadius",
+          "note": "The hover fill's corner. Unset: today's 5.",
+          "title": {
+            "key": "settings.appearance.menu.highlightRadius",
+            "text": "Menu Highlight Radius"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 5
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "menu",
+            "hover",
+            "highlight",
+            "radius",
+            "corner"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.rowHeight",
+          "name": "menuRowHeight",
+          "note": "A one-line row's height. Unset: today's control row of the density (28 at the default).",
+          "title": {
+            "key": "settings.appearance.menu.rowHeight",
+            "text": "Menu Row Height"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 18,
+            "max": 40,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 28
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "menu",
+            "row",
+            "height",
+            "item",
+            "size"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.shortcuts",
+          "name": "menuShortcuts",
+          "note": "The shortcut column's ink: standard is today's (each surface's own muted ink); muted is quieter (the text at 45%, the native tertiary ink).",
+          "title": {
+            "key": "settings.appearance.menu.shortcuts",
+            "text": "Menu Shortcuts"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.muted",
+                "text": "Muted"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "shortcut",
+            "key equivalent",
+            "keyboard",
+            "muted",
+            "gray"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.sectionLabel",
+          "name": "menuSectionLabel",
+          "note": "A section label (Open in): standard is today's (caption, emphasis weight, the row ink at 55%); muted is regular weight in the text at 45% (the web's --menu-label-color and --menu-label-weight).",
+          "title": {
+            "key": "settings.appearance.menu.sectionLabel",
+            "text": "Menu Section Labels"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.muted",
+                "text": "Muted"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "section",
+            "label",
+            "header",
+            "group"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.separator",
+          "name": "menuSeparator",
+          "note": "A separator between row groups: standard is today's line; subtle a line at half its ink; none leaves only the gap (the web's --menu-separator).",
+          "title": {
+            "key": "settings.appearance.menu.separator",
+            "text": "Menu Separators"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "subtle",
+              "title": {
+                "key": "settings.choice.subtle",
+                "text": "Subtle"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.none",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "separator",
+            "divider",
+            "line"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.destructiveInk",
+          "name": "menuDestructiveInk",
+          "note": "A destructive row (Delete): standard is today's danger red; plain draws it in the row's own ink.",
+          "title": {
+            "key": "settings.appearance.menu.destructiveInk",
+            "text": "Menu Destructive Rows"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "plain",
+              "title": {
+                "key": "settings.choice.plainInk",
+                "text": "Plain"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "destructive",
+            "delete",
+            "danger",
+            "red"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.submenu",
+          "name": "menuSubmenu",
+          "note": "Where a submenu opens: standard is today's (a 6 pt gap beside its row); flush puts its panel against the menu's edge with its first row level with the row that opened it (the web's --menu-submenu-offset and --menu-submenu-align-offset).",
+          "title": {
+            "key": "settings.appearance.menu.submenu",
+            "text": "Submenu Placement"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "flush",
+              "title": {
+                "key": "settings.choice.flush",
+                "text": "Flush"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "submenu",
+            "nested",
+            "flush",
+            "offset",
+            "align"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.menu.subtitle",
+          "name": "menuSubtitle",
+          "note": "A row's second line (a subtitle under its title): standard is today's (the row ink at 55%); muted is the text at 45% (the web's --menu-subtitle-color).",
+          "title": {
+            "key": "settings.appearance.menu.subtitle",
+            "text": "Menu Subtitles"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.muted",
+                "text": "Muted"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "menu",
+            "subtitle",
+            "description",
+            "second line",
+            "muted"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.popover.padding",
+          "name": "popoverPadding",
+          "note": "A popover's inner padding. Unset: today's (the design scale's space 2).",
+          "title": {
+            "key": "settings.appearance.popover.padding",
+            "text": "Popover Padding"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 0,
+            "max": 24,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 8
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "popover",
+            "card",
+            "padding",
+            "spacing"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.popover.header",
+          "name": "popoverHeader",
+          "note": "A popover's header line: standard is today's (detail type, muted ink); strong is body type at emphasis weight in the primary ink.",
+          "title": {
+            "key": "settings.appearance.popover.header",
+            "text": "Popover Headers"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "strong",
+              "title": {
+                "key": "settings.choice.strong",
+                "text": "Strong"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "popover",
+            "header",
+            "title",
+            "heading"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.popover.progressHeight",
+          "name": "popoverProgressHeight",
+          "note": "A progress track's height in a popover (plan usage). Unset: today's 4.",
+          "title": {
+            "key": "settings.appearance.popover.progressHeight",
+            "text": "Popover Progress Height"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 1,
+            "max": 12,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 4
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.choice.standard",
+            "text": "Standard"
+          },
+          "keywords": [
+            "popover",
+            "progress",
+            "bar",
+            "track",
+            "usage",
+            "height"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
+        },
+        {
+          "key": "appearance.popover.progressFill",
+          "name": "popoverProgressFill",
+          "note": "A progress bar's fill: standard is today's accent; muted the secondary ink; strong the primary ink.",
+          "title": {
+            "key": "settings.appearance.popover.progressFill",
+            "text": "Popover Progress Fill"
+          },
+          "kind": "choice",
+          "swift_owner": {
+            "type": "MenuLookSetting",
+            "prefixed": true
+          },
+          "choices": [
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.muted",
+                "text": "Muted"
+              }
+            },
+            {
+              "value": "strong",
+              "title": {
+                "key": "settings.choice.strong",
+                "text": "Strong"
+              }
+            }
+          ],
+          "default": "standard",
+          "keywords": [
+            "popover",
+            "progress",
+            "bar",
+            "fill",
+            "usage",
+            "color"
+          ],
+          "page_hidden": "a look key for theme files, agents and cmux settings set (Leo 2026-11-19: look packs set menu and popover styling from a theme file); Settings shows no row"
         }
       ]
     }
