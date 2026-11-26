@@ -546,6 +546,13 @@ elif args[0] == "api":
             server_error()
         state.setdefault("run_reads", []).append(endpoint); save()
         emit({"workflow_runs": state.get("runs", [])})
+    elif "/actions/runs?head_sha=" in endpoint:
+        # The workflow runs at a re-pin head: held_pr counts the ones that never started.
+        if os.environ.get("GH_TOKEN") != "read-token":
+            print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
+        if state.get("head_runs_read") == "fail":
+            server_error()
+        emit({"workflow_runs": [{"conclusion": c} for c in state.get("head_runs", [])]})
     elif "/actions/runs/" in endpoint and endpoint.split("?")[0].endswith("/jobs"):
         if os.environ.get("GH_TOKEN") != "read-token":
             print("gh: Resource not accessible by integration (HTTP 403)", file=sys.stderr); sys.exit(1)
@@ -620,7 +627,8 @@ class RePinPublication(unittest.TestCase):
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
                   unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok",
-                  rate_limits=(), wait_bound=None, pr_read="ok", fleet_verdict=None):
+                  rate_limits=(), wait_bound=None, pr_read="ok", fleet_verdict=None, head_runs=(),
+                  head_runs_read="ok"):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -689,7 +697,8 @@ class RePinPublication(unittest.TestCase):
                 "pr_files": pr_files or {}, "diff_exit": diff_exit, "jobs_read": jobs_read,
                 "pin_age_min": pin_age_min, "unpinned_age_min": unpinned_age_min, "staged_on": staged_on, "base_checks": list(base_checks),
                 "base_checks_read": base_checks_read, "checks_read": checks_read,
-                "rate_limits": [dict(rule) for rule in rate_limits], "pr_read": pr_read}))
+                "rate_limits": [dict(rule) for rule in rate_limits], "pr_read": pr_read,
+                "head_runs": list(head_runs), "head_runs_read": head_runs_read}))
             env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=str(state_path),
                        GH_TOKEN="pr-token", APP_TOKEN="contents-token", READ_TOKEN="read-token", TAG=TAG, CHECKSUM="f" * 64,
                        BASE_TOKEN="base-token", BASE_PIN_ENABLED=base_enabled,
@@ -816,6 +825,7 @@ class RePinPublication(unittest.TestCase):
         cases = {
             "a failed status read": {"status_read": "fail"},
             "a failed check-run read": {"checks_read": "fail"},
+            "a failed read of the head's workflow runs": {"head_runs_read": "fail"},
             # gh prints the 502's JSON body with no final newline, so held_pr's `read` of the PR's state fails: a
             # failed read, not a closed PR (review of #48228: a body copied with a newline moved the head).
             "a failed read of the PR's state": {"pr_read": "fail"},
@@ -994,6 +1004,9 @@ class RePinPublication(unittest.TestCase):
             "a failure, and the base's checks unreadable": {"head_age_min": 20, "checks": ("failure",),
                                                           "staged_on": "5" * 40, "base_checks": ("failure",),
                                                           "base_checks_read": "fail"},
+            # 2026-11-26: #58251's base had a cmux-next.yml over GitHub's size limit, its dispatch never started,
+            # and cmux-next/compile stayed pending while the hold kept the head.
+            "a workflow run that never started": {"head_age_min": 20, "head_runs": ("success", "startup_failure")},
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
             "an errored commit status": {"head_age_min": 20, "status": "error"},
             "the PR is closed": {"head_age_min": 20, "closed": True},

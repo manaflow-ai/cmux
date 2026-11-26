@@ -251,6 +251,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cloud_chat_proof_failure_evidence.py
 
+      - name: Validate the cmux login GitHub Action (OIDC exchange, RFD 0183)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_login_action.py
+
       - name: Validate the cloud overflow switch
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
