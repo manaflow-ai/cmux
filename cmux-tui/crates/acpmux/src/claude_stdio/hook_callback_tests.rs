@@ -129,11 +129,13 @@ async fn session_hook_callbacks_use_the_control_stream() {
                         .flat_map(|e| e["hookCallbackIds"].as_array().unwrap().iter())
                         .map(|id| id.as_str().unwrap())
                         .collect();
-                    assert_eq!(
-                        ids,
-                        [hook_callback::SYNC_CALLBACK, policy_gate::GATE_CALLBACK],
-                        "{tool}: {hooks}"
-                    );
+                    // Harness magic `dedupe` (`dedupe.rs`) adds its own callback for Read and
+                    // Bash, after the gate, unless the setting or its kill switch turns it off.
+                    let mut want = vec![hook_callback::SYNC_CALLBACK, policy_gate::GATE_CALLBACK];
+                    if dedupe::enabled() && dedupe::DEDUPE_MATCHER.split('|').any(|p| p == tool) {
+                        want.push(dedupe::DEDUPE_CALLBACK);
+                    }
+                    assert_eq!(ids, want, "{tool}: {hooks}");
                 }
                 hook_callback::SYNC_CALLBACK
             };
