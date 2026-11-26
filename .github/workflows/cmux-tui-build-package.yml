@@ -719,7 +719,7 @@ jobs:
       # compiled the whole workspace: 1462 s of cargo on the darwin leg, the nightly tree's critical
       # path. The newest commit's workspace delta goes on top; sources whose bytes are unchanged get
       # its build's mtimes back, so only what this commit changed rebuilds.
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-210d
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
       - name: Restore the workspace delta from R2
         id: r2-cargo-ws
         if: ${{ steps.r2-cargo-key.outputs.ws-key != '' }}
@@ -1257,7 +1257,7 @@ jobs:
           if-no-files-found: error
 
       # What this leg built on top of the dependency entry, packed before the strip below removes it;
-      # every run prints its size, feat-cmux-next pushes save it. Why: docs/ci/cmux-next-workflow-notes.md#note-210d
+      # every run prints its size, feat-cmux-next pushes save it. Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
       - name: Pack the workspace delta
         id: r2-cargo-ws-pack
         if: ${{ success() && steps.r2-cargo-ws-apply.outcome == 'success' }}
