@@ -2536,6 +2536,40 @@ class CheckPiecesTests(unittest.TestCase):
                 self.assertEqual(lint.declared_inputs((SOURCE / "scripts/cmux-next" / script).read_text()), ())
 
 
+class NewCheckTransitionTests(unittest.TestCase):
+    """--new-only on a ratchet that lands with its own script: the base cannot run it (cmux#49989, whose merge was
+    charged 25 findings of a baseline row the base had moved, against a base with no check-surface-bypass.ts)."""
+
+    def charge(self, base_has_script: bool):
+        import contextlib
+        lint = load_lint(SOURCE)
+        holder = Path(tempfile.mkdtemp(prefix="cmux-new-check-"))
+        self.addCleanup(shutil.rmtree, holder, True)
+        if base_has_script:
+            (holder / "webviews/scripts").mkdir(parents=True)
+            (holder / "webviews/scripts/check-surface-bypass.ts").write_text("// base copy\n")
+        result = lint.Result("webviews", "bun run check:surface-bypass", 1,
+                             "new surface bypass (21 > 20): a.css own-shell\n", 4.0)
+        plan = lint.Plan(script_pieces={"webviews": ["check:surface-bypass"]})
+        reran = []
+        with mock.patch.object(lint, "tree_of", lambda *a, **k: contextlib.nullcontext(holder)), \
+                mock.patch.object(lint, "run", lambda *a, **k: reran.append(a) or lint.Result(
+                    "webviews", a[1], 1, "", 1.0)), \
+                mock.patch.object(lint, "package_env", lambda *a, **k: {}):
+            lint.charge_new_only(SOURCE, "b" * 40, plan, SOURCE, [result])
+        return result, reran
+
+    def test_a_check_the_base_has_no_script_for_is_not_charged(self):
+        result, reran = self.charge(base_has_script=False)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(reran, [], "the base cannot run a script it does not have")
+
+    def test_a_check_the_base_has_is_compared_as_before(self):
+        result, reran = self.charge(base_has_script=True)
+        self.assertEqual(len(reran), 1)
+        self.assertEqual(result.returncode, 1)
+
+
 class TrustBoundaryTests(unittest.TestCase):
     """The pieces of the trust boundary on their own: which changes reach check code, and which paths escape."""
 
