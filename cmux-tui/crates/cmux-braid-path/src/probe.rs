@@ -142,6 +142,25 @@ impl PathWatch {
         self.probe.due_now(now);
     }
 
+    /// [`Self::probe_now`], also when a probe is outstanding: one sent at
+    /// least `min_age` ago is given up (reported neither answered nor lost;
+    /// a late answer to it is ignored), so the new one goes at the next step
+    /// instead of after the old one's timeout. For a path the peer just
+    /// reached us on while it was dead or never answered: the outstanding
+    /// probe went out while the path was black-holed, and waiting out its
+    /// 1 s timeout is what kept a session on the relay after the direct path
+    /// opened (RFD 0142 R1). `min_age` bounds it to one probe per that long
+    /// however many datagrams arrive.
+    pub fn probe_now_fresh(&mut self, now: Instant, min_age: Duration) {
+        if let Some((_, sent)) = self.probe.outstanding
+            && now.saturating_duration_since(sent) >= min_age
+        {
+            self.probe.outstanding = None;
+            self.flagged_probe = None;
+        }
+        self.probe.due_now(now);
+    }
+
     /// Hold this path's routine pings until `floor` (the link's idle air
     /// gap: the radio stays asleep between the tunnel's own sends), or lift
     /// the hold with `None`. A ping something asked for (`probe_now`, a
