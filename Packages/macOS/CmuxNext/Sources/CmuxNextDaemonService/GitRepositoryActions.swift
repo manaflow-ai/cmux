@@ -149,6 +149,7 @@ extension GitRepositoryActions {
 
 nonisolated enum GitRepositoryStrings {
     static var noFolder: String {
+        // retry-prompt-ok: refuses a git action (side effect) until the person focuses a repository terminal
         text("git.noFolder", "This tab has no folder on this machine. Focus a terminal in the repository, then try again.")
     }
 

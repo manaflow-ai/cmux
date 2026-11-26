@@ -637,6 +637,10 @@ path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pr_pipeline_linux_batch.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_ran_line.py"
 lane = "linux-guard"
 
