@@ -1,7 +1,7 @@
 // FeedStore against the mock `cmux.feed` provider: it reads on open and on every change event (a
 // newer read supersedes an older reply, nothing polls), sends answers and triage as intents, shows
 // a refusal as a toast, and keeps a report's unsent reply id for the resend.
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 import { pageError, type PageClient } from "../shared/pageClient";
 import { formatString } from "../shared/i18n";
 import generated from "./generated/strings.json";
@@ -448,6 +448,39 @@ describe("reports basket", () => {
     const store = new FeedStore(client, "#/inbox", { clock: () => NOW });
     await store.start();
     expect(store.getSnapshot()).toMatchObject({ reportsLoaded: true, reports: [], link: "connected" });
+  });
+
+  test("a view read the owner refuses while the link is up is asked again on its own", async () => {
+    const mock = new MockFeedProvider(sampleFeed(NOW), { now: () => NOW });
+    let refusals = 2;
+    const client: PageClient = {
+      call: <R>(op: string, params: unknown) =>
+        op === FeedOps.viewRead && refusals-- > 0
+          ? Promise.reject(pageError("cmux.operation.failed", "still starting"))
+          : mock.call<R>(op, params),
+      subscribe: (stream, onEvent) => mock.subscribe(stream, onEvent),
+      handle: () => () => undefined,
+    };
+    const store = new FeedStore(client, "#/list", { clock: () => NOW, tzOffsetMin: () => 0 });
+    jest.useFakeTimers();
+    try {
+      await store.start();
+      expect(store.getSnapshot().view).toBeUndefined();
+      for (let ms = 0; ms < 10_000 && !store.getSnapshot().view; ms += 100) {
+        jest.advanceTimersByTime(100);
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      }
+      expect(store.getSnapshot()).toMatchObject({ loading: false, link: "connected" });
+      expect(store.getSnapshot().view).toBeDefined();
+      const asked = mock.calls.filter((call) => call.op === FeedOps.viewRead).length;
+      jest.advanceTimersByTime(60_000);
+      await Promise.resolve();
+      // Answered: the asks stop.
+      expect(mock.calls.filter((call) => call.op === FeedOps.viewRead)).toHaveLength(asked);
+    } finally {
+      store.stop();
+      jest.useRealTimers();
+    }
   });
 });
 
