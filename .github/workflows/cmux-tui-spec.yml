@@ -111,6 +111,7 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
       - "web/services/vms/drivers/linuxRelease.ts"
       - "web/app/globals.css"
+      - "schemas/settings/file-keys.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_call:
