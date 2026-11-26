@@ -79,11 +79,14 @@ remote_probe_refuses() { # the Windows runner's check: remote daemon commands fa
   [[ $status -eq 1 ]] && grep -Fq "remote daemon commands require Unix sockets" <<<"$out"
 }
 
-core_tests() { # the long-path unit tests the Windows runner runs
-  local t
-  for t in normalize_long_windows registry_opens_and_persists_under_a_long_windows_state_root socket_start_lock_acquires_a_new_lock_file; do
-    wrun "$1" "$t" || return 1
-  done
+core_tests() { # the Windows runner's long-path unit tests that Wine can run; each filter must run a test
+  # Not here: registry_opens_and_persists_under_a_long_windows_state_root (Wine 9.0's long-path
+  # canonicalize returns ERROR_MORE_DATA, 234) and normalize_long_windows (those tests are in
+  # cmux-tui-platform, not this binary: the filter matches 0 tests).
+  local t=socket_start_lock_acquires_a_new_lock_file out
+  out="$(wrun "$1" "$t")" || { printf '%s\n' "$out"; return 1; }
+  printf '%s\n' "$out"
+  grep -Eq 'test result: ok\. [1-9][0-9]* passed' <<<"$out" || { echo "$t: no test ran"; return 1; }
 }
 
 relay_serves() { # exe: serve on loopback under Wine; Linux curl reads /healthz and upgrades /v1/relay
