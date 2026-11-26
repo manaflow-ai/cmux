@@ -16,6 +16,7 @@ import { TeamsGroup } from "./AccountsTeams";
 import { AccountSignInSection } from "./AccountSignInSection";
 import { GitHubAccountsCard } from "./GitHubAccountsCard";
 import { TeamAgentKeysCard } from "./TeamAgentKeysCard";
+import { useSettingsSignIn } from "./useSettingsSignIn";
 
 const accountsOf = (state: SettingsState) => state.accounts;
 
@@ -55,6 +56,7 @@ function AccountsBody() {
   const store = useStore();
   // Only the accounts part: another part of the page's state changing does not draw the section.
   const accounts = useSettingsSelector(accountsOf)!;
+  const signIn = useSettingsSignIn();
   // The host sends the whole screen on every change: a provider's row that did not change keeps
   // its object, so its memo row skips the push.
   const rows = useKeptItems(
@@ -84,8 +86,8 @@ function AccountsBody() {
           </output>
         )}
       </section>
-      <GitHubAccountsCard />
-      <AccountSignInSection />
+      <GitHubAccountsCard signIn={signIn} />
+      <AccountSignInSection signIn={signIn} />
       {accounts.teams && <ActiveTeam teams={accounts.teams} />}
       {accounts.teamList && <TeamsGroup list={accounts.teamList} />}
       <TeamAgentKeysCard />
