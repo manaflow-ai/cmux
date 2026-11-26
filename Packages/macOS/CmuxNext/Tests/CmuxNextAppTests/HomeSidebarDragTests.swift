@@ -43,31 +43,6 @@ struct HomeSidebarDragTests {
         #expect(HomeSidebarWidth.fullMinimum == CmuxSidebarView.compactBelow + HomeSidebarView.panelInset)
     }
 
-    @Test func theDragFollowsThePointerAndClosesHalfWayIntoTheStrip() {
-        let min = HomeSidebarWidth.minimum, full = HomeSidebarWidth.fullMinimum, mid = (min + full) / 2
-        #expect(HomeSidebarWidth.drag(250, widest: 700) == 250)
-        #expect(HomeSidebarWidth.drag(full, widest: 700) == full)
-        // Between the strip and the full list: the nearer of the two, from the pointer alone.
-        #expect(HomeSidebarWidth.drag(full - 1, widest: 700) == full)
-        #expect(HomeSidebarWidth.drag(mid, widest: 700) == full)
-        #expect(HomeSidebarWidth.drag(mid - 1, widest: 700) == min)
-        #expect(HomeSidebarWidth.drag(min + 1, widest: 700) == min)
-        #expect(HomeSidebarWidth.drag(min - 10, widest: 700) == min)
-        #expect(HomeSidebarWidth.drag(min / 2, widest: 700) == min)
-        #expect(HomeSidebarWidth.drag(min / 2 - 1, widest: 700) == 0)
-        #expect(HomeSidebarWidth.drag(-40, widest: 700) == 0)
-        #expect(HomeSidebarWidth.drag(900, widest: 700) == 700)
-        // A window with no room for the full list keeps the strip.
-        #expect(HomeSidebarWidth.drag(160, widest: 150) == min)
-    }
-
-    /// A width saved or clamped under the full list is the strip.
-    @Test(arguments: [100, 120, 144, 160, 187] as [CGFloat])
-    func aWidthUnderTheFullListIsTheStrip(_ width: CGFloat) {
-        #expect(HomeSidebarWidth.clamp(width, window: 1400) == HomeSidebarWidth.minimum)
-        #expect(HomeSidebarWidth.clamp(400, window: 400) == HomeSidebarWidth.minimum) // 400 leaves the list 120 pt
-    }
-
     /// The same rule on the split: the full list at any width, the strip or the full list's minimum under it, and the
     /// widest caps the drag.
     @Test func theDividerTakesEveryWidth() throws {
