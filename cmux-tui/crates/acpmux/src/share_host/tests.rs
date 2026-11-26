@@ -1373,3 +1373,15 @@ fn the_device_hub_tells_a_mesh_host_s_screen_by_its_name() {
     // This device's own record is never another machine's.
     assert_eq!(shared.device_hub_of("mac"), Some(json!({"listed": false})));
 }
+
+#[test]
+fn a_ping_without_a_pong_ends_the_link() {
+    let s = Duration::from_secs;
+    // No ping yet, or one just sent: the socket is fine.
+    assert!(!link::pong_overdue(None, true));
+    assert!(!link::pong_overdue(Some(s(3)), false));
+    // Answered: fine however long ago the ping went out.
+    assert!(!link::pong_overdue(Some(s(25)), true));
+    // Unanswered past the bound: the socket is gone, reconnect.
+    assert!(link::pong_overdue(Some(s(11)), false));
+}
