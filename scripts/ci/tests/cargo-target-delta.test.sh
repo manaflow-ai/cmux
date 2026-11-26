@@ -76,4 +76,13 @@ leg
 rm -f "$stamp"
 delta pack "$target" "$stamp" "$TMP/none" | grep -q "nothing packed" || fail "pack without apply packs nothing"
 [[ ! -e "$TMP/none" ]] || fail "and writes no tree"
+# TRIPLE host (the cmux-next fast tier) keeps this machine's CPU: the delta records the real fingerprint.
+rm -rf "$saved/delta"
+delta() { bash "$repo/scripts/ci/cargo-target-delta.sh" "$@" host; }
+leg
+[[ $compiled == 3 ]] || fail "host, cold: 3 crates compile, got $compiled"
+host_cpu=$(python3 -I -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("m", sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.cpu_fingerprint())' "$ROOT/scripts/blacksmith-testbox-source-mtimes.py")
+[[ -n "$host_cpu" && "$(cat "$saved/delta/.cmux-testbox-cpu" 2>/dev/null)" == "$host_cpu" ]] || fail "host: the delta records this CPU"
+leg
+[[ $compiled == 0 && $fresh == 3 ]] || fail "host, same CPU: 0 compiled, 3 fresh; got $compiled/$fresh"
 echo "cargo-target-delta: ok"
