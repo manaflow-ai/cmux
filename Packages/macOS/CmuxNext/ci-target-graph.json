@@ -1823,6 +1823,7 @@
         "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextAgentActivity",
+        "CmuxNextBrowserCore",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
@@ -2487,7 +2488,8 @@
         "CmuxNextCompat",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
-        "CmuxNextDiff"
+        "CmuxNextDiff",
+        "CmuxNextTerminal"
       ],
       "packages": []
     },
@@ -2686,6 +2688,12 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "DesignScalePlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Plugins/DesignScalePlugin",
+      "targets": [],
+      "packages": []
     },
     "SettingsSchemaPlugin": {
       "kind": "plugin",
