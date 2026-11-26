@@ -23,6 +23,7 @@ pub mod profile;
 pub mod rd_hub;
 pub mod reassembly;
 pub mod resolution;
+pub mod screen_kit;
 pub mod service;
 pub mod session;
 pub mod upstream;
