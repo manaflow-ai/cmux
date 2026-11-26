@@ -6,5 +6,6 @@
   "author": "feat-cmux-next-51635-archived-workspaces-list (claude opus 5.5)",
   "owner": "feat-cmux-next-51635-archived-workspaces-list (claude opus 5.5)",
   "receipt": "Review (claude opus subagent a1f23921f9ab74c08, correctness first): SHIP at ea637aa4468aaadbac290af080e39d6755fdcc91",
-  "expiry": "2026-12-06"
+  "expiry": "2026-12-06",
+  "applied_sha": "542d7b9af81b685c4e8d1a8d9dd4e9dfa26dbc20"
 }
