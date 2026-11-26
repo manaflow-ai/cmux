@@ -13,6 +13,23 @@ import type { StringKey } from "./i18n";
 /// The daemon request (acpmux rpc.rs `MUX_PLACE_CHAT`).
 export const PLACE_CHAT_METHOD = "_acpmux/place_chat";
 
+/// The notification an Auto start's connection hears when its wait for a machine being added begins
+/// (acpmux rpc.rs `MUX_ADMISSION_WAITING`, hub/admission.rs `waiting_note`), while `session/new` is
+/// still out: `{warning, live, maxLanes, scalingUp: true, waitSecs}`.
+export const ADMISSION_WAITING_METHOD = "_acpmux/admission_waiting";
+
+/// The line for a scale-up admission warning. The daemon's warning is one-shot, so the page only
+/// receives this wording when `scalingUp` is true: from `_acpmux/admission_waiting` while the start
+/// waits, then from `session/new`'s `_meta.acpmux.admission` until the chat attaches.
+export function autoAddingMachineLine(admission: unknown): StringKey | undefined {
+  return admission &&
+    typeof admission === "object" &&
+    !Array.isArray(admission) &&
+    (admission as { scalingUp?: unknown }).scalingUp === true
+    ? "auto.addingMachine"
+    : undefined;
+}
+
 /// How Auto draws in the chip and the menu (autoWhere.css). `split` ships (Leo 2026-11-24: "the auto
 /// icon i assume necessarily has to be the half and half computer/cloud icon with the angled slash");
 /// the rest are the gallery's variants (AutoWhere.gallery.tsx).

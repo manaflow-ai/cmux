@@ -44,7 +44,12 @@ async function connect(hold = false, refuse = false, unreadable = false) {
           if (refuse) throw new Error("attachment test refused");
           return hold ? new Promise(() => undefined) : { stopReason: "end_turn" };
         }
-        if (method === "_acpmux/attachment") return unreadable ? {} : { mimeType: "image/png", data: "AQID" };
+        // An image acpmux has no bytes for answers not found (-32002), as the hub does; a reply
+        // without data is a failure Retry tries again (#39686), so it would wait out the retries.
+        if (method === "_acpmux/attachment") {
+          if (unreadable) throw Object.assign(new Error("attachment not found"), { rpcCode: -32002 });
+          return { mimeType: "image/png", data: "AQID" };
+        }
         return answer(method, params);
       };
     }
@@ -219,10 +224,12 @@ test("refused Retry and Edit retain every screenshot and video preview in strip 
     await io.client.send("plain", attachments).catch(() => undefined);
     await settle(() => io.rows().some((row) => row.failed));
     const row = io.rows().find((row) => row.failed)!;
-    expect(io.sent[0]._meta.acpmux.inlineParts).toHaveLength(8);
-    expect(io.sent[0]._meta.acpmux.inlineParts.every((part: any) => part.companionOf + 1 === part.blockIndex)).toBe(
-      true,
-    );
+    // Each screenshot's companion link, then the video's own part carrying its picture size.
+    const parts = io.sent[0]._meta.acpmux.inlineParts;
+    expect(parts).toHaveLength(9);
+    expect(parts.slice(0, 8).every((part: any) => part.companionOf + 1 === part.blockIndex)).toBe(true);
+    expect(parts[8]).toMatchObject({ kind: "file", width: 20, height: 10 });
+    expect(parts[8].companionOf).toBeUndefined();
     expect(row.inlineParts).toBeUndefined();
     expect(row.images).toHaveLength(8);
     expect(row.images?.every((image) => image.src === "data:image/png;base64,AQID")).toBe(true);

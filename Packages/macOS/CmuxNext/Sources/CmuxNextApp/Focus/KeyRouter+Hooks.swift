@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextApps
 import CmuxNextBrowser
 import CmuxNextFocus
 
@@ -134,16 +135,22 @@ extension KeyRouter {
 
     // MARK: BrowserKeyRouting (CEF page window is key)
 
-    /// A letter the page did not handle outside any text field (Chromium
-    /// reports it after the page): runs the content action bound to that
-    /// single key, such as link hints (`f`, `F`), when that page has the
-    /// keyboard. Plain keys never reach the dispatcher, so typing in a
-    /// terminal or a text field never gets here.
+    /// A letter the page did not handle outside text fields runs a page key
+    /// command (or the built-in browser fallback) after the page declines it.
     func routePageKey(_ key: BrowserPageKey, from tab: any BrowserTab) {
-        guard let services, !services.linkHints.isActive, services.settings?.snapshot.browserVimKeys != false, let controller = window(showing: tab),
+        guard let services, !services.linkHints.isActive, let controller = window(showing: tab),
               case .browserPage(_, let shown) = controller.focus.state.resolved, shown == services.cache.key(of: tab),
               Self.allows(.content, focus: controller.focus.state) else { return pageKeys.reset() }
         let context = keyContext(for: controller.focus.state, facts: Facts())
+        let pageEntry = AppCommandPalette.entries(services.apps).first {
+            $0.command.answers(pageKey: key.character, shift: key.shift, context: context)
+        }
+        if let entry = pageEntry {
+            pageKeys.reset()
+            services.registry.track(AppCommandPalette.run(entry, services: services, origin: .user, arguments: ["tab": .string(shown)]))
+            return
+        }
+        guard services.settings?.snapshot.browserVimKeys != false else { return pageKeys.reset() }
         let bits = context.bits
         // `gg` (Vimium's top of the page) is two keys: the first `g` waits for the second.
         let step = pageKeys.feed(key, at: .now)

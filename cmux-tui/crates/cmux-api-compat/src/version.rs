@@ -35,7 +35,7 @@ impl ApiDate {
     pub fn parse(text: &str) -> Result<Self, CompatError> {
         let bad = || CompatError::BadVersion(text.to_owned());
         let bytes = text.as_bytes();
-        if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        if bytes.len() != 10 || bytes.get(4) != Some(&b'-') || bytes.get(7) != Some(&b'-') {
             return Err(bad());
         }
         let number = |range: std::ops::Range<usize>| -> Result<u16, CompatError> {

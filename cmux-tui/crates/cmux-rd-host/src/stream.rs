@@ -45,6 +45,9 @@ pub struct SessionCfg {
     pub encode_profile: cmux_rd_core::profile::EncodeProfile,
     pub start_kbps: u32,
     pub max_kbps: u32,
+    /// `--pin-kbps N` (bench builds): the controller's floor, equal to its start and ceiling,
+    /// so the target holds at N. `None` keeps the controller's own floor.
+    pub pin_kbps: Option<u32>,
     #[cfg_attr(target_os = "macos", allow(dead_code))] // software encoders only
     pub preset: String,
     pub profile: String,
@@ -93,6 +96,11 @@ pub struct SessionCfg {
     /// Linux: how the screen is captured (X11, or the portal on a Wayland session).
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub capture: crate::capture_backend::CaptureBackend,
+    /// The viewer negotiated `video.sharp_text` (Settings > Customize "Sharper Linux Screen
+    /// Text"): a Linux OpenH264 encoder codes this session in screen usage. Never set from
+    /// the command line; [`session_cfg`] sets it from the viewer's caps.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub sharp_text: bool,
 }
 
 pub struct MediaSession {
@@ -246,6 +254,8 @@ struct FrameLog {
     idr_reason: Option<&'static str>,
     /// With a resolution ladder: the picture this frame was encoded at.
     picture: Option<Picture>,
+    /// The congestion controller's target for this frame.
+    target_kbps: u32,
 }
 
 impl Timing {
@@ -282,6 +292,10 @@ impl Timing {
             fields.insert("height".into(), p.height.into());
             fields.insert("eighths".into(), p.eighths.into());
             fields.insert("max_qp".into(), p.max_qp.into());
+            // The budget the ladder sized this picture for: target over pixels at the fps
+            // cap is the bits per pixel per frame the ladder holds at or above its floor.
+            fields.insert("fps".into(), p.fps.into());
+            fields.insert("target_kbps".into(), log.target_kbps.into());
         }
         line
     }
@@ -328,19 +342,35 @@ pub fn offers_h264_baseline(codec: &str) -> bool {
     !matches!(codec, "vp9" | "av1")
 }
 
+/// Whether this host offers cap `video.sharp_text`: a Linux host whose encoder may be
+/// OpenH264 (`auto` falls back to it without a GPU), the one that codes screen content in
+/// camera usage.
+pub fn offers_sharp_text(codec: &str) -> bool {
+    cfg!(target_os = "linux") && matches!(codec, "auto" | "openh264")
+}
+
 /// The session's settings with the viewer's caps applied: a viewer that negotiated
 /// `h264.baseline` (OpenH264, which shows a High-profile stream as wrong pictures with no
-/// error, cmux#50591) gets Constrained Baseline whatever `--profile` says.
+/// error, cmux#50591) gets Constrained Baseline whatever `--profile` says, and one that
+/// negotiated `video.sharp_text` gets OpenH264's screen usage.
 fn session_cfg<'a>(
     cfg: &'a SessionCfg,
     negotiated_caps: &[String],
 ) -> std::borrow::Cow<'a, SessionCfg> {
-    let baseline = negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::H264_BASELINE);
-    if baseline && cfg.profile != "baseline" {
-        std::borrow::Cow::Owned(SessionCfg { profile: "baseline".into(), ..cfg.clone() })
-    } else {
-        std::borrow::Cow::Borrowed(cfg)
+    let has = |cap: &str| negotiated_caps.iter().any(|c| c == cap);
+    let baseline = has(cmux_rd_core::service::caps::H264_BASELINE) && cfg.profile != "baseline";
+    let sharp_text = has(cmux_rd_core::service::caps::SHARP_TEXT) && !cfg.sharp_text;
+    if !baseline && !sharp_text {
+        return std::borrow::Cow::Borrowed(cfg);
     }
+    let mut owned = cfg.clone();
+    if baseline {
+        owned.profile = "baseline".into();
+    }
+    if sharp_text {
+        owned.sharp_text = true;
+    }
+    std::borrow::Cow::Owned(owned)
 }
 
 pub(crate) fn wants_cursor(negotiated_caps: &[String]) -> bool {
@@ -404,6 +434,14 @@ impl OpenedDesktop {
             ready_us: now_us(),
         })
     }
+
+    /// Whether its stream suits a viewer that negotiated `profile`: the one it was opened for,
+    /// or baseline from an encoder that only makes Constrained Baseline (OpenH264). Opening the
+    /// desktop again for the profile alone put a whole open (capture and encoder, 340-410 ms on a
+    /// Linux VM) between the viewer's start and the first keyframe.
+    fn serves_profile(&self, profile: &str) -> bool {
+        self.profile == profile || (profile == "baseline" && self.frames.constrained_baseline())
+    }
 }
 
 impl MediaSession {
@@ -436,7 +474,7 @@ impl MediaSession {
     ) -> Res<Self> {
         let cfg = &*session_cfg(cfg, negotiated_caps);
         let cursor = wants_cursor(negotiated_caps);
-        let opened = if opened.cursor == cursor && opened.profile == cfg.profile {
+        let opened = if opened.cursor == cursor && opened.serves_profile(&cfg.profile) {
             opened
         } else {
             // The capture closes before it opens again.
@@ -472,6 +510,9 @@ impl MediaSession {
                 max_fps: cfg.max_fps,
                 start_bps: u64::from(cfg.start_kbps) * 1000,
                 max_bps: u64::from(cfg.max_kbps) * 1000,
+                min_bps: cfg
+                    .pin_kbps
+                    .map_or(EngineConfig::default().min_bps, |k| u64::from(k) * 1000),
                 max_datagram,
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
@@ -824,6 +865,7 @@ impl MediaSession {
             encoded_bytes: frame.access_unit.len(),
             idr_reason: idr,
             picture: req.picture,
+            target_kbps: req.target_kbps,
         });
         self.encoded_profile = frame.profile;
         self.encode_ms.push_back(frame.encode_ms);

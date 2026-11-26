@@ -8,8 +8,10 @@ import CmuxNextWakeups
 /// plans/cmux-next/acpmux-one-daemon.md, step 2): a `~/.local/bin/acpmux` started by launchd or
 /// by the CLI's autostart. The server peer check refuses it (its executable is not this app's),
 /// so the app takes it over instead, the way it hands off another build
-/// (``AcpmuxVersionHandoff``): its agents detach and the bundled daemon adopts them. A launchd
-/// job that would start it again is booted out first. Only a daemon that runs its
+/// (``AcpmuxVersionHandoff``): its agents detach and the bundled daemon adopts them. acpmux's
+/// own LaunchAgent `com.acpmux.daemon` that runs it is kept and pointed at the bundled acpmux,
+/// so launchd keeps the daemon alive with the app quit, crashed or never reopened; any other
+/// launchd job that would start it again is booted out first. Only a daemon that runs its
 /// agents under agent hosts is taken over; an older one would end its agents, so it keeps
 /// running and stays refused.
 nonisolated enum AcpmuxStrayDaemon {
@@ -79,9 +81,19 @@ nonisolated enum AcpmuxStrayDaemon {
         }
         guard inserted else { return false }
         logger.info("acpmux \(pid) at \(path, privacy: .public) is not this app's; taking it over")
-        // launchd's SIGTERM detaches its agents like a shutdown. A bootout that fails falls back
-        // to the shutdown request.
-        if await bootOutLaunchdJob(runningPID: pid), await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) {
+        // The join's LaunchAgent keeps the daemon alive with no app (remote-screen-share-zero-touch
+        // Z1), so it is kept, now running this app's acpmux: `daemon service install` from the
+        // bundle points the job at it and reloads it (launchd's SIGTERM detaches the agents, the
+        // bundled daemon launchd starts adopts them). Another job is booted out as before, and so
+        // is the join's job when its install fails (still checked against the pid), or KeepAlive
+        // would start the old program again after the shutdown request below.
+        let stopped: Bool
+        if let kept = await keepsLaunchAgent(runningPID: pid, environment: environment), kept {
+            stopped = true
+        } else {
+            stopped = await bootOutLaunchdJob(runningPID: pid)
+        }
+        if stopped, await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) {
             return true
         }
         do {
@@ -117,6 +129,38 @@ nonisolated enum AcpmuxStrayDaemon {
             return (true, false)
         }
         return (true, !handedOff.withLock { $0.contains(pid) })
+    }
+
+    /// The LaunchAgent the join and `acpmux host setup` install: it runs the daemon of `~/.acpmux`.
+    static let launchAgentLabel = "com.acpmux.daemon"
+
+    /// Whether a takeover keeps the job `label` (running the stray daemon) and points it at this
+    /// app's acpmux instead of booting it out: only acpmux's own LaunchAgent, and only for the
+    /// home it serves (`~/.acpmux`), never an attached daemon's.
+    static func keepsLaunchAgent(label: String, home: URL, userHome: URL, attached: Bool) -> Bool {
+        label == launchAgentLabel && !attached
+            && home.standardizedFileURL.path == AcpmuxEnvironment.sharedRoot(userHome: userHome).standardizedFileURL.path
+    }
+
+    /// When launchd's `com.acpmux.daemon` runs daemon `runningPID` and ``keepsLaunchAgent(label:home:userHome:attached:)``
+    /// holds: runs `<bundled acpmux> daemon service install`, which points the job at this bundle
+    /// and reloads it (acpmux `daemon_service.rs` `launchd_program`), and answers whether that
+    /// succeeded. Nil when no such job runs it, so the caller boots another job out.
+    static func keepsLaunchAgent(runningPID: Int32, environment: AcpmuxEnvironment) async -> Bool? {
+        let domain = "gui/\(getuid())"
+        let jobs = labels(runningAnyOf: [runningPID], fromDomainPrint: await launchctl(["print", domain]).output)
+        guard jobs.contains(launchAgentLabel),
+              keepsLaunchAgent(label: launchAgentLabel, home: environment.home,
+                               userHome: FileManager.default.homeDirectoryForCurrentUser, attached: environment.isAttached),
+              pid(fromLaunchctlPrint: await launchctl(["print", "\(domain)/\(launchAgentLabel)"]).output) == runningPID
+        else { return nil }
+        logger.info("acpmux \(runningPID) runs under launchd \(launchAgentLabel, privacy: .public); pointing it at this app's acpmux")
+        guard let outcome = try? await AsyncProcess().run(ProcessRequest(environment.executable, ["--json", "daemon", "service", "install"]))
+        else { return false }
+        if outcome.status != 0 {
+            logger.error("acpmux daemon service install failed status=\(outcome.status, privacy: .public): \(outcome.text, privacy: .public)")
+        }
+        return outcome.status == 0
     }
 
     /// Boots out this user's launchd job whose own process is daemon `runningPID` (`acpmux host

@@ -13,24 +13,49 @@ struct HostSizePolicyEditor: View {
     let model: HostSizePolicyModel
     /// Who is on the terminal now (the Connected Devices sheet), for names.
     var presentation: TerminalSizingPresentation?
+    /// A failed read is asked again on its own (no button): "Asking the Mac…" stays through a
+    /// short failure; past the quiet bound the section says why, with the quiet line.
+    @State private var autoRetry = AutoRetry()
+    /// A retry is out: the failure counts until it answers (`reload` shows loading meanwhile).
+    @State private var retrying = false
+
+    private var failed: Bool {
+        if case .failed = model.load { return true }
+        return false
+    }
 
     var body: some View {
-        switch model.load {
-        case .loading:
-            Section {
-                HStack(spacing: 10) {
-                    CmuxSpinner()
-                    Text("Asking the Mac…").foregroundStyle(theme.colors.label2)
+        Group {
+            switch model.load {
+            case .loading:
+                asking
+            case .failed(let message):
+                if autoRetry.isQuietLineShown {
+                    Section {
+                        Text(message).foregroundStyle(theme.colors.label2)
+                        AutoRetryQuietLine(autoRetry)
+                    }
+                    .accessibilityIdentifier("sizing.failed")
+                } else {
+                    asking
                 }
+            case .loaded(let info):
+                loaded(info)
             }
-        case .failed(let message):
-            Section {
-                Text(message).foregroundStyle(theme.colors.label2)
-                Button("Try Again") { Task { await model.reload() } }
-                    .accessibilityIdentifier("sizing.retry")
+        }
+        .autoRetry(autoRetry, failing: failed || retrying) {
+            retrying = true
+            await model.reload()
+            retrying = false
+        }
+    }
+
+    private var asking: some View {
+        Section {
+            HStack(spacing: 10) {
+                CmuxSpinner()
+                Text("Asking the Mac…").foregroundStyle(theme.colors.label2)
             }
-        case .loaded(let info):
-            loaded(info)
         }
     }
 
@@ -101,16 +126,20 @@ struct HostSizePolicyEditor: View {
 /// Settings → Terminal → Terminal Size When Shared: the phone's Macs.
 struct TerminalSizingMacsPage: View {
     let store: AppStore
+    let accountID: String?
+    let directory: (any SettingsDeviceDirectory)?
+    let list: SettingsDeviceList
 
     private var macs: [MacDevice] {
-        MacRoster.acrossTeams(store.teams, activeTeamID: store.activeTeamID)
+        SettingsDeviceRows.sizingMacs(teams: store.teams, activeTeamID: store.activeTeamID, service: list.devices, accountID: accountID,
+                                     peers: directory?.terminalSizingPeers?.visible(in: store.teams) ?? [])
     }
 
     var body: some View {
         List {
             Section {
-                if macs.isEmpty, store.awaitsAccountData {
-                    // The account's Macs are still on their way: not "No Macs.".
+                if macs.isEmpty, list.devices == nil, store.awaitsAccountData {
+                    // placeholder-ok: This account has no kept roster and discovery has never answered.
                     CmuxSpinner(label: Text("Loading Macs…"))
                         .placeholderBound("settings.macs.loading", .milliseconds(2000))
                 } else if macs.isEmpty {
@@ -126,6 +155,7 @@ struct TerminalSizingMacsPage: View {
             }
         }
         .settingsPage("Terminal Size When Shared")
+        .task(id: directory.map(ObjectIdentifier.init)) { await list.load(directory) }
     }
 }
 
@@ -133,16 +163,22 @@ struct TerminalSizingMacsPage: View {
 struct TerminalSizingMacPage: View {
     let macID: String
     let store: AppStore
+    let list: SettingsDeviceList
+    let peers: TerminalSizingPeers?
     @State private var model: HostSizePolicyModel
 
-    init(macID: String, store: AppStore, service: (any TerminalSizingService)?) {
+    init(macID: String, store: AppStore, list: SettingsDeviceList, peers: TerminalSizingPeers?, service: (any TerminalSizingService)?) {
         self.macID = macID
         self.store = store
+        self.list = list
+        self.peers = peers
         _model = State(initialValue: HostSizePolicyModel(macID: macID, service: service))
     }
 
     private var title: String {
-        store.teams.flatMap(\.macs).first { $0.id == macID }?.name ?? "Mac"
+        store.teams.flatMap(\.macs).first { $0.id == macID }?.name
+            ?? list.devices?.first { $0.kind == .mac && $0.id == macID }?.name
+            ?? peers?.visible(in: store.teams).first { $0.id == macID }?.name ?? "Mac"
     }
 
     var body: some View {

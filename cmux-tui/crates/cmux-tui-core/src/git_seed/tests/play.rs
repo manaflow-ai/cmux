@@ -3,7 +3,7 @@
 //! the blobless clone does not have yet.
 
 use super::*;
-use run::{Widened, download_missing, head_ledger, literal_path};
+use run::{Widened, download_missing, fill_after, head_ledger, literal_path, write_fill};
 
 /// A repository with `a/x`, `a/sub/y`, `a/sub/z`, `b/deep/w`, `c/d/e`, `top` committed.
 fn repo(home: &Home) -> PathBuf {
@@ -114,4 +114,27 @@ fn the_download_fetches_every_missing_blob_and_resumes_with_what_is_left() {
     assert!(download_missing(&tool, &Credential::Anonymous, &clone, &head));
     assert_eq!(missing(&clone), 0);
     assert!(download_missing(&tool, &Credential::Anonymous, &clone, &head), "nothing is left");
+}
+
+#[test]
+fn fill_runs_ten_to_ninety_nine_and_lives_in_the_marker() {
+    assert_eq!(fill_after(0, 4), 10);
+    assert_eq!(fill_after(2, 4), 54);
+    assert_eq!(fill_after(4, 4), 99);
+    assert_eq!(fill_after(9, 4), 99);
+    assert_eq!(fill_after(0, 0), 99, "nothing to download: only the final checkout is left");
+
+    let home = Home::new("fill");
+    let folder = home.join("w");
+    let git_dir = folder.join(".git");
+    std::fs::create_dir_all(&git_dir).unwrap();
+    write_fill(&folder, 40);
+    assert!(!git_dir.join("cmux-seed-filling").exists(), "no marker, no fill: the fill ended");
+    std::fs::write(git_dir.join("cmux-seed-filling"), b"").unwrap();
+    write_fill(&folder, 40);
+    let text = std::fs::read_to_string(git_dir.join("cmux-seed-filling")).unwrap();
+    assert_eq!(text.trim(), r#"{"fill":40}"#);
+    write_fill(&folder, 250);
+    let text = std::fs::read_to_string(git_dir.join("cmux-seed-filling")).unwrap();
+    assert_eq!(text.trim(), r#"{"fill":100}"#);
 }

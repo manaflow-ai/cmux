@@ -27,7 +27,14 @@ const words = (html: string) =>
 const liveLine = (rows: AcpmuxRow[]) => turnView(rows, new Set(), { working: true }).at(-1)!;
 const drawn = (line: AcpmuxRow, now: number) =>
   renderToStaticMarkup(
-    <Thinking since={line.at} now={() => now} turnTotal={line.turnTotal} retry={line.retry} below />,
+    <Thinking
+      since={line.at}
+      now={() => now}
+      turnTotal={line.turnTotal}
+      retry={line.retry}
+      retryAt={line.retryAt}
+      below
+    />,
   );
 
 const snapshotRows = (name: string) => (retryEntry.variants[name] as { snapshot: { rows: AcpmuxRow[] } }).snapshot.rows;
@@ -58,8 +65,8 @@ test("the line reads Thinking again once the model answers, timed without the re
   expect(words(drawn(line, user.at + 469_000))).toBe("Thinking 29s");
 });
 
-test("a busy model says it is busy, not unreachable", () => {
-  expect(words(drawn(liveLine(snapshotRows("retrying-busy")), Date.now()))).toBe(
-    "The model is busy · retrying (2 of 10) · 529 overloaded error",
-  );
+test("a busy model waits for capacity, its 529 only in the tooltip", () => {
+  const html = drawn(liveLine(snapshotRows("retrying-busy")), Date.now());
+  expect(words(html)).toBe("Waiting for capacity · retrying (2 of 10)");
+  expect(html).toContain('title="529 overloaded error"');
 });

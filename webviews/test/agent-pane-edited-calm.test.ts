@@ -209,18 +209,19 @@ await requireBrowserLane("agent-pane-edited-calm.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Retry added to the uploader.").waitFor();
-    await page.locator(".acpmux-edited-file").first().waitFor();
+    await page.locator(".acpmux-edited-head").first().waitFor();
+    // One row at rest (Leo, 2026-11-25): no file rows under the head.
+    expect(await page.locator(".acpmux-edited-stack, .acpmux-edited-section").count()).toBe(0);
     expect(calm(await looks(page, ".acpmux-edited"))).toEqual({ loud: [], round: [], thick: [] });
-    expect((await style(page, ".acpmux-edited-base", "font-weight"))["font-weight"]).toBe("400");
-    expect(String((await style(page, ".acpmux-edited-path", "font-family"))["font-family"])).not.toMatch(/mono|Menlo/i);
     expect(
       String(
-        (await style(page, ".acpmux-edited-file .acpmux-diff-counts", "font-variant-numeric"))["font-variant-numeric"],
+        (await style(page, ".acpmux-edited-sub .acpmux-diff-counts", "font-variant-numeric"))["font-variant-numeric"],
       ),
     ).toContain("tabular-nums");
-    expect((await style(page, ".acpmux-edited-file")).height).toBe(36);
     expect((await style(page, ".acpmux-edited-head")).height).toBe(64);
-    expect((await style(page, ".acpmux-review-changes")).height).toBe(28);
+    // Undo is the head's one button (no View changes beside it), a control row high.
+    expect(await page.locator(".acpmux-edited .acpmux-review-changes:not(.acpmux-edited-open)").count()).toBe(0);
+    expect((await style(page, ".acpmux-edited-head .acpmux-edited-undo")).height).toBe(28);
     // The head's glyph sits in a 40px tile, as the Codex app's.
     expect(await page.locator(".acpmux-edited-icon").evaluate((node) => node.getBoundingClientRect().width)).toBe(40);
     await page.close();

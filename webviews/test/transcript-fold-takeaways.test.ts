@@ -1,5 +1,6 @@
-// A completed turn folds its work into one disclosure; substantive replies stay in sight while short
-// narration folds with it. The arms that keep every reply in sight (Leo, 2026-11-06) are tested in
+// A completed turn folds its work into one disclosure; only its final answer stays in sight, and every
+// earlier reply folds with the work (Lawrence, 2026-11-19: "in collapsed, literally everything but
+// final assistant message should be collapsed"). The arms that keep every reply in sight (Leo, 2026-11-06) are tested in
 // turn-fold-keeps-replies.test.ts.
 // Short narration between steps folds with them. While running, intermediate dialogue remains visible.
 import { afterEach, beforeEach, expect, test } from "bun:test";
@@ -73,14 +74,8 @@ const leosTurn = () => [
   summary(),
 ];
 
-test("substantive answers stay in sight; short narration folds with the work", () => {
-  expect(drawn(leosTurn())).toEqual([
-    "user:u",
-    "worked:worked-u",
-    "assistant:first",
-    "assistant:second",
-    "turnSummary:end",
-  ]);
+test("only the final answer stays in sight; earlier answers and narration fold with the work", () => {
+  expect(drawn(leosTurn())).toEqual(["user:u", "worked:worked-u", "assistant:second", "turnSummary:end"]);
 });
 
 test("the one fold opens every intermediate answer and command in order", () => {
@@ -137,26 +132,29 @@ test("short narration folds with the turn and remains separate from its tool gro
   expect(open.find((shaped) => shaped.id === "running")?.text).toBe("Both audits still running.");
 });
 
-test("long reply, then a tool, then 'Pushed.': both replies stay visible", () => {
+test("long reply, then a tool, then 'Pushed.': only the last reply stays visible", () => {
   const rows = [row("u", "user"), ran("read"), answer("reply"), ran("git push"), say("pushed", "Pushed."), summary()];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:reply", "assistant:pushed", "turnSummary:end"]);
+  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:pushed", "turnSummary:end"]);
+  // Opened, the long reply reads in its place among the work.
+  expect(drawn(rows, new Set(["worked-u"]))).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "activity:read",
+    "assistant:reply",
+    "activity:git push",
+    "assistant:pushed",
+    "turnSummary:end",
+  ]);
 });
 
-test("a substantive answer with a table stays visible before a tool and its short receipt", () => {
+test("an answer with a table folds before a tool and its short receipt, and stays visible while live", () => {
   const substantive = say(
     "answer-before-tool",
     "Small is slower because startup dominates.\n\n| lane | time |\n| --- | ---: |\n| small | 14s |\n| huge | 3s |\n\nThe larger lane amortizes the setup cost.",
   );
   const rows = [row("u", "user"), substantive, ran("ask-lane"), say("receipt", "I sent the question."), summary()];
-  expect(drawn(rows)).toEqual([
-    "user:u",
-    "worked:worked-u",
-    "assistant:answer-before-tool",
-    "assistant:receipt",
-    "turnSummary:end",
-  ]);
-  // The live projection uses the same rows before a summary arrives; it must not lose the answer
-  // while the tool is still running, then the completed projection above must preserve it on reload.
+  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:receipt", "turnSummary:end"]);
+  // The live projection uses the same rows before a summary arrives; nothing folds while the turn runs.
   expect(drawn(rows.slice(0, -1), new Set(), true)).toEqual([
     "user:u",
     "worked:worked-u",
@@ -193,8 +191,15 @@ test("a running turn draws as before: nothing folds", () => {
   expect(shaped).toContain("assistant:first");
 });
 
-test("a turn with only its answer draws no fold", () => {
-  expect(drawn([row("u", "user"), answer("only"), summary()])).toEqual(["user:u", "assistant:only", "turnSummary:end"]);
+// Its Worked for line stays, closed over nothing, where its Working for stood (turns.ts `holdsHeader`, #51896);
+// nothing folds under it. Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways so it disappearing means there's multiple problems".
+test("a turn with only its answer keeps its Worked for line, and nothing folds under it", () => {
+  expect(drawn([row("u", "user"), answer("only"), summary()])).toEqual([
+    "user:u",
+    "worked:worked-u",
+    "assistant:only",
+    "turnSummary:end",
+  ]);
 });
 
 test("an empty last message never takes the answer's place", () => {

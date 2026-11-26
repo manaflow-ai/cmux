@@ -203,7 +203,6 @@ pub struct ServiceOptions {
     /// How long one upstream receive waits before the driver rechecks its
     /// subscribers and the lease.
     pub poll: Duration,
-    pub max_conversation_subscriptions: usize,
     /// Cloud HTTP requests the daemon runs at once; one more is refused with
     /// `cloud_unavailable` (retryable) instead of queueing.
     pub max_concurrent_requests: usize,
@@ -223,7 +222,6 @@ impl Default for ServiceOptions {
             backoff_min: Duration::from_secs(1),
             backoff_max: Duration::from_secs(30),
             poll: Duration::from_secs(1),
-            max_conversation_subscriptions: 64,
             max_concurrent_requests: 16,
             api_origins: std::env::var("CMUX_CLOUD_API_ORIGINS")
                 .unwrap_or_default()
@@ -947,18 +945,8 @@ impl CloudConversations {
                 subscription.idle_since = None;
                 (None, subscription.state.reply(&target))
             } else {
-                let conversations = subscriptions
-                    .keys()
-                    .filter(|target| matches!(target, Target::Conversation(_)))
-                    .count();
-                if matches!(target, Target::Conversation(_))
-                    && conversations >= self.inner.options.max_conversation_subscriptions
-                {
-                    return Err(CloudError::daemon_reject(
-                        "too_many_subscriptions",
-                        "too many cloud conversation subscriptions",
-                    ));
-                }
+                // No count cap: an open conversation costs one driver thread
+                // and one socket, and ends `linger` after its last subscriber.
                 let reply = initial.reply(&target);
                 let driver = self.inner.next_driver.fetch_add(1, Ordering::Relaxed);
                 subscriptions.insert(
@@ -1695,7 +1683,7 @@ fn valid_selfhost_user(user: &str) -> bool {
 
 #[path = "owner_wire.rs"]
 mod owner_wire;
-pub use owner_wire::{OwnerWire, OwnerWireError};
+pub use owner_wire::{LeaseBearer, OwnerWire, OwnerWireError};
 
 #[cfg(test)]
 #[path = "service_presence_order_tests.rs"]

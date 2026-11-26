@@ -191,7 +191,7 @@ fn empty_workspace_registry_has_stable_keys_revisions_and_close() {
 }
 
 #[test]
-fn empty_workspace_registry_enforces_count_and_string_limits() {
+fn empty_workspace_registry_enforces_string_limits_and_no_count_cap() {
     let mux = test_mux();
     let boundary_key = "k".repeat(WORKSPACE_KEY_MAX_BYTES);
     Mux::validate_workspace_key(&boundary_key).expect("boundary-sized workspace key");
@@ -231,12 +231,16 @@ fn empty_workspace_registry_enforces_count_and_string_limits() {
         assert_eq!(state.workspace_by_id(placement.workspace).unwrap().name, name);
     });
 
+    // No count cap: a workspace costs its entry and index rows, so a registry
+    // past the 4096 the daemon once refused at still takes another.
     let full_mux = test_mux();
+    let past_old_cap = 4_097;
     {
         let mut state = full_mux.state.lock().unwrap();
-        for index in 0..WORKSPACE_REGISTRY_LIMIT {
+        for index in 0..past_old_cap {
             state.push_workspace(Workspace {
-                id: index as u64 + 1,
+                // From the mux's own counter, as a real workspace's id is.
+                id: full_mux.next_id(),
                 public_id: WorkspacePublicId::random().unwrap(),
                 key: format!("key-{index}"),
                 name: format!("workspace-{index}"),
@@ -247,16 +251,11 @@ fn empty_workspace_registry_enforces_count_and_string_limits() {
             });
         }
     }
-    assert_eq!(
-        full_mux
-            .create_empty_workspace(None, None, None)
-            .expect_err("full registry must reject another workspace")
-            .to_string(),
-        format!("workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})")
-    );
+    full_mux
+        .create_empty_workspace(None, None, None)
+        .expect("a large registry takes another workspace");
     full_mux.with_state(|state| {
-        assert_eq!(state.workspaces.len(), WORKSPACE_REGISTRY_LIMIT);
-        assert_eq!(state.workspace_revision, 0);
+        assert_eq!(state.workspaces.len(), past_old_cap + 1);
     });
 }
 

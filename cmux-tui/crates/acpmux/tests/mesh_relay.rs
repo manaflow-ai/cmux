@@ -14,8 +14,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
-    Ack, AckState, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub, Mode, OutMessage,
-    Receipt, Sender, SessionRow, Target,
+    Ack, AckState, Capacity, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub, Mode,
+    OutMessage, Receipt, Sender, SessionRow, Target,
 };
 use acpmux::mesh_control::{
     Command as ControlCommand, ControlRequest, MeshControlRelay, Recipient, submit,
@@ -66,6 +66,7 @@ fn quick() -> RelayOptions {
         refused_retry: Duration::from_millis(300),
         max_in_flight: 4,
         on_reconnect: None,
+        capacity_every: None,
     }
 }
 
@@ -104,6 +105,8 @@ struct State {
     receipts: HashMap<String, Receipt>,
     /// Every message posted, as the hub got it.
     sent: Vec<OutMessage>,
+    /// Every capacity report, and when it came on tokio's clock.
+    capacities: Vec<(Capacity, tokio::time::Instant)>,
 }
 
 impl State {
@@ -130,6 +133,8 @@ struct FakeHub {
     long: bool,
     /// The row TTL a heartbeat reply names (90 s, the hub's old TTL, when unset).
     ttl_seconds: Option<u64>,
+    /// Capacity reports are refused (an older hub with no such route).
+    refusing_capacity: bool,
 }
 
 impl FakeHub {
@@ -306,6 +311,16 @@ impl MeshHub for FakeHub {
             }
             let receipts = &self.state.lock().unwrap().receipts;
             receipts.get(id).cloned().ok_or_else(|| HubError::refused("no such message"))
+        })
+    }
+
+    fn capacity<'a>(&'a self, report: &'a Capacity) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async move {
+            self.with(|s| s.capacities.push((report.clone(), tokio::time::Instant::now())));
+            if self.refusing_capacity {
+                return Err(HubError { status: Some(404), ..HubError::refused("404") });
+            }
+            Ok(())
         })
     }
 }
@@ -498,6 +513,8 @@ async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
         agent_session_id: None,
         host_build: None,
         handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1283,6 +1300,22 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     );
     let to = fake.with(|s| s.sent.last().unwrap().to.clone());
     assert_eq!((to.host.as_deref(), to.name.as_deref()), (Some("fs-peer-1"), Some("dep-land")));
+    // `HOST/ID` the same way, by the session's id (a chat just moved there is named so): never
+    // looked up here as a name and refused as "no session HOST/ID on this machine".
+    let by_id = format!("fs-peer-1/{session}");
+    let far = sender.call("_acpmux/send_queue", send_queue(&by_id, "prompt-0006")).await;
+    assert!(
+        far.pointer("/result/deliveryId")
+            .and_then(Value::as_str)
+            .is_some_and(|d| d.starts_with("mesh:")),
+        "{far}"
+    );
+    let to = fake.with(|s| s.sent.last().unwrap().to.clone());
+    assert_eq!(
+        (to.host.as_deref(), to.session_id.as_deref(), to.name.as_deref()),
+        (Some("fs-peer-1"), Some(session.as_str()), None),
+        "{to:?}"
+    );
 
     // A supersede key cannot cross the hub: the send goes without it and says so, as the
     // sender would have sent it again anyway (cmuxterm-hq
@@ -1354,6 +1387,66 @@ async fn the_heartbeat_comes_every_third_of_the_hubs_ttl() {
     }
 }
 
+/// A joined machine reports its free capacity to its team's placement (RFD 0004 step 3): every
+/// `capacity_every`, with this daemon's live sessions and no fleet token; a refusal is asked again only after ten
+/// minutes and never stops the relay's heartbeat; a relay that is not a joined one reports none.
+#[tokio::test(start_paused = true)]
+async fn a_joined_relay_reports_its_capacity_and_any_other_reports_none() {
+    let hub = hub();
+    let fake = Arc::new(FakeHub::default());
+    let options = RelayOptions { capacity_every: Some(Duration::from_secs(40)), ..quick() };
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), options);
+    fake.until_within(Duration::from_secs(200), "three capacity reports", |s| {
+        s.capacities.len() >= 3
+    })
+    .await;
+    relay.stop().await;
+    let reports = fake.with(|s| s.capacities.clone());
+    for gap in reports[..3].windows(2).map(|w| w[1].1 - w[0].1) {
+        assert!(
+            gap >= Duration::from_secs(40) && gap < Duration::from_secs(41),
+            "reports {gap:?} apart"
+        );
+    }
+    let report = serde_json::to_value(&reports[0].0).unwrap();
+    assert_eq!(report["region"], "joined");
+    assert_eq!(report["state"], "ready");
+    assert_eq!(report["sessions_running"], hub.live_session_count() as u64);
+    assert!(report.get("machine_token").is_none());
+    assert!(!report["host_id"].as_str().unwrap().is_empty());
+    let limits = &report["capabilities"];
+    assert!(limits["maxVcpu"].as_f64().unwrap() >= 1.0, "{limits}");
+    assert!(["linux", "macos"].contains(&limits["os"].as_str().unwrap()), "{limits}");
+    assert!(report["free_vcpu"].as_f64().unwrap() <= limits["maxVcpu"].as_f64().unwrap());
+    let after = fake.with(|s| s.capacities.len());
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    assert_eq!(fake.with(|s| s.capacities.len()), after, "a stopped relay reports nothing");
+
+    // Refused: asked again after ten minutes, not every 40 s; the heartbeat goes on.
+    let hub = self::hub();
+    let fake = Arc::new(FakeHub { refusing_capacity: true, ..FakeHub::default() });
+    let options = RelayOptions { capacity_every: Some(Duration::from_secs(40)), ..quick() };
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), options);
+    fake.until_within(Duration::from_secs(1300), "two refused reports", |s| {
+        s.capacities.len() >= 2
+    })
+    .await;
+    let (gap, beats) = fake.with(|s| (s.capacities[1].1 - s.capacities[0].1, s.heartbeats.len()));
+    assert!(gap >= Duration::from_secs(600), "refused reports {gap:?} apart");
+    assert!(beats > 100, "the heartbeat went on: {beats}");
+    assert!(!relay.is_finished());
+    relay.stop().await;
+
+    // Not joined: no report.
+    let hub = self::hub();
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.until_within(Duration::from_secs(10), "a heartbeat", |s| !s.heartbeats.is_empty()).await;
+    tokio::time::sleep(Duration::from_secs(120)).await;
+    relay.stop().await;
+    assert!(fake.with(|s| s.capacities.is_empty()));
+}
+
 /// A session's send through the hub names that session as its sender, whatever `fromAgent` the
 /// request claims.
 #[tokio::test]
@@ -1376,6 +1469,8 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         agent_session_id: None,
         host_build: None,
         handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1419,6 +1514,8 @@ async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_oth
         agent_session_id: None,
         host_build: None,
         handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1481,6 +1578,8 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         agent_session_id: None,
         host_build: None,
         handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })

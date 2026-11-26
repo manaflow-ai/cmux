@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxNextWakeups
 public import Foundation
 import os
@@ -27,7 +28,7 @@ public struct URLSessionDeviceHubConnector: DeviceHubSocketConnector {
 
     public func connect() async throws -> any DeviceHubSocketConnection {
         let handshake = try await client.userSocketHandshake()
-        let task = session.webSocketTask(with: handshake.request)
+        let task = CmuxEgress.websocket(session, with: handshake.request, site: "CmuxNextDevices.DeviceHubSocket")
         task.maximumMessageSize = 1 << 20
         task.resume()
         // Connected means upgraded: the first pong comes only once the hub accepted the socket. A

@@ -852,6 +852,22 @@ fn duplicate_sequences_are_noops_but_new_replayed_prompts_start_a_turn() {
     assert!(state.turn.is_some_and(|id| id > before.last_id));
 }
 
+/// The hub names the subagent a `SendMessage` goes to (`_meta.acpmux.recipient`); its tool row
+/// carries the name, so a page whose window starts after the Agent call still reads "Sent to
+/// <name>", never a raw agent id (Leo, 2026-11-22).
+#[test]
+fn a_send_message_row_carries_its_recipient() {
+    let line = r#"{"seq":1,"at":1000,"dir":"in","kind":"session/update","msg":{"method":"session/update","params":{"_meta":{"acpmux":{"recipient":"Watch the cmux-ci run"}},"update":{"sessionUpdate":"tool_call","toolCallId":"t","status":"pending","title":"SendMessage","_meta":{"claude":{"tool":"SendMessage"}},"rawInput":{"to":"a6c31b7ee45d67550","message":"Queued"}}}}}"#;
+    let mut state = State::default();
+    let ops = t(&mut state, Harness::V1, line.as_bytes()).unwrap();
+    let recipient = ops.iter().find_map(|op| match &op.change {
+        Change::Row(row) | Change::Patch(row) => row.fields.get("recipient").cloned(),
+        _ => None,
+    });
+    // A row field holds its JSON value, as the body the page reads gets it.
+    assert_eq!(recipient.as_deref(), Some(r#""Watch the cmux-ci run""#));
+}
+
 #[test]
 fn long_metadata_is_cut_without_a_late_line_error() {
     let long = "x".repeat(64 * 1024);

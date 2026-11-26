@@ -34,7 +34,7 @@ pub(super) enum OperationOwner {
     PaletteRank,
     /// `chat.*` (resource_router/chats.rs): acpmux's chats as the daemon keeps them.
     Chat,
-    /// `theme.scheme.*` (resource_router/theme_scheme.rs): stateless converters.
+    /// `theme.scheme.*` and `theme.slots.resolve` (resource_router/theme_scheme.rs): stateless.
     ThemeScheme,
     /// `browser_import.read` (resource_router/browser_import.rs): stateless.
     BrowserImport,
@@ -204,7 +204,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChatPin => OperationOwner::Chat,
         ResourceOperation::ThemeSchemeConvert
         | ResourceOperation::ThemeSchemeExport
-        | ResourceOperation::ThemeSchemeFromImage => OperationOwner::ThemeScheme,
+        | ResourceOperation::ThemeSchemeFromImage
+        | ResourceOperation::ThemeSlotsResolve => OperationOwner::ThemeScheme,
         ResourceOperation::BrowserImportRead => OperationOwner::BrowserImport,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
@@ -403,6 +404,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudOwnerGithubApp
         | ResourceOperation::CloudOwnerGithubRepos
         | ResourceOperation::CloudOwnerGithubConnect
+        | ResourceOperation::CloudOwnerGithubComplete
+        | ResourceOperation::CloudOwnerGithubList
+        | ResourceOperation::CloudOwnerGithubCloneToken
         | ResourceOperation::CloudOwnerTurnCheckpoint
         | ResourceOperation::CloudOwnerTurnRewind
         | ResourceOperation::CloudOwnerTurns
@@ -414,6 +418,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudMachineShareChat
         | ResourceOperation::CloudMachineChiefStart
         | ResourceOperation::CloudMachineChiefResize
+        | ResourceOperation::CloudMachineSetupDesktop
         | ResourceOperation::CloudMachineFork
         // The app's language packs (server/language_packs_op.rs): a download on a worker thread.
         | ResourceOperation::LanguagePacksEnsure

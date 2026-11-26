@@ -138,7 +138,7 @@ export default agentPaneEntry({
       ),
     },
     "usage-limit-no-time": {
-      note: "A limit whose refusal names no time keeps the rate-limit sentence.",
+      note: "A used-up limit that names its reset only as a span: the account card, with the span as its reset (cmux#55066).",
       snapshot: failed("usage limit reached, resets in 3h"),
     },
     "cloud-no-team-account": {

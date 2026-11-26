@@ -2,7 +2,8 @@
 // Resume on a stopped helper wherever its row or tab shows (ResumeControl.tsx; Leo, 2026-11-12: "A
 // Resume button in cmux on a stopped helper's row and tab. It starts a fresh session from that
 // helper's record and original instructions, and carries on from there."): the tray's finished
-// line, Session Info's Subagents and the helper's own tab, on its "Subagent of" line. Each at rest,
+// line, Session Info's Subagents and the helper's own tab, in its transcript's top end corner
+// (SubagentViewCorner.tsx), which draws no line about where the helper came from (Leo, 2026-11-22). Each at rest,
 // busy once clicked (acpmux has it), and refused with the note it leaves. Synthetic data.
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
@@ -69,15 +70,14 @@ export default componentEntry<Props>({
     "agent-session/acpmux/subagents/ResumeControl.tsx",
     "agent-session/acpmux/subagents/SubagentTray.tsx",
     "agent-session/acpmux/session-info/SubagentsSection.tsx",
-    "agent-session/acpmux/subagents/SubagentGroup.tsx#SubagentOfRow",
+    "agent-session/acpmux/subagents/SubagentViewCorner.tsx#SubagentViewCorner",
   ],
   keywords: ["subagent", "resume", "stopped", "helper"],
   load: async () => {
     const { SubagentTray } = await import("./SubagentTray");
     const { SubagentsSection } = await import("../session-info/SubagentsSection");
-    const { SubagentOfRow } = await import("./SubagentGroup");
+    const { SubagentViewCorner } = await import("./SubagentViewCorner");
     const { TurnActionsContext } = await import("../conversation/turnActions");
-    const { SUBAGENT_OF } = await import("./subagentRows");
     const { RESUME_CAPABILITY } = await import("./resumeState");
     const retryCapabilities = new Set([RESUME_CAPABILITY]);
     return function GallerySubagentResume({ surface, answer }: Props) {
@@ -110,16 +110,9 @@ export default componentEntry<Props>({
           )}
           {surface === "tab" && (
             <TurnActionsContext.Provider value={resume}>
-              <SubagentOfRow
-                row={{
-                  id: `${STOPPED.id}:of`,
-                  version: 1,
-                  at: STOPPED.startedAt,
-                  kind: SUBAGENT_OF,
-                  subagents: [STOPPED],
-                  text: "cmux chat",
-                }}
-              />
+              <div className="acpmux-view-corner" data-zone="top-end" style={{ position: "relative" }}>
+                <SubagentViewCorner view={STOPPED.id} agent={STOPPED} close={false} />
+              </div>
             </TurnActionsContext.Provider>
           )}
         </div>
@@ -140,13 +133,13 @@ export default componentEntry<Props>({
       play: openTray,
     },
     "tray-busy": {
-      note: "Resume pressed: off while acpmux has it, until the row changes (the run it started links to it).",
+      note: 'Resume pressed: off while acpmux has it, until the row changes (the run it started links to it). A Resume acpmux refuses as busy (a turn runs) looks the same: it is asked again on its own, never a "try again shortly".',
       props: { surface: "tray", answer: "busy" },
       play: press("tray"),
     },
     "tray-refused": {
       note: "acpmux refused: its note lies where the line's time was, and Resume can be pressed again.",
-      props: { surface: "tray", answer: "retry.busy" },
+      props: { surface: "tray", answer: "retry.gone" },
       play: press("tray"),
     },
     "session-info-idle": {
@@ -165,7 +158,7 @@ export default componentEntry<Props>({
       play: press("sessionInfo"),
     },
     "tab-idle": {
-      note: 'The helper\'s own tab: Resume beside its "Subagent of" line, at the head of its transcript.',
+      note: "The helper's own tab: Resume in its transcript's top end corner, over no row's room; its tab closes it, so no ×.",
       props: { surface: "tab" },
     },
     "tab-busy": {
@@ -175,7 +168,7 @@ export default componentEntry<Props>({
     },
     "tab-refused": {
       note: "The tab, refused: the note before the button.",
-      props: { surface: "tab", answer: "retry.busy" },
+      props: { surface: "tab", answer: "retry.running" },
       play: press("tab"),
     },
   },

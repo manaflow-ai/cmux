@@ -100,6 +100,10 @@ pub static ALLOWED_COMMANDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "swap-pane",
         "zoom-pane",
         "close-surface",
+        // Close Tab in one round trip: the same tab placements and
+        // terminal ending as close-surface then close-terminal, in one
+        // daemon commit (`batch-close-v1`).
+        "close-tabs",
         "close-pane",
         "close-screen",
         "close-terminal",
@@ -250,6 +254,36 @@ fn creation_fields(command: &str) -> Option<HashSet<&'static str>> {
     Some(size.into_iter().chain(extra.iter().copied()).collect())
 }
 
+/// Line members every command may carry: its id, its name and the trace
+/// metadata (`_meta`, checked by `trace_meta_refusal`).
+const ENVELOPE_FIELDS: &[&str] = &["id", "cmd", "_meta"];
+
+/// The longest trace id a phone may stamp (acpmux's `trace_id_of` bound).
+const MAXIMUM_TRACE_ID_LEN: usize = 128;
+
+/// `_meta` on a line command is the phone's trace id only (`{"traceId": ...}`,
+/// the W3C trace id that ties the phone's spans to the Mac's). It names no
+/// program, target or authority; anything else in it is refused.
+fn trace_meta_refusal(object: &Map<String, Value>) -> Option<String> {
+    let meta = object.get("_meta")?;
+    let Value::Object(meta) = meta else {
+        return Some("_meta from a phone is an object".into());
+    };
+    if let Some(key) = meta.keys().find(|key| key.as_str() != "traceId") {
+        return Some(format!("_meta does not take {key} from a phone"));
+    }
+    match meta.get("traceId") {
+        None => None,
+        Some(Value::String(id))
+            if (1..=MAXIMUM_TRACE_ID_LEN).contains(&id.len())
+                && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') =>
+        {
+            None
+        }
+        Some(_) => Some("_meta traceId is a short hex id".into()),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Verdict {
     /// Send the original line.
@@ -328,11 +362,14 @@ impl DaemonPolicy {
                 &format!("{command} is not available to a phone"),
             ));
         }
+        if let Some(why) = trace_meta_refusal(&object) {
+            return Verdict::Refuse(error_line(id, "forbidden", &why));
+        }
         if let Some(allowed) = creation_fields(command) {
             let extra: BTreeSet<&str> = object
                 .keys()
                 .map(String::as_str)
-                .filter(|key| !allowed.contains(key) && *key != "id" && *key != "cmd")
+                .filter(|key| !allowed.contains(key) && !ENVELOPE_FIELDS.contains(key))
                 .collect();
             if !extra.is_empty() {
                 let names = extra.into_iter().collect::<Vec<_>>().join(", ");
@@ -413,7 +450,7 @@ impl DaemonPolicy {
         let extra: BTreeSet<&str> = object
             .keys()
             .map(String::as_str)
-            .filter(|key| !AGENT_TAB_FIELDS.contains(key) && *key != "id" && *key != "cmd")
+            .filter(|key| !AGENT_TAB_FIELDS.contains(key) && !ENVELOPE_FIELDS.contains(key))
             .collect();
         if !extra.is_empty() {
             let names = extra.into_iter().collect::<Vec<_>>().join(", ");
@@ -481,7 +518,7 @@ impl DaemonPolicy {
 fn unbound_bind_refusal(object: &Map<String, Value>) -> Option<String> {
     const FIELDS: &[&str] = &["surface", "session", "expected_session"];
     if let Some(key) =
-        object.keys().find(|key| !FIELDS.contains(&key.as_str()) && *key != "id" && *key != "cmd")
+        object.keys().find(|key| !FIELDS.contains(&key.as_str()) && !ENVELOPE_FIELDS.contains(&key.as_str()))
     {
         return Some(format!("bind-conversation-tab-session does not take {key} from a phone"));
     }
@@ -555,10 +592,9 @@ fn short_identifier(text: &str, limit: usize) -> bool {
 }
 
 fn personal_workspace(object: &Map<String, Value>) -> Result<(), String> {
-    if let Some(key) = object
-        .keys()
-        .find(|key| !PERSONAL_WORKSPACE_FIELDS.contains(&key.as_str()) && *key != "id" && *key != "cmd")
-    {
+    if let Some(key) = object.keys().find(|key| {
+        !PERSONAL_WORKSPACE_FIELDS.contains(&key.as_str()) && !ENVELOPE_FIELDS.contains(&key.as_str())
+    }) {
         return Err(format!("set-personal-workspace does not take {key} from a phone"));
     }
     let short = |key: &str| {
@@ -902,6 +938,35 @@ mod tests {
         );
     }
 
+    /// Close Tab's one round trip (`close-tabs`), with the phone's trace id;
+    /// `_meta` carries that id only.
+    #[test]
+    fn close_tabs_takes_a_trace_id_only() {
+        let line = br#"{"_meta":{"traceId":"4bf92f3577b34da6a3ce929d0e0e4736"},"cmd":"close-tabs","end_terminals":true,"id":"m1","surfaces":[7]}"#;
+        assert_eq!(policy().evaluate(line), Verdict::Forward);
+        assert_eq!(policy().evaluate(br#"{"cmd":"close-tabs","id":"m1","surfaces":[7]}"#), Verdict::Forward);
+        // A creation command keeps its field allowlist, and `_meta` beside it.
+        assert_eq!(
+            policy().evaluate(br#"{"_meta":{"traceId":"ab"},"cmd":"restart-tab","id":"m2","surface":7}"#),
+            Verdict::Forward
+        );
+        for bad in [
+            br#"{"_meta":{"traceId":"ab","acpmux":{}},"cmd":"close-tabs","id":"m1","surfaces":[7]}"#
+                .as_slice(),
+            br#"{"_meta":{"traceId":"a b"},"cmd":"close-tabs","id":"m1","surfaces":[7]}"#,
+            br#"{"_meta":{"traceId":""},"cmd":"close-tabs","id":"m1","surfaces":[7]}"#,
+            br#"{"_meta":{"traceId":7},"cmd":"close-tabs","id":"m1","surfaces":[7]}"#,
+            br#"{"_meta":"x","cmd":"close-tabs","id":"m1","surfaces":[7]}"#,
+        ] {
+            assert!(matches!(policy().evaluate(bad), Verdict::Refuse(_)), "{}", String::from_utf8_lossy(bad));
+        }
+        let long = format!(
+            r#"{{"_meta":{{"traceId":"{}"}},"cmd":"close-tabs","id":"m1","surfaces":[7]}}"#,
+            "a".repeat(129)
+        );
+        assert!(matches!(policy().evaluate(long.as_bytes()), Verdict::Refuse(_)));
+    }
+
     /// The exact lines the iOS app's terminal tabs send (CmuxMobileLive DaemonTerminalSession
     /// through CmuxMobileTransport DaemonClient: flat params, sorted keys, string ids).
     #[test]
@@ -912,6 +977,8 @@ mod tests {
             // Latest screen first (attach-replay-history-rows-v1): screen only, then a chunk more.
             br#"{"cmd":"attach-surface","cols":80,"id":"m2","replay_history_rows":0,"rows":24,"surface":7}"#,
             br#"{"cmd":"attach-surface","id":"m2","replay_history_rows":2000,"surface":7}"#,
+            // A reattach in one write (attach-identity-v1): fenced by the boot and the terminal.
+            br#"{"cmd":"attach-surface","cols":54,"expected_generation":"gen-1","expected_terminal_id":"term_a","id":"m2","replay_history_rows":0,"rows":38,"surface":7}"#,
             // A window far up the history (attach-replay-history-window-v1).
             br#"{"cmd":"attach-surface","id":"m2","replay_history_rows":4000,"replay_history_start":0,"surface":7}"#,
             br#"{"bytes":"bHMK","cmd":"send","id":"m3","surface":7}"#,
@@ -1655,14 +1722,11 @@ mod tests {
         let swift_commands: HashSet<&str> = swift[start..end].split('"').skip(1).step_by(2).collect();
         // `notification-reply` is answered by hostd itself, never by the daemon, so
         // the Mac's own phone lane (an allowlist of daemon commands) leaves it out.
-        // `bind-conversation-tab-session` (#47551) is a hostd-only grant too: it passes
-        // only with `unbound_bind_refusal`'s checks, which the Swift lane (no splice since
-        // #44873) does not carry, so the Swift list leaves it out rather than pass it bare.
-        let rust_commands: HashSet<&str> = ALLOWED_COMMANDS
-            .iter()
-            .copied()
-            .filter(|command| !matches!(*command, "notification-reply" | "bind-conversation-tab-session"))
-            .collect();
+        // `bind-conversation-tab-session` (#47551) is listed on both sides: hostd passes
+        // it only with `unbound_bind_refusal`'s checks, and the Swift lane (no splice since
+        // #44873) lists it beside `new-conversation-tab` only to refuse it (#53827).
+        let rust_commands: HashSet<&str> =
+            ALLOWED_COMMANDS.iter().copied().filter(|command| *command != "notification-reply").collect();
         assert_eq!(swift_commands, rust_commands);
         let start = swift
             .find("allowedResourceOperations: [String: Set<String>] = [")

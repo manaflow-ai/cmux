@@ -211,12 +211,19 @@ fn run(
         super::bookmarks_routed::OWNER => {
             Ok(Answer::Now(super::bookmarks_routed::routed(mux, client, operation, params)))
         }
+        super::app_features::OWNER => {
+            Ok(Answer::Now(super::app_features::routed(mux, operation, params)))
+        }
         "tasks.local" => Ok(Answer::Now(crate::tasks_link::call(mux, operation, params))),
         #[cfg(unix)]
         "agent_session.trust" => Ok(Answer::Now(super::agent_session_attach::routed_trust(
             mux, client, operation, params,
         ))),
         "feed" => Ok(super::feed_client_ops::routed(mux, client, operation, Value::Object(params))),
+        #[cfg(unix)]
+        super::forum_routed::OWNER => {
+            Ok(super::forum_routed::routed(mux, client, operation, Value::Object(params)))
+        }
         owner => Err(ResourceError::operation_failed(
             operation,
             "this daemon has no owner for the routed namespace",

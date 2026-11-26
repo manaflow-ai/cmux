@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxSpinner
 import SwiftUI
+import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
@@ -13,7 +14,6 @@ public struct EmptyState: View {
     let primaryTitle: LocalizedStringKey?
     let isPrimaryLoading: Bool
     let primary: (() -> Void)?
-    let retry: (@MainActor () async -> Void)?
     let secondaryTitle: LocalizedStringKey?
     let secondary: (() -> Void)?
 
@@ -24,7 +24,6 @@ public struct EmptyState: View {
         primaryTitle: LocalizedStringKey? = nil,
         isPrimaryLoading: Bool = false,
         primary: (() -> Void)? = nil,
-        retry: (@MainActor () async -> Void)? = nil,
         secondaryTitle: LocalizedStringKey? = nil,
         secondary: (() -> Void)? = nil
     ) {
@@ -34,7 +33,6 @@ public struct EmptyState: View {
         self.primaryTitle = primaryTitle
         self.isPrimaryLoading = isPrimaryLoading
         self.primary = primary
-        self.retry = retry
         self.secondaryTitle = secondaryTitle
         self.secondary = secondary
     }
@@ -61,9 +59,7 @@ public struct EmptyState: View {
                 PrimaryCapsule(primaryTitle, size: .inline, isLoading: isPrimaryLoading, action: primary)
                     .padding(.top, 20)
             }
-            if let retry {
-                RetryButton(action: retry).padding(.top, 20)
-            }
+            // No Retry: a failed load retries on its own (`AutoRetry`); the state says why.
             if let secondaryTitle, let secondary {
                 TextCTA(secondaryTitle, action: secondary)
                     .padding(.top, primaryTitle == nil ? 20 : 12)
@@ -112,57 +108,77 @@ extension View {
     public func cmuxMobileShimmer() -> some View { modifier(ShimmerModifier()) }
 }
 
-/// Skeleton rows matching list row geometry (title 60% x 14, subtitle 40% x 11),
-/// shown only after `delay` (250 ms, so a fast load never flashes; zero when
-/// the page's title is already drawn). Six rows max.
+/// Skeleton rows, shown only after `delay` (250 ms, so a fast load never
+/// flashes; zero when the page's title is already drawn). Six rows max.
+///
+/// `.card` rows (title 60% x 14, subtitle 40% x 11, 60 pt, from the side
+/// margin) stand in for card-like rows (Setup's teams). `.plainList` rows are
+/// the plain lists' rows as they will draw (Workspaces): the bars start at the
+/// list's text column (`CmuxMobileListColumn`), line 1 is a title with its time
+/// trailing and line 2 a status line, each as tall as its text at the person's
+/// Dynamic Type size, with the rows' 10 pt insets and their hairline, so the
+/// rows that replace them land where the bars were (Leo, 2026-11-24: "i noticed
+/// the skeleton for this was a bit off on ios").
+///
+/// The caption says what loads ("Loading workspaces…") as the rows' spoken
+/// label; `captionPlacement` says whether it is also drawn, above the rows (it
+/// pushed them down a line, so the rows that replace them jumped) or under them.
 public struct SkeletonList: View {
+    public enum Style: Equatable, Sendable {
+        case card
+        case plainList
+    }
+
+    public enum CaptionPlacement: Equatable, Sendable {
+        /// Spoken only: the rows sit where the list's rows will.
+        case spoken
+        case above
+        case below
+    }
+
     let rows: Int
     let leadingSquare: CGFloat?
     let delay: Duration
-    /// Says what loads ("Loading workspaces…"), above the rows and as their
-    /// spoken label; nil keeps the plain "Loading".
+    /// Says what loads ("Loading workspaces…"); nil keeps the plain "Loading".
     let caption: LocalizedStringKey?
+    let style: Style
+    let captionPlacement: CaptionPlacement
     @State private var isVisible = false
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.displayScale) private var displayScale
 
     public init(rows: Int = 6, leadingSquare: CGFloat? = nil, delay: Duration = CmuxMobileTheme.standard.motion.skeletonDelay,
-                caption: LocalizedStringKey? = nil) {
+                caption: LocalizedStringKey? = nil, style: Style = .card, captionPlacement: CaptionPlacement = .above) {
         self.rows = min(rows, 6)
         self.leadingSquare = leadingSquare
         self.delay = delay
         self.caption = caption
+        self.style = style
+        self.captionPlacement = captionPlacement
     }
+
+    /// Where a `.plainList` row's bars start: the list's text column.
+    static func plainTextLeading(_ size: DynamicTypeSize) -> CGFloat { CmuxMobileListColumn.plain(size).text }
+    /// Each `.plainList` row's insets, as the Workspaces cells' (`WorkspacesCollection.margins`).
+    static let plainRowInsets = CmuxMobileListRowMetrics.insets
+    /// A `.plainList` row's text block's least height (`WorkspaceRow`'s, with its status line).
+    static let plainRowMinHeight = CmuxMobileListRowMetrics.minHeight
+    /// The plain list's hairline ends this far from the trailing edge.
+    static let plainSeparatorTrailing = CmuxMobileListRowMetrics.separatorTrailing
+    /// Title widths, row by row, so the rows do not read as one repeated stamp.
+    static let plainTitleWidths: [CGFloat] = [0.5, 0.62, 0.42, 0.56, 0.47, 0.6]
+    static let plainStatusWidths: [CGFloat] = [0.72, 0.58, 0.66, 0.5, 0.7, 0.62]
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let caption {
-                Text(caption)
-                    .font(theme.type.rowSubtitle)
-                    .foregroundStyle(theme.colors.label2)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-            }
-            ForEach(0..<rows, id: \.self) { _ in
-                HStack(spacing: 12) {
-                    if let leadingSquare {
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(theme.colors.surfaceRaised)
-                            .frame(width: leadingSquare, height: leadingSquare)
-                    }
-                    GeometryReader { proxy in
-                        VStack(alignment: .leading, spacing: 8) {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(theme.colors.surfaceRaised)
-                                .frame(width: proxy.size.width * 0.6, height: 14)
-                            RoundedRectangle(cornerRadius: 5.5, style: .continuous)
-                                .fill(theme.colors.surfaceRaised)
-                                .frame(width: proxy.size.width * 0.4, height: 11)
-                        }
-                        .frame(maxHeight: .infinity, alignment: .center)
-                    }
+            if captionPlacement == .above { captionText }
+            ForEach(0..<rows, id: \.self) { index in
+                switch style {
+                case .card: cardRow
+                case .plainList: plainRow(index)
                 }
-                .frame(height: 60)
-                .padding(.horizontal, theme.metrics.sideMargin)
             }
+            if captionPlacement == .below { captionText }
         }
         .cmuxMobileShimmer()
         .opacity(isVisible || delay == .zero ? 1 : 0)
@@ -174,10 +190,107 @@ public struct SkeletonList: View {
         .accessibilityElement()
         .accessibilityLabel(caption.map { Text($0) } ?? Text("Loading"))
     }
+
+    @ViewBuilder private var captionText: some View {
+        if let caption {
+            Text(caption)
+                .font(style == .plainList ? theme.type.meta : theme.type.rowSubtitle)
+                .foregroundStyle(theme.colors.label2)
+                .frame(maxWidth: .infinity, alignment: style == .plainList ? .leading : .center)
+                .padding(.leading, style == .plainList ? Self.plainTextLeading(typeSize) : 0)
+                .padding(.vertical, style == .plainList ? 10 : 12)
+        }
+    }
+
+    private var cardRow: some View {
+        HStack(spacing: 12) {
+            if let leadingSquare {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.cmuxMobileContentFill(.inset))
+                    .frame(width: leadingSquare, height: leadingSquare)
+            }
+            GeometryReader { proxy in
+                VStack(alignment: .leading, spacing: 8) {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.cmuxMobileContentFill(.inset))
+                        .frame(width: proxy.size.width * 0.6, height: 14)
+                    RoundedRectangle(cornerRadius: 5.5, style: .continuous)
+                        .fill(Color.cmuxMobileContentFill(.inset))
+                        .frame(width: proxy.size.width * 0.4, height: 11)
+                }
+                .frame(maxHeight: .infinity, alignment: .center)
+            }
+        }
+        .frame(height: 60)
+        .padding(.horizontal, theme.metrics.sideMargin)
+    }
+
+    /// One plain-list row: each line is its text's own line box (a hidden
+    /// `Text` in the row's font) with a bar in it, so the row is as tall as
+    /// the real one at every Dynamic Type size.
+    private func plainRow(_ index: Int) -> some View {
+        let leading = Self.plainTextLeading(typeSize)
+        let insets = Self.plainRowInsets
+        return GeometryReader { proxy in
+            let width = max(0, proxy.size.width - leading - insets.trailing)
+            VStack(alignment: .leading, spacing: CmuxMobileListRowMetrics.lineSpacing) {
+                HStack(spacing: 8) {
+                    bar(font: theme.type.rowTitle.weight(.semibold), fraction: 0.55,
+                        width: width * Self.plainTitleWidths[index % Self.plainTitleWidths.count])
+                    Spacer(minLength: 8)
+                    bar(font: theme.type.meta, fraction: 0.6, width: 26)
+                }
+                bar(font: theme.type.meta, fraction: 0.6,
+                    width: width * Self.plainStatusWidths[index % Self.plainStatusWidths.count])
+            }
+            .frame(width: width, alignment: .leading)
+            .frame(minHeight: Self.plainRowMinHeight, alignment: .center)
+            .padding(.top, insets.top)
+            .padding(.leading, leading)
+        }
+        .frame(height: plainRowHeight)
+        .overlay(alignment: .bottomLeading) {
+            Rectangle()
+                .fill(Color(uiColor: .separator))
+                .frame(height: 1.0 / max(1, displayScale))
+                .padding(.leading, leading)
+                .padding(.trailing, Self.plainSeparatorTrailing)
+        }
+    }
+
+    /// The row's height: its two lines (title, then status), at least
+    /// `plainRowMinHeight`, plus its insets.
+    private var plainRowHeight: CGFloat {
+        let title = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits).lineHeight
+        let meta = UIFont.preferredFont(forTextStyle: .footnote, compatibleWith: traits).lineHeight
+        return max(Self.plainRowMinHeight, ceil(title + 3 + meta)) + Self.plainRowInsets.top + Self.plainRowInsets.bottom
+    }
+
+    private var traits: UITraitCollection {
+        UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(typeSize))
+    }
+
+    /// A bar as tall as `fraction` of a line of `font`, centered in that line's box.
+    private func bar(font: Font, fraction: CGFloat, width: CGFloat) -> some View {
+        Text(verbatim: "Ag")
+            .font(font)
+            .hidden()
+            .frame(width: width, alignment: .leading)
+            .overlay {
+                GeometryReader { line in
+                    let height = max(8, line.size.height * fraction)
+                    RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+                        .fill(Color.cmuxMobileContentFill(.inset))
+                        .frame(width: width, height: height)
+                        .frame(maxHeight: .infinity, alignment: .center)
+                }
+            }
+    }
 }
 
 /// Inline failure card (SPEC 7.3): `bg` with a 1 pt `separator` stroke, radius
-/// 20, symbol + title + body, then a large primary capsule.
+/// 20, symbol + title + body, then a large primary capsule. The capsule is a step the person
+/// takes (sign in, choose); a reload is never one: loads retry on their own (`AutoRetry`).
 public struct FailureCard: View {
     let symbol: String
     let title: LocalizedStringKey
@@ -186,7 +299,7 @@ public struct FailureCard: View {
     let isLoading: Bool
     let action: () -> Void
 
-    public init(symbol: String = "exclamationmark.triangle", title: LocalizedStringKey, message: LocalizedStringKey, actionTitle: LocalizedStringKey = "Retry", isLoading: Bool = false, action: @escaping () -> Void) {
+    public init(symbol: String = "exclamationmark.triangle", title: LocalizedStringKey, message: LocalizedStringKey, actionTitle: LocalizedStringKey, isLoading: Bool = false, action: @escaping () -> Void) {
         self.symbol = symbol
         self.title = title
         self.message = message
@@ -259,7 +372,8 @@ private struct BannerHost: View {
 
     var body: some View {
         ZStack {
-            if let state, state != dismissal?.state {
+            // A link still trying shows nothing and announces nothing (``ConnectionBannerState/paints``).
+            if let state, state.paints, state != dismissal?.state {
                 Group {
                     if let chip = state.chip {
                         ConnectionChip(chip, downSince: downSince ?? ConnectionChip.justDropped, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
@@ -344,7 +458,7 @@ private struct ToastHost: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .frame(minHeight: 36)
-                .glassEffect(.regular, in: .capsule)
+                .cmuxMobileFloatingGlass(in: .capsule)
                 .padding(.top, 8)
                 .transition(.opacity.combined(with: .offset(y: -12)))
                 .id(value.id)

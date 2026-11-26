@@ -303,13 +303,21 @@ def test_same_repo_branch_pushes_publish_their_trees() -> None:
     # refused before preflight and never reach a credentialed publisher.
     artifacts = workflow("cmux-tui-artifacts.yml")
     trusted = "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next'"
+    # A dispatch on a branch publishes what a push on it would (the on-request build of a PR head's tree, and its
+    # mac-live.json for `cmux app try PR`): the dispatched ref's own workflow file runs either way, so this gate
+    # never held back a hostile branch; pin refs stay refused, before any build (reject-untrusted-pin-ref).
+    branch = ("((github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
+              " && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))")
     for job in ("publish", "publish-tree", "notify-unpublished-tree"):
         body = workflow_job(artifacts, job)
         assert trusted in body, job
-        assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in body, job
-    # A dispatch from another branch stays build-only.
+        assert branch in body, job
+    live = workflow_job(artifacts, "point-mac-live-channel")
+    assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in live
+    assert "(github.event_name == 'workflow_dispatch' || !startsWith(github.ref, 'refs/heads/lane/'))" in live
+    # Only a pin ref stays build-only.
     notice = workflow_job(artifacts, "publish-ref-notice")
-    assert f"!(github.event_name == 'push' || {trusted})" in notice
+    assert "&& startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in notice
     # Branch-published trees are their own family (the R2 pruner's candidates).
     tree = workflow_job(artifacts, "publish-tree")
     assert '"family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch"' in tree
@@ -913,7 +921,9 @@ def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
     typescript = workflow("sdk-publish-npm.yml")
     assert 'node-version: "22.23.4"' in typescript
     assert (
-        "cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json"
+        # RFD 0148 row 19: setup-node's npm cache is an actions/cache twin that
+        # saves on base branches only, keyed on this lockfile.
+        "hashFiles('cmux-tui/bindings/typescript/package-lock.json')"
         in typescript
     )
     assert "npm ci --no-audit --no-fund" in typescript

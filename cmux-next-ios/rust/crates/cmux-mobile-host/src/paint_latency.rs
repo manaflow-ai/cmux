@@ -229,6 +229,10 @@ pub struct Report {
     /// The phone's Agent CLI Screen Changes setting (lean frames, at most one per 100 ms).
     #[serde(default)]
     pub agent_cli_hybrid: Option<bool>,
+    /// Which path painted each sample, in order (`stream` or `datagram`, viewport sync's path
+    /// selector); empty when the phone does not say.
+    #[serde(default)]
+    pub transports: Vec<String>,
 }
 
 /// p50, p95 and max of one part (ms), and how many samples.
@@ -298,6 +302,9 @@ pub struct Summary {
     /// hostd read to the phone's paint (needs the offset).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total: Option<Part>,
+    /// Samples per path that painted them (`stream`, `datagram`), when the phone said.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub transports: std::collections::BTreeMap<String, usize>,
 }
 
 /// Joins `report` from `phone` with the stamps `lookup` gives (hostd's ring).
@@ -342,6 +349,13 @@ pub fn summarize(
         }
     }
     let round = |v: f64| (v * 100.0).round() / 100.0;
+    let mut transports = std::collections::BTreeMap::new();
+    for transport in report.transports.iter().take(samples.len()) {
+        let name = crate::phone_frames::label(transport);
+        if !name.is_empty() {
+            *transports.entry(name).or_insert(0) += 1;
+        }
+    }
     Summary {
         at_ms,
         phone: phone.to_owned(),
@@ -360,6 +374,7 @@ pub fn summarize(
         wire: Part::of(wire),
         phone_paint: Part::of(paint),
         total: Part::of(total),
+        transports,
     }
 }
 
@@ -451,6 +466,7 @@ mod tests {
             rtt_ms: Some(40),
             load: Some("sim".into()),
             agent_cli_hybrid: Some(false),
+            transports: vec!["stream".into(), "datagram".into(), "stream".into(), "datagram".into()],
         };
         let s = summarize(report, "phone-1", 5, lookup);
         assert_eq!((s.samples, s.joined), (4, 3), "seq 99 went out of the ring");
@@ -468,6 +484,8 @@ mod tests {
         );
         let total = s.total.unwrap();
         assert_eq!((total.n, total.p50_ms, total.max_ms), (3, 41.0, 57.0), "41, 57 and 8 ms");
+        let transports: Vec<(&str, usize)> = s.transports.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+        assert_eq!(transports, [("datagram", 2), ("stream", 2)], "which path painted each frame");
     }
 
     #[test]
@@ -480,6 +498,7 @@ mod tests {
             rtt_ms: None,
             load: None,
             agent_cli_hybrid: None,
+            transports: Vec::new(),
         };
         let s = summarize(report, "p", 0, |_| Some((0, Some(3_000))));
         assert_eq!(s.mac.map(|p| p.p50_ms), Some(3.0));
@@ -488,6 +507,7 @@ mod tests {
         let line = serde_json::to_value(&s).unwrap();
         assert_eq!(line["kind"], "paint");
         assert!(line.get("wire").is_none());
+        assert!(line.get("transports").is_none(), "no path said, none written");
     }
 
     #[test]

@@ -75,10 +75,10 @@ pub(super) fn save_blocking(cwd: &Path, session_id: &str) -> Saved {
         return Saved::Skipped;
     };
     let index = Path::new(&gitdir).join(format!("cmux-wip-{session_id}.index"));
-    let _ = std::fs::remove_file(&index);
+    let _ = crate::home_fs::remove_file(&index);
     let tree = git(&top, Some(&index), &["add", "-A", "--", "."])
         .and_then(|_| git(&top, Some(&index), &["write-tree"]));
-    let _ = std::fs::remove_file(&index);
+    let _ = crate::home_fs::remove_file(&index);
     let Some(tree) = tree else { return Saved::Skipped };
     let kept = git(&top, None, &["rev-parse", "--verify", "-q", &format!("{name}^{{tree}}")]);
     if kept.as_deref() == Some(tree.as_str()) {
@@ -120,7 +120,7 @@ impl super::Hub {
         }
         let cwd = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
         let id = session.id.clone();
-        self.scope.spawn_until_cancelled("wip-ref", save(PathBuf::from(cwd), id));
+        self.scope.spawn_until_cancelled("wip-ref", save(cwd, id));
     }
 }
 
@@ -129,7 +129,7 @@ impl Session {
     pub(super) async fn save_wip(&self) {
         if enabled() {
             let cwd = self.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
-            save(PathBuf::from(cwd), self.id.clone()).await;
+            save(cwd, self.id.clone()).await;
         }
     }
 }
