@@ -1175,7 +1175,6 @@ function ComposerFrame({
     unsettled,
     cancel,
     goAhead,
-    retry,
     revive,
     originalFailures,
     originalUploads,
@@ -3718,7 +3717,6 @@ function ComposerFrame({
           cancel(id);
           field.current?.focus();
         }}
-        onRetryAttachment={retry}
         onReviveAttachment={revive}
         originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}

@@ -78,6 +78,7 @@ on:
       - "schemas/settings/source/**"
       - "schemas/sidebar-list-rules/vectors.json"
       - "schemas/sidebar-row/table.json"
+      - "schemas/tab-strip-commands/vectors.json"
       - "schemas/terminal-corpus/**"
       - "schemas/terminal-size-claim/table.json"
       - "schemas/terminal-sizing/fixtures.json"

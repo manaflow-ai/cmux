@@ -23,6 +23,15 @@ struct SignInPageTabTests {
         #expect(SignInPageTab.toClose([(id: String, shown: [URL?])](), of: device) == nil)
     }
 
+    /// A provider whose page moves between its own hosts (the daemon's `pageHosts`) still closes; any other host stays.
+    @Test func aTabOnOneOfTheSignInsOwnHostsCloses() {
+        let claude = URL(string: "https://claude.com/cai/oauth/authorize?code=true")!, hosts = ["claude.com", "Claude.AI", "platform.claude.com"]
+        #expect(SignInPageTab.toClose([(id: "a", shown: [u("https://claude.ai/login")])], of: claude) == nil)
+        #expect(SignInPageTab.toClose([(id: "a", shown: [u("https://claude.ai/login")])], of: claude, hosts: hosts) == "a")
+        #expect(SignInPageTab.toClose([(id: "a", shown: [u("https://claude.ai.example.com/login")])], of: claude, hosts: hosts) == nil)
+        #expect(SignInPageTab.toClose([(id: "a", shown: [u("https://claude.ai/login")]), (id: "b", shown: [u("https://platform.claude.com/x")])], of: claude, hosts: hosts) == nil)
+    }
+
     /// A page that never loaded shows the engine's error page: the daemon's record still names the provider.
     @Test func aPageThatNeverLoadedCountsByItsRecord() {
         #expect(SignInPageTab.toClose([(id: "a", shown: [u("chrome-error://chromewebdata/"), u("https://github.com/login/device")])], of: device) == "a")

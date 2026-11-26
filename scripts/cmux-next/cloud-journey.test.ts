@@ -691,12 +691,13 @@ describe("cloud journey: leaked machine sweep", () => {
       const isLong = /--resume-matrix|--wake-echo/.test(text);
       if (isLong) long.push(f);
       const bound = isLong ? LONG_JOURNEY_MS : STALE_JOURNEY_MS;
-      // Every timeout in each job that runs a journey (its job and step timeouts). A job in the same file that
-      // runs none (backend.yml's 95 min `test`) leaves no machine for the sweep, so its timeout is not bounded.
-      const jobsAt = text.search(/^jobs:\s*$/m);
-      const jobs = jobsAt < 0 ? [text] : text.slice(jobsAt).split(/^(?=  [\w-]+:\s*$)/m);
-      for (const job of jobs.filter((j) => /cloud-journey(\.ts|-ci\.sh)/.test(j))) {
-        const name = job.match(/^  ([\w-]+):/)?.[1] ?? "";
+      // Every timeout in a job that runs a journey (its block names the script); a file that names it but no job
+      // that does (a matrix that runs it through another script) holds every job. A job that runs none, like
+      // backend.yml's `test` (95 min, #56565), makes no journey machine and so needs no age bound.
+      const jobs = (text.split(/^jobs:\s*$/m)[1] ?? text).split(/^(?=  [A-Za-z0-9_-]+:\s*$)/m);
+      const journeyJobs = jobs.filter((j) => /cloud-journey(\.ts|-ci\.sh)/.test(j));
+      for (const job of journeyJobs.length ? journeyJobs : jobs) {
+        const name = /^  ([A-Za-z0-9_-]+):/.exec(job)?.[1] ?? "?";
         for (const m of job.matchAll(/timeout-minutes:\s*(\d+)/g)) {
           expect({ f, name, fits: Number(m[1]) * 60_000 * 2 <= bound }).toEqual({ f, name, fits: true });
         }
