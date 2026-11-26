@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 
@@ -40,6 +40,14 @@ const { setNativeHost } = await import("../src/agent-session/acpmux/native");
 const { installPageKey } = await import("../src/agent-session/acpmux/pageKey");
 const { widestLines } = await import("../src/agent-session/acpmux/FolderPopover");
 const { useState } = await import("react");
+const { forgetAddedRepos, rememberAddedRepo, setFolderUseTimes } =
+  await import("../src/agent-session/acpmux/addedRepos");
+
+// Each test starts with no repository added as a project and no folder times.
+beforeEach(() => {
+  forgetAddedRepos();
+  setFolderUseTimes(() => undefined);
+});
 
 afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
@@ -274,8 +282,8 @@ test.each([
     await press(gitHubRow());
     expect(scopeChip("GitHub")).toBeDefined();
     if (button) await press(option(button)!);
-    // The chip showing read the status (prefetch), and the open read it again.
-    const reads = ["github.status", "github.status"];
+    // Add project read the status, once: the folder chip and its menu read nothing (cmux#53226).
+    const reads = ["github.status"];
     expect(gh.calls.map(([method]) => method)).toEqual(action ? [...reads, action] : reads);
     expect(picked).toEqual([]);
     if (!action) expect(message()).toBeTruthy();
@@ -434,8 +442,10 @@ test("Cloud repo selection uses the repo identity and private rows have a label"
   }
 });
 
-test("folder search matches loaded repositories and Return selects a result", async () => {
+test("folder search matches the repositories added as projects and Return selects a result", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
+  rememberAddedRepo({ fullName: "acme/api", private: true }, 1);
+  rememberAddedRepo({ fullName: "acme/web", private: false }, 2);
   const { root, picked } = await renderTray({}, gh.store);
   try {
     await openFolderMenu();
@@ -486,8 +496,10 @@ test("repository search survives an outside click, Back returns, and Escape clos
   }
 });
 
-test("Cloud source rows and searches exclude local folders, paths, and Git URLs", async () => {
+test("Cloud lists this Mac's folders with the repositories but no typed paths or Git URLs (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
+  rememberAddedRepo({ fullName: "acme/api", private: true }, 2);
+  rememberAddedRepo({ fullName: "acme/web", private: false }, 1);
   let empty = 0;
   const { root } = await renderTray(
     {
@@ -507,11 +519,10 @@ test("Cloud source rows and searches exclude local folders, paths, and Git URLs"
     await openFolderMenu();
     expect(field().getAttribute("aria-label")).toBe("Search folders or type a path");
     expect(labels(".ui-combobox-pinned [role=option]")).toEqual(["Add project…", "No folder"]);
-    expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["acme/api", "acme/web"]);
+    // This Mac's folders are listed too: a Cloud start copies the picked one to the machine.
+    expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["acme/api", "acme/web", "app", "notes"]);
     expect(option("acme/api")?.querySelector(".acpmux-location-action-icon svg")).toBeTruthy();
-    expect(option("notes")).toBeUndefined();
-    await type(FOLDER);
-    expect(labels("[role=option]")).toEqual(["Add project…", "No folder"]);
+    await type("/Users/me/elsewhere");
     expect(doc().querySelectorAll("[data-use-path]").length).toBe(0);
     await type("");
     await openSources();
@@ -620,7 +631,7 @@ test("the filesystem root stays out of the projects list and can still be used a
     expect(fit.textContent).toBe("");
     expect(labels(".ui-combobox-pinned [role=option]")).toEqual(["Add project…", "No folder"]);
     expect(option("No folder")?.querySelector("[data-no-folder] .acpmux-location-action-icon svg")).toBeTruthy();
-    expect(option("notes")?.querySelector(".acpmux-project-badge svg")).toBeTruthy();
+    expect(option("notes")?.querySelector(".acpmux-location-action-icon svg")).toBeTruthy();
     await type("/");
     const usePath = option("Use /");
     expect(usePath?.textContent).toBe("Use /");
@@ -634,7 +645,8 @@ test("the filesystem root stays out of the projects list and can still be used a
 
 test.each([
   ["persistent", "no matching project", "No matching folders"],
-  ["cloud", "", "No recent folders"],
+  // Cloud lists this Mac's folders too (cmux#53226): its empty state is a search's.
+  ["cloud", "no matching project", "No matching folders"],
 ] as const)("the %s folder menu puts its empty state above the actions", async (mode, query, message) => {
   const gh = host({ "github.status": status("not_connected") });
   const { root } = await renderTray({ runMode: { mode, onMode: () => {} } }, gh.store);
@@ -663,6 +675,7 @@ test.each([
 
 test("a GitHub project moves the chat to Cloud when no local checkout action is available", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
+  rememberAddedRepo({ fullName: "acme/api", private: true }, 1);
   const modes: string[] = [];
   const { root, picked } = await renderTray(
     { runMode: { mode: "persistent", onMode: (mode: string) => modes.push(mode) } },
@@ -1217,102 +1230,779 @@ test("a pending connection's words never sit under Connect to GitHub, and a clic
 // cmux#53226: the This Mac folder menu listed GitHub right under the last folder, its heading with no
 // line over it, and its repositories arrived after the open, the rows filling in under the pointer.
 const persistent = { runMode: { mode: "persistent", onMode: () => {} } };
+/// Which icon a row drew (FolderPopover LocationIcon `data-icon`): "github" or "folder".
+const icon = (row: Element | undefined | null) => row?.querySelector("[data-icon]")?.getAttribute("data-icon");
 const listRow = (name: string) =>
   [...doc().querySelectorAll<HTMLElement>(".ui-combobox-scroll [role=option]")].find((item) =>
     item.textContent?.includes(name),
   );
 
-test("the folder chip showing reads GitHub's status and repositories once, so the menu opens on them (cmux#53226)", async () => {
+test("one list, most recently used first: an added GitHub repository sits among the folders under no heading (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  setFolderUseTimes((folder) => ({ [FOLDER]: 3000, "/Users/me/notes": 1000 })[folder]);
+  rememberAddedRepo({ fullName: "acme/web", private: false }, 2000);
+  const { root } = await renderTray(persistent, gh.store);
+  try {
+    await openFolderMenu();
+    // The repository used between the two folders is listed between them; acme/api, on the account but
+    // never added as a project, is not listed.
+    expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["app", "acme/web", "notes"]);
+    expect(listRow("acme/api")).toBeUndefined();
+    // No GitHub section: no heading and no hairline anywhere in the list.
+    expect(
+      doc().querySelectorAll(".ui-combobox-scroll [data-section], .ui-combobox-scroll [data-divider]"),
+    ).toHaveLength(0);
+    expect(icon(listRow("acme/web"))).toBe("github");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a folder that is a clone of an added GitHub repository is its one row, with the folder icon (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  rememberAddedRepo({ fullName: "acme/api", private: true }, 2000);
+  rememberAddedRepo({ fullName: "acme/web", private: false }, 1000);
+  const { root } = await renderTray(
+    {
+      ...persistent,
+      projectChoices: [
+        { cwd: FOLDER, label: "app" },
+        // This Mac's clone of acme/api, as `project.list` names its GitHub origin.
+        {
+          cwd: "/Users/me/src/api",
+          label: "api",
+          repo: { root: "/Users/me/src/api", name: "api", github: "Acme/API" },
+        },
+      ],
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    // Before, the clone was listed as a folder and the repository again under GitHub.
+    expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["acme/web", "app", "api"]);
+    const clone = listRow("api")!;
+    // A clone is a folder on this Mac: the folder icon, never GitHub's mark (cmux#53226).
+    expect(icon(clone)).toBe("folder");
+    // A plain folder keeps its own icon.
+    expect(icon(listRow("app"))).toBe("folder");
+    await type("api");
+    expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["api"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the folder chip and its menu read nothing from GitHub; Add project reads it (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
   const { root } = await renderTray(persistent, gh.store);
   try {
     await settle();
-    // Read before any open: the chip is shown.
+    await openFolderMenu();
+    expect(gh.calls).toEqual([]);
+    await openSources();
     expect(gh.calls.map(([method]) => method)).toEqual(["github.status", "github.repos.list"]);
-    // A second chip on the page asks nothing again.
-    await act(async () => gh.store.prefetch());
-    await settle();
-    expect(gh.calls).toHaveLength(2);
-    // The open lists them at once, with no Loading row; it reads the status again, never the repositories.
-    await openFolderMenu();
-    expect(option("Loading repositories…")).toBeUndefined();
-    expect(listRow("acme/api")).toBeDefined();
-    expect(gh.calls.map(([method]) => method)).toEqual(["github.status", "github.repos.list", "github.status"]);
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("This Mac's folders, then the GitHub group under a hairline; the group holds a Loading row until its repositories land (cmux#53226)", async () => {
-  let listed: (value: unknown) => void = () => undefined;
-  const gh = host({
-    "github.status": ready,
-    "github.repos.list": () => new Promise((resolve) => (listed = resolve)),
-  });
-  const { root, picked } = await renderTray(persistent, gh.store);
-  const section = (row: HTMLElement | undefined) => row?.querySelector(".acpmux-location-row");
-  try {
-    await openFolderMenu();
-    const rows = [...doc().querySelectorAll<HTMLElement>(".ui-combobox-scroll [role=option]")];
-    // The folders first, with no heading and no line: the field's line is over them.
-    expect(rows[0]?.textContent).toContain("app");
-    expect(section(rows[0])?.hasAttribute("data-divider")).toBe(false);
-    expect(section(rows[0])?.hasAttribute("data-section")).toBe(false);
-    // Then one Loading row holds the GitHub group's place, its heading and hairline already over it.
-    const loading = listRow("Loading repositories…")!;
-    expect(section(loading)?.getAttribute("data-section")).toBe("GitHub");
-    expect(section(loading)?.hasAttribute("data-divider")).toBe(true);
-    // A press on it picks nothing and keeps the menu open.
-    await press(loading);
-    expect(picked).toEqual([]);
-    expect(doc().querySelector(".acpmux-folder-popover [role=listbox]")).not.toBeNull();
-    const folderRows = rows.filter((row) => !row.querySelector("[data-github]"));
-    await act(async () => listed(installed));
-    await settle();
-    expect(listRow("Loading repositories…")).toBeUndefined();
-    const api = listRow("acme/api")!;
-    expect(section(api)?.getAttribute("data-section")).toBe("GitHub");
-    expect(section(api)?.hasAttribute("data-divider")).toBe(true);
-    expect(section(listRow("acme/web"))?.hasAttribute("data-section")).toBe(false);
-    // The folder rows above stay as they were: the same elements.
-    for (const row of folderRows) expect(row.isConnected).toBe(true);
-  } finally {
-    await act(async () => root.unmount());
-  }
-});
-
-test("Cloud lists the repositories first with no line over GitHub, and a second machine's heading opens with one (cmux#53226)", async () => {
+test("a repository added through Add project is listed in the folder menu from then on (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
   const { root } = await renderTray({}, gh.store);
   try {
     await openFolderMenu();
-    const first = doc().querySelector<HTMLElement>(".ui-combobox-scroll [role=option] .acpmux-location-row")!;
-    expect(first.getAttribute("data-section")).toBe("GitHub");
-    expect(first.hasAttribute("data-divider")).toBe(false);
-    // Every heading under other rows carries the hairline.
-    for (const headed of doc().querySelectorAll(".ui-combobox-scroll .acpmux-location-row[data-section]"))
-      expect(headed.hasAttribute("data-divider")).toBe(headed !== first);
+    expect(listRow("acme/web")).toBeUndefined();
+    await openSources();
+    await press(gitHubRow());
+    await press(option("acme/web")!);
+    await openFolderMenu();
+    expect(listRow("acme/web")).toBeDefined();
+    expect(listRow("acme/api")).toBeUndefined();
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test("the menu opened while the chip's list is still out asks for no second list (cmux#53226)", async () => {
-  const answers: ((value: unknown) => void)[] = [];
-  const gh = host({
-    "github.status": ready,
-    "github.repos.list": () => new Promise((resolve) => answers.push(resolve)),
-  });
-  const { root } = await renderTray(persistent, gh.store);
+test("a folder named by a bare UUID is never listed (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const { root } = await renderTray(
+    {
+      ...persistent,
+      projectChoices: [
+        { cwd: FOLDER, label: "app" },
+        {
+          cwd: "/Users/me/scratch/f05f40b0-8fc6-4074-ba2b-0ab797700efa",
+          label: "f05f40b0-8fc6-4074-ba2b-0ab797700efa",
+        },
+      ],
+    },
+    gh.store,
+  );
   try {
+    await openFolderMenu();
+    expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["app"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Cloud lists the added repositories first, with no GitHub heading over them (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  rememberAddedRepo({ fullName: "acme/api", private: true }, 1);
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    const first = doc().querySelector<HTMLElement>(".ui-combobox-scroll [role=option] .acpmux-location-row")!;
+    expect(first.textContent).toContain("acme/api");
+    expect(first.hasAttribute("data-section")).toBe(false);
+    expect(first.hasAttribute("data-divider")).toBe(false);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("with Cloud picked, this Mac's folders and the added repositories are one recent-first list, and a folder is pickable (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  setFolderUseTimes((folder) => ({ [FOLDER]: 3000, "/Users/me/notes": 1000 })[folder]);
+  rememberAddedRepo({ fullName: "acme/web", private: false }, 2000);
+  const { root, picked } = await renderTray(
+    {
+      projectChoices: [
+        { cwd: FOLDER, label: "app" },
+        { cwd: "/Users/me/notes", label: "notes" },
+        // This Mac's clone of acme/web: its one row, by the folder, with the GitHub glyph.
+        {
+          cwd: "/Users/me/src/web",
+          label: "web",
+          repo: { root: "/Users/me/src/web", name: "web", github: "acme/web" },
+        },
+      ],
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    // Before: only GitHub repositories, every one on the account, under a GitHub heading.
+    expect(labels(".ui-combobox-scroll [role=option]")).toEqual(["app", "notes", "web"]);
+    expect(doc().querySelectorAll(".ui-combobox-scroll [data-section]")).toHaveLength(0);
+    expect(icon(listRow("web"))).toBe("folder");
+    expect(icon(listRow("notes"))).toBe("folder");
+    await press(listRow("notes")!);
+    expect(picked).toEqual([["/Users/me/notes", undefined]]);
+    // The chip names the picked folder; it is not dropped for having no GitHub repository.
+    expect(face()).toContain("notes");
+    expect(cloudStartFolder(picked[0]?.[0])).toEqual({ cwd: "/Users/me/notes" });
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// The user's screenshots (2026-11-25): my-first-project and strauss, cmux chat worktrees of clones whose `origin` is on
+// GitHub, showed GitHub's mark. Any folder on this Mac is a folder; GitHub's mark is only for a repository from the
+// GitHub connection that is no folder here.
+test("a worktree of a clone with a GitHub origin shows the folder icon; only a repository from GitHub shows the mark (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  rememberAddedRepo({ fullName: "acme/web", private: false }, 1000);
+  const worktree = "/Users/me/.cmux/worktrees.noindex/strauss/chat-2e499e";
+  const { root } = await renderTray(
+    {
+      ...persistent,
+      projectChoices: [
+        { cwd: FOLDER, label: "app" },
+        {
+          cwd: worktree,
+          label: "strauss",
+          repo: { root: "/Users/me/cmux/repos/me/strauss", name: "strauss", github: "me/strauss" },
+        },
+      ],
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    const strauss = listRow("strauss")!;
+    expect(strauss).toBeTruthy();
+    expect(icon(strauss)).toBe("folder");
+    // The repository listed from GitHub, with no folder here, is the one row with the mark.
+    expect(icon(listRow("acme/web"))).toBe("github");
+    expect(doc().querySelectorAll('.acpmux-folder-popover [data-icon="github"]')).toHaveLength(1);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// The user (2026-11-25): "the folder picker still shifts rows up and down sometimes when he clicks into it". The folders
+// arrive and re-sort after the menu opens (the daemon's list, a chat working elsewhere), and the menu grows up from its
+// chip, so any row added moved the rows under the pointer.
+test("the folder menu's rows keep their order and places from its first paint while it stays open (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  let setChoices: (choices: { cwd: string; label: string }[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [choices, set] = useState([
+      { cwd: FOLDER, label: "app" },
+      { cwd: "/Users/me/notes", label: "notes" },
+    ]);
+    setChoices = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={choices}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "persistent", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    const rows = () => labels(".ui-combobox-scroll [role=option]");
+    const first = rows();
+    expect(first).toEqual(expect.arrayContaining(["app", "notes"]));
+    // Folders arrive late, a new one on top and the list re-sorted, while the pointer is over the menu.
+    setFolderUseTimes((folder) => ({ "/Users/me/notes": 5000, "/Users/me/late": 9000 })[folder]);
+    await act(async () =>
+      setChoices([
+        { cwd: "/Users/me/late", label: "late" },
+        { cwd: "/Users/me/notes", label: "notes" },
+        { cwd: FOLDER, label: "app" },
+      ]),
+    );
+    await settle();
+    // Before: late on top, every row under it moved down a row.
+    expect(rows()).toEqual(first);
+    // The next open lists it.
+    await act(async () => doc().querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
     await settle();
     await openFolderMenu();
-    expect(gh.calls.map(([method]) => method)).toEqual(["github.status", "github.repos.list", "github.status"]);
-    // The one list's answer lands in the open menu.
-    await act(async () => answers[0]!(installed));
+    expect(rows()).toContain("late");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// Review of the first fix: rows must also hold when a listed folder's repository details arrive late (its group's key
+// changes), when a worktree of the opened current repository arrives, and the current folder is never hidden.
+test("the kept rows survive late repository details and late worktrees, and the current folder is always listed (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  type Choice = { cwd: string; label: string; repo?: { root: string; name: string; github?: string } };
+  let setChoices: (choices: Choice[]) => void = () => {};
+  let setCwd: (cwd: string) => void = () => {};
+  const API = "/Users/me/src/api";
+  const repo = { root: API, name: "api", github: "acme/api" };
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [choices, set] = useState<Choice[]>([
+      { cwd: FOLDER, label: "app" },
+      // Listed by a chat first, its repository not known yet.
+      { cwd: API, label: "api" },
+    ]);
+    const [cwd, setHere] = useState(FOLDER);
+    setChoices = set;
+    setCwd = setHere;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd }}
+        projectChoices={choices}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "persistent", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    const rows = () => labels(".ui-combobox-scroll [role=option]");
+    const first = rows();
+    expect(first).toEqual(expect.arrayContaining(["app", "api"]));
+    // The daemon's list names api's repository, and one more of its worktrees: api's row stays where it was.
+    await act(async () =>
+      setChoices([
+        { cwd: FOLDER, label: "app" },
+        { cwd: API, label: "api", repo },
+        { cwd: `${API}-wt`, label: "api-wt", repo: { ...repo, root: API } },
+      ]),
+    );
     await settle();
-    expect(listRow("Loading repositories…")).toBeUndefined();
-    expect(listRow("acme/api")).toBeDefined();
+    expect(rows()).toEqual(first);
+    // A folder that becomes the current one while open is listed, after the kept rows.
+    await act(async () => {
+      setChoices([
+        { cwd: FOLDER, label: "app" },
+        { cwd: API, label: "api", repo },
+        { cwd: "/Users/me/fresh", label: "fresh" },
+      ]);
+      setCwd("/Users/me/fresh");
+    });
+    await settle();
+    expect(rows().slice(0, first.length)).toEqual(first);
+    expect(rows()).toContain("fresh");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("an opened repository whose main checkout arrives while the menu is open is led by it, with its disclosure (cmux#53226)", async () => {
+  const gh = host({ "github.status": status("not_connected") });
+  type Choice = { cwd: string; label: string; repo?: { root: string; name: string; branch?: string } };
+  const API = "/Users/me/src/api";
+  const worktree = (name: string): Choice => ({
+    cwd: `/Users/me/.cmux/worktrees/api/${name}`,
+    label: `worktrees/${name}`,
+    repo: { name: "api", root: API, branch: name },
+  });
+  let setChoices: (choices: Choice[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [choices, set] = useState<Choice[]>([{ cwd: FOLDER, label: "app" }, worktree("blue"), worktree("green")]);
+    setChoices = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={choices}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        onNewWorktree={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "persistent", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    await press(doc().querySelector<HTMLButtonElement>("button[aria-label^='Show']")!);
+    expect(doc().querySelector("button[aria-label='Hide worktrees']")).not.toBeNull();
+    // api's main checkout arrives: it leads the repository's rows, which keep their disclosure.
+    await act(async () =>
+      setChoices([
+        { cwd: FOLDER, label: "app" },
+        { cwd: API, label: "api", repo: { name: "api", root: API, branch: "main" } },
+        worktree("blue"),
+        worktree("green"),
+      ]),
+    );
+    await settle();
+    // Before: the main checkout's row was left out (it was not shown at first paint), and the repository's
+    // disclosure with it, until the menu opened again.
+    expect(option("api")).toBeDefined();
+    expect(doc().querySelector("button[aria-label='Hide worktrees']")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a Cloud machine's heading stays on its first shown folder when a folder arrives ahead of it while open (cmux#53226)", async () => {
+  const gh = host({ "github.status": status("not_connected") });
+  const north = (id: string, cwd: string) => ({ id, peer: "peer-north", host: "North", hostKind: "cloud", cwd });
+  let setSessions: (sessions: unknown[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [sessions, set] = useState<unknown[]>([north("1", "/home/cmux/work/api")]);
+    setSessions = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={[{ cwd: FOLDER, label: "app" }]}
+        sessions={sessions as never}
+        peers={["peer-north"]}
+        peerKinds={{ "peer-north": "cloud" }}
+        peerConnected={{ "peer-north": true }}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    const headings = () =>
+      [...doc().querySelectorAll<HTMLElement>(".ui-combobox-scroll [role=option] [data-section]")].map(
+        (row) => row.dataset.section,
+      );
+    expect(headings()).toEqual(["North"]);
+    await act(async () => setSessions([north("2", "/home/cmux/work/web"), north("1", "/home/cmux/work/api")]));
+    await settle();
+    // Before: the heading moved to the new folder, which waits for the next open, so North lost its heading.
+    expect(headings()).toEqual(["North"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("an open repository keeps its worktrees' order and stays open when its GitHub details arrive (cmux#53226)", async () => {
+  const gh = host({ "github.status": status("not_connected") });
+  type Choice = { cwd: string; label: string; repo?: { root: string; name: string; branch?: string; github?: string } };
+  const API = "/Users/me/src/api";
+  const main = (github?: string): Choice => ({
+    cwd: API,
+    label: "api",
+    repo: { name: "api", root: API, branch: "main", ...(github ? { github } : {}) },
+  });
+  const worktree = (name: string, github?: string): Choice => ({
+    cwd: `/Users/me/.cmux/worktrees/api/${name}`,
+    label: `worktrees/${name}`,
+    repo: { name: "api", root: API, branch: name, ...(github ? { github } : {}) },
+  });
+  let setChoices: (choices: Choice[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [choices, set] = useState<Choice[]>([main(), worktree("blue"), worktree("green")]);
+    setChoices = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={choices}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "persistent", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    await press(doc().querySelector<HTMLButtonElement>("button[aria-label^='Show']")!);
+    const rows = () => labels(".ui-combobox-scroll [role=option]");
+    const first = rows();
+    expect(first).toEqual(expect.arrayContaining(["blue", "green"]));
+    // green is used: the host lists it first. Before: green jumped above blue under the pointer.
+    await act(async () => setChoices([main(), worktree("green"), worktree("blue")]));
+    await settle();
+    expect(rows()).toEqual(first);
+    // The host names api's GitHub origin (a new repository key). Before: the repository folded, its worktrees gone.
+    await act(async () => setChoices([main("acme/api"), worktree("green", "acme/api"), worktree("blue", "acme/api")]));
+    await settle();
+    expect(rows()).toEqual(first);
+    expect(doc().querySelector("button[aria-label='Hide worktrees']")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the folder chip draws GitHub's mark only for a repository picked as one, never for a folder of this Mac (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const chipIcon = () =>
+    doc().querySelector(".acpmux-location-button .acpmux-icon path")?.getAttribute("d") ?? "folder-or-badge";
+  const { root } = await renderTray(
+    {
+      // Cloud picked: the tab's clone of acme/api goes to Cloud as that repository, but it is a folder of this Mac.
+      projectChoices: [
+        {
+          cwd: "/Users/me/src/api",
+          label: "api",
+          repo: { root: "/Users/me/src/api", name: "api", github: "acme/api" },
+        },
+      ],
+      summary: { sessionId: "", cwd: "/Users/me/src/api" },
+    },
+    gh.store,
+  );
+  const { AGENT_BRANDS } = await import("../src/agent-session/shared/agentBrands.generated");
+  try {
+    expect(chipIcon()).not.toBe(AGENT_BRANDS.github.paths[0]!.d);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// cmux#53226: "if i connect github from this menu, it should connect and then this menu should remain open with all of
+// the github repositories afterwards as well". The palette closes as the browser takes over (here the person closes
+// it); once the connect ends connected it opens again on its GitHub page, the repositories listed.
+test("Connect to GitHub from Add project opens the palette again on its repositories once connected", async () => {
+  const uninstall = installPageKey(doc());
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await press(option("Connect to GitHub")!);
+    // The browser takes over: the palette closes.
+    await key("Escape");
+    await key("Escape");
+    expect(palette()).toBeNull();
+    // Back from the browser, connected.
+    gh.answers["github.status"] = ready;
+    gh.answers["github.repos.list"] = installed;
+    await gh.back();
+    await settle();
+    expect(palette()).not.toBeNull();
+    expect(option("acme/api")).toBeDefined();
+    expect(option("acme/web")).toBeDefined();
+  } finally {
+    await act(async () => root.unmount());
+    uninstall();
+  }
+});
+
+test("a Connect to GitHub cancelled in the browser never opens Add project when GitHub connects later elsewhere", async () => {
+  const uninstall = installPageKey(doc());
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await press(option("Connect to GitHub")!);
+    await key("Escape");
+    await key("Escape");
+    // Back from the browser, cancelled: still not connected.
+    await gh.back();
+    await settle();
+    expect(palette()).toBeNull();
+    // Later the app says GitHub connected (another surface's Connect): this palette stays closed.
+    gh.answers["github.status"] = ready;
+    gh.answers["github.repos.list"] = installed;
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect(palette()).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    uninstall();
+  }
+});
+
+test("Connect to GitHub that ends unconnected leaves Add project closed", async () => {
+  const uninstall = installPageKey(doc());
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await press(option("Connect to GitHub")!);
+    await key("Escape");
+    await key("Escape");
+    gh.answers["github.status"] = status("unavailable", { reason: "not_allowed" });
+    await gh.back();
+    await settle();
+    expect(palette()).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    uninstall();
+  }
+});
+
+test("Connect remembers the typed repository and picks it once GitHub shares it (Leo 2026-11-25)", async () => {
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root, picked } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await type("acme/web");
+    await press(option("Connect to GitHub")!);
+    // GitHub's page opens for the wanted repository's owner.
+    expect(gh.calls.at(-1)).toEqual(["github.connect", { repo: "acme/web" }]);
+    gh.answers["github.status"] = ready;
+    gh.answers["github.repos.list"] = installed;
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    await settle();
+    expect(picked).toContainEqual(["github:acme/web", undefined]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a repository still not shared after Connect says how to add it", async () => {
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root, picked } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await type("acme/billing");
+    await press(option("Connect to GitHub")!);
+    gh.answers["github.status"] = ready;
+    gh.answers["github.repos.list"] = installed;
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    await settle();
+    expect(picked).toEqual([]);
+    await key("Escape");
+    await press(gitHubRow());
+    expect(message()).toBe("acme/billing isn’t shared with cmux yet. Add it on GitHub with the option above.");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a typed owner/name the app can't see says how to add it", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await type("acme/billing");
+    expect(message()).toBe("acme/billing isn’t shared with cmux yet. Add it on GitHub with the option above.");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("pending approval says what happens next", async () => {
+  const gh = host({ "github.status": status("not_connected", { pending_approval: true }) });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    expect(message()).toBe(
+      "An organization owner needs to approve cmux. Once they do, your repositories show up here.",
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Cloud with a GitHub repository on the chip lists that repository and this Mac's folders, even one picked before the menu kept added repositories (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const { root } = await renderTray({ summary: { sessionId: "", cwd: "github:acme/web" } }, gh.store);
+  try {
+    await openFolderMenu();
+    // Before: "No recent folders" under a repository chip.
+    const shown = labels(".ui-combobox-scroll [role=option]");
+    expect(shown).toContain("acme/web");
+    expect(shown).toContain("app");
+    expect(shown).toContain("notes");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("folders of chats an agent or a Chief started are never listed; the person's are (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const session = (sessionId: string, cwd: string, extra: Record<string, unknown> = {}) =>
+    ({ sessionId, cwd, harness: "claude", status: "ready", ...extra }) as never;
+  const { root } = await renderTray(
+    {
+      projectChoices: [],
+      sessions: [
+        session("mine", "/Users/me/mine"),
+        session("chief-turn", "/Users/me/.cmux/chief/session", { chiefTurn: { home: "h", participant: "p" } }),
+        session("chief-child", "/private/tmp", { chiefChild: true }),
+        session("child", "/Users/me/agent-made", { startedBy: "mine" }),
+      ],
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    const shown = labels(".ui-combobox-scroll [role=option]");
+    expect(shown).toContain("mine");
+    expect(shown).not.toContain("session");
+    expect(shown).not.toContain("tmp");
+    expect(shown).not.toContain("agent-made");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+// A Chief's child chat gets its tags after it is made: the menu drops its folder then, with no folder or machine change.
+test("a chat tagged as a Chief's child after it was listed leaves the folder menu (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const session = (sessionId: string, cwd: string, extra: Record<string, unknown> = {}) =>
+    ({ sessionId, cwd, harness: "claude", status: "ready", ...extra }) as never;
+  let setSessions: (next: never[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [sessions, set] = useState<never[]>([
+      session("mine", "/Users/me/mine"),
+      session("child", "/Users/me/agent-made"),
+    ]);
+    setSessions = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={[]}
+        sessions={sessions}
+        onProject={() => undefined}
+        localName="This Mac"
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    expect(labels(".ui-combobox-scroll [role=option]")).toContain("agent-made");
+    await act(async () => doc().querySelector<HTMLButtonElement>(".acpmux-location-button")!.click());
+    await settle();
+    await act(async () =>
+      setSessions([session("mine", "/Users/me/mine"), session("child", "/Users/me/agent-made", { chiefChild: true })]),
+    );
+    await settle();
+    await openFolderMenu();
+    // Before: the cached list still offered the child's folder.
+    expect(labels(".ui-combobox-scroll [role=option]")).toContain("mine");
+    expect(labels(".ui-combobox-scroll [role=option]")).not.toContain("agent-made");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("the open menu keeps a repository's place when its main checkout arrives and becomes its lead row (cmux#53226)", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  setFolderUseTimes((folder) => ({ "/Users/me/wt/x-a": 3000, "/Users/me/notes": 1000 })[folder]);
+  const repo = { root: "/Users/me/src/x", name: "x" };
+  let setChoices: (next: { cwd: string; label: string; repo?: typeof repo }[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [choices, set] = useState<{ cwd: string; label: string; repo?: typeof repo }[]>([
+      { cwd: "/Users/me/wt/x-a", label: "x-a", repo },
+      { cwd: "/Users/me/notes", label: "notes" },
+    ]);
+    setChoices = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: "/Users/me/notes" }}
+        projectChoices={choices}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    expect(labels(".ui-combobox-scroll [role=option]")[1]).toBe("notes");
+    await act(async () =>
+      setChoices([
+        { cwd: "/Users/me/notes", label: "notes" },
+        { cwd: "/Users/me/src/x", label: "x", repo },
+        { cwd: "/Users/me/wt/x-a", label: "x-a", repo },
+      ]),
+    );
+    await settle();
+    // Before: the repository's block went last once its lead row changed to the main checkout.
+    expect(labels(".ui-combobox-scroll [role=option]")[1]).toBe("notes");
   } finally {
     await act(async () => root.unmount());
   }

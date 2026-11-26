@@ -50,6 +50,7 @@ test("no pull request: the Moon, the line, and a button to the person's pull req
     patches: {},
     merge: { phase: "idle" },
     rerun: { phase: "idle" },
+    write: { phase: "idle" },
   };
   const opened: (string | undefined)[] = [];
   const store = {

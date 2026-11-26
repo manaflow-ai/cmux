@@ -205,10 +205,13 @@ impl Hub {
         // A rate limit's compaction runs ahead of what the hold queued (`rate_hold.rs`).
         let held_by_rate = Self::rate_held(session)
             && super::super::turn_errors::resume_cause(cut.error, cut.error) == Some("rate_limit");
-        if let Err(why) = self.fire_pending(session, cut_turn) {
-            self.append_retry(session, "auto_resume_skipped", skipped(why));
-            return;
-        }
+        let fired_gen = match self.fire_pending(session, cut_turn) {
+            Ok(fired_gen) => fired_gen,
+            Err(why) => {
+                self.append_retry(session, "auto_resume_skipped", skipped(why));
+                return;
+            }
+        };
         let why = if session.status() == SessionStatus::Closed || session.moving().is_some() {
             Some("closed")
         } else if !super::still_cut_by(session, cut_turn, held_by_rate) {
@@ -219,7 +222,7 @@ impl Hub {
             None
         };
         if let Some(why) = why {
-            self.clear_fired(session, cut_turn);
+            self.clear_fired(session, cut_turn, fired_gen);
             self.append_retry(session, "auto_resume_skipped", skipped(why));
             return;
         }
@@ -253,12 +256,20 @@ impl Hub {
             trust_gate: cut.trust_gate,
             provenance: Some(provenance),
             after_turn: Some(cut_turn.to_owned()),
+            fired: Some(fired_gen),
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": "/compact"})];
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
         let accepted = accepted.load(std::sync::atomic::Ordering::SeqCst);
-        self.finish_compaction(session, cut_turn, &prompt_id, result, accepted, skipped);
+        self.finish_compaction(
+            session,
+            (cut_turn, fired_gen),
+            &prompt_id,
+            result,
+            accepted,
+            skipped,
+        );
     }
 
     /// The compaction's prompt answered. Its turn's end settled what follows
@@ -266,13 +277,13 @@ impl Hub {
     fn finish_compaction(
         &self,
         session: &Session,
-        cut_turn: &str,
+        (cut_turn, fired_gen): (&str, u64),
         prompt_id: &str,
         result: Result<Value, RpcError>,
         accepted: bool,
         skipped: impl Fn(&str) -> Value,
     ) {
-        self.clear_fired(session, cut_turn);
+        self.clear_fired(session, cut_turn, fired_gen);
         {
             let mut step = session.auto_resume.compacting.lock().unwrap_or_else(|e| e.into_inner());
             if step.as_ref().is_some_and(|s| s.prompt_id == prompt_id) {

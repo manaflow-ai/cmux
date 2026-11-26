@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-23",
+  "row": "app_lines",
+  "allow": 90,
+  "why": "Browser design mode comment threads (cmuxterm-hq goals/all-surface-comments-round-trip.md): the thread logic (save, threaded send, list polling, picks, root, resolve) is in CmuxNextDiff (BrowserCommentThreads); the App keeps only BrowserDesignModeController's glue, which needs AppServices (the workspace's last-focused chat, the browser tab cache, the diff page git link). No package other than CmuxNextApp depends on both CmuxNextBrowser and CmuxNextDiff.",
+  "author": "claude opus (lane/browser-comment-threads)",
+  "owner": "lane/browser-comment-threads",
+  "receipt": "Review (claude subagent, started by claude opus lane/browser-comment-threads): SHIP at 8ade875072b8560cc7e9f74b2ab03037d8e775ae",
+  "expiry": "2026-12-23"
+}

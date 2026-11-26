@@ -60,10 +60,17 @@ final class ShellModel {
     /// `comparisonTypeMismatch` when the nested stack joins this path.
     var workspacesPath: [Workspace] = [] {
         didSet {
+            if let workspace = workspacesPath.last {
+                let id = store.resolvedWorkspaceID(workspace.id)
+                lastWorkspace.save(id)
+                if lastWorkspaceID != id { lastWorkspaceID = id }
+            }
             updateInteractiveOpen()
             updateShownMacs()
         }
     }
+    /// The Workspaces list shows a Mac's panel (its recovery, or every Mac offline).
+    var workspacesMacPanelShown = false
     var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
     /// Taps on the selected tab at its root, per tab: each one asks that tab's list to scroll to
@@ -143,6 +150,10 @@ final class ShellModel {
     var settingsScrollTarget: String?
     /// Where the user was, kept across launches (design/terminal P10).
     @ObservationIgnored let lastOpen: LastOpenMemory
+    /// The workspace last visited, kept when the user backs out to the list.
+    @ObservationIgnored let lastWorkspace: LastWorkspaceMemory
+    /// The same id, observed: the list's mark follows it the moment a visit saves it.
+    private(set) var lastWorkspaceID: String?
     /// A launch restore still waiting for its workspace to be listed.
     @ObservationIgnored private var pendingRestore: LastOpenLocation?
     /// One launch restore per model.
@@ -163,8 +174,11 @@ final class ShellModel {
         let surface: Int
     }
 
-    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel, lastOpen: LastOpenMemory = .standard) {
+    init(store: AppStore, auth: CmuxMobileAuthModel, settings: SettingsStore, sidebar: SidebarModel,
+         lastOpen: LastOpenMemory = .standard, lastWorkspace: LastWorkspaceMemory = .standard) {
         self.lastOpen = lastOpen
+        self.lastWorkspace = lastWorkspace
+        self.lastWorkspaceID = lastWorkspace.load()
         self.store = store
         self.auth = auth
         // New Message names this account and its team by the Cloud's own ids, derived from the project.
@@ -700,6 +714,10 @@ final class ShellModel {
         // The user left the restored workspace: no late link for it.
         if let macID = restoreLinkMac, location.macID != macID { restoreLinkMac = nil }
         lastOpen.save(location)
+        // The Rust last place (`LastPlaceMemory`): the same move, with the reading place kept
+        // for the tab it names.
+        let tab = location.workspaceID.flatMap { store.workspace(id: $0) }?.tabs.first { $0.id == location.tabID }
+        LastPlaceMemory.shared.noteLocation(workspaceID: location.workspaceID, tabID: location.tabID, isChat: tab?.kind == .agent)
     }
 
     /// How many screens are pushed on `tab`'s stack.
@@ -778,10 +796,8 @@ final class ShellModel {
     /// The banner over Workspaces: no network first, then the live link (SPEC 7.4).
     var banner: ConnectionBannerState? {
         #if DEBUG
-        // Layout captures only: `-cmux-mobile-banner-demo pairing|pairing-reset|reconnecting|signed-out`.
+        // Layout captures only: `-cmux-mobile-banner-demo offline|pairing|pairing-reset|signed-out`.
         switch Self.bannerDemo {
-        case "connected"?: return .connected
-        case "reconnecting"?: return .reconnecting(to: "Mac Studio")
         case "offline"?: return .connectionFailed
         case "no-network"?: return .offline
         case "pairing"?: return .waitingForPairing(on: "Mac Studio")
@@ -1076,17 +1092,31 @@ extension ShellModel {
         let stackHub: URL? = nil
         #endif
         let auth = auth
+        // The build's cloud data space, as every other cloud client of this build sends it: a tagged Debug build is a
+        // device of its tag's space on the hub; one with no usable tag makes no hub calls.
+        let space = auth.buildSpace
+        let hubSpace: DeviceHubBuildSpace = if space.refusal != nil { .unusable } else if let dev = space.space { .dev(dev.headerValue) } else { .nightly }
         let configuration = ScreenSharingService.Configuration(
             baseURL: ScreenSharingService.hubURL(isDebug: isDebug, environment: environment, stackHub: stackHub),
             bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile",
-            deviceName: UIDevice.current.name,
+            deviceName: DeviceInstanceName(device: UIDevice.current.name, bundle: .main).value,
             tokens: DeviceHubAccountToken { try await auth.accessToken() },
-            accountID: auth.user?.id
+            accountID: auth.user?.id,
+            buildSpace: hubSpace
         )
         let service = ScreenSharingService(configuration: configuration)
         // The Share <Mac> tap's carrier (cmuxterm-hq#18912): the device hub's share-approval route.
         service.shareCarrier = { approval, target, hub in
             try await hub.sendShareApproval(target: target.id, approvalJSON: approval)
+        }
+        // Mac Screen over Link: the Macs this phone holds a link to, by name, with what their hosts
+        // list in `version` (a Mac listing `mac-display-v1` can show its screen on the link).
+        service.linkedMacs = { [weak self] in
+            guard let self, let live = self.live else { return [] }
+            let names = Dictionary(self.store.teams.flatMap(\.macs).map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
+            return live.linkedMacIDs.compactMap { macID in
+                names[macID].map { ScreenSharingLinkedMac(macID: macID, name: $0, capabilities: self.store.macCapabilities[macID]) }
+            }
         }
         #if DEBUG
         if let demo = ScreenSharingService.demoMode() {

@@ -138,6 +138,7 @@
     "CmuxNextMacScreen/MacScreenViewerLook+C.swift": "native-overlay",
     "CmuxNextNotifications/Share/AgentShareInviteCard.swift": "native-overlay",
     "CmuxNextOnboarding/Steps/HelperDragPanel.swift": "native-overlay",
+    "CmuxNextPages/CustomizeExperimentsMarkView.swift": "sidebar-card",
     "CmuxNextPages/GlassParity/GlassParityPlayground.swift": "debug",
     "CmuxNextPages/ViewWindow.swift": "window-chrome",
     "CmuxNextPalette/PaletteActionsMenuView.swift": "native-overlay",
@@ -165,15 +166,14 @@
     "CmuxNextTabs/TabStripView.swift": "window-chrome",
     "CmuxNextTerminal/TerminalDictationPreview.swift": "native-overlay",
     "CmuxNextTerminal/TerminalFindBarView.swift": "native-overlay",
+    "CmuxNextTerminalComments/TerminalCommentsPopup.swift": "native-overlay",
     "CmuxNextUpdater/Share/ShareCmuxView.swift": "native-overlay",
     "CmuxNextUpdater/UpdateSheetController.swift": "native-overlay"
   },
   "web_floating_pending": {
     "ui/FeatureTip.tsx": "the feature tip: page glass in the agent pane, a flat-reading box beside host-glass menus",
-    "agent-session/acpmux/ModelPicker.tsx": "the full model picker with its harness rail (PickerDialog): page glass, while the quick model menus are on host glass",
     "agent-session/acpmux/EmojiMenu.tsx": "the emoji list: page glass",
     "agent-session/acpmux/PaletteMenu.tsx": "the in-pane palette menu: page glass",
-    "agent-session/acpmux/NewTabPage.tsx": "New Tab's omni list: page glass",
     "agent-session/acpmux/steerQueue/SteerQueue.tsx": "the steer queue: page glass",
     "agent-session/acpmux/subagents/AgentsPill.tsx": "the agents list: page glass"
   }

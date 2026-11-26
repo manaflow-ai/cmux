@@ -1447,6 +1447,10 @@ fn a_chat_grant_call_is_refused_before_any_request_on_stack_or_a_bad_id() {
     assert!(seen.lock().unwrap().is_empty());
 }
 
+// MARK: Auto mode's store, as the owner (auto_sessions.rs)
+
+mod auto_sessions;
+
 // MARK: turn checkpoints ("back to before this turn")
 
 mod turn_checkpoints {
@@ -1915,3 +1919,4 @@ mod turn_checkpoints {
 }
 
 mod fork_runs;
+mod machine_fork;

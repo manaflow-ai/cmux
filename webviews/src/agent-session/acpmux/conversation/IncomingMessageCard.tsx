@@ -60,7 +60,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { laneNotice } from "./laneReport";
 import "./AgentMessageRow.css";
 import "./LaneNoticeBatch.css";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { useDisclosure } from "./useDisclosure";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { Face } from "../multiplayer/Faces";
@@ -70,6 +70,7 @@ import { useMessageLineLook } from "./messageLineLook";
 import type { AgentNotice } from "./agentNotice";
 import { NoticeMark } from "./NoticeMark";
 import { SEVERITY_LABEL } from "./noticeMarkModel";
+import { noticeRepeatClock } from "./noticeRowModel";
 import { noticeMarkdown, openedNoticeText, titleParts } from "./agentNotice";
 import { useNoticeBodyLook, useNoticeLook, type NoticeLook } from "./noticeLook";
 import { openSessionAttributes } from "./menuParts";
@@ -158,11 +159,17 @@ export function ReceivedMark({ message }: { message: IncomingMessage }) {
 /// that ends it (`(exit 2)`) and how many more notices went in with it, which the line always shows
 /// whole (Leo, 2026-11-08: "why was there a yellow warning symbol?": the cut hid the exit).
 function NoticeTitle({ notice }: { notice: AgentNotice }) {
+  const t = useT();
   const { lead, end } = titleParts(notice.title);
   return (
     <>
       <span className="cv-notice__lead">{lead}</span>
       {end && <span className="cv-notice__end">{` ${end}`}</span>}
+      {notice.repeats && notice.repeats > 1 ? (
+        <span className="cv-notice__more cv-notice__repeats" data-find-skip="">
+          {t("inbox.noticeRepeats", { n: notice.repeats, time: noticeRepeatClock(notice.lastAt) })}
+        </span>
+      ) : null}
       {notice.more ? (
         <span className="cv-notice__more" data-find-skip="">
           +{notice.more}
@@ -455,14 +462,11 @@ export function IncomingMessageLine({
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
   // estimator reads it.
-  const [opened, setOpen] = useState(() => messageOpened(session, id));
+  // One open-state store (useDisclosure.ts): a click is one transition of the transcript's owner.
+  const { open: opened, set: show } = useDisclosure({ message: id, sessionId: session });
   const open = whole || opened;
   const lineLook = useMessageLineLook();
   const inPlace = useReceivedLook() === "card";
-  const show = (next: boolean) => {
-    setMessageOpened(session, id, next);
-    setOpen(next);
-  };
   const rawId = useId();
   // The prompt as the agent got it (cmux's envelope around the message) waits behind Details, open
   // or closed per chat and row, so scrolling it out of the virtualized transcript keeps it.

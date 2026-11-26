@@ -28,11 +28,14 @@ change often, so a look sets only these custom properties, on `:root`
 | Token | What it paints |
 | --- | --- |
 | `--cv-text`, `--cv-text-muted`, `--cv-text-dim` | body, secondary and quietest transcript text |
+| `--cv-activity-text` | tool rows and "Worked for"; unset, the theme's text at 58%, which reads under 4.5:1 on an off-white paper, so a light look sets it (the example looks use their `--cv-text-muted`) |
 | `--cv-link`, `--agent-link` | links in replies, and in the rest of the pane |
 | `--cv-card-fill`, `--cv-card-ring` | the card level and its hairline: tool output, edit, error and permission cards, plans, the subagent card (code blocks keep their own fill); unset, the theme's text at 4% and 10% |
 | `--cv-user-bubble-tint`, `--cv-user-bubble-edge` | the prompt bubble's glass tint and its hairline |
 | `--cv-user-bubble-radius` | the prompt bubble's corner |
+| `--cv-user-bubble-text` | the prompt bubble's text, for a filled bubble (white on a blue pill); its quote and Show more take it at 88%, inline code a wash of it; unset, the transcript's text |
 | `--cv-code-edge-fade` | how far a long code line fades at the card's right edge while more lies past; unset, a hard edge |
+| `--cv-composer-icon-radius` | the corner of the in-box composer's + (attach) button and its hover highlight; `50%` is a circle. Claude's one-line composer never reads it; unset, the app's button corner |
 
 ```css
 :root {

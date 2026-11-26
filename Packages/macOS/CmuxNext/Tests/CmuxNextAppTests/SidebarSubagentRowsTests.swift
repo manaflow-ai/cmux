@@ -1,13 +1,14 @@
 @testable import CmuxNextBridge
 @testable import CmuxNextSidebar
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
 
 /// Leo, 2026-11-19 ("for claude there's the font and the nested sessions and whatever"): a chat's subagents
 /// list under its row as the Claude desktop app's Code tab nests a chat's tasks. With the session tree on,
-/// an open row draws one line per subagent (at most five, then "N more") and a folded one a single
-/// stacked line; with it off, no subagent line at all (https://github.com/manaflow-ai/cmux/issues/52977).
+/// an open row draws one line per subagent (at most five, then "N more"); folded or with it off, no line, and
+/// failed subagents count in the title line's failed mark.
 @MainActor @Suite struct SidebarSubagentRowsTests {
     private static let chat = WorkspaceID("ws-chat")
     private static let tab = TabID("tab-chat")
@@ -46,22 +47,41 @@ import Testing
         let strip = try #require(row.content?.subagents)
         #expect(strip.rows.count == SidebarSubagentStrip.visibleRows)
         #expect(strip.rows.first?.subagent.id == "t3", "the latest ones")
-        #expect(strip.more == 35)
+        #expect(strip.more == 3, "the listed ones past five, never the lifetime 40")
         #expect(strip.lineCount == 6)
         #expect(Strings.moreSubagents(35) == "35 more")
     }
 
-    @Test func aFoldedChatShowsOneStackedLine() throws {
+    /// Leo, 2026-11-25: a coordinator row read "4,272 more" under its five rows: every helper it ever started.
+    /// "N more" counts only the listed (recent) ones past five, so a lifetime total never shows.
+    @Test func moreNeverCountsTheLifetimeTotal() throws {
+        let row = try #require(Self.layout(Self.subagents([.running, .done, .failed], total: 4_277), tree: SidebarSessionTreeState()))
+        let strip = try #require(row.content?.subagents)
+        #expect(strip.more == 0)
+        #expect(strip.lineCount == 3)
+    }
+
+    /// Leo 2026-11-23 on "◇◇◇◇◇ 4 running · 3 failed" under a row: "this is weird and bad and unncessary". Folded,
+    /// or with the tree off, a chat lists no line; its failed subagents are the title line's one failed mark.
+    @Test func aFoldedChatDrawsNoLineAndItsFailuresAreTheFailedMark() throws {
         let tree = SidebarSessionTreeState(collapsed: [Self.chat])
-        let strip = try #require(Self.layout(Self.subagents([.done, .running, .running]), tree: tree)?.content?.subagents)
-        #expect(strip.mode == .stack)
-        #expect(strip.lineCount == 1)
-        #expect(strip.marks.first == .running)
-        #expect(Strings.subagentStack(strip) == "2 running")
-        let finished = try #require(Self.layout(Self.subagents([.done, .done, .failed], total: 9), tree: tree)?.content?.subagents)
-        #expect(Strings.subagentStack(finished) == "8 done · 1 failed")
-        let stopped = try #require(Self.layout(Self.subagents([.done, .stopped, .stopped]), tree: tree)?.content?.subagents)
-        #expect(stopped.done == 1, "a stopped subagent is not done")
+        let folded = try #require(Self.layout(Self.subagents([.done, .running, .failed, .failed]), tree: tree)?.content)
+        #expect(folded.subagents == nil)
+        #expect(folded.subagentsFailed == 2)
+        #expect(folded.drawnRollUp == SidebarTreeRollUp(failed: 2))
+        #expect(folded.treeFold == .collapsed, "the chevron stays, to open the rows")
+        let bare = try #require(Self.layout(nil, tree: tree))
+        let quiet = try #require(Self.layout(Self.subagents([.done, .running]), tree: tree))
+        #expect(quiet.height == bare.height, "nothing running or done adds a line")
+        #expect(quiet.content?.drawnRollUp == nil)
+    }
+
+    @Test func withTheTreeOffNoLineShows() throws {
+        let running = try #require(Self.layout(Self.subagents([.done, .running]), tree: nil)?.content)
+        #expect(running.subagents == nil)
+        #expect(running.drawnRollUp == nil)
+        #expect(Self.layout(Self.subagents([.done, .failed]), tree: nil)?.content?.subagentsFailed == 1)
+        #expect(Self.layout(Self.subagents([.done, .running]), tree: nil)?.content?.treeFold == nil, "no chevron off the tree")
     }
 
     /// https://github.com/manaflow-ai/cmux/issues/52977: a "✧ 1 running" line under a row, with the tree off,
@@ -80,6 +100,22 @@ import Testing
         #expect(SidebarSubagentStrip.make(Self.subagents([.running]), tree: false, folded: false) == nil)
     }
 
+    /// Leo, 2026-11-24 (screenshot): "8 running" was cut off by its row's bottom edge. The stacked line's view took a
+    /// subagent row's 24 pt while the row reserved 18, so its frame hung past the strip and its text sat low.
+    @Test func theStackedLineFitsTheHeightTheRowReservesForIt() throws {
+        let tree = SidebarSessionTreeState(collapsed: [Self.chat])
+        let strip = try #require(Self.layout(Self.subagents([.running, .running, .failed, .done, .done]), tree: tree)?.content?.subagents)
+        let reserved = SidebarLayoutMetrics.standard.subagentStackHeight
+        let view = SidebarSubagentsView(frame: NSRect(x: 0, y: 0, width: 260, height: reserved))
+        view.textX = 36
+        view.trailingInset = 6
+        view.configure(strip)
+        view.layoutSubtreeIfNeeded()
+        let line = try #require(view.pressable.first)
+        #expect(line.frame.height == reserved)
+        #expect(view.bounds.contains(line.frame), "the line stays inside the strip the row reserved")
+    }
+
     @Test func theThreeLooks() throws {
         let tree = SidebarSessionTreeState()
         #expect(Self.layout(Self.subagents([.running]), tree: tree, look: .rows)?.content?.subagents?.mode == .rows)
@@ -96,7 +132,7 @@ import Testing
 
     @Test func aFoldOnAChatWithOnlySubagentsSurvivesTheSave() {
         let defaults = UserDefaults(suiteName: "SidebarSubagentRowsTests-\(UUID().uuidString)")!
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("lane"): WorkspaceID("chief")])
         tree.toggle(Self.chat, keeping: [Self.chat])
         #expect(tree.collapsed.contains(Self.chat))

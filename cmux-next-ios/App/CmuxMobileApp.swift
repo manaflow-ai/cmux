@@ -6,6 +6,7 @@ import CmuxMobileModel
 import CmuxMobileShell
 import CmuxMobileVoice
 #if DEBUG
+import CmuxLiveCode
 import CmuxMobileTerminal
 import os
 #endif
@@ -17,6 +18,10 @@ struct CmuxMobileApp: App {
     @UIApplicationDelegateAdaptor(CmuxMobileAppDelegate.self) private var appDelegate
     @State private var auth: CmuxMobileAuthModel
     @Environment(\.scenePhase) private var scenePhase
+    #if DEBUG
+    /// Swift live code in the simulator (scripts/live-code/ios-sim.sh).
+    @State private var liveCode: LiveCodeRedraw
+    #endif
 
     init() {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
@@ -33,6 +38,8 @@ struct CmuxMobileApp: App {
         ClassicLeftovers.cleanUpIfDue()
         // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
+        // Agent Chats restores the last page from the phone's read-first store before refreshing.
+        PhoneReadFirst.installAgentChats()
         #if !CMUX_MOBILE_PRODUCTION
         // Messages' own + menu and tapback art (ConversationSystemArt). Every shipping
         // build (Production, TestFlight/cmux INTERNAL, AppStore) carries no
@@ -80,6 +87,14 @@ struct CmuxMobileApp: App {
         LiveFeedFixture.shared.startIfRequested()
         // Input responsiveness: main-thread hitches with stacks, keyboard windows, key and send latency.
         InputLatencyTrace.startIfRequested()
+        if let trace = InputLatencyTrace.shared {
+            ComposerDraftStore.mainThreadWrite = { trace.note("draft_file_write_main") }
+        }
+        // Swift live code in the simulator (scripts/live-code/ios-sim.sh): watches the folder
+        // CMUX_LIVE_CODE_DIR names and applies each patch without a rebuild or relaunch.
+        let liveCode = LiveCodeRedraw()
+        liveCode.startFromEnvironment()
+        _liveCode = State(initialValue: liveCode)
         // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
         TerminalFeedFixture.shared.startIfRequested()
         #endif
@@ -119,10 +134,17 @@ struct CmuxMobileApp: App {
             #endif
             }
             #if DEBUG
+            // Rebuilt with the new code after each live code patch (LiveCodeRedraw).
+            .liveCodeRedraw(liveCode)
             // `CMUX_MOBILE_LAUNCH_MARKS=1`: the launch marks for LaunchTTIUITests.
             .overlay(alignment: .topLeading) { LaunchMarksProbe() }
             .overlay(alignment: .topTrailing) { InputLatencyProbe() }
             .overlay(alignment: .bottomLeading) { ResumeMarksProbe() }
+            // `-cmux-placeholder-markers`: the layout-shift count for PlaceholderBoundUITests.
+            .overlay(alignment: .bottomTrailing) { LayoutShiftProbeLabel() }
+            .overlay(alignment: .bottomTrailing) { OpenMarksProbe() }
+            // `CMUX_MOBILE_LOAD_PROBE=1`: placeholder and layout-shift frames for LoadShiftsUITests.
+            .overlay(alignment: .bottomTrailing) { LoadFrameProbeLabel() }
             #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,

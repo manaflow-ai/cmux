@@ -339,12 +339,14 @@ for (const cell of CELLS) {
       expect(calls.filter((call) => call.method === "chat.new" || call.method === "chat.send")).toEqual([]);
       const starts = calls.filter((call) => call.method === "cloud.startChat");
       expect(starts.length).toBe(1);
-      // The GitHub-backed project keeps its repository identity. Other picks start in the machine's home.
+      // A folder of this Mac picked here starts the Cloud chat in that folder (projected or copied onto the machine),
+      // a checkout of a GitHub repository too: never a clone that needs GitHub access on the machine (cmux#55104).
+      // No folder starts in the machine's home.
       expect(starts[0]!.params).toMatchObject({
         task: prompt,
         harness: cell.harness,
       });
-      if (cell.folder === "repository") expect(starts[0]!.params.cwd).toBe(`github:${CLOUD_REPO}`);
+      if (folder) expect(starts[0]!.params.cwd).toBe(folder);
       else {
         expect(starts[0]!.params).toMatchObject({ home: true });
         expect(starts[0]!.params.cwd).toBeUndefined();

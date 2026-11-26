@@ -19,7 +19,7 @@ import type {
 } from "../ops";
 import { t } from "../strings";
 
-const STATUS: Record<string, string> = {
+export const STATUS: Record<string, string> = {
   unbuilt: "settingsPage.cloudEnvironments.status.unbuilt",
   building: "settingsPage.cloudEnvironments.status.building",
   ready: "settingsPage.cloudEnvironments.status.ready",
