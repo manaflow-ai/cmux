@@ -554,7 +554,9 @@ impl<C: ControlPlane> Server<C> {
             "machine" => machine::run(&mut ctx, &mut self.lifecycle, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
             "environment" => environment::run(&mut ctx, name, args),
-            "plan" | "usage" | "billing" | "retention" | "allotment" => plan::run(&mut ctx, name, args),
+            "plan" | "usage" | "billing" | "retention" | "allotment" => {
+                plan::run(&mut ctx, name, args)
+            }
             "migration" => migration::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
         }
