@@ -156,6 +156,7 @@ enum PairInviteCard {
                 answer.isEnabled = false
             case let .approveFailed(_, _, reject):
                 error = reject
+                // retry-prompt-ok: SECURITY: confirming grants the arrived machine access; only the person's own click sends it again
                 answer = CmuxDialogButton(id: ID.retry, title: PairInviteStrings.retry, role: .default, personOnly: true,
                                           isEnabled: approver.canApprove)
             default: break
