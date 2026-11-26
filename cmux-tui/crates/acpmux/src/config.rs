@@ -1331,9 +1331,10 @@ pub struct SessionResourceConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disk_mb: Option<u64>,
     /// `cpuClass`: the CPU class a macOS session's harness runs at once its
-    /// start is over (it starts at normal), `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
+    /// start is over (it starts at normal), `dynamic`, `background` or `normal` (`cpu_class.rs`). Env `ACPMUX_SESSION_CPU_CLASS`
     /// overrides it, a profile's env overrides both. Unset: `normal`, a terminal shell's
-    /// priority and disk tier (`cpu_class::default_for`).
+    /// priority and disk tier (`cpu_class::default_for`). `dynamic` is opt-in and yields only
+    /// during measured contention.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_class: Option<crate::cpu_class::CpuClass>,
 }
@@ -1896,6 +1897,10 @@ pub struct MachineWakeConfig {
 pub struct WriteJournalConfig {
     #[serde(default)]
     pub enabled: bool,
+    /// RFD 0144 piece 2: also answer the app's and phone's file tree, file and search reads of a
+    /// paused machine from its replica and journal, with no wake. Needs `enabled`; off by default.
+    #[serde(default)]
+    pub serve_paused_reads: bool,
 }
 
 impl WriteJournalConfig {
