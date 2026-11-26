@@ -39,8 +39,6 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LooksGallery,
-  type LooksRun,
   type SharesState,
   type KeysState,
   type TailnetState,
@@ -72,6 +70,8 @@ import {
   type LibraryRun,
   type ModelsRun,
   type ModelsState,
+  type LooksGallery,
+  type LooksRun,
   type AgentMcpRun,
   type AgentMcpState,
   type AllotmentSet,
@@ -111,6 +111,7 @@ import { mockLibrary, runLibrary } from "./mockLibrary";
 import { mockEmptyDoctor, runDoctor } from "./mockDoctor";
 import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { SlackConnection } from "./slackConnection";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
 
 export type MockOptions = {
@@ -254,6 +255,7 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
     statusKind: "quiet",
     busy: false,
     buttons: [cmuxButton("cmux.signIn", "Sign In to cmux")],
+    signInBackend: "Signs in to cmux.com",
     note: null,
     error: null,
   },
@@ -304,6 +306,8 @@ export type MockWorktreeProject = {
 };
 
 export class MockSettingsProvider {
+  slack: SlackConnection = { connected: false, teams: [] };
+  slackAllowance: number | null = null;
   readonly log: Array<{ op: string; params: unknown }> = [];
   /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
   themeColors: GhosttyTheme[] = mockThemeColors;
@@ -392,6 +396,28 @@ export class MockSettingsProvider {
         return this.host;
       },
       "cmux.settings.accounts.state": () => this.accountsState(),
+      "cmux.settings.slack.request": (params) => {
+        if (params.method === "POST") return { url: "https://platform.example/v1/slack/install?ticket=example" };
+        if (params.method === "DELETE") this.slack = { connected: false, teams: [] };
+        return this.slack;
+      },
+      "cmux.settings.slack.create_app": () => ({
+        rid: "r0",
+        appId: "A0EXAMPLE",
+        name: "Acme",
+        installUrl: "https://platform.example/v1/slack/apps/r0/install?ticket=example",
+      }),
+      "cmux.settings.slack.open": () => ({}),
+      "cmux.settings.slack.awake": (params) => {
+        if ("allowance_seconds" in params) this.slackAllowance = params.allowance_seconds as number | null;
+        return {
+          allowance_seconds: this.slackAllowance ?? 7200,
+          default_seconds: 7200,
+          max_seconds: 86400,
+          days: 7,
+          senders: [],
+        };
+      },
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
@@ -1119,6 +1145,10 @@ export class MockSettingsProvider {
       "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.slack.request",
+      "cmux.settings.slack.create_app",
+      "cmux.settings.slack.open",
+      "cmux.settings.slack.awake",
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",
