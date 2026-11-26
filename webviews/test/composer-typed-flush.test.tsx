@@ -253,6 +253,7 @@ test("a switch saves the text typed for the chat it was typed in, not the next o
   await until(() => prompt() === "", "the next chat's empty prompt");
   expect(draftOf("flush-from")).toBe("for the first chat");
   await settle();
-  await new Promise((resolve) => setTimeout(resolve, 250));
+  // Whatever write is still held for the next chat goes out now: none carries the first chat's text.
+  await act(() => void dom.window.dispatchEvent(new dom.window.Event("pagehide")));
   expect(draftOf("flush-to")).toBeUndefined();
 });

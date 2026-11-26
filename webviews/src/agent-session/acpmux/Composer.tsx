@@ -220,6 +220,16 @@ const UNSENT_DRAFT_INTERVAL_MS = 300;
 const TYPED_WINDOW_MS = 250;
 /// How long a typed change's draft writes wait (`flushTyped`): the key's own task does none of them.
 const TYPED_FLUSH_MS = 150;
+/// Runs `run` with `flag` set to `typing`, then clears it even when `run` throws. A plain function:
+/// the React Compiler does not lower a `try` without a `catch` inside a component.
+function editWhileTyping(flag: { current: boolean }, typing: boolean, run: () => void) {
+  flag.current = typing;
+  try {
+    run();
+  } finally {
+    flag.current = false;
+  }
+}
 /// With Cmd held, the keys that edit the prompt (undo, redo, cut, paste, delete a line); any other
 /// Cmd chord (select all, copy, a shortcut) changes nothing the person typed.
 const CMD_EDIT_KEYS = new Set(["z", "y", "x", "v", "Backspace", "Delete"]);
@@ -955,11 +965,11 @@ function ComposerFrame({
     if (pending.signal) typingSignal.current();
   };
   const holdTyped = (part: "text" | "signal") => {
-    const pending = (typedFlush.current ??= {
-      timer: setTimeout(() => flushTyped(), TYPED_FLUSH_MS),
-      text: false,
-      signal: false,
-    });
+    let pending = typedFlush.current;
+    if (pending == null) {
+      pending = { timer: setTimeout(() => flushTyped(), TYPED_FLUSH_MS), text: false, signal: false };
+      typedFlush.current = pending;
+    }
     pending[part] = true;
   };
   useEffect(() => {
@@ -3356,12 +3366,7 @@ function ComposerFrame({
       const typing = performance.now() - typedAt.current < TYPED_WINDOW_MS;
       // The person's key: its draft writes and typing presence wait (`flushTyped`). Not while a Cloud
       // start is out: the host may open its chat at any moment, seeded with what it holds then.
-      typingChange.current = typing && !cloudStarting;
-      try {
-        edit(value, at, true);
-      } finally {
-        typingChange.current = false;
-      }
+      editWhileTyping(typingChange, typing && !cloudStarting, () => edit(value, at, true));
       if (!typing) return;
       if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
       // Kept past this mount: a composer that comes back keeps the person's text over acpmux's.
