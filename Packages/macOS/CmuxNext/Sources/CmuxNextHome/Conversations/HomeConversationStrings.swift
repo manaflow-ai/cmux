@@ -120,6 +120,7 @@ enum HomeConversationStrings {
     static var requestGroupUntitled: String {
         String(localized: "home.requests.groupUntitled", defaultValue: "Invited you to a group", bundle: .localizedModule)
     }
+    // retry-prompt-ok: re-running a conversation action the person started (paid or side-effecting)
     static var requestFailed: String { String(localized: "home.outcome.failed", defaultValue: "That didn’t work. Try again.", bundle: .localizedModule) }
 
     // MARK: New Message
