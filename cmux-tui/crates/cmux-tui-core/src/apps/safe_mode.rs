@@ -10,7 +10,7 @@
 //! What it covers: every app with a script (`runtime.main`), which is every
 //! third-party app, every local and customize app and every bundled
 //! first-party app that runs in the app host (agents, caffeinate, codemirror,
-//! coderouter, diffs, finder, inbox, integrations, memory, notes, search,
+//! diffs, finder, inbox, integrations, memory, notes, search,
 //! skills, usage). None of them is something cmux cannot work without: each
 //! place falls back to its native view. What it leaves on: apps with no
 //! script (the App Store, Home, Cloud and Remote Desktop panes, drawn by the
