@@ -583,7 +583,8 @@ class PrePushGateTests(unittest.TestCase):
     def test_a_push_nothing_bounds_is_refused_with_what_to_fetch(self):
         # No ref of the remote at all in this clone: nothing can tell the push's own commits (one line per ref, no
         # traceback), and nothing judges HEAD~1 alone. The cmux-next gate now warns and passes here (Leo 2026-11-22:
-        # refuse only for the pusher's own diff); the web lint, which runs first, still refuses it.
+        # refuse only for the pusher's own diff). The web lint says the same and, since #49904 (Leo 2026-11-22: lint
+        # never stops a push), lets the push through too: every message names the fix, nothing traces back.
         for ref in self.git("for-each-ref", "--format=%(refname)", "refs/remotes/").stdout.split():
             self.git("update-ref", "-d", ref)
         self.git("checkout", "--quiet", "-b", "fresh")
@@ -595,13 +596,14 @@ class PrePushGateTests(unittest.TestCase):
         result = self.push_ref("fresh")
 
         output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertIn("nothing was checked, and the push goes through UNCHECKED", output)
         self.assertIn("cannot tell which commits are this push's own", output)
         self.assertIn("git fetch origin", output)
         self.assertNotIn("Traceback", output)
 
     def test_a_snapshot_without_push_range_refuses_the_push_and_says_how_to_fix_it(self):
-        # The web lint, which runs first, refuses; the cmux-next gate alone would warn and pass (CannotDecide).
+        # The cmux-next gate warns and passes (CannotDecide); the web lint never stops a push (#49904). The fix is named.
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         (snapshot.resolve() / "push_range.py").unlink()
         self.kit("Fresh", NEW_CLEAN)
@@ -610,7 +612,7 @@ class PrePushGateTests(unittest.TestCase):
         result = self.push()
 
         output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(result.returncode, 0, output)
         self.assertIn("push_range.py is missing; rerun scripts/install-git-hooks.sh", output)
         self.assertNotIn("Traceback", output)
 
@@ -2585,7 +2587,25 @@ pub fn reset(snapshot: &Snapshot) {
             "process-scan-baseline.tsv", "state-roots-baseline.tsv", "raw-spawn-baseline.tsv",
             "raw-flock-baseline.tsv", "spawn-owner-baseline.tsv", "app-id-special-cases-baseline.tsv",
             "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv", "visible-only-baseline.tsv",
-            "keychain-no-prompt-baseline.tsv"})
+            "keychain-no-prompt-baseline.tsv", "classic-ids-baseline.tsv"})
+
+    def test_classic_ids_baseline_takes_a_deleted_row(self):
+        # A push that moves a Classic cache root and deletes its classic-ids row was refused as "no longer has ...:
+        # delete its row" (the installed copy kept the row): now each tree reads its own lower row.
+        spec = importlib.util.spec_from_file_location("prepush_gate_classic_ids", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        name = "classic-ids-baseline.tsv"
+        self.write(f"scripts/cmux-next/{name}", "a.rs\t.config/cmux/\t1\tmove\tx\n")
+        self.commit("pushed classic ids: b.rs moved off Classic's cache, a.rs kept")
+        installed = self.root / "installed"
+        installed.mkdir()
+        (installed / name).write_text("a.rs\t.config/cmux/\t1\tmove\tx\nb.rs\tjoin(\"cmux\")\t1\tmove\tx\n")
+
+        taken = gate.lower_ratchet_baselines(self.repo, "HEAD", installed)
+
+        self.assertEqual((installed / name).read_text(), "a.rs\t.config/cmux/\t1\tmove\tx\n")
+        self.assertEqual(taken, [f'{name}: b.rs join("cmux") 1 -> 0 (row deleted)'])
 
     def test_a_line_baseline_takes_only_the_lines_the_push_removed(self):
         spec = importlib.util.spec_from_file_location("prepush_gate_line_baselines", SOURCE / GATE)
@@ -3803,7 +3823,7 @@ class AdvisoryGuardrailsDiagnosticsTests(unittest.TestCase):
 
 
 class MergeUpstreamRunTests(unittest.TestCase):
-    """2026-11-21: a merge push's gate took 798 s on big-red (the hook's 600 s limit): gate_own's run over the range
+    """2026-11-21: a merge push's gate took 798 s on a Linux workstation (the hook's 600 s limit): gate_own's run over the range
     the merge does not own ran every check again, whole-package dependency and surface material trees among them
     (293 s), though only the checks the push's own run found something in are ever read from it."""
 

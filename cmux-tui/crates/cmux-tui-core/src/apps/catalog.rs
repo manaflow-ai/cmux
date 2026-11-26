@@ -181,7 +181,10 @@ impl Package {
                     }
                 } else {
                     entry.set("command", Value::String("app.command.run".into()));
-                    entry.set("args", serde_json::json!({ "app": self.id, "command": binding.command }));
+                    entry.set(
+                        "args",
+                        serde_json::json!({ "app": self.id, "command": binding.command }),
+                    );
                 }
                 if let Some(when) = binding.when {
                     entry.set("when", Value::String(when));

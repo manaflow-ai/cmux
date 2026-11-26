@@ -468,7 +468,8 @@ def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
 
     # Execute from precisely the declared files, without the full checkout on sys.path.
     paths = sparse["with"]["sparse-checkout"].split()
-    assert paths == ["/scripts/ci/nightly-publication-marker.py"]
+    # /.gitmodules: actions/checkout's submodule foreach reads it (test_sparse_checkout_keeps_gitmodules.py).
+    assert paths == ["/scripts/ci/nightly-publication-marker.py", "/.gitmodules"]
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         for path in paths:

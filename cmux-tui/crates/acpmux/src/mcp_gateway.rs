@@ -599,7 +599,7 @@ pub(crate) fn derived_port(home: &Path) -> u16 {
 /// the successor starts while the daemon it replaces still holds the port and only exits a second
 /// or so later (`daemon.stops.json`, `handover: another daemon of this home starts`). Taking a
 /// free port on the first `Address in use` made every restart move the gateway, and each move
-/// stranded every live harness, whose config names the port it was started with (big-red,
+/// stranded every live harness, whose config names the port it was started with (a Linux workstation,
 /// 2026-11-22: eight restarts, eight new ports, `ECONNREFUSED ... dialing
 /// http://127.0.0.1:41227/mcp/...` in a chat for the rest of its life).
 async fn bind_kept(port: u16, wait: Duration) -> std::io::Result<TcpListener> {

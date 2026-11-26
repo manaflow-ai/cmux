@@ -49,6 +49,9 @@ pub struct TabsViewport {
 #[derive(Debug, Clone, Default, PartialEq, Eq, uniffi::Record)]
 pub struct TabsRow {
     pub tab_id: String,
+    /// The tab's durable id on the Mac (the daemon's `tab_resource_id`): `tab_id` names a tab
+    /// only within one epoch, this one stays the tab's across them. Empty when unknown.
+    pub tab_key: String,
     pub title: String,
     /// `browser`, `terminal`, `agent`, or a kind a newer Mac names.
     pub kind: String,
@@ -155,6 +158,7 @@ impl State {
             .iter()
             .map(|row| TabsRow {
                 tab_id: row.tab_id.clone(),
+                tab_key: row.tab_key.clone(),
                 title: row.title.clone(),
                 kind: row.kind.as_str().to_owned(),
                 favicon_hash: hex(row.favicon_hash),
@@ -431,6 +435,18 @@ mod tests {
     }
 
     #[test]
+    fn a_row_carries_the_tabs_durable_key_and_none_when_the_mac_sends_none() {
+        let mirror = TabsMirror::new(Vec::new());
+        let keyed = Row { tab_key: "res-a".to_owned(), ..row("a", b"f1", b"ta") };
+        let TabsEvent::Rows { rows, .. } = recv(&mirror, manifest(1, vec![keyed, row("b", b"f1", b"tb")]))
+        else {
+            panic!("rows expected");
+        };
+        assert_eq!(rows[0].tab_key, "res-a");
+        assert_eq!(rows[1].tab_key, "", "an older Mac sends no key");
+    }
+
+    #[test]
     fn a_blob_is_handed_over_with_the_cards_it_fills() {
         let mirror = TabsMirror::new(Vec::new());
         recv(&mirror, manifest(1, three()));
@@ -677,6 +693,7 @@ mod tests {
         // never sent in this test.
         let browser = |i: usize, title: &str, thumb_rev: u32| Observation {
             tab_id: format!("{}", 1000 + i),
+            tab_key: String::new(),
             title: title.to_owned(),
             kind: Kind::Browser,
             favicon: Some(FaviconInput {
@@ -695,6 +712,7 @@ mod tests {
         };
         let terminal = |i: usize, title: &str| Observation {
             tab_id: format!("{}", 1000 + i),
+            tab_key: String::new(),
             title: title.to_owned(),
             kind: if i.is_multiple_of(2) { Kind::Terminal } else { Kind::Agent },
             favicon: None,
