@@ -3,8 +3,8 @@
 // owner's own tools, `acpmux send --from NAME` with `ACPMUX_SENDER_TOKEN`), beside the same name
 // with no token. Leo, 2026-11-11, on the outbox relay's notice drawn as an unverified sender:
 // "generally the "unverified sender" things should be more verified". The verified one draws its
-// name bare, no mark (the pick); the one with no token keeps the mark, its tooltip and accessible
-// name now saying what is wrong: "Claimed to be outbox-relay, not proven". The same two in the
+// name bare, no mark (the pick); the one with no token draws no mark either since the question
+// bubble went (Leo, 2026-11-25: "get rid of this tiny icon"). The same two in the
 // inbox's notice card, whose thread's sender record acpmux wrote. Synthetic data.
 import { componentEntry } from "../../../gallery/format";
 
@@ -90,7 +90,7 @@ export default componentEntry<Props>({
       props: { case: "token" },
     },
     claimed: {
-      note: "The same name with no token: the mark stays; its tooltip and accessible name say 'Claimed to be outbox-relay, not proven' instead of 'Sender not verified'.",
+      note: "The same name with no token: no mark either; the question bubble is gone (Leo, 2026-11-25: 'get rid of this tiny icon').",
       props: { case: "claimed" },
     },
     "inbox-token": {
@@ -98,7 +98,7 @@ export default componentEntry<Props>({
       props: { case: "inbox-token" },
     },
     "inbox-claimed": {
-      note: "The inbox's notice card for the same name with no token: the mark, with the claim in its tooltip.",
+      note: "The inbox's notice card for the same name with no token: no mark.",
       props: { case: "inbox-claimed" },
     },
   },
