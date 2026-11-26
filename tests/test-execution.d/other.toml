@@ -476,8 +476,7 @@ reason = "Lawrence 2026-10-23: no new CI tests (lifted 2026-11-18). No step runs
 
 [[test]]
 path = "tests/test_macos_cross_builds_have_go.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_macos_cross_builds_have_go.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_main_compile_attribution.py"

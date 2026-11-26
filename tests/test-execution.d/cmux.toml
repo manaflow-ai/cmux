@@ -263,6 +263,11 @@ path = "tests/test_cmux_next_perf_source_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_pr_autofix_drift_scope.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_next_pr_autofix_drift_scope.py"
+
+[[test]]
 path = "tests/test_cmux_next_pr_autofix_push_gate.py"
 lane = "linux-guard"
 
@@ -281,8 +286,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_control_on_jit.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins that a same-repo pull request's cmux-next control hops (push-head-preflight, portable-placement, path_route, app-compile-placement, macos-placement) take cmux-linux, the persistent pool, on attempt 1, after the fork and push arms, that no other job's pull request arm names it, and that no pull request arm names cmux-gcp-pr-control-jit-x64; run python3 tests/test_cmux_next_pr_control_on_jit.py yourself after changing those jobs' runs-on (about 2 s, no build)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_merge_tree.py"
@@ -438,8 +442,7 @@ reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. It stayed
 
 [[test]]
 path = "tests/test_cmux_tui_fallback_lost_leg.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_cmux_tui_fallback_lost_leg.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_feat_latest_wins.py"
