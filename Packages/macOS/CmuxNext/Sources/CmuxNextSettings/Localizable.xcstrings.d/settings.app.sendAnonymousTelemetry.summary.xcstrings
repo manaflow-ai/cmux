@@ -73,7 +73,7 @@
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Disattivato per impostazione predefinita. Niente prompt, file o percorsi."
+            "value" : "Disattivato di default. Niente prompt, file o percorsi."
           }
         },
         "km" : {
