@@ -78,9 +78,17 @@
       "kind": "publish",
       "why": "rebakes the Cloud devbox image after its inputs land"
     },
+    "cloud-harness-matrix.yml": {
+      "kind": "publish",
+      "why": "a start matrix on live staging machines, run by its request file, not of the change"
+    },
     "cloud-machine-count-probe.yml": {
       "kind": "publish",
       "why": "a probe of live staging machines, not of the change"
+    },
+    "cloud-staging-test-sweep.yml": {
+      "kind": "publish",
+      "why": "deletes the staging test account's leftover machines, not a check of the change"
     },
     "cloud-surge-proof.yml": {
       "kind": "publish",
@@ -128,7 +136,7 @@
     },
     "cmux-next-base-linux.yml": {
       "kind": "check",
-      "why": "reruns the step table's linux job, which pr-pipeline.yml already runs on each pull request, on the base tip to name a red landing (#51391); report-only"
+      "why": "reruns the step table's linux and web-browser jobs, which pr-pipeline.yml already runs on each pull request, on the base tip to name a red landing (#51391) and give base_red_excuse.py their base verdicts; report-only"
     },
     "cmux-next-base-tier-kick.yml": {
       "kind": "publish",
@@ -233,10 +241,6 @@
     "platform-billing-test-secrets.yml": {
       "kind": "publish",
       "why": "puts the Stripe test key and reported teams on the cmux-platform Workers; a deploy of secrets, no verdict about a change"
-    },
-    "platform-coderouter-edge-secret.yml": {
-      "kind": "publish",
-      "why": "a probe of the live cmux-platform Workers' secrets, started by an edit of its own file or a dispatch; no verdict about a change"
     },
     "whats-new-gallery.yml": {
       "kind": "publish",
