@@ -215,3 +215,75 @@ pub fn client_config(trust: &TlsTrust) -> Result<Arc<ClientConfig>, String> {
     }
     build(trust).map(Arc::new)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// A verifier whose verdict the test sets.
+    #[derive(Debug)]
+    struct Verdict(Arc<AtomicBool>);
+
+    impl ServerCertVerifier for Verdict {
+        fn verify_server_cert(
+            &self,
+            _: &CertificateDer<'_>,
+            _: &[CertificateDer<'_>],
+            _: &ServerName<'_>,
+            _: &[u8],
+            _: UnixTime,
+        ) -> Result<ServerCertVerified, rustls::Error> {
+            if self.0.load(Ordering::SeqCst) {
+                Ok(ServerCertVerified::assertion())
+            } else {
+                Err(rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer))
+            }
+        }
+        fn verify_tls12_signature(
+            &self,
+            _: &[u8],
+            _: &CertificateDer<'_>,
+            _: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            Ok(HandshakeSignatureValid::assertion())
+        }
+        fn verify_tls13_signature(
+            &self,
+            _: &[u8],
+            _: &CertificateDer<'_>,
+            _: &DigitallySignedStruct,
+        ) -> Result<HandshakeSignatureValid, rustls::Error> {
+            Ok(HandshakeSignatureValid::assertion())
+        }
+        fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+            vec![SignatureScheme::ED25519]
+        }
+    }
+
+    /// Review F3: the inspected mark is the host's latest handshake, not
+    /// sticky: a clean (public-CA) handshake after an inspected one clears
+    /// it, and a host never inspected is never marked.
+    #[test]
+    fn a_clean_handshake_after_an_inspected_one_is_not_inspected() {
+        let public_ok = Arc::new(AtomicBool::new(false));
+        let verifier = Inspecting {
+            system: Arc::new(Verdict(Arc::new(AtomicBool::new(true)))),
+            public: Arc::new(Verdict(Arc::clone(&public_ok))),
+        };
+        let host = "turn.f3-inspected.test";
+        let other = "api.f3-clean.test";
+        let handshake = |name: &str| {
+            let name = ServerName::try_from(name.to_owned()).unwrap();
+            verifier.verify_server_cert(&CertificateDer::from(vec![0u8]), &[], &name, &[], UnixTime::now())
+        };
+        handshake(host).expect("the OS trusts the company root");
+        assert!(inspected(host), "a chain only the OS trusts is inspected");
+        assert!(!inspected(other), "the mark is per host");
+        public_ok.store(true, Ordering::SeqCst);
+        handshake(host).expect("a public chain");
+        assert!(!inspected(host), "a clean handshake left the host marked inspected");
+        handshake(other).expect("a public chain");
+        assert!(!inspected(other));
+    }
+}

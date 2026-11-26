@@ -541,7 +541,7 @@ async fn open_socket(
         .await
         .map_err(connect_error)?;
     // After the handshake: the verifier has marked a TLS-inspected host by now.
-    crate::egress::note(crate::egress::PathKind::of(&via, &host));
+    crate::egress::note(&host, crate::egress::PathKind::of(&via, &host));
     Ok(socket)
 }
 

@@ -833,6 +833,49 @@ fn turn_reachable(addr: &SocketAddr, options: &DialOptions) -> bool {
     }
 }
 
+/// How many Macs' last answers [`PEER_HINTS`] keeps.
+const PEER_HINT_MACS: usize = 16;
+
+/// The TURN targets of each Mac's last answer in this process, newest last.
+static PEER_HINTS: Mutex<Vec<(String, Vec<SocketAddr>)>> = Mutex::new(Vec::new());
+
+/// Keep `mac`'s answered TURN targets for its next dial.
+fn remember_peer_hints(mac: &str, targets: Vec<SocketAddr>) {
+    if targets.is_empty() {
+        return;
+    }
+    let mut hints = PEER_HINTS.lock().unwrap_or_else(PoisonError::into_inner);
+    hints.retain(|(known, _)| known != mac);
+    if hints.len() >= PEER_HINT_MACS {
+        hints.remove(0);
+    }
+    hints.push((mac.to_owned(), targets));
+}
+
+/// What the allocation permits before `mac` answers: the caller's hints,
+/// then `mac`'s last answer here, one address per IP (a TURN permission
+/// covers an IP, every port).
+fn peer_hints(mac: &str, options: &DialOptions) -> Vec<SocketAddr> {
+    let remembered = PEER_HINTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .find(|(known, _)| known == mac)
+        .map(|(_, targets)| targets.clone())
+        .unwrap_or_default();
+    let mut ips = HashSet::new();
+    options
+        .peer_addr_hints
+        .iter()
+        .copied()
+        .chain(remembered)
+        .filter(|addr| {
+            !(options.exclude_cgnat && super::is_cgnat(addr.ip())) && turn_reachable(addr, options)
+        })
+        .filter(|addr| ips.insert(addr.ip()))
+        .collect()
+}
+
 /// The peer endpoints this side sends to through its TURN allocation. Relay
 /// only keeps these: like WebRTC's `relay` policy, only this side's
 /// candidates are restricted to relayed ones.
@@ -2860,6 +2903,17 @@ pub(super) fn dial_wireguard<'a>(
             return Err(error);
         }
         let turn = allocated.carrier;
+        // The Mac's answer comes from addresses it answered from before, most
+        // likely: permit them now, so its first datagram to our relayed
+        // address is not dropped while our permission is still a round trip
+        // away (the answer's own addresses get theirs in `start_tunnel`).
+        if let Some(turn) = &turn {
+            let early = peer_hints(mac, options);
+            if !early.is_empty() {
+                turn.permit(&early);
+                options.timeline.mark("turn_early_permit");
+            }
+        }
         if no_plain_udp(options) && turn.is_none() && options.relay.is_none() {
             return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
         }
@@ -2994,6 +3048,7 @@ pub(super) fn dial_wireguard<'a>(
             abort_early(early_join.as_ref());
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
+        remember_peer_hints(mac, turn_targets(&peer_endpoints, options));
         let relay = relay_plan(
             options,
             own_relay_now,
@@ -3407,6 +3462,30 @@ mod tests {
             assert!(only_the_relay(&with_relay(edit), false, None));
         }
         assert!(!only_the_relay(&DialOptions { block_udp: true, ..DialOptions::default() }, true, None));
+    }
+
+    /// The next dial to a Mac permits its last answer's addresses (one per
+    /// IP, the caller's hints first) before it answers; private ones never
+    /// (a TURN server refuses them), and another Mac's never.
+    #[test]
+    fn a_macs_last_answer_is_permitted_ahead_of_its_next_one() {
+        let mac = "mac-peer-hints-test";
+        let public: SocketAddr = "203.0.113.9:41000".parse().unwrap();
+        let same_ip: SocketAddr = "203.0.113.9:41001".parse().unwrap();
+        let relayed: SocketAddr = "198.51.100.4:50000".parse().unwrap();
+        let kept: SocketAddr = "192.0.2.1:9".parse().unwrap();
+        let options = DialOptions::default();
+        assert!(peer_hints(mac, &options).is_empty(), "nothing before a first answer");
+        let endpoints: Vec<String> =
+            ["192.168.1.20:41000", &public.to_string(), &same_ip.to_string(), &relayed.to_string()]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+        remember_peer_hints(mac, turn_targets(&endpoints, &options));
+        assert_eq!(peer_hints(mac, &options), vec![public, relayed]);
+        assert!(peer_hints("another-mac-peer-hints-test", &options).is_empty());
+        let with_kept = DialOptions { peer_addr_hints: vec![kept, public], ..DialOptions::default() };
+        assert_eq!(peer_hints(mac, &with_kept), vec![kept, public, relayed]);
     }
 
     /// Ultra Mode is Auto by default, metered by the cellular flag.
