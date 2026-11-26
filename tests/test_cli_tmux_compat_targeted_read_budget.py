@@ -203,8 +203,10 @@ def managed_teammate_flow(cli, directory, limiter):
     counts that window's panes, then splits the leader with -d -h -l 70%.
     The stand-in runs that sequence through the launcher's managed tmux shim.
     """
-    managed = directory / "cmux-cli-shims" / SURFACE_ID
-    managed.mkdir(parents=True, mode=0o700)
+    managed_parent = directory / "cmux-cli-shims"
+    managed_parent.mkdir(mode=0o700)
+    managed = managed_parent / SURFACE_ID
+    managed.mkdir(mode=0o700)
     real_bin = directory / "real-bin"
     real_bin.mkdir()
     wrapper = managed / "claude"
