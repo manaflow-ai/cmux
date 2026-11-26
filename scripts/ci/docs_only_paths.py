@@ -202,13 +202,27 @@ def job_id(name: str) -> str:
 CI_LABELS = LABEL_OPT_INS + ("ready-to-land",)
 
 
+# Labels that only add coverage: removing one starts nothing (tests/test_ci_label_events_skip_full_ci.py COVERAGE).
+COVERAGE_LABELS = ("full-ci", "dev-build", "ready-to-land")
+# A comment the fallback writes above a call job's permission (the called workflow's reason for it).
+PERMISSION_NOTES = {("ci", "statuses"): "ci.yml's changes job: head_tier.py's land carry rule reads cmux/land-tier."}
+
+
+def _other_label(labels: tuple[str, ...]) -> str:
+    if len(labels) == 1:
+        return f"github.event.label.name != '{labels[0]}'"
+    return f"!contains(fromJSON('{json.dumps(list(labels), separators=(',', ':'))}'), github.event.label.name)"
+
+
 def label_guard(labels_read: tuple[str, ...] = LABEL_OPT_INS) -> str:
-    """A label guard: into feat-cmux-next, a label event for any label not in LABELS_READ skips
-    (test_ci_label_events_skip_full_ci). The fallback's reads LABEL_OPT_INS, ci.yml's CI_LABELS."""
-    labels = json.dumps(list(labels_read), separators=(",", ":"))
-    return ("!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
-            "(github.event.action == 'labeled' || github.event.action == 'unlabeled') && "
-            f"!contains(fromJSON('{labels}'), github.event.label.name))")
+    """A label guard: into feat-cmux-next, a label event for any label not in LABELS_READ skips, and so does removing
+    a coverage label (test_ci_label_events_skip_full_ci guard()). The fallback's reads LABEL_OPT_INS, ci.yml's CI_LABELS."""
+    head = "!(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && "
+    kept = tuple(label for label in labels_read if label not in COVERAGE_LABELS)
+    if kept == labels_read:
+        return head + f"(github.event.action == 'labeled' || github.event.action == 'unlabeled') && {_other_label(labels_read)})"
+    unlabeled = "github.event.action == 'unlabeled'" + (f" && {_other_label(kept)}" if kept else "")
+    return head + f"(github.event.action == 'labeled' && {_other_label(labels_read)} || {unlabeled}))"
 
 
 def gate_condition() -> str:
@@ -293,7 +307,9 @@ jobs:
     for name in WORKFLOWS:
         job = job_id(name)
         grant = call_permissions(root, name)
-        lines = [f"      {scope}: {level}" for scope, level in sorted(grant.items())]
+        lines = [line for scope, level in sorted(grant.items())
+                 for line in ([f"      # {PERMISSION_NOTES[job, scope]}"] if (job, scope) in PERMISSION_NOTES else [])
+                 + [f"      {scope}: {level}"]]
         permissions = "\n" + "\n".join(lines) if lines else " {}"
         out += f"""
   {job}:

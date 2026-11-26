@@ -39,7 +39,7 @@ jobs:
     environment: release
     # It holds the App Store Connect key, so it takes an ephemeral Linux
     # machine, as the readiness workflow's key-holding job does.
-    runs-on: ${{ github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     env:
       ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
