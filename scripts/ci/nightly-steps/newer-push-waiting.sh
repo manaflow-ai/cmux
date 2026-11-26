@@ -14,6 +14,7 @@ if refs="$(bash "$here/../timeout.sh" 30 git ls-remote "${NIGHTLY_NEXT_REMOTE:-h
 fi
 if [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$TIP_SHA" ]]; then
   echo "NEWER_PUSH_WAITING=1" >> "$GITHUB_ENV"
+  echo "waiting=1" >> "${GITHUB_OUTPUT:-/dev/null}"  # wake-nightly-next-tick skips its delta check on it
   echo "::notice title=Train goes on::nightly-next moved from $TIP_SHA to $head; this build's feed is live, so its deltas and size report skip and the Mac goes to the newer push"
 else
   echo "nightly-next is still ${head:-unknown} (this build: $TIP_SHA); the tail runs"

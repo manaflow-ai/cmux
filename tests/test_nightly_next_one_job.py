@@ -336,13 +336,26 @@ class NightlyNextOneJobTests(unittest.TestCase):
             subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "a"], check=True)
             subprocess.run(git + ["push", "-q", str(remote), "HEAD:refs/heads/nightly-next"], check=True)
             sha = subprocess.run(git + ["rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
-            for tip, want in ((sha, ""), ("0" * 40, "NEWER_PUSH_WAITING=1\n")):
+            for tip, want, output in ((sha, "", ""), ("0" * 40, "NEWER_PUSH_WAITING=1\n", "waiting=1\n")):
                 env_file = Path(tmp) / "env"
                 env_file.write_text("")
+                out_file = Path(tmp) / "out"
+                out_file.write_text("")
                 env = dict(os.environ, TIP_SHA=tip, REPOSITORY="x/y", NIGHTLY_NEXT_REMOTE=str(remote),
-                           GITHUB_ENV=str(env_file))
+                           GITHUB_ENV=str(env_file), GITHUB_OUTPUT=str(out_file))
                 subprocess.run(["bash", str(script)], check=True, env=env, capture_output=True)
                 self.assertEqual(env_file.read_text(), want, tip)
+                self.assertEqual(out_file.read_text(), output, tip)
+
+    def test_the_wake_delta_check_skips_a_build_that_handed_off_its_deltas(self) -> None:
+        # 2026-11-26 run 45798252585: nightly-next moved after the feed, the deltas skipped by design (note-53),
+        # and wake-nightly-next-tick's delta check failed the run on the 0 deltas.
+        hand = next(s for s in self.job["steps"] if s.get("name") == "Hand the Mac to a newer nightly-next push after the feed")
+        self.assertEqual(hand.get("id"), "newer-push")
+        self.assertIn("steps.newer-push.outputs.waiting", self.job["outputs"]["newer_push_waiting"])
+        wake = self.jobs["wake-nightly-next-tick"]
+        check = next(s for s in wake["steps"] if s.get("name") == "Check the published feed offers deltas")
+        self.assertIn("needs.nightly-next-one.outputs.newer_push_waiting != '1'", one_line(check.get("if")))
 
     def test_the_feed_waits_on_no_delta_when_the_deltas_follow_it(self) -> None:
         # The item is written full-only then, so the wait before the Sparkle key stops an unfinished prebuild

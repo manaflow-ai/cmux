@@ -7101,6 +7101,8 @@ jobs:
       left: ${{ steps.one-leave.outputs.superseded }}
       # Left before nightly-next moved: wake-nightly-next-tick retries this commit unless it moves.
       left_pending: ${{ steps.one-leave.outputs.pending }}
+      # nightly-next moved past this build after its feed: its after-feed deltas skipped on purpose (note-53).
+      newer_push_waiting: ${{ steps.newer-push.outputs.waiting }}
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -7513,6 +7515,7 @@ jobs:
       - *release-the-nightly-next-publi
       # Leo: "Just keep the train going like 24/7". Why: docs/ci/nightly-workflow-notes.md#note-53
       - name: Hand the Mac to a newer nightly-next push after the feed
+        id: newer-push
         if: "!cancelled() && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT"
         continue-on-error: true
         timeout-minutes: 2
@@ -7699,8 +7702,10 @@ jobs:
       # The detector (hq#13299): the build this run published must reach the feed with its deltas, each
       # served at its length; a newer build already live passes with a notice. Red here names a feed
       # where every Mac downloads the full 243 MB DMG.
+      # A build that handed its Mac to a newer push skipped its after-feed deltas on purpose; the newer build carries
+      # deltas from it. 2026-11-26 run 45798252585: this check failed the job on exactly that (0 deltas, by design).
       - name: Check the published feed offers deltas
-        if: needs.nightly-next-one.outputs.feed_written == 'true'
+        if: needs.nightly-next-one.outputs.feed_written == 'true' && needs.nightly-next-one.outputs.newer_push_waiting != '1'
         env:
           BUILD: ${{ needs.nightly-next-one.outputs.build }}
         run: set -o pipefail; python3 scripts/ci/nightly_next_delta_check.py check --feed-url "$NIGHTLY_NEXT_FEED_BASE/appcast-arm64.xml" --build "$BUILD" | tee -a "$GITHUB_STEP_SUMMARY"
