@@ -267,6 +267,15 @@ def _changed_first(root, locations, base_locations=None):
     if base_locations is not None:
         on_base = per_file(base_locations)
         grown = {name for name, count in per_file(locations).items() if count > on_base[name]}
+    changed = changed_files(root)
+    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in grown,
+                                              loc.split(":", 1)[0] not in changed, loc))
+
+
+@functools.cache
+def changed_files(root):
+    """The files this change touched against origin/feat-cmux-next, as cmux-tui-relative paths (the form
+    a hit location takes); empty when git cannot say."""
     try:
         import subprocess
         # The full name: a local branch `origin/feat-cmux-next` would win over the short one (push_range.UPSTREAM).
@@ -275,9 +284,15 @@ def _changed_first(root, locations, base_locations=None):
                              capture_output=True, text=True, timeout=30).stdout
     except (OSError, subprocess.SubprocessError):
         out = ""
-    changed = {line.split("cmux-tui/", 1)[-1] for line in out.splitlines()}
-    return sorted(locations, key=lambda loc: (loc.split(":", 1)[0] not in grown,
-                                              loc.split(":", 1)[0] not in changed, loc))
+    return frozenset(line.split("cmux-tui/", 1)[-1] for line in out.splitlines())
+
+
+def untouched_by_change(root, locations):
+    """True when the change touched files and none of these hit locations is in one: with no base run to
+    compare, a count over the baseline in files the change never touched is the base's, not the change's
+    (a base that does not compile charged every PR, its own fix too, with the whole workspace's drift)."""
+    changed = changed_files(root)
+    return bool(changed) and not any(loc.split(":", 1)[0].split("cmux-tui/", 1)[-1] in changed for loc in locations)
 
 
 def load_baseline():
@@ -358,6 +373,7 @@ def main():
     baseline = load_baseline()
     base_counts = None
     base_hits = None
+    base_broken = False
     if args.base_clippy_json:
         base_checked, base_counts, _, base_finished, base_hits = read_clippy(args.base_clippy_json)
         if not base_checked or base_finished is not True:
@@ -365,6 +381,7 @@ def main():
                   "every count over the baseline is charged to this change", file=sys.stderr)
             base_counts = None
             base_hits = None
+            base_broken = True
     if args.init_baseline:
         write_baseline({crate: counts.get(crate, collections.Counter()) for crate in checked})
         print(f"rust-panic-ratchet: wrote {os.path.relpath(BASELINE, args.repo)} for {len(checked)} crates")
@@ -387,6 +404,10 @@ def main():
                     base_reds.append(f"{crate}: clippy::{lint} {got} > {where}, and the base has {on_base}: "
                                      "the base's red, not this change's")
                     continue
+                if lint in DENY_LINTS and base_broken and untouched_by_change(args.repo, hits.get((crate, lint), [])):
+                    base_reds.append(f"{crate}: clippy::{lint} {got} > {where}, the base clippy run did not finish, "
+                                     "and no hit is in a file this change touched: the base's red, not this change's")
+                    continue
                 # Tracked lints warn only: an added `x + 1` must not block a landing.
                 (failures if lint in DENY_LINTS else warnings).append(f"{crate}: clippy::{lint} {got} > {where}")
                 if lint in DENY_LINTS:
@@ -400,8 +421,16 @@ def main():
     if missing and not args.init_baseline:
         print("::warning title=rust panic ratchet::baseline crates not checked by this run (a -p run, a removed "
               "member, or a bin with required-features): " + ", ".join(missing), file=sys.stderr)
+    # A reasonless allow in a file this change never touched is the base's, not the change's: the scan walks the
+    # whole tree, so one base commit's slip (cmux-layout-reducer-ffi in #55909) turned every PR's check red.
+    # With no changed-file list (git cannot say) every hit still fails, as before.
+    changed = changed_files(args.repo)
     for line in allow_without_reason(args.repo):
-        failures.append(line)
+        where = line.split(":", 1)[0].split("cmux-tui/", 1)[-1]
+        if changed and where not in changed:
+            base_reds.append(f"{line} (a file this change did not touch: the base's red, not this change's)")
+        else:
+            failures.append(line)
 
     if args.update_baseline:
         if failures:

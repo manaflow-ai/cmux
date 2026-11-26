@@ -46,7 +46,7 @@ struct WorkedFold: Equatable, Sendable {
     /// and the cards a finished turn leaves for the person stay out.
     static func folds(_ kind: ChatRow.Kind) -> Bool {
         switch kind {
-        case .block, .thought, .tool, .toolGroup, .edit, .plan, .permission, .question, .subagents, .whoElse: true
+        case .block, .thought, .tool, .toolGroup, .edit, .permission, .question, .subagents, .whoElse: true
         default: false
         }
     }
@@ -57,7 +57,7 @@ struct WorkedFold: Equatable, Sendable {
     /// nothing folds.
     @discardableResult
     static func fold(_ rows: inout [ChatRow], work: Range<Int>, keeping reply: Set<String>, turnID: String,
-                     status: AgentTurn.Status, seconds: TimeInterval?) -> WorkedFold? {
+                     status: AgentTurn.Status, seconds: TimeInterval?, rowID foldRowID: String? = nil) -> WorkedFold? {
         guard !work.isEmpty else { return nil }
         var held: [ChatRow] = []
         var kept: [ChatRow] = []
@@ -72,7 +72,7 @@ struct WorkedFold: Equatable, Sendable {
         }
         guard let at, let first = held.first else { return nil }
         let fold = WorkedFold(turnID: turnID, label: label(status: status, seconds: seconds), rows: held)
-        kept.insert(ChatRow(id: rowID(turnID: turnID), turnID: turnID, kind: .worked(fold), gap: first.gap), at: at)
+        kept.insert(ChatRow(id: foldRowID ?? rowID(turnID: turnID), turnID: turnID, kind: .worked(fold), gap: first.gap), at: at)
         // What follows the line sits a tool row's gap under it.
         if at + 1 < kept.count { kept[at + 1].gap = min(kept[at + 1].gap, 10) }
         rows.replaceSubrange(work, with: kept)
@@ -114,7 +114,7 @@ struct WorkedForRow: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.cmuxPressFill)
+            .buttonStyle(.cmuxPressLine)
             .padding(.vertical, -6)
             .zIndex(1)
             .accessibilityValue(open ? "Expanded" : "Collapsed")

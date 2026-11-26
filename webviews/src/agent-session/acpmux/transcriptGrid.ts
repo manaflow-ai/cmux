@@ -191,11 +191,6 @@ export const MARK_WORKED = 9;
 /// so under "Subagent finished" or a tool run it is never flush (Lucas, 2026-11-08). Toward a footer
 /// row, a prompt or the live line it is a step row.
 export const MARK_CARD = 10;
-/// A finished turn's todo list folded to its "3 of 3 tasks done" line (conversation/PlanList.tsx,
-/// opened or not). Its turn's footer row sits the same 8 under it as under a final reply (Lucas,
-/// 2026-11-12: "the exact same amount as if it were just a normal final message"); toward every
-/// other row it is any other row.
-export const MARK_PLAN_LINE = 11;
 /// The running turn's line as its last row right under a step or status row (model.ts `isLiveStep`): its box and
 /// the gap over it are TRANSCRIPT_LIVE_STEP_BOX and TRANSCRIPT_LIVE_STEP_GAP; under it, the room a row of that box
 /// has (tailGap). Not another step, which would sit flush.
@@ -235,17 +230,15 @@ type MarkedRow = {
   resumable?: boolean;
   below?: boolean;
   turnCopy?: readonly unknown[];
-  plan?: unknown;
-  turnEnded?: boolean;
   turnPhase?: string;
+  /// A footer's Connect GitHub card (conversation/githubConnect.ts): content, as a failure card is.
+  githubConnect?: unknown;
 };
 export function rowMark(row: MarkedRow): number {
   if (row.kind === "user" && !row.incoming && !row.received) return MARK_PROMPT;
   if (row.kind === "assistant" && (row.text?.length ?? 0) > 0) return MARK_MESSAGE;
-  if (row.kind === "plan" && row.plan !== undefined && row.turnEnded === true) return MARK_PLAN_LINE;
-  // The live line in the footer's slot (turns.ts WORKING, THINKING and ACTIVITY_LINE, by value).
-  if ((row.kind === "working" || row.kind === "thinking" || row.kind === "activityLine") && row.below === true)
-    return MARK_FOOTER_SLOT;
+  // The live line in the footer's slot (turns.ts WORKING and THINKING, by value).
+  if ((row.kind === "working" || row.kind === "thinking") && row.below === true) return MARK_FOOTER_SLOT;
   // The live line (turns.ts WORKING and THINKING, by value: this module stays import-free).
   // The turn's header in its running phase is that clock too (turns.ts `turnHeaderId`).
   if (row.kind === "working" || row.kind === "thinking" || (row.kind === "worked" && row.turnPhase === "running"))
@@ -254,6 +247,7 @@ export function rowMark(row: MarkedRow): number {
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
     return row.status !== "failed" &&
       row.status !== "error" &&
+      !row.githubConnect &&
       ((row.text?.length ?? 0) > 0 || (row.turnCopy?.length ?? 0) > 0)
       ? MARK_FOOTER_ROW
       : MARK_FOOTER;
@@ -321,9 +315,6 @@ export function transcriptGap(previous: number, next: number): number {
   // before's "Worked for" (it sat flush): the same gap as the "Worked for" rule below.
   if ((next & MARK_HEADS_TURN) !== 0) return workedHeadGap();
   next = baseMark(next);
-  if (previous === MARK_PLAN_LINE && next === MARK_FOOTER_ROW) return TRANSCRIPT_FOOTER_GAP;
-  if (previous === MARK_PLAN_LINE) previous = MARK_OTHER;
-  if (next === MARK_PLAN_LINE) next = MARK_OTHER;
   if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
   // A turn's "Working for" or "Worked for" line opens that turn's work. Right under a one-line row

@@ -92,8 +92,77 @@ class VerdictTests(unittest.TestCase):
             self.assertEqual(why(run(**base, name=name)), "keep:protected-workflow", name)
 
 
+class RetiredRouteTests(unittest.TestCase):
+    NEXT = ".github/workflows/cmux-next.yml"
+
+    def test_tip_pr_run_of_a_retired_route_created_before_the_move_is_shed(self):
+        r = run(head_sha="tip", path=self.NEXT, name="cmux-next \u00b7 abc", created_at="2026-11-25T00:17:22Z")
+        self.assertEqual(why(r), "retired-route")
+        self.assertEqual([w for _, w in shed.plan([r], REPO, TIPS, 10)[0]], ["retired-route"])
+
+    def test_runs_after_the_move_other_workflows_events_and_retries_are_kept(self):
+        self.assertEqual(why(run(head_sha="tip", path=self.NEXT, created_at="2026-11-25T01:00:00Z")),
+                         "keep:current-pull_request")
+        self.assertEqual(why(run(head_sha="tip", created_at="2026-11-25T00:17:22Z")), "keep:current-pull_request")
+        self.assertEqual(why(run(head_sha="tip", path=self.NEXT, event="push", created_at="2026-11-25T00:17:22Z")),
+                         "keep:current-push")
+        self.assertEqual(why(run(head_branch="feat-cmux-next", head_sha="base", event="push", path=self.NEXT,
+                                 created_at="2026-11-25T00:17:22Z")), "keep:current-push")
+        self.assertEqual(why(run(head_sha="tip", path=self.NEXT, run_attempt=2, created_at="2026-11-25T00:17:22Z")),
+                         "keep:attempt")
+
+    def test_in_progress_retired_run_is_shed_only_when_unstarted(self):
+        r = run(status="in_progress", head_sha="tip", path=self.NEXT, created_at="2026-11-25T00:17:22Z")
+        self.assertEqual([x["id"] for x in shed.needs_jobs([r], REPO, TIPS, 5)], [r["id"]])
+        self.assertEqual(shed.verdict(r, REPO, TIPS, {r["id"]: [job(), job(status="completed")]}), "retired-route")
+        self.assertEqual(shed.verdict(r, REPO, TIPS, {r["id"]: [job(status="in_progress")]}), "keep:running")
+
+
 def job(status="queued", **over):
     return {"status": status, "runner_id": None, "runner_name": None, "steps": [], **over}
+
+
+class BaseAutofixCarrierTests(unittest.TestCase):
+    """2026-11-24: cmux-next base autofix completed no run for 15 hours. Its run on a pushed commit waits up to 45
+    minutes for that push's exports, then queues "action exports (Mac)"; by then base has moved, the run has nothing
+    running, and each sweep cancelled it as superseded-base (run 45371841534, sweep 45378739122) although it carries
+    the exports of every run that deferred to it."""
+
+    PATH = ".github/workflows/cmux-next-base-autofix.yml"
+
+    def carrier(self, **over):
+        r = {
+            "id": 45371841534, "status": "in_progress", "run_attempt": 1, "event": "push",
+            "head_branch": "feat-cmux-next", "head_sha": "7e9b5a72dd", "name": "cmux-next base autofix",
+            "path": self.PATH, "created_at": "2026-11-24T10:08:10Z",
+            "head_repository": {"full_name": "manaflow-ai/cmux"},
+        }
+        r.update(over)
+        return r
+
+    def why(self, r, jobs=None):
+        return shed.verdict(r, "manaflow-ai/cmux", {"feat-cmux-next": "newer-tip", "feature": "tip"}, jobs)
+
+    def test_carrier_whose_mac_exports_wait_for_a_runner_is_kept_after_base_moves(self):
+        r = self.carrier()
+        done = {"status": "completed", "runner_id": 7, "steps": [{"name": "x"}]}
+        waiting = {"status": "queued", "name": "action exports (Mac)", "runner_id": 0, "steps": []}
+        pending = {"status": "queued", "name": "autofix feat-cmux-next", "runner_id": 0, "steps": []}
+        jobs = {r["id"]: [dict(done, name="action areas the push touched"),
+                          dict(done, name="exports from the push's generated files"), waiting, pending]}
+        # The ordering that starved it: nothing of the run is running, and its commit is no longer the tip.
+        self.assertTrue(shed.unstarted(jobs[r["id"]]))
+        self.assertEqual(self.why(r, jobs), "keep:answers-every-push-since")
+        self.assertEqual(self.why(self.carrier(status="queued")), "keep:answers-every-push-since")
+        picks, counts = shed.plan([r, self.carrier(id=2, status="queued")], "manaflow-ai/cmux",
+                                  {"feat-cmux-next": "newer-tip"}, 100, jobs)
+        self.assertEqual((picks, counts), ([], {"keep:answers-every-push-since": 2}))
+
+    def test_only_the_base_push_run_of_that_workflow_is_kept(self):
+        # Another base push workflow in the same state is still shed, and so is this workflow on a lane branch.
+        other = self.carrier(path=".github/workflows/ci.yml", name="CI", status="queued")
+        self.assertEqual(self.why(other), "superseded-base")
+        self.assertEqual(self.why(self.carrier(head_branch="feature", status="queued")), "superseded")
 
 
 class UnstartedTests(unittest.TestCase):
@@ -211,7 +280,17 @@ class WorkflowTests(unittest.TestCase):
     def test_token_scope_and_serialized_sweeps(self):
         self.assertEqual(self.doc["permissions"], {})
         self.assertEqual(self.job["permissions"], {"actions": "write", "contents": "read"})
+        self.assertEqual(self.job["environment"], {"name": "ci-bot", "deployment": False})
         self.assertEqual(self.doc["concurrency"]["cancel-in-progress"], False)
+
+    def test_shed_uses_app_token_with_workflow_fallback(self):
+        mint = next(step for step in self.job["steps"] if step.get("id") == "cmux-bot-token")
+        self.assertEqual(mint["if"], "vars.CMUX_BOT_APP_ID != ''")
+        self.assertTrue(mint["continue-on-error"])
+        self.assertEqual(mint["with"]["permission-actions"], "write")
+        self.assertEqual(mint["with"]["permission-contents"], "read")
+        cancel = next(step for step in self.job["steps"] if step.get("name") == "Cancel queued runs nobody will read")
+        self.assertEqual(cancel["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
 
 
 if __name__ == "__main__":

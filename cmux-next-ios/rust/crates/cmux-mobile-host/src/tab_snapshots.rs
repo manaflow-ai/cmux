@@ -21,11 +21,16 @@
 //!
 //! A tab's id is its daemon surface id, which only means something within
 //! one run of the daemon: a new run numbers its surfaces again from its
-//! saved state, so an old id can name another tab. The host learns of no
-//! run id, so every time the feeder connects to the daemon again it treats
-//! the daemon as a new run ([`Tabs::daemon_run`]): every row, the order and
-//! the pictures held for tabs go, under a new epoch, and each phone gets a
-//! manifest of the new run's tabs.
+//! saved state, so an old id can name another tab. Each row also carries the
+//! tab's durable id (`tabKey`, the daemon's `tab_resource_id`), which a tab
+//! keeps across runs and no other tab is ever given. When the feeder reaches
+//! a new run of the daemon ([`Tabs::daemon_run`]), the next tab list decides:
+//! if every listed id still names the tab it named under this epoch (the
+//! same durable id), the epoch stays and phones get a plain delta, keeping
+//! every picture; otherwise every row and the order go under a new epoch and
+//! each phone gets a manifest of the new run's tabs. Pictures are held by
+//! durable id when the tab has one, so they follow their tab to whatever
+//! surface id the new run gives it and never land on another tab.
 //!
 //! Each phone also sees only the tabs its chat exposure allows, by the rule
 //! the `daemon` service applies to its replies
@@ -63,6 +68,10 @@ pub const MAX_IMAGE_BYTES: usize = 2 << 20;
 const MAX_SCREEN_BYTES: usize = 256 << 10;
 /// Tabs with pictures but not (yet) in the daemon's list.
 const MAX_UNLISTED_PICTURES: usize = 256;
+/// The bytes those unlisted pictures may hold, oldest dropped first.
+const MAX_UNLISTED_PICTURE_BYTES: usize = 32 << 20;
+/// Tab ids remembered per epoch (closed tabs' too, see [`State::bound`]).
+const MAX_BOUND_IDS: usize = 4096;
 /// The largest daemon reply line read.
 const MAX_LINE_BYTES: usize = 64 << 20;
 /// The longest frame a phone may send (its `have` lists every blob it holds).
@@ -102,12 +111,19 @@ pub struct PictureFile {
     pub h: u32,
     #[serde(default)]
     pub captured_at_ms: i64,
+    /// The tab's durable id (`tab_resource_id`) when the app knows it: the
+    /// picture is then held for that tab whatever `surface` names by the
+    /// time the line is read (a line written just before a daemon restart).
+    #[serde(default)]
+    pub tab: Option<String>,
 }
 
 /// One tab as the daemon lists it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ListedTab {
     pub id: String,
+    /// The tab's durable id (`tab_resource_id`), when the daemon names one.
+    pub key: Option<String>,
     pub title: String,
     pub kind: Kind,
     /// Terminal size, for the screen text.
@@ -130,12 +146,37 @@ struct Known {
     captured_at_ms: i64,
 }
 
+impl Pictures {
+    fn bytes(&self) -> usize {
+        self.favicon
+            .as_ref()
+            .map_or(0, |f| f.bytes.len())
+            .saturating_add(self.thumb.as_ref().map_or(0, |t| t.bytes.len()))
+    }
+}
+
 struct State {
     producer: Producer,
     tabs: HashMap<String, Known>,
+    /// By [`picture_key`]: a tab's durable id when it has one, else its
+    /// surface id. Pictures of a closed tab with a durable id stay (up to
+    /// [`MAX_UNLISTED_PICTURES`]) for when it is listed again.
     pictures: HashMap<String, Pictures>,
+    /// What each tab id has named under the current epoch: its durable id,
+    /// or None for a tab listed without one. Kept for closed tabs too, so a
+    /// later run giving the id to another tab is seen.
+    bound: HashMap<String, Option<String>>,
+    /// `bound` forgot closed tabs (it outgrew [`MAX_BOUND_IDS`]): the next
+    /// run of the daemon starts a new epoch.
+    trimmed: bool,
+    /// A new run of the daemon was reached and its tabs are not listed yet:
+    /// the epoch the next tab list starts unless it proves every id still
+    /// names its tab ([`Tabs::set_tabs`]).
+    pending: Option<String>,
     /// A feeder reached the daemon at least once.
     fed: bool,
+    /// The daemon run the feeder last reached, as its `identify` named it.
+    run: Option<String>,
 }
 
 struct Life {
@@ -184,7 +225,11 @@ impl Tabs {
                 producer: Producer::new(epoch, 0, HISTORY_CAP, RECENT_BLOB_CAP),
                 tabs: HashMap::new(),
                 pictures: HashMap::new(),
+                bound: HashMap::new(),
+                trimmed: false,
+                pending: None,
                 fed: false,
+                run: None,
             }),
             changed: watch::channel(0).0,
             life: Mutex::new(Life { phones: 0, feeder: false, feeds: 0 }),
@@ -207,6 +252,11 @@ impl Tabs {
     /// The producer's rev now.
     pub fn rev(&self) -> u64 {
         self.lock().producer.rev()
+    }
+
+    /// True when a phone at `rev` of this epoch can take a delta (no manifest).
+    pub fn has_delta_since(&self, rev: u64) -> bool {
+        self.lock().producer.delta_since(rev).is_some()
     }
 
     /// The tab ids the producer lists, in order.
@@ -253,25 +303,48 @@ impl Tabs {
         mime: Mime,
         captured_at_ms: i64,
     ) -> bool {
+        self.offer(tab_id, None, part, bytes, w, h, mime, captured_at_ms)
+    }
+
+    /// [`Tabs::offer_image`] for the tab whose durable id is `tab_key` when
+    /// given (whatever tab `tab_id` names now), else for the tab `tab_id`
+    /// names.
+    #[allow(clippy::too_many_arguments)]
+    fn offer(
+        &self,
+        tab_id: &str,
+        tab_key: Option<&str>,
+        part: Part,
+        bytes: Vec<u8>,
+        w: u32,
+        h: u32,
+        mime: Mime,
+        captured_at_ms: i64,
+    ) -> bool {
         if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES || !matches!(mime, Mime::Jpeg | Mime::Png) {
             return false;
         }
         let mut state = self.lock();
-        let listed = state.tabs.contains_key(tab_id);
-        let unlisted = state.pictures.keys().filter(|id| !state.tabs.contains_key(*id)).count();
-        if !listed && !state.pictures.contains_key(tab_id) && unlisted >= MAX_UNLISTED_PICTURES {
-            return false;
+        let key = match tab_key.filter(|k| !k.is_empty()) {
+            Some(tab_key) => picture_key(tab_id, Some(tab_key)),
+            None => listed_picture_key(&state, tab_id),
+        };
+        let shown = state.tabs.iter().find(|(id, k)| picture_key(id, k.tab.key.as_deref()) == key);
+        let shown = shown.map(|(id, _)| id.clone());
+        if shown.is_none() && !state.pictures.contains_key(&key) {
+            prune_unlisted(&mut state, MAX_UNLISTED_PICTURES.saturating_sub(1));
         }
-        let pictures = state.pictures.entry(tab_id.to_owned()).or_default();
+        let pictures = state.pictures.entry(key).or_default();
         match part {
             Part::Favicon => pictures.favicon = Some(FaviconInput { mime, bytes }),
             Part::Thumb => pictures.thumb = Some(ImageInput { mime, bytes, width: w, height: h }),
         }
         pictures.captured_at_ms = captured_at_ms;
-        if !listed {
+        let Some(shown) = shown else {
+            prune_unlisted(&mut state, MAX_UNLISTED_PICTURES);
             return false;
-        }
-        let changed = observe(&mut state, tab_id);
+        };
+        let changed = observe(&mut state, &shown);
         drop(state);
         if changed {
             self.bump();
@@ -284,8 +357,9 @@ impl Tabs {
     /// a JPEG or PNG. Returns true when the phone's view changed.
     pub async fn offer_file(&self, file: &PictureFile) -> bool {
         match read_picture(Path::new(&file.path)).await {
-            Ok((mime, bytes)) => self.offer_image(
+            Ok((mime, bytes)) => self.offer(
                 &file.surface.to_string(),
+                file.tab.as_deref(),
                 file.part,
                 bytes,
                 file.w,
@@ -300,12 +374,31 @@ impl Tabs {
         }
     }
 
-    /// The daemon's tab list now, in order. Closed tabs leave.
+    /// The daemon's tab list now, in order. Closed tabs leave. The first
+    /// list from a new run of the daemon keeps the epoch only when every
+    /// listed id has a durable id and names no other tab than it did under
+    /// this epoch; otherwise every row goes under the new epoch first, and
+    /// only pictures held by durable id come back.
     pub fn set_tabs(&self, listed: Vec<ListedTab>) -> bool {
         let mut state = self.lock();
+        let mut changed = false;
+        if let Some(epoch) = state.pending.take() {
+            let proven = !state.trimmed
+                && listed.iter().all(|t| match (&t.key, state.bound.get(&t.id)) {
+                    (None, _) => false,
+                    (Some(_), None) => true,
+                    (Some(key), Some(bound)) => bound.as_ref() == Some(key),
+                });
+            if !proven {
+                state.producer.new_epoch(epoch);
+                state.tabs.clear();
+                state.bound.clear();
+                state.trimmed = false;
+                changed = true;
+            }
+        }
         let ids: Vec<String> = listed.iter().map(|t| t.id.clone()).collect();
         let keep: HashSet<&str> = ids.iter().map(String::as_str).collect();
-        let mut changed = false;
         let gone: Vec<String> = state
             .producer
             .rows()
@@ -316,20 +409,34 @@ impl Tabs {
         for id in gone {
             changed |= state.producer.remove(&id);
             state.tabs.remove(&id);
-            state.pictures.remove(&id);
+            state.pictures.remove(&picture_key(&id, None));
         }
-        state.tabs.retain(|id, _| keep.contains(id.as_str()));
+        let closed: Vec<String> =
+            state.tabs.keys().filter(|id| !keep.contains(id.as_str())).cloned().collect();
+        for id in closed {
+            state.tabs.remove(&id);
+            state.pictures.remove(&picture_key(&id, None));
+        }
         for tab in listed {
             let id = tab.id.clone();
-            let known = state.tabs.remove(&id);
+            if let Some(key) = tab.key.as_deref() {
+                adopt_surface_pictures(&mut state, &id, key);
+            }
+            let known = state.tabs.remove(&id).filter(|k| k.tab.key == tab.key);
             let (screen, captured_at_ms) = match known {
                 Some(k) => (k.screen, k.captured_at_ms),
                 None => (None, now_ms()),
             };
             let screen = screen.map(|s| ScreenInput { cols: tab.cols, rows: tab.rows, ..s });
+            state.bound.insert(id.clone(), tab.key.clone());
             state.tabs.insert(id.clone(), Known { tab, screen, captured_at_ms });
             changed |= observe(&mut state, &id);
         }
+        if state.bound.len() > MAX_BOUND_IDS {
+            state.bound.retain(|id, _| keep.contains(id.as_str()));
+            state.trimmed = true;
+        }
+        prune_unlisted(&mut state, MAX_UNLISTED_PICTURES);
         changed |= state.producer.set_order(&ids);
         drop(state);
         if changed {
@@ -343,6 +450,11 @@ impl Tabs {
         let mut state = self.lock();
         let Some(known) = state.tabs.get_mut(tab_id) else { return false };
         let text = truncate(text, MAX_SCREEN_BYTES);
+        if known.screen.as_ref().is_some_and(|screen| {
+            screen.text == text && screen.cols == known.tab.cols && screen.rows == known.tab.rows
+        }) {
+            return false;
+        }
         known.screen = Some(ScreenInput { text, cols: known.tab.cols, rows: known.tab.rows });
         known.captured_at_ms = now_ms();
         let changed = observe(&mut state, tab_id);
@@ -372,22 +484,25 @@ impl Tabs {
         )
     }
 
-    /// The feeder reached the daemon. The first time, the daemon is the one
-    /// this host's epoch began with. Every later time it may be a new run of
-    /// the daemon, whose surface ids are not the old run's: every row, the
-    /// order and every picture held go, and `epoch` replaces the epoch, so a
-    /// phone, open or resuming, gets a manifest of the tabs listed from now
-    /// on. Returns true when it started over.
-    pub fn daemon_run(&self, epoch: impl Into<String>) -> bool {
+    /// The feeder reached the daemon, whose run `run` names (its pid,
+    /// registry and generation; None when it did not say). The first time,
+    /// the daemon is the one this host's epoch began with. A later time on
+    /// the run it last reached keeps everything: the feeder only stopped
+    /// with the last phone. Any other later time may be a new run of the
+    /// daemon, whose surface ids are not the old run's: pictures held by
+    /// surface id go now, and the next tab list ([`Tabs::set_tabs`]) either
+    /// proves every id still names its tab by its durable id, keeping the
+    /// epoch, or starts `epoch`, so a phone, open or resuming, gets a
+    /// manifest of the tabs listed from then on. Returns true for a new run.
+    pub fn daemon_run(&self, epoch: impl Into<String>, run: Option<String>) -> bool {
         let mut state = self.lock();
-        if !std::mem::replace(&mut state.fed, true) {
+        let same = run.is_some() && state.run == run;
+        state.run = run;
+        if !std::mem::replace(&mut state.fed, true) || same {
             return false;
         }
-        state.producer.new_epoch(epoch);
-        state.tabs.clear();
-        state.pictures.clear();
-        drop(state);
-        self.bump();
+        state.pending = Some(epoch.into());
+        state.pictures.retain(|key, _| key.starts_with("k:"));
         true
     }
 
@@ -478,13 +593,70 @@ fn truncate(mut text: String, cap: usize) -> String {
     text
 }
 
+/// Where a tab's pictures are held: by its durable id when it has one, so
+/// they follow it across daemon runs, else by its surface id.
+fn picture_key(tab_id: &str, tab_key: Option<&str>) -> String {
+    match tab_key.filter(|k| !k.is_empty()) {
+        Some(key) => format!("k:{key}"),
+        None => format!("s:{tab_id}"),
+    }
+}
+
+/// [`picture_key`] of the tab `tab_id` names now (by surface when unlisted).
+fn listed_picture_key(state: &State, tab_id: &str) -> String {
+    picture_key(tab_id, state.tabs.get(tab_id).and_then(|k| k.tab.key.as_deref()))
+}
+
+/// Moves pictures held by surface id before the tab was listed to its
+/// durable id; the newer capture wins when both hold one.
+fn adopt_surface_pictures(state: &mut State, tab_id: &str, tab_key: &str) {
+    let Some(early) = state.pictures.remove(&picture_key(tab_id, None)) else { return };
+    let held = state.pictures.entry(picture_key(tab_id, Some(tab_key))).or_default();
+    let newer = early.captured_at_ms >= held.captured_at_ms;
+    if early.favicon.is_some() && (newer || held.favicon.is_none()) {
+        held.favicon = early.favicon;
+    }
+    if early.thumb.is_some() && (newer || held.thumb.is_none()) {
+        held.thumb = early.thumb;
+    }
+    held.captured_at_ms = held.captured_at_ms.max(early.captured_at_ms);
+}
+
+/// Drops the oldest pictures of tabs not listed now until at most `cap`
+/// and [`MAX_UNLISTED_PICTURE_BYTES`] remain.
+fn prune_unlisted(state: &mut State, cap: usize) {
+    let listed: HashSet<String> =
+        state.tabs.iter().map(|(id, k)| picture_key(id, k.tab.key.as_deref())).collect();
+    let mut unlisted: Vec<(i64, String, usize)> = state
+        .pictures
+        .iter()
+        .filter(|(key, _)| !listed.contains(*key))
+        .map(|(key, p)| (p.captured_at_ms, key.clone(), p.bytes()))
+        .collect();
+    let mut bytes = unlisted.iter().fold(0usize, |sum, u| sum.saturating_add(u.2));
+    let mut count = unlisted.len();
+    if count <= cap && bytes <= MAX_UNLISTED_PICTURE_BYTES {
+        return;
+    }
+    unlisted.sort();
+    for (_, key, size) in unlisted {
+        if count <= cap && bytes <= MAX_UNLISTED_PICTURE_BYTES {
+            break;
+        }
+        state.pictures.remove(&key);
+        count = count.saturating_sub(1);
+        bytes = bytes.saturating_sub(size);
+    }
+}
+
 /// Feeds a listed tab's current parts to the producer.
 fn observe(state: &mut State, tab_id: &str) -> bool {
     let Some(known) = state.tabs.get(tab_id) else { return false };
-    let pictures = state.pictures.get(tab_id);
+    let pictures = state.pictures.get(&picture_key(tab_id, known.tab.key.as_deref()));
     let captured_at_ms = known.captured_at_ms.max(pictures.map_or(0, |p| p.captured_at_ms));
     let obs = Observation {
         tab_id: tab_id.to_owned(),
+        tab_key: known.tab.key.clone().unwrap_or_default(),
         title: known.tab.title.clone(),
         kind: known.tab.kind.clone(),
         favicon: pictures.and_then(|p| p.favicon.clone()),
@@ -682,7 +854,8 @@ pub fn listed_tabs(reply: &Value) -> Vec<ListedTab> {
                             .unwrap_or(0)
                     };
                     let (cols, rows) = (size("cols"), size("rows"));
-                    out.push(ListedTab { id: id.to_string(), title, kind, cols, rows, raw: tab });
+                    let key = text("tab_resource_id").map(str::to_owned);
+                    out.push(ListedTab { id: id.to_string(), key, title, kind, cols, rows, raw: tab });
                 }
             }
         }
@@ -695,6 +868,15 @@ fn tree_event(name: &str) -> bool {
     name == "tree-changed"
         || name == "title-changed"
         || ["tab-", "workspace-", "pane-", "screen-"].iter().any(|p| name.starts_with(p))
+}
+
+/// The run an `identify` reply names: its pid, registry and generation, or
+/// None when it names none of them.
+fn daemon_run_key(reply: &Value) -> Option<String> {
+    let data = reply.get("data").unwrap_or(reply);
+    let part = |key: &str| data.get(key).filter(|v| !v.is_null()).map(Value::to_string);
+    let parts = ["pid", "registry_id", "generation"].map(part);
+    parts.iter().any(Option::is_some).then(|| parts.map(Option::unwrap_or_default).join("/"))
 }
 
 /// One pass: connects, follows the daemon's events, and returns on error.
@@ -710,8 +892,15 @@ async fn feed_once(tabs: &Tabs, socket: &Path) -> Result<(), String> {
     let (query_read, mut query_write) = queries.into_split();
     let mut query_read = BufReader::new(query_read);
     query(&mut query_read, &mut query_write, &hello("tabs-query-hello"), "tabs-query-hello").await?;
-    if tabs.daemon_run(uuid::Uuid::new_v4().to_string()) {
-        tracing::debug!("tabs feeder reconnected: a new epoch");
+    let identify = query(
+        &mut query_read,
+        &mut query_write,
+        &json!({"cmd": "identify", "id": "tabs-identify"}),
+        "tabs-identify",
+    )
+    .await;
+    if tabs.daemon_run(uuid::Uuid::new_v4().to_string(), identify.ok().as_ref().and_then(daemon_run_key)) {
+        tracing::debug!("tabs feeder reached a new daemon run: its tab list decides the epoch");
     }
 
     let mut list_dirty = true;

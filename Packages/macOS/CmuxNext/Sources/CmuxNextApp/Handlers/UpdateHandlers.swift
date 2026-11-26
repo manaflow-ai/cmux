@@ -2,10 +2,9 @@ import CmuxNextActions
 import CmuxNextUpdater
 import Foundation
 
-/// Update actions (menu, palette, shortcut, CLI `settings check-for-updates`
-/// etc.) over the one `UpdaterService`. Checks always run: release builds
-/// use Sparkle, DEV builds probe the feed read-only. Install and channel
-/// switch are disabled, with the reason, where they cannot run.
+/// Update actions (menu, palette, shortcut, CLI `settings check-for-updates`, `app relaunch` etc.) over the one
+/// `UpdaterService`. Checks always run: release builds use Sparkle, DEV builds probe the feed read-only. Install
+/// and channel switch are disabled, with the reason, where they cannot run.
 enum UpdateHandlers {
     static func bind(into registry: ActionRegistry, updater: UpdaterService, openWhatsNew: @escaping @MainActor () -> Bool = { false },
                      whatsNewUnavailable: @escaping @MainActor () -> String? = { nil },
@@ -38,6 +37,7 @@ enum UpdateHandlers {
                 registry.track(result: result(updater.installAnswer(after: baseline)))
             })
         }
+        registry.bind("relaunchKeepSessions", run: { [weak registry] in registry?.track(result: result(updater.relaunchAnswer(ifNewer: $0["ifNewer"]?.boolValue == true))) }) // action-wait-allow: answers at once; the quit follows the reply
         // The update cards' Hide and right-click choices (UPDATE-CARD-CLOSE): the card's menu runs this
         // action, and the palette offers it only while such a card shows (a disabled row is not listed).
         registry.bindEffect("updates.snooze", isEnabled: { updater.showsUpdateCloseMenu }, effect: { invocation in

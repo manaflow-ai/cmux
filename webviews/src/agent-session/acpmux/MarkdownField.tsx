@@ -27,7 +27,8 @@ import {
   withTextMarksEscaped,
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
-import { followActionsWidth } from "./composerScrollLane";
+import { flashThumbOnLength, followActionsWidth } from "./composerScrollLane";
+import { followTextCenter } from "./composerTextCenter";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
 import { commandEdit, setSlashNames, slashTokensPlugin, slashTriggerAt } from "./composer/slashTokens";
@@ -37,6 +38,8 @@ import { deeplinkTitlesPlugin, type DeeplinkTitles } from "./composer/deeplinkTi
 import { mentionChipsPlugin } from "./composer/mentionChips";
 import { CMUX_LINK_ICONS, knownCmuxLink, subscribeCmuxLinks } from "./chips/cmuxLinkResolve";
 import { iconMaskUrl } from "./icons/iconMask";
+import { TOOL_MENTIONS, toolOfHref } from "./toolMentions";
+import { subscribeLanguage, translate } from "./i18n";
 import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
@@ -72,27 +75,38 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, replaceAll } from "@milkdown/kit/utils";
 import { FADE_BAND_PX } from "./markdownFieldModel";
+import { draftFoot } from "./draftFoot.experiment";
 import { focusRoute } from "../../ui/focusRoute";
 
 /// How the draft names its known cmux links (composer/deeplinkTitles.ts), in the sent message's
 /// look (chips/cmuxLinkLook.experiment.ts); none in its `link` arm.
-function draftLinkTitles(): DeeplinkTitles | undefined {
+function draftLinkTitles(): DeeplinkTitles {
   const look = experimentArm(cmuxLinkLook);
-  if (look === "link") return undefined;
   return {
-    known: knownCmuxLink,
+    // A built-in tool's word (`@computer-use`) is its badge in every look, `link` too (that look keeps
+    // cmux links as links): the tool's name and icon.
+    known: (href) => {
+      const tool = toolOfHref(href);
+      if (tool) return { kind: "chat", title: translate(tool.label), tool: tool.icon };
+      return look === "link" ? undefined : knownCmuxLink(href);
+    },
     // The page's icon family too: a pooled page learns it when claimed, and the icon follows it.
     subscribe: (listener) => {
       const offLinks = subscribeCmuxLinks(listener);
       const offFamily = subscribeIconFamily(listener);
+      // A tool badge's name is in the page's language: a language change draws it again.
+      const offLanguage = subscribeLanguage(listener);
       return () => {
         offLinks();
         offFamily();
+        offLanguage();
       };
     },
     label: (info) => (look === "icon-title-host" && info.host ? `${info.title} · ${info.host}` : info.title),
     // The sent chip's kind icon (chips/CmuxLinkChip.tsx), in the looks that draw one.
-    icon: (info) => (look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind])),
+    icon: (info) =>
+      info.tool ? iconMaskUrl(info.tool) : look === "kind-title" ? undefined : iconMaskUrl(CMUX_LINK_ICONS[info.kind]),
+    image: (info) => (info.tool ? TOOL_MENTIONS.find((tool) => tool.icon === info.tool)?.image : undefined),
   };
 }
 
@@ -176,6 +190,12 @@ export type MarkdownFieldHandle = {
   /// (composer/slashTokens.ts), the text around it
   /// kept, as one undoable edit; false when there is no such word or no editor yet.
   insertCommand(name: string, insert?: string): boolean;
+  /// The `@word` the caret is in, read in the caret's own text block (any paragraph, list item or
+  /// quote): the letters typed between its `@` and the caret. Undefined: none (a selection, code).
+  mentionWord(): string | undefined;
+  /// Writes `text` over the whole `@word` the caret is in, its letters after the caret too, as one
+  /// undoable edit, the caret after it; false when there is no such word or no editor yet.
+  insertMention(text: string): boolean;
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -226,7 +246,13 @@ export type MarkdownFieldProps = {
   /// A copy or cut of the selection (Cmd-C, Cmd-X, the menu's): its runs of text and its placed
   /// attachments in order, its text as the field copies it, and whether it holds the whole draft.
   /// True when the surface wrote the pasteboard itself; the field then takes a cut's selection out.
-  onCopy?(copy: { parts: SelectionPart[]; text: string; whole: boolean }, cut: boolean): boolean;
+  /// `commitCut` deletes the captured selection after an asynchronous copy commits.
+  /// Returning `"pending"` leaves the draft untouched until that callback succeeds.
+  onCopy?(
+    copy: { parts: SelectionPart[]; text: string; whole: boolean },
+    cut: boolean,
+    commitCut: () => boolean,
+  ): boolean | "pending";
   /// Whether the selection holds the whole draft (Select All), as it changes: the surface marks what
   /// it shows besides the text (the strip's attachments) as selected too.
   onWholeSelection?(whole: boolean): void;
@@ -529,6 +555,8 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
   });
   if (!blockwise) return write(doc);
   if (doc.childCount === 1) {
+    const plain = plainLine(doc.child(0));
+    if (plain !== undefined) return `${plain}\n`;
     const lines = linewiseMarkdown(doc, doc.child(0), write, inline);
     return lines === undefined ? write(doc) : `${lines}\n`;
   }
@@ -541,12 +569,35 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
       markdown =
         !block.content.size && block.type.name === "paragraph"
           ? EMPTY_PARAGRAPH
-          : (linewiseMarkdown(doc, block, write, inline) ?? write(doc.copy(Fragment.from(block))).replace(/\n+$/, ""));
+          : (plainLine(block) ??
+            linewiseMarkdown(doc, block, write, inline) ??
+            write(doc.copy(Fragment.from(block))).replace(/\n+$/, ""));
       kept.set(block, markdown);
     }
     parts.push(markdown);
   });
   return `${parts.join("\n\n")}\n`;
+}
+
+/// Text the serializer writes unchanged: letters, digits and the punctuation it never escapes
+/// mid-line, starting and ending with a letter, digit or that punctuation, never a space.
+const PLAIN_LINE = /^[A-Za-z0-9,'?!](?:[A-Za-z0-9 ,'?!.]*[A-Za-z0-9,'?!.])?$/;
+/// What would make the serializer escape a `.` in such text: a list number at the start (`1.`),
+/// or an autolink literal's `www.` (GFM escapes the dot after a `w` that a word character follows).
+const ESCAPED_DOT = /^\d+\.|[Ww]\.[\w.-]/;
+
+/** One paragraph of plain prose, unmarked, as its text: what the serializer writes for it, without
+ * running the serializer, which every key into such a prompt ran (Milkdown's whole remark pipeline
+ * for one line; composer-typing bench --profile). Undefined for anything else. */
+function plainLine(paragraph: ProseNode): string | undefined {
+  if (paragraph.type.name !== "paragraph" || !paragraph.childCount) return undefined;
+  let text = "";
+  for (let at = 0; at < paragraph.childCount; at += 1) {
+    const child = paragraph.child(at);
+    if (!child.isText || child.marks.length) return undefined;
+    text += child.text!;
+  }
+  return PLAIN_LINE.test(text) && !ESCAPED_DOT.test(text) ? text : undefined;
 }
 
 /** A paragraph with hard breaks, written line by line from each line's kept markdown, or undefined
@@ -727,6 +778,62 @@ function caretOf(view: EditorView): number {
   return doc.textBetween(start, selection.from, "\n", "\n").length;
 }
 
+/// How far from the caret an `@word` is read: a longer word is no mention.
+const MENTION_WORD_MAX = 256;
+
+/// The `@word` the caret is in, in the caret's own text block: its document span (the `@` to the
+/// word's end after the caret), the letters typed before the caret, and whether a space or tab
+/// follows it. An `@` inside a word (an email address) or in code is not one.
+function mentionAround(state: EditorState): { from: number; to: number; query: string; spaced: boolean } | undefined {
+  const { selection } = state;
+  if (!selection.empty) return undefined;
+  const { $from } = selection;
+  const block = $from.parent;
+  if (!block.isTextblock || block.type.spec.code) return undefined;
+  if ($from.marks().some((mark) => mark.type.spec.code)) return undefined;
+  // A leaf counts as one place, as in the document: a line break ends a word, an attachment too.
+  const leaf = (node: ProseNode) => (node.type.name === "hardbreak" ? "\n" : "\uFFFC");
+  const offset = $from.parentOffset;
+  const lo = Math.max(0, offset - MENTION_WORD_MAX);
+  const found = /(^|\s)@([^\s@\uFFFC]*)$/.exec(block.textBetween(lo, offset, undefined, leaf));
+  // Cut off mid-text, a match at the cut's start may be the end of a longer word.
+  if (!found || (lo > 0 && found.index === 0 && !found[1])) return undefined;
+  const hi = Math.min(block.content.size, offset + MENTION_WORD_MAX + 1);
+  const after = block.textBetween(offset, hi, undefined, leaf);
+  // The word ends at punctuation that ends a mention too (`@bro|, please` keeps its comma); a `.` stays
+  // part of it, as a file name's.
+  // A trailing `.` is the sentence's (`@bro|. Next`), not the word's.
+  const rest = /^[^\s@\uFFFC,;:!?)\]"'\u201D\u2019]*/.exec(after)![0].replace(/\.+$/, "");
+  const query = found[2]!;
+  return {
+    from: $from.pos - query.length - 1,
+    to: $from.pos + rest.length,
+    query,
+    spaced: /^[ \t]/.test(after.slice(rest.length)),
+  };
+}
+
+/// The edit that writes `text` over the `@word` the caret is in (mentionAround), its own undo step,
+/// the caret after it: a line break in `text` is a hard break, and a space `text` ends with takes
+/// the place of one that followed the word. Undefined with no `@word` at the caret.
+function mentionEdit(state: EditorState, text: string) {
+  const word = mentionAround(state);
+  if (!word) return undefined;
+  const to = word.to + (word.spaced && /[ \t]$/.test(text) ? 1 : 0);
+  const tr = closeHistory(state.tr);
+  const hardbreak = state.schema.nodes.hardbreak;
+  if (text.includes("\n") && hardbreak) {
+    const nodes = text
+      .split("\n")
+      .flatMap((line, index) => [...(index ? [hardbreak.create()] : []), ...(line ? [state.schema.text(line)] : [])]);
+    tr.replaceWith(word.from, to, nodes);
+    const size = nodes.reduce((sum, node) => sum + node.nodeSize, 0);
+    return tr.setSelection(TextSelection.create(tr.doc, word.from + size)).scrollIntoView();
+  }
+  tr.insertText(text, word.from, to);
+  return tr.setSelection(TextSelection.create(tr.doc, word.from + text.length)).scrollIntoView();
+}
+
 /** The text before `pos`, blocks joined by newlines. */
 const plainOffset = (doc: ProseNode, pos: number) => doc.textBetween(0, pos, "\n", "\n").length;
 
@@ -780,6 +887,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   },
   ref,
 ) {
+  // Read once per field: an arm changes with a reload (the gallery's arm, the debug key).
+  const [footArm] = React.useState(() => experimentArm(draftFoot));
   const pendingQuotes = useRef<string[]>([]);
   const editor = useRef<Editor | undefined>(undefined);
   const view = useRef<EditorView | undefined>(undefined);
@@ -891,7 +1000,13 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     if (!tell || composing.current) return;
     const next = slashTriggerAt(state);
     const told = slashTold.current;
-    if (next?.query === told?.query && next?.length === told?.length && next?.leading === told?.leading) return;
+    if (
+      next?.query === told?.query &&
+      next?.length === told?.length &&
+      next?.leading === told?.leading &&
+      next?.mark === told?.mark
+    )
+      return;
     slashTold.current = next;
     tell(next);
   };
@@ -981,11 +1096,38 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       whole: wholeSelected(state),
     };
     if (!copy.parts.length && copy.text) copy.parts.push({ text: copy.text });
-    if (!surface(copy, cut)) return false;
+    let committed = false;
+    const originalDoc = state.doc;
+    const originalSelection = state.selection;
+    const originalOwner = owner.current;
+    const commitCut = () => {
+      if (committed) return false;
+      committed = true;
+      // Selection-only moves keep this immutable document. Any edit or chat switch preserves the
+      // newer draft instead of applying an old Cut to it after the clipboard finishes staging.
+      if (
+        !cut ||
+        view.current !== editorView ||
+        editorView.isDestroyed ||
+        owner.current !== originalOwner ||
+        editorView.state.doc !== originalDoc
+      )
+        return false;
+      editorView.dispatch(
+        editorView.state.tr
+          .setSelection(originalSelection)
+          .deleteSelection()
+          .scrollIntoView()
+          .setMeta("uiEvent", "cut"),
+      );
+      return true;
+    };
+    const result = surface(copy, cut, commitCut);
+    if (result === false) return false;
     event.preventDefault();
     // The text at once; the surface's own write (the host's, a moment later) replaces it whole.
     event.clipboardData?.setData("text/plain", copy.text);
-    if (cut) editorView.dispatch(editorView.state.tr.deleteSelection().scrollIntoView().setMeta("uiEvent", "cut"));
+    if (cut && result !== "pending") commitCut();
     return true;
   };
 
@@ -1635,12 +1777,20 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   // Its thumb fades in while the draft scrolls and out at rest, as the transcript's does (scrollers.ts
   // SHOWN_SCROLLER_ATTRIBUTE; Leo 2026-11-22: "the thumb only appears when it's relevant").
   useEffect(() => (wrapper.current ? followShownScrollerFade(wrapper.current) : undefined), []);
+  // The thumb also shows for a moment when the draft's length changes while it overflows (Leo
+  // 2026-11-23: "it should only appear briefly when the length changes, or when you scroll").
+  useEffect(
+    () => (wrapper.current && typeof ResizeObserver === "function" ? flashThumbOnLength(wrapper.current) : undefined),
+    [],
+  );
   // In the composer's box, its scrollbar runs down the box's right edge, clear of the actions
   // (composerScrollLane.ts).
   useEffect(
     () => (wrapper.current && typeof ResizeObserver === "function" ? followActionsWidth(wrapper.current) : undefined),
     [],
   );
+  // In the composer's box, its words' ink stands on the controls' centre line (composerTextCenter.ts).
+  useEffect(() => (wrapper.current ? followTextCenter(wrapper.current) : undefined), []);
   const handle = useRef<MarkdownFieldHandle>(undefined);
   useImperativeHandle(
     ref,
@@ -1815,6 +1965,16 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           current.dispatch(closeHistory(current.state.tr));
           return true;
         },
+        mentionWord: () => (view.current ? mentionAround(view.current.state)?.query : undefined),
+        insertMention: (text) => {
+          const current = view.current;
+          const tr = current && mentionEdit(current.state, text);
+          if (!current || !tr) return false;
+          refocus.current = null;
+          current.dispatch(tr);
+          current.dispatch(closeHistory(current.state.tr));
+          return true;
+        },
         inlineIds: () => (view.current ? inlineIds(view.current.state.doc) : undefined),
         orderInline: (ids) => {
           if (view.current) orderInline(view.current, ids);
@@ -1871,6 +2031,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       // reserved and its thumb shown only while the draft scrolls or the pointer is near its lane; the
       // minimal scroller's inset track and no thumb while the field settles.
       {...{ [SHOWN_SCROLLER_ATTRIBUTE]: "", [MINIMAL_SCROLLER_ATTRIBUTE]: "" }}
+      // How a scrolled-up draft's foot fades (draftFoot.experiment.ts, markdownField.css).
+      data-draft-foot={footArm}
       style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
         wrapper.current = element;

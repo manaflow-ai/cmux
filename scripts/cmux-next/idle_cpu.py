@@ -33,6 +33,7 @@ stopped by exact pid.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import signal
 import hashlib
 import json
@@ -67,6 +68,178 @@ SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|optchat-chief)$")
 # half the app's idle CPU (0.47-0.54 % against 0.24-0.28 %) and of the renderer's (0.37-0.45 % against 0.13-0.18 %),
 # and runs of one build varied with it. 'none' turns it back on.
 BENCH_CEF_SWITCHES = "disable-component-update"
+
+
+# --cef-trace: Chromium's startup trace as a ring buffer (the idle tail stays, the startup goes) of at most this size;
+# the JSON file is a few times that, in a temporary folder removed once read.
+CEF_TRACE_BUFFER_KB = 65536
+# loading and blink.resource: each request's URL (a page that polls or streams at idle, 8571eee5's 2.7/s
+# RunReadCallback on the I/O thread).
+CEF_TRACE_CATEGORIES = "toplevel,toplevel.flow,ipc,mojom,loading,blink.resource"
+
+# Argument keys that name what an event serves: a mojo interface or method, a URL, a posting place.
+_NAMING_ARG = re.compile(r"(interface|method|tag|url|func|file|name)", re.I)
+
+
+def _flat_args(args, prefix: str = ""):
+    """`key=value` for each scalar of a trace event's arguments (nested keys joined by dots) whose key names what the
+    event serves (_NAMING_ARG)."""
+    if not isinstance(args, dict):
+        return
+    for key, value in args.items():
+        path = f"{prefix}{key}"
+        if isinstance(value, dict):
+            yield from _flat_args(value, path + ".")
+        elif isinstance(value, (str, int)) and not isinstance(value, bool) and _NAMING_ARG.search(key):
+            yield f"{path}={value}"
+
+
+def _urls(args) -> list:
+    """Every URL among an event's arguments, without its query or fragment."""
+    found = []
+    for pair in _flat_args(args):
+        key, _, value = pair.partition("=")
+        if key.lower().endswith("url") and "://" in value:
+            found.append(value.split("?", 1)[0].split("#", 1)[0])
+    return found
+
+
+BROWSER_THREADS = ("CrBrowserMain", "Chrome_IOThread")
+
+
+@contextlib.contextmanager
+def host_load(count: int):
+    """`count` busy-loop processes (children of this bench) while the block runs, each ended after it: a busy Mac,
+    where every timer wakes late, for a daemon's wakeups under load."""
+    loops = [subprocess.Popen([sys.executable, "-I", "-c", "while True: pass"], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for _ in range(count)]
+    try:
+        yield loops
+    finally:
+        for loop in loops:
+            loop.kill()
+        for loop in loops:
+            loop.wait()
+
+
+def cef_trace_switches(path: str, seconds: int) -> str:
+    """The Chromium switches (colon-separated, as CMUX_NEXT_CEF_EXTRA_SWITCHES takes them) for a startup trace of
+    `seconds` into `path`."""
+    if ":" in path:
+        raise ValueError(f"a trace path with ':' cannot pass as a switch: {path}")
+    return ":".join([f"trace-startup={CEF_TRACE_CATEGORIES}", f"trace-startup-duration={int(seconds)}",
+                     "trace-startup-record-mode=record-continuously", f"trace-buffer-size-in-kb={CEF_TRACE_BUFFER_KB}",
+                     "trace-startup-format=json", f"trace-startup-file={path}"])
+
+
+def join_switches(base: str, extra: str) -> str:
+    """The bench's switches (`none`: none) and `extra`, colon-separated."""
+    return ":".join(part for part in ((base if base != "none" else ""), extra) if part)
+
+
+def _posted_from(args: dict) -> str:
+    """`function (file)` of a RunTask event's posting place, in the old (`src_func`) or the typed (`task.posted_from`)
+    argument shape."""
+    func, file = args.get("src_func"), args.get("src_file")
+    if func is None:
+        posted = (args.get("task") or {}).get("posted_from") or {}
+        func, file = posted.get("function_name"), posted.get("file_name")
+    return f"{func or '?'} ({file or '?'})"
+
+
+def cef_trace_seconds(minutes: float, windows: int, window: float) -> int:
+    """How long the trace runs from the launch: through the idle period and every measured window, 30 s to spare (the
+    launch), at most 600 s (a longer run's later windows go untraced, and the window says so)."""
+    return int(min(600, minutes * 60 + windows * window + 30))
+
+
+def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40, window=None) -> dict:
+    """Tasks per second of a Chromium JSON trace for each process, thread and posting place, busiest first: between
+    `window`'s monotonic seconds (the measured windows; Chromium stamps with the same clock) when the trace reaches
+    them, else after its first `skip_s` seconds (the startup). `window` in the answer says which."""
+    events = trace.get("traceEvents", []) if isinstance(trace, dict) else trace
+    processes = {e.get("pid"): (e.get("args") or {}).get("name", "?") for e in events
+                 if e.get("ph") == "M" and e.get("name") == "process_name"}
+    threads = {(e.get("pid"), e.get("tid")): (e.get("args") or {}).get("name", "?") for e in events
+               if e.get("ph") == "M" and e.get("name") == "thread_name"}
+    stamps = [e["ts"] for e in events if e.get("ph") != "M" and isinstance(e.get("ts"), (int, float))]
+    if not stamps:
+        return {"seconds": 0.0, "tasks": [], "window": "unmatched" if window is not None else None}
+    start, end = min(stamps) + skip_s * 1e6, max(stamps)
+    which = None
+    if window is not None:
+        which = "unmatched"
+        low, high = max(window[0] * 1e6, min(stamps)), min(window[1] * 1e6, max(stamps))
+        if high - low >= 1e6:
+            start, end, which = low, high, "measured"
+    seconds = max((end - start) / 1e6, 1e-3)
+    counts: dict = {}
+    for e in events:
+        if e.get("name") != "ThreadControllerImpl::RunTask" or not start <= e.get("ts", -1) <= end:
+            continue
+        key = (processes.get(e.get("pid"), str(e.get("pid"))), threads.get((e.get("pid"), e.get("tid")), str(e.get("tid"))),
+               _posted_from(e.get("args") or {}))
+        counts[key] = counts.get(key, 0) + 1
+    rows = [{"process": p, "thread": t, "posted_from": f, "count": n, "per_s": round(n / seconds, 2)}
+            for (p, t, f), n in counts.items()]
+    rows.sort(key=lambda r: (-r["count"], r["process"], r["thread"], r["posted_from"]))
+    # The browser process (the one with a CrBrowserMain thread; Chromium names it by pid) on its own: the GPU
+    # process's display-link tasks fill the shared rows, and the browser's delayed tasks are what wake the app.
+    browser = {processes.get(pid, str(pid)) for (pid, _), name in threads.items() if name == "CrBrowserMain"}
+    browser_rows = [r for r in rows if r["process"] in browser]
+    # The browser process's main and I/O threads (only it names them so: a renderer's is Chrome_ChildIOThread): every
+    # other event there by name, the mojom category's IPC messages among them, which RunTask rows do not name.
+    # Each with the arguments that name what it served (a mojo interface, a URL), busiest first.
+    named, named_args, urls = {}, {}, {}
+    for e in events:
+        if e.get("ph") not in ("X", "B", "i", "I", "n") or not start <= e.get("ts", -1) <= end:
+            continue
+        for url in _urls(e.get("args")):
+            ukey = (processes.get(e.get("pid"), str(e.get("pid"))), url)
+            urls[ukey] = urls.get(ukey, 0) + 1
+        thread = threads.get((e.get("pid"), e.get("tid")))
+        if thread not in BROWSER_THREADS or e.get("name") == "ThreadControllerImpl::RunTask":
+            continue
+        key = (thread, e.get("name", "?"))
+        named[key] = named.get(key, 0) + 1
+        per = named_args.setdefault(key, {})
+        for pair in _flat_args(e.get("args")):
+            per[pair] = per.get(pair, 0) + 1
+    event_rows = [{"thread": t, "name": n, "count": c, "per_s": round(c / seconds, 2),
+                   "args": [{"arg": a, "per_s": round(k / seconds, 2)}
+                            for a, k in sorted(named_args[(t, n)].items(), key=lambda i: (-i[1], i[0]))[:6]]}
+                  for (t, n), c in named.items()]
+    event_rows.sort(key=lambda r: (-r["count"], r["thread"], r["name"]))
+    url_rows = [{"process": p, "url": u, "count": c, "per_s": round(c / seconds, 2)} for (p, u), c in urls.items()]
+    url_rows.sort(key=lambda r: (-r["count"], r["process"], r["url"]))
+    got = {"seconds": round(seconds, 1), "tasks": rows[:top], "browser_tasks": browser_rows[:top],
+           "events": event_rows[:top], "urls": url_rows[:top]}
+    if which:
+        got["window"] = which
+        got["trace_span_s"] = [round(min(stamps) / 1e6, 1), round(max(stamps) / 1e6, 1)]
+    return got
+
+
+def _settled(path: str, wait_s: float = 3.0) -> bool:
+    """True when `path` stopped growing over `wait_s` (Chromium finished writing it)."""
+    size = os.path.getsize(path)
+    time.sleep(wait_s)
+    return os.path.getsize(path) == size and size > 0
+
+
+def read_cef_trace(folder: str, skip_s: float = 30.0, window=None) -> dict:
+    """cef_trace_tasks of `folder`/cef-trace.json, or {"error"}; the folder is removed either way."""
+    path = os.path.join(folder, "cef-trace.json")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            trace = json.load(handle)
+        got = cef_trace_tasks(trace, skip_s, window=window)
+        got["bytes"] = os.path.getsize(path)
+        return got
+    except (OSError, ValueError) as error:
+        return {"error": str(error)[:300]}
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def with_cef_switches(prepare, switches: str):
@@ -113,7 +286,10 @@ def owed_restart(ops, cycles: int) -> dict:
     gone. The positions are the daemon run's: the new run starts from the bottom, so the old run's are pushed up
     first (`cycles` more batches: the peer removed and linked again) past any the new run reaches at idle. A build
     without the #254 fix then follows the old batch forever; one with it drops it at the new run's first list.
-    `ops` does each step (LiveOwedOps on a fleet Mac); returns what was done."""
+    A hidden page drops list notices and reads the list anew when shown (sessionPages.ts `invalidate`), so it never
+    owes a batch: an agent page is shown first. `ops` does each step (LiveOwedOps on a fleet Mac); returns what was
+    done."""
+    ops.show_chat()
     ops.add_peer()
     rows = ops.listed_rows()
     if rows <= PEER_ROW_BATCH_MIN:
@@ -143,8 +319,18 @@ class LiveOwedOps:
     (idle_cost_load.PeerDaemon) and the app's renderers. Every process it signals is the bench's: the launched
     app's renderers and acpmux daemon (the app starts a new one after a crash, AgentPaneHost.swift)."""
 
-    def __init__(self, app_pid: int, bundle: str, socket: str, peer, want_rows: int):
+    def __init__(self, app_pid: int, bundle: str, socket: str, peer, want_rows: int, client=None,
+                 workspace: str | None = None):
         self.app_pid, self.bundle, self.socket, self.peer, self.want = app_pid, bundle, socket, peer, want_rows
+        self.client, self.workspace = client, workspace
+
+    def show_chat(self):
+        if not self.workspace:
+            raise RuntimeError("no chat workspace to show: --peer-rows needs --chats 1 or more")
+        shown = self.client.action("goToWorkspace", workspace=self.workspace)
+        if isinstance(shown, dict) and (shown.get("error") or shown.get("code")):
+            raise RuntimeError(f"goToWorkspace {self.workspace}: {shown}")
+        time.sleep(5)  # test script: the shown chat page loads its list before the batches
 
     def _rpc(self, method, params, timeout=120):
         import idle_cost_load
@@ -206,6 +392,67 @@ class LiveOwedOps:
                 return pid
             time.sleep(1)  # test script: the app starts its daemon again when a page reconnects
         return None
+
+
+TIMER_RE = re.compile(r"<CFRunLoopTimer [^>]*>\{valid = (\w+), firing = \w+, interval = ([0-9.e+-]+),[^}]*?"
+                      r"callout = ([^,}\n]+)")
+
+
+def wake_report(before: dict, after: dict) -> dict:
+    """The app's own wakeup sources over the measured windows, from two `debug.wakeups` answers: each ledger
+    (owner, reason) count's rate between them (one born between them counts from 0), busiest first, and the main
+    run loop's valid repeating timers at the end (each wakes the main thread 1/interval times a second, outside
+    the ledger)."""
+    if not isinstance(before, dict) or not isinstance(after, dict) or before.get("error") or after.get("error"):
+        return {"error": (after or {}).get("error") or (before or {}).get("error") or "no debug.wakeups answer"}
+    seconds = max(float(after.get("uptime_s") or 0) - float(before.get("uptime_s") or 0), 1e-3)
+    was = {(e.get("owner"), e.get("reason")): e.get("count") or 0 for e in before.get("ledger") or []}
+    ledger = []
+    for entry in after.get("ledger") or []:
+        key = (entry.get("owner"), entry.get("reason"))
+        delta = (entry.get("count") or 0) - was.get(key, 0)
+        if delta > 0:
+            ledger.append({"owner": key[0], "reason": key[1], "count": delta, "per_s": round(delta / seconds, 3)})
+    ledger.sort(key=lambda e: -e["count"])
+    timers = []
+    seen = set()
+    for valid, interval, callout in TIMER_RE.findall(after.get("main_run_loop") or ""):
+        if valid != "Yes" or float(interval) <= 0 or (callout.strip(), interval) in seen:
+            continue
+        seen.add((callout.strip(), interval))
+        timers.append({"callout": callout.strip()[:160], "interval_s": float(interval),
+                       "per_s": round(1 / float(interval), 3)})
+    timers.sort(key=lambda t: -t["per_s"])
+    return {"seconds": round(seconds, 1), "ledger": ledger,
+            "ledger_per_s": round(sum(e["per_s"] for e in ledger), 3), "timers": timers}
+
+
+def executable_name(bundle: str) -> str:
+    """The app's executable name (CFBundleExecutable): what a trace shows for a thread with no pthread name."""
+    import plistlib
+    try:
+        with open(Path(bundle) / "Contents" / "Info.plist", "rb") as handle:
+            return str(plistlib.load(handle).get("CFBundleExecutable") or "")
+    except (OSError, plistlib.InvalidFileException):
+        return ""
+
+
+def thread_wake_rows(traced: dict, sampled: dict | None = None, process_name: str = "") -> list[dict]:
+    """thread_wakes.record's threads, busiest first: wakeups and CPU ms per second, with the thread's name. A thread
+    with no pthread name (the trace shows the process name) is named by `sampled` (thread_wakes.sample_threads of a
+    `sample` of the same process): its dispatch queue, else its heaviest stack's first frames."""
+    import thread_wakes
+    seconds = max(float(traced.get("seconds") or 0), 1e-3)
+    rows = []
+    for tid, t in (traced.get("threads") or {}).items():
+        name = (t.get("name") or "").strip()
+        got = (sampled or {}).get(tid)
+        row = {"tid": tid, "name": thread_wakes.label("" if name == process_name else name, got) if got else (name or "?"),
+               "wakes_per_s": round(t.get("wakes", 0) / seconds, 2), "cpu_ms_per_s": round(t.get("running_ns", 0) / 1e6 / seconds, 3)}
+        if got and got.get("frames"):
+            row["frames"] = got["frames"][:6]
+        rows.append(row)
+    return sorted(rows, key=lambda r: -r["wakes_per_s"])
 
 
 def log(message: str) -> None:
@@ -408,8 +655,12 @@ def rows_of(procs: dict, spans: list) -> list[dict]:
             if u0 is None or u1 is None:
                 continue
             span = max(t1 - t0, 1e-3)
+            # Package-idle and interrupt wakeups apart (bench_memory.usage): on a busy Mac the first reads near 0.
+            idle = (u1[5] - u0[5]) if len(u0) > 5 and len(u1) > 5 else None
             per.append({"cpu_pct": round(100 * (u1[3] - u0[3]) / 1e9 / span, 3),
                         "wakeups_per_s": round((u1[4] - u0[4]) / span, 2),
+                        "idle_wakeups_per_s": round(idle / span, 2) if idle is not None else None,
+                        "interrupt_wakeups_per_s": round((u1[4] - u0[4] - idle) / span, 2) if idle is not None else None,
                         "switches_per_s": round((c1 - c0) / span, 2) if c0 is not None and c1 is not None else None})
         if not per:
             continue
@@ -419,6 +670,8 @@ def rows_of(procs: dict, spans: list) -> list[dict]:
             return values[len(values) // 2] if values else None
         rows.append({"pid": pid, "kind": kind, "command": cmd[:200], "windows": per,
                      "cpu_pct": mid("cpu_pct"), "wakeups_per_s": mid("wakeups_per_s"),
+                     "idle_wakeups_per_s": mid("idle_wakeups_per_s"),
+                     "interrupt_wakeups_per_s": mid("interrupt_wakeups_per_s"),
                      "switches_per_s": mid("switches_per_s")})
     rows.sort(key=lambda row: -(row["cpu_pct"] or 0))
     return rows
@@ -658,6 +911,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--restart-cycles", type=int, default=3,
                         help="with --peer-rows: batches before the owed one, so the old run's positions pass the "
                              "new run's")
+    parser.add_argument("--wake-trace", type=int, default=0,
+                        help="after the windows: the app's own wakeup ledger over them (debug.wakeups), its main run "
+                             "loop timers, and a System Trace of this many seconds (1-15; capped in size and "
+                             "refused below 30 GiB free, thread_wakes.record) naming each app thread's wakeups")
+    parser.add_argument("--cef-trace", type=int, default=0,
+                        help="Chromium's own startup trace for this many seconds (30-600; a ring buffer of "
+                             f"{CEF_TRACE_BUFFER_KB >> 10} MiB in a temporary folder removed after): tasks per second for "
+                             "each thread and the place that posted them, the first 30 s (startup) left out")
+    parser.add_argument("--host-load", type=int, default=0,
+                        help="busy-loop processes run through the measured windows (0-64): the daemons' wakeups on "
+                             "a busy Mac, where every timer wakes late")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     args.parser = parser
@@ -666,16 +930,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def check_args(args: argparse.Namespace) -> None:
     parser = args.parser
+    if not 0 <= args.host_load <= 64:
+        parser.error("--host-load must be 0 to 64 loops")
+    if args.cef_trace != 0 and not 30 <= args.cef_trace <= 600:
+        parser.error("--cef-trace must be 0 (off) or 30 to 600 seconds")
+    if not 0 <= args.wake_trace <= 15:
+        parser.error("--wake-trace must be 0 (off) to 15 seconds")
     if (args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0 or args.history < 0
             or not math.isfinite(args.writers) or not math.isfinite(args.window) or not math.isfinite(args.minutes)
             or args.writers < 0 or args.history_prompt_kb < 0 or (args.writers > 0 and args.history <= 0)):
         parser.error("--windows must be >= 1, --window > 0, --minutes, --chats, --history, --history-prompt-kb and "
                      "--writers >= 0, and --writers needs --history")
     if (args.peer_rows or args.restart_at is not None) and not (
-            args.peer_rows > PEER_ROW_BATCH_MIN and args.restart_at is not None
+            args.chats >= 1 and args.peer_rows > PEER_ROW_BATCH_MIN and args.restart_at is not None
             and math.isfinite(args.restart_at) and 0 <= args.restart_at <= args.minutes and args.restart_cycles >= 0):
         parser.error(f"--peer-rows must be > {PEER_ROW_BATCH_MIN} with --restart-at between 0 and --minutes, "
-                     "and --restart-cycles >= 0")
+                     "--chats >= 1 (a shown agent page) and --restart-cycles >= 0")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -702,7 +972,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.chats > 0:
             chats = bench_memory.FakeChats(client, bundle, args.fake_agent)
             for index in range(args.chats):
-                made += chats.open(index) is not None
+                workspace = chats.open(index)
+                made += workspace is not None
+                state["chat_workspace"] = workspace or state.get("chat_workspace")
             log(f"idle-cpu: {made} of {args.chats} chats made, their first turn answered")
             if made < args.chats:
                 verdict.update(status=3, why=f"only {made} of {args.chats} chats were made")
@@ -723,7 +995,7 @@ def main(argv: list[str] | None = None) -> int:
             made = sum(peer.new_chat(f"idle bench peer chat {i}") is not None for i in range(args.peer_rows))
             log(f"idle-cpu: the peer daemon has {made} of {args.peer_rows} chats")
             socket_path = bench_memory.FakeChats.acpmux_socket(bundle)
-            ops = LiveOwedOps(process.pid, bundle, socket_path, peer, made)
+            ops = LiveOwedOps(process.pid, bundle, socket_path, peer, made, client, state.get("chat_workspace"))
             log(f"idle-cpu: idle {args.minutes:g} min from now; the app's acpmux restarts at {args.restart_at:g} min "
                 "with a batch of the peer's rows owed")
             time.sleep(args.restart_at * 60)  # sleep-ok: the idle period before the restart
@@ -759,14 +1031,54 @@ def main(argv: list[str] | None = None) -> int:
 
         threads: list = []
         renderer_threads: list = []
-        rows = measure(process.pid, bundle, args.windows, args.window,
-                       each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
+        wake_call = lambda: client.call("debug.wakeups", {"run_loop": True}, timeout=30)  # noqa: E731
+        wakes_before = wake_call() if args.wake_trace else None
+        with host_load(args.host_load) as loops:
+            if loops:
+                log(f"idle-cpu: {len(loops)} busy loops run through the windows (--host-load)")
+            measured_from = time.monotonic()
+            rows = measure(process.pid, bundle, args.windows, args.window,
+                           each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
+            measured_to = time.monotonic()
         result["processes"] = rows
+        if args.wake_trace:
+            import thread_wakes
+            result["wakeups"] = wake_report(wakes_before, wake_call())
+            log("IDLE-CPU-WAKE-LEDGER " + json.dumps(result["wakeups"], sort_keys=True)[:4000])
+            traced = thread_wakes.record(process.pid, args.wake_trace)
+            # A sample right after names the threads the trace cannot (no pthread name): same tids.
+            sampled = thread_wakes.sample_threads(sample(process.pid, "app-wake", out))
+            result["thread_wakes"] = traced.get("error") or thread_wake_rows(traced, sampled, executable_name(bundle))
+            log("IDLE-CPU-WAKE-THREADS " + json.dumps(result["thread_wakes"])[:4000])
+        if cef_trace_dir:
+            # Chromium writes the file when the trace's duration from its start has passed.
+            deadline = time.monotonic() + args.cef_trace + 120
+            target = os.path.join(cef_trace_dir, "cef-trace.json")
+            while time.monotonic() < deadline and not (os.path.exists(target) and _settled(target)):
+                time.sleep(2)
+            result["cef_trace"] = read_cef_trace(cef_trace_dir, window=(measured_from, measured_to))
+            result["cef_trace"]["measured_s"] = [round(measured_from, 1), round(measured_to, 1)]
+            log("IDLE-CPU-CEF-TRACE " + json.dumps({k: v for k, v in result["cef_trace"].items()
+                                                    if k not in ("events", "urls", "browser_tasks")})[:6000])
+            for row in result["cef_trace"].get("browser_tasks", [])[:25]:
+                log("IDLE-CPU-CEF-BROWSER-TASK " + json.dumps(row)[:600])
+            # One line per event: its naming arguments make a row long, and a cut line hides the rest.
+            for row in result["cef_trace"].get("events", [])[:25]:
+                log("IDLE-CPU-CEF-EVENT " + json.dumps(row)[:1500])
+            for row in result["cef_trace"].get("urls", [])[:25]:
+                log("IDLE-CPU-CEF-URL " + json.dumps(row)[:600])
         result["app_threads"] = threads
         result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
         for entry in result["pages"]:
             log("IDLE-CPU-PAGE " + json.dumps(entry, sort_keys=True))
+        # The health model's parts that are not healthy and whether its one timer is armed: a part left slow or
+        # failed re-arms the timer every few seconds at idle (app.health.tick in the wake ledger).
+        try:
+            result["health"] = client.call("debug.health", {}, timeout=30)
+        except Exception as error:  # noqa: BLE001 - an older app or a closed socket: the run goes on
+            result["health"] = {"error": str(error)}
+        log("IDLE-CPU-HEALTH " + json.dumps(result["health"], sort_keys=True)[:4000])
         result["chromium_dirs"] = chromium_dirs(Path(env["HOME"]))
         log("IDLE-CPU-CHROMIUM-DIRS " + json.dumps(result["chromium_dirs"][:24]))
         for index, groups in enumerate(threads):
@@ -779,6 +1091,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
         for row in rows:
             log(f"IDLE-CPU {row['kind']} pid={row['pid']} cpu_pct={row['cpu_pct']} wakeups_per_s={row['wakeups_per_s']} "
+                f"idle_wakeups_per_s={row['idle_wakeups_per_s']} interrupt_wakeups_per_s={row['interrupt_wakeups_per_s']} "
                 f"switches_per_s={row['switches_per_s']} windows={json.dumps([[w['cpu_pct'], w['wakeups_per_s']] for w in row['windows']])}")
         kinds: dict = {}
         for row in rows:
@@ -827,6 +1140,17 @@ def main(argv: list[str] | None = None) -> int:
     smoke.READY = lambda snap: smoke.visible_windows(snap) > 0
     state: dict = {}
     writer_dir = (out or Path(tempfile.mkdtemp(prefix="idle-cpu-"))) / "writers"
+    cef_trace_dir = None
+    if args.cef_trace:
+        import thread_wakes
+        free = thread_wakes.free_bytes(tempfile.gettempdir())
+        if free < thread_wakes.MIN_FREE:
+            raise SystemExit(f"idle-cpu: only {free >> 30} GiB free; --cef-trace needs {thread_wakes.MIN_FREE >> 30} GiB")
+        cef_trace_dir = tempfile.mkdtemp(prefix="cef-trace-")
+        # Through the measured windows, not only the settle before them (557acd48).
+        args.cef_trace = max(args.cef_trace, cef_trace_seconds(args.minutes, args.windows, args.window))
+        args.cef_switches = join_switches(args.cef_switches, cef_trace_switches(
+            os.path.join(cef_trace_dir, "cef-trace.json"), args.cef_trace))
     # A person's home has a login keychain: without one Chromium's Safe Storage dialog sits there (cmuxterm-hq#11994).
     smoke.PREPARE_HOME = with_cef_switches(smoke.login_keychain, args.cef_switches)
     if args.history > 0:

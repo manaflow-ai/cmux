@@ -62,6 +62,34 @@ class FixtureTests(unittest.TestCase):
         self.assertTrue((folder / ".git").is_dir())
         self.assertEqual((folder / matrix.FIRST_PASS_LEFT).stat().st_size, matrix.HUGE_PLAIN_BYTES)
 
+    def test_projection_kinds_build_with_small_overrides(self):
+        args = matrix.parse_args(["--cli", "/bin/true", "--out", str(self.root / "out"),
+                                  "--projection-kinds", "--projection-big-files", "12",
+                                  "--projection-sparse-bytes", "4096"])
+        self.assertEqual(set(matrix.PROJECTION_KINDS), {
+            "bare-folder", "public-remote", "private-remote", "local-only-repo", "huge-monorepo",
+            "build-output", "symlinks"})
+        for kind in matrix.PROJECTION_KINDS:
+            folder, note = matrix.build_fixture(kind, self.root, args, "")
+            self.assertIsNotNone(folder, (kind, note))
+        self.assertEqual((self.root / "huge-monorepo/build-image.bin").stat().st_size, 4096)
+        self.assertTrue((self.root / "build-output/Cargo.toml").is_file())
+        self.assertTrue((self.root / "symlinks/dangling-link").is_symlink())
+
+    def test_projection_verdict_allows_expected_upper_layer_changes(self):
+        cell = {"projection": True, "start_exit": 0, "hash_match": False, "git_match": False,
+                "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False},
+                "agent_actions_ok": True, "machine_killed": True,
+                "estimate": {"mode": "whole"}}
+        self.assertEqual(matrix.verdict(cell, "c"), "pass")
+
+    def test_cli_measurement_fields_are_read_from_nested_answers(self):
+        answer = {"stages_ms": {"steps": [{"step": "send", "ms": 50},
+                                              {"step": "first_text", "ms": 250}]},
+                  "copy": {"bytes": 1234}}
+        self.assertEqual(matrix.first_text_ms(answer["stages_ms"]), 250)
+        self.assertEqual(matrix.copy_bytes(answer), (1234, "copy.bytes"))
+
     def test_a_first_pass_cell_must_leave_its_big_file_on_the_mac(self):
         cell = {"workspace": "huge-repo", "agent": "claude", "start_exit": 0, "hash_match": True,
                 "reply": {"form_ok": True, "word_ok": True, "canary_in_reply": False, "text": "MATRIX_OK"},
@@ -143,6 +171,14 @@ class LaunchTests(unittest.TestCase):
         self.assertIn("CMUX_DEV_AUTH_REPLACE_SESSION=1", argv)
         self.assertFalse(any(word.startswith("CMUX_SOCKET_PATH=") for word in argv))
 
+    def test_the_launcher_environment_carries_no_cmux_marker(self):
+        # `open` hands the app the launcher's environment too; CMUX_SOCKET_PATH there made the app take itself for
+        # another cmux's child and drop CMUX_NEXT_SOCKET_PATH (the daily proof's app.unreachable from 11-17).
+        from app_launch_env import launch_env
+        env = launch_env({"CMUX_SOCKET_PATH": "/tmp/s.sock", "CMUX_NEXT_SOCKET_PATH": "/tmp/s.sock",
+                          "CMUX_BUNDLE_ID": "x", "CMUX_TAG": "t", "MUX_AGENT_TOKEN_FILE": "/f", "PATH": "/usr/bin"})
+        self.assertEqual(env, {"CMUX_NEXT_SOCKET_PATH": "/tmp/s.sock", "PATH": "/usr/bin"})
+
 
 class GrantTests(unittest.TestCase):
     APP = ["--app", "/Applications/cmux.app", "--cloud-backend", "staging",
@@ -189,19 +225,27 @@ class GrantTests(unittest.TestCase):
             calls.append((command[1:], input))
             self.assertNotIn("CLAUDE_CODE_OAUTH_TOKEN", env)
             self.assertNotIn(token, " ".join(command))
-            return subprocess.CompletedProcess(command, 0, "", "")
+            out = ""
+            if command[1:4] == ["cloud", "connect", "claude"]:
+                self.assertEqual(input, token)
+                out = json.dumps({"connection": {"id": "conn-1", "serves_cloud": True},
+                                  "keychain": {"account": "claude-token-0a1b2c3d"}})
+            return subprocess.CompletedProcess(command, 0, out, "")
 
         with patch.object(m, "cmux", return_value=(0, json.dumps({"result": status}), "")), \
                 patch("subprocess.Popen"), patch("subprocess.run", side_effect=run):
             self.assertEqual(m.launch(), "")
             entries = [matrix.claude_login_cache.name("stack-user-1", "team-1"),
                        matrix.claude_login_cache.name("stack-user-1", None)]
-            self.assertEqual([words for words, _ in calls], [["cloud", "secret", "set", e] for e in entries])
-            self.assertTrue(all(json.loads(stdin)["credential"] for _, stdin in calls))
+            sets = [(words, stdin) for words, stdin in calls if words[:2] == ["cloud", "secret"]]
+            self.assertEqual([words for words, _ in sets], [["cloud", "secret", "set", e] for e in entries])
+            self.assertTrue(all(json.loads(stdin)["credential"] for _, stdin in sets))
+            self.assertEqual(calls[-1][0][:3], ["cloud", "connect", "claude"], "the gate's connection, after the cache")
             calls.clear()
             m.launcher = None
             m.quit()
-            self.assertEqual(sorted(words for words, _ in calls), sorted(["cloud", "secret", "rm", e] for e in entries))
+            self.assertEqual(sorted(words for words, _ in calls), sorted([["cloud", "secret", "rm", e] for e in entries]
+                             + [["cloud", "connections", "--remove", "conn-1", "--keychain-account", "claude-token-0a1b2c3d"]]))
         self.assertEqual(matrix.start_login("claude", "pass"), ["--login", "pass"])
 
 
