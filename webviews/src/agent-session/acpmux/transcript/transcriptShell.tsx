@@ -26,7 +26,7 @@ import { standInElements } from "./rowFrames";
 import { JumpToLatest, JumpUp } from "./JumpButtons";
 import { type ScrollAnchor } from "./scrollAnchors";
 import { THREAD_TOP } from "./RowFrame";
-import { Spinner } from "../conversation/icons";
+import { WaitSpinner } from "../conversation/WaitSpinner";
 import { OlderLoadingMark } from "./OlderLoadingMark";
 
 /// The box of the spinner over the loaded rows while older ones load (`.acpmux-older-loading`): it
@@ -347,7 +347,7 @@ export function drawTranscriptShell({
                     (cmux#48605). The spacer is at least the view's height, so it sits in the view's middle. */}
                 {loading && rows.length === 0 && (
                   <output className="acpmux-transcript-loading" aria-label={t("transcript.loading")}>
-                    <Spinner size={20} loading />
+                    <WaitSpinner size={20} loading />
                   </output>
                 )}
                 {/* Older history still to load: a spinner just above the first loaded row, in the room held

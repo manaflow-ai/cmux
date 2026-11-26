@@ -90,9 +90,10 @@ import Testing
         #expect(text == line + "\n", "one line per launch")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(Set(json.keys) == ["started_at", "version", "build", "commit", "pre_main_ms", "main_ms", "first_window_frame_ms",
-                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "first_launch_of_build", "phases"])
+                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "first_launch_of_build", "phases", "stages", "launch_kind"])
         var expected = Self.record(prewarmed: true)
         expected.firstLaunchOfBuild = true
+        expected.launchKind = "warm" // append() derives it: a prewarmed launch is warm
         #expect(file.records() == [expected])
     }
 
@@ -234,7 +235,7 @@ import Testing
     /// not in ``LaunchTimesRecord/phaseMarks`` stays out, and a launch that reached none has no `phases`.
     @Test func aRowCarriesTheLaunchesPhases() throws {
         let phases: [String: Double] = [
-            "did_finish_launching_start": 60.04, "dfl.settings_read": 70.1, "dfl.services": 90.26, "dfl.bind": 120,
+            "did_finish_launching_start": 60.04, "dfl.settings_read": 70.1, "dfl.services": 90.26, "dfl.app_actions": 110, "dfl.bind": 120,
             "dfl.menu": 130.55, "daemon.prepare_start": 140, "daemon.prepare_end": 300.04, "daemon.socket_connected": 310,
             "daemon_connected": 320, "launch_snapshot_applied": 330, "launch_snapshot_shown": 340, "dfl.windows": 350,
             "did_finish_launching_end": 360, "cef.initialize_start": 400, "cef.ready": 900, "reveal.sidebar": 700,
@@ -251,8 +252,9 @@ import Testing
             "home.page_host_made": 430, "pages.created": 460, "agent_pane.view_created": 600, "agent_pane.transport_open": 650,
             "browser_pane.first_paint": 700.04, "browser_pane.input_ready": 720,
             "terminal_input_accepted": 640, "terminal_echo": 645,
-            "window.make_start": 341, "window.init_done": 343, "window.ordered_front": 346, "window.restore_wait_start": 361,
-            "window.restore_wait_end": 362.25, "frame.commit_start": 363, "first_key_down": 630,
+            "window.make_start": 341, "window.sidebar_made": 341.25, "window.root_made": 341.5, "window.shell_made": 341.75,
+            "window.content_installed": 342, "window.backdrop_applied": 342.5, "window.init_done": 343, "window.configured": 344, "window.workspace_shown": 345, "window.ordered_front": 346, "window.restore_wait_start": 361,
+            "window.restore_wait_end": 362.25, "frame.commit_start": 363, "window.display_done": 400, "window.flush_done": 401, "frame.loop_1": 402, "frame.loop_2": 403, "frame.loop_3": 404, "frame.loop_4": 405, "first_key_down": 630,
             "premain.first_initializer": 31, "main.setup_done": 41.5, "daemon.spawned": 290, "daemon.reused": 299,
             "first_page.navigation_start": 905, "first_page.dom_content_loaded": 940, "first_page.first_contentful_paint": 962,
         ]
@@ -266,6 +268,20 @@ import Testing
         #expect(!line.contains(#""home.first_page""#), "only phase marks go under phases: \(line)")
         #expect(Self.record(marks: ["main_start": 41]).phases == nil)
         #expect(try !Self.temporaryFile().encodedLine(Self.record(marks: ["main_start": 41])).contains("phases"))
+    }
+
+    /// The row keeps the slowest ``LaunchTimesRecord/binderCount`` binders of the launch's `AppActions.bind`, rounded to
+    /// hundredths, and none without any (startup-under-100ms).
+    @Test func aRowKeepsTheSlowestBinders() throws {
+        let binders = Dictionary(uniqueKeysWithValues: (0..<40).map { ("Binder\($0).bind", Double($0) / 3) })
+        let record = LaunchTimesRecord(marks: ["main_start": 41], startedAt: Date(timeIntervalSince1970: 1_800_000_000), version: "1.0.0",
+                                       build: "200", commit: nil, prewarmed: false, binders: binders)
+        #expect(record.binders?.count == LaunchTimesRecord.binderCount)
+        #expect(record.binders?["Binder39.bind"] == 13)
+        #expect(record.binders?["Binder24.bind"] == 8)
+        #expect(record.binders?["Binder23.bind"] == nil)
+        #expect(try Self.temporaryFile().encodedLine(record).contains(#""binders":{"#))
+        #expect(Self.record(marks: ["main_start": 41]).binders == nil)
     }
 
     /// A row written before `phases` existed still reads back, with none.

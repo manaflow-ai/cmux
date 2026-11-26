@@ -1253,3 +1253,7 @@ fieldset.acpmux-permission-card:focus:not(:focus-visible) {
 
 /* A built-in tool's full-color picture (toolMentions.ts `image`) in a menu row or a badge. */
 .acpmux-tool-image{display:block;flex:none;object-fit:contain}
+/* Extension context chips (composer/ExtensionChips.tsx): a quiet row over the prompt, drawn only when an installed extension offers one. */
+.acpmux-extension-chips{display:flex;flex-wrap:wrap;gap:var(--grid-half-step);padding:0 var(--grid-composer-inset) var(--grid-half-step)}
+.acpmux-extension-chip{border:1px solid var(--acpmux-composer-edge);border-radius:999px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);line-height:var(--text-detail--line-height);padding:0 var(--grid-gap);cursor:default}
+.acpmux-extension-chip:hover{color:var(--agent-text)}
