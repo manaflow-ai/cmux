@@ -41,9 +41,20 @@ extension CmuxMobileMacTheme {
             apply(CmuxMobileMacAppearance(theme: Self.fixtureSolarized, chat: .init(
                 background: "#fdf6e3", foreground: "#657b83",
                 bubbles: .init(sent: "#268bd2", sentText: "#fdf6e3"))))
+        case let spec where spec.hasPrefix("colors:"):
+            // `colors:BG:FG:P0:...:P15` (hex without `#`): any terminal theme, for the
+            // background policy's every-theme screenshots.
+            if let theme = Self.fixtureTheme(colors: spec) { apply(CmuxMobileMacAppearance(theme: theme)) }
         default:
             break
         }
+    }
+
+    /// A theme from `colors:BG:FG:P0:...` (8 or 16 palette entries), nil when malformed.
+    static func fixtureTheme(colors spec: String) -> CmuxMobileMacAppearance.Theme? {
+        let parts = spec.split(separator: ":").dropFirst().map { "#" + $0 }
+        guard parts.count == 10 || parts.count == 18 else { return nil }
+        return CmuxMobileMacAppearance.Theme(background: parts[0], foreground: parts[1], palette: Array(parts[2...]))
     }
 
     /// A phone-sized JPEG: a dusk gradient with soft hills, like a painting behind the window.

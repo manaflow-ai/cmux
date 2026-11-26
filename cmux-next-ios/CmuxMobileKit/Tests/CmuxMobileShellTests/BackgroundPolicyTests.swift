@@ -58,5 +58,12 @@ import Testing
         let setting = CmuxMobileBackgroundSetting(defaults: Self.defaults(), arguments: ["app", "-cmux-mobile-bg-policy", "flat"])
         #expect(setting.policy == .flat)
     }
+
+    @Test func aColorsFixtureNamesAnyTerminalTheme() {
+        let theme = CmuxMobileMacTheme.fixtureTheme(colors: "colors:002b36:839496:073642:dc322f:859900:b58900:268bd2:d33682:2aa198:eee8d5")
+        #expect(theme?.background == "#002b36")
+        #expect(theme?.palette.count == 8)
+        #expect(CmuxMobileMacTheme.fixtureTheme(colors: "colors:002b36:839496") == nil)
+    }
 }
 #endif
