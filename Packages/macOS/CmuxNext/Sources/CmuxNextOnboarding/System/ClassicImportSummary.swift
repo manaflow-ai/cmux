@@ -3,6 +3,8 @@ import Foundation
 /// What `workspace.importClassic` opened and what it left in classic.
 public struct ClassicImportSummary: Equatable, Sendable {
     public var opened = 0
+    /// Only classic's settings came over (a settings-only import).
+    public var settingsOnly = false
     /// Cloud VM workspaces: cmux-next cannot reach a classic VM.
     public var leftCloudVMs = false
     /// SSH workspaces whose host did not connect.
