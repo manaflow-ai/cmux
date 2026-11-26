@@ -30,6 +30,10 @@ pub struct ScorecardArgs {
     /// `_acpmux/scorecard`. Never the live state directory a daemon writes.
     #[arg(long, value_name = "DIR")]
     pub home: Option<std::path::PathBuf>,
+    /// Fail (exit 1) when any turn in the range churned its cached prefix (RFD 0158 §1:
+    /// `harnessMagic.cacheAlarm.collapses` or `callChurn`): the replay's no-churn assertion.
+    #[arg(long)]
+    pub assert_no_churn: bool,
 }
 
 const BYS: &[&str] = &["set", "feature", "session"];
@@ -181,7 +185,21 @@ pub async fn run(args: ScorecardArgs, json_out: bool) -> Result<()> {
     } else {
         print!("{}", text(&args, &answer));
     }
+    if args.assert_no_churn {
+        no_churn(&answer)?;
+    }
     Ok(())
+}
+
+/// `--assert-no-churn`: an error naming the churn count when there was any.
+fn no_churn(answer: &Value) -> Result<()> {
+    match crate::scorecard::churn(answer) {
+        0 => Ok(()),
+        n => anyhow::bail!(
+            "cache alarm: {n} prefix churn(s) in the range ({}); RFD 0158 §1 holds the cached prefix fixed inside a session",
+            crate::scorecard::CHURN_COUNTERS.join(", ")
+        ),
+    }
 }
 
 #[cfg(test)]

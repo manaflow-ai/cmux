@@ -1,6 +1,15 @@
 use super::*;
 
 #[test]
+fn no_churn_fails_on_either_churn_counter() {
+    let card = |hm: Value| json!({"totals": {"harnessMagic": hm}});
+    assert!(no_churn(&card(json!({"cacheAlarm.observed": 9, "cacheAlarm.declared": 2}))).is_ok());
+    assert!(no_churn(&json!({})).is_ok());
+    let e = no_churn(&card(json!({"cacheAlarm.collapses": 1, "cacheAlarm.callChurn": 2})));
+    assert!(e.unwrap_err().to_string().contains("3 prefix churn"));
+}
+
+#[test]
 fn params_name_the_range_and_the_steer_window() {
     let args = ScorecardArgs {
         since: Some("2d".into()),
@@ -8,6 +17,7 @@ fn params_name_the_range_and_the_steer_window() {
         steer_window: Some(30),
         limit: 5,
         home: None,
+        assert_no_churn: false,
     };
     let p = params(&args, 10 * 86_400_000).unwrap();
     assert_eq!(p["since"], 8 * 86_400_000u64);
