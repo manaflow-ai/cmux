@@ -7,7 +7,9 @@
 // chat closes this page.
 import { useSyncExternalStore } from "react";
 
-export type CloudAgentPick = { harness: string; model?: string };
+/// `effort`: the level picked for it (cmux#59716), which the Cloud send carries; it stays with the
+/// agent across a model pick, and a pick of another agent drops it.
+export type CloudAgentPick = { harness: string; model?: string; effort?: string };
 
 let held: CloudAgentPick | undefined;
 const listeners = new Set<() => void>();
@@ -16,10 +18,27 @@ function emit() {
   for (const listener of listeners) listener();
 }
 
-/** Holds `pick` for the next Cloud start; a later pick replaces it. */
+/** Holds `pick` for the next Cloud start; a later pick replaces it. A pick of the same agent with no
+ * level keeps the level already held for it. */
 export function holdCloudAgentPick(pick: CloudAgentPick): void {
   if (!pick.harness) return;
-  held = pick.model ? { harness: pick.harness, model: pick.model } : { harness: pick.harness };
+  const effort = pick.effort ?? (held?.harness === pick.harness ? held.effort : undefined);
+  held = {
+    harness: pick.harness,
+    ...(pick.model ? { model: pick.model } : {}),
+    ...(effort ? { effort } : {}),
+  };
+  emit();
+}
+
+/** Holds `effort` for the Cloud start of `harness` (the agent the chips show), keeping its held model,
+ * else `model`, the one the chips show for it, so a level picked alone never drops the shown model.
+ * A level is a Cloud pick like the model: this Mac starts no chat for it (cmux#59716: a level picked
+ * on a New Tab with Cloud started this Mac's own agent, and the chips showed that agent). */
+export function holdCloudAgentEffort(harness: string | undefined, effort: string, model?: string): void {
+  if (!harness || !effort) return;
+  const base = held?.harness === harness ? held : { harness, ...(model ? { model } : {}) };
+  held = { ...base, effort };
   emit();
 }
 

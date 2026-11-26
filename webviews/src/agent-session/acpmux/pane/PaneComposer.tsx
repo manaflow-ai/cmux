@@ -1133,7 +1133,7 @@ export function drawPaneComposer({
                 // goes, so a Cloud send never falls back to Claude over the agent they use here (cmux#51731).
                 const remembered = lastPick(composerSnapshot.summary?.cwd);
                 const shownHarness = held.harness || composerSnapshot.summary?.harness || healthHarness;
-                const cloudShownAgent = machinePick ?? {
+                const shownAgent = {
                   harness: shownHarness || remembered?.harness,
                   model:
                     held.model ??
@@ -1143,6 +1143,15 @@ export function drawPaneComposer({
                         ? remembered?.model
                         : undefined),
                 };
+                // A pick of the shown agent with no model of its own (a level alone) keeps the shown model.
+                const cloudShownAgent = machinePick
+                  ? {
+                      harness: machinePick.harness,
+                      model:
+                        machinePick.model ??
+                        (machinePick.harness === shownAgent.harness ? shownAgent.model : undefined),
+                    }
+                  : shownAgent;
                 const started = sendToCloud(
                   text,
                   shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
@@ -1161,7 +1170,8 @@ export function drawPaneComposer({
                     // reads it there too, so a pick the chip shows is never dropped for the picker face's harness.
                     ...cloudStartModePick(composerSnapshot.summary?.harness),
                     // The picker's effort and account go with its model (cmux-tui/docs/model-connections.md).
-                    ...cloudPickExtras(composerSnapshot.summary),
+                    // A level picked for the machine's agent goes first (cmux#59716).
+                    ...cloudPickExtras(composerSnapshot.summary, machinePick),
                   },
                 );
                 if (typeof started === "string") {

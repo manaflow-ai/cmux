@@ -561,12 +561,17 @@ export function cloudRunsHere(answer: CloudStartAnswer): boolean {
 /// The picker's effort and account for a Cloud start (cmux-tui/docs/model-connections.md, "The picker's
 /// model and account in Cloud"): the effort the composer shows, and the chat's route when the Account
 /// menu bound one. A route that is not a connection id (acpmux `cloud_model_plane::is_connection_id`) is left out.
-export function cloudPickExtras(summary: { effort?: string; route?: string } | undefined): {
+/// `machine`: the agent picked for the machine (cloudAgentPick.ts). Its level goes first; this Mac's chat's
+/// level goes only for that same agent, never another agent's (cmux#59716).
+export function cloudPickExtras(
+  summary: { effort?: string; route?: string; harness?: string } | undefined,
+  machine?: { harness: string; effort?: string },
+): {
   effort?: string;
   account?: string;
 } {
-  const effort =
-    summary?.effort && summary.effort !== "default" && summary.effort.length <= 128 ? summary.effort : undefined;
+  const picked = machine?.effort ?? (machine && machine.harness !== summary?.harness ? undefined : summary?.effort);
+  const effort = picked && picked !== "default" && picked.length <= 128 ? picked : undefined;
   const account = summary?.route && /^[A-Za-z0-9._:@-]{1,128}$/.test(summary.route) ? summary.route : undefined;
   return { ...(effort ? { effort } : {}), ...(account ? { account } : {}) };
 }

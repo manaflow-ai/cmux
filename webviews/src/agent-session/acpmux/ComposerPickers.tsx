@@ -218,6 +218,10 @@ type Props = {
   /** The chips belong to a page with no chat yet (a New Tab): no prompt has gone, so the harness
    * is never fixed there, even once the page's deferred chat has started behind it. */
   startsChat?: boolean;
+  /** A level held outside the chips for the chat their first send starts (a Cloud start's pick,
+   * cloudAgentPick.ts): the chip names it until a pick here replaces it, also after the chips mount
+   * again (cmux#59716). */
+  startLevel?: { harness: string; value: string };
 };
 
 /// The composer bar's controls after the + button: one model button that names the model and its
@@ -248,6 +252,7 @@ export function ComposerPickers({
   holdsModePick = false,
   holdsStartMode = false,
   startsChat = false,
+  startLevel,
 }: Props) {
   acpmuxPerf.render("composer:pickers");
   const reasoningMenu = useComposerContribution(modelPickerLayoutFrom, undefined);
@@ -1007,6 +1012,7 @@ export function ComposerPickers({
   // replaces it only when it differs (Lucas 2026-10-24).
   const heldValue =
     (heldPick && heldPick.harness === chipHarness ? heldPick.value : undefined) ??
+    (startLevel && startLevel.harness === chipHarness ? startLevel.value : undefined) ??
     startEffort ??
     heldLevels.find((choice) => choice.name === lastChips?.effort)?.id ??
     (opensListed ? undefined : heldOption?.currentValue) ??

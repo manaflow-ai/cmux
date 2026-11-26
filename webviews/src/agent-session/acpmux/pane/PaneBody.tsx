@@ -1011,11 +1011,20 @@ export function drawPaneBody({
                               ...(() => {
                                 const machine = cloudAgentPick();
                                 const agent = machine?.harness ?? harness;
-                                return cloudSendAgent(
-                                  snapshot.catalog.find((entry) => entry.id === agent)?.family,
-                                  agent,
-                                  machine ? machine.model : model,
-                                );
+                                return {
+                                  ...cloudSendAgent(
+                                    snapshot.catalog.find((entry) => entry.id === agent)?.family,
+                                    agent,
+                                    // A pick of the shown agent with no model of its own (a level alone) keeps the shown model.
+                                    machine
+                                      ? (machine.model ?? (machine.harness === harness ? model : undefined))
+                                      : model,
+                                  ),
+                                  // The level picked with it, as the chips show it (cmux#59716).
+                                  ...(machine?.effort && machine.effort !== "default"
+                                    ? { effort: machine.effort }
+                                    : {}),
+                                };
                               })(),
                             },
                             true,
