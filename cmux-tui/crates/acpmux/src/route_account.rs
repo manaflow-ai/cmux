@@ -144,11 +144,11 @@ pub fn prepare(file: &RouteFile) -> Result<(), RouteError> {
     if path.is_dir() {
         return Ok(());
     }
-    std::fs::create_dir_all(path).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::create_dirs(path).map_err(|e| RouteError::Failed(e.to_string()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+        crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
             .map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     Ok(())
