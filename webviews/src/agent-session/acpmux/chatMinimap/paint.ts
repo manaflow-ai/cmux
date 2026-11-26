@@ -52,7 +52,7 @@ export const LINE_HEIGHT = 2;
 export type MinimapKind = "prompt" | "reply" | "tool";
 export type MinimapColors = Record<MinimapKind, string>;
 
-const TOOL_KINDS = new Set(["activity", "worked", "editedFiles", "plan", "backgroundTask", "render", "preview"]);
+const TOOL_KINDS = new Set(["activity", "worked", "editedFiles", "backgroundTask", "render", "preview"]);
 
 /// A row's kind on the map, or none. A streaming reply is never painted: its height changes with every
 /// token, and the minimap shows its place as a placeholder instead (ChatMinimap.tsx).
