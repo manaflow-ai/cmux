@@ -64,6 +64,12 @@ export {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
 
+/** Freestyle's 429 INFRASTRUCTURE_OVERLOADED: no VM start capacity right now. */
+export function isFreestyleOverload(error: unknown): boolean {
+  const e = error as { status?: unknown; code?: unknown } | null;
+  return e?.status === 429 || e?.code === "INFRASTRUCTURE_OVERLOADED";
+}
+
 /**
  * Freestyle answers a VM start it has no capacity for with 429
  * INFRASTRUCTURE_OVERLOADED ("VM start capacity queue wait expired"). The
@@ -79,9 +85,8 @@ export async function retryFreestyleOverload<T>(label: string, start: () => Prom
     try {
       return await start();
     } catch (error) {
-      const e = error as { status?: unknown; code?: unknown; message?: unknown } | null;
-      const overloaded = e?.status === 429 || e?.code === "INFRASTRUCTURE_OVERLOADED";
-      if (!overloaded || Date.now() + waitMs > deadline) throw error;
+      if (!isFreestyleOverload(error) || Date.now() + waitMs > deadline) throw error;
+      const e = error as { code?: unknown; message?: unknown };
       console.log(`${label}: Freestyle start capacity overloaded (${String(e?.message ?? e?.code)}); retry ${attempt} in ${waitMs / 1000}s`);
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
