@@ -191,6 +191,9 @@ key = "cmux.acpmux.cloud.signedIn"
 key = "cmux.acpmux.composer-draft."
 
 [[storage_key]]
+key = "cmux.acpmux.detail"
+
+[[storage_key]]
 key = "cmux.acpmux.harnessCatalog.v1"
 
 [[storage_key]]
@@ -207,9 +210,6 @@ key = "cmux.acpmux.lastPick"
 
 [[storage_key]]
 key = "cmux.acpmux.modelCatalog"
-
-[[storage_key]]
-key = "cmux.acpmux.modelPickerOrder"
 
 [[storage_key]]
 key = "cmux.acpmux.modelChipIcon"
