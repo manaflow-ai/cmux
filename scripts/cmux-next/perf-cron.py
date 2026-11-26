@@ -2965,6 +2965,45 @@ def streak_parts(streak):
     return sorted(set.intersection(*sets)) if sets else []
 
 
+# The issue's task block: one entry per open bisect group with its stage, so an agent (or the next one) resumes where
+# the last left off instead of reading lane memory (docs/reading/2026-11-25-openai-performance-factory.md in hq: "a
+# perf alert becomes a task that agents carry to recovery"). The cron writes the stages it can judge itself; a lane
+# that names a root cause or opens a fix says so in a comment, since the next tick rewrites this block.
+TASK_MARK = "<!-- cmux-next-perf-task -->"
+TASK_NEXT = {
+    "needs investigation": "the cron bisects the range a step per tick; nothing to do until a culprit is named",
+    "culprit named": "disprove the culprit: does a revert of it recover the rows, did the rows move at it on another "
+                     "host? Then comment the root cause, or that the culprit is wrong",
+    "recovering": "within threshold again; the cron closes the rows after their recovery runs, nothing to do",
+}
+
+
+def task_stage(rows, rng, regs):
+    """A bisect group's stage: recovering (every row within its threshold in its latest run), culprit named (the
+    bisect ended on one commit), else needs investigation."""
+    by = {r["name"]: r for r in regs}
+    if rows and all(by.get(n, {}).get("recovering") for n in rows):
+        return "recovering"
+    return "culprit named" if rng.get("culprit") else "needs investigation"
+
+
+def task_block(state):
+    """The issue's task block: {"tasks": [{id, stage, next, rows, opened_at, range, culprit, pr}]} as fenced JSON."""
+    regs = state.get("regressions") or []
+    tasks = []
+    for g in bisect_groups(state):
+        rng, rows = g["range"], g["rows"]
+        opened = [str((r.get("first_bad") or {}).get("measured_at") or "") for r in regs if r["name"] in rows]
+        opened = sorted(o for o in opened if o)
+        named = next((c for c in reversed(state.get("culprits") or []) if c.get("sha") == rng.get("culprit")), None)
+        stage = task_stage(rows, rng, regs)
+        tasks.append({"id": f"{str(rng['good'])[:11]}..{str(rng['bad'])[:11]}", "stage": stage, "next": TASK_NEXT[stage],
+                      "rows": rows, "opened_at": opened[0] if opened else None,
+                      "range": {"good": rng["good"], "bad": rng["bad"], "steps": rng.get("steps", 0)},
+                      "culprit": rng.get("culprit"), "pr": (named or {}).get("pr")})
+    return [TASK_MARK, "```json", json.dumps({"tasks": tasks}, sort_keys=True), "```"]
+
+
 def issue_body(state, repo, now):
     good = state.get("last_good")
     last = state.get("last") or {}
@@ -3004,6 +3043,7 @@ def issue_body(state, repo, now):
             lines.append(f"| {r['name']} | {fmt(r.get('base'))} {r.get('unit', '')} | {fmt(r.get('p95'))} {r.get('unit', '')} | {change} | "
                          f"{fmt(r.get('target'))} | {hz(r.get('refresh_ms'))} | {why} | "
                          f"{str(rng.get('good') or '?')[:7]}..{str(rng.get('bad') or '?')[:7]} |")
+        lines += ["", "Task state (one entry per culprit range; the cron rewrites it each tick):", "", *task_block(state)]
     else:
         lines.append("No confirmed regression.")
     lines += ["", *budget_issue_lines(state, now)]
