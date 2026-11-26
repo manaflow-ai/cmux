@@ -765,11 +765,13 @@ class OwnedPools(unittest.TestCase):
         self.assertIn("contains(fromJSON(env.CI_OWNED_HEAD_REPOS)", mint["if"])
         self.assertIn("teamleaderleo/cmux", yaml.safe_load((WORKFLOWS / "ci.yml").read_text()).get("env", {}).get("CI_OWNED_HEAD_REPOS", ""))
         self.assertIs(mint["continue-on-error"], True)
-        self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
+        # Minted on both Apps; the one with more budget left is spent (.github/actions/app-token-spread).
+        self.assertEqual(mint["uses"], "./.github/actions/app-token-spread")
         self.assertEqual(mint["with"]["permission-administration"], "read")
         # The minis are org runners (glaeda-minis), listed with the org permission.
         self.assertEqual(mint["with"]["permission-organization-self-hosted-runners"], "read")
-        self.assertEqual(mint["with"]["private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
+        self.assertEqual(mint["with"]["route-private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
+        self.assertEqual(mint["with"]["bot-private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")
         self.assertEqual(steps[ids.index("macos-pool")]["env"]["ROUTE_TOKEN"], BOTH_TOKENS_SPLIT)
         self.assert_repo_fallback_mint(steps, "read")
         late = yaml.safe_load((WORKFLOWS / "ci-macos.yml").read_text())
