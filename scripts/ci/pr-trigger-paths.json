@@ -28,7 +28,6 @@
     ".github/workflows/cloud-wake-echo.yml": "runs only on a `wake-echo: run` body marker, which paths cannot express; its job skips (no runner) on every other event",
     ".github/workflows/cmux-next-batch.yml": "the batch queue's debounce: every pull request event into feat-cmux-next feeds next_batch.py, whatever it changes",
     ".github/workflows/cmux-next-closes-issues.yml": "closed only: one run per merged pull request, closing the issues it fixes, whatever it changed",
-    ".github/workflows/cmux-next-fast-gates.yml": "posts cmux-next/fast-gates, which merge_hold reads at every head; its path skip lives in its fast-check-route job (lane/fast-check-path-skips)",
     ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml": "closed only: one run per pull request, not per head",
     ".github/workflows/cmux-next-pr-closed-cancel.yml": "closed only: one run per pull request, not per head",
     ".github/workflows/cmux-next-react-doctor.yml": "produces `React Doctor (changed React projects)`, required on feat-cmux-next: it must report on every head",
