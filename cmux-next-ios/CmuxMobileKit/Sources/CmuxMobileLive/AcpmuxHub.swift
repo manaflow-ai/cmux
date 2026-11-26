@@ -682,6 +682,9 @@ public final class AcpmuxHub {
         let seq = Int(params["seq"]?.numberValue ?? 0)
         if changed {
             onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
+            // The open chat's footer facts (RFD 0130), from the row acpmux decided them on.
+            let facts = AgentFooterFacts(composerStatus: value["composerStatus"])
+            for entry in sources[session.id] ?? [] { entry.source?.footerFactsChanged(facts) }
         }
         if params["kind"]?.stringValue == "permission_resolved" { onWatchEvent?(.permissionResolved(sessionID: session.id)) }
         if params["kind"]?.stringValue == "purged" {
@@ -2667,7 +2670,25 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             if let id = entry["permissionId"]?.stringValue, !laterAsks.contains(id), let request = entry["request"],
                let event = records.permission(id, request: request) { emitPermission(event, listedOnly: true) }
         }
+        // Always, unlike a row's: the attach's catch-up is what a new reader starts from.
+        if let detail = result["session"] {
+            let facts = AgentFooterFacts(composerStatus: detail["composerStatus"])
+            lastFooterFacts = facts
+            emit(.footerFacts(facts))
+        }
         emit(.status(summary.status))
+    }
+
+    /// The footer facts last sent to the chat: a row that repeats them (each turn event's
+    /// `session_changed`) adds nothing to the replay.
+    private var lastFooterFacts: AgentFooterFacts?
+
+    /// The session's footer facts from its row (`composerStatus.facts`, RFD 0130), sent to the chat
+    /// when they changed.
+    func footerFactsChanged(_ facts: AgentFooterFacts) {
+        guard facts != lastFooterFacts else { return }
+        lastFooterFacts = facts
+        emit(.footerFacts(facts))
     }
 
     /// The session's models (from attach), for the menu after a pick.
