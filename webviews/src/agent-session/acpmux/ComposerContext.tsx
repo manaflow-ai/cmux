@@ -8,7 +8,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { browseFailureMessage } from "./browseFailureModel";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import {
   DevicesIcon,
   EnvironmentIcon,
@@ -110,7 +110,7 @@ type Session = AcpmuxSnapshot["sessions"][number];
 const NO_SESSIONS: readonly Session[] = [];
 const NO_LOCATIONS: Location[] = [];
 /// What the machine and folder lists read of a chat (`availableComputers`, `availableFolders`).
-const placeFields = (session: Session): readonly unknown[] => [
+export const placeFields = (session: Session): readonly unknown[] => [
   session.cwd,
   session.peer,
   session.hostKind,
@@ -186,6 +186,7 @@ export function ComposerContext({
   connectOnlyWhenEmpty = false,
   onOffload,
   placeControl,
+  newTabPlaceControl,
   offloads = NO_OFFLOADS,
   offloadReasons,
   moveTargets,
@@ -202,6 +203,7 @@ export function ComposerContext({
   showMachineLoadWarnings,
   environmentFace,
   stripLayout = "where-machine",
+  branchBelow = false,
   runDetails,
   cloudWorksOn,
   cloudSignedIn: cloudSignedInSeam,
@@ -285,6 +287,9 @@ export function ComposerContext({
   /// A started chat's place control (place/PlaceControl.tsx: Local, Cloud, Auto), beside the picker's
   /// Move to Cloud and Bring Back Local rows, which stay. None while the app reports no place.
   placeControl?: React.ReactNode;
+  /// The New Tab page's Hybrid control (hybrid/newTabHybrid.ts): Hybrid, Only in Cloud, Only on This Mac for
+  /// the chat Send starts, drawn before the chat exists. None with AutoCloud off.
+  newTabPlaceControl?: React.ReactNode;
   /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
@@ -330,6 +335,10 @@ export function ComposerContext({
   environmentFace?: EnvironmentFaceStyle;
   /// Gallery seam: how a new chat's strip asks where it runs (StripLayout); `where-machine` ships.
   stripLayout?: StripLayout;
+  /// The host draws the branch itself (ComposerBranch) in the composer's bottom row, so it holds
+  /// still as the draft grows instead of riding the strip up (ask-f87d5d43b4, Leo 2026-11-22: "this
+  /// still being at the top of the composer as it grows is the same issue").
+  branchBelow?: boolean;
   /// Gallery seam: the cloud toggle's rows' second lines, as ChatGPT Work has them (`cloud-toggle`
   /// only; the shipped picker has no second lines, design/environment-picker.md rule 0).
   runDetails?: RunRowDetails;
@@ -494,7 +503,7 @@ export function ComposerContext({
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
   const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
   const [browseError, setBrowseError] = useState<string>();
-  // The browse that failed, so Retry runs the same one.
+  // The browse that failed, so Retry runs the same one. retry-prompt-ok: it opens the folder chooser again.
   const browseRetry = useRef<() => void>(undefined);
   // Counts folder picks: a folder panel's late answer (or failure) after one is dropped.
   const folderPicks = useRef(0);
@@ -741,7 +750,8 @@ export function ComposerContext({
       : undefined;
   // A new chat's Add folder…: the host's folder panel, then the chat's folder. As Add project's dialog
   // did, the panel only answers (deferPick) and the pick commits here, so a folder picked while the
-  // panel was open wins over its late answer; a refused or failed panel says why beside a Retry.
+  // panel was open wins over its late answer; a refused or failed panel says why beside a Retry
+  // (retry-prompt-ok: it raises the folder chooser again, which only the person's click may).
   const browseProject = onBrowseProject
     ? (): Promise<BrowseResult> => {
         const picks = folderPicks.current;
@@ -1380,7 +1390,9 @@ export function ComposerContext({
             />
           )}
           {started && placeControl}
+          {!started && newTabPlaceControl}
         </div>
+        {/* retry-prompt-ok: BrowseFailure's Retry opens the folder chooser again (BrowseFailure.tsx). */}
         {browseError && browseRetry.current && (
           <BrowseFailure
             error={browseError}
@@ -1402,16 +1414,26 @@ export function ComposerContext({
             setupMenu={false}
           />
         )}
-        {branch && <BranchPicker branch={branch} />}
+        {branch && !branchBelow && <BranchPicker branch={branch} />}
       </div>
     </div>
+  );
+}
+
+/// The branch control a host draws in the composer's bottom row (`branchBelow`): the same picker
+/// the strip draws, on the row that stays at the bottom as the draft grows.
+export function ComposerBranch({ branch }: { branch: string }) {
+  return (
+    <span className="acpmux-composer-branch">
+      <BranchPicker branch={branch} />
+    </span>
   );
 }
 
 function BranchPicker({ branch }: { branch: string }) {
   const { control, anchor, open, setOpen, side, flip } = useLocationPopover();
   return (
-    <span ref={control} className="acpmux-location-picker">
+    <span ref={control} className="acpmux-location-picker" data-kind="branch">
       <Menu open={open} onOpenChange={setOpen}>
         <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
@@ -1437,6 +1459,8 @@ function BranchPicker({ branch }: { branch: string }) {
   );
 }
 
+/// The git-branch glyph Claude and ChatGPT draw for a branch (Leo 2026-11-22: "use the same branch
+/// icon as chatgpt and claude"): a trunk with one branch curving off to a node at its top right.
 function BranchIcon() {
   return (
     <svg
@@ -1447,12 +1471,13 @@ function BranchIcon() {
       fill="none"
       stroke="currentColor"
       strokeWidth={1.25}
+      strokeLinecap="round"
       aria-hidden="true"
     >
-      <circle cx="4" cy="3" r="1.5" />
-      <circle cx="4" cy="13" r="1.5" />
-      <circle cx="12" cy="13" r="1.5" />
-      <path d="M4 4.5v5A3.5 3.5 0 0 0 7.5 13H10.5M4 6.5A3.5 3.5 0 0 1 7.5 3H10" />
+      <path d="M4.5 2.5v8" />
+      <circle cx="11.5" cy="4.5" r="1.75" />
+      <circle cx="4.5" cy="12.25" r="1.75" />
+      <path d="M11.5 6.25a5.25 5.25 0 0 1-5.25 5.25" />
     </svg>
   );
 }
@@ -1619,7 +1644,7 @@ export function LocationFace({
       )}
       {live !== undefined && sleep === "resuming" && (
         <span className="acpmux-env-live" data-sleep="resuming">
-          <Spinner size={12} loading className="acpmux-env-live-spinner" />
+          <WaitSpinner size={12} loading className="acpmux-env-live-spinner" />
           <span className="acpmux-env-status-text">{liveWords ?? t("composer.envResuming")}</span>
         </span>
       )}

@@ -166,6 +166,11 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// Reads the feed's notes index (``releaseNotes`` in the app; replaced by tests).
+    @ObservationIgnored var indexLoader: (@Sendable () async -> [ReleaseNotesIndexEntry])?
+    /// "What's in this build": the PRs after this build through the staged one (``loadStagedPullRequests()``).
+    public internal(set) var stagedPullRequests: BuildPullRequests?
+    @ObservationIgnored var stagedPullRequestsTask: (build: String, task: Task<Void, Never>)?
     /// The staged build's pre-warm, running or ended (``prewarmStagedUpdate(trigger:)``, once per build).
     @ObservationIgnored var prewarmRun: StagedPrewarmRun?
     /// The install click waiting for that pre-warm (``installAfterPrewarm(_:)``), and the bound of its wait.
@@ -181,6 +186,9 @@ public final class UpdaterService {
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
     public internal(set) var currentBuildNotes: ReleaseNotes?
     @ObservationIgnored var currentBuildNotesTask: Task<Void, Never>?
+    /// This build's PRs for About cmux's credits, read once per launch (``showAboutPanel()``).
+    @ObservationIgnored var aboutPullRequests: BuildPullRequests?
+    @ObservationIgnored var aboutPullRequestsTask: Task<Void, Never>?
     /// The staged appcast item's build (replaced by tests).
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).

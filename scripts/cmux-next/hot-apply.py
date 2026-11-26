@@ -299,7 +299,7 @@ def have_commit(repo: Path, sha: str) -> bool:
                               capture_output=True).returncode == 0
     if present():
         return True
-    subprocess.run(["git", "-C", str(repo), "fetch", "-q", "origin", sha], capture_output=True)
+    git_fetch(repo, "origin", sha)
     return present()
 
 
@@ -454,26 +454,90 @@ def unverifiable(team: str | None, have: str | None, what: str) -> str | None:
             "--unsigned-daemon takes it anyway")
 
 
-def app_commit(app: Path, repo: Path = ROOT) -> str:
-    """The app's commit as a full sha. A nightly stamps CMUXCommit with the short one (nightly.yml)."""
+FETCH_SECONDS = 120  # a Mac fleet worker reaches GitHub only through a slow proxy, or not at all (hq#27830)
+# Bundle files that record a full commit as `commit=SHA`: a nightly's cmux-tui is the build commit's tree
+# (write-cmux-tui-version.sh), or an older commit's, so only one that extends the short stamp counts.
+BUNDLE_COMMIT_FILES = ("cmux-tui.version", "acpmux.version")
+
+
+def git_fetch(repo: Path, *args: str) -> bool:
+    """`git fetch -q ARGS` in REPO, bounded by FETCH_SECONDS: False when it failed or hung. Not `fetch`: that name is
+    the HTTP read fetch_kept uses, and a second def of it replaced the first (tests/test_hot_apply_fetch_names.py)."""
+    try:
+        return subprocess.run(["git", "-C", str(repo), "fetch", "-q", *args], capture_output=True,
+                              timeout=FETCH_SECONDS).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def bundle_commit(app: Path, short: str) -> str | None:
+    """A full sha the bundle itself records that extends SHORT, else None."""
+    for name in BUNDLE_COMMIT_FILES:
+        try:
+            lines = (app / BIN / name).read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            key, _, value = line.partition("=")
+            if key.strip() == "commit" and SHA.fullmatch(value.strip()) and value.strip().startswith(short):
+                return value.strip()
+    return None
+
+
+def resolve_app_commit(app: Path, repo: Path = ROOT, may_fetch: bool = True) -> dict:
+    """APP's commit: {commit, resolved, via[, why]}. A nightly stamps CMUXCommit with the short sha (nightly.yml).
+
+    The full sha comes from REPO's history, else a full one the bundle records, else a bounded fetch of
+    feat-cmux-next. A fleet Mac's step source is a shallow bundle with no history and often no reachable
+    origin (hq#27830/#27935), so all three can miss: then commit is the short stamp, resolved False, and why
+    says so. Raises only when the app has no CMUXCommit at all (a DEV build)."""
     with open(app / "Contents/Info.plist", "rb") as handle:
         commit = str(plistlib.load(handle).get("CMUXCommit") or "")
     if not re.fullmatch(r"[0-9a-f]{7,40}", commit):
         raise RuntimeError(f"{app} has no CMUXCommit (a DEV build): nothing to compare SHA with")
-    if not SHA.fullmatch(commit):
-        def resolve() -> str:
-            return git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
-        full = resolve()
-        if not SHA.fullmatch(full):
-            # A short sha cannot be fetched by itself: the branch the nightly was cut from can.
-            shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
-            subprocess.run(["git", "-C", str(repo), "fetch", "-q", *(["--unshallow"] if shallow else []),
-                            "origin", "feat-cmux-next"], capture_output=True)
-            full = resolve()
-        if not SHA.fullmatch(full):
-            raise RuntimeError(f"{app}'s CMUXCommit {commit} is not one commit in {repo} (fetch feat-cmux-next)")
-        commit = full
-    return commit
+    if SHA.fullmatch(commit):
+        return {"commit": commit, "resolved": True, "via": "Info.plist"}
+
+    def resolve() -> str:
+        return git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}", check=False)
+    full = resolve()
+    if SHA.fullmatch(full):
+        return {"commit": full, "resolved": True, "via": "checkout"}
+    recorded = bundle_commit(app, commit)
+    if recorded:
+        return {"commit": recorded, "resolved": True, "via": "bundle"}
+    # A short sha cannot be fetched by itself: the branch the nightly was cut from can. A nightly is at most a
+    # day of merges behind it (LIVE_FROM_MAX), so a shallow checkout deepens by that much, not --unshallow.
+    shallow = git(repo, "rev-parse", "--is-shallow-repository", check=False) == "true"
+    fetched = may_fetch and git_fetch(repo, *([f"--depth={LIVE_FROM_MAX}"] if shallow else []), "origin", "feat-cmux-next")
+    full = resolve()
+    if SHA.fullmatch(full):
+        return {"commit": full, "resolved": True, "via": "fetch"}
+    where = "a shallow checkout" if shallow else "this checkout"
+    tried = ("the fetch of feat-cmux-next brought no such commit" if fetched else
+             f"feat-cmux-next could not be fetched within {FETCH_SECONDS} s" if may_fetch else "no fetch was asked")
+    return {"commit": commit, "resolved": False, "via": "Info.plist",
+            "why": f"CMUXCommit {commit} is not one commit in {where} ({repo}), the bundle records no full sha "
+                   f"for it, and {tried}"}
+
+
+def app_commit(app: Path, repo: Path = ROOT) -> str:
+    """The app's commit as a full sha, for what diffs or compares it (plan, hot-verify): raises when only the
+    short stamp is known. A receipt that only names the commit takes app_commit_receipt instead."""
+    found = resolve_app_commit(app, repo)
+    if not found["resolved"]:
+        raise RuntimeError(f"{app}'s {found['why']} (fetch feat-cmux-next)")
+    return found["commit"]
+
+
+def app_commit_receipt(app: Path, repo: Path = ROOT) -> dict:
+    """The receipt fields for APP's commit: {app_commit, app_commit_resolved[, app_commit_unresolved]}. On a
+    shallow step source the short stamp is recorded as given, never faked as a full sha; nothing is compared."""
+    found = resolve_app_commit(app, repo)
+    out = {"app_commit": found["commit"], "app_commit_resolved": found["resolved"]}
+    if not found["resolved"]:
+        out["app_commit_unresolved"] = found["why"]
+    return out
 
 
 def app_abi(app: Path) -> int | None:
@@ -844,6 +908,13 @@ def live_from(repo: Path, sha: str, limit: int = LIVE_FROM_MAX) -> dict:
             out["daemon_floor"], out["daemon_floor_paths"] = commit, paths[:20]
             break
     return out
+
+
+def command_app_commit(args) -> int:
+    """Print APP's commit as JSON ({commit, resolved, via[, why]}); exit 1 when only the short stamp is known."""
+    found = resolve_app_commit(Path(args.app), Path(args.repo), may_fetch=not args.no_fetch)
+    print(json.dumps(found))
+    return 0 if found["resolved"] else 1
 
 
 def command_live_from(args) -> int:
@@ -2200,6 +2271,10 @@ def main(argv=None) -> int:
     p.add_argument("sha")
     p.add_argument("--repo", default=str(ROOT))
     p.add_argument("--max", type=int, default=LIVE_FROM_MAX)
+    p = sub.add_parser("app-commit", help="APP's commit, its short CMUXCommit resolved to a full sha (JSON)")
+    p.add_argument("app")
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--no-fetch", action="store_true", help="the checkout and the bundle only: no fetch of feat-cmux-next")
     p = sub.add_parser("rollback")
     p.add_argument("--app")
     p.add_argument("--socket")
@@ -2216,6 +2291,7 @@ def main(argv=None) -> int:
     try:
         return {"plan": command_plan, "apply": command_apply, "prefetch": command_prefetch, "keys": command_keys,
                 "rollback": command_rollback, "status": command_status, "live-from": command_live_from,
+                "app-commit": command_app_commit,
                 "drop-refused-overlay": command_drop_refused_overlay}[args.command](args)
     except RuntimeError as error:
         print(f"hot-apply: {error}", file=sys.stderr)
