@@ -41,7 +41,7 @@ public final nonisolated class ManagedKeyGuard: Sendable {
     /// the path is a managed key or inside one, or `value` (an object at an
     /// ancestor) contains a managed key.
     public func checkSet(_ value: JSONValue?, at path: [String]) throws {
-        if let managed = Self.managed(from: SettingsRust().answer("managed.guard_set", request(path, value: value))) {
+        if let managed = Self.managed(from: SettingsRust.answer("managed.guard_set", request(path, value: value))) {
             throw managed
         }
     }
@@ -50,7 +50,7 @@ public final nonisolated class ManagedKeyGuard: Sendable {
     /// an ancestor object is allowed (it only prunes the user's file; the
     /// managed value still applies from its layer).
     public func checkRemove(_ path: [String]) throws {
-        if let managed = Self.managed(from: SettingsRust().answer("managed.guard_remove", request(path))) {
+        if let managed = Self.managed(from: SettingsRust.answer("managed.guard_remove", request(path))) {
             throw managed
         }
     }

@@ -15,14 +15,14 @@ public struct JSONC {
     /// Strict JSON text for `source`: comments removed, trailing commas
     /// dropped. String contents are untouched.
     public static func strip(_ source: String) throws -> String {
-        let reply = try SettingsRust().call("jsonc.strip", .object(["source": .string(source)]))
+        let reply = try SettingsRust.call("jsonc.strip", .object(["source": .string(source)]))
         guard let text = reply["text"]?.stringValue else { throw failure(reply) }
         return text
     }
 
     /// Parses JSONC text. An empty or comment-only document is an empty object.
     public static func parse(_ source: String) throws -> JSONValue {
-        let reply = try SettingsRust().call("jsonc.parse", .object(["source": .string(source)]))
+        let reply = try SettingsRust.call("jsonc.parse", .object(["source": .string(source)]))
         guard let value = reply["value"] else { throw failure(reply) }
         return value
     }
@@ -42,7 +42,7 @@ public struct JSONC {
     /// and column (UTF-16 code units, as the code editor counts); nil when the source does not
     /// parse or has no such member.
     public static func position(of path: [String], in source: String) -> (line: Int, column: Int)? {
-        let reply = SettingsRust().answer("jsonc.position", .object(["source": .string(source), "path": .array(path.map { .string($0) })]))
+        let reply = SettingsRust.answer("jsonc.position", .object(["source": .string(source), "path": .array(path.map { .string($0) })]))
         guard let line = reply["line"]?.intValue, let column = reply["column"]?.intValue else { return nil }
         return (line, column)
     }
