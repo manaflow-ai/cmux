@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "unavailable.resumeSlow" : {
+      "comment" : "Agent pane: line on a paused Cloud machine's chat when its resume has run past a minute; Resume machine and Resume from Transcript are the card's buttons",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يستغرق هذا وقتًا أطول من المعتاد. استأنف الجهاز مرة أخرى، أو استأنف هذه المحادثة من نصها المحفوظ."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovo traje duže nego obično. Ponovo nastavi mašinu ili nastavi ovaj chat iz njegovog transkripta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det tager længere tid end normalt. Genoptag maskinen igen, eller genoptag denne chat fra dens transskription."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das dauert länger als üblich. Setze die Maschine erneut fort oder setze diesen Chat aus seinem Transkript fort."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This is taking longer than usual. Resume the machine again, or resume this chat from its transcript."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esto está tardando más de lo habitual. Reanuda la máquina otra vez o reanuda este chat desde su transcripción."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cela prend plus de temps que d’habitude. Relancez la machine, ou reprenez cette discussion depuis sa transcription."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ci sta mettendo più del solito. Riprendi di nuovo la macchina, oppure riprendi questa chat dalla sua trascrizione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "通常より時間がかかっています。マシンをもう一度再開するか、このチャットをトランスクリプトから再開してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "វាចំណាយពេលយូរជាងធម្មតា។ បន្តម៉ាស៊ីនម្ដងទៀត ឬបន្តការជជែកនេះពីប្រតិចារិករបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "평소보다 오래 걸리고 있습니다. 머신을 다시 재개하거나 이 채팅을 기록에서 재개하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dette tar lengre tid enn vanlig. Gjenoppta maskinen igjen, eller gjenoppta denne chatten fra transkripsjonen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trwa to dłużej niż zwykle. Wznów maszynę ponownie albo wznów ten czat z jego transkrypcji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isso está demorando mais que o normal. Retome a máquina de novo ou retome este chat pela transcrição."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это занимает больше времени, чем обычно. Возобновите машину ещё раз или продолжите этот чат из его расшифровки."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ใช้เวลานานกว่าปกติ ให้ดำเนินการเครื่องต่ออีกครั้ง หรือดำเนินแชทนี้ต่อจากบันทึกการสนทนา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu her zamankinden uzun sürüyor. Makineyi yeniden sürdürün ya da bu sohbeti dökümünden sürdürün."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Це триває довше, ніж зазвичай. Відновіть машину ще раз або продовжте цей чат із його стенограми."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Việc này lâu hơn bình thường. Hãy tiếp tục máy lần nữa, hoặc tiếp tục cuộc trò chuyện này từ bản ghi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这比平时花的时间更长。请再次恢复机器，或从记录中恢复此聊天。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這比平常花的時間更長。請再次恢復機器，或從記錄中恢復此聊天。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
