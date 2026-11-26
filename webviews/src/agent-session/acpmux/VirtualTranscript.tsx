@@ -105,6 +105,7 @@ import { holdOlderScrollTarget, noteOlderScrollTarget } from "./conversation/old
 import { noteTranscriptMount } from "./flickerLog";
 import { useEndedReplyCheck } from "./conversation/replyJudge";
 import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
+import { transcriptScrollPacer } from "./transcriptScrollPacer.experiment";
 import { FrameGuard } from "./conversation/frameGuard";
 import { STAND_IN_VIEWPORTS, standInRanges } from "./conversation/standIns";
 import { useT } from "./i18n";
@@ -279,6 +280,7 @@ import { indexOfRow, mountedIndexOf } from "./transcript/rowIndex";
 import { type TranscriptReferences, LIST_PROPS, sameList } from "./transcript/references";
 import { type LastEstimate, estimateFrom, nearView } from "./transcript/liveEstimate";
 import { SNAPSHOT_HOST_TAG } from "./chatSnapshot/shared";
+import { useStreamAppendDeclaration } from "./devMotionAudit";
 export { RowContent } from "./transcript/RowFrame";
 export { broughtSentPrompt } from "./transcript/arrivals";
 export { heldReaderPlace } from "./transcript/scrollAnchors";
@@ -709,6 +711,9 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
   const source = (stable.sourceRows ?? stable.rows) as readonly AcpmuxRow[];
   delete stable.sourceRows;
   const references = useTranscriptReferences(source);
+  // A working turn grows the transcript at its end: a declared layout move wherever a transcript runs
+  // one (the chat, its pane, every gallery that plays a turn), not only where App.tsx declares it.
+  useStreamAppendDeclaration(props.working === true);
   return <TranscriptViewMemo {...(stable as VirtualTranscriptProps)} references={references} />;
 }
 
@@ -1236,6 +1241,7 @@ function TranscriptView({
   /// The offset and follow state the last commit drew at (written as it lays out).
   const drewScroll = useRef<{ top: number; following: boolean } | undefined>(undefined);
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
+  const [scrollPacerArm] = useState(() => experimentArm(transcriptScrollPacer));
   /// The scroller height the last commit drew the followed view at, at its layout's end (`projectedTop`,
   /// which reads no offset); undefined when it drew it anywhere else.
   const drewFollowedEnd = useRef<number | undefined>(undefined);
@@ -1337,7 +1343,7 @@ function TranscriptView({
       delta: top - scrollRef.current.top || scrollRef.current.delta,
     };
     scheduleScrollLeadReset();
-    if (immediate) scrollPacer.current!.flush({ top, atLatest });
+    if (immediate || scrollPacerArm === "sync") scrollPacer.current!.flush({ top, atLatest });
     else scrollPacer.current!.enqueue({ top, atLatest });
   };
   /// The chat's frame budget (frameBudget.ts): while it is busy its frames are read, and past the
