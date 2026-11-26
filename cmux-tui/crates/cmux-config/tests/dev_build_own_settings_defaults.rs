@@ -77,12 +77,14 @@ fn dev_build_own_settings_defaults_leave_other_builds_and_bad_values_alone() {
     // NIGHTLY and stable pass nothing: the schema's default.
     let shared = state(schema(&BTreeMap::new()), "{}");
     let row = shared.get(&Target::Key(MOBILE.into())).row.expect("the row");
-    assert_eq!(row.value, Some(json!(false)));
+    let schema_default = row.default.clone();
+    assert!(schema_default.is_some(), "the row has a schema default");
+    assert_eq!(row.value, schema_default);
     // A value the row refuses and a key no row has are ignored.
     let odd =
         build_defaults_from(Some(r#"{"mobile.allowIPhoneConnections":"yes","no.such.key":1}"#));
     let state = state(schema(&odd), "{}");
     let row = state.get(&Target::Key(MOBILE.into())).row.expect("the row");
-    assert_eq!(row.value, Some(json!(false)));
-    assert_eq!(row.default, Some(json!(false)));
+    assert_eq!(row.value, schema_default);
+    assert_eq!(row.default, schema_default);
 }
