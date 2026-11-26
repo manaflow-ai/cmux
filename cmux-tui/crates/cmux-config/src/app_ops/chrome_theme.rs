@@ -20,7 +20,8 @@ use std::collections::BTreeSet;
 use serde_json::{Map, Value, json};
 
 use super::OpError;
-use crate::schema::{Kind, Row, Schema};
+use crate::keypath::key_path;
+use crate::schema::{Kind, Schema};
 use crate::value::{value_at, with_value};
 
 const DENSITY_ROWS: [&str; 2] = ["appearance.density", "appearance.customDensity"];
@@ -43,12 +44,33 @@ fn invalid(path: &str, message: String) -> Value {
     json!({ "kind": "invalidValue", "path": path, "message": message })
 }
 
-fn row(key: &str) -> &'static Row {
-    Schema::embedded().row(key).unwrap_or_else(|| panic!("schema has {key}"))
+/// A choice row's values and default. `appearance.gooeyTabs` is in the schema
+/// source (#54349) but not in the checked-in `settings-schema.json` the crate
+/// embeds, so its three choices are listed here until that file carries it.
+fn choices_of(key: &str) -> (Vec<String>, Option<Value>, Vec<String>) {
+    let schema = Schema::embedded();
+    match schema.row(key) {
+        Some(row) => {
+            let Kind::Choice(choices) = &row.kind else {
+                return (Vec::new(), None, row.path.clone());
+            };
+            (
+                choices.iter().map(|c| c.value.clone()).collect(),
+                row.default.clone(),
+                row.path.clone(),
+            )
+        }
+        None if key == "appearance.gooeyTabs" => (
+            ["off", "subtle", "full"].map(str::to_owned).to_vec(),
+            Some(json!("off")),
+            key_path(key),
+        ),
+        None => panic!("schema has {key}"),
+    }
 }
 
-/// A choice row's value: the choice, else the schema default (`None` for a
-/// bad value when `fallback` is false) plus a diagnostic.
+/// A choice row's value: the choice, else the default (`None` for a bad or
+/// missing value when `fallback` is false) plus a diagnostic for a bad one.
 fn choice(
     root: &Value,
     key: &str,
@@ -56,20 +78,19 @@ fn choice(
     out: &mut Map<String, Value>,
     notes: &mut Vec<Value>,
 ) {
-    let row = row(key);
-    let Kind::Choice(choices) = &row.kind else { return };
-    let default = fallback.then(|| row.default.clone()).flatten();
-    let Some(value) = value_at(root, &row.path) else {
+    let (choices, default, path) = choices_of(key);
+    let default = if fallback { default } else { None };
+    let Some(value) = value_at(root, &path) else {
         if let Some(default) = default {
             out.insert(key.to_owned(), default);
         }
         return;
     };
-    if let Some(text) = value.as_str().filter(|text| choices.iter().any(|c| c.value == *text)) {
+    if let Some(text) = value.as_str().filter(|text| choices.iter().any(|c| c == text)) {
         out.insert(key.to_owned(), json!(text));
         return;
     }
-    let listed: Vec<String> = choices.iter().map(|c| format!("\"{}\"", c.value)).collect();
+    let listed: Vec<String> = choices.iter().map(|c| format!("\"{c}\"")).collect();
     notes.push(invalid(key, format!("expected one of {}", listed.join(", "))));
     if let Some(default) = default {
         out.insert(key.to_owned(), default);
@@ -78,7 +99,7 @@ fn choice(
 
 fn contrast(root: &Value, out: &mut Map<String, Value>, notes: &mut Vec<Value>) {
     let key = "appearance.titleAreaContrast";
-    let row = row(key);
+    let row = Schema::embedded().row(key).expect("schema has titleAreaContrast");
     let Kind::Number(range) = &row.kind else { return };
     let fallback = row.default.clone().unwrap_or(json!(1.0));
     let Some(value) = value_at(root, &row.path) else {
