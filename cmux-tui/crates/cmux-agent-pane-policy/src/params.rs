@@ -126,7 +126,7 @@ pub fn is_traceparent(value: &Value) -> bool {
 /// set_config_option, a `params`, `_meta` or `_meta.acpmux` that is not an
 /// object, and the `_meta` of a frame that redeems a gesture ticket (R1, the
 /// setting methods with the ticket, `_acpmux/permission_respond`,
-/// `_acpmux/plan/build`, `chat.fix_from_link`: nothing but the ticket).
+/// `_acpmux/plan/build`, `_acpmux/plan/fanout`, `chat.fix_from_link`: nothing but the ticket).
 /// An unknown method is the allowlist's, never this strip's.
 pub fn stripping_unknown_params(
     object: &Map<String, Value>,
@@ -154,7 +154,10 @@ pub fn stripping_unknown_params(
     });
     let ticket_only = matches!(
         method,
-        "_acpmux/permission_respond" | "_acpmux/plan/build" | "chat.fix_from_link"
+        "_acpmux/permission_respond"
+            | "_acpmux/plan/build"
+            | "_acpmux/plan/fanout"
+            | "chat.fix_from_link"
     );
     if let Some(meta) = params.get_mut("_meta").and_then(Value::as_object_mut)
         && !ticket_only
