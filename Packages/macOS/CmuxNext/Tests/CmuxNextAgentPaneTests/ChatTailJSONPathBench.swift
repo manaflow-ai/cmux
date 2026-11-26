@@ -72,7 +72,7 @@ struct ChatTailJSONPathBench {
 }
 
 /// A stop flag the load threads read.
-private final class ManagedAtomicFlag: @unchecked Sendable {
+private nonisolated final class ManagedAtomicFlag: @unchecked Sendable {
     private let lock = NSLock()
     private var value = false
     var isSet: Bool { lock.lock(); defer { lock.unlock() }; return value }
