@@ -106,14 +106,17 @@ struct DividerDrag {
         }
     }
 
-    /// A move or a key change only keeps the pointer and keys for the window's next frame tick, and asks for it: that
-    /// tick writes the newest ones once (``applyWaiting()``), so a burst of events in one display frame costs one model
-    /// write and one layout pass (Chrome aligns input to the begin-frame). The release (`ended`) still applies in its
-    /// own turn, at its own point; a cancel drops what waits.
+    /// A move or a key change keeps the pointer and keys for the window's next frame tick, and asks for it: that tick
+    /// writes the newest ones once (``applyWaiting()``), so a burst of events in one display frame costs one model write
+    /// and one layout pass (Chrome aligns input to the begin-frame). The first event of a display frame lands at once
+    /// instead (`LayoutRootView.inputLandsAtEvent`, `applyInputAtEvent`): its panes and their pages get
+    /// the new size now rather than at the tick. The release (`ended`) still applies in its own turn, at its own point;
+    /// a cancel drops what waits.
     private func waitForFrame() {
         screen.activeDrag?.waiting = true
         screen.activeDrag?.ticksLeft = ScreenContentView.panTickTail
         screen.context.requestFrames()
+        _ = screen.context.applyInputAtEvent()
     }
 
     /// The frame tick (`LayoutFrameInput`): writes the pointer and keys the drag's events left waiting, once.

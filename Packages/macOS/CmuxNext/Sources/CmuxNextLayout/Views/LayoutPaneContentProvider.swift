@@ -55,6 +55,11 @@ final class LayoutViewContext {
     /// Panes present in any screen of the current snapshot.
     var livePanes: Set<PaneID> = []
     var requestFrames: () -> Void = {}
+    /// Lays a waiting drag's input out now, in the event's turn (``LayoutRootView/applyInputAtEvent()``); false when it
+    /// waits for the frame tick.
+    var applyInputAtEvent: () -> Bool = { false }
+    /// A drag's input landed at its event since the window's last frame tick: the next event waits for the tick.
+    var inputLandedSinceTick = false
     /// The window's frame tick applies its input now (`LayoutFrameInput`): a screen's presentation and the overlay
     /// sync wait for the frame's one pass, after its springs step.
     var holdsPresentations = false

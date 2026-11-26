@@ -17,6 +17,8 @@ final class CEFResizeFences {
 
     /// This turn's fence of each window.
     private var current: [ObjectIdentifier: CEFResizeFence] = [:]
+    /// How long each window's in-tree page resizes wait, when the adaptive pace is on (``CEFFencePace/isOn``).
+    let pace = CEFFencePace()
     private let clock: any Clock<Duration>
     private let makePort: @MainActor (CALayer) -> mach_port_t?
 

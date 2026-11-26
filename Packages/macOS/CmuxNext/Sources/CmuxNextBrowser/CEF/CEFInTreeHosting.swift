@@ -341,9 +341,22 @@ final class CEFInTreeHosting {
         guard let wait = Self.fenceTimeoutMs(windowResized: windowResized || window.inLiveResize,
                                              fullScreenTransition: Motion.isFullScreenTransitioning(window),
                                              refreshMs: refreshMs) else { return }
-        let timeout = CEFLayerHosting.resizeFenceTimeoutOverrideMs > 0 ? CEFLayerHosting.resizeFenceTimeoutOverrideMs : wait
-        resizeFences.join(window: window, layer: layer, timeoutMs: timeout, refreshMs: refreshMs) { port, done in
-            fence(browser, port, timeout, done)
+        var timeout = CEFLayerHosting.resizeFenceTimeoutOverrideMs > 0 ? CEFLayerHosting.resizeFenceTimeoutOverrideMs : wait
+        // The adaptive pace (`CMUX_NEXT_CEF_FENCE_PACE=adaptive`, a bench arm): waits longer while the window's pages
+        // keep up, none while they fall behind.
+        let pace: CEFFencePace? = CEFFencePace.isOn ? resizeFences.pace : nil
+        let paceKey = ObjectIdentifier(window)
+        if let pace {
+            guard let paced = pace.wait(window: paceKey, base: timeout, refreshMs: refreshMs,
+                                        windowResized: windowResized || window.inLiveResize) else { return }
+            timeout = paced
+        }
+        resizeFences.join(window: window, layer: layer, timeoutMs: timeout, refreshMs: refreshMs) { [timeout] port, done in
+            guard let pace else { return fence(browser, port, timeout, done) }
+            return fence(browser, port, timeout) { presented in
+                pace.record(window: paceKey, presented: presented)
+                done(presented)
+            }
         }
     }
 
