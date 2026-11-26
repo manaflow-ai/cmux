@@ -109,6 +109,10 @@ impl Hub {
             *held = Some(credential);
             changed
         };
+        if !session.read_meta(|m| m.owner_credential) {
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).owner_credential = true;
+            self.save_meta(&session);
+        }
         if !changed || session.child.lock().await.is_none() {
             // The next start runs on it.
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
@@ -343,6 +347,9 @@ mod tests {
         hub.child_for(&fork).await.unwrap();
         assert_eq!(launched(&fork).get(CLAUDE_OAUTH).map(String::as_str), Some(FIRST));
         assert!(!written(&hub, &fork.id).contains(FIRST), "never written down");
+        // Both say they were given one (a fact, not the value), so a restart that loses it is
+        // said as that (`claude_auth::lost_credential_text`).
+        assert!(parent.read_meta(|m| m.owner_credential) && fork.read_meta(|m| m.owner_credential));
         // A chat with none forks with none.
         let plain = hub
             .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
@@ -351,6 +358,12 @@ mod tests {
         let fork =
             hub.fork(&plain, None, None, Default::default(), None, None, true).await.unwrap();
         assert!(fork.credential.lock().unwrap().is_none());
+        assert!(
+            !fork.read_meta(|m| m.owner_credential) && !plain.read_meta(|m| m.owner_credential)
+        );
+        // One the Mac sends later marks the chat too.
+        hub.update_credential(&plain.id, credential(SECOND)).await.unwrap();
+        assert!(plain.read_meta(|m| m.owner_credential));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

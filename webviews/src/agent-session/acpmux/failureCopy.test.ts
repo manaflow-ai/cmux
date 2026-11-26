@@ -100,6 +100,14 @@ test("an expired sign-in on an older Cloud machine says Sign in again opens a te
       { hostKind: "cloud", harness: "claude" },
     ),
   ).toBe("turn.failure.cloudAuthMissing");
+  // A sign-in the machine lost to an acpmux restart says so, not that none was ever set up.
+  expect(
+    failureCopy(
+      t,
+      "Claude is not signed in here: this Cloud machine lost the Claude sign-in your Mac sent for this chat (its acpmux restarted while the chat was idle). Keep the cmux app open on your Mac: it sends the sign-in again when it reconnects to this machine. Then send the message again. (Claude said: Not logged in · Please run /login)",
+      { hostKind: "cloud", harness: "claude" },
+    ),
+  ).toBe("turn.failure.cloudAuthLost");
   expect(failureCopy(t, "429 Too Many Requests", older)).toBe("turn.failure.rateLimited");
 });
 

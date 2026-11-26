@@ -168,3 +168,15 @@ fn a_revoked_token_is_told_from_other_sign_in_failures() {
     assert!(!revoked("stream disconnected: OAuth token has been revoked"));
     assert!(!revoked("the revoked token list was refreshed"));
 }
+
+/// cmux#57418: a Cloud chat whose sign-in from the Mac the machine lost to an acpmux restart
+/// says that, not that the person has no account for Cloud; and it is never explained again.
+#[test]
+fn a_lost_cloud_sign_in_says_it_was_lost() {
+    let text = super::lost_credential_text(" Not logged in · Please run /login ");
+    assert!(text.starts_with("Claude is not signed in here"), "{text}");
+    assert!(text.contains("lost the Claude sign-in your Mac sent"), "{text}");
+    assert!(!text.contains("has no model route"), "{text}");
+    assert!(text.ends_with("(Claude said: Not logged in · Please run /login)"), "{text}");
+    assert!(!super::explains(&text));
+}

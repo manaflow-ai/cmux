@@ -462,6 +462,7 @@ impl Hub {
             };
             meta.wait_start = wait_start;
             meta.throwaway = throwaway;
+            meta.owner_credential = credential.is_some();
             meta.create_key = create_key;
             meta.placed_by = placed_by;
             let session = self.make_session(meta);

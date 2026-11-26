@@ -491,6 +491,22 @@ pub(super) fn add_claude_token(
     Ok((id, state(dir, home)))
 }
 
+/// `claude_token.add`'s refusal of a token Anthropic refused or that is no setup token
+/// (reason `claude_token.rejected`); none when it saves (accepted, or Anthropic not reached).
+fn claude_token_refusal(verdict: &key_check::Verdict) -> Result<(), RpcError> {
+    let message = match verdict {
+        key_check::Verdict::BadKey(_) => {
+            "Anthropic refused this Claude token: run claude setup-token again and paste the new one"
+        }
+        key_check::Verdict::BadShape => "That is not a Claude token: it starts with sk-ant-oat",
+        _ => return Ok(()),
+    };
+    Err(RpcError::invalid_params(message).with_data(json!({
+        "reason": "claude_token.rejected",
+        "result": verdict.as_str(),
+    })))
+}
+
 /// What a Cloud machine's agent needs from a secret-reference connection: its family, kind,
 /// the variable it is delivered in and the reference. A ChatGPT plan is not one (its token is
 /// the daemon's own, `chatgpt::Service::token_lasting`).
@@ -827,6 +843,16 @@ pub(super) async fn handle(
         method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD => {
             let secret = need("secret")?;
             let label = text("label").map(str::to_owned);
+            // Asked of Anthropic before it is saved, so Settings never says Connected for Cloud on a
+            // token every Cloud chat then fails on (cmux#57418). Anthropic not answering saves anyway.
+            let reference = secret.clone();
+            let token = Zeroizing::new(delivered(
+                "claude-token",
+                blocking(move || resolve("the token", &reference)).await??,
+            ));
+            claude_token_refusal(
+                &key_check::check("anthropic", &token, None, key_check::CHECK_TIMEOUT).await,
+            )?;
             let (_, state) = blocking(move || {
                 add_claude_token(dir.as_deref(), &home, &secret, label.as_deref())
             })
@@ -1149,6 +1175,19 @@ mod tests {
             ("claude", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN")
         );
         assert_eq!(resolve("claude-token", &secret.unwrap()).unwrap(), "sk-ant-oat01-secret");
+    }
+
+    /// cmux#57418: Settings said Connected for Cloud on any pasted token; one Anthropic refuses
+    /// is now refused at the paste, and only an unreachable Anthropic saves unasked.
+    #[test]
+    fn a_claude_token_anthropic_refuses_is_not_saved() {
+        use key_check::Verdict;
+        let refused = claude_token_refusal(&Verdict::BadKey(401)).unwrap_err();
+        assert_eq!(refused.data.as_ref().unwrap()["reason"], "claude_token.rejected");
+        assert!(refused.message.contains("claude setup-token"), "{}", refused.message);
+        assert!(claude_token_refusal(&Verdict::BadShape).is_err());
+        assert!(claude_token_refusal(&Verdict::Ok).is_ok());
+        assert!(claude_token_refusal(&Verdict::Unreachable("HTTP 503".into())).is_ok());
     }
 
     #[test]

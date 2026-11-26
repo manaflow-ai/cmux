@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.cloudAuthLost" : {
+      "comment" : "Agent pane: a Cloud chat's sign-in from the Mac was lost when the machine's agent daemon restarted; do not reveal machine host.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Cloud machine lost the {harness} sign-in your Mac sent for this chat when it restarted. Keep cmux open on your Mac: it sends it again when it reconnects. Then send your message again."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "فقد جهاز Cloud هذا تسجيل دخول {harness} الذي أرسله جهاز Mac لهذه الدردشة عند إعادة تشغيله. أبقِ cmux مفتوحًا على جهاز Mac: سيرسله مرة أخرى عند إعادة الاتصال. ثم أرسل رسالتك مرة أخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovaj Cloud računar je pri ponovnom pokretanju izgubio prijavu za {harness} koju je vaš Mac poslao za ovaj chat. Ostavite cmux otvoren na Macu: ponovo će je poslati kad se ponovo poveže. Zatim ponovo pošaljite poruku."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne Cloud-maskine mistede det {harness}-login, din Mac sendte til denne chat, da den genstartede. Hold cmux åben på din Mac: den sender det igen, når den genopretter forbindelsen. Send derefter din besked igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Cloud-Computer hat beim Neustart die {harness}-Anmeldung verloren, die dein Mac für diesen Chat gesendet hat. Lass cmux auf deinem Mac geöffnet: Es sendet sie erneut, sobald die Verbindung wieder steht. Sende deine Nachricht dann erneut."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta máquina de Cloud perdió al reiniciarse el inicio de sesión de {harness} que tu Mac envió para este chat. Mantén cmux abierto en tu Mac: lo enviará de nuevo al reconectarse. Después, vuelve a enviar tu mensaje."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette machine Cloud a perdu à son redémarrage la connexion {harness} que votre Mac avait envoyée pour ce chat. Gardez cmux ouvert sur votre Mac : il la renverra à la reconnexion. Renvoyez ensuite votre message."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa macchina Cloud, riavviandosi, ha perso l’accesso a {harness} che il tuo Mac aveva inviato per questa chat. Tieni cmux aperto sul Mac: lo invierà di nuovo alla riconnessione. Poi invia di nuovo il messaggio."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Cloud マシンは再起動時に、Mac がこのチャット用に送った {harness} のサインインを失いました。Mac で cmux を開いたままにしてください。再接続時にもう一度送信されます。その後、メッセージをもう一度送信してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ម៉ាស៊ីន Cloud នេះបានបាត់បង់ការចូល {harness} ដែល Mac របស់អ្នកបានផ្ញើសម្រាប់ការជជែកនេះ នៅពេលវាចាប់ផ្ដើមឡើងវិញ។ ទុក cmux ឱ្យបើកនៅលើ Mac៖ វានឹងផ្ញើវាម្ដងទៀតពេលភ្ជាប់ឡើងវិញ។ បន្ទាប់មកផ្ញើសាររបស់អ្នកម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Cloud 머신이 다시 시작되면서 Mac이 이 채팅에 보낸 {harness} 로그인을 잃었습니다. Mac에서 cmux를 열어 두세요. 다시 연결되면 다시 보냅니다. 그런 다음 메시지를 다시 보내세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne Cloud-maskinen mistet {harness}-påloggingen Mac-en din sendte for denne chatten da den startet på nytt. La cmux være åpen på Mac-en: den sender den igjen når den kobler til på nytt. Send deretter meldingen på nytt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ta maszyna Cloud po ponownym uruchomieniu utraciła logowanie {harness}, które Twój Mac wysłał dla tego czatu. Zostaw cmux otwarty na Macu: wyśle je ponownie po ponownym połączeniu. Następnie wyślij wiadomość jeszcze raz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta máquina do Cloud perdeu, ao reiniciar, o login do {harness} que seu Mac enviou para este chat. Mantenha o cmux aberto no Mac: ele enviará de novo ao reconectar. Depois, envie sua mensagem novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Эта машина Cloud при перезапуске потеряла вход в {harness}, который ваш Mac отправил для этого чата. Не закрывайте cmux на Mac: он отправит его снова при переподключении. Затем отправьте сообщение ещё раз."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เครื่อง Cloud นี้ทำการลงชื่อเข้าใช้ {harness} ที่ Mac ของคุณส่งให้แชทนี้หายไปเมื่อรีสตาร์ต เปิด cmux ไว้บน Mac: ระบบจะส่งอีกครั้งเมื่อเชื่อมต่อใหม่ จากนั้นส่งข้อความของคุณอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu Cloud makinesi yeniden başlarken Mac'inizin bu sohbet için gönderdiği {harness} oturumunu kaybetti. cmux'u Mac'inizde açık tutun: yeniden bağlandığında tekrar gönderir. Ardından mesajınızı yeniden gönderin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ця машина Cloud під час перезапуску втратила вхід у {harness}, який ваш Mac надіслав для цього чату. Не закривайте cmux на Mac: він надішле його знову після перепідключення. Потім надішліть повідомлення ще раз."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Máy Cloud này đã mất phiên đăng nhập {harness} mà máy Mac của bạn gửi cho cuộc trò chuyện này khi khởi động lại. Hãy để cmux mở trên máy Mac: ứng dụng sẽ gửi lại khi kết nối lại. Sau đó gửi lại tin nhắn của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "这台 Cloud 机器重启时丢失了 Mac 为此聊天发送的 {harness} 登录。请在 Mac 上保持 cmux 打开：重新连接时会再次发送。然后再次发送你的消息。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "這台 Cloud 機器重新啟動時遺失了 Mac 為此聊天傳送的 {harness} 登入。請在 Mac 上保持 cmux 開啟：重新連線時會再次傳送。然後再次傳送你的訊息。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

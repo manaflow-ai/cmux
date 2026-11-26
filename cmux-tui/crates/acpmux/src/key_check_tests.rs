@@ -128,3 +128,20 @@ async fn key_check_never_blocks_saving_when_the_provider_is_away() {
     // An unknown provider with no base: nothing to ask, save.
     assert!(matches!(check("someone", "whatever-key", None, t).await, Verdict::Unreachable(_)));
 }
+
+/// cmux#57418: a Claude setup token is an OAuth bearer; asked as an `x-api-key` Anthropic refuses
+/// even a good one. It goes as `Authorization: Bearer` with the OAuth beta header.
+#[tokio::test(flavor = "multi_thread")]
+async fn key_check_asks_anthropic_about_a_setup_token_as_a_bearer() {
+    let t = Duration::from_secs(5);
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let base = fake("401 Unauthorized", seen.clone());
+    assert_eq!(check("anthropic", "sk-ant-oat01-GOODKEY1", Some(&base), t).await, Verdict::Ok);
+    assert_eq!(
+        check("anthropic", "sk-ant-oat01-REVOKED1", Some(&base), t).await,
+        Verdict::BadKey(401)
+    );
+    let lines = seen.lock().unwrap().clone();
+    assert!(lines.contains(&"authorization".to_owned()), "{lines:?}");
+    assert!(!lines.contains(&"x-api-key".to_owned()), "{lines:?}");
+}

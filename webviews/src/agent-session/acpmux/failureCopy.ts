@@ -138,6 +138,9 @@ const MISSING_CREDENTIAL =
 /// "Not logged in · Please run /login" and acpmux's "has no model route" / "is not signed in here".
 /// The Cloud card says it is missing, where "rejected" misstated it; the kind stays as it was.
 const NO_CREDENTIAL = /not logged in|has no model route|not signed in here/i;
+/// acpmux's words for a Cloud chat whose sign-in from the Mac the machine lost when its acpmux
+/// restarted (`claude_auth::lost_credential_text`, cmux#57418): the real cause, not "missing".
+const LOST_CREDENTIAL = /lost the \S+ sign-in your Mac sent/i;
 const EXPIRED_CREDENTIAL =
   /(?:credential|token|session).{0,24}(?:expired|revoked)|(?:expired|revoked).{0,24}(?:credential|token|session)/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
@@ -410,11 +413,13 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
   const status = message ? STATUS.exec(message)?.[1] : undefined;
   if (isTeamMachineSignIn(kind, route)) return t("turn.failure.cloudTeamMachineNoLogin", { harness });
   if (route?.hostKind === "cloud" && (kind === "auth" || kind === "subscription-login")) {
-    const cause = [MISSING_CREDENTIAL, NO_CREDENTIAL].some((re) => re.test(message ?? ""))
-      ? t("turn.failure.cloudAuthMissing", { harness })
-      : EXPIRED_CREDENTIAL.test(message ?? "")
-        ? t("turn.failure.cloudAuthExpired", { harness })
-        : t("turn.failure.cloudAuthRejected", { harness, status: status ? ` (HTTP ${status})` : "" });
+    const cause = LOST_CREDENTIAL.test(message ?? "")
+      ? t("turn.failure.cloudAuthLost", { harness })
+      : [MISSING_CREDENTIAL, NO_CREDENTIAL].some((re) => re.test(message ?? ""))
+        ? t("turn.failure.cloudAuthMissing", { harness })
+        : EXPIRED_CREDENTIAL.test(message ?? "")
+          ? t("turn.failure.cloudAuthExpired", { harness })
+          : t("turn.failure.cloudAuthRejected", { harness, status: status ? ` (HTTP ${status})` : "" });
     // An older machine signs in through Sign in again's terminal there, not in the card: say why.
     return route.terminalSignIn ? `${cause} ${t("turn.failure.cloudSignInInTerminal", { harness })}` : cause;
   }
