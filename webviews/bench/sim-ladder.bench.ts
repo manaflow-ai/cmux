@@ -122,6 +122,18 @@ const JSON_OUT = flag("--json");
 // --hogs N: CPU-bound processes beside the scene while it is measured (the app's machine load). Default: the
 // profile's load per core over this machine's cores, at most one per core.
 const HOGS = flag("--hogs");
+// --frame-hz N: the display refresh the pages draw at. The app's frame_p95_ms is chatPerfCapture.ts's rAF frame-interval
+// p95 on Leo's display (the 11-26 00:21Z profile: 9.2 ms, 1181 frames in its 10 s capture, a 120 Hz display), and headless
+// Chrome draws at a locked 60 Hz (rAF every 16.7 ms whatever the page costs), so at 60 Hz the sim read 16.7 against the
+// app's 9.2 and that pair measured the two displays, not the two renderers. Chrome 157 --headless=new has no other
+// refresh rate: --screen-info takes none, HeadlessExperimental.beginFrame "wasn't found" (only chrome-headless-shell has
+// it, and the shell draws hidden tabs), and Xvfb's RandR adds no 120 Hz mode. So at any rate but 60 Chrome runs
+// --disable-frame-rate-limit (a begin frame as soon as the last one is drawn) and each page's requestAnimationFrame is
+// held to an N Hz vsync grid (installFrameClock): a frame's callbacks run in the first native frame at or after their
+// tick, stamped with the tick, and a frame whose work overruns a tick waits for the next one, as a missed vsync does.
+// Default: the profile's display_hz in the fidelity mode, else 60 (the ladder, whose frame ratio floors at 16.7 ms, keeps
+// Chrome's own clock).
+const FRAME_HZ = Number(flag("--frame-hz") ?? fromProfile("display_hz") ?? 60);
 const DIR = flag("--dir") ?? path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const VERSION = 4;
@@ -283,6 +295,8 @@ async function launchChrome(): Promise<{
       // cron, run 45408142192). The bench loads only its own local pages; every Playwright launch the other benches
       // use passes the same flag. (#54319 added it; a conflict resolution in #52348/#54537 dropped it.)
       "--no-sandbox",
+      // A refresh other than Chrome's 60 Hz: uncapped begin frames, which installFrameClock holds to FRAME_HZ.
+      ...(FRAME_HZ !== 60 ? ["--disable-frame-rate-limit"] : []),
       ...CHROME_ARGS,
       "about:blank",
     ],
@@ -315,6 +329,90 @@ async function launchChrome(): Promise<{
       await proc.exited;
       fs.rmSync(profile, { recursive: true, force: true });
     },
+  };
+}
+
+/// An `hz` display's frame clock for a page of a Chrome run with --disable-frame-rate-limit (FRAME_HZ above), on a grid
+/// of vsync ticks every 1000/hz ms of the page's clock. A requestAnimationFrame made while the page is idle takes the
+/// next tick; one made inside a frame takes the first tick after that frame's callbacks end, so a frame whose work
+/// overruns a tick waits for the next one, as a missed vsync does. The callbacks run, all of a frame's together as
+/// Chrome's own rAF runs them, in the first native frame at or after their tick, and get the last tick at or before the
+/// time they run as their timestamp (a display's rAF timestamp is its vsync's time; a native frame that comes a period
+/// late stamps the later tick, so late delivery still shows). Between ticks it sleeps on a timer to about 1 ms before the
+/// tick, then takes native frames until one lands on it, so the uncapped compositor draws the page about hz times a
+/// second, not thousands. A hidden page gets no native frame, so it draws nothing, as with Chrome's own clock.
+function installFrameClock(hz: number) {
+  const period = 1000 / hz;
+  // The first tick at or after `at`; the 1 us leeway keeps a time that is a tick, up to float error, on that tick.
+  const tickAtOrAfter = (at: number) => Math.ceil(at / period - 1e-3) * period;
+  const nativeFrame = window.requestAnimationFrame.bind(window);
+  const setTimer = window.setTimeout.bind(window);
+  let callbacks = new Map<number, FrameRequestCallback>();
+  let lastId = 0;
+  let target = -1; // the tick the waiting callbacks take; -1: none waiting
+  let running = false;
+  // Uncapped Chrome draws back to back only while frames have damage: a frame that changes nothing on screen makes it
+  // fall back to a ~17 ms timer (rAF with no change read 17.4 ms apart under --disable-frame-rate-limit, with a change
+  // 0.1 ms). A display's vsync ticks whether or not the page changed, so each native frame here changes one pixel's
+  // colour (a fixed 1x1 box, alpha 1-2%, under every click): the page's own frames then come at the clock's ticks.
+  let pixel: HTMLElement | undefined;
+  let shade = false;
+  const damage = () => {
+    if (!pixel) {
+      pixel = document.createElement("div");
+      pixel.setAttribute("aria-hidden", "true");
+      pixel.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;pointer-events:none;z-index:2147483647";
+      document.documentElement.append(pixel);
+    }
+    shade = !shade;
+    pixel.style.backgroundColor = shade ? "rgba(0,0,0,0.02)" : "rgba(0,0,0,0.01)";
+  };
+  // The clock reads the time a native frame runs (performance.now()), not its timestamp: after a sleep, a frame's
+  // timestamp is the begin frame's, which can be from before the sleep (a frame run at 24.1 ms was stamped 18.0).
+  // Native delivery latency never moves the target (an earlier version that let a late native frame skip its tick
+  // never caught up once delivery ran 2 ms late, and froze the page's frames).
+  const wait = () => {
+    const ahead = target - performance.now() - 1;
+    if (ahead > 1) setTimer(() => nativeFrame(frame), ahead);
+    else nativeFrame(frame);
+  };
+  const frame = () => {
+    damage();
+    const at = performance.now();
+    if (at < target) {
+      wait();
+      return;
+    }
+    const stamp = Math.max(target, Math.floor(at / period + 1e-3) * period);
+    target = -1;
+    const due = callbacks;
+    callbacks = new Map();
+    running = true;
+    for (const callback of due.values()) {
+      try {
+        callback(stamp);
+      } catch (error) {
+        reportError(error);
+      }
+    }
+    running = false;
+    // Callbacks this frame asked for take the first tick after its work.
+    if (callbacks.size > 0) {
+      target = tickAtOrAfter(performance.now() + 1e-3);
+      wait();
+    }
+  };
+  window.requestAnimationFrame = (callback) => {
+    lastId += 1;
+    callbacks.set(lastId, callback);
+    if (target < 0 && !running) {
+      target = tickAtOrAfter(performance.now());
+      wait();
+    }
+    return lastId;
+  };
+  window.cancelAnimationFrame = (id: number) => {
+    callbacks.delete(id);
   };
 }
 
@@ -481,6 +579,10 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     return w.__slFrames as number[];
   })) as number[];
   const secs = (performance.now() - t0) / 1000;
+  const sorted = [...frames].sort((a, b) => a - b);
+  console.log(
+    `SIM-LADDER   frames ${frames.length} at ${FRAME_HZ} Hz in ${secs.toFixed(1)} s | interval p50 ${sorted[Math.floor((sorted.length - 1) / 2)]?.toFixed(1)} p95 ${p95(frames).toFixed(1)} max ${sorted.at(-1)?.toFixed(1)} ms`,
+  );
   if (ALLOC_PROFILE) printAllocations((await items[0]!.cdp.send("HeapProfiler.stopSampling")).profile, secs);
   const windowMsPerS = (((mark - ticks0) / ticksPerSecond) * 1000) / ((markAt - t0) / 1000);
   console.log(`SIM-LADDER   cpu thirds ms/s ${thirds.map(Math.round).join(", ")} | window ${Math.round(windowMsPerS)}`);
@@ -606,6 +708,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
       },
       [SESSIONS, PROFILE !== undefined ? "fleet" : null] as const,
     );
+    if (FRAME_HZ !== 60) await context.addInitScript(installFrameClock, FRAME_HZ);
     if (TIMER_CENSUS)
       await context.addInitScript(() => {
         const counts: Record<string, number> = ((globalThis as any).__slTimers = {});
@@ -843,6 +946,7 @@ async function runProfile() {
     transcript_events: TRANSCRIPT_EVENTS,
     rate: RATE,
     hogs,
+    frame_hz: FRAME_HZ,
   };
   console.log(`SIM-FIDELITY scene ${JSON.stringify(report.profile)}`);
   const scene = (await runAxis("chats", { chats, visible, tabs, hogs, streamMs }))!;

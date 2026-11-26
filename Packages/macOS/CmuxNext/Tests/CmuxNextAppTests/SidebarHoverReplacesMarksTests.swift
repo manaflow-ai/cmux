@@ -11,8 +11,8 @@ import Testing
 /// Leo 2026-11-22: "the cross doesnt replace the blue button. ... it seems like now the blue dot is sticking when i
 /// hover. in all cases, the hovered buttons should just replace the other ones." While a row's hover controls show
 /// (the ✕, the ⋮, the pin), no status mark draws anywhere in the row's trailing cluster: not the blue dot, the
-/// spinner, the error mark, the unread count, the task count or the usage warning triangle (the row's hover card still
-/// names each warning). Only what a person points at keeps its place: the pull request badge and roll-up chips beside
+/// spinner, the error mark, the unread count or the task count (the usage warning triangle is gone altogether,
+/// `SidebarUsageWarningTests`). Only what a person points at keeps its place: the pull request badge and roll-up chips beside
 /// the controls, the audio button, the drive indicator, the tree fold, and the Cloud mark after the name.
 @MainActor @Suite(.serialized, .closesItsWindows)
 struct SidebarHoverReplacesMarksTests {
@@ -22,7 +22,6 @@ struct SidebarHoverReplacesMarksTests {
     static func statusMarksDrawn(in row: WorkspaceRowView) -> [String] {
         let marks: [(String, NSView?)] = [
             ("unread", row.badge), ("rowBadge", row.rowBadge), ("activity", row.activity), ("prText", row.prBadge),
-            ("usageWarning", row.usageWarningMark),
             ("muted", row.mutedMark), ("tabCount", row.tabCount), ("keycap", row.keycap), ("time", row.timeLabel),
             ("presence", row.presenceDots),
             ("agentMark", row.agentMarkVariant == .besideTitle ? nil : row.agentMark),
@@ -39,11 +38,9 @@ struct SidebarHoverReplacesMarksTests {
         Motion.reduceMotionOverride = true // the marks clear at once instead of fading out
         defer { Motion.reduceMotionOverride = nil }
         for spot in SidebarRowCloseSpot.allCases {
-            for (pinned, warned) in [(false, false), (true, false), (false, true), (true, true)] {
+            for pinned in [false, true] {
                 try SidebarRowCloseSpotTests.withCloseSpot(spot) {
-                    // A warned row draws the usage triangle too: it gives way like every other mark (Mango 2026-11-22,
-                    // on Leo's "in all cases").
-                    let (sidebar, window) = SidebarRowCloseClearsMarksTests.sidebar(marks, style: style, warned: warned)
+                    let (sidebar, window) = SidebarRowCloseClearsMarksTests.sidebar(marks, style: style)
                     defer { window.close() }
                     // A pinned row draws the ⋮ and Unpin, no ✕ (Lawrence msg 19392); an unpinned one the ✕, the ⋮ and Pin.
                     sidebar.list.model.workspacePin = (isPinned: { _ in pinned }, toggle: { _ in })
@@ -64,12 +61,9 @@ struct SidebarHoverReplacesMarksTests {
                     let controls = [row.closeButton, row.moreButton, row.pinSlot.made].compactMap(\.self)
                         .filter { !$0.isHidden && $0.alphaValue > 0 }
                     try #require(!controls.isEmpty, "\(spot) pinned \(pinned): no hover control on the hovered row")
-                    if warned { try #require(resting.contains("usageWarning"), "\(spot) \(marks): the warned row draws no triangle at rest") }
-                    let triangle = row.usageWarningMark.frame
                     #expect(Self.statusMarksDrawn(in: row).isEmpty,
-                            "\(spot), \(style), \(marks), pinned \(pinned), warned \(warned): \(Self.statusMarksDrawn(in: row)) still draw beside the hover controls")
+                            "\(spot), \(style), \(marks), pinned \(pinned): \(Self.statusMarksDrawn(in: row)) still draw beside the hover controls")
                     #expect(row.title.frame.width == titleWidth, "\(spot) \(marks): the title moved on hover (a layout shift)")
-                    #expect(row.usageWarningMark.frame == triangle, "\(spot) \(marks): the triangle moved on hover (a layout shift)")
                     // The hover ends: every mark the row drew at rest is back.
                     row.isHovered = false
                     row.layoutSubtreeIfNeeded()
