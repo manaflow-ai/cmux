@@ -3510,18 +3510,39 @@ impl Hub {
         // permission prompts are that daemon's (`shutdown.rs`). Read under the child lock, held
         // until the agent is gone: the shutdown takes it only after it began, so it finds either
         // this detach done or nothing of it.
-        let mut slot = session.child.lock().await;
-        if self.hands_off(session)
-            || generation.is_some_and(|generation| !session.auto_resume.current(generation))
-        {
-            return false;
-        }
-        // Held through the agent's end, so no new agent starts beside the one ending; a shutdown
-        // that meets the lock meanwhile waits for this end (`detaching`).
-        session.detaching.store(true, Ordering::SeqCst);
-        self.revoke_permission_chat(session);
-        self.cancel_pending_permissions(session);
-        if let Some(child) = slot.take() {
+        let child = if let Some(generation) = generation {
+            // Stop takes the same mark lock before fencing this generation. Use try_lock so the
+            // mark and child removal are one synchronous decision; if a start/stop owns the slot,
+            // leave the child in place and let the caller retry rather than waiting after Stop.
+            let Some(result) = session.auto_resume.with_current(generation, || {
+                let mut slot = session.child.try_lock().map_err(|_| ())?;
+                if self.hands_off(session) {
+                    return Err(());
+                }
+                session.detaching.store(true, Ordering::SeqCst);
+                self.revoke_permission_chat(session);
+                self.cancel_pending_permissions(session);
+                Ok(slot.take())
+            }) else {
+                return false;
+            };
+            let Ok(child) = result else {
+                return false;
+            };
+            child
+        } else {
+            let mut slot = session.child.lock().await;
+            if self.hands_off(session) {
+                return false;
+            }
+            // Held through the agent's end, so no new agent starts beside the one ending; a
+            // shutdown that meets the lock meanwhile waits for this end (`detaching`).
+            session.detaching.store(true, Ordering::SeqCst);
+            self.revoke_permission_chat(session);
+            self.cancel_pending_permissions(session);
+            slot.take()
+        };
+        if let Some(child) = child {
             child.kill().await;
             // A host that never took the terminate still runs its agent: it is ended by its
             // nonce, within a bound too, and what waited on the agent is answered (no exit is
@@ -3533,7 +3554,6 @@ impl Hub {
             }
         }
         session.detaching.store(false, Ordering::SeqCst);
-        drop(slot);
         // Its next start runs the profile as it is now (`profile_respawn.rs`).
         self.settle_profile_respawn(session);
         *session.turn.lock().unwrap() = None;

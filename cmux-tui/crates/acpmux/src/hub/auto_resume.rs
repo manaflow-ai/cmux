@@ -513,6 +513,15 @@ impl Pending {
         self.generation.load(std::sync::atomic::Ordering::SeqCst) == fired_gen
     }
 
+    /// Run a synchronous operation while fencing the mark against a concurrent Stop.
+    ///
+    /// Retry teardown uses this to authorize and remove the child in one critical section;
+    /// Stop either fences the generation first or observes the child already removed.
+    pub(super) fn with_current<T>(&self, fired_gen: u64, f: impl FnOnce() -> T) -> Option<T> {
+        let _mark = self.mark.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.current(fired_gen).then(f)
+    }
+
     /// Changes each time a pending continuation is let go, however it went: settled, stopped,
     /// exhausted, refused or started.
     pub(super) fn released(&self) -> tokio::sync::watch::Receiver<u64> {

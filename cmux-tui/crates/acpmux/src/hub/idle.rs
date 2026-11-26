@@ -459,7 +459,7 @@ impl Hub {
             self.touch(&session);
             return;
         }
-        if !self.hibernate_held(&session, link_lost, Some(seen), firing_retry).await {
+        if !self.hibernate_held(&session, link_lost, Some(seen), None).await {
             return;
         }
         if moving {
