@@ -405,6 +405,8 @@ NATIVE_SCRIPT_INPUTS = (
     # The Screen Sharing helper identity check sign-cmux-bundle.sh runs, and the stall bound
     # ensure-cef.sh wraps its CEF download in.
     "scripts/ci/check-screen-share-identity.sh", "scripts/ci/timeout.sh",
+    # The LAN cache fetch download-prebuilt-ghosttykit.sh tries before GitHub (#57515).
+    "scripts/ci/lan_cache_fetch.py",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
