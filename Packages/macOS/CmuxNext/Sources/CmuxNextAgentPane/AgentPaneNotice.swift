@@ -61,7 +61,7 @@ extension AgentPaneModel {
 
 extension AgentPaneView {
     /// The native notices shown now, in the order the page draws them.
-    var paneNotices: [AgentPaneNotice] { [otherInstallNotice, remoteApprovalsNotice, modelConnectionNotice].compactMap { $0 } }
+    var paneNotices: [AgentPaneNotice] { [cloudChatEndedNotice, otherInstallNotice, remoteApprovalsNotice, modelConnectionNotice].compactMap { $0 } }
 
     /// Shows a credential refusal in the chat with the action supplied by the app.
     public func showModelConnectionNotice(_ title: String, button: String, openSettings: @escaping @MainActor () -> Void) {

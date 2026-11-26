@@ -49,3 +49,108 @@
 .acpmux-quick-connect.ui-menu-item[data-disabled] {
   opacity: 1;
 }
+
+/* The inline connect card (ConnectCard.tsx): the family's mark and one line, the one button, and one
+   progress line under it. The cloud ask's spacing and inks (cloudStart.css); `row` is the picker
+   row's compact line, `steps` adds the setup strip's caption. */
+.acpmux-connect-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border: 1px solid color-mix(in srgb, var(--agent-border) 72%, transparent);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-2));
+  color: var(--agent-text);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+}
+.acpmux-connect-card[data-look="row"] {
+  padding: var(--ds-space-1) var(--ds-space-2);
+}
+.acpmux-connect-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+.acpmux-connect-card__text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.acpmux-connect-card__step {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+}
+.acpmux-connect-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.acpmux-connect-card__status {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-connect-card__status[data-state="error"] { color: var(--agent-danger, currentColor); }
+.acpmux-connect-card__status[data-state="done"] { color: var(--agent-accent, currentColor); }
+.acpmux-connect-card[data-look="row"] .acpmux-connect-card__status { font-size: var(--text-body); }
+.acpmux-connect-card__others {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1) var(--ds-space-3);
+}
+.acpmux-connect-card__disclosure {
+  flex-basis: 100%;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}
+.acpmux-connect-card__disclosure > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.acpmux-connect-card__field {
+  display: flex;
+  gap: var(--ds-space-2);
+  margin-top: var(--ds-space-1);
+}
+.acpmux-connect-card__field > input { flex: 1; min-width: 0; }
+.acpmux-connect-card__invalid {
+  display: block;
+  margin-top: var(--ds-space-1);
+  color: var(--agent-danger, currentColor);
+}
+/* The picker's card floats over the composer, anchored to its chips (the menu closed on Connect). */
+.acpmux-chips:has(> .acpmux-connect-float) { position: relative; }
+.acpmux-connect-float {
+  position: absolute;
+  z-index: var(--layer-overlay);
+  bottom: calc(100% + var(--ds-space-2));
+  left: 0;
+  width: min(380px, 100%);
+  border-radius: var(--ds-radius-md);
+}
+.acpmux-connect-float > .acpmux-connect-card { border-color: transparent; }
+/* An app connection's parts (ConnectCard `provider`): its name over the line, the pill trailing the
+   head, and the detail lines under it. */
+.acpmux-connect-card__title {
+  overflow: hidden;
+  color: var(--agent-text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-connect-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+}

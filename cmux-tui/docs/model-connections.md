@@ -3,7 +3,7 @@
 Status: contract for the `cloud-models-connections` integration branch (off `cloud-multiplayer`).
 Every lane builds against this file; change it here first, in the same commit as the code.
 
-## Revision 3: owner-supplied endpoints on Cloud
+## Revision 3 wire format for owner-supplied endpoints on Cloud
 
 A Cloud start can carry an endpoint credential alongside the existing launch credentials.
 The owner's Mac reads the key from its existing Keychain reference. The machine's
@@ -35,15 +35,15 @@ daemon relays the credential to acpmux over its own Unix socket.
   held in memory on the machine and passed in the agent's environment. An adopted agent's
   environment supplies both the key and endpoint metadata after a daemon restart. Neither
   is included in diagnostics, argv, journals, events or mirrored state.
-- The Mac sends this shape after the machine advertises
-  `agent-session-start-endpoint-credentials-v1`. For a named connection, it also checks
-  `agent-session-credential-reattach-v1`. The session records the connection ID and model
-  so the Mac can send the credential again when the chat reattaches.
+- The guest retains this wire format for compatibility. The Mac requires the guest to advertise
+  `agent-session-start-endpoint-credentials-v1` before sending it. The current guest does
+  not advertise that capability. A saved key also requires the guest's bound credentials
+  and reattach capabilities so the Mac can withdraw or redeliver it for the same session.
 
-A native key uses the existing `env` object with `GEMINI_API_KEY` for Gemini or
-`XAI_API_KEY` for xAI. A Cloud launch with either name also requires
-`agent-session-start-endpoint-credentials-v1`. The native launch clears alternate
-keys and routing variables for its provider before setting the saved key.
+A native key uses the existing `env` object with `GEMINI_API_KEY` for Gemini,
+`GOOGLE_API_KEY` for Vertex AI, or `XAI_API_KEY` for xAI. Cloud launches with these keys
+require the installed harness and the bound credentials capability. The native launch
+clears alternate keys and routing variables for its provider before setting the saved key.
 
 An owner machine reports the endpoint harnesses it has installed. Cloud Settings
 uses that answer to offer compatible providers. The composer can select a
@@ -53,12 +53,10 @@ checks the live link again before sending the credential.
 
 ## Goal
 
-A person's Cloud threads run on the same model and the same subscription or key the model picker
-shows on the Mac, with nothing to set up. Cloud machines hold no provider token: a machine calls
-the coderouter edge with a placeholder key; the edge's team Durable Object hands the request to a
-gateway (this Mac's personal gateway, or the team's gateway machine) that holds the logins,
-refreshes them, and forwards upstream. When nothing can serve the chosen model, the person is
-asked to open Settings > Cloud > Cloud models and connect a subscription or API key.
+A person's Cloud threads run on the model and account selected in the picker. The owner's Mac
+delivers an eligible saved credential to the agent on the owner's machine. Claude can also use
+the machine's own login or the team route. When the selected model needs a connection, the
+person can open Settings > Cloud > Cloud models.
 
 ## Concepts
 
@@ -120,6 +118,31 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
 - `_acpmux/connections/chatgpt.device.wait` and `_acpmux/connections/chatgpt.device.cancel` take
   `{ "attempt": "..." }`. Wait answers like `chatgpt.wait`. Cancel stops polling and returns the final
   status. All three device methods require person proof on the local Unix socket.
+- `_acpmux/connections/claude_token.begin` `{ "label": "optional" }` -> `{ "attempt": "opaque",
+  "url": "https://claude.ai/oauth/authorize?...|null" }`. One-click Claude: the daemon runs
+  `claude setup-token` itself (`crates/acpmux/src/claude_token/`), as its own child in a hidden pty
+  240 columns wide: `CMUX_CLAUDE_BIN`, else `claude` on the login PATH or in `~/.local/bin`; no
+  `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` in its environment; `BROWSER=/usr/bin/true`, so
+  it opens no browser of its own. It answers once the child prints its sign-in link (read from the
+  OSC 8 hyperlink or the plain text, escapes stripped); the app opens `url` in its own browser on
+  this Mac, and the sign-in returns to the child's loopback listener. One attempt at a time: a new
+  begin cancels the pending one. Errors (`data.reason`): `claude_token.no_claude` (nothing to run),
+  `claude_token.no_url` (no link in 30 s, or the child ended first; the child is ended and the
+  message carries its last line), `claude_token.spawn`, `claude_token.pty`.
+- `_acpmux/connections/claude_token.wait` `{ "attempt": "..." }` -> `{ "status":
+  "pending|done|failed|cancelled", "connection": Connection|null, "error":
+  "no_token|cut_short|store|add|timeout|null" }` (long-poll up to 25 s). The token is taken out of
+  the child's output (`pty::TokenFilter`, the copy `cmux cloud connect claude` uses too), stored in
+  the login Keychain as `cmux-model-key` / `claude-token-<8 hex>`, and added with
+  `claude_token.add`'s path holding only `keychain:cmux-model-key/ACCOUNT`; a refused add deletes
+  the item. The child's process group is ended after the token. The token is in no reply, log line
+  or error, and its buffers are zeroized. Completion also fires `_acpmux/connections.changed`.
+- `_acpmux/connections/claude_token.code` `{ "attempt": "...", "code": "..." }` -> `{ "attempt",
+  "status": "pending" }`: when the sign-in page shows a code to paste back, the app hands it here;
+  every whitespace character is taken out and the code and Return are typed into the child.
+  `claude_token.bad_code`, `claude_token.not_pending`.
+- `_acpmux/connections/claude_token.cancel` `{ "attempt": "..." }` -> `{ "attempt", "status" }`:
+  ends the child.
 - `_acpmux/connections/chatgpt.token` `{ "id": "..." }` -> `{ "access_token": "...", "expires_at": unix }`.
   Local socket only, for the gateway. Refreshes when under 5 minutes left; refreshes for one id are
   serialized (one in flight; others await it). Never logged.
@@ -128,13 +151,21 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
   and on every connection but the local unix socket. Reads a Codex CLI `auth.json`, requires its ID
   token to be issued to Codex's client, and writes the same record and `chatgpt-plan` route a browser
   sign-in does. Import into a fresh acpmux home per job: the first refresh rotates the refresh token.
-- `_acpmux/connections/remove` `{ "id" }`: a chatgpt-plan connection revokes its refresh token
+- `_acpmux/connections/remove` `{ "id", "instance" }`: a chatgpt-plan connection revokes its refresh token
   (revocation endpoint from the OpenID configuration), clears tokens, keeps `client_id` + host id.
   Other kinds delegate to the existing `_acpmux/route/remove`.
-- `_acpmux/connections/key.add` `{ "provider", "secret": "keychain:ITEM", "label"?, "replace"? }` -> state.
-  The app stores the pasted key in the Keychain first and passes its reference. The optional
-  `replace` id updates a matching provider's existing key route in place. A route with
-  `can_replace_key: true` supports this operation.
+- `_acpmux/connections/key.add` accepts `provider`, a `keychain:ITEM` reference, and optional
+  `label` and `servesCloud` fields. To replace a key in place, send the route's id as `replace`
+  and its current instance as `replaceInstance`. A route with `can_replace_key: true` supports
+  this operation. The app strips whitespace from the pasted key, stores it in the Keychain,
+  and calls `key.check` with the reference before saving the route.
+- `_acpmux/connections/key.check` `{ "provider", "secret": "keychain:ITEM" }` -> `{ "provider",
+  "result": "ok|bad_shape|bad_key|unreachable", "save", "http_status", "detail", "message" }`
+  (`key_check.rs`). The vendor prefix first (openai `sk-`, anthropic `sk-ant-`, openrouter `sk-or-`,
+  google `AIza`, xai `xai-`), then one authenticated read (the model list; OpenRouter's
+  `/api/v1/key`), 8 s. 401/403 (and Google's or xAI's 400) is `bad_key`, `save: false`, `message`
+  "Key rejected by OpenAI"; a network failure, timeout or 5xx is `unreachable` and saves anyway.
+  The key is resolved in the daemon and never answered or logged.
 - Notification `_acpmux/connections.changed` with `ConnectionsState`.
 
 ### Sign in with ChatGPT (Codex's own sign-in, cmux#45774)
@@ -220,7 +251,7 @@ Anthropic and OpenAI API keys use Claude Code and Codex. Google and xAI keys use
 and Grok Build. The OpenRouter key can also launch OpenCode for non-Claude models. The
 existing Claude route uses Anthropic Messages. The OpenCode route uses Chat Completions.
 
-The OpenAI-compatible endpoint presets use OpenCode on both hosts. The model picker uses
+OpenAI-compatible endpoint presets use OpenCode. The model picker uses
 the endpoint's saved model IDs. Morph starts with the two Morph Ultra models. OpenCode Go
 uses its documented model-list URL and puts a stable session ID on inference requests.
 Bedrock defaults to its Mantle endpoint and Azure accepts a v1 resource URL with deployment
@@ -267,8 +298,8 @@ Settings ops (`webviews/src/pages/settings/ops.ts`; Swift `SettingsPageProvider.
   Existing Claude Code, Codex, Gemini CLI, Grok Build and Cursor sign-ins appear automatically. Connect offers
   direct subscriptions, provider API keys and endpoints. Spread usage, team keys and the members
   policy live here.
-- **Settings > Cloud > Cloud models** shows Claude setup tokens, ChatGPT device sign-ins and
-  eligible API keys and endpoints. A key or endpoint added in Models starts with Cloud use off.
+- **Settings > Cloud > Cloud models** shows Claude machine logins, Claude setup tokens, ChatGPT
+  device sign-ins and eligible API keys. A key or endpoint added in Models starts with Cloud use off.
   Adding it from Cloud models enables it for Cloud. Use the row menu to change Cloud use for a
   key or an editable endpoint. Existing connections keep their Cloud eligibility until changed.
 - Cloud setup links from the model picker and from a held send open
@@ -286,15 +317,11 @@ Members policy (backend `backend/apps/api`, lane D): `team.models_policy.get|set
 `team.agent_key.*`, owner/admin write, defaults above. Enforcement in the platform route is
 out of this repo and noted as a follow-up.
 
-Cloud first use (lane D): before a Cloud chat starts, the app asks the personal gateway whether a
-connection serves the picker's model (`_acpmux/connections`, family of the chosen agent, plus the
-organization's gateway/keys). If one does, the chat starts on the picker's model and account with
-no prompt. If none does, the chat shows a "Set up Cloud" card ("Cloud threads use your
-subscriptions. Connect one to start.") with buttons Continue with ChatGPT / Sign in to Claude /
-Add an API key / Open Settings, and records nothing until a connection exists. The in-chat sign-in
-card's ways in add the connection on this Mac instead of logging in on the machine.
+Before a Cloud chat starts, the app checks the selected model's eligibility, the owner's
+connections, and the team route for that machine. The Set up Cloud card can open Claude sign-in
+on the target machine or send the person to Settings to connect the requested provider.
 
-## The picker's model and account in Cloud (lane E)
+## Original gateway design for the picker's model and account (lane E)
 
 A Cloud chat starts on exactly what the model picker shows for that chat: the agent (Claude or
 Codex), the model id, the effort, and the account the picker's Account menu selected (a route id,
@@ -312,23 +339,25 @@ and no Mac gateway in the path. This supersedes the "Gateway" section and the
 `x-cmux-connection` header seam above (lane B's gateway work is not part of the integration).
 
 Connections (all held on the Mac: acpmux routes + Keychain references):
-- **Claude**: Models and Cloud models run the installed Claude Code's own
-  sign-in on the selected machine. The owner can also sign in from the first
-  Cloud chat. acpmux starts `claude auth login --claudeai` and opens the
-  approval link. Cloud opens it in a Mac browser tab whose localhost reaches
-  Claude Code on that machine. The person can paste Claude's approval code
-  when the CLI provides only the manual link. Claude Code manages its login
-  and runs `claude auth logout` when the person signs out. An API key in Claude
-  Code's settings takes precedence over the Claude plan.
-- **Claude setup tokens**: `cmux cloud connect claude` captures the output of
-  `claude setup-token` into the Mac's Keychain and registers a `claude-token`
-  connection with acpmux. The add request takes `secret` as a `keychain:`, `env:`,
-  or absolute `file:` reference and an optional `label`. Models shows these rows
-  with “Sign in again with Claude” and starts new chats using the machine's sign-in
-  or a configured API route.
-  After successful Claude Code sign-in, cmux removes the migrated route and
-  its Keychain item and restarts affected harnesses between turns. Cancelled
-  and expired attempts leave the legacy connection in place.
+- **Claude machine login**: Models uses Claude Code's sign-in on the Mac. Cloud models can
+  run `claude auth login --claudeai` on the selected owner machine. The owner can also sign
+  in from the first Cloud chat. The app opens the approval link on the Mac with localhost
+  forwarded to Claude Code on that machine. The person can paste Claude's approval code when
+  Claude supplies a manual link. Reauthenticate requests fresh approval for that machine.
+  Sign Out runs `claude auth logout` there. A start that selects the machine login uses that
+  account even when other Claude API credentials are configured.
+- **Claude setup-token connections**: The daemon's one-click `claude_token.begin` flow saves
+  the token by reference. Pasted setup tokens strip whitespace so wrapped values still work.
+  `cmux cloud connect claude` captures the token from `claude setup-token`, or reads it with
+  `--token-stdin`, and registers a `claude-token` connection. The add request takes a
+  `keychain:`, `env:` or absolute `file:` reference as `secret` and an optional `label`.
+  An Anthropic API key also serves Claude. Models shows legacy setup-token rows with
+  “Sign in again with Claude”. A successful migration removes the migrated route and its
+  Keychain item. Cancelled and expired attempts leave the route in place.
+- **Claude chat recovery**: When a saved token is refused, recovery signs in on that chat's
+  exact owner machine and switches only that chat to the machine login. Other chats keep
+  their saved credentials. Recovery uses distinct start and finish methods, so an older
+  guest refuses it before changing the machine's login preference.
 - **Codex**: `chatgpt-plan` (Sign in with ChatGPT, lane A as built) or an OpenAI API key.
 - The existing Mac CLI logins (`codex-login`, `claude-login`) stay listed for local chats but do not
   serve Cloud (`serves_cloud: false`) in this revision.

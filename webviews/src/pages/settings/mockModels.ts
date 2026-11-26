@@ -115,6 +115,8 @@ const personalOnly = (connections: ModelConnection[]): ModelsState => ({
 const macOnly = personalOnly([codexLogin, claudeLogin]);
 const claudeForCloud = personalOnly([codexLogin, claudeLogin, claudeToken]);
 const chatgptForCloud = personalOnly([codexLogin, claudeLogin, chatgptPlan]);
+const chatgptSignedOut = personalOnly([codexLogin, claudeLogin, { ...chatgptPlan, signedIn: false }]);
+const chatgptOff = personalOnly([codexLogin, claudeLogin, { ...chatgptPlan, enabled: false }]);
 
 export function mockChatGPTDevice(
   expiresAt = Math.floor(Date.now() / 1000) + 900,
@@ -157,6 +159,17 @@ export const mockModels = {
   claudeMacOnly: personalOnly([claudeLogin]),
   claudeForCloud,
   chatgptForCloud,
+  chatgptSignedOut,
+  chatgptOff,
+  chatgptPending: { ...macLogins, chatgpt: { attempt: "attempt-1", error: null } },
+  chatgptError: { ...macLogins, chatgpt: { attempt: null, error: "no_chatgpt_account" } },
+  claudeStarting: { ...macOnly, claudeToken: { attempt: "claude-1", phase: "starting", error: null } },
+  claudeSigningIn: { ...macOnly, claudeToken: { attempt: "claude-1", phase: "signing_in", error: null } },
+  claudeSaving: { ...macOnly, claudeToken: { attempt: "claude-1", phase: "saving", error: null } },
+  claudeError: {
+    ...macOnly,
+    claudeToken: { attempt: null, phase: null, error: "The Claude sign-in page closed before you signed in." },
+  },
   member: {
     ...macLogins,
     organization: { ...macLogins.organization, canEdit: false, keys: [{ agent: "claude", set: true, last4: null }] },
@@ -214,6 +227,14 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
         chatgptDevice: mockChatGPTDevice(undefined, run.provider),
       };
     case "openChatGPTDevice":
+      return state;
+    case "connectClaudeToken":
+      // The app's run starts on the sign-in page; `advanceMockClaudeToken` walks it on.
+      return { ...state, claudeToken: { attempt: "claude-mock", phase: "starting", error: null } };
+    case "cancelClaudeToken":
+      return { ...state, claudeToken: { attempt: null, phase: null, error: null } };
+    case "claudeSetupToken":
+      // The app opens a terminal tab running `claude setup-token`; the state does not change.
       return state;
     case "cancelChatGPTDevice":
       return { ...state, chatgptDevice: { phase: "idle" } };
@@ -281,6 +302,20 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       };
       return personal({ connections: [...connections, added] });
     }
+    case "addClaudeToken": {
+      const id = nextId("claude-token", connections);
+      return personal({
+        connections: [
+          ...connections,
+          {
+            ...claudeToken,
+            id,
+            credentialInstance: crypto.randomUUID(),
+            label: run.label?.trim() || claudeToken.label,
+          },
+        ],
+      });
+    }
     case "orgKey": {
       if (!state.organization.canEdit) throw new Error("only owners and admins change the team's keys");
       const last4 = run.key ? run.key.slice(-4) : null;
@@ -315,4 +350,29 @@ function nextId(base: string, connections: ModelConnection[]): string {
   let number = 2;
   while (taken.has(`${base}-${number}`)) number += 1;
   return `${base}-${number}`;
+}
+
+/** The mock app's Connect Claude run, one step on: starting, signing in, saving, then the token saved
+ * as a connection (labelled `label`), or with `fail` the error a closed sign-in page leaves. */
+export function advanceMockClaudeToken(state: ModelsState, fail = false, label?: string): ModelsState {
+  const run = state.claudeToken;
+  if (!run?.attempt) return state;
+  if (fail)
+    return {
+      ...state,
+      claudeToken: { attempt: null, phase: null, error: "The Claude sign-in page closed before you signed in." },
+    };
+  if (run.phase === "starting") return { ...state, claudeToken: { ...run, phase: "signing_in" } };
+  if (run.phase === "signing_in") return { ...state, claudeToken: { ...run, phase: "saving" } };
+  const connections = state.personal.connections;
+  const added: ModelConnection = {
+    ...claudeToken,
+    id: nextId("claude-token", connections),
+    label: label?.trim() || "Claude Code token",
+  };
+  return {
+    ...state,
+    personal: { ...state.personal, connections: [...connections, added] },
+    claudeToken: { attempt: null, phase: null, error: null, saved: true },
+  };
 }

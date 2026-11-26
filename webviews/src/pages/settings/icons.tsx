@@ -264,6 +264,8 @@ const paths: Record<string, ReactNode> = {
       <path d="M6.4 1.8V4M9.6 1.8V4M6.4 12v2.2M9.6 12v2.2M1.8 6.4H4M1.8 9.6H4M12 6.4h2.2M12 9.6h2.2" />
     </>
   ),
+  // Settings > Automations: a lightning bolt (an event sets an agent off).
+  bolt: <path d="M9 1.8 3.4 9.2h4.2L7 14.2l5.6-7.4H8.4L9 1.8Z" />,
   // The overflow menu of a row (Settings > Models connections).
   ellipsis: <path d="M3.6 8h.01M8 8h.01M12.4 8h.01" />,
   plus: <path d="M8 3v10M3 8h10" />,

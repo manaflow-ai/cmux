@@ -57,6 +57,28 @@ test("a quiet background turn draws its tool call and its row, with no line and 
   expect(ids(turnView(rows, new Set([backgroundTurnRowId("bg")])))).toEqual(drawn);
 });
 
+// Leo, 2026-11-25: "this is extremely strange": a quiet turn of one thought and two sentences drew
+// its "Worked for" over the thought and hid its answer. Its answer draws under its Worked for.
+test("a quiet background turn whose only work is a thought draws its reply under its Worked for", () => {
+  at = 0;
+  const rows = [
+    row("prompt", "user", { text: "Run the suite" }),
+    row("reply", "assistant", { text: "Started it." }),
+    row("summary", "turnSummary", { status: "completed", durationMs: 2_000 }),
+    line("bg", { quiet: true }),
+    row("thought", "activity", {
+      inBackground: "bg",
+      items: [
+        { kind: "thought", text: "Already known: the run passed and the PR merged.", startedAt: 0, endedAt: 3_000 },
+      ],
+    }),
+    row("note", "assistant", { text: "The suite passed and the PR merged.", inBackground: "bg" }),
+  ];
+  const view = ids(turnView(rows, new Set()));
+  expect(view).toContain("note");
+  expect(view.indexOf("note")).toBeGreaterThan(view.indexOf("worked-backgroundTurn-bg"));
+});
+
 test("a running background turn draws its calls as they come, its reply not yet", () => {
   const view = ids(turnView(transcript({ running: true }), new Set()));
   expect(view).toEqual(["prompt", "reply", "summary", "check"]);

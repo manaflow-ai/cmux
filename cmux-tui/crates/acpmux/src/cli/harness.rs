@@ -40,8 +40,10 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("claude", include_str!("../../harnesses/claude.toml")),
     ("codex", include_str!("../../harnesses/codex.toml")),
     ("opencode", include_str!("../../harnesses/opencode.toml")),
+    ("cursor", include_str!("../../harnesses/cursor.toml")),
     ("pi", include_str!("../../harnesses/pi.toml")),
     ("gemini", include_str!("../../harnesses/gemini.toml")),
+    ("antigravity", include_str!("../../harnesses/antigravity.toml")),
     ("aider", include_str!("../../harnesses/aider.toml")),
     ("muse", include_str!("../../harnesses/muse.toml")),
     ("muse-terminal", include_str!("../../harnesses/muse-terminal.toml")),
@@ -61,8 +63,10 @@ pub fn example(name: &str) -> Option<&'static str> {
     let id = match name {
         "claude-code" => "claude",
         "gemini-cli" => "gemini",
+        "agy" | "antigravity-cli" => "antigravity",
         "muse-code" => "muse",
         "hermes-agent" => "hermes",
+        "cursor-agent" | "cursor-cli" => "cursor",
         "aider-terminal" | "terminal" => "aider",
         other => other,
     };
@@ -1100,6 +1104,19 @@ async fn acp_steps(
     for a in spawn.argv.iter_mut() {
         *a = crate::hub::expand_env_value(a, folder, &home, &model);
     }
+    // As the hub's launch does (`hub/spawn.rs`): Antigravity gets a key saved in ~/.gemini/.env.
+    crate::acp_key_auth::fill_key_from_gemini_dotenv(
+        &mut spawn.env,
+        &crate::config::derive_family(id, profile),
+        |k| std::env::var(k).ok(),
+    );
+    if let Some(key) = spawn.env.get(crate::acp_key_auth::GEMINI_API_KEY_ENV)
+        && !key.is_empty()
+        && !r.masks.contains(key)
+    {
+        r.masks.push(key.clone());
+        r.masks.sort_by_key(|m| std::cmp::Reverse(m.len()));
+    }
     let (mut cmd, _scratch) =
         match crate::agent::harness_command_ready(id, &spawn, folder, None, None).await {
             Ok(prepared) => prepared,
@@ -1168,6 +1185,8 @@ async fn acp_steps(
         prompt_limit,
         crate::config::derive_family(id, profile) == "codex",
         id,
+        &spawn.env,
+        &crate::config::derive_family(id, profile),
     )
     .await;
     // Stop the harness and everything it started (its own process group),
@@ -1244,6 +1263,8 @@ async fn handshake(
     prompt_limit: Duration,
     codex: bool,
     harness_id: &str,
+    env: &std::collections::BTreeMap<String, String>,
+    env_family: &str,
 ) -> bool {
     let init = json!({
         "protocolVersion": 1,
@@ -1277,6 +1298,33 @@ async fn handshake(
             &format!("protocolVersion {version}{agent}; cmux speaks ACP protocol 1"),
             None,
         );
+    }
+    // An agent signed in by its key says so before its session, as the hub's start does
+    // (`acp_key_auth.rs`).
+    let family = env_family;
+    if let Some(params) = crate::acp_key_auth::authenticate_params(family, &result, |k| {
+        crate::acp_key_auth::launch_var(env, family, k)
+    }) {
+        match wire.call("authenticate", params, opts.timeout).await {
+            Ok(_) => r.push(
+                "authenticate",
+                StepStatus::Pass,
+                crate::acp_key_auth::GEMINI_API_KEY_METHOD,
+                None,
+            ),
+            Err(e) => {
+                r.push(
+                    "authenticate",
+                    StepStatus::Fail,
+                    &e,
+                    Some(format!(
+                        "check {}, or sign in with `acpmux harness login {harness_id}`",
+                        crate::acp_key_auth::GEMINI_API_KEY_ENV
+                    )),
+                );
+                return false;
+            }
+        }
     }
     let new = json!({"cwd": folder.to_string_lossy(), "mcpServers": []});
     let session = match wire.call("session/new", new, opts.timeout).await {
@@ -1442,66 +1490,5 @@ impl StderrTail {
 }
 
 #[cfg(test)]
-mod stderr_tail_tests {
-    use super::StderrTail;
-
-    #[test]
-    fn a_payload_whose_opener_was_cut_off_stays_hidden() {
-        let mut tail = StderrTail::default();
-        tail.push(b"\x1bP");
-        for _ in 0..20 {
-            tail.push(&[b'A'; 4096]);
-        }
-        tail.push(b"secret\x1b\\error: request timed out\n");
-        assert_eq!(tail.text(), "error: request timed out");
-    }
-
-    #[test]
-    fn a_cut_between_esc_and_its_next_byte_reads_the_sequence_whole() {
-        let mut tail = StderrTail::default();
-        let mut long = vec![b'x'; StderrTail::CAP];
-        long.push(0x1b);
-        tail.push(&long);
-        tail.push(b"]8;;https://x\x07after\nerror: boom\n");
-        let text = tail.text();
-        assert!(text.ends_with("after\nerror: boom"), "{text:?}");
-        assert!(!text.contains("https"), "{text:?}");
-    }
-
-    #[test]
-    fn an_unfinished_line_keeps_the_text_under_the_cap() {
-        let mut tail = StderrTail::default();
-        for _ in 0..40 {
-            tail.push(&[b'x'; 4095]);
-            tail.push(b"\n");
-        }
-        tail.push(&[b'y'; StderrTail::CAP - 100]);
-        let text = tail.text();
-        assert!(text.len() <= StderrTail::CAP, "{}", text.len());
-        assert!(text.ends_with('y'));
-    }
-
-    #[test]
-    fn an_endless_line_that_starts_a_control_stays_bounded() {
-        let mut tail = StderrTail::default();
-        tail.push(b"\x1bP");
-        for _ in 0..40 {
-            tail.push(&[b'A'; 4096]);
-            assert!(tail.pending.len() <= StderrTail::CAP + 4096, "{}", tail.pending.len());
-        }
-        tail.push(b"\x1b\\error: request timed out\n");
-        assert_eq!(tail.text(), "error: request timed out");
-    }
-
-    #[test]
-    fn the_kept_text_stays_under_the_cap() {
-        let mut tail = StderrTail::default();
-        for _ in 0..40 {
-            tail.push(&[b'x'; 4095]);
-            tail.push(b"\n");
-        }
-        tail.push(b"error: boom\n");
-        assert!(tail.text().len() <= StderrTail::CAP);
-        assert!(tail.text().ends_with("error: boom"));
-    }
-}
+#[path = "harness_stderr_tail_tests.rs"]
+mod stderr_tail_tests;

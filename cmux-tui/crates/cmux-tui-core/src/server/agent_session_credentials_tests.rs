@@ -395,17 +395,22 @@ fn a_prewarm_is_refused_anywhere_but_the_owners_own_cloud_vm() {
     }
 }
 
+/// A prewarm with no folder is the owner's own Cloud start's alone (it warms the chat's own
+/// `~/chats/<id>`, agent_session_trust_tests.rs): anywhere else it names no folder and is refused.
 #[test]
-fn a_prewarm_for_a_bound_tab_or_with_no_folder_is_refused() {
-    let mut chat = connect("prewarm-bound", AgentStartHost::OwnerCloud, false);
-    let mut no_folder = json!({"cmd":"agent-session-prewarm","surface":chat.surface,
+fn a_prewarm_for_a_bound_tab_or_with_no_folder_off_the_owners_vm_is_refused() {
+    let mut mac = connect("prewarm-no-folder-mac", AgentStartHost::Allowed, false);
+    let no_folder = json!({"cmd":"agent-session-prewarm","surface":mac.surface,
         "harness":"claude","vm_kind":"owner"});
-    assert_code(&chat.client.request(no_folder.clone()), "agent_session.bad_request");
+    assert_eq!(mac.client.request(no_folder)["ok"], json!(false), "no folder off the owner's VM");
+    assert!(mac.sent("_acpmux/prewarm").is_empty());
+    let mut chat = connect("prewarm-bound", AgentStartHost::OwnerCloud, false);
     let started = chat.start(env(TOKEN), json!("owner"));
     assert_eq!(started["ok"], json!(true), "{started}");
     let _ = chat.sent("session/new");
-    no_folder["cwd"] = json!(chat.cwd);
-    assert_eq!(chat.client.request(no_folder)["ok"], json!(false), "a bound tab warms nothing");
+    let bound = json!({"cmd":"agent-session-prewarm","surface":chat.surface,
+        "harness":"claude","vm_kind":"owner","cwd":chat.cwd});
+    assert_eq!(chat.client.request(bound)["ok"], json!(false), "a bound tab warms nothing");
     assert!(chat.sent("_acpmux/prewarm").is_empty());
 }
 
@@ -431,7 +436,7 @@ fn a_bad_request_names_the_refused_param_and_never_its_value() {
         (with("harness", json!("codex agent")), "harness"),
         (with("permission_mode", json!("everything")), "permission_mode"),
         (with("person_instance", json!("a/b")), "person_instance"),
-        (with("bogus_param", json!(secret)), "bogus_param"),
+        // An unknown param is ignored, not refused (cmux#49712), so it is no row here.
     ] {
         let refused = chat.client.request(frame.clone());
         assert_code(&refused, "agent_session.bad_request");

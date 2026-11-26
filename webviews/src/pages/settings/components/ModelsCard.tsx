@@ -1,5 +1,6 @@
 import { useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { Skeleton } from "../../../ui/Skeleton";
 import { useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
@@ -16,6 +17,7 @@ import type { ModelConnection } from "../ops";
 import { revealRow } from "../keyboard";
 import { CLOUD_MODELS_ADD_FOCUS, CLOUD_MODELS_FOCUS, MODELS_ADD_FOCUS, type SettingsSearch } from "../router";
 import { t } from "../strings";
+import { ChatGPTStatus, ClaudeTokenDialog, CloudModelOverview } from "./CloudModelsCard";
 import { GroupHeader } from "./GroupHeader";
 import { ModelConnectionDialog } from "./ModelConnectionDialog";
 import { ModelConnectionRow, ModelRow, type RowAction } from "./ModelConnectionRow";
@@ -49,6 +51,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const { models, modelsSettled } = useSettingsState();
   const search = useSearch({ strict: false }) as SettingsSearch;
   const { open } = search;
+  const [tokenDialog, setTokenDialog] = useState<"connect" | "paste" | null>(null);
+  const tokenTrigger = useRef<HTMLElement | null>(null);
   const fromSend = cloud && search.fromSend;
   const family = cloud ? search.provider?.trim().toLowerCase() : undefined;
   const machine = family === "claude" ? search.machine : undefined;
@@ -296,7 +300,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     const trigger = selection.returnTo;
     const removingTrigger =
       rowAction?.kind === "disconnect" &&
-      trigger?.dataset.menu === `connection-${rowAction.connection.id}` &&
+      (trigger?.dataset.menu === `connection-${rowAction.connection.id}` ||
+        trigger?.dataset.menu === `cloud-connection-${rowAction.connection.id}`) &&
       !store.getSnapshot().models?.personal.connections.some((c) => c.id === rowAction.connection.id);
     returnFocus.current = trigger?.isConnected && !removingTrigger ? trigger : addButton.current;
     setSelection((current) => (current === selection ? null : current));
@@ -335,6 +340,23 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     });
   };
 
+  const openTokenDialog = (mode: "connect" | "paste", trigger: HTMLElement) => {
+    clearError();
+    tokenTrigger.current = trigger;
+    setTokenDialog(mode);
+  };
+  const closeTokenDialog = () => {
+    clearError();
+    setTokenDialog(null);
+  };
+  const cancelTokenDialog = () => {
+    if (models?.claudeToken?.attempt) void rowRun({ action: "cancelClaudeToken" });
+    closeTokenDialog();
+  };
+  const localConnectionFocus = focus?.startsWith("models.connection.")
+    ? focus.slice("models.connection.".length)
+    : focus;
+
   const unsupported =
     cloud &&
     (!requested || !canAddProvider(requested, true)) &&
@@ -358,6 +380,19 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
             />
           )}
           {error && !formError && <SettingsErrorRow message={error} />}
+          {available && cloud && !family && (
+            <CloudModelOverview
+              models={models}
+              connections={displayed}
+              canLaunch={(c) => !cloudRunnerStatus(c)}
+              focus={focus}
+              busy={locked}
+              run={rowRun}
+              onPasteToken={(trigger) => openTokenDialog("paste", trigger)}
+              onSetup={pick}
+              onDisconnect={(connection, trigger) => pick({ kind: "disconnect", connection }, trigger)}
+            />
+          )}
           {available && unsupported && (
             <div className="row" data-cloud-coming-soon="">
               <ModelRow
@@ -388,7 +423,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
                   now={now}
                   cloudRunnerStatus={cloud ? cloudRunnerStatus(connection) : undefined}
                   focusRequest={
-                    (!cloud && focus === connection.id) || (openMenuKey === key && cloudOff?.id === connection.id)
+                    (!cloud && localConnectionFocus === connection.id) ||
+                    (openMenuKey === key && cloudOff?.id === connection.id)
                       ? request
                       : undefined
                   }
@@ -440,12 +476,55 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
             />
           )}
         </div>
+        {available && !cloud && (
+          <div className="accounts-buttons">
+            {models.chatgpt.attempt || models.chatgpt.error ? (
+              <ChatGPTStatus
+                chatgpt={models.chatgpt}
+                busy={locked}
+                run={rowRun}
+                onRetry={() => void rowRun({ action: "connectChatGPT" })}
+              />
+            ) : !models.chatgptDevice ? (
+              <Button
+                className="button"
+                variant="ghost"
+                data-models-action="connectChatGPT"
+                disabled={locked}
+                onClick={() => void rowRun({ action: "connectChatGPT" })}
+              >
+                {t("settingsWindow.cloud.chatgpt.signIn")}
+              </Button>
+            ) : null}
+            <Button
+              className="button"
+              variant="ghost"
+              data-models-action="openClaudeToken"
+              disabled={locked}
+              onClick={(event) => openTokenDialog("connect", event.currentTarget)}
+            >
+              {t("settingsWindow.models.claude.add")}
+            </Button>
+          </div>
+        )}
         {currentVisit?.connected && (
           <output className="row-help" data-cloud-connected="">
             {fromSend ? t("settingsWindow.models.setup.starting") : t("settingsWindow.models.setup.connected")}
           </output>
         )}
       </section>
+      {tokenDialog && models && (
+        <ClaudeTokenDialog
+          models={models}
+          busy={locked}
+          error={error}
+          run={rowRun}
+          pasteOpen={tokenDialog === "paste"}
+          returnFocus={tokenTrigger}
+          onClose={closeTokenDialog}
+          onCancel={cancelTokenDialog}
+        />
+      )}
       <ModelConnectionDialog
         visit={request}
         cloud={cloud}

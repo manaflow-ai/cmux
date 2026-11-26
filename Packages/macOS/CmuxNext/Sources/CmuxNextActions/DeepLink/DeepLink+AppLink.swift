@@ -143,8 +143,11 @@ extension DeepLink {
     /// - Parameters:
     ///   - url: The clicked link.
     ///   - linkScheme: This build's own scheme; the `cmux` scheme is taken too.
+    /// An app install link (`cmux://apps/install?repo=…`, ``appInstallAction(for:linkScheme:)``)
+    /// runs `app.install` the same way, so a click shows the App Store's consent card.
     /// - Returns: The action and its arguments, or nil for any other URL.
     public static func settingsAction(for url: URL, linkScheme: String) -> SettingsLinkAction? {
+        if let install = appInstallAction(for: url, linkScheme: linkScheme) { return install }
         guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
               url.host?.lowercased() == "settings" else { return nil }
         return settingsRoutes[url.path.lowercased()]
@@ -158,17 +161,24 @@ extension DeepLink {
         let provider = query.first { $0.name == "provider" }?.value
         let machine = query.first { $0.name == "machine" }?.value
         let machineName = query.first { $0.name == "machineName" }?.value
+        let environment = query.first { $0.name == "environment" }?.value
+        let recoverySession = query.first { $0.name == "recoverySession" }?.value
         let focus = query.first { $0.name == "focus" }?.value
         let fromSend = query.first { $0.name == "fromSend" }?.value == "1"
+        let scopedConnection = { (family: String) in
+            cloudModelConnectionsRoute(family: family, fromSend: fromSend, machine: machine, environment: environment,
+                                       recoverySession: recoverySession, machineName: machineName)
+        }
         let path = url.path.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         switch path {
         case "models", "models/add", "cloud", "cloud/models", "cloud/models/add", "cloud/api-key":
+            if focus == "cloud.claude" { return scopedConnection("claude") }
             if let focus, let route = modelSettingsRoute(focus: focus, fromSend: fromSend) { return route }
             if let provider, !provider.isEmpty {
                 if path == "models/add" || (path == "models" && ["ollama", "lm-studio"].contains(provider)) {
                     return modelSettingsRoute(focus: "models.add." + provider)
                 }
-                return cloudModelConnectionsRoute(family: provider, fromSend: fromSend)
+                return scopedConnection(provider)
             }
             switch path {
             case "models": return "#/settings/models"
@@ -177,14 +187,18 @@ extension DeepLink {
             case "cloud/models": return modelSettingsRoute(focus: "card.cloudModels")
             default: return modelSettingsRoute(focus: "cloudModels.add")
             }
-        case "cloud/claude": return cloudModelConnectionsRoute(family: "claude", fromSend: fromSend, machine: machine, machineName: machineName)
+        case "cloud/claude": return scopedConnection("claude")
         case "cloud/chatgpt": return cloudModelConnectionsRoute(family: "chatgpt", fromSend: fromSend)
-        default: return nil
+        case "integrations", "connections": return "#/settings/integrations"
+        case "github", "connections/github", "accounts/github": return "#/settings/accounts?focus=connection.github"
+        default: return settingsPassThrough(url.path)
         }
     }
 
     /// Settings anchors opened through the app action, CLI, MCP, or older Cloud setup links.
     public static func modelSettingsRoute(focus: String, fromSend: Bool = false) -> String? {
+        let environment = query.first { $0.name == "environment" }?.value
+        let recoverySession = query.first { $0.name == "recoverySession" }?.value
         let focus = focus.trimmingCharacters(in: .whitespacesAndNewlines)
         if focus.hasPrefix("models.add.") || ["models.add", "claude-login", "codex-login", "gemini-login"].contains(focus) {
             let encoded = focus.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: ".-"))) ?? ""
@@ -203,6 +217,32 @@ extension DeepLink {
         }
     }
 
+    /// Any other settings link reaches the page as written, and the page's one registry resolves it
+    /// (webviews settingsLinks.ts): `cmux://settings/<a>` is `#/settings/<a>`, `cmux://settings/<a>/<b>`
+    /// `#/settings/<a>?focus=<b>` (more segments join with dots). So every category, alias, card,
+    /// setting key and connection has a link (`cmux://settings/terminal.fontSize`,
+    /// `cmux://settings/accounts/machines`, `cmux://settings/connections/linear`), and a name the page
+    /// does not know is named there instead of nothing opening. `cmux://settings` alone opens the page.
+    /// The action paths (``settingsRoutes``) stay actions.
+    static func settingsPassThrough(_ path: String) -> String? {
+        if settingsRoutes[path.lowercased()] != nil { return nil }
+        let segments = path.split(separator: "/").map(String.init)
+        guard let section = segments.first else { return "#/settings" }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        guard let first = section.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        guard segments.count > 1 else { return "#/settings/\(first)" }
+        guard let focus = segments.dropFirst().joined(separator: ".").addingPercentEncoding(withAllowedCharacters: allowed)
+        else { return nil }
+        return "#/settings/\(first)?focus=\(focus)"
+    }
+
+    /// Opens Settings > Cloud or one of its legacy connection rows.
+    public static func cloudRoute(row: String?) -> String {
+        guard let row else { return "#/settings/cloud" }
+        let focus = row.hasPrefix("cloud.") ? row : "cloud." + row
+        return modelSettingsRoute(focus: focus) ?? "#/settings/cloud?focus=\(focus)"
+    }
+
     /// Cloud models opens the form on every click. A held send gets its own confirmation.
     public static func cloudModelConnectionsRoute(family: String, fromSend: Bool = false, machine: String? = nil, environment: String? = nil, recoverySession: String? = nil, machineName: String? = nil) -> String {
         let provider = family.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
@@ -219,7 +259,7 @@ extension DeepLink {
     }
 
     /// The settings link path that turns Start Agent from Any App on.
-    public static let startAgentFromAnyAppPath = "/start-agent-from-any-app"
+    public nonisolated static let startAgentFromAnyAppPath = "/start-agent-from-any-app"
 
     /// Every settings link path the app runs, and what it runs: the one list. Home draws a link only
     /// for a path it renders (MessagesLabHome's `URL.homeSettingsLinkPaths`), so a path added here and

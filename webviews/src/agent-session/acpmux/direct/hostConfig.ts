@@ -67,6 +67,7 @@ export function newSessionParams(
   additionalDirectories?: readonly string[],
   restricted = false,
   cloudRegistryId?: string,
+  autoPlace = false,
 ): Record<string, unknown> {
   if (host.adopt)
     return {
@@ -91,6 +92,9 @@ export function newSessionParams(
         ...(noProject ? { noProject: true } : {}),
         // Read-only in a folder the person declined (acpmux hub/restricted.rs).
         ...(restricted ? { restricted: true } : {}),
+        // The person's place pick was Auto: with no room anywhere acpmux may wait for a machine
+        // being added (hub/admission.rs). An explicit This Mac or machine never sends it.
+        ...(autoPlace ? { autoPlace: true } : {}),
       },
     },
   };

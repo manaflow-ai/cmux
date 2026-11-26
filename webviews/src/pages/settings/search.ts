@@ -4,6 +4,7 @@
 import { categoryById, shownCategories, type Category, type CategoryGroup } from "./categories";
 import { CLOUD_MODELS_FOCUS } from "./router";
 import { valueText } from "./format";
+import type { DevicesJoinState } from "./ops";
 import type { SchemaRow } from "./schema";
 import { providerCatalog, providerName } from "./providerCatalog";
 import { english, locale, t, text } from "./strings";
@@ -117,6 +118,57 @@ export function filterRows({
       return { category, groups, rows: groups.flatMap((group) => group.rows) };
     })
     .filter((result) => result.rows.length > 0);
+}
+
+/**
+ * A place on a page-only card that search finds beside the schema rows: Settings > Devices' join
+ * consent switches (Screen sharing, Control, Your other Macs), which the host draws from its lists
+ * (`devices_join`) while this Mac is joined to a team. Their text is the host's, already localized,
+ * and `keywords` carry the page's language and English. Its key is the route's focus
+ * (`#/settings/devices?focus=devices.join.control`, Swift `SettingsPageAnchor`).
+ */
+export type PagePlace = { key: string; category: string; title: string; help: string; keywords: string[] };
+
+const JOIN_CONSENT = "devices.join.";
+
+/** The focus key of a join consent switch (`devices.join.control`). */
+export const joinConsentKey = (surface: string) => `${JOIN_CONSENT}${surface}`;
+
+/** The category a page place's key opens on; null for a key that names none. */
+export function placeCategory(key: string): string | null {
+  return key.startsWith(JOIN_CONSENT) ? "devices" : null;
+}
+
+/** The join consent switches as search places; none while this Mac shows no join group. */
+export function joinConsentPlaces(join: DevicesJoinState | null | undefined): PagePlace[] {
+  return (join?.switches ?? []).map((item) => ({
+    key: joinConsentKey(item.surface),
+    category: "devices",
+    title: item.title,
+    help: item.help,
+    keywords: item.keywords ?? [],
+  }));
+}
+
+/** The places every term of `query` matches (title, help, keywords), in the host's order. */
+export function filterPlaces(query: string, places: readonly PagePlace[]): PagePlace[] {
+  const terms = queryTerms(query);
+  if (terms.length === 0) return [];
+  return places.filter((place) => {
+    const haystack = [place.title, place.help, ...place.keywords].join("\n").toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
+/** The place whose title or one of whose keywords is the whole query ("control", "remote control"):
+ * Return opens it before any row that only contains the words. */
+export function exactPlace(query: string, places: readonly PagePlace[]): PagePlace | null {
+  const typed = queryTerms(query).join(" ");
+  if (!typed) return null;
+  return (
+    places.find((place) => [place.title, ...place.keywords].some((word) => queryTerms(word).join(" ") === typed)) ??
+    null
+  );
 }
 
 export function searchRows(query: string, valueOf: (key: string) => unknown): SearchGroup[] {

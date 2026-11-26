@@ -65,6 +65,30 @@ extension SettingsModels: PageProvider {
         return models
     }
 
+    /// The Cloud chat's own connector (Set up Cloud's buttons, ``connectInPlace(_:)``): no page, no team
+    /// keys; a sign-in page opens in the app's own browser (`openSignInPage`), else the person's.
+    public static func cloudSetup(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
+                                  openSignInPage: @escaping @MainActor (URL) async -> (@MainActor () -> Void)?) -> SettingsModels {
+        SettingsModels(environment: environment, keys: KeychainModelKeyStore(),
+                       openURL: { NSWorkspace.shared.openInBackground($0) },
+                       harnesses: SettingsHarnesses(environment: environment, openTerminal: { _ in false }, openSignInPage: openSignInPage))
+    }
+
+    /// ``CloudSetup/run`` for the app: Set up Claude and Continue with ChatGPT connect in place, with no
+    /// Settings window and no terminal (Leo, 2026-11-25: one button, done when the chat starts; the
+    /// card's spinner is the progress). An acpmux that cannot, and the other buttons, `openSettings`.
+    public static func cloudSetupRun(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
+                                     openSignInPage: @escaping @MainActor (URL) async -> (@MainActor () -> Void)?,
+                                     changed: @escaping @MainActor () -> Void,
+                                     openSettings: @escaping @MainActor (CloudSetup.Action) -> Void) -> @MainActor (CloudSetup.Action) async -> Void {
+        let connector = cloudSetup(environment: environment, openSignInPage: openSignInPage)
+        connector.onConnections = changed
+        return { action in
+            if action == .setUpClaude || action == .connectChatGPT, await connector.connectInPlace(action.rawValue) { return }
+            openSettings(action)
+        }
+    }
+
     /// The app's mirror of `models.spreadUsage` into acpmux for its whole life: one push per change, from any
     /// writer (Settings, the palette, `cmux settings`, MCP). Cancel the task to end it.
     public static func mirrorSpread(settings: @escaping @MainActor @Sendable () -> SettingsController?,

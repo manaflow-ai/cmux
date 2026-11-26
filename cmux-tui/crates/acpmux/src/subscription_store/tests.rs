@@ -438,7 +438,9 @@ fn subscription_migration_ignores_a_different_providers_item_left_after_removal(
     let kimi = json!({"access_token": "fixture-kimi", "refresh_token": "refresh-kimi", "expires_at": 100, "region": "global"});
     removed.write(id, &grok).unwrap();
     keychain.refuse(&removed.service(), id, Error::KeychainOtherBuild, false);
-    removed.delete(id).unwrap();
+    assert_eq!(removed.delete(id), Err(Error::KeychainOtherBuild));
+    // Recreate an orphan left by an older build that dropped the index after a refused delete.
+    std::fs::remove_file(removed.path(id).unwrap()).unwrap();
     keychain.refusals.lock().unwrap().clear();
     crate::chatgpt::store::write_atomic(
         &legacy.path(id).unwrap(),

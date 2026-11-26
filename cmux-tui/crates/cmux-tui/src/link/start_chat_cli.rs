@@ -300,12 +300,14 @@ pub(super) fn valid_workspace(workspace: &str) -> bool {
 
 /// What `plan` reads: the send, the account it began in, the Mac workspace it
 /// came from, and the Cloud machines the App's list for that account named.
-/// (The App also sends who is signed in, `user`; no plan reads it now that a
-/// new send never reuses a listed machine.)
+/// A new send reuses the person's own machine (`pick::reuse`), so `user` names who is signed in.
 #[derive(serde::Deserialize)]
 struct PlanRequest {
     key: String,
     account: String,
+    /// Who is signed in (the server's user id): only a machine they made is reused.
+    #[serde(default)]
+    user: Option<String>,
     /// The Mac workspace of the tab that sent; None for a send from no workspace.
     #[serde(default)]
     workspace: Option<String>,
@@ -314,7 +316,7 @@ struct PlanRequest {
     #[serde(default)]
     loaded: bool,
     /// The machines the account's list named: a pinned retry keeps one while it
-    /// is listed; a new send takes none, and their titles keep its name unique.
+    /// is listed; a new send can reuse an eligible one. Their titles keep a new name unique.
     #[serde(default)]
     machines: Vec<Candidate>,
     /// Readiness selected a machine login for Claude ahead of automatic placement.
@@ -427,15 +429,19 @@ fn plan_with_calls(
         request.reservation_key = None;
     }
     let selected = request.machine.as_ref();
-    if selected.is_some_and(|id| !request.loaded || !request.machines.iter().any(|vm| &vm.id == id))
-    {
-        return refused("not_found", "the selected machine is no longer listed");
-    }
     let environment = request.environment.as_deref();
-    if selected.is_some_and(|id| {
-        request.machines.iter().any(|vm| &vm.id == id && !vm.matches_environment(environment))
-    }) {
-        return environment_mismatch();
+    if let Some(id) = selected {
+        let Some(vm) = request.machines.iter().find(|vm| &vm.id == id && request.loaded) else {
+            return refused("not_found", "the selected machine is no longer listed");
+        };
+        if !vm.matches_environment(environment) {
+            return environment_mismatch();
+        }
+        if let Some(refusal) =
+            preflight::too_small(request.size.as_deref(), request.bytes, &vm.preflight_machine())
+        {
+            return refusal;
+        }
     }
     let mut keys = Keys::of(&request.key);
     let send = Send::new(&request.key, &request.account);
@@ -468,7 +474,7 @@ fn plan_with_calls(
     }
     let planned = Ledger::update(ledger, |pins| {
         let pinned = pins.machine(&send);
-        let destination = if let Some(id) = selected {
+        let mut destination = if let Some(id) = selected {
             Destination::Machine(id.clone())
         } else {
             pick::destination(
@@ -480,6 +486,28 @@ fn plan_with_calls(
                 environment,
             )
         };
+        // A new send reuses the person's own machine, unless it asks for what that machine may not
+        // be: a Cloud image of its own (`environment`: a machine boots in its image only when made),
+        // a size above the chat size, or a disk grown for the folder. Those make a new machine.
+        let reusable = request.environment.is_none()
+            && !larger_than_chat(request.size.as_deref())
+            && preflight::grown_disk_gib(
+                request.size.as_deref(),
+                request.bytes,
+                request.plan_max.as_deref(),
+            )
+            .is_none();
+        if destination == Destination::New && reusable {
+            if let Some(id) = pick::reuse(
+                pins,
+                &request.machines,
+                &request.account,
+                workspace,
+                request.user.as_deref(),
+            ) {
+                destination = Destination::Machine(id);
+            }
+        }
         if let Destination::Machine(id) = &destination {
             pins.record(id, &send);
             // A retry of an older send keeps its machine, never the workspace's newer one,
@@ -557,9 +585,9 @@ fn plan_with_calls(
             let ask = Ensure {
                 // The send's own create key, never the Mac workspace's id: the platform binds
                 // one machine per workspace it is named, so a second chat from the same Mac
-                // workspace would get the first chat's machine back. Every new Cloud start is a
-                // workspace, and a machine, of its own; a retry of this send names the same key
-                // and so reaches the machine its first try made.
+                // workspace would get the first chat's machine back. A send gets here only when the
+                // person has no machine to reuse (`pick::reuse`); a retry of this send names the
+                // same key and so reaches the machine its first try made.
                 workspace: keys.create.clone(),
                 create_key: keys.create,
                 repo: repo.clone(),
@@ -824,6 +852,28 @@ fn folder_repo(local: &str) -> Option<String> {
     }
     let config = std::fs::read_to_string(git_common_dir(local)?.join("config")).ok()?;
     github_repo(&origin_url(&config)?)
+}
+
+/// The project id a folder's agent memory is keyed by (`cmux link memory plan`): the folder's
+/// normalised git remote, else, with a ledger, this installation's folder id in it (the one a
+/// start-chat copy records). `None`: not a folder, or no remote and no ledger.
+pub(in crate::link) fn memory_project_id(
+    ledger: Option<&Path>,
+    folder: &Path,
+) -> anyhow::Result<Option<String>> {
+    let Some(local) = folder.to_str() else { return Ok(None) };
+    match ledger {
+        Some(ledger) => project::folder_key(ledger, local),
+        None => Ok(git_common_dir(folder)
+            .and_then(|dir| std::fs::read_to_string(dir.join("config")).ok())
+            .and_then(|config| origin_url(&config))
+            .and_then(|remote| project::remote_key(&remote))),
+    }
+}
+
+/// The start-chat ledger this Mac keeps, if it has a state folder.
+pub(in crate::link) fn default_ledger() -> Option<PathBuf> {
+    ledger::path()
 }
 
 /// The git directory that holds the config of the repository `folder` is in: the nearest `.git` at or above

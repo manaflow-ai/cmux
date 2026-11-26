@@ -29,7 +29,7 @@ use crate::config::{Config, Paths, STATUS_FILE};
 use crate::proc_roles::RolePaths;
 use crate::status;
 
-const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | cloud carrier-ticket | cloud drop-page-cache [--deadline-ms N] | update status|check [--skip-resume-hold]|guard --to N | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | --commit …";
+const USAGE: &str = "usage: cmux host run [--roles-only] [--mode user|system] | status [--json] [--root DIR] | roles [--json] | logs <role> [--bytes N] | cloud daemon-info|probe-activity|clone-mark [--root DIR] | cloud identity | cloud carrier-ticket | cloud drop-page-cache [--deadline-ms N] | update status|check [--skip-resume-hold]|guard --to N | team-ssh apply|accounts-apply|principals <user>|session-open|reap|sync [--root DIR] | team restricted-shell|whoami | team-enroll --team T --epoch E --nonce N | git-cache serve|credential | --commit …";
 
 fn code(n: u8) -> u8 {
     n
@@ -152,6 +152,7 @@ pub fn run(args: &[String], self_argv: Vec<String>) -> u8 {
         "team-ssh" => crate::team_ssh::cli::run(rest),
         "team" => crate::team_ssh::team_cli::run(rest),
         "team-enroll" => crate::team_ssh::enroll::run(rest),
+        "git-cache" => cmux_git_cache::cli::run(rest),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             code(0)
@@ -351,6 +352,12 @@ fn run_agent(mut cfg: Config) -> u8 {
             home: u.home,
         }
     });
+    // The machine's git cache: an agent's plain `git clone https://github.com/...` is served
+    // from this machine's mirror (git_cache.rs); never fatal, and git goes direct without it.
+    // SAFETY: geteuid has no preconditions.
+    if cfg.paths.is_system_root() && unsafe { libc::geteuid() } == 0 {
+        crate::git_cache::start(&cfg.self_argv, None, work_user.clone());
+    }
     // The Cloud agent role binds a cmux Cloud machine; it does nothing until
     // the driver writes bind.json (or bound.json exists from a past bind).
     // Creating the channel opens descriptors only. LinuxPlatform must block

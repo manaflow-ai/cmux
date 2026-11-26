@@ -187,6 +187,15 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     public var evictAt: Date?
     /// The auto-size pick a create with `autosize` answered.
     public var sizePick: CloudSizePick?
+    /// The guest's disk use as the record carries it (cmux-cloud-disk `DiskReport`, read from
+    /// `disk_health`): JSON the app passes to the Cloud rules unread; nil before the first sample.
+    public var disk: JSONValue?
+    /// ``disk`` as the Cloud rules' list and status facts take it (cmux-tui `Listed.disk`, `Status.disk`):
+    /// its JSON as it came, as Foundation values; nil without a sample.
+    public var diskFacts: Any? {
+        guard let disk, let data = try? JSONEncoder().encode(disk) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data)
+    }
     /// Why the last pause, resume or resize failed; nil when it did not.
     public var lastChangeFailure: ChangeFailure?
     /// The newest unresolved Pause, Resume or Kill sent from this app (``CloudMachineChanges``).
@@ -202,7 +211,7 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, provider, region, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, environmentId, address, size
         case declaredCapabilities = "capabilities"
-        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick
+        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick, disk
         case lastChangeFailure = "error"
         case pendingChange, pendingMutationID, failedMutationID, servesDesktop
     }

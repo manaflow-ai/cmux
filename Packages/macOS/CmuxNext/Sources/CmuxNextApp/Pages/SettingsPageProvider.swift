@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
@@ -20,9 +21,9 @@ final class SettingsPageProvider: PageProvider {
     private let settings: SettingsController
     /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`).
     private let domains: @MainActor () -> [String: [String]]
-    /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
-    /// in tests without an app.
-    private let hostLists: (@MainActor () -> JSONValue)?
+    /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles), by
+    /// section (``SettingsHostSection``); nil in tests without an app.
+    private let hostSections: [SettingsHostSection]?
     /// The Accounts part of the page (R82 commit 3): its state, and one gesture; nil in tests
     /// without an app.
     var accountsState: (@MainActor () -> JSONValue)?
@@ -94,6 +95,8 @@ final class SettingsPageProvider: PageProvider {
     var personBacksGesture: (@MainActor (TimeInterval) -> Bool)?
     /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine: the error to show, or nil.
     var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
+    /// Notification sounds: the ▷ preview and Custom Sound…; nil in tests without an app.
+    var sounds: NotificationSoundImport?
     /// Touch ID or the password, which every turn-on of Full access or Dedicated agent machine needs; nil, never.
     var ownerConfirm: (any DeviceOwnerAuthenticating)?
     let wideningGate: PageWideningGate
@@ -104,10 +107,10 @@ final class SettingsPageProvider: PageProvider {
     private static let overrideRounds = 4
 
     init(settings: SettingsController, domains: @escaping @MainActor () -> [String: [String]] = { [:] },
-         hostLists: (@MainActor () -> JSONValue)? = nil, wideningGate: PageWideningGate = PageWideningGate()) {
+         hostSections: [SettingsHostSection]? = nil, wideningGate: PageWideningGate = PageWideningGate()) {
         self.settings = settings
         self.domains = domains
-        self.hostLists = hostLists
+        self.hostSections = hostSections
         self.wideningGate = wideningGate
     }
 
@@ -177,7 +180,7 @@ final class SettingsPageProvider: PageProvider {
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
-        case "cmux.settings.host.lists": return try Self.host(hostLists, "host lists")()
+        case "cmux.settings.host.lists": return SettingsHostSection.merged(try Self.host(hostSections, "host lists").map { $0.read() })
         case "cmux.settings.devices.remove":
             guard let id = params["id"]?.stringValue else { throw PageError.invalidParams("id is required") }
             return try await Self.host(removeDevice, "devices")(id).map { ["error": .string($0)] } ?? .object([:])
@@ -330,8 +333,16 @@ final class SettingsPageProvider: PageProvider {
             return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }
-            if name != "default", name != "none" { NSSound(named: NSSound.Name(name))?.play() }
+            try Self.host(sounds, "sounds").preview(name)
             return .object([:])
+        case "cmux.settings.sound.import": // Custom Sound…: the person picks the file in the open panel, so the write is theirs.
+            let descriptor = try descriptor(params)
+            guard descriptor.kind == .sound else { throw PageError.invalidParams("\(descriptor.id) is not a sound") }
+            let picked: String?
+            do { picked = try await Self.host(sounds, "sounds").pick() } catch let failure as ActionWorkFailure { throw PageError(code: "cmux.settings.sound.import", message: failure.message) }
+            guard let name = picked else { return ["name": .null] }
+            try await write(descriptor, .string(name), by: Self.writer(context)) // concurrency-allow: the settings owner writes through its CmuxConfigFile actor, off the main actor
+            return ["name": .string(name)]
         default:
             throw PageError.unknownOp(op)
         }
@@ -368,8 +379,8 @@ final class SettingsPageProvider: PageProvider {
             return Self.watch(harnessesState, onEvent: onEvent)
         }
         if stream == "cmux.settings.models.changed", let models { return try await models.subscribe(stream, filter: filter, context: context, onEvent: onEvent) }
-        if stream == "cmux.settings.host.changed", let hostLists {
-            return Self.watch(hostLists, onEvent: onEvent)
+        if stream == "cmux.settings.host.changed", let hostSections {
+            return SettingsHostSection.watch(hostSections, onEvent: onEvent)
         }
         guard stream == "cmux.settings.changed" else { throw PageError.unknownOp(stream) }
         let settings = settings

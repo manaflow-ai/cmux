@@ -71,8 +71,9 @@ use crate::panic_free::JsonFields;
 
 #[path = "agent_session_prewarm.rs"]
 mod prewarm;
-pub use prewarm::AGENT_SESSION_PREWARM_CAPABILITY;
+pub(crate) use prewarm::chat_folder_prewarm_on;
 pub(super) use prewarm::prewarm;
+pub use prewarm::{AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -166,16 +167,16 @@ const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 /// A launch credential as the caller sends it. Never printed: no `Debug`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct StartCredentials {
-    pub(super) env: std::collections::BTreeMap<String, String>,
-    pub(super) endpoint: Option<StartEndpoint>,
-    pub(super) connection: Option<String>,
+pub(in crate::server) struct StartCredentials {
+    pub(in crate::server) env: std::collections::BTreeMap<String, String>,
+    pub(in crate::server) endpoint: Option<StartEndpoint>,
+    pub(in crate::server) connection: Option<String>,
 }
 
 /// Endpoint metadata, bounded here and checked by acpmux before launch.
 #[derive(Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(super) struct StartEndpoint {
+pub(in crate::server) struct StartEndpoint {
     kind: EndpointKind,
     base_url: String,
     models: Vec<String>,
@@ -189,7 +190,8 @@ enum EndpointKind {
 }
 
 impl StartCredentials {
-    pub(super) fn valid(&self) -> bool {
+    /// One known name and a token-shaped value, with optional endpoint and connection metadata.
+    pub(in crate::server) fn valid(&self) -> bool {
         self.connection.as_deref().is_none_or(|connection| {
             let (id, digest) = connection
                 .split_once(':')
@@ -234,7 +236,7 @@ impl StartCredentials {
             })
     }
 
-    pub(super) fn wire(&self) -> Value {
+    pub(in crate::server) fn wire(&self) -> Value {
         let mut wire = json!({"env": self.env});
         if let Some(endpoint) = &self.endpoint {
             wire["endpoint"] = json!(endpoint);
@@ -250,7 +252,7 @@ impl StartCredentials {
 /// "owner"`, the Cloud API's answer for the machine's creator alone, on a VM that is not a team
 /// VM, where every member's agents run as one Unix user and could read it), never from a phone's
 /// channel, and never through a teammate's or guest's proxied link (the caller checks `author`).
-pub(super) fn credentials_admitted(
+pub(in crate::server) fn credentials_admitted(
     mux: &Mux,
     client: u64,
     vm_kind: &Option<Option<String>>,
@@ -830,7 +832,8 @@ fn run(
     let checks = Instant::now();
     let until = checks + START_PATIENCE.ceiling;
     let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
-    let (link, catalog) = ready_catalog(&socket, link, cwd, until).map_err(|r| (r, None))?;
+    let (link, catalog) = ready_catalog(&socket, link, cwd, params.harness.as_deref(), until)
+        .map_err(|r| (r, None))?;
     let result = still_keyed(&link, &params).and_then(|()| {
         start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
             .map_err(|StartRefused(refusal, data)| (refusal, data))
@@ -850,10 +853,15 @@ fn ready_catalog(
     socket: &std::path::Path,
     mut link: Arc<AcpmuxLink>,
     cwd: &str,
+    harness: Option<&str>,
     until: Instant,
 ) -> Result<(Arc<AcpmuxLink>, Value), Refusal> {
+    // `forStart` with the start's harness: acpmux resolves it as `session/new` would before it
+    // answers (acpmux `hub/rediscover.rs`), so a harness its startup PATH missed is in this
+    // catalog and the start is not refused `harness_missing` (`start_family`) for it.
+    let params = json!({"cwd": cwd, "forStart": true, "harness": harness});
     loop {
-        match ask(&link, until, "_acpmux/harnesses", json!({"cwd": cwd})) {
+        match ask(&link, until, "_acpmux/harnesses", params.clone()) {
             Ok(catalog) => return Ok((link, catalog)),
             Err(LinkError::Closed) if Instant::now() < until => link.close(),
             Err(error) => {

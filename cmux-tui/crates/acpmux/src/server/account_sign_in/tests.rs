@@ -121,18 +121,12 @@ fn models_connections_cannot_be_targets_of_cli_account_actions() {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("routes");
     let state = root.path().join("state");
-    for (id, kind, family, secret) in [
-        ("chatgpt", "chatgpt-plan", "codex", None),
-        ("claude-setup", "claude-token", "claude", Some("env:FIXTURE_SETUP_TOKEN")),
-    ] {
-        let file: RouteFile = serde_json::from_value(json!({
-            "kind": kind, "families": [family], "secret": secret,
-        }))
-        .unwrap();
-        routes::add(Some(&dir), id, &file, false).unwrap();
-    }
+    let file: RouteFile =
+        serde_json::from_value(json!({"kind": "chatgpt-plan", "families": ["codex"]})).unwrap();
+    routes::add(Some(&dir), "chatgpt", &file, false).unwrap();
+    let claude = routes::add_claude_token(Some(&dir), "env:FIXTURE_SETUP_TOKEN", None).unwrap();
     let accounts = super::super::accounts::list(Some(&dir), &state, &routes::Bindings::default());
-    for id in ["chatgpt", "claude-setup"] {
+    for id in ["chatgpt", claude.id.as_str()] {
         assert!(routes::find(Some(&dir), id).is_ok());
         assert_eq!(resolve(id, &accounts).unwrap_err().reason, reason::UNKNOWN_ACCOUNT);
     }

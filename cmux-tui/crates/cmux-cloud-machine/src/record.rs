@@ -336,6 +336,17 @@ pub struct Machine {
     /// epoch ms); nil when the record does not say (an older server, or one not deleting yet).
     #[serde(default)]
     pub evict_at: Option<f64>,
+    /// The guest's root disk (cmux-platform's last `acpmux machine load` sample, the record's
+    /// `disk_health`): used, free and the system / project / caches split; nil when not reported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk: Option<cmux_cloud_disk::DiskReport>,
+    /// Each chat's bytes on that disk (`~/chats/<id>` and its worktrees), largest first; empty
+    /// when the guest does not report them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disk_chats: Vec<cmux_cloud_disk::ChatDisk>,
+    /// What the guest cleared the last time its disk ran low (caches, idle build output).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_evicted: Option<cmux_cloud_disk::DiskEviction>,
     /// The auto-size pick a create with `autosize` answered (`{vcpus, memoryGb, pick, reason}`).
     #[serde(default)]
     pub size_pick: Option<Value>,
@@ -401,6 +412,9 @@ impl Machine {
             server_revision: None,
             running_since: None,
             evict_at: None,
+            disk: None,
+            disk_chats: Vec::new(),
+            disk_evicted: None,
             size_pick: None,
             last_change_failure: None,
             pending_change: None,
@@ -622,6 +636,11 @@ pub fn from_next(value: &Value) -> Option<Machine> {
     machine.evict_at = first(fields, &["evict_at", "evictAt"])
         .and_then(Value::as_f64)
         .filter(|at| at.is_finite() && *at > 0.0);
+    // The guest's disk use (cmux-platform `disk_health`); absent before the first sample.
+    let health = first(fields, &["disk_health", "diskHealth"]);
+    machine.disk = health.and_then(cmux_cloud_disk::DiskReport::from_health);
+    machine.disk_chats = health.map(cmux_cloud_disk::chats_from_health).unwrap_or_default();
+    machine.disk_evicted = health.and_then(cmux_cloud_disk::eviction_from_health);
     Some(machine)
 }
 

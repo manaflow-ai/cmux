@@ -164,6 +164,17 @@ public final class CloudSetup {
             guard case .connection(_, let family, _) = self else { return false }
             return CloudSetup.nativeHarnesses[family] != nil
         }
+
+        /// Whether the chat's model calls go somewhere other than this Mac's own gateway (``PersonalGateway``): the
+        /// agent launch carries this Mac's connection credential, or the platform edge serves the organization's key.
+        /// A start then has no gateway to wait for before its first turn. The production probe's starts on such a
+        /// route waited out the gateway's whole 10 s deadline in about one in five runs (2026-11-21).
+        public var servedWithoutMacGateway: Bool {
+            switch self {
+            case .connection, .organization, .claudeMachineLogin: true
+            case .gateway, .setup, .localOnly, .fallback: false
+            }
+        }
     }
 
     /// The families a Cloud chat runs (the picker's agent, as the gateway names them).
@@ -223,6 +234,8 @@ public final class CloudSetup {
     public var gateway: (@MainActor () async -> Set<String>?)?
     /// Opens Settings > Cloud > Cloud models for the card's action and family while the send waits.
     public var run: (@MainActor (Action, String, String?) async -> Void)?
+    /// Starts an unscoped connection from the setup card. False keeps the Settings path available.
+    public var connectInPlace: (@MainActor (Action) async -> Bool)?
     /// Validates an explicit destination against the current Cloud account.
     public var ownsMachine: (@MainActor (String) -> Bool)?
     public var accountScope: (@MainActor () -> [String?])?
@@ -548,6 +561,19 @@ public final class CloudSetup {
         await launchReadiness(harness: harness, model: model, readyClaude: readyClaude).refusal
     }
 
+    /// Which families a Cloud chat can run now, for the composer's model picker with Cloud picked (`cloud.setupState`):
+    /// true when a start would go on (``refusal(harness:model:)`` is nil), false when it would show Set up Cloud. Nil when
+    /// nothing can be read, so the picker holds nothing back.
+    public func serving() async -> [String: Bool]? {
+        guard let read else { return nil }
+        let snapshot = routed(await read()) // one read for both families
+        var families: [String: Bool] = [:]
+        for family in Self.families {
+            if case .setup = snapshot.choice(family: family, model: nil, account: nil) { families[family] = await gatewayServes(family) } else { families[family] = true }
+        }
+        return families
+    }
+
     /// The connections changed: every wait checks again.
     public func connectionsChanged() {
         changes += 1
@@ -608,8 +634,15 @@ public final class CloudSetup {
         let claude = family == "claude" ? ClaudeSetupWait(machine: machine, account: account, environment: environment) : nil
         claudeSetups[id] = claude
         defer { claudeSetups[id] = nil }
-        if let run { await run(action, family, machine) }
-        else { openConnectionSettings?(family, machine, true, environment, nil) }
+        if let run {
+            await run(action, family, machine)
+        } else {
+            let unscoped = machine == nil && environment == nil
+            let oneClick = (action == .setUpClaude && family == "claude") || (action == .connectChatGPT && family == "codex")
+            let started = unscoped && oneClick ? await connectInPlace?(action) == true : false
+            guard !Task.isCancelled, account == accountScope?() else { return nil }
+            if !started { openConnectionSettings?(family, machine, true, environment, nil) }
+        }
         connectionsChanged()
         guard await waitUntilServed(family: family, claude: claude), !Task.isCancelled, account == accountScope?() else { return nil }
         let signedIn = claude?.signedInMachine

@@ -43,6 +43,63 @@ impl Hub {
         true
     }
 
+    /// Refuses `credential` for a chat of `harness` when its variable serves another family.
+    pub(crate) async fn credential_serves(
+        &self,
+        harness: &str,
+        credential: &AgentCredential,
+    ) -> Result<(), RpcError> {
+        let family = self.credential_family(harness).await;
+        if Family::of_harness(&family) != Some(credential.family()) {
+            return Err(RpcError::invalid_params(
+                "this credential does not serve this chat's agent",
+            )
+            .with_data(json!({"reason": "credentials.family"})));
+        }
+        Ok(())
+    }
+
+    async fn credential_family(&self, harness: &str) -> String {
+        let cfg = self.config.read().await;
+        cfg.harnesses
+            .get(harness)
+            .map(|p| crate::config::derive_family(harness, p))
+            .or_else(|| cfg.family(harness))
+            .unwrap_or_else(|| harness.to_owned())
+    }
+
+    /// After a daemon restart, the launch credential the adopted agent's host says it started the
+    /// agent with (`agent_credentials::launched_with`), held again for its next start. A credential
+    /// already held stays. Names only are logged. Whether one was taken.
+    pub(crate) fn hold_launch_credential(
+        &self,
+        session: &Session,
+        env: &[(String, String)],
+    ) -> bool {
+        if session.read_meta(|meta| meta.credential_withdrawn || uses_claude_machine_login(meta)) {
+            return false;
+        }
+        // Older hosts report the secret variable but omit endpoint metadata. An Anthropic
+        // endpoint key can look like a setup token. Recover it only from a complete report or
+        // the verified process environment, which also carries the launch endpoint.
+        if env.iter().any(|(name, _)| name == crate::byo_endpoint::ANTHROPIC_KEY_ENV)
+            && !env.iter().any(|(name, _)| name == crate::agent_credentials::ENDPOINT_MARKER)
+        {
+            return false;
+        }
+        let Some(credential) = crate::agent_credentials::recovered_from_launch(env) else {
+            return false;
+        };
+        let mut held = session.credential.lock().unwrap_or_else(|e| e.into_inner());
+        if held.is_some() {
+            return false;
+        }
+        let names: Vec<&str> = credential.names().collect();
+        tracing::info!(session = %session.id, ?names, "the adopted agent's host said its launch credential; held again");
+        *held = Some(credential);
+        true
+    }
+
     /// Whether `session` (meta `m`) holds a launch credential that this daemon's memory alone keeps
     /// (its summary's `credentialOnlyHere`): one is held and its agent is hibernated, so no running
     /// agent carries it in its env for the next daemon to read back ([`Self::recover_credential`]).
@@ -239,13 +296,8 @@ impl Hub {
         mut credential: AgentCredential,
         legacy_refresh: bool,
     ) -> Result<Value, RpcError> {
-        let (session, family) = self.credential_session(id).await?;
-        if Family::of_harness(&family) != Some(credential.family()) {
-            return Err(RpcError::invalid_params(
-                "this credential does not serve this chat's agent",
-            )
-            .with_data(json!({"reason": "credentials.family"})));
-        }
+        let session = self.credential_session(id)?;
+        self.credential_serves(&session.meta().harness, &credential).await?;
         let changed = {
             let _spawn = session.spawn_lock.lock().await;
             let meta = session.meta();
@@ -305,7 +357,7 @@ impl Hub {
 
     /// Name and presence of an owner's stored launch connection, for reattachment.
     pub(crate) async fn credential_status(&self, id: &str) -> Result<Value, RpcError> {
-        let (session, _) = self.credential_session(id).await?;
+        let session = self.credential_session(id)?;
         let _spawn = session.spawn_lock.lock().await;
         let meta = session.meta();
         let held = session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some();
@@ -317,7 +369,9 @@ impl Hub {
 
     /// The Cloud owner withdrew a delivered model credential.
     pub(crate) async fn revoke_credential(self: &Arc<Self>, id: &str) -> Result<Value, RpcError> {
-        let (session, _family) = self.credential_session(id).await?;
+        let session = self.credential_session(id)?;
+        #[cfg(unix)]
+        let family = self.credential_family(&session.meta().harness).await;
         let _spawn = session.spawn_lock.lock().await;
         if self.hands_off(&session) {
             return Err(withdrawal_pending());
@@ -393,7 +447,7 @@ impl Hub {
         }
         session.credential.lock().unwrap_or_else(|e| e.into_inner()).take();
         #[cfg(unix)]
-        if Family::of_harness(&_family) == Some(Family::Copilot) {
+        if Family::of_harness(&family) == Some(Family::Copilot) {
             crate::agent::copilot_auth::remove_session(&session.id);
         }
         Ok(json!({"sessionId": session.id, "restart": "none"}))
@@ -417,24 +471,11 @@ impl Hub {
         Ok(())
     }
 
-    async fn credential_session(&self, id: &str) -> Result<(Arc<Session>, String), RpcError> {
-        let session =
-            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned().ok_or_else(
-                || {
-                    RpcError::not_found("no such session on this machine")
-                        .with_data(json!({"reason": "credentials.no_session"}))
-                },
-            )?;
-        let meta = session.meta();
-        let family = {
-            let cfg = self.config.read().await;
-            cfg.harnesses
-                .get(&meta.harness)
-                .map(|p| crate::config::derive_family(&meta.harness, p))
-                .or_else(|| cfg.family(&meta.harness))
-                .unwrap_or_else(|| meta.harness.clone())
-        };
-        Ok((session, family))
+    fn credential_session(&self, id: &str) -> Result<Arc<Session>, RpcError> {
+        self.session_get(id).ok_or_else(|| {
+            RpcError::not_found("no such session on this machine")
+                .with_data(json!({"reason": "credentials.no_session"}))
+        })
     }
 }
 
@@ -469,6 +510,25 @@ pub(super) fn claude_login_busy() -> RpcError {
     .with_data(json!({"reason": "credentials.claude_login_busy"}))
 }
 
+/// For tests outside the hub (a move's finish, `cli/run/session_move_snapshot_tests.rs`): the
+/// credential chat `id` holds, and the env its agent was started with.
+#[cfg(test)]
+impl Hub {
+    pub(crate) fn held_credential(&self, id: &str) -> Option<AgentCredential> {
+        let session = self.resolve(id).ok()?;
+        session.credential.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub(crate) async fn started_env(
+        self: &Arc<Self>,
+        id: &str,
+    ) -> Option<std::collections::BTreeMap<String, String>> {
+        let session = self.resolve(id).ok()?;
+        self.child_for(&session).await.ok()?;
+        session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::agent_credentials::{AgentCredential, CHATGPT_TOKEN, CLAUDE_OAUTH};
@@ -480,16 +540,16 @@ mod tests {
 
     const FIRST: &str = "sk-ant-oat01-first-token-value";
     const SECOND: &str = "sk-ant-oat01-second-token-value";
+    const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 
     fn hub() -> Arc<Hub> {
-        hub_for("claude")
+        hub_for("claude", &["python3", FAKE])
     }
 
-    fn hub_for(family: &str) -> Arc<Hub> {
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    fn hub_for(family: &str, argv: &[&str]) -> Arc<Hub> {
         let harness = format!("{family}-fake");
         let mut cfg = serde_json::from_value::<Config>(json!({
-            "harnesses": {(&harness): {"argv": ["python3", fake], "family": family}},
+            "harnesses": {(&harness): {"argv": argv, "family": family}},
             "defaultHarness": harness
         }))
         .unwrap();
@@ -505,8 +565,7 @@ mod tests {
 
         let root = tempfile::tempdir().unwrap();
         let launcher = root.path().join("claude");
-        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
-        std::fs::copy(fake, &launcher).unwrap();
+        std::fs::copy(FAKE, &launcher).unwrap();
         std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o700)).unwrap();
         let hub = hub();
         {
@@ -647,6 +706,36 @@ mod tests {
         assert!(!hub.recover_credential(&session, identity));
         assert!(session.credential.lock().unwrap().is_none());
         assert!(!hub.recover_credential(&session, None));
+    }
+
+    #[tokio::test]
+    async fn a_host_report_cannot_restore_a_withdrawn_or_replaced_credential() {
+        let hub = hub();
+        let session = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+            .await
+            .unwrap();
+        let report = |name: &str| {
+            vec![
+                (crate::agent_credentials::MARKER.into(), name.into()),
+                (name.into(), FIRST.into()),
+            ]
+        };
+        assert!(
+            !hub.hold_launch_credential(&session, &report(crate::byo_endpoint::ANTHROPIC_KEY_ENV))
+        );
+        let report = report(CLAUDE_OAUTH);
+        assert!(hub.hold_launch_credential(&session, &report));
+        assert_eq!(*session.credential.lock().unwrap(), Some(credential(FIRST)));
+        *session.credential.lock().unwrap() = None;
+        hub.edit_test_meta(&session, |meta| meta.credential_withdrawn = true);
+        assert!(!hub.hold_launch_credential(&session, &report));
+        hub.edit_test_meta(&session, |meta| {
+            meta.credential_withdrawn = false;
+            meta.claude_token_recovery = Some(crate::store::ClaudeTokenRecovery::MachineLogin);
+        });
+        assert!(!hub.hold_launch_credential(&session, &report));
+        assert!(session.credential.lock().unwrap().is_none());
     }
 
     /// An idle chat's agent is hibernated while a machine update restarts the daemon: the
@@ -927,11 +1016,12 @@ mod tests {
         hub.shutdown_all().await;
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn withdrawal_waits_for_a_live_turn_permission_and_background_work() {
         use crate::hub::{Control, person::Answerer};
 
-        let hub = hub();
+        let (_root, hub) = recovery_hub().await;
         let credential = AgentCredential::parse(&json!({
             "env": {"ANTHROPIC_API_KEY": "fixture-key"}, "connection": "personal-models"
         }))
@@ -1064,7 +1154,7 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn legacy_refresh_cannot_replace_a_bound_chatgpt_credential() {
-        let hub = hub_for("codex");
+        let hub = hub_for("codex", &["python3", FAKE, "app-server"]);
         let credential =
             AgentCredential::parse(&json!({"env": {CHATGPT_TOKEN: "old-fixture-token"}})).unwrap();
         let fresh =

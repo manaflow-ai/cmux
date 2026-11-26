@@ -174,6 +174,40 @@ struct AgentPaneCloudMachineRequestTests {
         #expect(gestures.isAvailable)
     }
 
+    @Test func aWakeHintDecodesItsVersionAndIgnoresANewerPagesExtraFields() {
+        let hint = AgentPaneCloudMachineRequest.wakeHint(id: "vm-1", signal: "focus", version: 1)
+        #expect(Self.request("cloudMachine.wakeHint", ["v": 1, "id": "vm-1", "signal": "focus"]) == .cloudMachine(hint))
+        // A newer page: a higher version and fields this host does not know still decode.
+        #expect(Self.request("cloudMachine.wakeHint", ["v": 2, "id": "vm-1", "signal": "gaze", "confidence": 0.9])
+            == .cloudMachine(.wakeHint(id: "vm-1", signal: "gaze", version: 2)))
+        // No version, a bad id or a signal that is not a short name: refused.
+        let refused: [[String: Any]] = [
+            ["id": "vm-1", "signal": "focus"], ["v": 0, "id": "vm-1", "signal": "focus"],
+            ["v": 1, "id": "vm 1", "signal": "focus"], ["v": 1, "id": "vm-1", "signal": "fo cus"],
+            ["v": 1, "id": "vm-1", "signal": String(repeating: "a", count: 33)],
+        ]
+        for params in refused {
+            #expect(Self.request("cloudMachine.wakeHint", params) == .unsupported("cloudMachine.wakeHint"))
+        }
+    }
+
+    @Test func aWakeHintIsPassiveAndAHostWithoutItAnswersUnsupported() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        let hint = AgentPaneCloudMachineRequest.wakeHint(id: "vm-paused", signal: "focus", version: 1)
+        // An App that never set it (an older host's shape): unsupported, which the page drops for good.
+        #expect(await hint.reply(machines, gestures: gestures)["ok"] as? Bool != true)
+        var forwarded: [String] = []
+        machines.wakeHint = { id, signal, version in forwarded.append("\(id):\(signal):\(version)"); return false }
+        gestures.record(click: true)
+        let reply = await hint.reply(machines, gestures: gestures)
+        // A skipped hint is an answer, not a failure.
+        #expect(reply["ok"] as? Bool == true)
+        #expect((reply["value"] as? [String: Any])?["resume"] as? Bool == false)
+        #expect(forwarded == ["vm-paused:focus:1"])
+        #expect(gestures.isAvailable)
+    }
+
     @Test func withoutTheAppTheGestureIsKept() async {
         let gestures = AgentPaneUserGestures()
         gestures.record(click: true)

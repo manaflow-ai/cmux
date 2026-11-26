@@ -30,6 +30,11 @@ class StatOf(unittest.TestCase):
         self.assertEqual(ls.stat_of(event(line()))["path"], "turn-tls")
         self.assertEqual(ls.stat_of(event(line(), "message"))["rttP50"], 40)
 
+    def test_direct_through_a_mapped_port_is_its_own_path(self):
+        self.assertEqual(ls.stat_of(event(line(path="direct", portmapBy="pcp", portmapUsed=True)))["path"], "direct-mapped")
+        self.assertEqual(ls.stat_of(event(line(path="direct", portmapBy="pcp", portmapUsed=False)))["path"], "direct")
+        self.assertEqual(ls.stat_of(event(line(path="turn", portmapUsed=True)))["path"], "turn")
+
     def test_skips_other_lines_and_malformed_stats(self):
         self.assertIsNone(ls.stat_of(event({"event": "placement"})))
         self.assertIsNone(ls.stat_of({"$metadata": {"message": "not json"}}))

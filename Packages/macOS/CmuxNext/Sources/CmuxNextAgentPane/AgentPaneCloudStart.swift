@@ -3,6 +3,7 @@ import CmuxNextCompat
 public import CmuxNextSettings
 public import Foundation
 import os
+import CmuxNextWakeups
 
 /// `cloud.startChat {task, cwd?, harness?, model?, mode?, effort?, account?, key}`: a new chat's first send with Cloud picked
 /// as where it runs (the environment picker's Cloud row, Labs). The App picks or makes a Cloud
@@ -59,6 +60,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var replacesChat: String?
     /// The page's send: a second call with the same key while one runs is the same send.
     public var key: String
+    var autoPlaced = false
     /// The folder the copy uploads (the Git working copy that holds ``cwd``, else ``cwd``), set by
     /// the pane once it checked that folder against its roots too (``AgentPaneHandOff``); nil when
     /// the page named no folder. The App copies only this folder, never one it finds anew.
@@ -115,6 +117,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         (self.home, self.repository) = (home as? Bool ?? false, repository)
         self.team = team
         self.replacesChat = replacesChat
+        self.autoPlaced = params?["autoPlaced"] as? Bool == true
         self.mode = mode
         (self.effort, self.account) = (effort, account)
         self.attachments = attachments
@@ -182,6 +185,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         var seed = AgentPaneSeed(cwd: cwd, draft: draft, prompt: task, promptAttachments: attachments.isEmpty ? nil : attachments,
                                  promptBy: .person, harness: harness, model: model, mode: mode)
         seed.effort = effort
+        seed.autoCloudStartKey = autoPlaced ? key : nil
         return seed
     }
 }
@@ -425,6 +429,14 @@ extension AgentPaneCloudStart {
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
     }
+
+    /// Whether the card's machine step says "Waking machine": while the start's machine settles out of a pause or
+    /// a resume in flight, as Rust's `cloud_move_settle` answers (ask-259986a6c4). Keeps the step it is on.
+    @MainActor public static func waking(_ on: Bool, start key: String, to view: AgentPaneView) {
+        let push = JSONValue.object(["key": .string(key), "waking": .bool(on)])
+        view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
+                     scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
+    }
 }
 
 extension AgentPaneModel {
@@ -459,13 +471,16 @@ extension AgentPaneModel {
     /// the page's one send again of start `key` (`cloud.startChat {..., signedIn: true}`), as
     /// `cloud.signIn` does: the chat starts with no retyping once one appears. `cloud.signInCancel`
     /// withdraws it (the page left Cloud, or gave up).
-    func setUpCloud(key: String, action: String, family: String, machine: String?, environment: String? = nil) async -> [String: Any] {
+    func setUpCloud(key: String?, action: String, family: String, machine: String?, environment: String? = nil) async -> [String: Any] {
         guard let onCloudSetUp, let way = CloudSetup.Action(rawValue: action),
-              onCloudStartChat != nil, !chatIsElsewhere, sessionId == nil || sessionId == cloudStartReplaces,
+              key == nil || (onCloudStartChat != nil && !chatIsElsewhere && (sessionId == nil || sessionId == cloudStartReplaces)),
               machine.map({ ownsCloudConnectionMachine?($0) == true }) != false else {
             return Self.unsupported("cloud.setUp")
         }
         guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
+        guard let key else {
+            return await setUpCloudFromPicker { await onCloudSetUp(way, family, machine, environment) }
+        }
         let generation = cloudSignInGeneration
         cloudSetUpWait?.cancel() // one wait per pane: a newer click replaces it
         let wait = Task { await onCloudSetUp(way, family, machine, environment) } // the model's own actor: it only awaits the App's wait
@@ -478,21 +493,6 @@ extension AgentPaneModel {
         }
         keepCloudSignInGrant(key, generation: generation, completion: completion)
         return AgentPaneReply.success(["ready": true])
-    }
-
-    /// Cloud first use through `setup` (the app's one ``CloudSetup``): Set up Cloud's ways in (``onCloudSetUp``), the
-    /// model picker's served families (``onCloudServed``) and its Connect (``onCloudConnect``). nil: no Cloud here, all refuse.
-    /// Written out with their types: Xcode 26.6 could not type the `map` form.
-    public func useCloudSetup(_ setup: CloudSetup?) {
-        guard let setup else {
-            (onCloudSetUp, onCloudServed, onCloudConnect) = (nil, nil, nil)
-            ownsCloudConnectionMachine = nil
-            return
-        }
-        ownsCloudConnectionMachine = { setup.ownsMachine?($0) == true }
-        onCloudSetUp = { await setup.setUp($0, family: $1, machine: $2, environment: $3) }
-        onCloudServed = { await setup.served(machine: $0, environment: $1) }
-        onCloudConnect = { setup.connect(family: $0, machine: $1, environment: $2, recoverySession: $3) }
     }
 
     /// Opens Settings > Cloud > Cloud models for the named family. The picker reads `cloud.setup.state` again when reopened.
@@ -536,6 +536,33 @@ extension AgentPaneModel {
         ]
         if let matches = state.environmentMatches { fields["environmentMatches"] = matches }
         return AgentPaneReply.success(fields)
+    }
+
+    /// The model picker's setup has its own bounded wait and keeps no click for a start.
+    private func setUpCloudFromPicker(_ run: @escaping @MainActor () async -> CloudSetup.SetupCompletion?) async -> [String: Any] {
+        pickerSetUpWait?.cancel()
+        let wait = Task { await run() }
+        pickerSetUpWait = wait
+        let deadline = DemandTimer(owner: "agent-pane-picker-cloud-set-up")
+        deadline.schedule(after: Self.pickerSetUpLimit) { wait.cancel() }
+        let completion = await wait.value
+        deadline.cancel()
+        let current = pickerSetUpWait == wait
+        if current { pickerSetUpWait = nil }
+        guard current, !wait.isCancelled, completion != nil else {
+            return AgentPaneReply.failure(code: "cloud_sign_in_cancelled", message: "cloud_sign_in_cancelled")
+        }
+        return AgentPaneReply.success(["ready": true])
+    }
+
+    /// How long the picker's set up waits for a connection: the Set up Cloud card's (cloudSetup.ts `CLOUD_SETUP_LIMIT_MS`).
+    static let pickerSetUpLimit: Duration = .seconds(600)
+
+    /// `cloud.setupState`: `{families: {claude: Bool, codex: Bool}}` (``CloudSetup/serving()``), or `{}` when nothing
+    /// could be read, which the picker reads as nothing to hold back.
+    func cloudPickerSetupState() async -> [String: Any] {
+        guard let families = await onCloudSetupState?() else { return AgentPaneReply.success([:]) }
+        return AgentPaneReply.success(["families": families])
     }
 
     /// `cloud.signInCancel {expired?}`: the page stopped waiting on a `cloud.signIn` (it left Cloud, or

@@ -312,9 +312,6 @@ async fn recovered_claude_keeps_the_machine_login_on_a_cold_start_with_a_new_gue
     let session = setup_token_chat(&daemon, &mut rpc).await;
     recover_token_chat(&mut rpc, &session).await;
     assert_eq!(agent_env(&daemon, &session, "CMUX_CLAUDE_AUTH").await, "own");
-    let meta: Value =
-        serde_json::from_slice(&std::fs::read(daemon.saved_meta_path(&session)).unwrap()).unwrap();
-    assert_eq!(meta["claudeLoginRestartPending"], false);
     let host = daemon.host_record(&session)["host_pid"].clone();
     let paused = rpc.call("_acpmux/pause", json!({"sessionId": session})).await;
     assert_eq!(paused["paused"], true);
@@ -326,6 +323,9 @@ async fn recovered_claude_keeps_the_machine_login_on_a_cold_start_with_a_new_gue
     .await;
     drop(rpc);
     daemon.sigterm();
+    let meta: Value =
+        serde_json::from_slice(&std::fs::read(daemon.saved_meta_path(&session)).unwrap()).unwrap();
+    assert_eq!(meta["claudeLoginRestartPending"], false);
     daemon.start();
 
     assert_eq!(agent_env(&daemon, &session, "ANTHROPIC_BASE_URL").await, "");

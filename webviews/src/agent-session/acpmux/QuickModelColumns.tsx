@@ -18,6 +18,8 @@ import { Popover, type UiVirtualAnchor } from "../../ui/Popover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusRoute } from "../../ui/focusRoute";
 import { DrivenList, DrivenRow, InlineCard } from "../../ui/DrivenList";
+import { asPlainKey, useListKeys } from "../../ui/useListKeys";
+import type { ListCommand } from "../../ui/keyStyle";
 import { isMousePress } from "../../ui/pressRelease";
 import { useOpenSide } from "../../ui/openSide";
 import { AddAccountDialog } from "./AddAccountDialog";
@@ -182,15 +184,26 @@ export function QuickModelColumns(props: QuickSurfaceProps) {
 
 /// Whether `chip` sits in a row packed to its end (justify-content flex-end), where its start
 /// moves with its width. Rows drawn as display: contents, and wrappers that hug the chip, pass to
-/// their parent.
+/// their parent. A wrapper hugs the chip when its content box is the chip's width: New Tab's model
+/// chip has end padding on its wrapper, past the pill (newtab/screen.css). The computed padding is
+/// in CSS px and the rects are zoomed (the page's zoom, a density step), so the padding takes the
+/// rect's scale: the row's rect width over its computed border-box width.
 function rowPackedToEnd(chip: HTMLElement): boolean {
   const view = chip.ownerDocument.defaultView;
   let child: HTMLElement = chip;
   for (let row = chip.parentElement; row && view; row = row.parentElement) {
     const style = view.getComputedStyle(row);
     if (style.display === "contents") continue;
-    // A wrapper as wide as what it holds (the picker's own box) is no row: its parent may be.
-    if (row.getBoundingClientRect().width - child.getBoundingClientRect().width <= 1) {
+    const edges =
+      (Number.parseFloat(style.paddingLeft) || 0) +
+      (Number.parseFloat(style.paddingRight) || 0) +
+      (Number.parseFloat(style.borderLeftWidth) || 0) +
+      (Number.parseFloat(style.borderRightWidth) || 0);
+    const drawn = row.getBoundingClientRect().width;
+    const width = Number.parseFloat(style.width);
+    const box = style.boxSizing === "border-box" ? width : width + edges;
+    const scale = box > 0 ? drawn / box : 1;
+    if (drawn - edges * scale - child.getBoundingClientRect().width <= 1) {
       child = row;
       continue;
     }
@@ -632,6 +645,22 @@ function Columns({
       setFastOffFor(undefined);
     }
   }
+  // The chat's harness changing under an open menu (a New Tab's chat started on another harness, a
+  // switch landed) moves it to that harness's tab: a menu kept open across it still showed the old
+  // harness's tab and models (cmux#55750: an Antigravity chat's picker on Claude Code's). A reply
+  // streaming in keeps the harness, so the tab and the typed filter stay.
+  const [seenCurrent, setSeenCurrent] = useState(families.current);
+  if (families.current !== seenCurrent) {
+    setSeenCurrent(families.current);
+    if (open && families.current) {
+      setTab(heldTab(families) ?? families.current);
+      setCol(1);
+      setModelHl(-1);
+      setHeld(undefined);
+      setPending(undefined);
+      setChosenLevel(undefined);
+    }
+  }
 
   // Until the arrows or the pointer move it, the running model's row is the one shown, else the
   // first one: the settings column always shows the model its rows apply to, never an empty column.
@@ -1014,12 +1043,13 @@ function Columns({
     setModelHl(-1);
   };
 
-  const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+  const columnKeys = (event: React.KeyboardEvent<HTMLDivElement>) => {
     // ⌘1 to ⌘9 pick a row as 1 to 9 do, also while a search shows (where a bare digit is text).
     const commandDigit = event.metaKey && !event.ctrlKey && !event.altKey && /^[1-9]$/.test(event.key);
     if ((event.metaKey && !commandDigit) || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
     // A focused button (the avatar, a card row, a star) keeps its own Return and Space.
-    if (event.target !== field.current && event.target !== event.currentTarget) return;
+    if (event.target !== field.current && event.target !== event.currentTarget && event.target !== modelsList.current)
+      return;
     const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
     const clamp = (n: number, length: number) => Math.max(0, Math.min(length - 1, n));
     if (step) {
@@ -1075,6 +1105,41 @@ function Columns({
       pickModel(index);
       close();
     }
+  };
+
+  // `app.keyStyle`. The field keeps its typing: Emacs' Ctrl-N/P move as the arrows do, and Vim's
+  // Esc (Emacs' Ctrl-G) gives the keyboard to the model list. There (modelListCommand) j/k, gg/G, l
+  // and h are the arrows, Home, End, Return and Left; / goes back to the field; Esc is the menu's.
+  const fieldKeys = useListKeys({
+    onCommand: (command, _native, pressed) => {
+      const event = pressed as React.KeyboardEvent<HTMLDivElement>;
+      if (command === "list.next" || command === "list.previous")
+        return columnKeys(asPlainKey(event, command === "list.next" ? "ArrowDown" : "ArrowUp"));
+      if (command !== "list.leave" || !modelsList.current) return false;
+      setCol(1);
+      focusRoute(modelsList.current, "person", "key style list key", { preventScroll: true });
+    },
+  });
+  const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.target === field.current) fieldKeys(event);
+    if (!event.defaultPrevented) columnKeys(event);
+  };
+  const modelListCommand = (command: ListCommand, event: React.KeyboardEvent<HTMLDivElement>): boolean | void => {
+    const key: Partial<Record<ListCommand, string>> = {
+      "list.next": "ArrowDown",
+      "list.previous": "ArrowUp",
+      "list.open": "Enter",
+      "list.back": "ArrowLeft",
+    };
+    if (command === "list.first" || command === "list.last") {
+      if (rows.length) setModelHl(command === "list.first" ? 0 : rows.length - 1);
+      return;
+    }
+    if (command === "list.search")
+      return void focusRoute(field.current, "person", "key style list key", { preventScroll: true });
+    const plain = key[command];
+    if (!plain) return false;
+    columnKeys(asPlainKey(event, plain));
   };
 
   // The avatar: the account of the harness whose model the settings column shows (on Starred and in a
@@ -1695,6 +1760,7 @@ function Columns({
 
               <DrivenList
                 ref={holdModelsList}
+                onListCommand={modelListCommand}
                 kind="listbox"
                 label={t("picker.model")}
                 className="acpmux-cols-list"

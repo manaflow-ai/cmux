@@ -217,4 +217,4 @@ nonisolated enum AgentTabRemoteStart {
     }
 }
 
-extension AgentRemoteStartRefusal { static let folderNeededCode = "app.folder_needed" } // folderNeeded(machine:)'s code (defaults guard key)
+extension AgentRemoteStartRefusal { static let folderNeededCode = "app.folder_needed" } // folderNeeded(machine:)'s code (defaults snapshot key)

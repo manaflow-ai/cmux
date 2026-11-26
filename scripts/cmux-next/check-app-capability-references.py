@@ -106,6 +106,7 @@ CONDITIONAL = {
     "agent-session-bound-credentials-v1": "only on an owner Cloud VM, where credential writes name the tab's durable session",
     "agent-session-credential-reattach-v1": "only on an owner Cloud VM beside agent-session-start-credentials-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); a respawn there waits for the owner's Mac to deliver the credential again on reattach",
     "agent-session-prewarm-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-start-owner-cloud-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app warms a Cloud send's agent only where it is served (cmux#45953)",
+    "agent-session-prewarm-chat-folder-v1": "only on a cmux Cloud VM with no team evidence, beside agent-session-prewarm-v1 (cmux-tui-core server/capabilities.rs serves_owner_cloud_start); the app warms a no-folder Cloud start's agent in its own ~/chats/<id> only where it is served",
 }
 
 # Capabilities of other servers that the app gates on with the same helpers.

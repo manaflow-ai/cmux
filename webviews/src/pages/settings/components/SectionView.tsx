@@ -25,6 +25,7 @@ import {
 } from "../cardRows";
 import { arrangeGroups } from "../rowLevels";
 import { Card } from "./cardModules";
+import { LinkMissing, useLinkLanding } from "./LinkLanding";
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */
 export function SectionView({
@@ -32,13 +33,24 @@ export function SectionView({
   focus,
   workspace = null,
   reveal = null,
+  target = null,
+  targetRequired = false,
+  missing = null,
 }: {
   section: string;
   focus: string | null;
   workspace?: string | null;
   /** The card the route opens the page on (`#/settings/machines`), else null. */
   reveal?: CategoryCard | null;
+  /** The element the link lands on and highlights (settingsLinks.ts), else null. */
+  target?: string | null;
+  /** The target's absence is a miss (a connection the host does not draw). */
+  targetRequired?: boolean;
+  /** The part of the link nothing matched, named at the top of the page. */
+  missing?: string | null;
 }) {
+  const absent = useLinkLanding(target, targetRequired);
+  const unmatched = missing ?? (absent && target ? linkName(target) : null);
   const category = categoryById(section);
   // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
   // appearance.highlightColor, appearance.rotateFavoriteThemes and appearance.themeFile itself; the
@@ -86,6 +98,7 @@ export function SectionView({
   return (
     <div className="section" data-section={category.id}>
       <h1 className="section-title">{text(category.title)}</h1>
+      {unmatched && <LinkMissing name={unmatched} />}
       {category.lead.map((card) => (
         <CardSlot key={card} card={card} focus={focus} workspace={workspace} reveal={reveal === card} />
       ))}
@@ -114,5 +127,16 @@ export function SectionView({
 
 /** One card, loaded with its section (cardModules.tsx). */
 function CardSlot(props: { card: CategoryCard; focus: string | null; workspace: string | null; reveal: boolean }) {
-  return <Card {...props} />;
+  // `display: contents`: no box of its own, so the page's layout is unchanged; a deep link finds the
+  // card by it (settingsLinks.ts), whether or not the card marks itself.
+  return (
+    <div className="card-slot" data-card-slot={props.card}>
+      <Card {...props} />
+    </div>
+  );
+}
+
+/** The name a target selector asked for (`[data-hub-connection="linear"]` is "linear"). */
+function linkName(target: string): string {
+  return /="([^"]+)"/.exec(target)?.[1] ?? target;
 }

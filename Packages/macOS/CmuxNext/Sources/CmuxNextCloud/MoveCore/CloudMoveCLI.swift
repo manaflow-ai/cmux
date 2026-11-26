@@ -278,16 +278,19 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// in `cwd`; a running turn stops for the move and goes on where the chat lands. `sync` copies the folder's last
     /// changes once the chat is frozen, then `thenSync` (Move to Another Machine: a pull from the machine the chat
     /// leaves, then a seed of the one it goes to); `askFirst` narrows it to an asking policy first; `vmKind` is the
-    /// Cloud API's answer for this app on the link in use.
+    /// Cloud API's answer for this app on the link in use. `login`: the owner's agent login, on stdin only
+    /// (`--login-stdin`), which the machine starts the moved chat's agent with.
     public func agentMove(from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync? = nil, thenSync: FrozenSync? = nil,
-                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
+                          askFirst: Bool = false, vmKind: String? = nil, toPID: Int32? = nil, login: [String: String]? = nil) async throws -> Answer {
         struct Call: Encodable {
             var verb = "agent-move"
             var from: String, surface: UInt64, to: String, cwd: String, sync: FrozenSync?, thenSync: FrozenSync?, askFirst: Bool, vmKind: String?
             var toPid: Int32?
+            var login: Bool
         }
+        let stdin = try login.map { try JSONSerialization.data(withJSONObject: ["env": $0]) }
         return try await run(Call(from: from, surface: surface, to: to, cwd: cwd, sync: sync, thenSync: thenSync, askFirst: askFirst,
-                                  vmKind: vmKind, toPid: toPID)).answer
+                                  vmKind: vmKind, toPid: toPID, login: login != nil), stdin: stdin).answer
     }
 
     /// `cmux link machine update`: updates the machine's cmux-tui to this app's own pinned build when it is outdated;
@@ -465,6 +468,26 @@ public nonisolated struct CloudMoveCLI: Sendable {
         let wait: [String: Any] = ["account": "wait", "waitCopy": ["machine": machine, "provider": provider]]
         guard let payload = try? JSONSerialization.data(withJSONObject: wait, options: [.sortedKeys]) else { return }
         _ = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation", stdin: nil)
+    }
+
+    /// The teams the Cloud wire subscribes in (Rust's `wireTeams`, the `install` token on stdin): `active` first, then
+    /// the install token's team when it is another. Nil on any failure (the caller keeps `active` alone).
+    public func startChatWireTeams(active: String?, install: String?) async -> [String]? {
+        struct Call: Encodable { var verb = "start-chat-warm-spare"; var request: String }
+        let ask: [String: Any] = ["account": "wire", "wireTeams": active.map { ["active": $0] } ?? [String: String]()]
+        guard let payload = try? JSONSerialization.data(withJSONObject: ask, options: [.sortedKeys]),
+              let read = try? await run(Call(request: String(decoding: payload, as: UTF8.self)), reading: "reservation",
+                                        stdin: Data(((install ?? "") + "\n").utf8)),
+              let object = read.object, let reply = try? JSONSerialization.jsonObject(with: object) as? [String: Any],
+              let teams = reply["teams"] as? [String] else { return nil }
+        return teams
+    }
+
+    /// ``startChatWireTeams(active:install:)`` through `binary` with `identity`'s install token: nil without the CLI.
+    public static func wireTeams(binary: URL?, identity: MacInstallIdentity, active: String?) async -> [String]? {
+        guard let binary else { return nil }
+        let install = try? await identity.installToken()
+        return await CloudMoveCLI(binary: binary).startChatWireTeams(active: active, install: install)
     }
 
     /// Whether a warm installed `account`'s `provider` login on `machine` recently and no newer copy onto it is in flight

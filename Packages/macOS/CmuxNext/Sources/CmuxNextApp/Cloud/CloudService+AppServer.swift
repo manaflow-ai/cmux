@@ -48,11 +48,11 @@ extension CloudService {
     /// One `cloud.machine.create` through ``CloudMachineCreateFlow`` (`environment`: the platform's ensure, ``CloudMoveCLI/machineInEnvironment(_:key:platform:access:)``), with the
     /// request's one idempotency key (cmuxterm-hq#4709): the creation's Retry sends the same key to the same team on the same route,
     /// so a create whose answer was lost answers its first machine instead of making a second. `ownCreate`: the person's own gesture
-    /// started it, so a fresh key goes straight to the Cloud API as the person (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``).
+    /// started it, so a fresh key goes straight to the Cloud API as the person (``CloudMachineRequest/createRoute(personsOwnCreate:team:)``). `onAnswer` hears the whole answer.
     func appServerCreate(name: String?, startedByPerson: Bool, ownCreate: Bool = false, asksFirst: Bool = true, askedBy: String?, environment: String? = nil,
                          creation: CloudMachineCreation?, request: CloudMachineRequest,
                          onSent: @escaping @MainActor @Sendable () async -> Void,
-                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil) async throws -> CloudMachine {
+                         persistSent: (@MainActor @Sendable (String, CloudCreateRoute) async throws -> Void)? = nil, onAnswer: @MainActor (JSONValue) -> Void = { _ in }) async throws -> CloudMachine {
         let pinned = creation?.request ?? request, identity = installIdentity
         let scope = account
         let checkScope: @MainActor @Sendable () throws -> Void = { [weak self] in
@@ -99,7 +99,7 @@ extension CloudService {
                                            approved: pinned.approvedRequest, onApproved: { [weak creation] in creation?.markApproved($0, key: pinned.idempotencyKey) },
                                            answering: pinned.answeringRequest, onAnswering: { [weak creation] in creation?.markAnswering($0, key: pinned.idempotencyKey) },
                                            gate: pinned.wasSent ? .allowed : createGate, environment: environment, request: pinned,
-                                           madeRoom: { [weak self] in self?.madeRoom?(CloudMachine(next: $0)?.title ?? $0["name"]?.stringValue ?? "") })
+                                           madeRoom: { [weak self] in self?.madeRoom?(CloudMachine(next: $0)?.title ?? $0["name"]?.stringValue ?? "") }, answered: onAnswer)
         } catch let failure as CloudAppOpFailure where CloudStartCore().isDefinitiveRefusal(failure) {
             // The key's stored answer is this refusal; only an uncertain outcome keeps the key. A cancelled
             // attempt (a Retry already started, with this same key) leaves the key to that Retry.
@@ -110,7 +110,7 @@ extension CloudService {
             try checkScope()
             var relay = pinned; relay.idempotencyKey = UUID().uuidString; creation?.renewKey(replacing: pinned.idempotencyKey)
             return try await appServerCreate(name: name, startedByPerson: startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: environment,
-                                             creation: creation, request: relay, onSent: onSent, persistSent: persistSent)
+                                             creation: creation, request: relay, onSent: onSent, persistSent: persistSent, onAnswer: onAnswer)
         }
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
         return machine

@@ -90,6 +90,35 @@ fn protocol_registry_names_every_served_method() {
             }
         }
     }
+    // A dispatcher branch on a constant another module owns (`m == crate::perf_trace::METHOD_SPANS`)
+    // names no literal here and no `rpc::method` constant: read the constant from its module, so a
+    // method served that way cannot miss the registry (#55624's trace methods did).
+    let foreign = regex::Regex::new(r"\bm == crate::((?:[a-z_]+::)+)([A-Z0-9_]+)\b").unwrap();
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
+    for source in sources {
+        let served = source.split("\n#[cfg(test)]\nmod ").next().unwrap_or_default();
+        for capture in foreign.captures_iter(served) {
+            let module = capture[1].trim_end_matches("::").replace("::", "/");
+            if module == "rpc/method" {
+                continue;
+            }
+            let file = [src.join(format!("{module}.rs")), src.join(format!("{module}/mod.rs"))]
+                .into_iter()
+                .find(|path| path.is_file())
+                .unwrap_or_else(|| panic!("no source for crate::{module}"));
+            let text = std::fs::read_to_string(&file).unwrap();
+            let defined =
+                regex::Regex::new(&format!(r#"const {}: &str = "([^"]+)";"#, &capture[2])).unwrap();
+            let name = defined
+                .captures(&text)
+                .unwrap_or_else(|| panic!("{} names no &str in {}", &capture[2], file.display()))
+                [1]
+            .to_owned();
+            if !names.contains(name.as_str()) {
+                missing.insert(name);
+            }
+        }
+    }
     assert!(missing.is_empty(), "declare these in protocol::registry(): {missing:?}");
 }
 
@@ -204,7 +233,9 @@ fn protocol_request_meta_lists_every_key_acpmux_clients_send() {
     .map(|pattern| regex::Regex::new(pattern).expect("pattern"));
     let listed: BTreeSet<&str> = super::params::ACPMUX_REQUEST_META.iter().copied().collect();
     let mut files = vec![src.join("client.rs"), src.join("peer.rs"), src.join("prompt_class.rs")];
-    let mut dirs = vec![src.join("cli"), src.join("hand"), src.join("tui")];
+    // The TUI is its own crate now (acpmux-tui), still one of acpmux's own clients.
+    let tui = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../acpmux-tui/src");
+    let mut dirs = vec![src.join("cli"), src.join("hand"), tui];
     while let Some(dir) = dirs.pop() {
         for entry in std::fs::read_dir(&dir).expect("source dir").flatten() {
             let path = entry.path();
@@ -229,4 +260,23 @@ fn protocol_request_meta_lists_every_key_acpmux_clients_send() {
         }
     }
     assert!(missing.is_empty(), "add these request keys to ACPMUX_REQUEST_META: {missing:?}");
+}
+
+/// acpmux's wire is an ABI (RFD 0178): a change that can break an older or
+/// newer peer (a removed method or member, a new required param, a retype, a
+/// removed enum value, a result turning nullable) needs a rule in
+/// `spec/acpmux-abi.compat.json`. Additive changes are free:
+/// `ACPMUX_PROTOCOL_BLESS=1` refreshes `spec/acpmux-abi.surface.json` with the IR.
+#[test]
+fn protocol_abi_breaks_have_rules() {
+    let spec = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("spec");
+    let ir: serde_json::Value = serde_json::from_str(&ir_text()).expect("IR is JSON");
+    let outcome = cmux_api_compat::json_schema::check_files(
+        &ir,
+        &spec.join("acpmux-abi.surface.json"),
+        &spec.join("acpmux-abi.compat.json"),
+        std::env::var_os("ACPMUX_PROTOCOL_BLESS").is_some(),
+    )
+    .unwrap_or_else(|e| panic!("acpmux ABI check: {e}"));
+    assert!(outcome.ok, "{}", outcome.message);
 }

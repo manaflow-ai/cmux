@@ -1,6 +1,6 @@
+public import CmuxNextDaemon
 public import Foundation
 import CryptoKit
-public import CmuxNextDaemon
 import CmuxNextWakeups
 
 /// One model connection's credential as this Mac's acpmux gives it for a Cloud chat
@@ -405,7 +405,34 @@ public final class CloudAgentCredentials {
         return credential
     }
 
-    /// Keeps the chat's delivered credential current after its start or reattach.
+    /// The login a move to `machine` carries (`link agent move --login-stdin`), read now, so the chat resumes there signed in:
+    /// only when the Cloud API said the machine is the owner's (`vmKind` `owner`). As ``launchCredential(chat:machine:harness:model:)``,
+    /// a chosen connection that cannot be read throws, and the move stays where it is.
+    public func moveCredential(vmKind: String, chat: String, machine: String, harness: String?) async throws -> CloudAgentCredential? {
+        guard vmKind == "owner",
+              let credential = try await launchCredential(chat: chat, machine: machine, harness: harness) else { return nil }
+        // The move wire carries only environment variables. A key that requires a binding on the
+        // guest must stay on the source until the transfer protocol can carry that binding.
+        guard credential.kind != "api-key", credential.endpoint == nil else {
+            throw Failure.unavailable(connection: credential.connectionID)
+        }
+        return credential
+    }
+
+    /// A move that carried `credential` landed on the machine's tab `surface`: as ``started(chat:machine:sessionID:on:onReauth:replace:push:)``, its ChatGPT
+    /// plan token kept fresh there as after a Cloud start. No credential: nothing.
+    public func moved(chat: String, machine: String, on credential: CloudAgentCredential?, surface: UInt64,
+                      ownerLink: AgentSessionAttachClient.OwnerLink?, endpoint: @escaping AgentSessionAttachClient.EndpointProvider) {
+        guard let credential else { return }
+        let key = ChatKey(machine: machine, chat: chat)
+        chosen[key] = nil
+        stopRefresh(key)
+        let push = CloudAgentCredentialRefresher.machinePush(surface: surface, sessionID: chat, ownerLink: ownerLink, reconnect: nil, endpoint: endpoint)
+        tracked[key] = refresher.track(credential, push: push)
+    }
+
+    /// The chat started on `credential`: its choice is spent, and a ChatGPT plan token is kept fresh
+    /// on that machine through `push` (``CloudAgentCredentialRefresher/track(_:push:)``).
     @discardableResult
     public func started(chat: String, machine: String, sessionID: String? = nil, on credential: CloudAgentCredential,
                         onReauth: @escaping @MainActor () -> Void = {},

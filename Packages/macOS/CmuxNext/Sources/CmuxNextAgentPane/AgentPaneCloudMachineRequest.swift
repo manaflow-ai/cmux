@@ -24,6 +24,12 @@ public import Foundation
 ///   which asks the person first (its confirmation sheet) and deletes only on their answer.
 /// - `cloudMachine.prewarm {id}` -> `{}`: a passive typing hint; wakes a loaded paused machine
 ///   through the predictive/script route and never consumes a user gesture.
+/// - `cloudMachine.wakeHint {v, id, signal}` -> `{resume}`: wake on intent (v1): the page or shell saw
+///   the person focus that machine's chat, open a terminal on it or unlock with it in front, before any
+///   key. The App only forwards it; Rust decides (`cloud_handler_wake_hint`, cmux-cloud-handlers
+///   `wake_hint`): hidden setting `cloud.wakeOnIntent` (default on; the setting is the kill switch), paused machines only, debounced,
+///   capped, and re-paused when no input follows. Never a gesture. A host without it answers
+///   `unsupported`, which the page drops; a page without it never sends one.
 ///
 /// Open, Resume, Attach, Pause and Delete change a machine: each takes the person's own click (one gesture;
 /// Attach its scope-add credit, so the Enter of a prompt that wakes the machine still sends it).
@@ -38,10 +44,13 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
     case pause(id: String)
     case delete(id: String)
     case prewarm(id: String)
+    /// Wake on intent: `version` is the sender's (`v`), `signal` the raw event name Rust reads.
+    case wakeHint(id: String, signal: String, version: Int)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
         "cloudMachine.list", "cloudMachine.recoveryList", "cloudMachine.open", "cloudMachine.resume", "cloudMachine.attach", "cloudMachine.pause", "cloudMachine.delete", "cloudMachine.prewarm",
+        "cloudMachine.wakeHint",
     ]
     /// Longest id the page may send back (the API's ids are far shorter).
     static let maximumIDLength = 128
@@ -68,9 +77,19 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
             case "cloudMachine.delete": self = .delete(id: id)
             default: self = .pause(id: id)
             }
+        case "cloudMachine.wakeHint":
+            // A newer page may add fields: the known three decide, the rest are ignored.
+            guard let id = Self.machineID(params["id"]), let version = params["v"] as? Int, version >= 1,
+                  let signal = params["signal"] as? String, Self.isSignalName(signal) else { return nil }
+            self = .wakeHint(id: id, signal: signal, version: version)
         default:
             return nil
         }
+    }
+
+    /// A raw signal name: 1-32 ASCII letters. Which ones count is Rust's.
+    static func isSignalName(_ raw: String) -> Bool {
+        !raw.isEmpty && raw.utf8.count <= 32 && raw.unicodeScalars.allSatisfy { $0.isASCII && CharacterSet.letters.contains($0) }
     }
 
     /// A machine id as the page sends it back: ASCII letters, digits, `-`, `_`, `.` and `:`.
@@ -91,6 +110,7 @@ public nonisolated enum AgentPaneCloudMachineRequest: Equatable, Sendable {
         case .pause: "cloudMachine.pause"
         case .delete: "cloudMachine.delete"
         case .prewarm: "cloudMachine.prewarm"
+        case .wakeHint: "cloudMachine.wakeHint"
         }
     }
 }
@@ -259,6 +279,17 @@ public final class AgentPaneCloudMachines {
     /// Sends a passive predictive wake hint to a paused machine of the loaded list; false otherwise.
     /// Unlike user actions, this never consumes a page gesture.
     public var prewarm: (@MainActor (String) async -> Bool)?
+    /// Forwards a wake-on-intent hint (machine, raw signal, sender version) to the rules; true when it
+    /// resumed the machine. Never a gesture.
+    public var wakeHint: (@MainActor (String, String, Int) async -> Bool)?
+
+    /// A raw wake-on-intent signal the Mac shell saw (a paused machine's terminal tab shown), sent like
+    /// the page's `cloudMachine.wakeHint`; the rules (debounce, cap, re-pause) are Rust's.
+    public func intent(_ id: String, signal: String) {
+        guard let wakeHint else { return }
+        // task-owner: one hint; the rules answer at once and the resume is bounded by its own Cloud call
+        Task { _ = await wakeHint(id, signal, AgentPaneCloudWakeOnIntent.version) }
+    }
     /// What follows the account's active team for ``publishTeamChange()``; a new one replaces it.
     public var teamWatch: Task<Void, Never>? { didSet { oldValue?.cancel() } }
     /// The account's last Cloud plan read (``Plan``), reused for a minute: the list's `plan`.
@@ -345,6 +376,10 @@ extension AgentPaneCloudMachineRequest {
             guard let prewarm = machines?.prewarm else { return AgentPaneModel.unsupported(method) }
             guard await prewarm(id) else { return Self.notRun(method) }
             return AgentPaneReply.success()
+        case .wakeHint(let id, let signal, let version):
+            guard let wakeHint = machines?.wakeHint else { return AgentPaneModel.unsupported(method) }
+            // A skipped hint is an answer, not a failure: the page never retries a hint.
+            return AgentPaneReply.success(["resume": await wakeHint(id, signal, version)])
         }
     }
 

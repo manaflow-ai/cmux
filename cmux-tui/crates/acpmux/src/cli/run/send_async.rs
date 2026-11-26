@@ -124,7 +124,7 @@ async fn queue_once(
     if json_out {
         print_json(&handoff_json(&handoff, &key, &id, &prompt_id.id, &status, superseding));
     } else {
-        warn_host_pressure(&status["accepted"]);
+        warn_host_pressure(&status["accepted"], crate::cli::host_budget::Done::Queued);
         for line in handoff_lines(&handoff, &key, &id, &status, superseding) {
             println!("{line}");
         }
@@ -373,6 +373,12 @@ pub(crate) fn status_line(v: &Value) -> String {
         == Some(&json!(true))
     {
         line.push_str(&format!("  ({})", super::super::output::HELD_LINE));
+    }
+    if let Some(due) = v.pointer("/accepted/dueAt").and_then(Value::as_u64) {
+        line.push_str(&format!(
+            "  {}",
+            super::super::output::due_words(due, crate::store::now_ms())
+        ));
     }
     if let Some(error) = v.get("error").and_then(Value::as_str) {
         line.push_str(&format!("  last error: {error}"));

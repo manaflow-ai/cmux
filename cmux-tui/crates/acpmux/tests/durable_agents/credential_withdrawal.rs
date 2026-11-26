@@ -1,13 +1,17 @@
 use super::*;
+use std::os::unix::fs::PermissionsExt;
 
 #[tokio::test]
 async fn api_key_withdrawal_refuses_until_the_recorded_host_is_adopted() {
     let mut daemon = Daemon::new("cred-withdraw", "approve-all");
     daemon.sigterm();
+    let launcher = daemon.home.join("claude");
+    std::fs::copy(FAKE, &launcher).unwrap();
+    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o700)).unwrap();
     std::fs::write(
         daemon.home.join("config.json"),
         json!({
-            "harnesses": {"claude-fake": {"argv": ["python3", FAKE], "family": "claude"}},
+            "harnesses": {"claude-fake": {"argv": [launcher], "family": "claude"}},
             "defaultHarness": "claude-fake", "permissionPolicy": "approve-all"
         })
         .to_string(),

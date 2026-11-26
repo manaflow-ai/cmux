@@ -1,7 +1,7 @@
 // User-visible behavior of Settings > Models and its connection dialogs.
 import { afterAll, afterEach, expect, jest, test } from "bun:test";
 import { act } from "react";
-import { chatgptDeviceError, mockChatGPTDevice, mockModels, runMockModels } from "./mockModels";
+import { chatgptDeviceError, mockChatGPTDevice, mockModels, runMockModels, advanceMockClaudeToken } from "./mockModels";
 import type { ModelsState } from "./ops";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
@@ -708,6 +708,18 @@ test("Escape closes an in-flight device dialog and cancels the attempt", async (
   expect(document.activeElement).toBe(add());
 });
 
+test("Continue with ChatGPT waits on the browser with Cancel, and Cancel stops it", async () => {
+  const rendered = await render(mockModels.macLogins);
+  await click(action(card(rendered), "connectChatGPT")!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPT" }]);
+  expect(card(rendered).querySelector('[data-chatgpt="pending"]')?.textContent).toContain(
+    "Waiting for you to sign in to ChatGPT",
+  );
+  await click(action(card(rendered), "cancelChatGPT")!);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "cancelChatGPT" });
+  expect(rendered.store.getSnapshot().models?.chatgpt.attempt).toBeNull();
+});
+
 test.each([
   ["expired_token", "The ChatGPT sign-in code expired."],
   ["access_denied", "ChatGPT sign-in was canceled or access was denied."],
@@ -1027,6 +1039,82 @@ test("resuming a ChatGPT device attempt does not use an existing plan as a repla
   );
   await click(action(panel()!, "connectChatGPTDevice")!);
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPTDevice", openBrowser: true }]);
+});
+
+test("Connect Claude is one click: its progress line follows the host, then the sheet closes on the new row", async () => {
+  const rendered = await render(mockModels.empty);
+  await click(action(card(rendered), "openClaudeToken")!);
+  const form = () => panel()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
+  expect(form().querySelector<HTMLDetailsElement>("[data-models-claude-paste]")!.open).toBe(false);
+  await click(action(form(), "connectClaudeToken")!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectClaudeToken" }]);
+  expect(form().querySelector('[data-claude-token="starting"]')?.textContent).toContain(
+    "Opening the Claude sign-in page…",
+  );
+  expect(action(form(), "connectClaudeToken")).toBeNull();
+  const step = async () => {
+    const next = advanceMockClaudeToken(structuredClone(rendered.provider.models!));
+    await act(async () => rendered.provider.setModels(next));
+  };
+  await step();
+  expect(form().querySelector('[data-claude-token="signing_in"]')?.textContent).toContain(
+    "Waiting for you to sign in to Claude in the browser…",
+  );
+  await step();
+  expect(form().querySelector('[data-claude-token="saving"]')?.textContent).toContain("Saving…");
+  await step();
+  expect(panel()).toBeNull();
+  expect(connectionIds(rendered)).toEqual(["claude-token"]);
+});
+
+test("Connect Claude's error shows the host's words and Try Again; Cancel withdraws a running one", async () => {
+  const rendered = await render(mockModels.claudeError);
+  await click(action(card(rendered), "openClaudeToken")!);
+  const form = () => panel()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
+  expect(form().querySelector('[role="alert"]')?.textContent).toContain("closed before you signed in");
+  await click(action(form(), "retryClaudeToken")!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "connectClaudeToken" }]);
+  await click(action(form(), "cancelClaudeToken")!);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "cancelClaudeToken" });
+  expect(rendered.provider.models!.claudeToken).toEqual({ attempt: null, phase: null, error: null });
+});
+
+test("Paste a token instead stays collapsed and adds the pasted token once", async () => {
+  const rendered = await render(mockModels.empty);
+  await click(action(card(rendered), "openClaudeToken")!);
+  const form = panel()!.querySelector<HTMLElement>("[data-models-claude-form]")!;
+  const paste = form.querySelector<HTMLDetailsElement>("[data-models-claude-paste]")!;
+  expect(paste.querySelector("summary")?.textContent).toBe("Paste a token instead");
+  const field = form.querySelector<HTMLInputElement>('input[type="password"]')!;
+  await changeValue(field, "sk-ant-api03 with spaces");
+  expect(form.querySelector("[data-claude-token-invalid]")).not.toBeNull();
+  expect(action(form, "addClaudeToken")!.disabled).toBe(true);
+  await changeValue(field, " sk-ant-oat01-secret0 \n123456789\u200B ");
+  expect(form.querySelector("[data-claude-token-invalid]")).toBeNull();
+  await click(action(form, "addClaudeToken")!);
+  expect(rendered.provider.modelRuns).toEqual([{ action: "addClaudeToken", token: "sk-ant-oat01-secret0123456789" }]);
+  expect(panel()).toBeNull();
+  expect(connectionIds(rendered)).toEqual(["claude-token"]);
+  expect(document.body.innerHTML).not.toContain("sk-ant-oat01-secret");
+  expect(JSON.stringify(rendered.store.getSnapshot().models)).not.toContain("sk-ant-oat01-secret");
+});
+
+test("the mock's one click steps through its phases, and a failure leaves its error", () => {
+  const begun = runMockModels(structuredClone(mockModels.empty), { action: "connectClaudeToken" });
+  expect(begun.claudeToken).toEqual({ attempt: "claude-mock", phase: "starting", error: null });
+  const failed = advanceMockClaudeToken(begun, true);
+  expect(failed.claudeToken?.phase).toBeNull();
+  expect(failed.claudeToken?.error).toBeTruthy();
+  expect(failed.personal.connections).toHaveLength(0);
+});
+
+test("a cancelled one click is not a save: the sheet stays open with Connect Claude", async () => {
+  const rendered = await render(mockModels.claudeSigningIn);
+  await click(action(card(rendered), "openClaudeToken")!);
+  const form = () => panel()?.querySelector<HTMLElement>("[data-models-claude-form]");
+  await click(action(form()!, "cancelClaudeToken")!);
+  expect(form()).toBeTruthy();
+  expect(action(form()!, "connectClaudeToken")).toBeTruthy();
 });
 
 test("the mock refuses what acpmux refuses and names new routes as acpmux does", () => {
@@ -1857,4 +1945,11 @@ test("OpenRouter opens on its key and saves it through the existing API-key oper
       servesCloud: false,
     },
   ]);
+});
+
+test("older local account links retain their exact Models row", async () => {
+  const rendered = await render(mockModels.macOnly, "/settings/models?focus=claude-login");
+  expect(rendered.history.location.search).toContain("focus=models.connection.claude-login");
+  expect(row(rendered, "claude-login").getAttribute("tabindex")).toBe("-1");
+  expect(rendered.container.querySelector("[data-link-missing]")).toBeNull();
 });

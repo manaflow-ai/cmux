@@ -14,7 +14,7 @@ import { t } from "../strings";
 import { GroupHeader } from "./GroupHeader";
 import { SettingsErrorRow } from "./SettingsErrorRow";
 
-const STATUS: Record<string, string> = {
+export const STATUS: Record<string, string> = {
   unbuilt: "settingsPage.cloudEnvironments.status.unbuilt",
   building: "settingsPage.cloudEnvironments.status.building",
   ready: "settingsPage.cloudEnvironments.status.ready",

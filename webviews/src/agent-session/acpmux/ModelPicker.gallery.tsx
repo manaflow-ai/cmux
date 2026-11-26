@@ -847,13 +847,13 @@ export default componentEntry<GalleryProps>({
     // line instead of ending in an ellipsis (Lawrence 2026-11-05: "cant see full model name").
     "quick-menu-dragged-narrow": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
-      play: (ctx) => openOpenCodeAt(ctx, 300),
-      note: "Dragged narrower (300px, ships): a name longer than the column wraps; nothing is clipped.",
+      play: (ctx) => openOpenCodeAt(ctx, 318),
+      note: "Dragged to the narrowest (318px, ships): a name longer than the column wraps; nothing is clipped.",
     },
     "quick-menu-dragged-narrow-ellipsis": {
       props: { ...quick, catalog: [...quick.catalog, ...openCode] },
       play: async (ctx) => {
-        await openOpenCodeAt(ctx, 300);
+        await openOpenCodeAt(ctx, 318);
         for (const name of ctx.document.querySelectorAll<HTMLElement>(".acpmux-cols-body .acpmux-cols-name"))
           Object.assign(name.style, { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" });
       },

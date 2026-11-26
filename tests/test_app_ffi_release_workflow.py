@@ -564,7 +564,8 @@ elif args[0] == "api":
         base = state.get("staged_on") and f"/commits/{state['staged_on']}/" in endpoint
         if state.get("base_checks_read" if base else "checks_read") == "fail":
             server_error()
-        runs = [{"name": f"check-{i}", "conclusion": c}
+        # A check given as [name, conclusion] keeps its name.
+        runs = [{"name": c[0], "conclusion": c[1]} if isinstance(c, list) else {"name": f"check-{i}", "conclusion": c}
                 for i, c in enumerate(state.get("base_checks" if base else "checks", []))]
         query = dict(part.split("=", 1) for part in endpoint.split("?", 1)[1].split("&") if "=" in part)
         size, number = int(query.get("per_page", 30)), int(query.get("page", 1))
@@ -618,7 +619,7 @@ class RePinPublication(unittest.TestCase):
                   workflow=WORKFLOW, pr_files=None, current_pin=None, diff_exit=None,
                   jobs_read="ok", base_result="newer", base_enabled="true", pin_age_min=None,
                   unpinned_age_min=None, staged_on=None, base_checks=(), base_checks_read="ok", checks_read="ok",
-                  rate_limits=(), wait_bound=None, pr_read="ok"):
+                  rate_limits=(), wait_bound=None, pr_read="ok", fleet_verdict=None):
         step = pin_step(yaml.safe_load(workflow.read_text())["jobs"]["repin"])
         with tempfile.TemporaryDirectory() as temp:
             work = Path(temp)
@@ -650,14 +651,29 @@ class RePinPublication(unittest.TestCase):
             executable(work / "scripts/ci/app_ffi_pin.py", PIN_READER_FAKE)
             # The bounded page reader the hold reads check runs with (tests/test_gh_pages.py tests it).
             executable(work / "scripts/ci/gh_pages.py", (ROOT / "scripts/ci/gh_pages.py").read_text())
+            # The build fleet's compile verdict for a head (scripts/ci/fleet_compile_result.py): None, no reader.
+            if fleet_verdict is not None:
+                executable(work / "scripts/ci/fleet_compile_result.py", "#!/usr/bin/env python3\n" + textwrap.dedent(f'''\
+                    import json, os, sys
+                    path = os.environ["STATE"]
+                    state = json.load(open(path))
+                    state.setdefault("fleet_reads", []).append(sys.argv[1:])
+                    json.dump(state, open(path, "w"))
+                    print({fleet_verdict!r})
+                    '''))
             # The newest published release (NewestPublishedRelease tests the real one).
             executable(scripts / "newest_app_ffi_release.py",
                        f"print('{'d' * 40} {'e' * 64}')\n")
             # The pin on the base (pin-app-ffi-on-base.test.sh tests the real one): None fails it, else it
-            # writes that result; it records the token and switch it was given.
+            # writes that result; it records the token and switch it was given. "proven" plays a release that does
+            # not only add: pinned when PROVEN_PIN names it, else pr.
+            result_line = ('if [ -n "$PROVEN_PIN" ] && [ "$PROVEN_PIN" = "$1" ]; then echo result=pinned; '
+                           'else echo result=pr; fi >> "$GITHUB_OUTPUT"\n' if base_result == "proven" else
+                           f'echo "result={base_result}" >> "$GITHUB_OUTPUT"\n')
             executable(scripts / "pin-app-ffi-on-base.sh", "#!/bin/sh\nexit 1\n" if base_result is None else
-                       f'#!/bin/sh\necho "result={base_result}" >> "$GITHUB_OUTPUT"\n'
-                       f'echo "$TOKEN $ENABLED $1 $2" > "$RUNNER_TEMP/base-call"\n')
+                       '#!/bin/sh\n' + result_line +
+                       'echo "$TOKEN $ENABLED $1 $2" > "$RUNNER_TEMP/base-call"\n'
+                       'echo "${PROVEN_PIN:-none} $1 $2" >> "$RUNNER_TEMP/base-proofs"\n')
             helper = ROOT / "scripts/cmux-next/publish-app-ffi-repin.sh"
             if helper.exists(): executable(scripts / helper.name, helper.read_text())
             state_path = work / "state.json"
@@ -684,6 +700,8 @@ class RePinPublication(unittest.TestCase):
             state = json.loads(state_path.read_text())
             base_call = Path(temp) / "base-call"
             state["base_call"] = base_call.read_text().split() if base_call.exists() else None
+            proofs = Path(temp) / "base-proofs"
+            state["base_proofs"] = [line.split() for line in proofs.read_text().splitlines()] if proofs.exists() else []
             sleeps = Path(temp) / "sleeps"
             state["sleeps"] = [int(word) for word in sleeps.read_text().split()] if sleeps.exists() else []
             return result, state
@@ -1157,9 +1175,10 @@ class RePinPublication(unittest.TestCase):
     def test_a_release_with_changed_inputs_is_re_pinned(self):
         result, state = self.run_repin()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(state["input_diffs"], [[self.PINNED, self.NEWEST]])
+        # The skip compares the pin with the release, then the hold compares the tip with it before any runs read.
+        self.assertEqual(state["input_diffs"], [[self.PINNED, self.NEWEST], ["a" * 40, self.NEWEST]])
         # The inputs compared are the ones the pin check lists (the fake check-app-ffi-pin.sh --list-inputs).
-        self.assertEqual(state["input_paths"], [["cmux-tui/crates/cmux-app-ffi/src"]])
+        self.assertEqual(state["input_paths"], [["cmux-tui/crates/cmux-app-ffi/src"]] * 2)
         self.assertEqual(state["published"], ["b" * 40])
 
     def test_the_json_pin_is_read_when_the_tree_has_it(self):
@@ -1345,11 +1364,76 @@ class RePinPublication(unittest.TestCase):
                                  [["app-ffi-repin.yml", "--ref", "feat-cmux-next"]])
 
     def test_final_pr_must_be_open_at_the_published_commit(self):
-        for options in ({"wrong_head": True}, {"close_on_edit": True}):
-            with self.subTest(**options):
-                result, _ = self.run_repin(**options)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertNotIn("verified open", result.stdout)
+        result, _ = self.run_repin(close_on_edit=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("verified open", result.stdout)
+
+    # 2026-11-25: after the force-push to 38e0d0d2, GitHub's pull request still read head 4910b844 (its head sync lags a
+    # push), and the job failed "re-pin PR is not open at the published head" though the branch held the new pin. Its
+    # failure step then dispatched a re-pin on the same rate-limited quota. An open PR whose branch GitHub serves at the
+    # published commit is published: the run re-reads the PR a few times, then warns and succeeds.
+    def test_a_pr_head_that_lags_the_published_branch_is_not_a_failure(self):
+        result, state = self.run_repin(wrong_head=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
+        self.assertIn("::warning", result.stdout + result.stderr)
+        self.assertIn("app-ffi-repin is at bbbbbbbbbbbb", result.stdout + result.stderr)
+        self.assertTrue(state["sleeps"], "the PR's head was not re-read after a wait")
+
+    # 2026-11-25: release b6be67e4 changed a declaration over the pin 7c787a1cd7ea (run 45645816280), so the pin on the
+    # base refused it and it went to re-pin PR #55633, whose whole rollup never went green on infra reds; base merges
+    # restarted its CI, and the pin sat about 11 hours behind. Its app compile had passed. A re-pin PR head whose app
+    # compile passed (the build fleet's verdict for that head, scripts/ci/fleet_compile_result.py) and whose fast tier
+    # (HandlerCoverageTests) succeeded proves its pin: the pin on the base takes it (PROVEN_PIN).
+    PROVEN_CHECKS = (["cmux-next fast tier", "success"], ["cmux-next app compile (build fleet)", "success"])
+
+    def test_a_pin_the_re_pin_pr_proved_lands_on_the_base(self):
+        for name, same in {"the picked release itself": [], "the same inputs": [[self.PR_PIN, self.NEWEST]]}.items():
+            pr_pin = self.NEWEST if not same else self.PR_PIN
+            with self.subTest(name):
+                result, state = self.run_repin(base_result="proven", same_inputs=same, pr_files=self.pr_head(pr_pin),
+                                               checks=self.PROVEN_CHECKS, fleet_verdict="pass")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("no re-pin pull request", result.stdout)
+                self.assertEqual(state["published"], [])
+                self.assertEqual(state["base_proofs"][-1], [pr_pin, pr_pin, "0" * 64])
+                # The verdict of the PR's head, read with no PR number (that would submit a compile).
+                self.assertEqual(len(state["fleet_reads"]), 1)
+                read = state["fleet_reads"][0]
+                self.assertEqual(read[read.index("--sha") + 1], "c" * 40)
+                self.assertNotIn("--pr", read)
+
+    def test_a_pin_the_re_pin_pr_has_not_proved_stays_on_the_pr(self):
+        cases = {
+            "the compile failed": {"fleet_verdict": "fail"},
+            "no compile verdict": {"fleet_verdict": "none"},
+            "no verdict reader": {},
+            "the fast tier failed": {"fleet_verdict": "pass",
+                                     "checks": (["cmux-next fast tier", "failure"],
+                                                ["cmux-next fast tier (build fleet)", "success"])},
+            "no fast tier yet": {"fleet_verdict": "pass", "checks": (["cmux-next app compile (build fleet)", "success"],)},
+            "a failed check-run read": {"fleet_verdict": "pass", "checks": self.PROVEN_CHECKS, "checks_read": "fail"},
+            "the head pins the current pin": {"fleet_verdict": "pass", "checks": self.PROVEN_CHECKS,
+                                              "pr_files": self.pr_head(self.PINNED)},
+        }
+        for name, options in cases.items():
+            with self.subTest(name):
+                options = {"pr_files": self.pr_head(self.NEWEST), "checks": self.PROVEN_CHECKS, **options}
+                result, state = self.run_repin(base_result="proven", **options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotIn("no re-pin pull request", result.stdout)
+                self.assertTrue(all(proof[0] == "none" for proof in state["base_proofs"]), state["base_proofs"])
+
+    # 2026-11-25: the hold's read of the release runs (actions/workflows/app-ffi-release.yml/runs?per_page=100) got the
+    # installation rate limit's 403. When feat-cmux-next's tip already has the picked release's FFI inputs, no newer
+    # release can be building for it, so the hold reads no runs.
+    def test_the_hold_reads_no_runs_when_the_tip_has_the_releases_inputs(self):
+        newer = "7" * 40
+        result, state = self.run_repin(runs=[{"id": 9, "status": "queued", "head_sha": newer}],
+                                       ancestry=[(self.NEWEST, newer)], same_inputs=[["a" * 40, self.NEWEST]])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(state.get("run_reads", []), [])
+        self.assertEqual(state["refs"]["app-ffi-repin"], "b" * 40)
 
 
 class NewestPublishedRelease(unittest.TestCase):

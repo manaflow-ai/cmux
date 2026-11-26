@@ -160,6 +160,17 @@ pub(crate) fn model_not_available(message: &str) -> bool {
         || text.contains("model") && text.contains("does not exist or you do not have access")
 }
 
+/// Does an agent error say nobody listened where the model was: the connection was refused
+/// (`ECONNREFUSED`), as when the inference gateway is down? A dropped connection
+/// ([`says_connection_dropped`]) whose outage ends only when the gateway is back, so its
+/// continuation waits it out like a capacity one (`hub/auto_resume.rs` `waits_it_out`) instead
+/// of using up a transport error's attempts (2026-11-24: three fresh chats ended their first
+/// turn on "API Error: Connection refused (ECONNREFUSED)" and sat failed).
+pub fn is_refused_connection(message: &str) -> bool {
+    let m = message.to_lowercase();
+    m.contains("econnrefused") || m.contains("connection refused")
+}
+
 /// Does an agent error say the request itself was refused: a bad request (HTTP 400, 413 or
 /// 422, `invalid_request_error`), a refused permission (403, `permission_error`, a rejected
 /// tool use) or a missing resource (404)? Sending it again fails the same way, whatever words
@@ -212,6 +223,14 @@ pub fn transient_cause(error: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether `error` says the disk was full: `ENOSPC`, "No space left on device (os error 28)".
+pub fn is_disk_full(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("no space left on device")
+        || lower.contains("os error 28")
+        || lower.contains("enospc")
+}
+
 /// A process exit needs its stderr-enriched explanation; transport errors keep their raw cause.
 pub(crate) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'a str {
     match raw {
@@ -239,6 +258,11 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     {
         return None;
     }
+    // A full disk clears by itself (a build's output reclaimed, a cache pruned): the chat waits
+    // for free space, then goes on (`hub/auto_resume/disk_wait.rs`).
+    if is_disk_full(raw) || is_disk_full(shown) {
+        return Some("disk");
+    }
     // Before the refused requests: a prompt past the window is a 400 that compacting answers.
     if is_context_overflow(raw) || is_context_overflow(shown) {
         return Some("context");
@@ -264,6 +288,26 @@ mod tests {
 
     /// Claude Code's whole error on a Freestyle lane (2026-11-22).
     const CLAUDE_TLS_UNVERIFIED: &str = "API Error: Unable to connect to API: SSL certificate verification failed (UNABLE_TO_VERIFY_LEAF_SIGNATURE). The certificates the server sent don't lead to a trusted authority. If the server leaves out an intermediate certificate, which browsers fetch by themselves, whoever runs it must have it send its full chain. If it is a TLS-inspecting corporate proxy or a gateway signed by a private CA, set NODE_EXTRA_CA_CERTS to that CA bundle, or add it to the system certificate store · see https://code.claude.com/docs/en/network-config";
+
+    #[test]
+    fn a_refused_connection_is_told_from_other_dropped_connections() {
+        for m in [
+            "API Error: Connection refused (ECONNREFUSED)",
+            "connect ECONNREFUSED 127.0.0.1:4016",
+            "connection refused: error sending request for url (https://relay.invalid/responses)",
+        ] {
+            assert!(is_refused_connection(m), "{m}");
+            assert_eq!(resume_cause(m, m), Some("transport"), "{m}");
+        }
+        for m in [
+            "API Error: Connection error.",
+            "stream disconnected before completion",
+            "read ECONNRESET",
+            "API Error: 503 no non-exhausted claude accounts available",
+        ] {
+            assert!(!is_refused_connection(m), "{m}");
+        }
+    }
 
     #[test]
     fn transport_errors_are_told_from_limits_and_bugs() {

@@ -55,7 +55,7 @@ final class SettingsWindowService: InternalPageProvider {
     var isWaiting: Bool { waiting != nil }
 
     /// Shows Settings on `section`, or on `setting` (a cmux.json key path, card or button
-    /// `SettingsAnchor(key:)` knows) with its highlight. An unknown setting is refused and opens
+    /// `SettingsAnchor(key:)` knows, or a page-only place's route, ``SettingsPageAnchor``) with its highlight. An unknown setting is refused and opens
     /// nothing. `focus` false (automation) opens the tab without selecting it.
     /// `route` opens a page-only place instead (`#/settings/agents?focus=agents.add`, Settings >
     /// Agents' Add panel), with no section or setting.
@@ -66,13 +66,9 @@ final class SettingsWindowService: InternalPageProvider {
         // task-owner: one read of this Mac's join status per opening (its consent switches)
         Task { [join = services.joinConsent] in await join.refresh() }
         let modelRoute = setting.flatMap { DeepLink.modelSettingsRoute(focus: $0) }
-        var anchor: SettingsAnchor?
-        if let setting, modelRoute == nil {
-            guard let found = SettingsAnchor(key: setting) else {
-                throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting))
-            }
-            anchor = found
-        }
+        let place = setting.flatMap(SettingsPageAnchor.init(key:))
+        let anchor = modelRoute == nil && place == nil ? setting.flatMap(SettingsAnchor.init(key:)) : nil
+        if let setting, modelRoute == nil, place == nil, anchor == nil { throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting)) }
         let target = anchor?.section ?? section
         if modelRoute == nil, target == .keyboard {
             let invocation = ActionInvocation(origin: focus ? .user : .cli)
@@ -81,7 +77,7 @@ final class SettingsWindowService: InternalPageProvider {
             }
             return
         }
-        let route = pageRoute ?? modelRoute ?? SettingsDeepLink.route(section: target, setting: setting)
+        let route = place?.route ?? pageRoute ?? modelRoute ?? SettingsDeepLink.route(section: target, setting: setting)
         // The window's one Settings tab comes back when another workspace of the window holds it
         // (nxdog77: Cmd-, in a second workspace opened a second Settings tab).
         if focus, let window = services.windows.active { revealSettingsTab(of: window) }

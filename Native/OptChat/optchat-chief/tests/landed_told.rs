@@ -185,7 +185,6 @@ fn a_turn_that_sends_the_subagent_back_to_work_passes() {
                     option: None,
                     n: None,
                     peer: None,
-                    items: None,
                 })
             }
         });

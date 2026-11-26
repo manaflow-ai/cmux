@@ -10,6 +10,13 @@ const input = (selector: string, value: string): PageFixtureStep => ({ selector,
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const action = (id: string) => click(`[data-models-action="${id}"]`);
 const secret = '[data-models-dialog] input[type="password"]';
+const shown = wait('[data-card="models"]');
+const variant = (models: ModelsState, note: string, steps: PageFixtureStep[] = [shown]): SettingsPageVariant => ({
+  section: "models",
+  models,
+  note,
+  steps,
+});
 const page: SettingsPageVariant = { section: "models", models: mockModels.empty };
 const cloud: SettingsPageVariant = { section: "cloud", models: mockModels.empty };
 const dialog = (
@@ -106,8 +113,43 @@ export default settingsPageEntry({
       models: mockModels.macLogins,
       steps: [click('[data-menu="connection-openrouter-key"]'), click('[data-value="edit"]'), wait(secret)],
     },
-    // Logins done right (Leo, 2026-11-22): on a host that signs in in place, the Claude login's
-    // Sign In Again opens the card under the row.
+    "mac-logins": { ...page, models: mockModels.macLogins },
+    "chatgpt-pending": variant(
+      mockModels.chatgptPending,
+      "Continue with ChatGPT pressed: waiting on the browser, with Cancel.",
+    ),
+    "chatgpt-error": variant(
+      mockModels.chatgptError,
+      "The ChatGPT sign-in came back without plan access: the reason in plain words and Try Again.",
+    ),
+    "add-sheet": variant(mockModels.macLogins, "The Add a Connection sheet: search, Subscriptions and API keys.", [
+      shown,
+      click("[data-models-add]"),
+      wait("[data-models-catalog]"),
+    ]),
+    "add-key": variant(mockModels.macLogins, "Add a Connection > Anthropic: the key field and an optional label.", [
+      shown,
+      click("[data-models-add]"),
+      { selector: '[data-models-choice="anthropic"]', action: "click" },
+      { selector: "[data-models-key-form]", action: "wait" },
+    ]),
+    "claude-token": variant(
+      mockModels.macLogins,
+      "Add a Connection > Claude Code: one Connect Claude button; Paste a token instead stays collapsed.",
+      [shown, action("openClaudeToken"), { selector: "[data-models-claude-form]", action: "wait" }],
+    ),
+    "claude-token-invalid": variant(
+      mockModels.macLogins,
+      "A pasted value that is not a setup token: the plain-words hint, and Add Token stays off.",
+      [
+        shown,
+        action("openClaudeToken"),
+        { selector: "[data-models-claude-paste] > summary", action: "click" },
+        { selector: '[data-models-claude-form] input[type="password"]', action: "input", value: "not a token" },
+      ],
+    ),
+    // Logins done right (Leo, 2026-11-22: "this is simply logins, done righr."): on a host that signs
+    // in in place, the Claude login's Sign In Again opens the card under the row.
     "claude-sign-in-in-place": {
       ...page,
       models: mockModels.macLogins,

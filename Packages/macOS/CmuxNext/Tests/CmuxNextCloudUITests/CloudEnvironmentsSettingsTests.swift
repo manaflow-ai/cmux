@@ -113,4 +113,36 @@ import Testing
         #expect(await m.run(.init(action: .refresh)).error != nil)
         #expect(!m.state.unsupported && m.state.available)
     }
+
+    /// cmux#51731: Settings > Cloud > Default Image rebuilds by itself once its snapshot goes stale (a rebaked base image,
+    /// as when the agents a Cloud machine carries change), with no confirmation and once per stale read; another
+    /// environment, or a Default Image that is not stale, builds nothing.
+    @Test func aStaleDefaultImageRebuildsByItselfOnce() async throws {
+        var status = "stale", builds: [String] = [], confirms = 0
+        var image: String? = "env_00000000000000000001"
+        let m = CloudEnvironmentsSettings(
+            available: { true },
+            list: { Data(#"{"environments": [{"id": "env_00000000000000000001", "name": "web", "repo": null, "setup_script": "", "status": "\#(status)"}]}"#.utf8) },
+            save: { _ in },
+            approvedCall: { op, id, confirm in
+                guard await confirm() else { return false }
+                builds.append("\(op) \(id)")
+                return true
+            },
+            confirm: { _, _, _ in confirms += 1; return true },
+            defaultImage: { image })
+        _ = await m.run(.init(action: .refresh))
+        #expect(builds == ["cloud.environment.build env_00000000000000000001"] && confirms == 0)
+        _ = await m.run(.init(action: .refresh))
+        #expect(builds.count == 1, "a snapshot still stale is not built again")
+        status = "ready"
+        _ = await m.run(.init(action: .refresh))
+        status = "stale"
+        _ = await m.run(.init(action: .refresh))
+        #expect(builds.count == 2, "stale again after a ready read: built again")
+        image = "auto"
+        status = "ready"; _ = await m.run(.init(action: .refresh)); status = "stale"
+        _ = await m.run(.init(action: .refresh))
+        #expect(builds.count == 2, "Auto rebuilds nothing")
+    }
 }

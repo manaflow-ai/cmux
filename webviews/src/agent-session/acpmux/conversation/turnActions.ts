@@ -6,14 +6,16 @@ export type TakeBack = "back" | "refused" | "failed";
 
 /// The sent prompt row's Retry and Fork (UserBubble.tsx), each null where that row would not offer
 /// it, handed to a waiting steer's queue row so the two rows draw the same buttons (PendingSteer.tsx).
-export type QueuedActions = { retry?: ReactNode; fork?: ReactNode; save?: ReactNode };
+export type QueuedActions = { retry?: ReactNode; fork?: ReactNode };
 
 // Actions a turn's footer and edited-files card offer that reach past the transcript (to the
 // client). A context, so a change in what acpmux serves, or in what the reader decided about a
 // turn's hunks, reaches memoized rows without changing their versions.
+import type { AnswerBlock } from "../subagents/restart";
 import { createContext, type ReactNode } from "react";
 import type { HunkReview } from "../changes/hunkReview";
 import type { AccessOffer } from "../accessOffer";
+import type { GitHubConnectOffer } from "./githubConnect";
 import type { ChatAccount } from "../chatAccounts";
 import type { HarnessHealth } from "../harnessHealthNoticeModel";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
@@ -88,6 +90,8 @@ export type TurnActions = {
   /// path, so it shows as the reader's prompt and starts the next turn. Absent where the pane cannot
   /// send (View Only, a read-only pane); the card then draws no buttons.
   answer?: (text: string) => Promise<void>;
+  /// Why `answer` is absent (subagents/restart.ts `answerBlock`): the card says it in its last row.
+  answerBlock?: AnswerBlock;
   /// Who asks in this chat, the chat's agent by name (agents.ts `agentName`): an answer to its ask
   /// quotes the ask under this name (nextStepAsk.ts `answerPrompt`).
   asker?: string;
@@ -138,6 +142,10 @@ export type TurnActions = {
   /// Add Credits… on a turn the cmux model router refused for want of a plan or credits
   /// (accessOffer.ts, failureCopy.ts `needs-credits`); the app runs it on the person's click.
   access?: AccessOffer;
+  /// Connect GitHub on a turn whose GitHub call found no connection (githubConnect.ts,
+  /// GitHubConnectCard.tsx): the app's `accounts.githubConnect` with the call's repository and this
+  /// chat's link, then the chat's Continue once the person is back. Absent where the pane cannot send.
+  githubConnect?: GitHubConnectOffer;
   /// What another agent's waiting message's ⋯ menu does (conversation/QueuedMessageCard.tsx), as
   /// the chat offers it now; undefined while the chat is not connected.
   queuedMessages?: () => QueuedMessageActionsValue | undefined;

@@ -33,6 +33,7 @@ import { isMousePress, trackPressRelease } from "./pressRelease";
 import { focusAfterEscape } from "./escapeFocus";
 import { focusWithRing } from "./focusWithRing";
 import { useNativeFinalFocus } from "./useNativeFinalFocus";
+import { usePopupSettle } from "./popupSettle";
 import { useExperimentArm } from "../experiments/useExperimentArm";
 import { MENU_V2_INSET, menuStyleV2, type MenuStyleArm } from "./menuStyleV2.experiment";
 import { isThenable } from "./menuArrange";
@@ -372,6 +373,9 @@ export interface MenuPopupProps {
   matchTrigger?: boolean;
   /** False for a custom layout with its own scrolling columns. */
   scroll?: boolean;
+  /** The popup rule this menu follows instead of the shared one (ui/popupSettle.ts): "results" for a
+   * list that is the live answer to what is typed elsewhere, "own" for a popup that sizes itself. */
+  popupSettle?: "results" | "own";
   /** Pinned below the scrolling rows, outside their edge fade. */
   footer?: ReactNode;
   /** Resizable from its edges away from its button, its size kept under `resize.id` (PopupResize.tsx).
@@ -406,6 +410,7 @@ export function MenuPopup({
   escapes = true,
   matchTrigger = false,
   scroll = true,
+  popupSettle,
   footer,
   resize,
   children,
@@ -437,13 +442,15 @@ export function MenuPopup({
   // The popup's last node: Base UI asks where focus goes after the close fade, as it unmounts.
   const popupNode = useRef<HTMLElement | null>(null);
   const edges = useScrollEdges();
-  const attachPopup = useCallback(
+  const keepPopup = useCallback(
     (node: HTMLElement | null) => {
       if (node) popupNode.current = node;
       if (host || atPointer) setPopup(node);
     },
     [host, atPointer],
   );
+  // Opens at its final size and keeps it while data arrives (popupSettle.ts).
+  const attachPopup = usePopupSettle<HTMLElement>(keepPopup);
   const pointPlace = usePointerMenuPosition(popup, atPointer ? (triggerRef ?? null) : null);
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(
@@ -478,6 +485,7 @@ export function MenuPopup({
           data-pointer-menu={atPointer ? "" : undefined}
           // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
           data-popup-shift={flip === "shift" ? "" : undefined}
+          data-popup-settle={popupSettle}
           // A point menu measures its rows, as does a menu that can escape to the host.
           ref={attachPopup}
           id={id}
@@ -622,6 +630,9 @@ export interface MenuItemProps {
   onFocus?(event: FocusEvent<HTMLElement>): void;
   /** An `async` row returns its work's promise (the type stays `void`, so any handler fits). */
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
+  /** The row's place among all of a windowed menu's rows (only some are mounted). */
+  "aria-posinset"?: number;
+  "aria-setsize"?: number;
   children: ReactNode;
 }
 
@@ -654,6 +665,8 @@ export function MenuItem({
   closeOnClick,
   expanded,
   controls,
+  "aria-posinset": posinset,
+  "aria-setsize": setsize,
   destructive,
   async: isAsync,
   children,
@@ -714,6 +727,7 @@ export function MenuItem({
       {...(keepsOpen === undefined ? {} : { closeOnClick: keepsOpen })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
       {...(controls ? { "aria-controls": controls } : {})}
+      {...(posinset === undefined ? {} : { "aria-posinset": posinset, "aria-setsize": setsize })}
       {...(keepsOpen === false ? { "data-keeps-open": "" } : {})}
       {...(pending ? { "aria-busy": true, "data-pending": "" } : {})}
       onPointerMove={(event) => {
@@ -834,6 +848,8 @@ export function MenuRadioItem({
   closeOnClick,
   label,
   title,
+  "aria-posinset": posinset,
+  "aria-setsize": setsize,
   children,
 }: {
   value: string;
@@ -851,6 +867,7 @@ export function MenuRadioItem({
       value={value}
       aria-label={label}
       title={title}
+      {...(posinset === undefined ? {} : { "aria-posinset": posinset, "aria-setsize": setsize })}
       disabled={disabled}
       closeOnClick={closeOnClick}
       onPointerMove={(event) => context?.movePointer(event)}

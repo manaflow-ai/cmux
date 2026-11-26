@@ -75,7 +75,7 @@ fn exact_prompt_stop_reports_failed_persistence_and_retries_before_acknowledging
             Control::Local,
         );
         assert!(
-            hub.start_turn(&session, None, false, false, turn).is_err(),
+            hub.start_turn(&session, None, None, false, false, turn).is_err(),
             "the acknowledged stop was not recovered from its journal"
         );
     }
@@ -178,7 +178,8 @@ fn stop_settles_an_ending_or_waiting_turn() {
     let set = Mark::Waiting { turn: "t1".into(), retry: Some(retry("t1")), _wake: wake() };
     assert_eq!(settled_by_stop(Some(&set)).as_deref(), Some("t1"));
     assert_eq!(settled_by_stop(Some(&Mark::Ending("t1".into()))).as_deref(), Some("t1"));
-    for mark in [Mark::Firing("t1".into()), Mark::Stopped("t1".into()), Mark::Stopping("t1".into())]
+    for mark in
+        [Mark::Firing("t1".into(), 1), Mark::Stopped("t1".into()), Mark::stopping("t1".into(), 1)]
     {
         assert_eq!(settled_by_stop(Some(&mark)), None);
     }
@@ -245,6 +246,22 @@ fn configured_waits_are_checked() {
     assert_eq!(staggered(u64::MAX, "s"), u64::MAX);
 }
 
+/// Every unread steer of the cut turn is quoted: past the old limit of 64, none is dropped.
+#[test]
+fn every_unread_steer_is_quoted_past_sixty_four() {
+    let (hub, session) = retry_chat();
+    hub.append(&session, "mux", "turn_started", json!({"turnId": "cut", "promptId": "p"}));
+    for n in 0..100 {
+        let steer = json!({"steer": true, "turnId": "cut", "promptId": format!("s-{n}"),
+                           "text": format!("steer {n}")});
+        hub.append(&session, "mux", "user_message", steer);
+    }
+    hub.append(&session, "mux", "steer_read", json!({"promptId": "s-0"}));
+    let unread = hub.unread_steers(&session.id, "cut");
+    assert_eq!(unread.len(), 99);
+    assert_eq!((unread[0].as_str(), unread[98].as_str()), ("steer 1", "steer 99"));
+}
+
 /// A capacity outage is waited out with no attempt limit: past the configured waits the last
 /// one doubles, at most [`super::CAPACITY_MAX_WAIT_MS`] (Leo, 2026-11-23: "I can't even talk
 /// to the GUI chats right now because of alleged overload").
@@ -267,16 +284,32 @@ fn a_capacity_wait_never_runs_out_and_is_capped() {
     assert!((1600..=1920).contains(&super::capacity_wait(3, &short, "s")), "1600 ms plus jitter");
 }
 
-/// A capacity outage and an account's rate limit are waited out (Leo, 2026-11-24: "didn't we
-/// build auto retries for this? why do they fail instead of waiting it out?"); a connection
-/// error keeps its configured attempts, and `[]` keeps every loop off.
+/// A capacity outage, an account's rate limit and a refused connection (the gateway down) are
+/// waited out (Leo, 2026-11-24: "didn't we build auto retries for this? why do they fail
+/// instead of waiting it out?"); any other connection error keeps its configured attempts, and
+/// `[]` keeps every loop off.
 #[test]
-fn capacity_and_rate_limits_are_waited_out() {
+fn capacity_rate_limits_and_refused_connections_are_waited_out() {
     let delays = DEFAULT_DELAYS_MS.to_vec();
-    assert!(super::waits_it_out(RetryReason::Capacity, &delays));
-    assert!(super::waits_it_out(RetryReason::RateLimit, &delays));
-    assert!(!super::waits_it_out(RetryReason::Transport, &delays));
-    assert!(!super::waits_it_out(RetryReason::RateLimit, &[]));
+    let refused = "API Error: Connection refused (ECONNREFUSED)";
+    let dropped = "stream disconnected before completion: error sending request";
+    assert!(super::waits_it_out(RetryReason::Capacity, "", &delays));
+    assert!(super::waits_it_out(RetryReason::RateLimit, "", &delays));
+    assert!(super::waits_it_out(RetryReason::Transport, refused, &delays));
+    assert!(super::waits_it_out(
+        RetryReason::Transport,
+        "connect ECONNREFUSED 127.0.0.1:4016",
+        &delays
+    ));
+    assert!(!super::waits_it_out(RetryReason::Transport, dropped, &delays));
+    assert!(!super::waits_it_out(RetryReason::Transport, "API Error: Connection error.", &delays));
+    assert!(!super::waits_it_out(RetryReason::AgentExited, refused, &delays));
+    assert!(!super::waits_it_out(RetryReason::RateLimit, "", &[]));
+    assert!(!super::waits_it_out(RetryReason::Transport, refused, &[]));
+    assert_eq!(
+        crate::turn_errors::resume_cause(refused, refused).and_then(RetryReason::from_cause),
+        Some(RetryReason::Transport)
+    );
     // Both errors on the 18 lanes one machine left failed on 2026-11-23 are one of the two.
     for (error, reason) in [
         (
@@ -361,4 +394,63 @@ fn a_pool_503_turn_reads_capacity_while_acpmux_holds_it() {
     assert_eq!(crate::hub::views::lane(&summary)["state"], "working");
     assert_eq!(crate::hub::views::lane(&summary)["since"], 5);
     assert!(super::row_last_turn(None, Some(&retry), true).is_none());
+    // A rate-limit continuation is a capacity hold too (RFD model-overload-smoothing §3.8).
+    let limited = RetrySummary { reason: RetryReason::RateLimit, ..retry };
+    let row = super::row_last_turn(Some(&last), Some(&limited), false).unwrap();
+    assert_eq!(row["status"], "capacity");
+    assert_eq!(row["heldUntil"], 250_000);
+}
+
+/// #54378: a continuation fired, Stop overtook it, and its task never returns (it died, or
+/// hangs). Before, its Stopping mark held the chat for the daemon's life: every Retry answered
+/// `retry.busy`. Now the mark ends at its bound, Retry works, and the old task's turn still
+/// never starts, nor does its late cleanup take the new retry's mark.
+#[test]
+fn a_stopped_continuation_whose_task_never_returns_frees_retry_at_its_bound() {
+    let bound = std::time::Duration::from_millis(50);
+    STOPPING_BOUND_FOR_TEST.with(|b| b.set(Some(bound)));
+    let (hub, session) = retry_chat();
+    session.meta.lock().unwrap().last_turn = Some(json!({
+        "turnId": "cut", "promptId": "p", "status": "failed", "errorText": "HTTP 503"
+    }));
+    hub.set_waiting_for_test(&session, "cut", RetryReason::Transport);
+    // The continuation fires; its task now never returns (no `clear_fired`).
+    let old = hub.fire_pending(&session, "cut").unwrap();
+    hub.stop_auto_resume(&session);
+    assert!(matches!(session.auto_resume.lock().as_ref(), Some(Mark::Stopping { .. })));
+    let busy = hub.claim_failed_turn(&session, None, true).unwrap_err();
+    assert!(busy.message.contains("retry.busy"), "{}", busy.message);
+    let started = std::time::Instant::now();
+    let claimed = loop {
+        match hub.claim_failed_turn(&session, None, true) {
+            Ok(claimed) => break claimed,
+            Err(e) if e.message.contains("retry.busy") => {
+                assert!(
+                    started.elapsed() < bound * 20,
+                    "Retry still busy after {:?}",
+                    started.elapsed()
+                );
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(e) => panic!("{}", e.message),
+        }
+    };
+    let freed = started.elapsed();
+    assert!(freed + std::time::Duration::from_millis(10) >= bound, "freed early: {freed:?}");
+    eprintln!("stopping mark: Retry free after {freed:?} (bound {bound:?})");
+    let (cut, _, _, new) = claimed;
+    assert_eq!(cut, "cut");
+    assert_ne!(new, old);
+    // The old task wakes at last: its turn is refused, and its cleanup leaves the new mark.
+    let turn = || TurnInfo::prompted("acpmux", "continue", "t2", "p~resume-1", Control::Local);
+    let refused = hub.start_turn(&session, Some("cut"), Some(old), false, false, turn());
+    assert!(refused.unwrap_err().message.contains("stopped"));
+    hub.clear_fired(&session, "cut", old);
+    assert!(
+        matches!(session.auto_resume.lock().as_ref(), Some(Mark::Firing(t, g)) if t == "cut" && *g == new)
+    );
+    // The person's Retry starts its turn.
+    hub.start_turn(&session, Some("cut"), Some(new), false, false, turn()).unwrap();
+    assert!(session.auto_resume.lock().is_none());
+    STOPPING_BOUND_FOR_TEST.with(|b| b.set(None));
 }

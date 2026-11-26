@@ -66,6 +66,14 @@ public final class SettingsModels {
     @ObservationIgnored var cloudClaudeAccountWatch: Task<Void, Never>?
     @ObservationIgnored var cloudClaudeStateAccount: [String?]?
 
+    /// The one-click Claude connection (`claude_token.begin`): its attempt, phase (`starting`,
+    /// `signing_in`, `saving`), the last attempt's error, and whether the last attempt saved a token
+    /// (a Cancel, or a run the daemon cancelled, ends with neither an error nor `saved`).
+    private(set) var claudeTokenAttempt: String?
+    private(set) var claudeTokenPhase: String?
+    private(set) var claudeTokenError: String?
+    private(set) var claudeTokenSaved = false
+
     var hasDaemonOverride: Bool { call != nil }
 
     @ObservationIgnored let environment: @MainActor () async -> AcpmuxEnvironment?
@@ -74,6 +82,7 @@ public final class SettingsModels {
     @ObservationIgnored private let openURL: @MainActor (URL) -> Void
     @ObservationIgnored var presentSignInPage: (@MainActor (URL, String) async -> Bool)?
     @ObservationIgnored var dismissSignInPage: (@MainActor (String) -> Void)?
+    @ObservationIgnored package var harnesses: SettingsHarnesses?
     @ObservationIgnored private let team: @MainActor () -> (id: String, name: String)?
     @ObservationIgnored private let agentKeys: TeamAgentKeys?
     @ObservationIgnored private let policy: TeamModelsPolicy?
@@ -97,6 +106,7 @@ public final class SettingsModels {
         MainDelivery().run { approval.release(owner) }
     }
     @ObservationIgnored private(set) var chatgptTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var claudeTokenTask: Task<Void, Never>?
     @ObservationIgnored private var watch: Task<Void, Never>?
     @ObservationIgnored private var watchers = 0
     @ObservationIgnored private var watchEnvironment: AcpmuxEnvironment?
@@ -117,7 +127,8 @@ public final class SettingsModels {
                 policy: TeamModelsPolicy? = nil,
                 spreadSetting: (@MainActor () -> Bool)? = nil,
                 writeSpreadSetting: (@MainActor (Bool) async throws -> Void)? = nil,
-                cloudClaudeApproval: CloudClaudeApproval = CloudClaudeApproval()) {
+                cloudClaudeApproval: CloudClaudeApproval = CloudClaudeApproval(),
+                harnesses: SettingsHarnesses? = nil) {
         self.environment = environment
         self.call = call
         self.keys = keys
@@ -128,6 +139,7 @@ public final class SettingsModels {
         self.spreadSetting = spreadSetting
         self.writeSpreadSetting = writeSpreadSetting
         self.cloudClaudeApproval = cloudClaudeApproval
+        self.harnesses = harnesses
     }
 
     // MARK: State
@@ -169,6 +181,10 @@ public final class SettingsModels {
             "deviceProvider": .string(deviceProvider.rawValue),
             "deviceRegion": deviceRegion.map(JSONValue.string) ?? .null,
             "deviceTarget": deviceTarget.map(JSONValue.string) ?? .null,
+            "claudeToken": ["attempt": claudeTokenAttempt.map(JSONValue.string) ?? .null,
+                            "phase": claudeTokenPhase.map(JSONValue.string) ?? .null,
+                            "error": claudeTokenError.map(JSONValue.string) ?? .null,
+                            "saved": .bool(claudeTokenSaved)],
         ]
     }
 
@@ -457,6 +473,21 @@ public final class SettingsModels {
             default:
                 try await signOutClaude(target, machine: params["machine"]?.stringValue)
             }
+        case "connectClaudeToken":
+            return try await connectClaudeToken(label: params["label"]?.stringValue)
+        case "claudeTokenCode":
+            try await claudeTokenCode(params["code"]?.stringValue ?? "")
+        case "cancelClaudeToken":
+            await cancelClaudeToken()
+        case "claudeSetupToken":
+            // A daemon with the one-click run (`claude_token.begin`) needs no terminal: the app runs
+            // `claude setup-token` itself and the token is never shown. An older one: the terminal tab.
+            do { return try await connectClaudeToken(label: params["label"]?.stringValue) } catch let error as PageError where error.code == "cmux.models.unsupported" {
+                guard let harnesses else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
+                try await harnesses.typeLine("claude setup-token")
+            }
+        case "addClaudeToken":
+            try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue)
         case "addKey":
             let provider = params["provider"]?.stringValue ?? ""
             let key = params["key"]?.stringValue ?? ""
@@ -473,7 +504,7 @@ public final class SettingsModels {
                 replacement = nil
             }
             if params["verifyAccess"]?.boolValue == true {
-                let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = Self.withoutWhitespace(key)
                 guard Self.providers.contains(provider), Self.isModelAPIKey(trimmed) else {
                     throw PageError.invalidParams("addKey needs a known provider and a key with no spaces")
                 }
@@ -490,7 +521,8 @@ public final class SettingsModels {
                     throw PageError.unavailable("the local acpmux could not check model access")
                 }
             }
-            try await addKey(provider: provider, key: key, label: params["label"]?.stringValue, replacing: replacement, servesCloud: params["servesCloud"]?.boolValue)
+            try await addKey(provider: provider, key: key, label: params["label"]?.stringValue, replacing: replacement, servesCloud: params["servesCloud"]?.boolValue,
+                             checkStoredKey: params["verifyAccess"]?.boolValue == nil)
         case "orgKey":
             // `key: null` removes; a missing key is a mistake, not a removal.
             guard let key = params["key"] else { throw PageError.invalidParams("orgKey needs key (a key, or null to remove)") }
@@ -568,7 +600,20 @@ public final class SettingsModels {
         if let presentSignInPage, await presentSignInPage(url, owner) {
             return
         }
+        if let open = harnesses?.openSignInPage, await open(url) != nil { return }
         openURL(url)
+    }
+
+    func setClaudeToken(attempt: String?, phase: String?, error: String?, saved: Bool = false) {
+        claudeTokenAttempt = attempt
+        claudeTokenPhase = phase
+        claudeTokenError = error
+        claudeTokenSaved = saved
+    }
+
+    func replaceClaudeTokenTask(_ task: Task<Void, Never>?) {
+        claudeTokenTask?.cancel()
+        claudeTokenTask = task
     }
 
     func replaceChatGPTTask(_ task: Task<Void, Never>?) {
