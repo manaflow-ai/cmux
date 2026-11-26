@@ -360,7 +360,7 @@ pub fn neighbor(
     if wrapping {
         return order.get(next.rem_euclid(count) as usize).cloned();
     }
-    (0..count).contains(&next).then(|| order[next as usize].clone())
+    usize::try_from(next).ok().and_then(|at| order.get(at).cloned())
 }
 
 /// `HomeSidebarModel.conversation(number:)`: ⌘1–⌘8 by place, ⌘9 the last.
