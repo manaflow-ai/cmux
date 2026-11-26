@@ -4,21 +4,6 @@
 #[allow(unused_imports)]
 use super::*;
 
-wire_errors! {
-    /// The error codes user.text_confirm.level.set declares.
-    UserTextConfirmLevelSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        TextConfirmLocked = "text_confirm.locked",
-        TextConfirmProofRequired = "text_confirm.proof_required",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
 wire_op! {
     /// Create or refresh the caller's user record from the Stack session.
     UserEnsureOp {
