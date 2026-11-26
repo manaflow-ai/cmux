@@ -61,6 +61,7 @@ GATE_SCRIPTS = {
     "protocol skew": "scripts/ci/protocol_skew_check.py",
     "entry logs": "scripts/ci/entry_logs.py",
     "settings catalog keys": "scripts/ci/settings_catalog_keys.py",
+    "egress gate": "scripts/ci/egress_new_sites.py",
 }
 # Every gate starts in the first batch except webviews checks, which waits behind web lint; derived so a new gate
 # does not leave the parallel barrier one marker short.
@@ -1407,6 +1408,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
         self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
+        self.assertEqual(calls["egress gate"]["argv"][:4], ["--base", base, "--head", merge])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
