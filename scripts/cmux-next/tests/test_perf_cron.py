@@ -1950,6 +1950,22 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(result["state"], "failed", "no row at all is no measurement")
 
 
+    def test_run_linux_part_keeps_the_paired_rounds_that_ran_before_the_suite(self):
+        # web-ui-god plays its paired rounds first, then the suite (cmux#57939); the suite's report must not replace
+        # them (perf cron run 45853686955 printed a 6-round paired token 1.163 and stored no paired row).
+        script = f"import json; print(json.dumps({self.REPORT!r}))"
+        rounds = {"rounds": [{"rows": [], "seconds": 1, "exit": 0}], "stopped": "deadline"}
+        runs = {"paired": (["true"], "/", {}), "suite": (["python3", "-c", script], "/", {})}
+        with tempfile.TemporaryDirectory() as out, \
+                mock.patch.object(cron, "linux_bench_runs", lambda root, part: runs), \
+                mock.patch.object(cron, "paired_pane_build", lambda cwd, env, pane: ({}, "paired pane build: 0 s")), \
+                mock.patch.object(cron, "run_paired_rounds", lambda *a, **k: rounds), \
+                contextlib.redirect_stdout(io.StringIO()):
+            cron.cmd_run_linux_part(argparse.Namespace(part="web-ui-god", out=out, runner_class="ubuntu-24.04"))
+            report = json.load(open(os.path.join(out, "report.json")))
+        self.assertEqual(report["paired"], rounds)
+        self.assertEqual(report["rows"], self.REPORT["rows"])
+
     def test_terminal_scroll_prepares_ghostty_and_zig_from_the_tip(self):
         """A measured commit whose script predates #50961 has an empty ghostty-next and no Zig: the tip prepares both."""
         with tempfile.TemporaryDirectory() as root:
