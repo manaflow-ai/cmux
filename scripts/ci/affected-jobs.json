@@ -72,7 +72,7 @@
           "compile_only": true,
           "crates": [
             "cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux",
-            "cmux-tui/crates/cmux-host"
+            "cmux-tui/crates/cmux-host", "cmux-tui/crates/cmux-browser-host"
           ],
           "inputs": [
             "ghostty-next", "scripts/install-zig-ci.sh", ".github/actions/ghostty-zig-packages/",
