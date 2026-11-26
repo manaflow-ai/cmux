@@ -140,7 +140,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Live is on. Click to go offline."
+            "value": "Live is on. Click to turn it off."
           }
         },
         "ar": {

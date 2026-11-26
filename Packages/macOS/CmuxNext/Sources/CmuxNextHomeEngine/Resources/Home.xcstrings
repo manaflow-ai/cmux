@@ -19894,7 +19894,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How to use cmux:"
+            "value": "More shortcuts:"
           }
         },
         "ar": {
@@ -22546,9 +22546,9 @@
           }
         },
         "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "I run cmux for you. Ask me to send off agents, watch your workspaces, change settings or set your background."
+          "stringUnit": {
+            "state": "translated",
+            "value": "I can make new workspaces, start agents for you, and set up or customize cmux however you like.\nJust tell me what you want done."
           }
         },
         "es" : {
