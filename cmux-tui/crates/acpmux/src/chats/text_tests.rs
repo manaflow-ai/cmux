@@ -531,3 +531,72 @@ fn a_pass_over_much_text_on_many_threads_finds_what_one_thread_finds() {
     // Below the bound the pass stays on this thread and still finds every doc.
     assert_eq!(par_filter_map(&refs[..26], find).len(), 2);
 }
+
+#[test]
+fn the_trigram_set_never_drops_a_hit_and_a_word_no_chat_says_reads_no_text() {
+    let mut seed = 11_u64;
+    let vocabulary: Vec<String> = (0..400)
+        .map(|i| {
+            let len = 2 + i % 9;
+            (0..len).map(|j| char::from(b'a' + ((i * 7 + j * 3) % 26) as u8)).collect::<String>()
+        })
+        .collect();
+    let chats: Vec<IndexedChat> = (0..60).map(|n| chat(&format!("c{n}"), n)).collect();
+    // Uneven sizes, mixed case: a short chat, and long ones past the set's most bits.
+    let said: HashMap<String, Vec<Turn>> = (0..60)
+        .map(|n| {
+            let mut s = seed.wrapping_add(n as u64);
+            let count = [5, 60, 2_000, 30_000][n % 4];
+            let mut text = words(&mut s, count, &vocabulary);
+            if n % 3 == 0 {
+                text = text.to_uppercase();
+            }
+            (format!("c{n}"), vec![turn("q", &text)])
+        })
+        .collect();
+    let text = index();
+    text.update(&chats, &|entry| said.get(&entry.session_id).cloned());
+    let plain = |query: &str| {
+        let words = needle(query);
+        let unfiltered = Matcher { trigrams: Vec::new(), ..Matcher::new(&words) };
+        let mut keys: Vec<String> = lock(&text.inner)
+            .docs
+            .iter()
+            .filter(|(_, doc)| doc.find(&words, &unfiltered).is_some())
+            .map(|(key, _)| key.clone())
+            .collect();
+        keys.sort();
+        keys
+    };
+    for _ in 0..300 {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let a = &vocabulary[(seed >> 33) as usize % vocabulary.len()];
+        let b = &vocabulary[(seed >> 13) as usize % vocabulary.len()];
+        // A word, two words, and a piece of a word across a word's end.
+        for query in [a.clone(), format!("{a} {b}"), format!("{} {}", &a[1..], &b[..2])] {
+            let mut found: Vec<String> = text.search(&needle(&query)).keys().cloned().collect();
+            found.sort();
+            assert_eq!(found, plain(&query), "{query}");
+        }
+    }
+    let (scanned, read) = (text.scanned(), text.read());
+    assert!(text.search(&needle("zqxjvw")).is_empty());
+    assert_eq!(text.scanned() - scanned, 60, "every chat is asked");
+    assert_eq!(text.read() - read, 0, "no chat's text is read for a word none says");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+#[test]
+fn an_edited_doc_keeps_finding_old_and_added_words_through_its_trigram_set() {
+    let stamp = Stamp { updated_ms: 0, messages: None };
+    let mut doc = Doc::new(stamp, &[turn("first", "Alpha")]);
+    // Grow past the set's first size, so it is read again off the whole text.
+    let long = "filler words here ".repeat(200);
+    doc.edit(1, &[turn(&long, "Bravo"), turn("x", "charlie")], 0);
+    for word in ["alpha", "BRAVO", "Charlie", "filler"] {
+        let words = needle(word);
+        assert!(doc.find(&words, &Matcher::new(&words)).is_some(), "{word}");
+    }
+    let words = needle("zqxjvw");
+    assert!(!doc.may_hold(&Matcher::new(&words)));
+}
