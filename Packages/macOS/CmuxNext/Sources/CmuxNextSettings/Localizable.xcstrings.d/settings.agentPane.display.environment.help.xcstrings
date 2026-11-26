@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.environment.help" : {
+      "comment" : "Settings > Appearance > Agent Chat > Session Info Chip: help for the Left / Right / Off choice",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مكان الشريحة: أسفل علامات التبويب (اليسار) أو في الرأس (اليمين)."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdje stoji čip: ispod kartica (Lijevo) ili u zaglavlju (Desno)."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor chippen sidder: under fanerne (Venstre) eller i sidehovedet (Højre)."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wo der Chip sitzt: unter den Tabs (Links) oder im Header (Rechts)."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where the chip sits: under the tabs (Left) or in the header (Right)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dónde se sitúa el chip: bajo las pestañas (Izquierda) o en el encabezado (Derecha)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Emplacement de la pastille : sous les onglets (Gauche) ou dans l’en-tête (Droite)."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dove si trova il chip: sotto le schede (Sinistra) o nell’intestazione (Destra)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "チップの位置：タブの下（左）またはヘッダー内（右）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងដែលបន្ទះស្ថិតនៅ៖ ក្រោមផ្ទាំង (ឆ្វេង) ឬនៅក្បាល (ស្ដាំ)។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "칩의 위치: 탭 아래(왼쪽) 또는 헤더(오른쪽)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor brikken står: under fanene (Venstre) eller i toppteksten (Høyre)."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdzie jest chip: pod kartami (Lewo) lub w nagłówku (Prawo)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Onde o chip fica: abaixo das abas (Esquerda) ou no cabeçalho (Direita)."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Где находится чип: под вкладками (Слева) или в заголовке (Справа)."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตำแหน่งของชิป: ใต้แท็บ (ซ้าย) หรือในส่วนหัว (ขวา)"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çipin yeri: sekmelerin altında (Sol) veya başlıkta (Sağ)."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Де розташований чип: під вкладками (Ліворуч) або в заголовку (Праворуч)."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vị trí của chip: dưới các tab (Trái) hoặc trong tiêu đề (Phải)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "标签的位置：标签栏下方（左侧）或标题栏中（右侧）。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "標籤的位置：標籤列下方（左側）或標題列中（右側）。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

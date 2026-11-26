@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "source.url.failed" : {
+      "comment" : "New chat project source picker",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t clone the repository. Check the URL and your Git access, then try again."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تعذّر استنساخ المستودع. تحقّق من العنوان وصلاحيات Git ثم أعد المحاولة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kloniranje repozitorija nije uspjelo. Provjeri adresu i pristup Gitu pa pokušaj ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunne ikke klone repositoryet. Tjek URL’en og din Git-adgang, og prøv igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Das Repository konnte nicht geklont werden. Prüfe die URL und deinen Git-Zugriff und versuche es erneut."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No se pudo clonar el repositorio. Comprueba la URL y tu acceso de Git e inténtalo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossible de cloner le dépôt. Vérifiez l’URL et votre accès Git, puis réessayez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Impossibile clonare il repository. Controlla l’URL e il tuo accesso Git, poi riprova."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "リポジトリをクローンできませんでした。URL と Git のアクセス権を確認して再試行してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "មិនអាចក្លូនឃ្លាំងកូដបានទេ។ ពិនិត្យ URL និងសិទ្ធិចូលប្រើ Git រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "저장소를 복제할 수 없습니다. URL과 Git 접근 권한을 확인한 후 다시 시도하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunne ikke klone repositoriet. Sjekk URL-en og Git-tilgangen, og prøv igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nie udało się sklonować repozytorium. Sprawdź adres URL i uprawnienia Git, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não foi possível clonar o repositório. Verifique a URL e seu acesso ao Git e tente novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось клонировать репозиторий. Проверьте URL и доступ к Git, затем повторите попытку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "โคลนที่เก็บโค้ดไม่ได้ ตรวจสอบ URL และสิทธิ์เข้าถึง Git แล้วลองอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Depo klonlanamadı. URL’yi ve Git erişiminizi kontrol edip yeniden deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не вдалося клонувати репозиторій. Перевірте URL і доступ до Git, а потім повторіть спробу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không thể sao chép kho mã. Hãy kiểm tra URL và quyền truy cập Git rồi thử lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法克隆仓库。请检查网址和 Git 访问权限，然后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法複製儲存庫。請檢查網址與 Git 存取權限後再試。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
