@@ -12,7 +12,7 @@
    "worktree": "/home/cmux/.wt/checkouts/cmux/lane--acpmux-wire-declarations/cmux-tui"
   },
   {
-   "at": "2026-11-24T15:10:12Z",
+   "at": "2026-11-26T01:16:02Z",
    "harness": "claude",
    "host": "gcp-agent-lane-9",
    "name": "transport-lockstep",
@@ -20,7 +20,7 @@
    "pr": null,
    "proc_start": "27829917",
    "session_id": "01a20d8d-e986-70b7-b5d3-173dab52e55c",
-   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--transport-lockstep/cmux-tui"
+   "worktree": "/home/cmux/.wt/checkouts/cmux/lane--transport-lockstep/cmux-next-ios/rust"
   }
  ],
  "schema": "cargo-target-owner/v1"

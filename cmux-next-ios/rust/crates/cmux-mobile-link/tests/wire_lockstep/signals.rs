@@ -155,6 +155,7 @@ pub(super) fn names() -> BTreeSet<String> {
             relayed_tls: vec!["127.0.0.1:2".into()],
             version: WG_VERSION,
             relay: Some("relay".into()),
+            ticket_early: true,
         },
         SignalPayload::WgResp {
             public_key: "key".into(),
@@ -175,6 +176,7 @@ pub(super) fn names() -> BTreeSet<String> {
             mapped_by: Some("pcp".into()),
         },
         SignalPayload::WgRelay {},
+        SignalPayload::WgTicket {},
         SignalPayload::Bye { reason: "closed".into() },
     ];
     let roam = [
