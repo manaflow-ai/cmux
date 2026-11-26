@@ -1627,6 +1627,7 @@ jobs:
             bash scripts/cmux-next/tests/generated-autofixable.test.sh
             bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
             bash scripts/cmux-next/tests/judge-action-exports.test.sh
+            bash scripts/cmux-next/tests/check-generated-linux.test.sh
             bash scripts/cmux-next/tests/regenerate-exports-linux.test.sh
             bash scripts/cmux-next/tests/export-settings-linux.test.sh
             bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh
