@@ -216,6 +216,9 @@ impl Peer {
                 return true;
             }
             demand.parked.store(true, Ordering::SeqCst);
+            // A replacement may have opened while the old link was silent. Once demand parks,
+            // that staged socket is no longer useful and must be dropped before we wait.
+            self.replacement.lock_or_recover().take();
             tracing::info!(peer = %self.name, "the link is down and unused; it reconnects on use");
         }
         if !self.closes_idle() {
