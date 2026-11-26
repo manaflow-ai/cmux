@@ -4,7 +4,11 @@
 // reply still streams after the steer's bubble, then the steer's answer follows as a new message.
 // The pane drew the reply split mid-word around the bubble ("The S" [steer] "un also rises") and
 // glued the answer onto its last sentence ("…of space.DONE"). The reply's text belongs to its
-// message: it stays one paragraph above the bubble, and the answer is a row of its own below.
+// message: it stays one paragraph, and the answer is a row of its own.
+// Where the bubble sits once the turn ended: the agent started no call after the steer, so it is a
+// late steer and draws over the agent's text, the reply it was writing moving with the answer
+// (cmux#56293, turns.ts `lateSteersLast`; cmuxterm-hq docs/design/transcript-steer-and-fold-order.md
+// S8). Leo, 2026-11-25: "worked for above my message and then yours and then boom that's it".
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -130,7 +134,7 @@ await requireBrowserLane("agent-pane-steer-split.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("a steer's bubble follows the whole reply, and its answer starts a row below it", async () => {
+  test("an ended turn's late steer draws over the whole reply, and its answer is a row of its own", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url());
     await page.getByText("Then say DONE").waitFor();
@@ -140,7 +144,7 @@ await requireBrowserLane("agent-pane-steer-split.test.ts", async () => {
         .map((node) => node.textContent?.trim() ?? "")
         .filter((text) => text && !text.startsWith("Write two")),
     );
-    expect(drawn).toEqual(["The Sun also rises. It warms a cold reach of space.", "Then say DONE", "DONE"]);
+    expect(drawn).toEqual(["Then say DONE", "The Sun also rises. It warms a cold reach of space.", "DONE"]);
     await page.close();
   });
 });
