@@ -33,10 +33,16 @@ pub(crate) fn scene_color_warnings(
 }
 
 fn check_modifiers(path: &str, source: &str, warnings: &mut Vec<Problem>) {
-    let mut tokens = Scanner::new(source)
-        .map_while(Result::ok)
-        .filter(|item| !item.token.is_comment())
-        .peekable();
+    let mut scanner = Scanner::new(source);
+    let mut scanned = Vec::new();
+    let scan_error = loop {
+        match scanner.next() {
+            Some(Ok(item)) => scanned.push(item),
+            Some(Err(error)) => break Some(error),
+            None => break None,
+        }
+    };
+    let mut tokens = scanned.into_iter().filter(|item| !item.token.is_comment()).peekable();
     while let Some(item) = tokens.next() {
         if !item.token.matches_punct(Punct::Period) {
             continue;
@@ -87,6 +93,14 @@ fn check_modifiers(path: &str, source: &str, warnings: &mut Vec<Problem>) {
             ));
         }
     }
+    if let Some(error) = scan_error {
+        warnings.push(Problem::at(
+            path,
+            Some(error.line as u32),
+            Some(error.column as u32),
+            "could not scan the whole file for literal scene colors; warnings may be incomplete",
+        ));
+    }
 }
 
 #[cfg(test)]
@@ -118,12 +132,22 @@ mod tests {
             "Text('🦀').color('é#112233')",
             "Text('🦀').色('#112233')",
             "Text('🦀').color('')",
-            "Text('🦀').color('#112233",
             "Text('🦀').color(`#${色}`)",
         ] {
             let mut warnings = Vec::new();
             check_modifiers("main.js", source, &mut warnings);
             assert!(warnings.is_empty(), "{source}");
         }
+    }
+
+    #[test]
+    fn scene_color_warnings_report_an_incomplete_scan() {
+        let source = "const broken = 'unterminated\nText().color('#112233')";
+        let mut warnings = Vec::new();
+        check_modifiers("main.js", source, &mut warnings);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert_eq!(warnings[0].line, Some(1));
+        assert!(warnings[0].message.contains("scan the whole file"));
+        assert!(warnings[0].message.contains("may be incomplete"));
     }
 }
