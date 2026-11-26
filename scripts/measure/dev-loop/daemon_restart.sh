@@ -19,13 +19,16 @@ mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 edited="$root/cmux-tui/crates/cmux-tui/src/bin/cmux-tui/identify.rs"
 bin_root="$root/cmux-tui/crates/cmux-tui/src/bin/cmux-tui.rs"
+core_edited="$root/cmux-tui/crates/cmux-tui-core/src/server/cmd_server.rs"  # the core_edit_s round
 scratch="$(mktemp -d /tmp/dlc-dr-sh.XXXXXX)"
 cp -p "$edited" "$scratch/edited.rs"
 cp -p "$bin_root" "$scratch/bin.rs"
+cp -p "$core_edited" "$scratch/core.rs"
 restore() {
   # measure.py puts both back itself; this is for a run that died before its own cleanup.
   cmp -s "$scratch/edited.rs" "$edited" || cp "$scratch/edited.rs" "$edited"
   cmp -s "$scratch/bin.rs" "$bin_root" || cp "$scratch/bin.rs" "$bin_root"
+  cmp -s "$scratch/core.rs" "$core_edited" || cp "$scratch/core.rs" "$core_edited"
   rm -rf "$scratch"
 }
 trap restore EXIT
