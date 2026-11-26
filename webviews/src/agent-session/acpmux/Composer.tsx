@@ -9,14 +9,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
-  useId,
   useImperativeHandle,
-  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
+  useInsertionEffect,
+  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -31,10 +31,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
+  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
-  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -47,7 +47,7 @@ import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
-import { ComposerBranch, ComposerContext } from "./ComposerContext";
+import { ComposerContext, ComposerBranch } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
 import { chatHasFirstSend, showsLocationRow, stripSlot, type StripSlot } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
@@ -161,7 +161,7 @@ import { DropOverlay } from "./composer/DropOverlay";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
-import { queuePauseReason } from "./queuePause";
+import { queuePauseReason, resumePausedQueue } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
 import {
   CAPTURE_MODES,
@@ -186,7 +186,7 @@ import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
-import { ComposerStatusFoot, statusDotMounts } from "./ComposerStatusDot";
+import { ComposerStatusFoot, dotSaysQueuePaused, statusDotMounts } from "./ComposerStatusDot";
 import { peerLink, type PeerLink } from "./peerLink";
 import type { EmojiTrigger } from "./emojiShortcodes";
 import type { MentionTrigger } from "./composer/emojiTokens";
@@ -1125,6 +1125,7 @@ function ComposerFrame({
     plainFooter,
     attachmentView,
     followUpMode,
+    composerPlaceholder,
   } = useComposerSettings();
   // Modal vim in the prompt (composer/vimKeys.ts), when `agentPane.composerVimKeys` is on. The state
   // lives in a ref so a key reads the latest; the mode alone renders (the indicator).
@@ -2657,9 +2658,11 @@ function ComposerFrame({
             ? COMPOSER_LABELS.placeholderSteerQuick
             : COMPOSER_LABELS.placeholder;
   // A side session's idle prompt reads "Reply in this session…" (the `placeholder` prop); the
-  // mid-turn and Esc hints still win, since they say what a key does now.
+  // mid-turn and Esc hints still win, since they say what a key does now. Otherwise
+  // `agentPane.composerPlaceholder` (empty by default) replaces cmux's own idle text.
+  const idlePlaceholder = placeholder || composerPlaceholder;
   const placeholderText =
-    placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
+    idlePlaceholder && placeholderKey === COMPOSER_LABELS.placeholder ? idlePlaceholder : t(placeholderKey);
   // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
   // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
   const cwd = snapshot.summary?.cwd;
@@ -3058,7 +3061,7 @@ function ComposerFrame({
   const chooseSend = (choice: SendChoice) => {
     if (choice === "side") send(false, false, undefined, "side");
     // Queue for later is ⌘Return; Send is the button's own send.
-    else send(false, choice === "queue" ? steersAlways : followUpSteers("return", followUpMode, followUp));
+    else send(false, followUpSteers(choice === "queue" ? "menuQueue" : "return", followUpMode, followUp));
   };
   // Declared after every value they read: the React Compiler refuses a closure that reads one declared
   // below it.
@@ -3263,7 +3266,7 @@ function ComposerFrame({
       event.preventDefault();
       const typed = typedWords().trim() !== "";
       const sendAndOpen = (gesture?: SendGesture) => {
-        const sent = submitNow.current(false, steersAlways || steersUnseen, gesture);
+        const sent = submitNow.current(false, followUpSteers("quickOpen", followUpMode, followUp), gesture);
         // A prompt the host refused stays in the composer, and the chat stays here.
         if (typed && !sent) return;
         openInWindow.current?.(sent);
@@ -3492,6 +3495,16 @@ function ComposerFrame({
   );
   // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
   const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
+  // The status dot says a paused queue, its reason and Resume (RFD 0128): the queue's note stays out.
+  const pauseSaid = snapshot.summary?.queuePaused === true && dotSaysQueuePaused(snapshot);
+  // The dot's Resume is the paused note's (the queue's first prompt acpmux holds), there whenever the
+  // note's was; with no queued prompt left, the composer's own Resume.
+  const resumeQueue =
+    snapshot.summary?.queuePaused === true && onQueueChange && snapshot.queue.length > 0
+      ? () => resumePausedQueue(snapshot.queue, onQueueChange)
+      : canResume && !resuming
+        ? () => runResume(canResume)
+        : undefined;
   return (
     <form
       ref={form}
@@ -3569,6 +3582,7 @@ function ComposerFrame({
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
         {...(pauseReason ? { pauseReason } : {})}
+        pauseSaid={pauseSaid}
         t={t}
         onRemove={onQueueRemove}
         onCancelEdit={onQueueCancelEdit}
@@ -3853,7 +3867,8 @@ function ComposerFrame({
               link={machineLink}
               heldForHost={heldForHost}
               onReconnectMachine={onReconnectMachine}
-              onResumeQueue={canResume && !resuming ? () => runResume(canResume) : undefined}
+              onResumeQueue={resumeQueue}
+              pauseReason={pauseReason}
             />
           </PromptFocusProvider>
         }
