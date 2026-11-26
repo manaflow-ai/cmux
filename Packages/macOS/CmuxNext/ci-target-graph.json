@@ -2494,6 +2494,15 @@
       "targets": [],
       "packages": []
     },
+    "CmuxNextTerminalGeometryTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalGeometryTests",
+      "targets": [
+        "CmuxNextTerminalGeometry"
+      ],
+      "packages": [],
+      "reads": []
+    },
     "CmuxNextTerminalTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalTests",
