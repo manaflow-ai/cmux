@@ -562,6 +562,7 @@ import { sideChatPlace, sideChatRefusal, sideChatRow } from "./header/sideChatRo
 import { isCurrentMenuCommand, parseMenuCommand } from "./header/menuCommands";
 import { errorRecovery, lastFailedTurn } from "./conversation/errorRecovery";
 import { type WorkingCounts, WorkingCountsContext } from "./conversation/workingForModel";
+import { setAgentSignatureSource } from "./conversation/agentSignatureModel";
 import { type PreviewChips, PreviewChipsContext, previewsOf } from "./conversation/previewChipModel";
 import {
   type RunElsewhere,
@@ -6161,6 +6162,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     // The client is read at each call, so a reconnect keeps the chat's runs and their rows.
   }, [quick, cloudPreviewChat, runChat]);
+  // The running line's dot signature asks acpmux for the pane's own chat (`session/signature`),
+  // only while appearance.agentSignature is on (conversation/agentSignatureModel.ts); the client
+  // is read at the call, so a reconnect keeps it.
+  const signatureSessionId = snapshot.sessionId;
+  useEffect(() => {
+    if (!signatureSessionId) return;
+    return setAgentSignatureSource({
+      sessionId: signatureSessionId,
+      fetch: (ids) => directClient.current?.signatures(ids) ?? Promise.reject(new Error("no client")),
+    });
+  }, [signatureSessionId]);
   // What the live line says after its time (conversation/Thinking.tsx): the turn's output tokens and
   // the page the newest background command serves. The tray counts the running work, never the line.
   const workingCounts = useMemo<WorkingCounts>(

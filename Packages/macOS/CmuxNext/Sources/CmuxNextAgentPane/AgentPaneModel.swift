@@ -296,7 +296,7 @@ public final class AgentPaneModel {
     /// The chat header's tab actions and tab state (``AgentPaneHeaderHooks``).
     @ObservationIgnored public var header: AgentPaneHeaderHooks?
     /// The header's tools in the pane's tab row (``AgentPaneTabRow``).
-    @ObservationIgnored public let tabRow = AgentPaneTabRow(defaults: .standard)
+    @ObservationIgnored public let tabRow = AgentPaneTabRow(defaults: .standard, firstLaunchWidth: AgentPaneTabRow.firstLaunchWidth)
     /// Page-owned Session Info content drawn by AppKit.
     @ObservationIgnored public let sessionInfo = AgentPaneSessionInfo()
     /// The page's bottom stack (a question, the tray, queued prompts, the composer) in its viewport,
