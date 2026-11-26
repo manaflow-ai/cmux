@@ -114,7 +114,12 @@ class StepsAreWired(unittest.TestCase):
         for check, target in (("Stop when the run can no longer publish (before the compile)", "Build nightly app (Release)"),
                               ("Stop when the run can no longer publish (before the upload)", "Upload unsigned nightly app")):
             i, j = self.index(check), self.index(target)
-            self.assertEqual(i + 1, j, f"{check} runs right before {target}")
+            # Only the in-tree acpmux join (#56668) may sit between: the check still stops the run before it waits
+            # on that build and before the compile.
+            between = [s.get("name") for s in self.steps[i + 1:j]]
+            self.assertLessEqual(set(between), {"Finish building in-tree acpmux for the compilation cache"},
+                                 f"{check} runs right before {target}")
+            self.assertLess(i, j, f"{check} runs before {target}")
             step = self.steps[i]
             self.assertEqual(step["if"], self.steps[j]["if"])
             self.assertIn('check=scripts/ci/stop_if_publish_doomed.py', step["run"])

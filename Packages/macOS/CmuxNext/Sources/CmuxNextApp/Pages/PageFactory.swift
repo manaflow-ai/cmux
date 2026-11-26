@@ -129,7 +129,7 @@ struct PageFactory {
                           signOut: { [weak account] in await account?.signOut() },
                           account: { [weak account] in
                               CloudPageProvider.accountValue(signedIn: account?.isSignedIn ?? false, user: account?.auth.user?.id,
-                                                             team: account?.auth.teamID)
+                                                             team: account?.auth.teamID, signInBackend: account?.configuration.signInBackendLine)
                           })
     }
 

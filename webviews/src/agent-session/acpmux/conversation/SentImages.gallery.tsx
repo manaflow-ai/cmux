@@ -14,6 +14,7 @@ import {
   heldUntilReleased,
   paintShot,
   type Shot,
+  useAttachmentView,
 } from "../../../gallery/fixtures/sentMedia";
 import type { AcpmuxRow, PromptImage } from "../model";
 import { attachmentRetry } from "../../../pages/shared/attachmentRetry";
@@ -197,6 +198,8 @@ function GalleryPlacedImages({
       ...(text ? [{ kind: "text" as const, text: ` ${text}` }] : []),
     ],
   };
+  // Placed in the text: the Inline view, where a placed image draws where it was put.
+  if (!useAttachmentView("inline")) return null;
   return (
     <ImageViewerContext.Provider value={() => {}}>
       <TurnActionsContext.Provider value={actions}>
@@ -246,6 +249,7 @@ function GalleryMixedPrompt({ images, lateMs }: { images: Props["images"]; lateM
     text: parts.map((part) => (part.kind === "text" ? part.text : "")).join(""),
     inlineParts: parts,
   };
+  if (!useAttachmentView("inline")) return null;
   return (
     <ImageViewerContext.Provider value={() => {}}>
       <TurnActionsContext.Provider value={actions}>
@@ -315,6 +319,8 @@ function GalleryShownImages({ images, pending = false, inline = false }: Props) 
             : Promise.resolve(urls.get(id)),
     };
   });
+  // The prompt with an image in its text draws in the Inline view.
+  if (!useAttachmentView(inline ? "inline" : undefined)) return null;
   return (
     <ImageViewerContext.Provider value={() => {}}>
       <TurnActionsContext.Provider value={actions}>
