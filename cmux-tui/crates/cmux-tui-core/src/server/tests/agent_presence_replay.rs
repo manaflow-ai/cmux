@@ -24,7 +24,12 @@ fn until_marker(conn: &Conn, marker: &str) -> Vec<Value> {
     let deadline = Instant::now() + Duration::from_secs(5);
     let mut seen: Vec<String> = Vec::new();
     while !seen.iter().any(|message| message.contains(marker)) {
-        assert!(Instant::now() < deadline, "the marker never arrived: {seen:?}");
+        assert!(
+            Instant::now() < deadline,
+            "the marker never arrived t={} client={}: {seen:?}",
+            crate::server::dbg2_ms(),
+            conn.0
+        );
         match conn.2.try_pop() {
             Some(message) => seen.push(message),
             None => std::thread::sleep(Duration::from_millis(2)),
@@ -71,6 +76,7 @@ fn an_opted_in_subscriber_gets_every_terminals_presence_first() {
             &conn.3,
         ));
     }
+    eprintln!("DBG2 t={} emit marker", crate::server::dbg2_ms());
     mux.emit(MuxEvent::Status("presence-marker".into()));
 
     let presence = |seen: &[Value], surface: SurfaceId| -> Vec<Value> {
