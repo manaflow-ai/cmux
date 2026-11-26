@@ -17,9 +17,10 @@
 // At each rung, over WINDOW ms while the focused chat streams nothing and (when the pane has it,
 // cmuxAcpmuxDebug.sessionChurn) the list churns at RATE changes per second:
 //   cpu_ms_per_s     every renderer's CPU (utime + stime from /proc), ms per second of wall time, the least of the
-//                    window's thirds (other load on a shared runner only adds CPU)
-//   cpu_window_ms_per_s  the same over the whole window: a GC burst in one third shows here, where the least hides it
-//                    (chats x100 read 1337 ms/s over the window, ThreadPoolForeg 1137, while the least read flat)
+//                    rung's CPU_WINDOWS windows (other load on a shared runner only adds CPU)
+//   cpu_window_ms_per_s  the same over all of them, total CPU over total time (CPU_WINDOWS x WINDOW, 45 s): every GC
+//                    in the run is in it (chats x100 read 1337 ms/s over one window, ThreadPoolForeg 1137, while the
+//                    least read flat)
 //   heap_mb          the renderers' JS heap after a full collection (the chats share one isolate), MB
 //   script_ms_per_s  the awake pages' main-thread script time (CDP Performance.getMetrics ScriptDuration), ms per s
 //   pss_mb           every renderer's proportional set size (/proc/PID/smaps_rollup), MB
@@ -27,9 +28,12 @@
 // The judged number is the marginal ratio: (cost(top) - cost(mid)) / (top - mid) over (cost(mid) - cost(low)) / (mid -
 // low), per axis and metric, with a per-item noise floor (FLOOR) under both: flat is 1.0, a per-item cost that grows
 // with the count reads above it. Frame p95 is no sum of items, so its ratio is p95(top) / max(p95(mid), 16.7 ms).
+// The two CPU metrics carry each rung's standard error (its windows' spread over sqrt(n)), and their ratio counts only
+// what clears it (ladderRatio.ts marginalRatio): growth under 2 standard errors reads at most 1.0, and its bound prints
+// as sim_ladder.AXIS.METRIC.resolution (ms/s per item).
 // sim_ladder.ratio_max is the worst; cmuxterm-hq's NOW reads it as benches.rows[key=sim_ladder_marginal_ratio_max].
 //   bun bench/sim-ladder.bench.ts [--axes chats,tabs] [--rungs 10,50,100] [--sessions 3000] [--rows 120]
-//     [--window 15000] [--settle 20000] [--rate 20] [--freeze] [--json out.json]
+//     [--window 5000] [--settle 20000] [--rate 20] [--freeze] [--json out.json]
 // Hidden means Chromium's own hidden state (CEF's WasHidden: no frames, no compositor, visibilityState "hidden"), not a
 // script override: each added page is a tab, loaded in front and then put behind the focused chat, of a Chrome this bench
 // launches and drives through connectOverCDP with noDefaults, because Playwright's own pages get
@@ -44,7 +48,7 @@ import path from "node:path";
 import type { Browser, CDPSession, Page } from "playwright";
 import { chromium } from "./browsers";
 import { servePane } from "./composer-arms";
-import { FLOOR, marginalRatio, type Metric, type Sample } from "./ladderRatio";
+import { FLOOR, marginalRatio, marginals, SIGMAS, type Metric, type Sample } from "./ladderRatio";
 import { perfRow } from "./perfRow";
 
 const argv = process.argv.slice(2);
@@ -89,22 +93,18 @@ const TRANSCRIPT_EVENTS: number[] | null = (() => {
 // --full-seed: seed chats with the mock's full load turns (tool calls, diffs, long replies) instead of light ones. The
 // fidelity mode always does: at the 13:03Z NIGHTLY profile light seeds drew frames at 100 ms p95, full ones at 66.6
 // against the app's 66.3.
-// --seed-turns-max N: the most turns one seeded chat gets. The mock daemon keeps a chat's whole log inside the page
-// (the app's daemon is its own process, and the pane holds only the paged window it attaches), so a profile's full log
-// is the sim's cost alone: Leo's 1.64M-event chat (11-26 00:37Z, 251,762 turns) crashed the page while it seeded
-// ("evaluate: Target crashed"). The default, 33,334 turns (100k rows), is the largest chat the repo's benches open
-// (chat-100k-flat); at the cap the scene read renderer RSS 2028 MB against the app's 1600. A capped seed is reported as
-// seed_capped with the turns the profile asked for.
-const SEED_TURNS_MAX = Number(flag("--seed-turns-max") ?? 33_334);
 const FULL_SEED = argv.includes("--full-seed") || PROFILE !== undefined;
-// The ladder's window is 15 s, the fidelity scene's 5 s. On the ladder a hidden item costs well under 1 ms/s, so a rung's
-// reading must resolve a few ms/s over 40-50 items, and 5 s windows could not: the focused chat's own GC under the list
-// churn (100-250 ms of CPU every ~5 s, ThreadPoolForeg) lands in a 1.7 s third or a 5 s window or not, by phase, so the
-// same rung read +-30 ms/s between windows. Three runs at one head on 32 cores read ratio_max 1.44, 1.01 and 1.00; the
-// 1.44 was tabs cpu 54/54/90 while that run's whole-window read went the other way (76/118/114, ratio -0.08), and chats
-// cpu read 0.2 and 0 in the other two: the ratio of two noises, either side of flat.
-// 15 s windows hold three of those GCs each, the cost is still in every reading, only its phase is gone.
-const WINDOW_MS = Number(flag("--window") ?? (PROFILE ? 5000 : 15_000));
+const WINDOW_MS = Number(flag("--window") ?? 5000);
+// The ladder reads CPU over 9 windows of 5 s per rung, 45 s. A hidden item costs well under 1 ms/s, so a rung's reading
+// must resolve a few ms/s over 40-50 items, and three 5 s windows could not: the chats share one V8 heap, a major
+// collection of it costs CPU in step with the heap (x10 at 190 MB 0.8-1.6 s, x50 at 830 MB about 4 s) and V8 spaces
+// them by a limit that grows with the heap (x10 about every 25 s, x100 none in 45 s), so whether a window held one was
+// phase. Three runs at one head on 32 cores read ratio_max 1.44, 1.01 and 1.00, CI 4.0, and chats CPU ratios of 0.2,
+// 0.11 and -0.31: two noises divided. Forcing a collection before each window to fix the phase read worse (1.96: the
+// forced one sets off a natural one 7-8 s later, inside x10's window and past x50's). So every collection that lands
+// in 45 s counts, at the rung's own rate, and the spread of the 9 windows says how far the reading can be trusted.
+// The fidelity mode keeps its 3 (its streams last the settle and three windows).
+const CPU_WINDOWS = Number(flag("--cpu-windows") ?? (PROFILE ? 3 : 9));
 const changesPerMin = fromProfile("sessions_changed_per_min");
 const RATE = Number(flag("--rate") ?? (changesPerMin !== null ? changesPerMin / 60 : 20));
 const FREEZE = argv.includes("--freeze");
@@ -131,7 +131,7 @@ const JSON_OUT = flag("--json");
 const HOGS = flag("--hogs");
 const DIR = flag("--dir") ?? path.resolve(import.meta.dir, "..");
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
-const VERSION = 4;
+const VERSION = 5;
 if (RUNGS.length !== 3 || RUNGS.some((n) => !Number.isInteger(n) || n < 1) || RUNGS[0] === RUNGS[1]) {
   console.error("usage: --rungs LOW,MID,TOP (three distinct counts, e.g. 1,10,100)");
   process.exit(2);
@@ -384,6 +384,8 @@ function printAllocations(profile: { head: AllocNode }, secs: number): void {
 
 /// The last rung's load collection (renderer CPU ms), kept for the summary printed at the end.
 let lastLoadMs = 0;
+/// The last measure()'s standard error of its CPU readings, ms/s: the windows' sample deviation over sqrt(n).
+let lastCpuSe = 0;
 const loadMs: Record<string, number> = {};
 
 async function measure(rootPid: number, items: Item[], focused: Page): Promise<Sample> {
@@ -391,23 +393,19 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   // after a collection) that V8 collects at a moment of its own: one major collection of 4-6 s of ThreadPoolForeground CPU
   // landed inside the window of x50 in every run (610, 658, 326, 794 ms/s), a load cost read as the rung's steady state.
   // Collect it first, once per isolate as the heap reading below does, and log what that took: the load's cost stays visible.
-  // A full collection of every isolate (the chats share one, each tab has its own), as renderer CPU ms.
-  const collect = async (timeoutMs: number) => {
-    const gcPids = renderers(rootPid);
-    const gcTicks0 = gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
-    await Promise.all(
-      items
-        .filter((item, index) => index === 0 || item.page.url() !== items[0]!.page.url())
-        .map((item) =>
-          Promise.race([
-            item.cdp.send("HeapProfiler.collectGarbage").catch(() => undefined),
-            new Promise((resolve) => setTimeout(resolve, timeoutMs)),
-          ]),
-        ),
-    );
-    return Math.round(((gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0) - gcTicks0) / ticksPerSecond) * 1000);
-  };
-  lastLoadMs = await collect(20_000);
+  const gcPids = renderers(rootPid);
+  const gcTicks0 = gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+  await Promise.all(
+    items
+      .filter((item, index) => index === 0 || item.page.url() !== items[0]!.page.url())
+      .map((item) =>
+        Promise.race([
+          item.cdp.send("HeapProfiler.collectGarbage").catch(() => undefined),
+          new Promise((resolve) => setTimeout(resolve, 20_000)),
+        ]),
+      ),
+  );
+  lastLoadMs = Math.round(((gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0) - gcTicks0) / ticksPerSecond) * 1000);
   console.log(`SIM-LADDER   load collection ${lastLoadMs} ms of renderer CPU`);
   const settled = await settle(rootPid, focused);
   if (!settled) console.log(`SIM-LADDER   not settled in ${SETTLE_MS} ms`);
@@ -426,20 +424,6 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     );
     return all.reduce((sum, m) => sum + (m?.metrics.find((x) => x.name === "ScriptDuration")?.value ?? 0), 0);
   };
-  // Each window starts from the same point of V8's collection cycle: right after a full collection, then 1 s for its
-  // sweep. A major collection of the chats' shared heap marks every live MB (x10's 190 MB took 0.8-1.6 s of CPU, x50's
-  // 830 MB 4 s), and V8 spaces them by its heap limit, which grows with the heap: x10 ran one every ~25 s, x100 none
-  // in 45 s. So with the window started wherever settle ended, whether a rung's window caught one was phase: the same
-  // x10 read 50 in one window and 109-156 in the next, and x50 861 in one run, 72 in another. Started after a
-  // collection, a window holds a natural one only when the pages promote garbage fast enough to refill the heap within
-  // it, which is what a per-item allocation does, so that cost still shows; the collections this bench forces are
-  // logged per window ("phase collections"), never counted.
-  const phaseMs: number[] = [];
-  const phaseLock = async () => {
-    phaseMs.push(await collect(10_000));
-    await focused.waitForTimeout(1000);
-  };
-  await phaseLock();
   const ticks0 = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
   const threads0 = threadTicks(pids);
   const script0 = await script();
@@ -521,23 +505,31 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     `SIM-LADDER   threads ms/s ${threads.map(([n, ms]) => `${n} ${ms}`).join(", ")} | js heap ${heapMB("JSHeapUsedSize")}/${heapMB("JSHeapTotalSize")} MB`,
   );
   const script1 = await script();
-  // The whole-window CPU is the median of three windows (one 5 s window is a sample of one: the x1 window read 22 to
-  // 128 ms/s across runs of the same code): a cost that lasts shows in all three, a one-off burst in one.
+  // The whole-run CPU is total CPU over total time across CPU_WINDOWS windows (one 5 s window is a sample of one: the x1
+  // window read 22 to 128 ms/s across runs of the same code), not a median: a collection that lands in one window is a
+  // real cost of the rung and stays in its mean. The windows' spread gives the mean its standard error.
   const windows = [windowMsPerS];
-  for (let i = 1; i < 3; i += 1) {
-    await phaseLock();
+  let totalTicks = mark - ticks0;
+  let totalMs = markAt - t0;
+  for (let i = 1; i < CPU_WINDOWS; i += 1) {
     const before = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
     const from = performance.now();
     await focused.waitForTimeout(WINDOW_MS);
     const after = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
-    windows.push((((after - before) / ticksPerSecond) * 1000) / ((performance.now() - from) / 1000));
+    const ms = performance.now() - from;
+    windows.push((((after - before) / ticksPerSecond) * 1000) / (ms / 1000));
+    totalTicks += after - before;
+    totalMs += ms;
   }
   tracing = false;
   await sampler;
   console.log(`SIM-LADDER   per-second cpu ms / pool ms / js heap MB: ${trace.join(" ")}`);
-  const medianWindow = [...windows].sort((a, b) => a - b)[1]!;
+  const meanWindow = ((totalTicks / ticksPerSecond) * 1000) / (totalMs / 1000);
+  const avg = windows.reduce((sum, w) => sum + w, 0) / windows.length;
+  const sd = Math.sqrt(windows.reduce((sum, w) => sum + (w - avg) ** 2, 0) / Math.max(1, windows.length - 1));
+  lastCpuSe = sd / Math.sqrt(windows.length);
   console.log(
-    `SIM-LADDER   cpu windows ms/s ${windows.map(Math.round).join(", ")} | median ${Math.round(medianWindow)} | phase collections ms ${phaseMs.join(", ")}`,
+    `SIM-LADDER   cpu windows ms/s ${windows.map(Math.round).join(", ")} | mean ${Math.round(meanWindow)} +- ${lastCpuSe.toFixed(1)} (se) over ${Math.round(totalMs / 1000)} s`,
   );
   // Memory after a full collection: what the pages keep, not how far each heap has grown since its last GC (chats x100
   // read 4583 MB in one run and 5331 in the next, at the same pages).
@@ -568,8 +560,8 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   );
   console.log(`SIM-LADDER   pss split MB ${pssSplit(pids)}`);
   return {
-    cpu_ms_per_s: Math.round(Math.min(...thirds)),
-    cpu_window_ms_per_s: Math.round(medianWindow),
+    cpu_ms_per_s: Math.round(CPU_WINDOWS > 3 ? Math.min(...windows) : Math.min(...thirds)),
+    cpu_window_ms_per_s: Math.round(CPU_WINDOWS > 3 ? meanWindow : [...windows].sort((a, b) => a - b)[1]!),
     heap_mb: Math.round(heaps.reduce((sum, bytes) => sum + bytes, 0) / 1048576),
     script_ms_per_s: Math.round(((script1 - script0) * 1000) / secs),
     pss_mb: Math.round(pids.reduce((sum, pid) => sum + pssMB(pid), 0)),
@@ -591,6 +583,7 @@ const report: Record<string, unknown> = {
   sessions: SESSIONS,
   rows: ROWS,
   window_ms: WINDOW_MS,
+  cpu_windows: CPU_WINDOWS,
   rate: RATE,
   freeze: FREEZE,
   cores: os.cpus().length,
@@ -618,6 +611,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
   // The launched Chrome is this process's descendant, and one axis runs at a time: its renderers are ours.
   const rootPid = process.pid;
   const samples: Record<number, Sample> = {};
+  const cpuSe: Record<number, number> = {};
   let churn: Promise<unknown> | null = null;
   try {
     const browserCdp = await browser.newBrowserCDPSession();
@@ -673,9 +667,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     // transcript_events; a hidden chat takes the last one listed (the sensor reads only shown chats). Without
     // the field every chat keeps ROWS / 2 turns.
     const seed = async (page: Page, slot = Number.MAX_SAFE_INTEGER) => {
-      const wanted = sceneTurns(TRANSCRIPT_EVENTS, slot, Math.max(1, Math.round(ROWS / 2)));
-      const turns = Math.min(wanted, SEED_TURNS_MAX);
-      if (turns < wanted) report.seed_capped = { wanted, seeded: turns };
+      const turns = sceneTurns(TRANSCRIPT_EVENTS, slot, Math.max(1, Math.round(ROWS / 2)));
       const seeded = (await page.evaluate(
         ([count, light]) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light }),
         [turns, !FULL_SEED] as const,
@@ -796,6 +788,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
       startChurn(RATE);
       samples[rung] = await measure(rootPid, items, focused);
       loadMs[`${axis}.${rung}`] = lastLoadMs;
+      cpuSe[rung] = lastCpuSe;
       console.log(
         `SIM-LADDER ${axis} x${rung} ${JSON.stringify(samples[rung])} renderers ${renderers(rootPid).length}`,
       );
@@ -817,15 +810,26 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     await chrome.close();
   }
   report[axis] = samples;
+  report[`${axis}_cpu_se`] = Object.fromEntries(RUNGS.map((rung) => [rung, Math.round((cpuSe[rung] ?? 0) * 10) / 10]));
   for (const metric of [...Object.keys(FLOOR), "frame_p95_ms"] as Metric[]) {
     const values = RUNGS.map((rung) => samples[rung]![metric]);
-    const ratio = Math.round(marginalRatio(metric, RUNGS, values) * 100) / 100;
+    // The CPU readings carry their standard error (a rung's windows); the rest are one reading after a collection.
+    const cpu = metric === "cpu_ms_per_s" || metric === "cpu_window_ms_per_s";
+    const se = cpu && CPU_WINDOWS > 3 ? RUNGS.map((rung) => cpuSe[rung] ?? 0) : undefined;
+    const ratio = Math.round(marginalRatio(metric, RUNGS, values, se) * 100) / 100;
     ratios[`${axis}.${metric}`] = ratio;
-    const low = (values[1]! - values[0]!) / (RUNGS[1]! - RUNGS[0]!);
-    const high = (values[2]! - values[1]!) / (RUNGS[2]! - RUNGS[1]!);
+    const { low, high, growthSe } = marginals(RUNGS, values, se);
+    const resolution = Math.round(SIGMAS * growthSe * 100) / 100;
     console.log(
-      `SIM-LADDER ${axis} ${metric} ${values.join(" / ")} | per item ${low.toFixed(2)} then ${high.toFixed(2)} | ratio ${ratio}`,
+      `SIM-LADDER ${axis} ${metric} ${values.join(" / ")} | per item ${low.toFixed(2)} then ${high.toFixed(2)}${se ? ` | growth resolved past ${resolution} per item (${SIGMAS} se)` : ""} | ratio ${ratio}`,
     );
+    if (se)
+      perfRow({
+        name: `sim_ladder.${axis}.${metric}.resolution`,
+        p95: resolution,
+        unit: "ms/s per item",
+        version: VERSION,
+      });
     perfRow({
       name: `sim_ladder.${axis}.${metric}.ratio`,
       p95: ratio,

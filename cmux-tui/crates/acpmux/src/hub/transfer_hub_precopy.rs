@@ -136,7 +136,7 @@ impl Hub {
                 && super::transfer::is_plain_id(prepare_id)
                 && super::transfer::is_plain_id(session_id)
                 && session_id == body["sessionId"].as_str().unwrap_or("")
-                && !manifest.get("base").is_some_and(|b| !b.is_null())
+                && manifest.get("base").is_none_or(|b| b.is_null())
         };
         let unplain = || RpcError::invalid_params("move: the stage names no plain prefix");
         let pulled_id = pull.map(|p| field(p, "transferId").as_str().unwrap_or(""));

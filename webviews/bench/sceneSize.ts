@@ -11,16 +11,13 @@ export function eventsInTurns(turns: number): number {
   return total;
 }
 
-/** The heavy-turn count whose log is at least `events` long; the smallest such count, at least 1. One pass over the
- * turns: the estimate-then-step search it replaces recounted every turn from 0 at each step, and at Leo's 1.64M-event
- * chat (251,762 turns, 4.7 s a count) the bench sat in it for the whole 40 min part bound before opening a page. */
+/** The heavy-turn count whose log is at least `events` long; the smallest such count, at least 1. */
 export function turnsForEvents(events: number): number {
-  let turns = 0;
-  let total = 0;
-  while (turns < 1 || total < events) {
-    total += loadTurn(turns).length;
-    turns += 1;
-  }
+  const sample = 40;
+  const perTurn = eventsInTurns(sample) / sample;
+  let turns = Math.max(1, Math.floor(events / perTurn));
+  while (turns > 1 && eventsInTurns(turns - 1) >= events) turns -= 1;
+  while (eventsInTurns(turns) < events) turns += 1;
   return turns;
 }
 

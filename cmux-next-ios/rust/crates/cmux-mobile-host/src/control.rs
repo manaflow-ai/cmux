@@ -803,6 +803,7 @@ mod tests {
                 w: 576,
                 h: 360,
                 captured_at_ms: 5,
+                tab: None,
             }))
         );
         assert_eq!(Inbound::parse(r#"{"type":"nope"}"#), None);

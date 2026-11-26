@@ -1,37 +1,33 @@
 {
   "schema": "cmux-app-profile/v1",
   "host": "cosmic-gray",
-  "at": "2026-11-26T00:37:32Z",
-  "build": "4572038238101",
+  "at": "2026-11-24T00:24:56Z",
+  "build": "4528921531001",
   "pages": {
-    "agent_total": 3,
+    "agent_total": 1,
     "agent_visible": 1,
-    "browser_tabs": 2
+    "browser_tabs": 1
   },
   "sessions": {
-    "listed_sessions": 4299,
-    "local_sessions": 687,
-    "running_sessions": 193,
-    "sessions_changed_per_min": 14.01
+    "listed_sessions": 3761,
+    "listed_sessions_source": "the 2026-11-22 13:03Z read: this pass's acpmux ls timed out after 30 s (app_profile.sessions_reason)"
   },
   "processes": {
-    "renderer_rss_mb": 1600,
-    "renderer_cpu_pct": 84.8,
-    "agent_renderer_count": 1,
-    "agent_pane_rss_mb": 1523
+    "renderer_rss_mb": 2662,
+    "renderer_cpu_pct": 34.9,
+    "agent_renderer_count": 1
   },
   "metrics": {
-    "frame_p95_ms": 9.2,
-    "frame_p99_ms": 9.3,
-    "frames_over_50ms": 0,
-    "frame_count": 1181,
-    "keydown_to_frame_p95_ms": null,
+    "frame_p95_ms": 9.4,
+    "frame_p99_ms": 33.2,
+    "frames_over_50ms": 1,
+    "frame_count": 1096,
+    "keydown_p95_ms": null,
     "long_task_blocking_ms_per_s": 0.0
   },
-  "transcript_events": [1644841],
   "load": {
-    "load_1m": 20.08,
+    "load_1m": 174.7,
     "cores": 15
   },
-  "source": "perf-tap app_profile of Leo NIGHTLY on cosmic-gray (leo-workspace tools/perf_sensor.py), as HQ NOW published it in perf_sensor.leo_nightly; sampled 2026-11-26T00:21:41Z, census 2026-11-26T00:37:32Z"
+  "source": "perf-tap's app_profile of Leo's NIGHTLY on cosmic-gray (leo-workspace tools/perf_sensor.py), as HQ NOW published it in perf_sensor.leo_nightly; sampled 2026-11-24T00:24:56Z"
 }
