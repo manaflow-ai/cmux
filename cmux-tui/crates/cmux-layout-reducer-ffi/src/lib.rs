@@ -75,6 +75,7 @@ use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 pub mod agent_cursor;
+mod app_themes;
 pub mod close_focus;
 pub mod close_selection;
 pub mod closing_panes;
@@ -620,6 +621,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            operation if app_themes::handles(operation) => app_themes::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };
         Ok(response)

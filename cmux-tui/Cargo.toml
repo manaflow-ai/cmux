@@ -91,6 +91,7 @@ members = [
     "crates/cmux-auth-coordinator",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
+    "crates/cmux-app-themes",
     "crates/cmux-build-space",
     "crates/cmux-output-paint",
     "crates/cmux-relay-snapshot",
@@ -270,6 +271,7 @@ default-members = [
     "crates/cmux-auth-coordinator",
     "crates/cmux-cloud-handlers",
     "crates/cmux-window-rules",
+    "crates/cmux-app-themes",
     "crates/cmux-build-space",
     "crates/cmux-output-paint",
     "crates/cmux-relay-snapshot",
@@ -458,6 +460,7 @@ cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-vm-pool = { path = "crates/cmux-vm-pool" }
 cmux-cloud-handlers = { path = "crates/cmux-cloud-handlers" }
 cmux-window-rules = { path = "crates/cmux-window-rules" }
+cmux-app-themes = { path = "crates/cmux-app-themes" }
 cmux-apps = { path = "crates/cmux-apps" }
 cmux-build-space = { path = "crates/cmux-build-space" }
 cmux-output-paint = { path = "crates/cmux-output-paint" }

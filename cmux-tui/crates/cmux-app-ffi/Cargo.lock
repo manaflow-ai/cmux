@@ -214,6 +214,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-themes"
+version = "0.1.0"
+dependencies = [
+ "cmux-theme-tokens",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-bookmarks-core"
 version = "0.1.0"
 dependencies = [
@@ -474,6 +483,7 @@ dependencies = [
 name = "cmux-layout-reducer-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-app-themes",
  "cmux-bookmarks-core",
  "cmux-cloud-config",
  "cmux-cloud-handlers",

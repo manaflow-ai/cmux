@@ -1,0 +1,17 @@
+[package]
+name = "cmux-app-themes"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The cmux NEXT app's theme and layout template rules (pure; the macOS app asks them over the app FFI): Ghostty theme file names, color lines and merges, the app-local JSON stores, theme catalog checks and the layout template list"
+
+[dependencies]
+# `theme_override_value`: the one config-safe check a theme spec shares with the `theme =` line.
+cmux-theme-tokens.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
