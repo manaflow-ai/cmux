@@ -54,6 +54,11 @@
     "agentPane.display.modelPickerStyle": "menu",
     "agentPane.showContextUsage": true,
     "agentPane.composerRing": "context",
+    // Claude's look: the computer, folder, mode and model chips sit in the quiet row under the box,
+    // outside it, as in the app. Pinned so a studio profile applied before does not keep its in-box row.
+    "agentPane.composerLook": "auto",
+    // The empty box keeps "Type / for commands", the app's own text (and cmux's).
+    "agentPane.composerPlaceholder": "",
     "sidebar.showNewWorkspaceChooser": true,
     "tabs.newTabApp": "local/customize",
 
