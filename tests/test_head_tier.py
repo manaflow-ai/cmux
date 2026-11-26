@@ -489,6 +489,80 @@ class GreenBaseMergeTests(BranchRepo):
             self.assertFalse(pattern.match(message), message)
 
 
+class SamePatchTests(unittest.TestCase):
+    """The same-patch rule: a head whose own change equals the previous head's (a rebase onto a newer base), with
+    every run at the previous head green, runs nothing (goal ci-min-per-pr-30)."""
+
+    REPO = {"full_name": "manaflow-ai/cmux"}
+
+    def event(self, labels: tuple[str, ...] = (), before: str = "b" * 40, action: str = "synchronize") -> dict:
+        return {"action": action, "before": before, "pull_request": {
+            "draft": False, "labels": [{"name": n} for n in labels],
+            "base": {"ref": "feat-cmux-next", "repo": self.REPO}, "head": {"sha": "a" * 40, "repo": self.REPO}}}
+
+    @staticmethod
+    def compare(*files: tuple[str, str]) -> dict:
+        return {"files": [{"filename": name, "status": "modified", "patch": patch} for name, patch in files]}
+
+    def test_the_key_ignores_hunk_lines_context_and_file_order(self) -> None:
+        one = self.compare(("a.py", "@@ -10,3 +10,4 @@ def f():\n x\n-old\n+new"), ("b.py", "@@ -1 +1 @@\n-a\n+b"))
+        moved = self.compare(("b.py", "@@ -7 +7 @@\n-a\n+b"), ("a.py", "@@ -40,3 +40,4 @@ def g():\n y\n-old\n+new"))
+        self.assertEqual(head_tier.patch_key(one), head_tier.patch_key(moved))
+        other = self.compare(("a.py", "@@ -10,3 +10,4 @@\n x\n-old\n+newer"), ("b.py", "@@ -1 +1 @@\n-a\n+b"))
+        self.assertNotEqual(head_tier.patch_key(one), head_tier.patch_key(other))
+        renamed = self.compare(("c.py", "@@ -10,3 +10,4 @@\n x\n-old\n+new"), ("b.py", "@@ -1 +1 @@\n-a\n+b"))
+        self.assertNotEqual(head_tier.patch_key(one), head_tier.patch_key(renamed))
+
+    def test_a_compare_not_whole_has_no_key(self) -> None:
+        self.assertIsNone(head_tier.patch_key(None))
+        self.assertIsNone(head_tier.patch_key({"files": []}))
+        self.assertIsNone(head_tier.patch_key({"files": [{"filename": "x.png", "status": "added"}]}))
+        self.assertIsNone(head_tier.patch_key(self.compare(*[(f"f{i}", "+x") for i in range(300)])))
+        self.assertIsNone(head_tier.own_patch_key("manaflow-ai/cmux", "feat-cmux-next", "a" * 40, ""))
+
+    def tier(self, ev: dict, facts: dict, **kwargs) -> tuple[str, str]:
+        kwargs.setdefault("land_switch", "1")
+        return head_tier.tier("pull_request", ev, facts=facts, now=time.time(), **kwargs)
+
+    def test_a_rebased_head_onto_a_green_previous_head_runs_nothing(self) -> None:
+        facts = {"base_merge_only": False, "own_last": None, "before": "b" * 40, "same_patch_green": True}
+        decided = self.tier(self.event(), facts)
+        self.assertEqual(decided, ("none", decided[1]))
+        self.assertIn("same change as bbbbbbbbbb", decided[1])
+        for label, usual in (("full-ci", "full"), ("ready-to-land", "full")):
+            self.assertEqual(self.tier(self.event((label,)), facts)[0], usual, label)
+        self.assertEqual(self.tier(self.event(), facts, green_switch="0")[0], "cheap")
+        self.assertEqual(self.tier(self.event(), {**facts, "same_patch_green": False})[0], "cheap")
+
+    def test_decide_compares_both_heads_and_reads_the_previous_runs(self) -> None:
+        calls = []
+        real = head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key
+        green = [{"id": 1, "path": "ci.yml", "status": "completed", "conclusion": "success"}]
+        try:
+            head_tier.head_facts = lambda e: {"base_merge_only": False, "own_last": None}
+            head_tier.runs_at = lambda *a: calls.append(("runs", a[1])) or green
+            head_tier.own_patch_key = lambda repo, base, sha, token: calls.append(("key", sha)) or "k"
+            with unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux"}):
+                self.assertEqual(head_tier.decide("pull_request", self.event())[0], "none")
+                self.assertEqual(calls, [("key", "a" * 40), ("key", "b" * 40), ("runs", "b" * 40)])
+                head_tier.own_patch_key = lambda repo, base, sha, token: sha[:1]  # the two changes differ
+                calls.clear()
+                self.assertEqual(head_tier.decide("pull_request", self.event())[0], "cheap")
+                self.assertEqual(calls, [])
+                head_tier.own_patch_key = lambda *a: None  # unread
+                self.assertEqual(head_tier.decide("pull_request", self.event())[0], "cheap")
+                head_tier.own_patch_key = lambda *a: "k"
+                head_tier.runs_at = lambda *a: [{**green[0], "conclusion": "failure"}]
+                self.assertEqual(head_tier.decide("pull_request", self.event())[0], "cheap")
+                calls.clear()
+                head_tier.own_patch_key = lambda repo, base, sha, token: calls.append(sha) or "k"
+                for ev in (self.event(before="0" * 39), self.event(("full-ci",)), self.event(("ready-to-land",))):
+                    head_tier.decide("pull_request", ev)
+                self.assertEqual(calls, [])
+        finally:
+            head_tier.head_facts, head_tier.runs_at, head_tier.own_patch_key = real
+
+
 class LandCarryTests(BranchRepo):
     """A `ready-to-land` head that only merges the base onto a head whose full tier passed: the land carry rule."""
 
