@@ -4,6 +4,7 @@ import { useUnsettledHeight } from "./conversation/unsettledHeights";
 import { PASTE_FILE_CHARS } from "./pastedText";
 import { escapeDefinitions, insertReplyQuote } from "./quoteReply";
 import { pasteIsOnlyFileNames } from "./attachments";
+import { htmlText, pastedPlainText } from "./pasteText";
 import { isPasteAsPlainTextKey, PLAIN_PASTE_MS } from "./composer/pastedChips";
 import { htmlHasBlocks, htmlMarkdown, looksLikeMarkdown } from "./richClipboard";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
@@ -392,34 +393,6 @@ const withoutBreakPlaceholders = (text: string) =>
     .replace(/\n\n<br \/>(?=\n\n)/g, "")
     .replace(/^<br \/>\n\n/, "\n")
     .replace(/\n\n<br \/>\n?$/, "\n");
-
-const BLOCK_TAG = /^(P|DIV|LI|PRE|BLOCKQUOTE|H[1-6]|UL|OL|TABLE|TR|SECTION|ARTICLE|HEADER|FOOTER)$/;
-
-/** HTML pasted with no plain text, as its text: each `<br>` and block (a `<p>`) ends a line. */
-function htmlText(html: string): string {
-  const template = document.createElement("template");
-  template.innerHTML = html;
-  let out = "";
-  const walk = (node: Node) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      out += (node.textContent ?? "").replace(/\s+/g, " ");
-      return;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return;
-    const tag = (node as Element).tagName;
-    if (tag === "BR") {
-      out += "\n";
-      return;
-    }
-    if (tag === "STYLE" || tag === "SCRIPT" || tag === "META" || tag === "TITLE") return;
-    const block = BLOCK_TAG.test(tag);
-    if (block && out && !out.endsWith("\n")) out += "\n";
-    for (const child of node.childNodes) walk(child);
-    if (block) out += "\n";
-  };
-  for (const child of template.content.childNodes) walk(child);
-  return out.replace(/[ \t]+\n/g, "\n").replace(/^\n+|\n+$/g, "");
-}
 
 /** Plain text as the field shows it: one paragraph whose newlines are line breaks, a blank line
  * two of them. A paste is never parsed as markdown or HTML, so its lines and characters stay. */
@@ -1486,7 +1459,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   // Text past what a prompt carries goes to the surface whole, before anything reads
                   // or parses it (ProseMirror would lay out every line of it first): the composer
                   // attaches it as a file (pastedText.ts PASTE_FILE_CHARS).
-                  const whole = data.getData("text/plain");
+                  // With files beside it WebKit withholds the plain text: the HTML's is the paste's
+                  // (pasteText.ts, issue 59851).
+                  const whole = pastedPlainText(data);
                   // A surface without a file intake (Home Channels) takes it as before.
                   if (whole.length > PASTE_FILE_CHARS && !data.files.length && beforeInput(editorView, whole, true)) {
                     event.preventDefault();
