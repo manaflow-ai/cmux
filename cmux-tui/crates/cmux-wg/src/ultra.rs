@@ -144,6 +144,37 @@ pub const ENV: &str = "CMUX_WG_ULTRA";
 /// congested link.
 pub const CC_ENV: &str = "CMUX_WG_ULTRA_CC";
 
+/// Parities per group for bulk data (the pacer's bulk class: paced TCP
+/// transfers), at most the mode's own. Bulk needs its repair at any loss (a
+/// loss gate cut 50 ms / 2 % echo-flood goodput from 18.1 to 2.1 Mbit/s,
+/// RFD 0164 row 106), but not the four parities per four data datagrams
+/// input gets: a lost bulk datagram costs TCP a fast retransmit, a lost
+/// keystroke costs a visible stall. Two parities rebuild any two losses of a
+/// group of four. Measured at 50 ms (median of 3, echo-flood goodput in
+/// Mbit/s, bulk parity 4 / 2 / 1): 0.5 % loss 70.5 / 82.4 / 75.8, 1 % loss
+/// 68.5 / 74.4 / 45.5, 2 % loss 49.1 / 55.6 / 33.6; one parity loses goodput
+/// from 1 % loss up, two match four at half the parity bytes.
+const BULK_PARITY: u8 = 2;
+/// Benches only: the cap on bulk parities per group (1 to 15), in place of
+/// [`BULK_PARITY`]. A cap, not a count: a bulk group sends the smaller of
+/// this and the mode's own parities, so a value above the mode's changes
+/// nothing (`Fec { group: 4, parity: 4 }` with 8 still sends 4).
+pub const BULK_PARITY_ENV: &str = "CMUX_WG_ULTRA_BULK_PARITY";
+
+/// Bulk parities per group: [`BULK_PARITY_ENV`] when set and in range, else
+/// [`BULK_PARITY`]. Read once per process.
+fn bulk_parity() -> u8 {
+    static PARITY: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *PARITY.get_or_init(|| bulk_parity_from(std::env::var(BULK_PARITY_ENV).ok().as_deref()))
+}
+
+pub(crate) fn bulk_parity_from(value: Option<&str>) -> u8 {
+    value
+        .and_then(|value| value.trim().parse::<u8>().ok())
+        .filter(|parity| (1..=MAX_PARITY).contains(parity))
+        .unwrap_or(BULK_PARITY)
+}
+
 /// Whether `datagram` is an ultra-mode parity datagram. A carrier that
 /// classifies datagrams by shape should give parity the class the tunnel's
 /// pacer sent it in, not treat it as control.
@@ -341,6 +372,18 @@ impl UltraMode {
             _ => Self::Off,
         };
         mode.normalized()
+    }
+
+    /// The mode a bulk group closes in: the same code and group, at most
+    /// [`bulk_parity`] parities. Copies are not cut: duplicating bulk is a
+    /// mode someone chose by hand.
+    fn for_bulk(self) -> Self {
+        let cut = |parity: u8| parity.min(bulk_parity());
+        match self {
+            Self::Fec { group, parity } => Self::Fec { group, parity: cut(parity) },
+            Self::Rs { group, parity } => Self::Rs { group, parity: cut(parity) },
+            other => other,
+        }
     }
 
     /// Parities for a group of `members`: in proportion to `parity / group`,
@@ -870,7 +913,8 @@ impl UltraUnderlay {
 
     /// Whether a datagram of this class gets copies or parity: input at any
     /// loss (Auto decides when repair is on at all), screen state only above
-    /// 1 % measured loss. Bulk keeps the mode's repair: the pacer's bulk
+    /// 1 % measured loss. Bulk keeps repair, with fewer parities per group
+    /// ([`BULK_PARITY`]): the pacer's bulk
     /// class is mostly paced TCP connections, and with no repair their
     /// goodput at 50 ms / 2 % loss fell from 16.8 to 2.1 Mbit/s
     /// (`link_stream_bench --workload echo-flood`). Datagrams of no class
@@ -888,7 +932,11 @@ impl UltraUnderlay {
     }
 
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
-        self.forward(datagram, priority);
+        match priority {
+            // Class 0 (input) goes on the best two paths; its repair below does not.
+            Some(p) if p.braid_class().duplicates() => self.inner.send_duplicated(datagram, p),
+            _ => self.forward(datagram, priority),
+        }
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
         if is_idle_keepalive(datagram) || !self.repairs(priority) {
             return;
@@ -967,6 +1015,7 @@ impl UltraUnderlay {
     fn close_group(&mut self) {
         let Some(group) = self.group.take() else { return };
         let mode = if self.mode == UltraMode::Off && self.floor { FLOOR_MODE } else { self.mode };
+        let mode = if group.priority == Some(Priority::Bulk) { mode.for_bulk() } else { mode };
         let parities = match mode {
             UltraMode::Fec { group: k, parity: m } => parity_datagrams(&group, k, m),
             UltraMode::Rs { group: k, parity: m } => {

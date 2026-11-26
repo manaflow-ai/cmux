@@ -360,6 +360,7 @@ async fn with_the_key_off_the_start_hook_does_nothing() {
     assert_eq!(objects(parent.path()), before_objects, "not even a snapshot is written");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn without_cloud_credentials_the_start_hook_falls_back_and_changes_nothing() {
     let parent = checkout();
@@ -377,6 +378,7 @@ async fn without_cloud_credentials_the_start_hook_falls_back_and_changes_nothing
     assert_eq!(files(parent.path()), before);
 }
 
+#[cfg(unix)]
 #[test]
 fn the_cloud_backend_reads_its_api_and_credential_and_names_what_is_missing() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {

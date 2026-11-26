@@ -137,46 +137,6 @@
       "count": 2,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
     },
-    "agent-pane.background-tasks-runs#drill": {
-      "count": 7,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks-runs#long-run": {
-      "count": 7,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks-runs#run-open": {
-      "count": 7,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks#alone": {
-      "count": 7,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks#docked": {
-      "count": 4,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks#finished": {
-      "count": 7,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks#finished-transcript": {
-      "count": 7,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks#from-tray": {
-      "count": 7,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks#sections": {
-      "count": 9,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
-    "agent-pane.background-tasks#transcript": {
-      "count": 4,
-      "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
-    },
     "agent-pane.blank-load-fade#stagger": {
       "count": 4,
       "issue": "https://github.com/manaflow-ai/cmuxterm-hq/issues/13423"
