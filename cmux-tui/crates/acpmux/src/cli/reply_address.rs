@@ -148,6 +148,48 @@ async fn renew_at(path: &std::path::Path, want: AutoRegister, wait: Duration) ->
     }
 }
 
+/// `acpmux register --auto NAME`, from cmux's Claude Code hook (`cli/hook_register.rs`): the
+/// first step a send takes, with no send. Starts no daemon; once the answer says the chat is
+/// reached with this process, leaves the mark that ends the hook's asks.
+pub async fn auto(name: String) -> Value {
+    let env =
+        |key: &str| std::env::var(key).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+    let shell = cfg!(target_os = "macos") && !crate::cli::sender::in_session(env);
+    let (Some(socket), Some(token)) = (
+        env("CLAUDE_CODE_MESSAGING_SOCKET").filter(|_| shell),
+        env("CLAUDE_CODE_MESSAGING_TOKEN").filter(|_| shell),
+    ) else {
+        return json!({"registered": false, "reason": "not a Claude Code shell acpmux did not start"});
+    };
+    let params = json!({"name": name, "socket": socket, "token": token, "auto": true});
+    let v = auto_at(&crate::config::socket_path(), params, WAIT).await;
+    crate::cli::hook_register::mark_if_reached(&crate::config::home(), &socket, &token, &v);
+    v
+}
+
+/// The first step on the daemon at `path`, within `wait`: only a daemon that lists `auto`
+/// (`AUTO_FEATURE`) is asked, since an older one ignores it and would deliver a code on every
+/// prompt.
+async fn auto_at(path: &std::path::Path, params: Value, wait: Duration) -> Value {
+    let ask = async {
+        let client = crate::client::Client::connect(path).await?;
+        if !client.daemon_lists(crate::hub::register::AUTO_FEATURE) {
+            return Ok(json!({"registered": false, "reason": "the daemon does not take `auto`"}));
+        }
+        client.request(crate::rpc::method::MUX_REGISTER, params).await
+    };
+    match tokio::time::timeout(wait, ask).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) if e.is::<crate::client::DaemonError>() => {
+            json!({"registered": false, "reason": e.to_string()})
+        }
+        Ok(Err(e)) => json!({"registered": null, "reason": e.to_string(), "retryable": true}),
+        Err(_) => {
+            json!({"registered": null, "reason": "the daemon did not answer in time", "retryable": true})
+        }
+    }
+}
+
 /// What the daemon did with the first step.
 #[derive(Debug)]
 enum Outcome {
