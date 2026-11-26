@@ -303,7 +303,7 @@ pub(crate) struct ShareMessages {
     pub opened: &'static str,
 }
 
-/// `cmux nightly list|install`: go back (or forward) to another recent nightly build.
+/// `cmux nightly list|install|whats-in|which`: go back (or forward) to another recent nightly build.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct NightlyMessages {
     pub usage: &'static str,
@@ -318,6 +318,14 @@ pub(crate) struct NightlyMessages {
     pub here: &'static str,
     pub kept: &'static str,
     pub pulled_tag: &'static str,
+    pub whats_in_since: &'static str,
+    pub whats_in_first: &'static str,
+    pub whats_in_empty: &'static str,
+    pub other_area: &'static str,
+    pub which_shipped: &'static str,
+    pub which_not_shipped: &'static str,
+    pub feed_unreadable: &'static str,
+    pub no_notes: &'static str,
 }
 
 /// The labels of `cmux version`'s text report; the JSON keys stay English.
@@ -429,7 +437,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         last_check: "Last check",
     },
     nightly: NightlyMessages {
-        usage: "usage: cmux app versions [--limit N] | use previous|next|latest|<build>\n       cmux nightly list [--limit N] | install previous|next|latest|<build>   (the same commands)\n  versions, list  the recent nightly builds, newest first (* marks the one this Mac runs)\n  use, install    installs that build, older or newer, the way Settings > Updates' Switch does: it downloads\n                  and checks it (a kept build swaps at once), restarts cmux into it with every session, and\n                  keeps the build it leaves, so `use next` comes forward again after `use previous`\n  previous  the newest build below this one;  next  the oldest build above it;  latest  the newest build",
+        usage: "usage: cmux app versions [--limit N] | use previous|next|latest|<build>\n       cmux nightly list [--limit N] | install previous|next|latest|<build>   (the same commands)\n  versions, list  the recent nightly builds, newest first (* marks the one this Mac runs)\n  use, install    installs that build, older or newer, the way Settings > Updates' Switch does: it downloads\n                  and checks it (a kept build swaps at once), restarts cmux into it with every session, and\n                  keeps the build it leaves, so `use next` comes forward again after `use previous`\n  previous  the newest build below this one;  next  the oldest build above it;  latest  the newest build\n       cmux nightly whats-in [BUILD] | which <PR>   (--json for either)\n  whats-in  the PRs that build carries, merged since the build before it, by area (default: the build this Mac runs)\n  which     the first nightly build that carries the PR (a number, #number or its URL)",
         no_builds: "no nightly builds are listed (the feed could not be read)",
         cannot_switch: "this cmux follows no update feed, so it cannot install another build",
         unknown_build: "build {build} is not one of the recent nightly builds; `cmux nightly list` shows them",
@@ -441,6 +449,14 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
         here: "this Mac",
         kept: "kept",
         pulled_tag: "pulled",
+        whats_in_since: "NIGHTLY {build} ({version}), published {time}: {count} PRs since build {since}",
+        whats_in_first: "NIGHTLY {build} ({version}), published {time}: {count} PRs",
+        whats_in_empty: "no PRs are listed for this build",
+        other_area: "Other",
+        which_shipped: "PR #{pr} shipped in NIGHTLY {build} ({version}) at {time}",
+        which_not_shipped: "PR #{pr} has not shipped in a NIGHTLY yet (the feed lists builds back to {oldest})",
+        feed_unreadable: "cannot read the nightly release notes: {error}",
+        no_notes: "the feed has no release notes for build {build}; `cmux nightly list` shows the recent builds",
     },
     app_try: TryMessages {
         usage: "usage: cmux app try . [--from APP] [--dry-run]    your working tree in a copy of your NIGHTLY (no dev build)\n       cmux app try . --extract                   keep the code that went in (a branch and a patch)\n       cmux app try . --stop                      quit the copy and delete it\n       cmux app try <PR|branch|sha> [--dry-run] [--app PATH] | channel [--dry-run] | undo [--dry-run] | status\n       cmux app try <share link> [--dry-run]       a build someone shared with `cmux app share`, beside your cmux\n  .       copy your nightly and swap your code in: a fresh clone of APP (default /Applications/cmux NIGHTLY.app)\n          runs beside your cmux, which is not touched, with this checkout's web UI (a dev server: saves show\n          live) and daemon Rust put in. `.` is the checkout around this folder; dir:PATH, ./PATH or /PATH name\n          another. It prints the copy's socket (`cmux --app-socket SOCKET ...` drives it). Swift needs a build,\n          and it says which; dev builds stay available. --dry-run prints the plan only\n  try     runs that commit's cmux in this app the cheapest way there is: live when CI published a live\n          build this app can take (bin/cmux and its companions swapped in, the daemon handed over in\n          seconds, every terminal kept), else the commit's nightly build (or the nearest one that contains\n          it) the way `cmux nightly install` installs it, else the Release app CI published for it (in place of
@@ -685,7 +701,7 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         last_check: "最終確認",
     },
     nightly: NightlyMessages {
-        usage: "使い方: cmux app versions [--limit N] | use previous|next|latest|<ビルド>\n       cmux nightly list [--limit N] | install previous|next|latest|<ビルド>   (同じコマンド)\n  versions, list  最近のナイトリービルドを新しい順に表示 (* はこの Mac で動作中のビルド)\n  use, install    そのビルド (古いものも新しいものも) を 設定 > アップデート の切り替えと同じ方法でインストールします。\n                  ダウンロードして検証し (保存済みのビルドはすぐに入れ替え)、すべてのセッションを保ったまま cmux を再起動し、\n                  元のビルドを保存するので `use previous` の後に `use next` で戻れます\n  previous  これより前の最新ビルド;  next  これより後の最も古いビルド;  latest  最新ビルド",
+        usage: "使い方: cmux app versions [--limit N] | use previous|next|latest|<ビルド>\n       cmux nightly list [--limit N] | install previous|next|latest|<ビルド>   (同じコマンド)\n  versions, list  最近のナイトリービルドを新しい順に表示 (* はこの Mac で動作中のビルド)\n  use, install    そのビルド (古いものも新しいものも) を 設定 > アップデート の切り替えと同じ方法でインストールします。\n                  ダウンロードして検証し (保存済みのビルドはすぐに入れ替え)、すべてのセッションを保ったまま cmux を再起動し、\n                  元のビルドを保存するので `use previous` の後に `use next` で戻れます\n  previous  これより前の最新ビルド;  next  これより後の最も古いビルド;  latest  最新ビルド\n       cmux nightly whats-in [ビルド] | which <PR>   (どちらも --json 可)\n  whats-in  そのビルドに入った PR (前のビルド以降にマージされたもの) を領域ごとに表示 (既定: この Mac のビルド)\n  which     その PR が最初に入ったナイトリービルド (番号、#番号、URL)",
         no_builds: "ナイトリービルドの一覧がありません (フィードを読み取れませんでした)",
         cannot_switch: "この cmux はアップデートフィードに従っていないため、他のビルドをインストールできません",
         unknown_build: "ビルド {build} は最近のナイトリービルドにありません。`cmux nightly list` で一覧を表示します",
@@ -697,6 +713,14 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
         here: "この Mac",
         kept: "保存済み",
         pulled_tag: "取り下げ",
+        whats_in_since: "NIGHTLY {build} ({version})、{time} 公開: ビルド {since} 以降の PR {count} 件",
+        whats_in_first: "NIGHTLY {build} ({version})、{time} 公開: PR {count} 件",
+        whats_in_empty: "このビルドに記載された PR はありません",
+        other_area: "その他",
+        which_shipped: "PR #{pr} は NIGHTLY {build} ({version}) で {time} に配信されました",
+        which_not_shipped: "PR #{pr} はまだ NIGHTLY に入っていません (フィードはビルド {oldest} までさかのぼります)",
+        feed_unreadable: "ナイトリーのリリースノートを読み取れません: {error}",
+        no_notes: "フィードにビルド {build} のリリースノートがありません。`cmux nightly list` で最近のビルドを表示します",
     },
     app_try: TryMessages {
         usage: "使い方: cmux app try . [--from APP] [--dry-run]    作業ツリーをナイトリーのコピーで動かします (DEV ビルド不要)\n       cmux app try . --extract                   入れたコードを残します (ブランチとパッチ)\n       cmux app try . --stop                      コピーを終了して削除します\n       cmux app try <PR|ブランチ|sha> [--dry-run] [--app パス] | undo [--dry-run] | status\n       cmux app try <共有リンク> [--dry-run]       `cmux app share` で共有されたビルドを cmux の横で開きます\n  .       ナイトリーをコピーしてコードを入れます: APP (既定 /Applications/cmux NIGHTLY.app) の新しいクローンを、\n          今の cmux には触れずに横で起動し、このチェックアウトの Web UI (開発サーバー: 保存するとすぐ反映) と\n          デーモンの Rust を入れます。`.` はこのフォルダを含むチェックアウトです。dir:パス、./パス、/パス で別のものを\n          指定できます。コピーのソケットを表示します (`cmux --app-socket ソケット ...` で操作)。Swift はビルドが必要で、\n          その理由を表示します。DEV ビルドは引き続き使えます。--dry-run は計画だけを表示します\n  try     そのコミットの cmux を、このアプリで最も手軽な方法で動かします。このアプリが受け取れるライブビルドを CI が\n          公開していればライブで (bin/cmux とその付属ファイルを入れ替え、数秒でデーモンを引き継ぎ、ターミナルはすべて残ります)、\n          なければそのコミットのナイトリービルド (なければそれを含む最も近いもの) を `cmux nightly install` と同じ方法でインストールし、\n          それもなければ CI が公開した Release アプリをこのアプリの ID のまま置き換えます (セッション・設定・アップデートは残り、undo で元に戻ります)。ここではビルドしません。\n          PR やブランチは GitHub の公開 API でその先頭のコミットに解決します。\n          どちらもない PR (オープン中の PR) は、`.` と同じくナイトリーのコピーに入れます: サイドインスタンス pr-N で、\n          先頭は git で取得し、このフォルダを含む cmux のチェックアウト (または $CMUX_APP_TRY_REPO) から動かします。\n          `N --from APP` は直接コピーへ、`N --extract` と `N --stop` は `.` と同じです\n  undo    直前の try で置き換えたものを元に戻します\n  status  直前の try の記録: 何を、どの方法で行い、各段階に何秒かかったか\n  --dry-run  計画を表示するだけで、何も変更しません",
