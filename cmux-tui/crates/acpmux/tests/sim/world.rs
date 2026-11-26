@@ -24,6 +24,20 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
 const APP: &str = "app";
+
+thread_local! {
+    /// Every hub this thread's simulations built: each must be gone once its simulation is
+    /// dropped (`left_alive`).
+    static HUBS: RefCell<Vec<std::sync::Weak<Hub>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// How many of the hubs built since the last call outlive their simulation.
+pub fn left_alive() -> (usize, usize) {
+    HUBS.with(|h| {
+        let hubs = std::mem::take(&mut *h.borrow_mut());
+        (hubs.iter().filter(|w| w.strong_count() > 0).count(), hubs.len())
+    })
+}
 const TICK: Duration = Duration::from_millis(10);
 
 /// Which faults a run injects.
@@ -156,6 +170,7 @@ fn config() -> Config {
 async fn daemon(disk: Arc<Disk>, agents: Arc<Agents>, incarnation: u64) -> turmoil::Result {
     acpmux::sim_agent::install(agents.factory(incarnation));
     let hub = Hub::new(config(), Box::new(SimStore(disk)));
+    HUBS.with(|h| h.borrow_mut().push(Arc::downgrade(&hub)));
     let _ = hub.person.install_spawn_key(app::PERSON_KEY);
     {
         let hub = hub.clone();
