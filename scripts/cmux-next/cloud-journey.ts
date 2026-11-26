@@ -2258,8 +2258,45 @@ export async function observeFirstText(exec: Exec, session: string, budgetMs: nu
 
 /** The reply step's timeout names what it last saw: an exec that never reached the session (its exit and stderr, e.g.
  * 503 vm_unavailable), and with the model stub, how many model requests the stub logged (0: the model was never asked). */
-export function noReplyError(budgetMs: number, last: string, lastExec?: ExecResult, stubRequests?: number | null): string {
+/** The kinds that say why a turn made no text: the agent's API retries, its stderr, its exit, a failed resume, a turn error. */
+const TAIL_WHY_KINDS = new Set(["claude.system.api_retry", "stderr", "exited", "resume_failed", "turn_error"]);
+
+/**
+ * One line from a session's `acp tail` records for a reply that never came: how many records of each kind, then the
+ * newest of each kind that says why (run 45879010786: 300 s with no reply and an empty last, nothing else to go on).
+ */
+export function tailFacts(tail: string): string {
+  const counts = new Map<string, number>();
+  const why = new Map<string, string>();
+  for (const line of tail.split("\n")) {
+    let r: any;
+    try { r = JSON.parse(line); } catch { continue; }
+    const kind = typeof r?.kind === "string" ? r.kind : "";
+    if (!kind) continue;
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+    if (!TAIL_WHY_KINDS.has(kind)) continue;
+    const m = r.msg ?? {};
+    const text = kind === "claude.system.api_retry"
+      ? `attempt ${m.attempt ?? "?"}/${m.max_retries ?? "?"} ${m.error ?? ""}`.trim()
+      : String(m.error ?? m.text ?? m.code ?? m.status ?? JSON.stringify(m)).trim();
+    why.delete(kind);
+    why.set(kind, text.slice(-160));
+  }
+  if (!counts.size) return "the session's records could not be read";
+  const kinds = [...counts].map(([k, n]) => `${k}=${n}`).join(" ");
+  const reasons = [...why].map(([k, t]) => `${k}: ${t}`).join("; ");
+  return `session records ${kinds}${reasons ? `; ${reasons}` : ""}`.slice(0, 600);
+}
+
+/** {@link tailFacts} for a session on the guest; never throws. */
+export async function sessionTailFacts(exec: Exec, session: string): Promise<string> {
+  const r = await exec(`${GUEST}"$c" acp tail ${shq(session)} 2>/dev/null | tail -n 400`, 45_000).catch(() => null);
+  return tailFacts(r?.stdout ?? "");
+}
+
+export function noReplyError(budgetMs: number, last: string, lastExec?: ExecResult, stubRequests?: number | null, facts?: string): string {
   const parts = [`no reply within ${budgetMs / 1000} s; last: ${last.slice(-300)}`];
+  if (facts) parts.push(facts);
   if (lastExec) parts.push(`last exec without an acp wait answer: exit ${lastExec.code} ${(lastExec.stderr || lastExec.stdout).trim().slice(-200)}`);
   if (stubRequests !== undefined) parts.push(stubRequests === null ? "the stub's request log could not be read" : `the model stub logged ${stubRequests} model request(s)${stubRequests === 0 ? ": the model was never asked" : ""}`);
   return parts.join("; ");
@@ -5953,7 +5990,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
       }
       const stubRequests = modelStub || gatewayStub ? await stubTurns().then((t) => t.length, () => null) : undefined;
-      throw new Error(noReplyError(chatBudget, last, lastExec, stubRequests));
+      throw new Error(noReplyError(chatBudget, last, lastExec, stubRequests, await sessionTailFacts(exec, session)));
     };
     const send = async (text: string, pre = ""): Promise<number | null> => {
       const r = await exec(guestTimed(`${pre}${GUEST}printf '%s' ${shq(text)} | "$c" acp send --no-wait ${shq(session)} - 2>&1; echo "@@exit $?"`), 60_000);
