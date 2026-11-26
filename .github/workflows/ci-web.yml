@@ -927,7 +927,7 @@ jobs:
     # runner as a push does. It read linux_4 before: on 2026-11-22 its 12 shards ran 2 files at once on
     # the 4 vCPU pool for 39-71 min of tests each, about 722 runner-minutes a batch run (runs 44990794651 and
     # 44991513044), where a pull request's shards on the owned runner take 13-15 min.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
     # browser-lane suites they run. The full suite grew to 22 min in one process.
     # Deterministic file shards keep per-file isolation. Each shard warms one
@@ -1797,7 +1797,7 @@ jobs:
   react-apps-base-early:
     needs: web-subarea-scope
     if: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     continue-on-error: true
     # A stuck early shard must not hold the base check past what its own replay costs. Over 11-20..21 (24 h feed,
     # 1,507 runs of these two shards) 615 successes had a median of 85 s and a p97 of 200 s; 811 runs ended
@@ -1996,7 +1996,7 @@ jobs:
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
     if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_REACT_SHARD_RUNNER || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || vars.CI_REACT_SHARD_RUNNER || 'cmux-linux' }}
     # 55: the base replay and the head re-run of up to 25 files each (13 files took about 6 minutes alone). The base's
     # replays after the first share what is left of it (the compare step's JOB_TIMEOUT_MINUTES and REPLAY_RESERVE).
     timeout-minutes: 55

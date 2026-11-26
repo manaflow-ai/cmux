@@ -284,7 +284,7 @@ jobs:
   portable-tests:
     name: app FFI unit tests (Linux)
     if: github.ref == 'refs/heads/feat-cmux-next' && github.repository_owner == 'manaflow-ai'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt <= 2 && 'cmux-gcp-nightly-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
