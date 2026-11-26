@@ -37,7 +37,7 @@ jobs:
     # here. Guard status counts the skip as fine only on such a pull request. The base is matched exactly: a pull
     # request into a stacked feat-cmux-next-* branch starts no pr-pipeline.yml run, so the job runs there.
     if: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -95,7 +95,7 @@ jobs:
         group: ${{ fromJSON(inputs.linux_guard_test_groups) }}
         exclude:
           - group: ci
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Its three sibling guard jobs are bounded at 15; 65 recent runs peaked at 0.8 min.
     timeout-minutes: 15
     # This job executes scripts from the pull request. It needs only read
@@ -237,6 +237,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cloud_capture_provision.py
 
+      - name: Validate the Cloud chat proof script
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_chat_proof.py
+
+      - name: Validate the Cloud chat proof failure evidence
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cloud_chat_proof_failure_evidence.py
+
       - name: Validate the cloud overflow switch
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cloud_overflow_switch.py
@@ -347,6 +355,10 @@ jobs:
       - name: Validate the base-red skip of PR jobs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_base_red_skip.py
+
+      - name: Validate the head fail-fast of PR runs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_head_fail_fast.py
 
       - name: Validate the kit's base-red notice
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1056,6 +1068,10 @@ jobs:
       - name: Validate published-in PR comments
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_published_in_comments.py
+
+      - name: Validate every published NIGHTLY gets its PR list (notes checkout, span fetch, dispatch retry)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_pr_list_publish.py
 
       - name: Validate the pull request status comment
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2476,7 +2492,7 @@ jobs:
     # The lockfile policy compares the candidate with the exact base parent of
     # GitHub's synthetic PR/merge-group commit. Depth 2 contains HEAD and that
     # parent; the policy does not need the rest of repository history.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2539,7 +2555,7 @@ jobs:
         group: [tui-resolution, profiling]
     # The two slow CLI contracts are independent; run them beside each other
     # and let the reusable-workflow job aggregate their result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2574,7 +2590,7 @@ jobs:
         group: [dispatch-ownership]
     # These source-policy scans are independent and each dominates wall time;
     # run them concurrently and aggregate through the reusable-workflow job.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -2613,7 +2629,7 @@ jobs:
     # Preserve the guard verdict after a failure, but do not start a rollup
     # after GitHub has cancelled the run.
     if: ${{ always() && !cancelled() }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Check routed guard jobs
