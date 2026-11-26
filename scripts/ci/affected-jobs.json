@@ -41,7 +41,8 @@
             "scripts/ci/apt-ensure.sh", "scripts/ci/cargo_test_verdict.py", "scripts/ci/git_tree.py", "scripts/ci/test_reds.py",
             "tests/test_cargo_test_verdict.py", ".github/actions/cache-restore/", ".github/actions/cache-save/",
             "scripts/ci/cargo-lib-tests-at-once.sh", "scripts/ci/tests/cargo-lib-tests-at-once.test.sh",
-            "scripts/ci/acpmux-tests-pr-deferred.txt"
+            "scripts/ci/acpmux-tests-pr-deferred.txt",
+            "scripts/ci/cargo_target_strip.py"
           ]
         },
         "acpmux-sim": {
@@ -60,7 +61,7 @@
         "acpmux-protocol-ir": {
           "name": "acpmux protocol IR is current",
           "crates": ["cmux-tui/crates/acpmux"],
-          "inputs": ["scripts/cmux-next/cargo-locks.py"]
+          "inputs": ["scripts/cmux-next/cargo-locks.py", ".github/actions/cache-restore/"]
         }
       }
     },

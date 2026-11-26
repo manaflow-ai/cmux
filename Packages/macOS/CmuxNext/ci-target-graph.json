@@ -1823,6 +1823,7 @@
         "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextAgentActivity",
+        "CmuxNextBrowserCore",
         "CmuxNextCloud",
         "CmuxNextCompat",
         "CmuxNextComputerUse",

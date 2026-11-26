@@ -135,6 +135,33 @@ public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
+/// A phone-authored message that has not yet been acknowledged by the Mac. A steer is kept
+/// separately from its recorded turn so a store replacement can resend it with the same intent.
+public struct WaitingMessage: Hashable, Sendable {
+    public var prompt: String
+    public var promptID: String
+    public var attachments: [AgentAttachment]
+    public var promptAt: Date
+    public var localSend: AgentTurn.LocalSend
+    public var steer: Bool
+
+    public init(prompt: String, promptID: String, attachments: [AgentAttachment] = [], promptAt: Date,
+                localSend: AgentTurn.LocalSend, steer: Bool = false) {
+        self.prompt = prompt
+        self.promptID = promptID
+        self.attachments = attachments
+        self.promptAt = promptAt
+        self.localSend = localSend
+        self.steer = steer
+    }
+
+    init(turn: AgentTurn, steer: Bool = false) {
+        self.init(prompt: turn.prompt, promptID: turn.promptID ?? turn.id,
+                  attachments: turn.attachments, promptAt: turn.promptAt,
+                  localSend: turn.localSend ?? .sending, steer: steer)
+    }
+}
+
 public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
     case message(id: String, markdown: String)
     case thought(id: String, text: String)
@@ -514,7 +541,9 @@ public final class AgentChatStore {
         if let index = turns.firstIndex(where: { $0.id == id }) {
             guard turns[index].localSend != .notSent else { return }
             turns[index].localSend = .notSent
-        } else if let index = lastRecordedIndex,
+        } else if let index = turns.indices.last(where: { index in
+            turns[index].items.contains { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }
+        }),
                   let item = turns[index].items.firstIndex(where: { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }),
                   case .steer(let message) = turns[index].items[item] {
             turns[index].items.remove(at: item)
@@ -531,15 +560,16 @@ public final class AgentChatStore {
     /// Whether `promptID` is drawn as one of this phone's waiting messages (a bubble or a steer).
     private func showsLocally(_ promptID: String) -> Bool {
         if turns.contains(where: { $0.id == Self.localTurnID(promptID) }) { return true }
-        guard let index = lastRecordedIndex else { return false }
-        return turns[index].items.contains { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }
+        return turns.contains { turn in
+            turn.items.contains { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }
+        }
     }
 
     /// Takes the waiting bubble (or steer) for `promptID` away (the Mac refused it, or queued it).
     private func dropLocal(_ promptID: String) {
         landed(promptID)
         turns.removeAll { $0.id == Self.localTurnID(promptID) }
-        if let index = lastRecordedIndex {
+        for index in turns.indices {
             turns[index].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptID } else { false } }
         }
     }
@@ -556,20 +586,33 @@ public final class AgentChatStore {
 
     /// Messages drawn at once that the Mac has not recorded yet, oldest first: a store built in
     /// this one's place sends them (``AgentSessionDirectory``).
-    public var waitingMessages: [AgentTurn] {
-        var waiting: [AgentTurn] = []
-        for turn in turns.reversed() {
-            guard let local = turn.localSend else { break }
-            waiting.insert(turn, at: 0)
+    public var waitingMessages: [WaitingMessage] {
+        var waiting: [WaitingMessage] = []
+        var carriedIDs: Set<String> = []
+        for turn in turns {
+            if let local = turn.localSend, let promptID = turn.promptID,
+               !deletedSends.contains(promptID), carriedIDs.insert(promptID).inserted {
+                waiting.append(WaitingMessage(prompt: turn.prompt, promptID: promptID,
+                                              attachments: turn.attachments, promptAt: turn.promptAt,
+                                              localSend: local))
+            }
+            for item in turn.items {
+                guard case .steer(let message) = item, !seenPromptIDs.contains(message.promptID),
+                      !deletedSends.contains(message.promptID), carriedIDs.insert(message.promptID).inserted else { continue }
+                waiting.append(WaitingMessage(prompt: message.text, promptID: message.promptID,
+                                              attachments: message.attachments, promptAt: message.at,
+                                              localSend: .sending, steer: true))
+            }
         }
         return waiting
     }
 
     /// Draws and sends the messages a replaced store was still sending (``waitingMessages``), each
     /// under its own id as a resend, so the Mac runs one that did arrive only once.
-    public func adoptWaiting(_ waiting: [AgentTurn]) {
+    public func adoptWaiting(_ waiting: [WaitingMessage]) {
         for turn in waiting {
-            guard let promptID = turn.promptID, !seenPromptIDs.contains(promptID) else { continue }
+            let promptID = turn.promptID
+            guard !seenPromptIDs.contains(promptID) else { continue }
             if turn.localSend == .notSent {
                 // A message that already failed keeps its bubble and its retry; nothing sends it
                 // until the person taps (a late echo from the Mac still replaces it).
@@ -581,8 +624,8 @@ public final class AgentChatStore {
                 refreshDerived()
                 continue
             }
-            source.send(.prompt(text: turn.prompt, attachments: turn.attachments, steer: false, promptID: promptID, resend: true))
-            showSent(turn.prompt, attachments: turn.attachments, promptID: promptID, steer: false)
+            source.send(.prompt(text: turn.prompt, attachments: turn.attachments, steer: turn.steer, promptID: promptID, resend: true))
+            showSent(turn.prompt, attachments: turn.attachments, promptID: promptID, steer: turn.steer)
         }
     }
 
@@ -1123,6 +1166,7 @@ public final class AgentChatStore {
     public func deleteSend(promptID: String) {
         deletedSends.insert(promptID)
         outgoing.removeAll { $0.id == promptID }
+        dropLocal(promptID)
         source.send(.deleteSend(promptID: promptID))
     }
 
@@ -1873,6 +1917,7 @@ public final class AgentChatStore {
                 switch event {
                 case .userMessage(_, let promptId, _, _, _):
                     reached(promptId)
+                    dropLocal(promptId)
                     sentAttachments[promptId] = nil
                     leaveQueueFromGap(promptId)
                 case .queued(let text, let promptId, _):

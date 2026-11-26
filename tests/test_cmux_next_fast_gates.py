@@ -234,6 +234,28 @@ class WorkflowShape(unittest.TestCase):
                                 or any(("/" + path).startswith(p) and p.endswith("/") for p in patterns), path)
         self.assertIn("--filter=tree:0", fast_gates_source())
 
+    def test_checkout_holds_every_tests_module_a_gate_imports(self):
+        # cmux#57582 (run 45880398424): the egress gate imports tests/test_egress_gate.py, which the sparse checkout
+        # left out, so every pull request's fast gates failed on ModuleNotFoundError. A gate script's `tests/` import,
+        # followed through the modules it imports, must be on disk.
+        patterns = step_named(job(workflow())["steps"], "Checkout")["with"]["sparse-checkout"].split()
+        scripts = sorted(set(re.findall(r'"((?:scripts|tests)/[\w./-]+\.py)"', fast_gates_source())))
+        self.assertIn("scripts/ci/egress_new_sites.py", scripts)
+        seen: set[str] = set()
+        todo = [ROOT / s for s in scripts]
+        while todo:
+            path = todo.pop()
+            if not path.exists():
+                continue
+            for name in re.findall(r"^\s*(?:from|import)\s+([A-Za-z_]\w*)", path.read_text(encoding="utf-8"), re.M):
+                module = ROOT / "tests" / f"{name}.py"
+                if module.exists() and name not in seen:
+                    seen.add(name)
+                    todo.append(module)
+                    with self.subTest(gate=str(path.relative_to(ROOT)), module=name):
+                        self.assertIn(f"/tests/{name}.py", patterns, f"{path.relative_to(ROOT)} imports tests/{name}.py")
+        self.assertIn("test_egress_gate", seen)
+
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
         # A feat-cmux-next pull request runs it from pr-router.yml (scripts/ci/pr_router.json), with no path filter
@@ -833,6 +855,8 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("check:fixed-waits", module.CHECKS)
         self.assertIn("check:effect-cleanup", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
+        self.assertIn("check:surface-bypass", module.CHECKS)
+        self.assertEqual(module.CHECK_CLASSES["check:surface-bypass"], module.LINT)  # advisory on the nightly
         # The type check is its own job (ci-self-heal 0c, Leo 2026-11-19): a type error is a red of its own and
         # never the test shard's; the same per-error base comparison runs there.
         self.assertIn("--skip typecheck", steps[0]["run"])
@@ -2013,6 +2037,16 @@ class WebviewsChecksGate(unittest.TestCase):
         self.findings({"check:fixed-waits": "  test/a.test.ts: 4 fixed waits, baseline 2\n"}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
 
+    def test_a_new_ratchet_the_base_has_no_script_for_is_not_charged_for_its_baselined_findings(self):
+        # check:surface-bypass lands with its script and baseline: the base cannot run it, so its findings are not new.
+        base = self.findings({}, "base without the script")
+        commit(self.repo, {"webviews/scripts/check-surface-bypass.ts": "// the ratchet\n",
+                           "webviews/findings/check:surface-bypass": "  src/a.tsx: 3 raw-button, baseline 3\n"},
+               "the transition")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("check:surface-bypass is new; base has no command", result.stdout)
+
     def test_every_check_runs_after_a_red_one(self):
         base = self.findings({}, "base")
         self.findings({check: "  x\n" for check in self.module.CHECKS}, "all red")
@@ -2119,6 +2153,22 @@ class WebviewsChecksGate(unittest.TestCase):
         base = self.findings({"typecheck": red}, "red base")
         self.findings({"typecheck": red + red.replace(":350:", ":351:")}, "the merge")
         self.assertEqual(self.gate(base).returncode, 1)
+
+    def test_a_type_error_naming_a_node_modules_path_is_the_base_one(self):
+        # Fast gates 45874767698 (cmux#57053): the base's bench/browsers.ts TS2345 names node_modules under each
+        # checkout's root in its message, so a key that unrooted only the path read it as the merge's own.
+        def diagnostic(root: str) -> str:
+            return ("  x typescript(TS2345): Argument of type 'import(\"" + root + "/webviews/node_modules/"
+                    "playwright-core/types/types\").LaunchOptions | undefined' is not assignable to parameter of "
+                    "type 'LaunchOptions | undefined'.\n"
+                    "    ,-[bench/browsers.ts:42:60]\n"
+                    " 42 |   chromium.launch = (options) => launch(withShippedJsFlags(options));\n"
+                    "    `----\n")
+        for base_root in ("/w/merge", "/tmp/fast-gate-webviews-base-x/base"):
+            new, old = self.module.compare(diagnostic("/w/merge"), diagnostic(base_root), "/w/merge",
+                                           "/tmp/fast-gate-webviews-base-x/base")
+            self.assertEqual(new, [], base_root)
+            self.assertEqual(len(old), 1, base_root)
 
     def test_a_vite_config_stack_frame_matches_the_base_across_temp_names(self):
         merge = ("error: Failed to resolve vite config\n"

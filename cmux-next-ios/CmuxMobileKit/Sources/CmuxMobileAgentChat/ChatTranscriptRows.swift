@@ -251,7 +251,7 @@ final class ChatTranscriptBuilder {
             rows.append(ChatRow(id: "session-start", turnID: turnID, kind: .sessionStart(turn.promptAt, earlier: context.earlierHistory), gap: 0))
         }
         // An inbox notice with nothing to show (AgentIncoming with no messages) draws no prompt row.
-        if turn.incoming?.messages.isEmpty != true {
+        if turn.incoming?.messages.isEmpty != true, turn.localSend != .sending {
             var gap: Double = context.isFirst ? 0 : (context.followsActions ? 18 : 24)
             var prompt = turn.prompt
             // A Chief subagent's first prompt: the Chief's view collapses to one line over the task.
