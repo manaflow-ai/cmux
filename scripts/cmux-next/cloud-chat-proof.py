@@ -155,8 +155,9 @@ def claude_chat(agent: str) -> bool:
 
 
 # A Claude chat's `--login` only: Codex never takes it (`none` would leave it signed out; its login is the Mac's broker).
-# `cmux cloud start-chat` has no --login any more (run 45643863592: unexpected argument "--login"); none is passed.
-START_LOGIN = ()
+# The Rust `cmux cloud start-chat` has no --login (run 45643863592: unexpected argument "--login"): the start-chat
+# --help probe below drops it for that CLI, and an older app's CLI that still lists it gets it.
+START_LOGIN = ("--login", args.login) if args.login and claude_chat(args.agent) else ()
 # --grant-claude-login: the launched app's own cmux.json (0600), removed with its folder when the run ends. It holds
 # the consent a Release build's claude chat on the account's own machine waits for (CloudLoginCopyConsentSetting:
 # only the file can say yes; `settings set` asks a person on screen, which CI has not). Never the shared
