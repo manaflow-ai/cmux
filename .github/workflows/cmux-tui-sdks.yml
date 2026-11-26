@@ -18,7 +18,7 @@ on:
     branches:
       - main
     paths:
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**"
       - "schemas/agent-pane/stylesheet-guard.json"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
@@ -192,11 +192,18 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "schemas/design-scale/design-scale.json"
+      - "schemas/instrument/instrument.json"
+      - "schemas/settings/file-keys.json"
+      - "schemas/layout-grid/layout-grid.json"
+      - "schemas/motion-scale/motion-scale.json"
+      - "schemas/type-scale/type-scale.json"
+      - "schemas/design-scale/scene-scale.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "schemas/agent-pane/stylesheet-guard.json"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings.d/**"
       - "schemas/settings/source/general.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
       - "schemas/type-scale/scene-type.json"
@@ -369,6 +376,13 @@ on:
       - "skills/cmux-customization/templates/clock-weather/main.js"
       - "skills/cmux-customization/templates/my-prs/cmux-app.json"
       - "skills/cmux-customization/templates/my-prs/main.js"
+      - "schemas/design-scale/design-scale.json"
+      - "schemas/instrument/instrument.json"
+      - "schemas/settings/file-keys.json"
+      - "schemas/layout-grid/layout-grid.json"
+      - "schemas/motion-scale/motion-scale.json"
+      - "schemas/type-scale/type-scale.json"
+      - "schemas/design-scale/scene-scale.json"
   workflow_dispatch:
 
 concurrency:

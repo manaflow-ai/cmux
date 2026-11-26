@@ -100,9 +100,9 @@ describe("Particles", () => {
     expect(host.tree("m1").nodes.get(id)!.props.burst).toBe(1)
   })
 
-  test("is a global and the runtime reports 1.4.0", () => {
+  test("is a global and the runtime reports 1.6.0", () => {
     const host = new FakeHost(app(`return {}`))
     expect(host.eval("typeof Particles")).toBe("function")
-    expect(host.eval("__cmuxAppRuntimeVersion")).toBe("1.4.0")
+    expect(host.eval("__cmuxAppRuntimeVersion")).toBe("1.6.0")
   })
 })

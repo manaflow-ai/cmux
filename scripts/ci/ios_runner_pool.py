@@ -947,7 +947,7 @@ def pinned_xcode(macos_major: str = "26", path: Path = XCODE_PINS) -> str:
 
 
 def granted_default(route: Route, *, fork: bool, owner: str, requested: str | None, variable: str | None,
-                    blocker: str, overflow: str | None, pr_xcode_app: str | None,
+                    blocker: str, overflow: str | None, pr_xcode_app: str | None, event: str = "",
                     log: Callable[[str], None] = lambda message: None) -> Route:
     """Granted default: `route` on GRANT_LABEL with SIM_LABEL and its xcode-<version> when it is the default.
 
@@ -965,8 +965,20 @@ def granted_default(route: Route, *, fork: bool, owner: str, requested: str | No
     Unchanged: a fork's pull request (its fallback stays as it is), another owner, an explicit runner input
     or runner variable, an owned route, a blocker (ios_version, an upload, a release call, seed_cache), and a
     CI_OVERFLOW_MAC naming another label (an outage: Blacksmith, as before). Re-runs keep SMALL_RUNNER.
+
+    Only a pull request run (`event` pull_request, or "" when the caller does not say) takes the grant, as
+    mac_grants.py grants only pull request jobs. Nothing moves a granted job off a label no Mac takes for it except
+    a re-run on SMALL_RUNNER: the controller's grant bound (cmuxterm-hq build-fleet/internal/sched/labels.go
+    Request.Rerunnable) re-runs pull request runs only, and ci-owned-pool-rescue.yml watches owned routes only. On
+    2026-11-25 feat-cmux-next's push run 45609484199 granted its CmuxMobileKit job to cmux-mac + glaeda-ios-sim +
+    xcode-26.6 at 12:07Z behind 29 queued simulator jobs; it never started, and its concurrency group held every
+    later base push run of the workflow pending or cancelled with no jobs, so the base had no kit result. A push,
+    dispatch or schedule run keeps the Blacksmith default, which always serves.
     """
     if fork or owner != OWNER or route.persistent or blocker:
+        return route
+    if (event or "").strip() not in ("", "pull_request", "pull_request_target"):
+        log(f"a {event.strip()} run has no re-run off a starved grant; staying on {route.label}")
         return route
     if (requested or "").strip() not in ("", "auto") or (variable or "").strip() not in ("", SMALL_RUNNER):
         return route
@@ -1032,6 +1044,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
         blocker=owned_blocker(ios_version=args.ios_version, upload=args.upload, called=args.called,
                               seed_cache=args.seed_cache),
         overflow=env.get(OVERFLOW_VARIABLE), pr_xcode_app=args.pr_xcode_app,
+        event=env.get("GITHUB_EVENT_NAME") or "",
         log=lambda message: print(message, file=sys.stderr))
 
     # Simulator-aware runs with an Actions token retain the lane's capability

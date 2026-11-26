@@ -37,6 +37,8 @@
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
+//! `url_input` is the typed address-bar policy: what the omnibox, the New Tab
+//! field and newTab.submit load or search (cmux-url-input, include/cmux_url_input.h).
 
 //! `keymap` is the keymap layer of app.keyStyle and app.shortcutLayout: list keys
 //! per style and shortcut matching per layout (cmux-keymap, include/cmux_keymap.h).
@@ -48,6 +50,8 @@
 //! answer (include/cmux_system_calendar.h); EventKit stays in the app.
 //! `settings` is cmux-next.json's reads (cmux-config's app_ops: the parse,
 //! the validation and the defaults; include/cmux_settings.h).
+//! `interactivity` is priority by interactivity (cmux-interactivity, include/cmux_interactivity.h): note what the
+//! person touches, read the QoS of a class of work.
 //! `layout_cache` is every window's last computed layout kept across restarts, so a launch
 //! draws it already placed (cmux-layout-cache, include/cmux_layout_cache.h).
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
@@ -57,6 +61,8 @@
 pub mod files_lister;
 pub mod goo;
 pub mod hover;
+/// cbindgen:ignore
+pub mod interactivity;
 pub mod motion;
 /// cbindgen:ignore
 pub mod settings;
@@ -87,3 +93,4 @@ pub use cmux_rd_ffi as rd;
 pub use cmux_sdk_ffi as sdk;
 pub use cmux_terminal_prediction::ffi as terminal_prediction;
 pub use cmux_update_prewarm_core::ffi as update_prewarm;
+pub use cmux_url_input::ffi as url_input;
