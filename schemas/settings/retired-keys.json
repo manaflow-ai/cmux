@@ -204,6 +204,33 @@
       "why": "Lawrence (2026-11-20): \"remove share screen with chief\". Its capture host had already gone with the cmux Computer Use helper."
     },
     {
+      "key": "updates.checkAutomatically",
+      "reason": "Automatic Updates (updates.automatic) is one choice now: Off, Notify Only, Download Automatically or Install When Idle (false reads as Off)",
+      "replaced_by": "updates.automatic",
+      "since": "2026-11-23",
+      "until": "2027-01-22",
+      "values": [{"from": false, "to": "off"}],
+      "why": "One Automatic Updates choice replaced three update toggles (Leo 2026-11-22: \"maybe too many settings and bullshit that can be consolidated\"); read in this order while updates.automatic is unset."
+    },
+    {
+      "key": "updates.installWhenIdle",
+      "reason": "Automatic Updates (updates.automatic) is one choice now (true reads as Install When Idle)",
+      "replaced_by": "updates.automatic",
+      "since": "2026-11-23",
+      "until": "2027-01-22",
+      "values": [{"from": true, "to": "idle"}],
+      "why": "One Automatic Updates choice replaced three update toggles (Leo 2026-11-22: \"maybe too many settings and bullshit that can be consolidated\"); read in this order while updates.automatic is unset."
+    },
+    {
+      "key": "updates.downloadAutomatically",
+      "reason": "Automatic Updates (updates.automatic) is one choice now (true reads as Download Automatically, false as Notify Only)",
+      "replaced_by": "updates.automatic",
+      "since": "2026-11-23",
+      "until": "2027-01-22",
+      "values": [{"from": true, "to": "download"}, {"from": false, "to": "notify"}],
+      "why": "One Automatic Updates choice replaced three update toggles (Leo 2026-11-22: \"maybe too many settings and bullshit that can be consolidated\"); read in this order while updates.automatic is unset."
+    },
+    {
       "key": "agentPane.display.inspector.placement",
       "reason": "the panel is Session Info now: agentPane.display.sessionInfo.placement",
       "replaced_by": "agentPane.display.sessionInfo.placement",
@@ -226,6 +253,20 @@
       "since": "2026-10-06",
       "until": "2026-12-05",
       "why": "Minimal workspace rows, every row element a setting (2026-10-06, WorkspaceRowSetting.legacyPaths)."
+    },
+    {
+      "key": "agentPane.display.pinnedPlan",
+      "reason": "cmux shows no agent to-do list",
+      "since": "2026-11-24",
+      "until": "2027-01-23",
+      "why": "The agent to-do list is removed from every surface (2026-11-24): nothing is left to pin."
+    },
+    {
+      "key": "sidebar.showAutomaticSessions",
+      "reason": "the sidebar no longer folds script-started sessions into an Automatic row; they show in their list",
+      "since": "2026-11-25",
+      "until": "2027-01-24",
+      "why": "The Automatic (N) sidebar row is removed (#55721, taking back #49506; Leo 2026-11-25: \"PLS REMOVE\"); workspace auto-renaming stays as silent behaviour."
     }
   ]
 }
