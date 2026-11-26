@@ -711,7 +711,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
@@ -722,6 +724,25 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+      # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
+      # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
+      # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
+      # production on an old commit for about 10 hours. A failed checkout is finished here through the
+      # repository's git retry layer: transport failures are tried again (3 tries, 180 s each), refusals are not.
+      - name: Finish the checkout when its blob download dropped (retried)
+        if: steps.checkout.outcome == 'failure'
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet "${GITHUB_SHA}^{commit}" >/dev/null || [ "$(git config --bool core.sparseCheckout || true)" != true ]; then
+            echo "::error title=checkout::actions/checkout failed before its working-tree step (its fetch spent its own three tries); see that step's error"
+            exit 1
+          fi
+          helper="$RUNNER_TEMP/git_fetch_retry.py"
+          git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+            || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
+          if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
+          python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
@@ -791,7 +812,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$VITESS_STAGING_URL" ]; then
-            if [ -n "$BEFORE" ] && git fetch --no-tags --depth=1 origin "$BEFORE" 2>/dev/null && git diff --quiet "$BEFORE" HEAD -- drizzle-mysql; then
+            # The fetch goes through the repository's git retry layer (transport failures tried again, refusals not).
+            if [ -n "$BEFORE" ] && python3 "$GITHUB_WORKSPACE/scripts/ci/git_fetch_retry.py" --stop-on-refusal --tries 3 --timeout 120 \
+                -- git fetch --no-tags --depth=1 origin "$BEFORE" 2>/dev/null && git diff --quiet "$BEFORE" HEAD -- drizzle-mysql; then
               echo "::notice title=Vitess staging migrations not checked::cmux-next-staging has no CMUX_NEXT_VITESS_STAGING_ADMIN_URL; this push does not change drizzle-mysql"
               exit 0
             fi
@@ -882,7 +905,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
@@ -893,6 +918,25 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+      # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
+      # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
+      # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
+      # production on an old commit for about 10 hours. A failed checkout is finished here through the
+      # repository's git retry layer: transport failures are tried again (3 tries, 180 s each), refusals are not.
+      - name: Finish the checkout when its blob download dropped (retried)
+        if: steps.checkout.outcome == 'failure'
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet "${GITHUB_SHA}^{commit}" >/dev/null || [ "$(git config --bool core.sparseCheckout || true)" != true ]; then
+            echo "::error title=checkout::actions/checkout failed before its working-tree step (its fetch spent its own three tries); see that step's error"
+            exit 1
+          fi
+          helper="$RUNNER_TEMP/git_fetch_retry.py"
+          git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+            || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
+          if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
+          python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
@@ -1076,7 +1120,9 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
@@ -1087,6 +1133,25 @@ jobs:
             scripts/ci/toolchain-archives.sha256
             scripts/ci/r2-cache.sh
             scripts/ci/lan_cache_fetch.py
+      # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
+      # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
+      # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
+      # production on an old commit for about 10 hours. A failed checkout is finished here through the
+      # repository's git retry layer: transport failures are tried again (3 tries, 180 s each), refusals are not.
+      - name: Finish the checkout when its blob download dropped (retried)
+        if: steps.checkout.outcome == 'failure'
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet "${GITHUB_SHA}^{commit}" >/dev/null || [ "$(git config --bool core.sparseCheckout || true)" != true ]; then
+            echo "::error title=checkout::actions/checkout failed before its working-tree step (its fetch spent its own three tries); see that step's error"
+            exit 1
+          fi
+          helper="$RUNNER_TEMP/git_fetch_retry.py"
+          git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 show "$GITHUB_SHA:scripts/ci/git_fetch_retry.py" > "$helper" 2>/dev/null \
+            || curl -fsSL --retry 5 --retry-all-errors --max-time 60 -o "$helper" "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$GITHUB_SHA/scripts/ci/git_fetch_retry.py"
+          if [[ "$GITHUB_REF" == refs/heads/* ]]; then target=(-B "$GITHUB_REF_NAME"); else target=(--detach); fi
+          python3 "$helper" --stop-on-refusal --tries 3 --timeout 180 --backoff 15,30 -- git checkout --progress --force "${target[@]}" "$GITHUB_SHA"
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
@@ -1158,16 +1223,29 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          # Every fetch goes through the repository's git retry layer: a slow transfer, reset or timeout is
+          # tried again (3 tries, 120 s each), a refusal (no such commit, auth) is not.
+          retry_git() { python3 "$GITHUB_WORKSPACE/scripts/ci/git_fetch_retry.py" --stop-on-refusal --tries 3 --timeout 120 -- git "$@"; }
           if [ -z "$BEFORE" ] || [[ "$BEFORE" =~ ^0+$ ]]; then
-            git fetch --quiet --no-tags --depth=2 origin feat-cmux-next
+            retry_git fetch --quiet --no-tags --depth=2 origin feat-cmux-next
             BASE="$(git rev-parse FETCH_HEAD^)"
           else
-            git cat-file -e "${BEFORE}^{commit}" 2>/dev/null || git fetch --quiet --no-tags --depth=1 origin "$BEFORE"
+            git cat-file -e "${BEFORE}^{commit}" 2>/dev/null || retry_git fetch --quiet --no-tags --depth=1 origin "$BEFORE"
             BASE="$BEFORE"
           fi
           # BEFORE's config, then its 99 first-parent ancestors': a cancelled or superseded deploy leaves
           # an older commit's vars serving, which is not drift (a hand-set var matches none of them).
-          git fetch --quiet --no-tags --depth=100 origin "$BASE" 2>/dev/null || true
+          retry_git fetch --quiet --no-tags --depth=100 origin "$BASE" 2>/dev/null || true
+          # The clone is blobless, so each `git show` below would fetch its wrangler.jsonc from the promisor
+          # remote in its own unretried call, and one dropped call ended the list early. Fetch those blobs
+          # first in one retried call, the way git's own lazy fetch asks for them.
+          mapfile -t blobs < <(for c in $(git rev-list --first-parent --max-count=100 "$BASE"); do
+            git rev-parse --verify --quiet "${c}:backend/apps/api/wrangler.jsonc" || break; done | sort -u)
+          if [ "${#blobs[@]}" -gt 0 ]; then
+            retry_git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head \
+              --recurse-submodules=no --filter=blob:none origin "${blobs[@]}" \
+              || echo "::warning title=Worker vars::could not prefetch the base wrangler.jsonc blobs; reading them one at a time"
+          fi
           bases=()
           i=0
           for c in $(git rev-list --first-parent --max-count=100 "$BASE"); do
