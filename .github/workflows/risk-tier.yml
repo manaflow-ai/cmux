@@ -117,7 +117,7 @@ jobs:
       # tests/test_ci_checkout_branch_ref_exact.py keeps every checkout on main this way.
       - name: Checkout the classifier at the tip of the pull request's base branch
         if: steps.raw.outputs.ok != 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
@@ -170,7 +170,7 @@ jobs:
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           path: .app-token-spread
@@ -314,7 +314,7 @@ jobs:
       - name: Checkout the merge freeze checker from main
         if: ${{ !cancelled() && vars.MERGE_FREEZE_OWN_RUNNER != '1' && !github.event.pull_request.draft }}
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/main
           path: .merge-freeze

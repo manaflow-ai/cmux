@@ -91,7 +91,7 @@ jobs:
       run: ${{ steps.triage.outputs.run }}
       red: ${{ steps.triage.outputs.red }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/main
           fetch-depth: 0
@@ -139,14 +139,14 @@ jobs:
       pushed_at: ${{ steps.open.outputs.pushed_at }}
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.triage.outputs.target }}
           path: fresh
@@ -201,14 +201,14 @@ jobs:
       summary: ${{ steps.fixer.outputs.summary || steps.regen.outputs.summary }}
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.triage.outputs.target }}
           path: target
@@ -352,14 +352,14 @@ jobs:
       pushed_at: ${{ steps.open.outputs.pushed_at }}
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
           sparse-checkout: scripts/ci/red_autofix.py
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.fix.outputs.tip }}
           path: fresh
@@ -420,7 +420,7 @@ jobs:
       verified_at: ${{ steps.verify.outputs.verified_at }}
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
@@ -429,7 +429,7 @@ jobs:
           persist-credentials: false
       # The candidate and its parent (the target's tip). The helper exports both trees out of this checkout and
       # runs them as its sandbox uid; nothing in them runs as the runner user.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.open-fix.outputs.sha }}
           path: cand
@@ -473,7 +473,7 @@ jobs:
       verified_at: ${{ steps.verify.outputs.verified_at }}
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
@@ -482,7 +482,7 @@ jobs:
           persist-credentials: false
       # The candidate and its parent (the target's tip). The helper exports both trees out of this checkout and
       # runs them as its sandbox uid; nothing in them runs as the runner user.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.revert.outputs.sha }}
           path: cand
@@ -524,7 +524,7 @@ jobs:
       contents: read
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
@@ -580,7 +580,7 @@ jobs:
       contents: read
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
@@ -635,7 +635,7 @@ jobs:
       issues: write
     steps:
       # The helper at this workflow's own commit, never the target's or a candidate's copy.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
