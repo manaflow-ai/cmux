@@ -341,9 +341,15 @@ async fn chat(mut args: ChatArgs) -> Result<()> {
     }
     let spec = args.spec();
     let token = if spec.needs_sign_in() {
-        match login::load() {
-            Some(s) => Some(s.access_token),
-            None => bail!("not signed in: run `cmux-autocloud login` first"),
+        // A saved sign-in wins; a token already in the environment (CI, a
+        // scripted run) is the fallback `cmux carrier dial` reads anyway.
+        let saved = login::load().map(|s| s.access_token);
+        let env = std::env::var("CMUX_CLOUD_ACCESS_TOKEN").ok().filter(|t| !t.trim().is_empty());
+        match saved.or(env) {
+            Some(token) => Some(token),
+            None => bail!(
+                "not signed in: run `cmux autocloud login` first (or set CMUX_CLOUD_ACCESS_TOKEN)"
+            ),
         }
     } else {
         None
@@ -572,6 +578,10 @@ fn lost(app: &mut App, ctx: &Ctx, why: String) {
         Duration::from_millis(250u64.checked_shl(app.failures.min(5)).unwrap_or(5_000).min(5_000));
     app.link_note = if why.is_empty() { "link lost".to_owned() } else { why };
     app.link_note.push_str(&format!(", redialing in {:.1}s", wait.as_secs_f32()));
+    // Plain mode prints nothing until the chat is live, so a link that never comes up says why here.
+    if ctx.args.plain || !std::io::stdout().is_terminal() {
+        eprintln!("[{} · {}]", app.spec.describe(), app.link_note);
+    }
     app.generation = app.generation.wrapping_add(1);
     let g = app.generation;
     let tx = ctx.tx.clone();
@@ -616,6 +626,21 @@ fn dial(app: &mut App, ctx: &Ctx) {
             }
         }
     });
+}
+
+/// The folder a new chat names. A remote one (`--machine`, `--host`) names none unless
+/// `--cwd` says so: the remote daemon refuses a relative path like `~` from a peer and
+/// gives a chat with no `cwd` its own folder (`~/chats/<name>`) instead.
+fn new_chat_cwd(args: &ChatArgs) -> Option<String> {
+    if let Some(cwd) = &args.cwd {
+        return Some(cwd.clone());
+    }
+    if args.machine.is_some() || args.host.is_some() {
+        return None;
+    }
+    Some(
+        std::env::current_dir().map(|d| d.display().to_string()).unwrap_or_else(|_| "/".to_owned()),
+    )
 }
 
 async fn open(
@@ -675,21 +700,14 @@ async fn new_session(link: &Link, args: &ChatArgs, name: &str) -> Result<String>
         meta.insert("harness".to_owned(), json!(m));
     }
     let meta = Value::Object(meta);
-    let cwd =
-        args.cwd.clone().unwrap_or_else(|| match &args.machine.as_ref().or(args.host.as_ref()) {
-            Some(_) => "~".to_owned(),
-            None => std::env::current_dir()
-                .map(|d| d.display().to_string())
-                .unwrap_or_else(|_| "/".to_owned()),
-        });
-    let r = tokio::time::timeout(
-        deadline,
-        link.request(
-            "session/new",
-            json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
-        ),
-    )
-    .await??;
+    let mut params = serde_json::Map::new();
+    params.insert("mcpServers".to_owned(), json!([]));
+    params.insert("_meta".to_owned(), json!({"acpmux": meta}));
+    if let Some(cwd) = new_chat_cwd(args) {
+        params.insert("cwd".to_owned(), json!(cwd));
+    }
+    let params = Value::Object(params);
+    let r = tokio::time::timeout(deadline, link.request("session/new", params)).await??;
     match r.get("sessionId").and_then(Value::as_str) {
         Some(s) => Ok(s.to_owned()),
         None => bail!("session/new answered without a sessionId"),
