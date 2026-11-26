@@ -35,10 +35,10 @@ import {
   isEmptyFooter,
   isStopped,
   offersRetry,
-  turnTimeKey,
   workedCallsText,
   workedLabel,
   workedMessagesText,
+  turnTimeKey,
   formatDuration,
   FOLD_COUNTS_SWITCH,
   workedCountsText,
@@ -51,7 +51,7 @@ import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, Close, Retry } from "./icons";
+import { AlertCircle, Retry, Close } from "./icons";
 import { DisclosureChevron } from "./DisclosureChevron";
 import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
@@ -178,7 +178,9 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   return (
     <>
       {label}
-      <span className="cv-worked__work">{` · ${work}`}</span>
+      {/* A line with no time or count of its own (a fold whose time is unknown) opens on its work: never
+          a bare "·" before the first word (Leo, 2026-11-25: "dot on left weird"). */}
+      <span className="cv-worked__work">{label ? ` · ${work}` : work}</span>
     </>
   );
 }

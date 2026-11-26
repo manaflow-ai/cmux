@@ -15400,6 +15400,40 @@
     "ClassicImportPlanResult": {
       "kind": "object",
       "fields": {
+        "available": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The metadata-only check found a potential Classic import at a known path."
+        },
+        "already_imported": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The last accepted import finished with the same observed files and its workspaces are still open."
+        },
+        "observed": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          },
+          "description": "Opaque stamp of Classic file metadata observed when offering the import."
+        },
+        "settings_only": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The accepted import found Classic settings and no saved workspaces."
+        },
         "ledger": {
           "required": true,
           "type": {
@@ -15486,7 +15520,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "The plan's counts for the confirmation (the crate's Preview)."
+          "description": "The decoded plan's counts, available after consent."
         }
       },
       "extra": false
@@ -21223,6 +21257,15 @@
             },
             "description": "automatic for the launch's own run, manual for Import Workspaces from Classic cmux."
           },
+          "consented": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "True only after the person accepts the Classic import. Omitted or false checks known paths and the NEXT ledger without opening Classic files."
+          },
           "outline": {
             "required": false,
             "type": {
@@ -21235,7 +21278,7 @@
         },
         "extra": false,
         "constraints": [
-          "Reads classic's session files under the daemon's HOME, never a path from the caller: every classic channel, the one saved last first (the channel matching bundle_id on a tie), trying each one's session file, -previous copy and newest archive in turn.",
+          "After consent, reads Classic's session files under the daemon's HOME, never a path from the caller: every classic channel, the one saved last first (the channel matching bundle_id on a tie), trying each one's session file, -previous copy and newest archive in turn.",
           "Plans against the ledger, the workspaces open now and the workspace groups that exist now: a workspace recorded done stays left out unless a manual run finds its cmux workspace closed.",
           "A ledger from a newer cmux stops both modes (decision ledger_not_usable, or error \"ledger from a newer cmux\"); it is left as it is. An unreadable ledger is moved aside."
         ]
@@ -21283,6 +21326,7 @@
               "values": [
                 "seen",
                 "baseline",
+                "settings",
                 "begin",
                 "workspace",
                 "group",
@@ -21290,7 +21334,17 @@
                 "finish"
               ]
             },
-            "description": "seen and baseline record a launch's first contact (nothing made); begin starts a confirmed run; workspace and group record what was made; decline keeps a launch's No (the ledger's declinedAt; later launches skip with declined until a run begins or finishes, which clears it); finish completes the run."
+            "description": "seen and baseline record a launch's first contact (nothing made); settings imports Classic terminal settings and harnesses after consent; begin starts a confirmed workspace run; workspace and group record what was made; decline keeps a launch's No (the ledger's declinedAt; later launches skip with declined until a run begins or finishes, which clears it); finish completes the run."
+          },
+          "observed": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            },
+            "description": "With baseline and finish, the metadata stamp from the check that offered this import."
           },
           "source": {
             "required": false,

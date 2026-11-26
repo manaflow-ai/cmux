@@ -12,6 +12,7 @@ import Foundation
 ///   },
 ///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 6, "calculator": true,
 ///                "showFullURLs": false,         // the whole address, scheme and www. included
+///                "quietIcons": false,           // fade the site-info icon and star until hover or focus
 ///                // the bar's look (cx-gkz5):
 ///                "glass": "off",                // transparent, regular, clear
 ///                "glassTint": "background",     // accent, none
@@ -56,6 +57,8 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public var calculator = BrowserOmnibarSetting.calculatorDefault
     /// The bar shows the whole address at rest (no elided `https://` or `www.`).
     public var showFullURLs = BrowserOmnibarSetting.showFullURLsDefault
+    /// The site-info icon and the star fade until the bar is hovered or focused.
+    public var quietIcons = BrowserOmnibarSetting.quietIconsDefault
     public var glass = BrowserOmnibarSetting.glassDefault
     public var glassTint = BrowserOmnibarSetting.glassTintDefault
     public var glassTintStrength = BrowserOmnibarSetting.glassTintStrengthDefault
@@ -100,6 +103,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
             case maxRowsPath: setting.maxRows = value.doubleValue.map { Int($0) } ?? setting.maxRows
             case calculatorPath: setting.calculator = value.boolValue ?? setting.calculator
             case showFullURLsPath: setting.showFullURLs = value.boolValue ?? setting.showFullURLs
+            case quietIconsPath: setting.quietIcons = value.boolValue ?? setting.quietIcons
             case glassPath: setting.glass = value.stringValue ?? setting.glass
             case glassTintPath: setting.glassTint = value.stringValue ?? setting.glassTint
             case glassTintStrengthPath: setting.glassTintStrength = value.doubleValue ?? setting.glassTintStrength

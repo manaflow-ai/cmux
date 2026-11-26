@@ -44,6 +44,7 @@
   "experiments.agentBadgesBeam": {"case": "keep", "why": "Agent Badges' variant (a light along a running row's edge), off until Leo rates it; no effect while Agent Badges is off."},
   "experiments.terminalAgentMark": {"case": "keep", "why": "A taste experiment (Leo 2026-11-24, cmux#53018): terminal agents' marks on a rounded square, off until Leo rates it; the bare mark stays the default."},
   "experiments.chatWidgets": {"case": "keep", "why": "Extension chat widgets (cards an installed extension draws under a finished tool call), off by default; Leo named no default, so the chat stays as it was until the person turns it on."},
+  "experiments.expandedEditsEstimate": {"case": "keep", "why": "The expanded edits group estimate, off by default under Leo's UI merge hold (2026-11-24, ask-82b08b7ed7); off keeps the old estimate until the person turns it on."},
   "experiments.foldSummaryCounts": {"case": "keep", "why": "Fold summary: duration only (off, today's line) or with counts (on); the think-tank finding leaves the default as today's until Leo picks."},
   "experiments.browserProfileCard": {"case": "keep", "why": "A taste experiment (Leo 2026-11-25, cmux#55597): the browser profile menu opens with a Helium-like profile card, off until Leo and Lucas rate it; cmux#51248's menu stays the default."},
   "cloud.machines.layout": {"case": "keep", "why": "A layout comparison for the Cloud machine list; the rows default is the chosen one."},

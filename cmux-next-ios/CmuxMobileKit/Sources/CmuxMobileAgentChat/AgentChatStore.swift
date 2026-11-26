@@ -126,7 +126,6 @@ public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
     case message(id: String, markdown: String)
     case thought(id: String, text: String)
     case tool(ACPToolCall)
-    case plan(id: String, entries: [ACPPlanEntry])
     case permission(PermissionRecord)
     case question(AgentQuestion)
     /// Subagents started together (ids into `AgentChatStore.subagents`).
@@ -141,7 +140,6 @@ public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
         case .tool(let call): "c-\(call.id)"
-        case .plan(let id, _): "p-\(id)"
         case .permission(let record): "r-\(record.request.id)"
         case .question(let question): "q-\(question.id)"
         }
@@ -482,8 +480,6 @@ public final class AgentChatStore {
     public private(set) var pendingElevation: AgentElevationAsk?
     /// The sudo card's Approve is being signed and sent.
     public private(set) var sendingElevation = false
-    /// The running turn's latest plan.
-    public private(set) var runningPlanEntries: [ACPPlanEntry]?
     /// Turns before the newest that hold an edit (counted once per new turn).
     @ObservationIgnored private var editsBeforeLast: (count: Int, any: Bool) = (0, false)
 
@@ -495,7 +491,6 @@ public final class AgentChatStore {
         assign(\.firstPrompt, spilledFirstPrompt ?? turns.first?.prompt)
         assign(\.pendingPermission, last.flatMap(Self.openPermission))
         assign(\.pendingQuestion, last.flatMap(Self.openQuestion))
-        assign(\.runningPlanEntries, last?.status == .running ? last.flatMap(Self.latestPlan) : nil)
         let earlier = max(turns.count - 1, 0)
         if editsBeforeLast.count != earlier || (!lastTurnOnly && !editsBeforeLast.any) {
             editsBeforeLast = (earlier, turns.dropLast().contains(where: \.hasEdits))
@@ -524,13 +519,6 @@ public final class AgentChatStore {
     nonisolated static func openQuestion(_ turn: AgentTurn) -> AgentQuestion? {
         for case .question(let question) in turn.items.reversed() where question.isPending {
             return question
-        }
-        return nil
-    }
-
-    nonisolated static func latestPlan(_ turn: AgentTurn) -> [ACPPlanEntry]? {
-        for item in turn.items.reversed() {
-            if case .plan(_, let entries) = item { return entries }
         }
         return nil
     }
@@ -1902,18 +1890,6 @@ public final class AgentChatStore {
                 if !call.isRunning, call.endedAt == nil { call.endedAt = Date() }
                 return call
             }
-        case .plan(let entries):
-            guard var turn = turns.last else { return }
-            if let index = turn.items.firstIndex(where: { if case .plan = $0 { return true }; return false }) {
-                if entries.isEmpty {
-                    turn.items.remove(at: index)
-                } else if case .plan(let id, _) = turn.items[index] {
-                    turn.items[index] = .plan(id: id, entries: entries)
-                }
-            } else if !entries.isEmpty {
-                turn.items.append(.plan(id: UUID().uuidString, entries: entries))
-            }
-            turns[turns.count - 1] = turn
         case .availableCommands(let commands):
             assign(\.availableCommands, commands)
         case .currentMode(let mode):

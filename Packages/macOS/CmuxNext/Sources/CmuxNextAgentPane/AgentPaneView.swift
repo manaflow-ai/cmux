@@ -37,8 +37,6 @@ public final class AgentPaneView: NSView {
     public var shortcuts = AgentPaneShortcuts() { didSet { if shortcuts != oldValue { applyShortcuts() } } }
     public var previewFeatures = false { didSet { if previewFeatures != oldValue { applyPreviewFeatures() } } }
     public var liveTree = false { didSet { if liveTree != oldValue { applyLiveTree() } } }
-    /// The `agent.sessionStatus` tunable (Debug Settings), followed live (``AgentPaneSessionStatus``).
-    public internal(set) var sessionStatus = AgentPaneTunables.sessionStatus.value { didSet { if sessionStatus != oldValue { AgentPaneSessionStatus.push(to: self) } } }
     /// The newest device chats for the New Tab cards.
     public var deviceChats: [AgentPaneDeviceChat] = [] { didSet { if deviceChats != oldValue { AgentPaneDeviceChat.owe(to: self) } } }
     /// App-wide state pushes held to one per turn, and while nobody sees the pane (``AgentPaneShownPushes``).
@@ -114,7 +112,7 @@ public final class AgentPaneView: NSView {
     var heldKeyTyping: Task<Void, Never>?
     /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
     /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
-    private var motionObservation: Task<Void, Never>?, sessionStatusObservation: Task<Void, Never>?, iconFamilyObservation: Task<Void, Never>?
+    private var motionObservation: Task<Void, Never>?, iconFamilyObservation: Task<Void, Never>?
     /// The theme last pushed to the page (I5: a push only when it changed since then; a page load
     /// pushes again with `force`, a page-host replay or a crash forgets it).
     var deliveredThemeEvent: AgentPageEvent?
@@ -421,7 +419,6 @@ public final class AgentPaneView: NSView {
         observeIconFamily()
         observeLanguage()
         observeAcpmuxAnswers()
-        sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
         model.onToastAvoidance = { [weak self] in self?.toastAvoidanceMoved() }
@@ -501,7 +498,6 @@ public final class AgentPaneView: NSView {
             acpmuxAnswerObservation?.cancel()
             gitHubChangeObservation?.cancel()
             actAsMePill.stop()
-            sessionStatusObservation?.cancel()
             model.sessionInfo.hostObservation?.cancel()
         }
     }
@@ -615,7 +611,6 @@ public final class AgentPaneView: NSView {
         languageObservation = nil
         acpmuxAnswerObservation?.cancel()
         acpmuxAnswerObservation = nil
-        sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil
         model.sessionInfo.onChange = nil

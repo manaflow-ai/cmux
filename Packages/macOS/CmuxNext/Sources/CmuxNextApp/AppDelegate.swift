@@ -356,6 +356,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
         services.settings = settings
+        services.onboarding.classicFolderDefaults = .standard
+        services.onboarding.importClassicSettings = { [weak services] in
+            GhosttyRuntime.shared.reloadConfig()
+            var failure: (any Error)?
+            do { try await settings.importClassicConfig(marker: .standard) } catch { failure = error }
+            do { try await settings.importClassicDefaults(marker: .standard) } catch { failure = failure ?? error }
+            do { try await services?.paletteUsage.importClassicHistory() } catch { failure = failure ?? error }
+            if let failure { throw failure }
+        }
         UserOnlySettingConfirmation.install(settings, services: services)
         // Every palette-exposed schema setting in the palette (R93).
         services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
@@ -440,7 +449,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy keys, classic imports, stored defaults: written by the daemon once it is live; the control socket does not wait
+            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy NEXT keys and stored defaults: written by the daemon once it is live; the control socket does not wait
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)

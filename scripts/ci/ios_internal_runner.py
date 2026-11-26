@@ -11,9 +11,15 @@ machine that runs pull request code.
 
 A Linux job runs this right before the archive queues and prints:
 
-- `dedicated`: the variable's label while an online runner carrying it is idle, waiting up to
-  WAIT_SECONDS (5 min) while it is busy. Empty when the variable is unset, the runners cannot be
-  read (no routing token), or the mini is offline or still busy.
+- `dedicated`: the first of the variable's labels an online runner carrying it is idle for, waiting up
+  to WAIT_SECONDS (5 min) while one is busy. Empty when the variable is unset, the runners cannot be
+  read (no routing token), or every listed mini is offline or still busy.
+
+The variable may list several trusted builder labels (comma or space separated), preferred first
+(the first keeps the warmest caches). Leo, 2026-11-25: "Why are these iPhone builds still so slow
+and unverified? Don't we have freed up Mac capacity?" With one label, run 45681529736 found the mini
+busy and queued 17.9 min for a Blacksmith Mac (the fallback before #56877) for its 20 min archive.
+Each listed label must name a machine that runs no pull request code (same trust as the one mini).
 - `attempt`: GITHUB_RUN_ATTEMPT, the attempt this pick was made for. The archive takes `dedicated`
   only on that attempt, so a re-run of failed jobs that keeps this job's outputs takes Blacksmith.
 
@@ -38,6 +44,15 @@ WAIT_SECONDS = 5 * 60
 LOOK_SECONDS = 30
 
 
+def labels_of(value: str) -> list[str]:
+    """The variable's labels in order, duplicates dropped: `a,b c` is [a, b, c]."""
+    out: list[str] = []
+    for label in value.replace(",", " ").split():
+        if label not in out:
+            out.append(label)
+    return out
+
+
 def state(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
     """'idle', 'busy', 'offline' or 'unread' for the runners carrying `label`."""
     if runners is None:
@@ -51,18 +66,22 @@ def state(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
 def pick(label: str, read: Callable[[], Sequence[Mapping[str, Any]] | None], *,
          wait_seconds: float = WAIT_SECONDS, look_seconds: float = LOOK_SECONDS,
          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic) -> tuple[str, str]:
-    """(`label` while a runner carrying it is idle, waiting up to `wait_seconds` while busy, or "", why)."""
-    if not label:
+    """(the first of `label`'s labels a runner is idle for, waiting up to `wait_seconds` while one is busy, or "", why)."""
+    labels = labels_of(label)
+    if not labels:
         return "", "CI_IOS_INTERNAL_RUNNER is unset"
     deadline = clock() + wait_seconds
     while True:
-        now = state(label, read())
-        if now == "idle":
-            return label, f"`{label}` is online and idle"
-        if now != "busy":
-            return "", f"`{label}` is {now}"
+        runners = read()
+        states = {one: state(one, runners) for one in labels}
+        for one in labels:
+            if states[one] == "idle":
+                return one, f"`{one}` is online and idle"
+        seen = ", ".join(f"`{one}` is {states[one]}" for one in labels)
+        if "busy" not in states.values():
+            return "", seen
         if clock() + look_seconds > deadline:
-            return "", f"`{label}` stayed busy for {round(wait_seconds / 60)} min"
+            return "", f"{seen}: stayed busy for {round(wait_seconds / 60)} min"
         sleep(look_seconds)
 
 

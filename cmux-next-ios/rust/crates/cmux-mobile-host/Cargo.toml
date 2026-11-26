@@ -17,6 +17,9 @@ bytes.workspace = true
 cmux-build-space.workspace = true
 # Silence bounds for a cloud prompt and a mailbox round trip (src/cloud_acp.rs, src/mailbox_apply.rs).
 cmux-deadline.workspace = true
+# The `bundle` service (src/bundle.rs): attachments as sealed content-defined chunks.
+cmux-bundle.workspace = true
+blake3 = "1"
 # The Chief's push body as words, not Markdown (src/notify.rs).
 cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true

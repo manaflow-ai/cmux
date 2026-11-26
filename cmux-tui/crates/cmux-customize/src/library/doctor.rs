@@ -12,7 +12,7 @@
 //! ignored          a file or key cmux skips (themes/x.jsonc, a key a theme may not set)
 //! shadowed         a value another file or layer overrides
 //! leftover         a layer folder no entry uses, or a web-dev.json overlay left by a cut-short write
-//! unknown-key      a settings key no setting has (or one that was retired)
+//! unknown-key      a key no setting or migration recognizes
 //! wrong-folder     a customization file where cmux does not look for it
 //! override         a file outside the usual settings that still changes cmux (cmux-tui.json, harnesses, ...)
 //! ```
@@ -45,7 +45,7 @@ mod stray;
 pub use recover::{RecoverPlan, Recovery};
 use scan::{
     dir_bytes, dir_names, display_dir, display_path, file_name, line_of_key, looks_like_theme,
-    prefixes, sentence, size_words, unknown_keys,
+    sentence, size_words, unknown_keys,
 };
 
 const STATE: &str = "doctor.json";
@@ -199,6 +199,7 @@ impl Customize {
             .map(|finding| (finding.id.clone(), finding.fingerprint.clone()))
             .collect();
         if announced != state.announced {
+            state.dismissed.retain(|id, _| announced.contains_key(id));
             state.announced = announced;
             self.write_doctor_state(&state)?;
         }
@@ -603,27 +604,15 @@ impl Customize {
             self.menu_findings(text, root, out);
         }
         if let (Some(text), Some(Value::Object(object))) = (settings_text.as_deref(), &settings) {
-            let mut unknown = Vec::new();
-            unknown_keys(object, &mut Vec::new(), &prefixes(), &mut unknown);
             let file = &roots.settings_file;
-            for (key, retired) in unknown {
+            for key in unknown_keys(object) {
                 let line = line_of_key(text, &key);
-                let (title, detail) = match retired {
-                    Some(why) => (
-                        format!("{key} is a retired setting"),
-                        format!("cmux no longer reads it: {why}"),
-                    ),
-                    None => (
-                        format!("{key} is not a setting"),
-                        "cmux ignores it. A typo, or a key from another app or an older cmux; `cmux settings list` names every key.".to_owned(),
-                    ),
-                };
                 out.push(
                     FindingKind::UnknownKey,
                     Level::Info,
                     &key,
-                    title,
-                    detail,
+                    format!("{key} is not a setting"),
+                    "cmux ignores this key. Check its spelling in the settings file.".to_owned(),
                     match line {
                         Some(line) => format!("{}:{line}", file_name(file)),
                         None => file_name(file),
@@ -637,6 +626,7 @@ impl Customize {
         // The theme the settings name: missing, keys it may not set, and keys
         // it takes over from the settings file.
         let Some(root) = settings.as_ref() else { return };
+        self.settings_harnesses(root, out);
         let Some(name) = theme_file::name_in(root) else { return };
         let source = theme_file::source(&roots.config_dir, name, None);
         let theme_path = theme_file::path(&roots.config_dir, name);
@@ -765,10 +755,18 @@ impl Customize {
     }
 
     fn read_doctor_state(&self) -> State {
-        std::fs::read(self.roots().state_dir.join(STATE))
+        let mut state: State = std::fs::read(self.roots().state_dir.join(STATE))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Older builds hashed the line number. The key alone identifies this
+        // finding, so keep earlier announcements and dismissals when lines move.
+        for (id, print) in state.announced.iter_mut().chain(&mut state.dismissed) {
+            if id.starts_with("unknown-key:") {
+                id.clone_into(print);
+            }
+        }
+        state
     }
 
     fn write_doctor_state(&self, state: &State) -> Result<(), Error> {
@@ -781,7 +779,7 @@ impl Customize {
 }
 
 /// Top-level files cmux or its tools read, or that hold credentials: never named stray, and
-/// never opened unless the doctor reads them for what they set (cmux-tui.json, cmux.json, ...).
+/// never opened unless the doctor reads them for what they set (cmux-tui.json, cmux-next.json, ...).
 pub(super) const KNOWN_TOP_FILES: &[&str] = &[
     "cmux-next.json",
     "cmux.json",
@@ -826,10 +824,14 @@ impl Found {
     ) {
         let id = format!("{}:{subject}", kind_name(kind));
         let path = path.map(|path| path.display().to_string());
-        let fingerprint = tree::sha256(format!("{id}\n{title}\n{detail}\n{place}").as_bytes())
-            .get(..16)
-            .unwrap_or_default()
-            .to_owned();
+        let fingerprint = if kind == FindingKind::UnknownKey {
+            id.clone()
+        } else {
+            tree::sha256(format!("{id}\n{title}\n{detail}\n{place}").as_bytes())
+                .get(..16)
+                .unwrap_or_default()
+                .to_owned()
+        };
         self.0.push(Finding {
             id,
             kind,

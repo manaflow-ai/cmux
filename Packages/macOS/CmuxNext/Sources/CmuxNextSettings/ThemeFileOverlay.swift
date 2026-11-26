@@ -52,8 +52,8 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
     /// (``ThemeFonts``).
     public let fontFiles: [URL]
 
-    /// Keys a theme file reads that are not settings.
-    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty", "density", "slots", "fonts"]
+    /// Keys a theme file reads that are not settings (cmux-config `theme_file::RESERVED_KEYS`; `motion` is read by the daemon).
+    static let reservedKeys: Set<String> = ["name", "description", "$schema", "colors", "ghostty", "density", "slots", "fonts", "motion"]
     /// Look keys that are no part of a look: the theme file itself, the star list and its rotation,
     /// per-machine and per-display maps, the sun location (where this Mac is), what each background mode
     /// last showed and the backgrounds shown before, and the saved custom densities.

@@ -309,7 +309,12 @@ jobs:
     # 35 min to reach its web bundles (job 115856352658). A tour builds in the
     # slot it claims on the Mac, so it reuses that slot's warm DerivedData
     # whichever pull request toured there last (scripts/ci/media_tag_lock.py).
-    timeout-minutes: 120
+    # The job's clock runs from the runner's setup. On 2026-11-25 (job
+    # 139295566977) setup, both builds and the before/after capture took 116
+    # min, so a 120 min cap cancelled "Record What's New clips" 4 min into its
+    # own 45 and the media hand-off after it: no clip that night. 180 leaves
+    # that step its whole 45 and the hand-off its time.
+    timeout-minutes: 180
     # actions: read finds and downloads another run's base app artifact.
     permissions:
       actions: read
@@ -339,11 +344,29 @@ jobs:
       - name: Clear stale git locks (self-hosted reused workspace)
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
 
-      # The job's clock: the clips stop 12 min before the 120 min cap, so the media the capture already
+      # The job's clock: the clips stop 12 min before the job's cap, so the media the capture already
       # recorded still uploads. Run 45572451860 captured every tour, then its clips ran the job into the
       # cap at 10:10Z and "Keep the media" never ran: 2 Mac hours, no media.
+      # The cap counts from the job's start, not this step's: in run 45636169467 "Set up runner" took
+      # 17.6 min, so a clock started here ran past the cap and the clips were cancelled again. The
+      # clock starts when this job's Runner.Worker process did (local ps, no API call).
       - name: Start the tour's clock
-        run: echo "TOUR_DEADLINE=$(( $(date +%s) + 108 * 60 ))" >> "$GITHUB_ENV"
+        run: |
+          now=$(date +%s) start=$now pid=$$
+          while [ "${pid:-1}" -gt 1 ]; do
+            case "$(ps -o command= -p "$pid" 2>/dev/null)" in
+              *Runner.Worker*)
+                et=$(ps -o etime= -p "$pid" | tr -d ' ') d=0
+                case "$et" in *-*) d=${et%%-*} et=${et#*-} ;; esac
+                IFS=: read -r a b c <<< "$et"
+                if [ -n "$c" ]; then secs=$(( 10#$a * 3600 + 10#$b * 60 + 10#$c )); else secs=$(( 10#$a * 60 + 10#$b )); fi
+                start=$(( now - 10#$d * 86400 - secs ))
+                break ;;
+            esac
+            pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
+          done
+          echo "The job started $(( now - start )) s ago."
+          echo "TOUR_JOB_START=$start" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -784,6 +807,13 @@ jobs:
           cp "$RUNNER_TEMP/clips-plan.json" "$out/plan.json"
           # First, so the publish job runs on what was recorded even when an extra before app times out.
           echo "count=$(python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))))' "$out/plan.json")" >> "$GITHUB_OUTPUT"
+          # The clips stop 12 min before this job's own timeout-minutes, read from this file, so the
+          # deadline follows the cap whatever it is set to.
+          cap=$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["jobs"]["tour"]["timeout-minutes"])' \
+            .github/workflows/cmux-next-media.yml 2>/dev/null) || cap=120
+          case "$cap" in ''|*[!0-9]*) cap=120 ;; esac
+          TOUR_DEADLINE=$(( ${TOUR_JOB_START:-$(date +%s)} + (cap - 12) * 60 ))
+          echo "Job cap ${cap} min; clips stop in $(( TOUR_DEADLINE - $(date +%s) )) s."
           # A command, stopped with SIGTERM (tour.py unwinds and stops its app) at the job's clock.
           bounded() {
             local left=$(( ${TOUR_DEADLINE:-0} - $(date +%s) ))

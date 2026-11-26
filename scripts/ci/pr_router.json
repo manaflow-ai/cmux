@@ -112,7 +112,7 @@
     "mac",
     "ios"
    ],
-   "table_why": "The step table's jobs this workflow runs (ci/steps.toml, `ci/run`). It starts when the change routes a step of one of them: a step's `inputs` are the path filter of the workflow it replaced. Runs on a draft, as those workflows did. Each job runs only when the change routes a step of it (the router's `table` output, pr-pipeline.yml's job `if:`s); the `mac` job only on a full-tier head (pr_router.py FULL_TIER_JOBS: a draft runs no Mac). The `ios` job runs on a draft too, as cmux-next-ios-kit.yml ran its kit tests on every pull request (Leo, 2026-11-22, quoted there: most code needs a proper pull request run within the hour)."
+   "table_why": "The step table's jobs this workflow runs (ci/steps.toml, `ci/run`). It starts when the change routes a step of one of them: a step's `inputs` are the path filter of the workflow it replaced. It starts on a full-tier head only (pr_router.py FULL_TIER_JOBS lists all four jobs): a cheap head, a draft or a ready head before `ready-to-land` or `full-ci` (head_tier.py), starts none of linux, web-browser, ios or mac; adding either label, or marking the draft ready, runs it on the same head before any merge. Until 11-25 it ran on drafts and cheap heads (`draft` let it), costing about 50k runner-minutes a day (Leo, 2026-11-21: \"de facto, im asking for 99% fewer minutes of ci time, period.\"). `draft` stays so a fast-track head (full tier, docs or tests only) still runs the steps it routes. Each job runs only when the change routes a step of it (the router's `table` output, pr-pipeline.yml's job `if:`s)."
   },
   "screen-share-drop-gate.yml": {
    "types": [

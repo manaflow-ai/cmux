@@ -297,7 +297,7 @@
     "test-ios.yml:mobile-core-package": {"class": "ios", "warm": ["spm-shared"]},
     "web-validation.yml:database": {"class": "webview", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "web-validation.yml:tests": {"class": "webview", "warm": ["actions-cache"]},
-    "app-store-shelf.yml:shelf": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo test -p cmux-tui --test cli from an empty target directory; no warm source wired yet"},
+    "app-store-shelf.yml:shelf": {"class": "linux-rust", "warm": [], "exempt": "cold: cargo test -p cmux-tui --test it from an empty target directory; no warm source wired yet"},
     "cloud-chief-machine.yml:build": {"class": "linux-rust", "warm": [], "exempt": "cold: the release musl optchat-chief build from an empty target directory; no warm source wired yet"},
     "cloud-chief-start.yml:check": {"class": "linux-rust", "warm": [], "exempt": "cold: cloud_call and the musl optchat-chief from an empty target directory; no warm source wired yet"},
     "tailnet-stable-node-move.yml:move": {"class": "linux-rust", "warm": [], "exempt": "cold: acpmux --features tailnet (libtailscale via go) from an empty target directory; no warm source wired yet"},

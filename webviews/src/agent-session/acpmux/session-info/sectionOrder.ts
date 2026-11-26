@@ -21,7 +21,7 @@ export type SessionInfoGroupId = "about" | "made" | "running";
 export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly SessionInfoSectionId[]>> = {
   about: ["environment", "context", "usage", "connectors", "carried"],
   made: ["changes", "sources", "outputs"],
-  running: ["progress", "subagents", "tasks", "alsoHere"],
+  running: ["subagents", "tasks", "alsoHere"],
 };
 
 const GROUPS = Object.keys(GROUP_SECTIONS) as SessionInfoGroupId[];
@@ -33,14 +33,13 @@ const GROUPS = Object.keys(GROUP_SECTIONS) as SessionInfoGroupId[];
 export const MORE_LINE = "more" satisfies SessionInfoSectionId;
 
 /// Every section in its default place, top to bottom: the machine (Cloud or this Mac), Context, what
-/// it runs (its plan's Progress first), then Sources and Outputs (Leo, 2026-11-03: "1. Machines
+/// it runs, then Sources and Outputs (Leo, 2026-11-03: "1. Machines
 /// showing up so I know if it's cloud or not 2. context 3. Subagents/background tasks running 4.
 /// Sources"). Under the Show more line: pull requests, Usage, Connectors and Carried memory. A person's saved order
 /// (a drag) still wins over this one.
 export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
   "environment",
   "context",
-  "progress",
   "subagents",
   "tasks",
   "sources",

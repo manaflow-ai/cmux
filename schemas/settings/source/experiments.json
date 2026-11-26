@@ -81,6 +81,28 @@
           ]
         },
         {
+          "key": "experiments.startedTaskTitleChip",
+          "note": "Taste prototype: a started task in an agent chat's Suggested Tasks card opens its chat and lights from its title chip only, as a returned result's line does; the rest of the row lights nothing (webviews useExperimentSwitch(\"startedTaskTitleChip\"), SuggestedTasks.tsx). Off by default; off keeps today's whole-row button.",
+          "title": {
+            "key": "settings.experiments.startedTaskTitleChip",
+            "text": "Started Tasks: Title Opens Chat"
+          },
+          "help": {
+            "key": "settings.experiments.startedTaskTitleChip.help",
+            "text": "In Suggested Tasks, a started task opens its chat and highlights from its title only, not the whole row."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "suggested tasks",
+            "subagent",
+            "started",
+            "hover",
+            "highlight",
+            "title"
+          ]
+        },
+        {
           "key": "experiments.composerV2",
           "note": "Taste prototype: the agent chat composer as a glass panel with an edge light on focus, mode and scope chips in a row inside it (only the active one raised), inline @mention chips, the model picker left and + and Send right, and a round Send dimmed until there is text (webviews useExperimentSwitch(\"composerV2\"), composerV2.css). Off by default; off keeps today's composer.",
           "title": {
@@ -530,6 +552,31 @@
             "widget",
             "tool",
             "card"
+          ]
+        },
+        {
+          "key": "experiments.expandedEditsEstimate",
+          "note": "Agent chat estimates an opened \"Edited N files\" group at its files' diff cards (conversation/editDiffBox.ts) instead of its 22 px closed line, so no gap opens under it before it mounts (model.ts editsEstimateOn, from experimentSwitchOn(\"expandedEditsEstimate\")). Off by default (Leo's UI hold, 2026-11-24, ask-82b08b7ed7); off keeps the old estimate.",
+          "title": {
+            "key": "settings.experiments.expandedEditsEstimate",
+            "text": "Expanded Edits Estimate"
+          },
+          "help": {
+            "key": "settings.experiments.expandedEditsEstimate.help",
+            "text": "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "labs",
+            "agent",
+            "chat",
+            "edits",
+            "diff",
+            "gap",
+            "scroll"
           ]
         },
         {
