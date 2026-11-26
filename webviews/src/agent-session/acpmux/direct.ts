@@ -5127,10 +5127,17 @@ export class AcpmuxDirectClient {
       this.readAheadOwed = false;
       this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     }
+    // What landed while hidden is published in the show itself, not in the next display frame: a
+    // pane draw set from a frame callback is a default-lane render React runs after that frame
+    // paints, so the first frame back drew the chat as it was when hidden and the next one moved it
+    // (a turn that ended while away: its rows came a frame late and the page jumped 254 px,
+    // settled-page bench workspace_switch.idle). Set in `visibilitychange`, a discrete event, an
+    // urgent draw commits before the first frame.
     if (pageShown() && this.hiddenEmit !== undefined && !this.closed) {
       const connection = this.hiddenEmit;
       this.hiddenEmit = undefined;
-      this.emitInFrame(connection);
+      this.frameSnapshot = undefined;
+      this.emit(connection);
     }
     // Showing the page is the reader's own move, made outside it (a tab, a workspace).
     if (pageShown()) pageAttention()?.touch();
