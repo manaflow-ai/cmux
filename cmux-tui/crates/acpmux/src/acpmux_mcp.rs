@@ -144,17 +144,17 @@ pub(crate) fn tools() -> Value {
     all
 }
 
-/// The tools a chat calls in most turns, marked `_meta["anthropic/alwaysLoad"]` so Claude Code
-/// puts their schemas in the prompt instead of deferring them behind ToolSearch. A schema here
-/// costs its tokens on every request; a deferred one costs one ToolSearch round trip (about a
-/// whole context) in each session that calls it, so a tool stays only while
-/// sessions calling it × context < its tokens × requests. Measured on gcp-agent-lane-4 in the
-/// 24 h to 2026-11-26T12:00Z (351 sessions, 142.9k requests, median context 73k): wrap_up was
-/// called in 197 sessions, bg_start 240, bg_output 229; who_else (129 sessions, 596 tokens),
-/// inbox_read (93, 417) and inbox_reply (90, 424) cost 206M tokens/day loaded against ~23M
-/// deferred, so they went behind ToolSearch (cut 1 of cmuxterm-hq
-/// goals/agents-most-lane-tokens-land-prs.md).
-pub(crate) const ALWAYS_LOADED: [&str; 3] = [wrap_up::NAME, "bg_start", "bg_output"];
+/// The tools marked `_meta["anthropic/alwaysLoad"]` so Claude Code puts their schemas in the prompt
+/// instead of deferring them behind ToolSearch. A schema here costs its tokens on every request; a
+/// deferred one costs one ToolSearch round trip (about a whole context) in each session that
+/// calls it, so a tool belongs here only while sessions calling it × context < its tokens ×
+/// requests. Measured on one lane VM in the 24 h to 2026-11-26T12:00Z (351 sessions, 142.9k
+/// requests, median context 73k), sessions calling each: bg_start 240 (563 tokens), bg_output 229
+/// (535), wrap_up 197 (962), who_else 129 (596), inbox_read 93 (417), inbox_reply 90 (424):
+/// ~500M tokens/day loaded (each counted alone) against ~71M/day deferred, so none stays (cut 1 of
+/// cmuxterm-hq goals/agents-most-lane-tokens-land-prs.md). Every tool is still listed by name and
+/// the instructions still name wrap_up and bg_start. Add one back only on that data.
+pub(crate) const ALWAYS_LOADED: [&str; 0] = [];
 
 /// What `tools/list` answers: [`tools`], and the artifact tools when this daemon has a cmux
 /// sign-in for them (`artifacts::advertised`).
