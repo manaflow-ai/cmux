@@ -1,6 +1,6 @@
 .acpmux-btw-note {
   margin-block: var(--ds-space-fixed-2);
-  padding-inline-start: 12px;
+  padding-inline-start: var(--ds-space-fixed-3);
   border-inline-start: 2px solid var(--agent-muted);
   color: var(--agent-text);
   --cv-font-size: var(--text-detail);

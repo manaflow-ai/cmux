@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[3]
 SOURCE = ROOT / "webviews/src"
 SKIP = {"pages/shared/desktop.css", "pages/shared/pageDensity.css"}
 PROPERTIES = re.compile(
-    r"^(?:padding(?:-(?:block|inline|top|right|bottom|left))?|"
+    r"^(?:padding(?:-(?:block|inline|block-start|block-end|inline-start|inline-end|top|right|bottom|left))?|"
     r"margin(?:-(?:block|inline|top|right|bottom|left)(?:-(?:start|end))?)?|"
     r"gap|row-gap|column-gap)$"
 )

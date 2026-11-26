@@ -243,7 +243,7 @@
 
 .ds-row-key,
 .ds-row-help {
-  padding-inline-start: 12px;
+  padding-inline-start: var(--ds-space-fixed-3);
 }
 
 .ds-row-key {
@@ -425,7 +425,7 @@
 }
 
 .ds-hang-frame {
-  padding-inline-start: 12px;
+  padding-inline-start: var(--ds-space-fixed-3);
   font-family: ui-monospace, monospace;
   font-size: var(--text-caption);
   color: var(--page-text-3);
@@ -455,7 +455,7 @@
     order: 3;
     flex: 1 1 100%;
     align-items: flex-start;
-    padding-inline-start: 12px;
+    padding-inline-start: var(--ds-space-fixed-3);
   }
 
   .ds-slider {

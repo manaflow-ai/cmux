@@ -4,6 +4,7 @@ import path from "node:path";
 
 const src = path.resolve(import.meta.dir, "../src");
 const desktop = fs.readFileSync(path.join(src, "pages/shared/desktop.css"), "utf8");
+const fixed = fs.readFileSync(path.join(src, "pages/shared/fixed-spacing.css"), "utf8");
 const density = fs.readFileSync(path.join(src, "pages/shared/pageDensity.css"), "utf8");
 const expected: Record<string, number> = {
   "1": 4,
@@ -17,7 +18,7 @@ const expected: Record<string, number> = {
   "56": 56,
 };
 const spacingProperty =
-  /^(?:padding(?:-(?:block|inline|top|right|bottom|left))?|margin(?:-(?:block|inline|top|right|bottom|left)(?:-(?:start|end))?)?|gap|row-gap|column-gap)$/;
+  /^(?:padding(?:-(?:block|inline|block-start|block-end|inline-start|inline-end|top|right|bottom|left))?|margin(?:-(?:block|inline|top|right|bottom|left)(?:-(?:start|end))?)?|gap|row-gap|column-gap)$/;
 
 function cssFiles(): string[] {
   const files: string[] = [];
@@ -36,13 +37,16 @@ function cssFiles(): string[] {
 
 describe("fixed design spacing migration", () => {
   test("nominal aliases are generated from the Instrument scale", () => {
+    expect(desktop).toContain('@import "./fixed-spacing.css";');
     for (const [name, px] of Object.entries(expected)) {
-      expect(desktop).toContain(`--ds-space-fixed-${name}: ${px}px;`);
+      expect(fixed).toContain(`--ds-space-fixed-${name}: ${px}px;`);
+      expect(desktop).not.toContain(`--ds-space-fixed-${name}:`);
     }
   });
 
   test("density overrides leave nominal aliases stable", () => {
     expect(density).not.toContain("--ds-space-fixed-");
+    expect(fixed).toContain("fixed-spacing:begin");
     const references = cssFiles().flatMap((file) => {
       const css = fs.readFileSync(file, "utf8");
       return [...css.matchAll(/(?:^|[;{])\s*([a-z-]+)\s*:\s*([^;{}]*--ds-space-fixed-[^;{}]*)/g)].map((m) => ({

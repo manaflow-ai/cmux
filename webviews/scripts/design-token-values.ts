@@ -20,6 +20,7 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), "..", "src");
 export const GLOBAL_TOKEN_SHEETS: readonly string[] = [
   "styles.css",
   "pages/shared/desktop.css",
+  "pages/shared/fixed-spacing.css",
   "pages/shared/pageBase.css",
   "agent-session/shared/styles.css",
   "ui/popupSurface.css",
