@@ -619,7 +619,7 @@ impl Hub {
         result
     }
 
-    async fn finish_cloud_execution(
+    pub(super) async fn finish_cloud_execution(
         cloud_exec: &mut Option<(
             crate::cloud_rewind::CloudTurnClient,
             crate::cloud_rewind::TurnScope,
@@ -756,7 +756,7 @@ impl Hub {
     /// Whether the failover onto profile `to` is skipped because it runs through the local
     /// CodeRouter (the built-in `cmux` profile or route) and this chat is on a Cloud machine or
     /// came over a remote connection (`fallback_start::coderouter_fallback_skipped`).
-    async fn no_coderouter_fallback(&self, session: &Session, to: &str) -> bool {
+    pub(super) async fn no_coderouter_fallback(&self, session: &Session, to: &str) -> bool {
         let cfg = self.config.read().await;
         let Some(profile) = cfg.harnesses.get(to) else { return false };
         let remote = session.meta().remote_origin;
@@ -764,7 +764,7 @@ impl Hub {
     }
 
     /// The profile to fall over to, when the current one names one that exists.
-    async fn fallback_profile(&self, session: &Session) -> Option<String> {
+    pub(super) async fn fallback_profile(&self, session: &Session) -> Option<String> {
         let cfg = self.config.read().await;
         let agent = session.meta().harness;
         let to = cfg.harnesses.get(&agent)?.fallback.clone()?;
