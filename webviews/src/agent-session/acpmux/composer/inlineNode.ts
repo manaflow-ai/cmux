@@ -77,7 +77,14 @@ export const sliceHoldsInline = (slice: Slice) => holds(slice.content, (node) =>
 
 /// The ids of the attachments placed in `doc`, its own nodes only (never text shaped like a token),
 /// in order, each once.
-export const inlineIds = (doc: ProseNode) => [...new Set(inlineNodes(doc).map((node) => node.id))];
+/// A document is immutable, so its ids are read once: a key asked for them twice (the box's edit and its render,
+/// composer/inlineAttachments.tsx), each a walk of the whole document. Each caller gets its own copy.
+export const inlineIds = (doc: ProseNode) => {
+  let ids = inlineIdsOf.get(doc);
+  if (!ids) inlineIdsOf.set(doc, (ids = [...new Set(inlineNodes(doc).map((node) => node.id))]));
+  return ids.slice();
+};
+const inlineIdsOf = new WeakMap<ProseNode, readonly string[]>();
 
 /// Each placed attachment's node in `doc`, in order.
 function inlineNodes(doc: ProseNode): { id: string; pos: number }[] {

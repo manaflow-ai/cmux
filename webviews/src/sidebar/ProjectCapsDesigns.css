@@ -228,6 +228,7 @@ button.pcd-header {
 /* veil (pick): the sidebar's own glass, then a 12 px fade into the rows; no line, no shadow. */
 .pcd-project[data-sticky="veil"][data-stuck] .pcd-header {
   background: var(--pcd-veil);
+  /* one-material-allow: a sticky project header's veil, part of the scrolling rows (it fades into them), not a floating surface */
   backdrop-filter: var(--pcd-blur);
   -webkit-backdrop-filter: var(--pcd-blur);
 }
@@ -261,6 +262,7 @@ button.pcd-header {
 }
 .pcd-project[data-sticky="label"][data-stuck] .pcd-header-text {
   background: var(--pcd-veil);
+  /* one-material-allow: the stuck header name's capsule is part of the scrolling rows (they pass beside it), not a floating surface */
   backdrop-filter: var(--pcd-blur);
   -webkit-backdrop-filter: var(--pcd-blur);
   box-shadow: 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--pcd-ink) 8%, transparent);

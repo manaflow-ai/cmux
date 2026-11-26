@@ -2,6 +2,7 @@ public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
 public import Observation
+import CmuxNextCompat
 
 /// Settings > Integrations: the integrations hub (cmux platform `/v1/hub`), from the bundled
 /// `cmux hub overview --json`: linked accounts, waiting approvals, rules, the pause switch and
@@ -125,7 +126,7 @@ public final class SettingsIntegrationsHub: PageProvider {
         let stdin: Data? = stripe ? Self.keyData(params) : nil
         if stripe, stdin == nil { throw PageError.invalidParams("paste a restricted key") }
         guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no bundled cmux CLI") }
-        let reply = try? await runCLI(cli, ["hub"] + words + ["--json"], stdin)
+        let reply = try? await awaitConcurrently({ try await runCLI(cli, ["hub"] + words + ["--json"], stdin) })
         let answer = reply.flatMap { Self.lastLine($0.1) }
         if let answer, answer["ok"]?.boolValue == true {
             lastError = nil
@@ -154,7 +155,7 @@ public final class SettingsIntegrationsHub: PageProvider {
             lastCall = .null
             // The call the answer ran (allow runs it), shaped by the CLI for the confirmation line.
             if let callID = value?["call"]?["id"]?.stringValue ?? Self.callID(overview, approval: id), let cli = await cli(),
-               let shaped = try? await runCLI(cli, ["hub", "status", callID, "--json"], nil), let call = Self.lastLine(shaped.1)?["call"] {
+               let shaped = try? await awaitConcurrently({ try await runCLI(cli, ["hub", "status", callID, "--json"], nil) }), let call = Self.lastLine(shaped.1)?["call"] {
                 lastCall = call
             }
         } else {
@@ -251,8 +252,10 @@ public final class SettingsIntegrationsHub: PageProvider {
         }
     }
 
-    /// The CLI prints one JSON object, on its last line.
+    /// The CLI's answer: the whole output (one JSON document, compact or pretty), or its last line when
+    /// progress lines came before it.
     nonisolated static func lastLine(_ data: Data) -> JSONValue? {
+        if let whole = try? JSONValue.parse(data) { return whole }
         let last = String(data: data, encoding: .utf8)?.split(separator: "\n").last.map { Data($0.utf8) } ?? Data()
         return try? JSONValue.parse(last)
     }
@@ -270,7 +273,7 @@ public final class SettingsIntegrationsHub: PageProvider {
         generation += 1
         let mine = generation
         loading = true
-        let reply = try? await runCLI(cli, ["hub", "overview", "--json"], nil)
+        let reply = try? await awaitConcurrently({ try await runCLI(cli, ["hub", "overview", "--json"], nil) })
         guard mine == generation else { return }
         loading = false
         guard let reply, let value = Self.lastLine(reply.1) else {

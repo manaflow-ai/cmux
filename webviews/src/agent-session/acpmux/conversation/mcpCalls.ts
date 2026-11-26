@@ -26,6 +26,8 @@ export type McpCall = {
   tool: string;
   /// The tool's arguments, as the harness passed them.
   args: unknown;
+  /// The description retained on a normalized activity, including sparse updates.
+  description?: string;
 };
 
 /// Claude Code's MCP tool name: `mcp__<server>__<tool>`.
@@ -36,7 +38,8 @@ const CLAUDE_NAME = /^mcp__(.+?)__(.+)$/;
 /// `{server, tool, arguments}`.
 export function mcpCall(tool: Tool): McpCall | undefined {
   const name = CLAUDE_NAME.exec(tool.title.trim());
-  if (name) return { server: name[1]!, tool: name[2]!, args: parseJSON(tool.inputSummary) };
+  if (name)
+    return { server: name[1]!, tool: name[2]!, args: parseJSON(tool.inputSummary), description: tool.description };
   const input = parseJSON(tool.inputSummary);
   if (
     isRecord(input) &&
@@ -45,7 +48,12 @@ export function mcpCall(tool: Tool): McpCall | undefined {
     "arguments" in input &&
     !tool.command
   )
-    return { server: input.server, tool: input.tool, args: input.arguments };
+    return { server: input.server, tool: input.tool, args: input.arguments, description: tool.description };
+  // Older adopted Codex calls kept just the arguments and named the pair in their title.
+  if (tool.kind === "other" && !tool.provenance && isRecord(input)) {
+    const legacy = /^([\w.-]+): ([\w.-]+)$/.exec(tool.title);
+    if (legacy) return { server: legacy[1]!, tool: legacy[2]!, args: input, description: tool.description };
+  }
   return undefined;
 }
 
@@ -151,7 +159,20 @@ export function mcpIsObservational(call: McpCall): boolean {
 }
 
 /// Arguments that name what a call acts on, in the order they are tried.
-const NAME_KEYS = ["title", "name", "subject", "path", "file_path", "filePath", "url", "query", "q", "to", "recipient"];
+const NAME_KEYS = [
+  "title",
+  "name",
+  "subject",
+  "path",
+  "file_path",
+  "filePath",
+  "url",
+  "query",
+  "q",
+  "pattern",
+  "to",
+  "recipient",
+];
 /// A message is named by whom it went to, never by its subject or body.
 const MESSAGE_KEYS = ["to", "recipient", "title", "name"];
 /// Arguments holding an id the run's other calls may name (`id`, `chat_id`, `threadId`), not words
@@ -195,8 +216,18 @@ export function mcpNames(items: readonly AcpmuxActivity[] | undefined): McpNames
     }
     for (const [id, title] of found) if (!names.has(id)) names.set(id, title);
   }
+  // A run whose names did not change gets the same map back: a chunk streamed to one call leaves
+  // the context every MCP row reads (McpNamesContext) as it was, so no other row draws again.
+  for (const prior of recentNames) if (sameNames(prior, names)) return prior;
+  recentNames.unshift(names);
+  if (recentNames.length > RECENT_NAMES) recentNames.pop();
   return names;
 }
+
+/// The last maps `mcpNames` handed out, newest first: one per row whose calls change at a time.
+const RECENT_NAMES = 8;
+const recentNames: McpNames[] = [];
+const sameNames = (a: McpNames, b: McpNames) => a.size === b.size && [...a].every(([id, title]) => b.get(id) === title);
 
 /// What a call acts on: a name among its arguments, or an id the run's names resolve.
 export function mcpTarget(call: McpCall, names: McpNames): string | undefined {
@@ -339,7 +370,10 @@ export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpName
   const object = target ? (action === "start" && noun !== first.tool ? `${noun} ${target}` : target) : noun;
   const line =
     action === "call"
-      ? t(running ? "tools.mcp.using" : "tools.mcp.used", { server: serverWords(first.server), tool: noun })
+      ? t(running ? "tools.mcp.using" : "tools.mcp.used", {
+          server: serverWords(first.server),
+          tool: target ? `${noun} ${target}` : noun,
+        })
       : t(`tools.mcp.${action}`, { target: object });
   return n > 1 ? `${line} ×${n}` : line;
 }
@@ -351,7 +385,7 @@ export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpName
 /// them seem kinda good? we should bea bel to do that AND have condensed tools that are callable in
 /// acpmux/cmux-next").
 export function mcpDescription(call: McpCall): string | undefined {
-  const value = isRecord(call.args) ? call.args.description : undefined;
+  const value = call.description?.trim() || (isRecord(call.args) ? call.args.description : undefined);
   if (typeof value !== "string") return undefined;
   const line = value.replace(/\s+/g, " ").trim();
   return line || undefined;

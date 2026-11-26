@@ -82,7 +82,7 @@ NAMED = 3  # new red tests a line names before "(+N more)"
 # Jobs that only gather other jobs' verdicts, each with the jobs it gathers (its `needs`, as check names): never
 # compared with the base on their own. react-apps-check comes first: Web status gathers it too.
 AGGREGATES = {
-    "web / react-apps-check": re.compile(r"^web / (?:react-apps-(?:base-)?check \(\d+\)|react-doctor)$"),
+    "web / react-apps-check": re.compile(r"^web / react-apps-(?:base-)?check \(\d+\)$"),
     "web / Web status": re.compile(r"^web / (?!Web status$)"),  # it needs every routed web job
 }
 # A gathered job that ended with no verdict: the aggregate failed on it, and no base red explains that. Skipped is
@@ -393,7 +393,9 @@ def changed_files(pr, remote=None):
     ref = f"refs/ran-line/{int(pr)}"
     try:
         from ci_process_tree import run_bounded  # noqa: PLC0415 - a timeout stops git's whole tree
-        run_bounded(["git", "fetch", "--quiet", "--no-tags", "--depth=2", "--filter=blob:none", remote,
+        shallow = run_bounded(["git", "rev-parse", "--is-shallow-repository"], capture_output=True, text=True,
+                              timeout=60, check=True).stdout.strip() == "true"
+        run_bounded(["git", "fetch", "--quiet", "--no-tags", *(["--depth=2"] if shallow else []), "--filter=blob:none", remote,
                      f"+refs/pull/{int(pr)}/merge:{ref}"], capture_output=True, timeout=60, check=True)
         out = run_bounded(["git", "diff", "--no-renames", "--name-only", f"{ref}^1", ref], capture_output=True,
                           text=True, timeout=30, check=True).stdout

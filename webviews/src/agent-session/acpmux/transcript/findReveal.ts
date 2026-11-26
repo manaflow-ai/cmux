@@ -1,12 +1,18 @@
+import { writeScrollBy } from "../conversation/scrollController";
 import { FIND_ACTIVE_HIGHLIGHT } from "../conversation/chatFind";
 
 /// Scrolls `scroller` so `range` sits a third of the way down it, when it is not already in view
-/// above the `inset` px at its foot that the bottom stack covers.
-export function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
+/// above the `inset` px at its foot that the bottom stack covers. `by` moves it: the transcript's
+/// ScrollController unless the caller names another scroller's write.
+export function scrollRangeIn(
+  scroller: HTMLElement,
+  range: Range,
+  inset = 0,
+  by = (delta: number) => writeScrollBy(scroller, delta, "find"),
+) {
   const box = range.getBoundingClientRect();
   const view = scroller.getBoundingClientRect();
-  if (box.top < view.top || box.bottom > view.bottom - inset)
-    scroller.scrollTop += box.top - view.top - scroller.clientHeight / 3;
+  if (box.top < view.top || box.bottom > view.bottom - inset) by(box.top - view.top - scroller.clientHeight / 3);
 }
 
 /// Scrolls `range` into view in the scrollers between it and `transcript` (a command's capped
@@ -14,7 +20,10 @@ export function scrollRangeIn(scroller: HTMLElement, range: Range, inset = 0) {
 export function scrollRangeInBoxes(transcript: HTMLElement, range: Range) {
   for (let box = range.startContainer.parentElement; box && box !== transcript; box = box.parentElement)
     if (box.scrollHeight > box.clientHeight && /auto|scroll/.test(getComputedStyle(box).overflowY))
-      scrollRangeIn(box, range);
+      scrollRangeIn(box, range, 0, (delta) => {
+        // scroll-writer-ok: a capped output inside a row, not the transcript.
+        box.scrollTop += delta;
+      });
 }
 
 /// How long Find keeps a new match in view while its groups open and the rows above it measure:

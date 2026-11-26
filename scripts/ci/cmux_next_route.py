@@ -168,8 +168,10 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-tab-discard/",
+    "cmux-tui/crates/cmux-browser-rules/",
     "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-cloud-environment/",
+    "cmux-tui/crates/cmux-build-space/",
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
     "cmux-tui/crates/cmux-cloud-tasks/",
@@ -178,6 +180,9 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-daemon-launch-core/",
     "cmux-tui/crates/cmux-health-core/",
     "cmux-tui/crates/cmux-launch-image/",
+    "cmux-tui/crates/cmux-pane-pictures/",
+    "cmux-tui/crates/cmux-acpmux-remote-wire/",
+    "cmux-tui/crates/cmux-screenshots/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
@@ -188,6 +193,9 @@ SWIFT_JOB_INPUTS = (
     # The SDK's C ABI (the app's daemon client). The SDK it wraps (cmux-tui/bindings/rust/)
     # reaches the app only through the pinned FFI release, whose repin routes the Swift jobs.
     "cmux-tui/crates/cmux-sdk-ffi/",
+    # CmuxNextAgentPane's relay policy tables are generated from it at build time (AgentPanePolicyPlugin).
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+    "scripts/cmux-next/gen-agent-pane-policy-swift.py",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )
@@ -313,6 +321,14 @@ BUNDLE_INPUTS = (
     "schemas/transcript-look/transcript-look.json",
     # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
     "examples/gallery/gallery.json", "examples/looks/*",
+    # The key styles the key presentation imports (src/ui/keyStyle.ts).
+    "schemas/keymap/key-styles.json",
+    # The overlay surface roles the shared surface imports (src/ui/surface/Surface.tsx).
+    "schemas/surface-roles/surface-roles.json",
+    # The scene type scale the scene app imports (src/apps/scene/sceneStyle.ts).
+    "schemas/type-scale/scene-type.json",
+    # The Cloud page's declaration the confirm count reads (src/agent-session/acpmux/cloudErgonomics/confirms.ts).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
@@ -332,7 +348,7 @@ CHECKED_WEB_BUNDLES = (
 # Release or scheme compile: #29013 (images/cmux-vm/inputs.lock.json) waited 80 minutes on a fleet
 # Release compile its diff could not change. A test target that reads one still runs (consumed()).
 NO_APP_INPUT = (
-    "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
+    "images/*", "services/*", "vault/*", "agent-chat/*", "markdown-obsidian-parity/*",
     "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
     # Script directories under scripts/cmux-next/ that only a workflow or a person runs, and that
     # import nothing of the app's and nothing of the app's imports: the classic -> NEXT migration CLI
@@ -363,7 +379,7 @@ CI_ONLY = (
     # merge drivers, web lints, the CEF embedder fleet step, the tagged-app launcher, the TestFlight notes step
     # that runs after upload. A Mac tier that reads one still runs (consumed()).
     ".github/github-token-budget.json", ".github/runners.json",
-    "scripts/install-git-hooks.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
+    "scripts/install-git-hooks.sh", "scripts/merge-cargo-lock.py", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
     "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/lib/reload-shim.test.mjs",
     "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
     "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",
@@ -1055,6 +1071,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "release-compile": ("native", "mac_release"),
     "app-compile-fleet": ("native",),
     "cmux-scheme-compile": ("native", "scheme"),
+    "cmux-scheme-compile-fleet": ("native", "scheme"),
 }
 # The tiers a Route can take from WORKFLOW_JOB_TIERS (its attribute names; "swift" also sets all_tests).
 WORKFLOW_TIER_FIELDS = ("swift", "generated", "daemon", "native", "mac_release", "scheme")

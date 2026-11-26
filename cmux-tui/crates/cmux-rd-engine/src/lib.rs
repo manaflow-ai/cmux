@@ -37,6 +37,8 @@ pub const HISTORY_FRAMES: usize = 16;
 /// and an earlier, faster route cannot constrain a slower route forever.
 const ACK_RTT_WINDOW_US: u64 = 1_000_000;
 const ACK_RTT_SAMPLES: usize = 64;
+/// The ACK round trip the send window covers, as a percentile of that history.
+const ACK_RTT_WINDOW_PERCENTILE: usize = 90;
 /// Datagrams resent per feedback, so a hostile feedback cannot amplify.
 pub const MAX_RESENDS_PER_FEEDBACK: usize = 64;
 /// Shortest time between two forced keyframes.
@@ -62,6 +64,10 @@ pub const IDLE_COPY_PERCENT: u64 = 1;
 /// Frames the idle-link copy remembers (more than a second at any frame rate).
 const IDLE_COPY_FRAMES: usize = 512;
 /// Most streams per peer (the viewer's CMUX_RD_SESSION_MAX_STREAMS).
+/// Measured: each popup stream runs its own video encoder on the host (`pump.rs` `add_stream`),
+/// and popups share [`POPUP_SHARE_PERCENT`] (20 %) of the target with a floor of
+/// [`MIN_POPUP_KBPS`] each: 16 x 300 kbps = 4.8 Mbps, the whole share of a 24 Mbps target. Past
+/// that every popup's floor takes from the main stream. Derived from these constants, not timed.
 pub const MAX_STREAMS: usize = 16;
 /// Share of the target that popup streams may take together, in percent.
 pub const POPUP_SHARE_PERCENT: u64 = 20;
@@ -69,6 +75,12 @@ pub const POPUP_SHARE_PERCENT: u64 = 20;
 pub const MIN_POPUP_KBPS: u32 = 300;
 /// Keep idle capacity fresh without making probes a background stream.
 const IDLE_PROBE_INTERVAL_US: u64 = 1_000_000;
+/// Keep the deliberate sender window to one quarter of the viewer's measured
+/// reassembly queue. The other three quarters remain available for frames held
+/// by loss and reordering. At the benchmark's <=512 KiB encoded-frame budget,
+/// 16 slots allocate at most 8 MiB; MAX_PENDING_BYTES remains the hard byte cap
+/// when larger keyframes are allowed.
+const MAX_FRAMES_IN_FLIGHT: u32 = (cmux_rd_core::reassembly::MAX_PENDING_FRAMES / 4) as u32;
 
 /// Limits of one media session.
 #[derive(Debug, Clone, Copy)]
@@ -79,6 +91,9 @@ pub struct EngineConfig {
     pub max_fps: u32,
     pub start_bps: u64,
     pub max_bps: u64,
+    /// The controller never targets below this. Equal to `max_bps`, it pins the target: a
+    /// measurement holds one rate however the path's delay and loss move.
+    pub min_bps: u64,
     /// The link's datagram size for this session (1152 or 1332).
     pub max_datagram: usize,
     /// The path class until the link reports path events.
@@ -117,6 +132,7 @@ impl Default for EngineConfig {
             max_fps: 60,
             start_bps: cc.start_bps,
             max_bps: cc.max_bps,
+            min_bps: cc.min_bps,
             max_datagram: MAX_DATAGRAM_VPC,
             path: PathKind::ViaCloudRegion,
             input_gap_timeout_us: 200_000,
@@ -247,8 +263,6 @@ pub struct EngineStats {
     pub target_bps: u64,
 }
 
-/// Most upstream media streams per peer.
-pub const MAX_UPSTREAMS: usize = 4;
 /// Upstream feedback interval while upstream media flows.
 const UPSTREAM_FEEDBACK_US: u64 = 50_000;
 /// How long an upstream frame may wait for missing shards.
@@ -268,7 +282,7 @@ struct Upstream {
 impl Upstream {
     fn new() -> Self {
         Self {
-            reassembler: Reassembler::new(UPSTREAM_DEADLINE_US),
+            reassembler: Reassembler::with_nack_after(UPSTREAM_DEADLINE_US, UPSTREAM_NACK_AFTER_US),
             arrivals: VecDeque::new(),
             released_since_feedback: false,
             last_feedback_us: None,
@@ -446,6 +460,8 @@ pub struct MediaEngine {
     clock: Option<ClockEstimate>,
     /// Recent cumulative frame-ack round trips: (observation time, round trip).
     ack_rtts: VecDeque<(u64, u64)>,
+    /// The carrier's last path round trip, when it measures one.
+    path_rtt_us: Option<u64>,
     /// Smoothed frame-ack round trip and its deviation, from the frame's last
     /// departure when the host reports it (`datagram_sent`), else its encode.
     ack_srtt_us: Option<u64>,
@@ -466,8 +482,12 @@ pub struct MediaEngine {
 
 impl MediaEngine {
     pub fn new(cfg: EngineConfig, now_us: u64) -> Self {
-        let cc_cfg =
-            CcConfig { start_bps: cfg.start_bps, max_bps: cfg.max_bps, ..CcConfig::default() };
+        let cc_cfg = CcConfig {
+            start_bps: cfg.start_bps,
+            max_bps: cfg.max_bps,
+            min_bps: cfg.min_bps,
+            ..CcConfig::default()
+        };
         let mut streams = BTreeMap::new();
         let mut main = StreamState::new(cfg.width, cfg.height, cfg.max_fps, cfg.frames_in_flight);
         main.ladder = cfg
@@ -486,6 +506,7 @@ impl MediaEngine {
             keyframes: 0,
             clock: None,
             ack_rtts: VecDeque::new(),
+            path_rtt_us: None,
             ack_srtt_us: None,
             ack_rttvar_us: 0,
             recent_sends: VecDeque::new(),
@@ -561,12 +582,17 @@ impl MediaEngine {
     /// Adapts the host's send window to its carrier RTT, or recent frame ACKs
     /// while the carrier has no RTT measurement. The caller supplies its current
     /// route's measurement each time, or None after falling back to a socket.
+    ///
+    /// The window covers the long round trips, not the shortest: on a jittery path the
+    /// shortest is the floor, and a window sized from it closes on every longer one, so
+    /// frames wait on the host for an ACK. The congestion controller still gets the floor.
     pub fn update_frames_in_flight_from_rtt(&mut self, path_rtt_us: Option<u64>) {
-        if let Some(rtt_us) = path_rtt_us.or_else(|| self.ack_rtt_us()) {
-            self.set_frames_in_flight(frames_in_flight_for(rtt_us, self.cfg.max_fps).max(2));
-            // A measured LAN round trip starts the target high (until the first overuse).
-            self.cc.on_rtt(rtt_us);
-        }
+        self.path_rtt_us = path_rtt_us;
+        let Some(floor_us) = path_rtt_us.or_else(|| self.ack_rtt_us()) else { return };
+        let window_rtt_us = floor_us.max(self.ack_rtt_high_us().unwrap_or(0));
+        self.set_frames_in_flight(frames_in_flight_for(window_rtt_us, self.cfg.max_fps).max(2));
+        // A measured LAN round trip starts the target high (until the first overuse).
+        self.cc.on_rtt(floor_us);
     }
 
     /// A paced datagram from `encoded` really left now: the controller times it from
@@ -680,9 +706,8 @@ impl MediaEngine {
         if self.upstreams.contains_key(&stream) || self.streams.contains_key(&stream) {
             return Err(StreamError::Exists(stream));
         }
-        if self.upstreams.len() >= MAX_UPSTREAMS {
-            return Err(StreamError::TooMany);
-        }
+        // Any number: an upstream is a reassembler whose frames wait at most
+        // UPSTREAM_DEADLINE_US.
         self.upstreams.insert(stream, Upstream::new());
         Ok(())
     }
@@ -1003,8 +1028,11 @@ impl MediaEngine {
                 self.on_feedback(header.stream, &fb, now_us, &mut out);
             }
             DatagramKind::UpMedia => {
+                let rtt = self.rtt_us();
                 if let Some(u) = self.upstreams.get_mut(&header.stream) {
                     let stream = header.stream;
+                    // The viewer's repairs cross the same path: size the wait from it too.
+                    u.reassembler.set_path_rtt_us(rtt);
                     out.upstream =
                         u.push(&header, payload, now_us).into_iter().map(|f| (stream, f)).collect();
                 }
@@ -1098,7 +1126,8 @@ impl MediaEngine {
                 if let Some(d) = datagrams.get(usize::from(i)) {
                     if let Ok((header, _)) = DatagramHeader::decode(d) {
                         self.cc.on_retransmitted(header.transport_seq);
-                        // The copy reuses the sequence: count the original's loss now.
+                        // The viewer reports the repair under this sequence: count the
+                        // original as path loss now.
                         self.loss_meter.on_resent(header.transport_seq);
                     }
                     out.datagrams.push(d.clone());
@@ -1332,6 +1361,33 @@ impl MediaEngine {
         self.ack_rtts.iter().map(|(_, rtt)| *rtt).min()
     }
 
+    /// The long round trips of the same recent cumulative frame-ack history: its
+    /// [`ACK_RTT_WINDOW_PERCENTILE`] (nearest rank), so one outlier does not set the window.
+    pub fn ack_rtt_high_us(&self) -> Option<u64> {
+        let mut rtts: Vec<u64> = self.ack_rtts.iter().map(|(_, rtt)| *rtt).collect();
+        if rtts.is_empty() {
+            return None;
+        }
+        rtts.sort_unstable();
+        let rank = (rtts.len() * ACK_RTT_WINDOW_PERCENTILE).div_ceil(100);
+        Some(rtts[rank.clamp(1, rtts.len()) - 1])
+    }
+
+    /// The round trip the viewer-input (upstream) NACK wait is sized from: the
+    /// larger of the carrier's path round trip and the smoothed frame-ack
+    /// round trip plus four times its variation (`ack_srtt_us`). The host's
+    /// own recovery timers ([`TAIL_PROBE_US`], [`MIN_FORCED_IDR_INTERVAL_US`])
+    /// stay fixed: sized from the round trip, the tail probe fired inside
+    /// 50-100 ms Wi-Fi holds and its resends and keyframes burst out when the
+    /// hold lifted (about +50 ms on slow presses).
+    pub fn rtt_us(&self) -> Option<u64> {
+        let acks = self.ack_srtt_us.map(|s| s.saturating_add(self.ack_rttvar_us.saturating_mul(4)));
+        match (self.path_rtt_us, acks) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            (a, b) => a.or(b),
+        }
+    }
+
     /// Answers a clock ping at once (receive and send time are the same call).
     fn clock_pong(&mut self, ping: &ClockPing, now_us: u64) -> Vec<u8> {
         let pong = ClockPong {
@@ -1375,10 +1431,11 @@ impl MediaEngine {
 }
 
 /// Frames in flight for a path with this round trip at this frame rate: enough to
-/// cover the round trip plus one being encoded, at most 6 (the viewer's reassembly
-/// holds each frame until its deadline, and more only queues).
+/// cover the round trip plus one being encoded, bounded by the viewer's measured
+/// reassembly queue. This is the frame-space equivalent of a BDP window. The
+/// bound leaves queue depth and pending-payload headroom for loss and reordering.
 pub fn frames_in_flight_for(rtt_us: u64, max_fps: u32) -> u32 {
     let interval_us = 1_000_000 / u64::from(max_fps.max(1));
     let covering = rtt_us.div_ceil(interval_us.max(1));
-    u32::try_from(covering + 1).unwrap_or(6).clamp(1, 6)
+    covering.saturating_add(1).min(u64::from(MAX_FRAMES_IN_FLIGHT)) as u32
 }

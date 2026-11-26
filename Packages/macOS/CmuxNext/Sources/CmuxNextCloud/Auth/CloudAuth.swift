@@ -30,6 +30,16 @@ public final class CloudAuth {
     @ObservationIgnored private var activeTokenReads = 0
     /// The GitHub installs this sign-in finished this launch (``CloudGitHubCompletion/handle(_:auth:)``, #46018).
     @ObservationIgnored public let gitHubChanges = CloudGitHubChanges()
+    /// The bundled cmux that runs this sign-in's person calls on the daemon (``CloudOwnerAPIClient``'s `cloud.owner.*`):
+    /// the Cloud service sets it once at start. Nil (a test, a build without cmux): those calls answer "cmux is not available".
+    @ObservationIgnored public var machineIO: CloudMachineIO?
+
+    /// Sets ``machineIO`` to `io` and answers it.
+    public func runningPersonCalls(on io: CloudMachineIO?) -> CloudMachineIO? {
+        machineIO = io
+        return io
+    }
+
     @ObservationIgnored private var captureCleanupWaiters: [CheckedContinuation<Void, Never>] = []
 
     public var isSignedIn: Bool { coordinator.isAuthenticated }
@@ -163,9 +173,15 @@ public final class CloudAuth {
     /// Captures the auth launch keys; call in main before LaunchIdentity.stripInheritedEnvironment().
     public nonisolated static func captureLaunchEnvironment() { _ = launchEnvironment }
 
+    /// Asks a running cmux NIGHTLY for a NEW session of this build's own (`auth.session.request`: the person
+    /// says yes in NIGHTLY), waiting at most the given time; nil when there is none.
+    public typealias ConsentSession = @Sendable (Duration) async -> (accessToken: String?, refreshToken: String)?
+
     /// `environment` nil reads this process's environment plus the captured auth launch keys.
+    /// `consentSession` is where a build that starts signed out asks NIGHTLY for one (Rust's `client_asks`).
     public init(configuration: CloudConfiguration, environment explicitEnvironment: [String: String]? = nil,
-                defaults: UserDefaults = .standard, captureFixture: Bool = false) {
+                defaults: UserDefaults = .standard, captureFixture: Bool = false,
+                consentSession: ConsentSession? = nil) {
         #if DEBUG
         let useCaptureFixture = captureFixture && configuration.isDebugBuild
         #else
@@ -193,7 +209,8 @@ public final class CloudAuth {
             // A capture must not inherit or persist this machine's auth state.
             authDefaults = CaptureFixtureKeyValueStore()
         } else {
-            let productionStore = Self.tokenStore(configuration: configuration, memoryOnly: signIn.memoryOnly)
+            let productionStore = Self.tokenStore(configuration: configuration, consentSession: consentSession,
+                                                  autoLogin: signIn.autoLogin, memoryOnly: signIn.memoryOnly)
             let fencedStore = CaptureFencedTokenStore(base: productionStore)
             captureTokenStore = fencedStore
             tokenStore = fencedStore
@@ -201,7 +218,8 @@ public final class CloudAuth {
             client = Self.stackClient(configuration: configuration, tokenStore: fencedStore)
         }
         #else
-        let productionStore = Self.tokenStore(configuration: configuration, memoryOnly: signIn.memoryOnly)
+        let productionStore = Self.tokenStore(configuration: configuration, consentSession: consentSession,
+                                              autoLogin: signIn.autoLogin, memoryOnly: signIn.memoryOnly)
         let fencedStore = CaptureFencedTokenStore(base: productionStore)
         captureTokenStore = fencedStore
         tokenStore = fencedStore
@@ -282,22 +300,67 @@ public final class CloudAuth {
     /// (``launchSignIn(configuration:environment:home:)``); otherwise the person signs it in once, in the browser.
     /// `memoryOnly` (a launch that signs in from an explicit file, ``LaunchSignIn/memoryOnly``) keeps the session
     /// in memory and never opens the Keychain or the file fallback.
-    static func tokenStore(configuration: CloudConfiguration, memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
+    /// A build that Rust says asks (``asksNightlyForConsent(configuration:autoLogin:memoryOnly:storeReadFailed:)``)
+    /// and finds its own store empty at its first read asks a running NIGHTLY for a NEW session (`consentSession`,
+    /// after the person says yes there) and keeps it in this own store, so later launches stay signed in and a
+    /// sign-out revokes it like any session of its own. It is minted for this build, never NIGHTLY's own session.
+    /// A store that could not be read is not empty: no ask.
+    static func tokenStore(configuration: CloudConfiguration, consentSession: ConsentSession? = nil,
+                           autoLogin: Bool = false, memoryOnly: Bool = false) -> any StackAuthTokenStoreProtocol {
         if memoryOnly { return MemoryStackTokenStore() }
         let own = FallbackTokenStore(
             primary: KeychainStackTokenStore(service: configuration.keychainService),
             fallback: FileStackTokenStore(directory: configuration.credentialsDirectory)
         )
+        var sources: [ImportingTokenStore.Source] = []
+        var forget: (@Sendable () async -> Void)?
+        var failures: (@Sendable () async -> UInt64)?
         let home = FileManager.default.homeDirectoryForCurrentUser
-        guard let previous = configuration.namespacedLegacyStorage(homeDirectory: home) else { return own }
-        // A session signed in while the update read the namespaced store is this app's own: adopted once,
-        // and cleared with a sign-out so the next launch does not sign the person back in.
-        let earlier = FallbackTokenStore(primary: KeychainStackTokenStore(service: previous.keychainService),
-                                         fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
-        return ImportingTokenStore(primary: own, sources: [{
-            ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
-        }], sharesSessions: false, forgetSources: { await earlier.clearTokens() },
-           sourceReadFailures: { await earlier.tokenReadFailureCount() })
+        if let previous = configuration.namespacedLegacyStorage(homeDirectory: home) {
+            // A session signed in while the update read the namespaced store is this app's own: adopted once,
+            // and cleared with a sign-out so the next launch does not sign the person back in.
+            let earlier = FallbackTokenStore(primary: KeychainStackTokenStore(service: previous.keychainService),
+                                             fallback: FileStackTokenStore(directory: previous.credentialsDirectory))
+            sources.append {
+                ImportedTokenPair(accessToken: await earlier.getStoredAccessToken(), refreshToken: await earlier.getStoredRefreshToken())
+            }
+            forget = { await earlier.clearTokens() }
+            failures = { await earlier.tokenReadFailureCount() }
+        }
+        if let consentSession,
+           let timeout = asksNightlyForConsent(configuration: configuration, autoLogin: autoLogin, memoryOnly: memoryOnly,
+                                               storeReadFailed: false) {
+            // Asked only when the own store read cleanly empty (the import runs on an empty primary).
+            sources.append {
+                let failed = await own.tokenReadFailureCount() > 0
+                guard asksNightlyForConsent(configuration: configuration, autoLogin: autoLogin, memoryOnly: memoryOnly,
+                                            storeReadFailed: failed) != nil else { return nil }
+                return await consentSession(timeout).flatMap {
+                    ImportedTokenPair(accessToken: $0.accessToken, refreshToken: $0.refreshToken)
+                }
+            }
+        }
+        guard !sources.isEmpty else { return own }
+        // Every source is this app's own session (the consent one is minted for this build), so a sign-out
+        // revokes it on the server.
+        return ImportingTokenStore(primary: own, sources: sources, sharesSessions: false, forgetSources: forget,
+                                   sourceReadFailures: failures)
+    }
+
+    /// How long to wait for NIGHTLY's answer when this signed-out launch asks it for a session (Rust's
+    /// `client_asks` and `CLIENT_TIMEOUT`, cmux-cloud-config `handoff`); nil when it does not ask. An FFI that does
+    /// not answer never asks.
+    nonisolated static func asksNightlyForConsent(configuration: CloudConfiguration, autoLogin: Bool, memoryOnly: Bool,
+                                                  storeReadFailed: Bool) -> Duration? {
+        struct Facts: Encodable {
+            var bundleId: String?, isProductionAuth: Bool, signedIn = false, storeReadFailed: Bool, memoryOnly: Bool
+            var autoLogin: Bool, captureFixture = false
+        }
+        struct Reply: Decodable { var asks: Bool, timeoutSeconds: Int }
+        let facts = Facts(bundleId: configuration.bundleID, isProductionAuth: configuration.isProductionAuth,
+                          storeReadFailed: storeReadFailed, memoryOnly: memoryOnly, autoLogin: autoLogin)
+        guard let reply = CloudStartCore().call("cloud_handoff_client_asks", facts, as: Reply.self), reply.asks else { return nil }
+        return .seconds(reply.timeoutSeconds)
     }
 
     private static func stackClient(configuration: CloudConfiguration,
@@ -315,6 +378,12 @@ public final class CloudAuth {
     public func start() { coordinator.start() }
 
     public func awaitRestored() async { await coordinator.awaitBootstrapped() }
+    /// The signed-in user once the stored session has restored, for code that binds an install to it: before
+    /// the restore ``user`` is the cached account, which can differ from the stored token's.
+    public func restoredUserID() async -> String? {
+        await awaitRestored()
+        return user?.id
+    }
 
     /// The signed-in person's access token once the stored session has restored (a cold launch asks before it
     /// has); nil signed out.
@@ -335,6 +404,10 @@ public final class CloudAuth {
     /// Where a sign-in opens; the App reads its Debug Settings tunable here.
     @ObservationIgnored public var signInWindow: @MainActor () -> CloudSignInWindow = { .automatic }
 
+    /// Opens the hosted sign-in page in a cmux browser tab; false when no window can take it (then the popup or
+    /// the default browser opens instead). The App installs it; nil keeps the popup-or-browser rule.
+    @ObservationIgnored public var openSignInInApp: (@MainActor (URL) -> Bool)?
+
     /// Hosted browser sign-in; returns whether the app ended signed in.
     /// Every entry point (Settings, the palette, the sidebar, the Cloud page)
     /// comes through here, so they all open the same window.
@@ -348,8 +421,17 @@ public final class CloudAuth {
     @discardableResult
     public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
         guard !captureCleanupActive else { return Task { false } }
-        let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: CloudSignInWindow.currentDefaultBrowser())
-        return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
+        let inApp = usesCaptureFixture ? nil : openSignInInApp
+        switch signInWindow().place(defaultBrowser: CloudSignInWindow.currentDefaultBrowser(), inApp: inApp != nil) {
+        case .inApp:
+            // The page's `<scheme>://auth-callback` comes back from the tab through the app's open-URL route
+            // (BrowserExternalApps.openOwn) to handleCallback, which still checks this attempt's state.
+            return browserSignIn.beginSignIn(selectAccount: selectAccount, openingWith: inApp)
+        case .defaultBrowser:
+            return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: true)
+        case .popup:
+            return browserSignIn.beginSignIn(selectAccount: selectAccount)
+        }
     }
 
     /// Opens the sign-in in progress in the default browser (the person's
@@ -412,6 +494,19 @@ public final class CloudAuth {
     /// routing leaves it to ``handleCallback(_:)``.
     public nonisolated func isCallback(_ url: URL) -> Bool {
         callbackRouter.isAuthCallbackURL(url)
+    }
+
+    /// Whether `url` is this build's own link that ends a flow a cmux tab started (GitHub's
+    /// `<scheme>://integration/complete` or the sign-in callback): the tab hands it over without asking.
+    public func isAppHandoff(_ url: URL) -> Bool {
+        CloudGitHubCompletion(url: url, scheme: configuration.callbackScheme) != nil || isCallback(url)
+    }
+
+    /// Takes an opened sign-in callback; true when sign-in then failed and Accounts should show why.
+    public func callbackFailed(_ url: URL) async -> Bool {
+        guard await !handleCallback(url) else { return false }
+        await awaitRestored()
+        return signInFailed && !isSignedIn && !isSigningIn
     }
 
     /// Routes a `<scheme>://auth-callback` URL (browser fallback) to the flow.

@@ -12,6 +12,8 @@ workspace = true
 
 [dependencies]
 base64.workspace = true
+# A path dep, not `workspace = true`: relays/cloudflare-do builds this crate under its own workspace.
+cmux-braid-class = { path = "../cmux-braid-class" }
 serde.workspace = true
 serde_json.workspace = true
 # Wire types only parse and serialize UUIDs. Random UUID generation belongs in

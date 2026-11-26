@@ -36,6 +36,8 @@ public final class LinkController {
     public var dialGeneration: Int { machine.generation }
     /// The Mac holds the current link while the app is suspended.
     public var isParked: Bool { machine.isParked }
+    /// The app is in the background as far as this link knows (`.background` until `.resume`).
+    public var isBackgrounded: Bool { machine.isBackgrounded }
     @ObservationIgnored private let dialer: any MacLinkDialer
     /// Resolves a Mac id to a dial endpoint (nil until the phone is registered).
     @ObservationIgnored public var endpoint: @MainActor (String) -> LinkEndpoint? = { _ in nil }
@@ -82,6 +84,17 @@ public final class LinkController {
     nonisolated static let parkResumeWithin: Duration = parkHold - .seconds(30)
     /// A resumed parked link that does not answer within this is redialed.
     nonisolated static let parkedResumeProbeTimeout: Duration = .milliseconds(1500)
+    /// In front, a resumed link that stays silent past its hedge (about one
+    /// round trip past the two a live resume needs) gets a redial raced
+    /// against it: the probe fails, the link stays as the standby and keeps
+    /// being probed, and whichever answers first is kept. A remembered
+    /// endpoint that died during the park then costs the hedge plus the
+    /// redial, not 1.5 s plus it. Backgrounded holds keep the 1.5 s: no one
+    /// is waiting, and a needless dial costs battery.
+    nonisolated static func resumeProbeTimeout(_ link: any ParkableMacLink, backgrounded: Bool) -> Duration {
+        guard !backgrounded, let hedge = link.resumeHedge else { return parkedResumeProbeTimeout }
+        return min(hedge, parkedResumeProbeTimeout)
+    }
     @ObservationIgnored private var parkTask: Task<Void, Never>?
     /// When the Mac accepted the current park, on the clock that keeps
     /// running while the device sleeps.
@@ -188,6 +201,17 @@ public final class LinkController {
     private nonisolated static func connect(dialer: any MacLinkDialer, endpoint: LinkEndpoint, transport: TransportKind,
                                             forceRefresh: Bool, events: LinkConnectivityEvents,
                                             accessToken: @Sendable (Bool) async throws -> String) async throws -> any MacLink {
+        // The token and the dial are one "link-connect" span (``PhoneTrace``): a launch, a
+        // reconnect after a drop and a forced token refresh alike.
+        try await PhoneTrace.action("link-connect", args: ["transport": "\(transport)", "refresh": "\(forceRefresh)"]) {
+            try await dial(dialer: dialer, endpoint: endpoint, transport: transport, forceRefresh: forceRefresh,
+                           events: events, accessToken: accessToken)
+        }
+    }
+
+    private nonisolated static func dial(dialer: any MacLinkDialer, endpoint: LinkEndpoint, transport: TransportKind,
+                                         forceRefresh: Bool, events: LinkConnectivityEvents,
+                                         accessToken: @Sendable (Bool) async throws -> String) async throws -> any MacLink {
         let token = try await accessToken(forceRefresh)
         ConnectTimeline.shared.mark("token_ready")
         let link = try await dialer.dial(endpoint, transport: transport, accessToken: token)
@@ -324,8 +348,11 @@ public final class LinkController {
             }
             endpoint.relayOnly = machine.relayOnly
             endpoint.blockUDP = machine.blockUDP
+            endpoint.proxyOnly = DeveloperOptions.proxyOnly
+            endpoint.dropWireGuard = DeveloperOptions.dropWireGuard
             endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
-            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public)")
+            endpoint.forceRelay = DeveloperOptions.forceRelay
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public) proxyOnly=\(endpoint.proxyOnly, privacy: .public) dropWireGuard=\(endpoint.dropWireGuard, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
@@ -372,6 +399,9 @@ public final class LinkController {
                         return
                     }
                     if Self.authRefused(error) { self?.refreshTokenNextDial = true }
+                    if let block = Self.networkBlock(error) {
+                        self?.send(.networkBlocked(generation: generation, block))
+                    }
                     self?.send(.dialFailed(generation: generation, reason: Self.reason(error)))
                 }
             }
@@ -400,7 +430,7 @@ public final class LinkController {
             }
             probeTask?.cancel()
             probeTask = nil
-            probe(generation: generation, timeout: Self.parkedResumeProbeTimeout)
+            probe(generation: generation, timeout: Self.resumeProbeTimeout(link, backgrounded: machine.isBackgrounded))
             // Resumed in the background for a hold (a call, a notification
             // action): the link stays watched until the hold parks it again.
             if machine.isBackgrounded { startHeartbeat(generation: generation) }
@@ -606,6 +636,16 @@ public final class LinkController {
         link?.setForegroundProbe(onScreen && !machine.isBackgrounded)
     }
 
+    /// The keyboard is coming up over this link's terminal or chat: the
+    /// first key follows in a few hundred ms. Waking the radio now moves
+    /// the idle-to-connected promotion off that key (RFD 0142 T2). The
+    /// coordinator calls it for the focused Mac only; the Rust link
+    /// decides whether a datagram goes out.
+    public func prewake() {
+        guard onScreen, !machine.isBackgrounded else { return }
+        link?.prewake()
+    }
+
     private func adopt(_ link: any MacLink, generation: Int) {
         ConnectTimeline.shared.mark("link_adopted")
         self.link = link
@@ -771,6 +811,15 @@ public final class LinkController {
         if let error = error as? LinkError { return error.code == LinkError.unauthorized }
         return false
     }
+
+    /// The record of a dial that found no way to the Mac (`network_blocked`).
+    nonisolated static func networkBlock(_ error: any Error) -> NetworkBlock? {
+        guard let error = error as? LinkError, error.code == LinkError.networkBlocked else { return nil }
+        return NetworkBlock(json: error.message)
+    }
+
+    /// What blocks the link on this network, while the quiet retries go on.
+    public var networkBlock: NetworkBlock? { machine.networkBlock }
 
     /// A short, display-safe reason for a dial or link error.
     /// The mapping lives with ``LinkError`` (`displayReason`); never a code or a type name.

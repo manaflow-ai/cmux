@@ -303,13 +303,21 @@ def test_same_repo_branch_pushes_publish_their_trees() -> None:
     # refused before preflight and never reach a credentialed publisher.
     artifacts = workflow("cmux-tui-artifacts.yml")
     trusted = "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next'"
+    # A dispatch on a branch publishes what a push on it would (the on-request build of a PR head's tree, and its
+    # mac-live.json for `cmux app try PR`): the dispatched ref's own workflow file runs either way, so this gate
+    # never held back a hostile branch; pin refs stay refused, before any build (reject-untrusted-pin-ref).
+    branch = ("((github.event_name == 'push' || github.event_name == 'workflow_dispatch')"
+              " && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))")
     for job in ("publish", "publish-tree", "notify-unpublished-tree"):
         body = workflow_job(artifacts, job)
         assert trusted in body, job
-        assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in body, job
-    # A dispatch from another branch stays build-only.
+        assert branch in body, job
+    live = workflow_job(artifacts, "point-mac-live-channel")
+    assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in live
+    assert "(github.event_name == 'workflow_dispatch' || !startsWith(github.ref, 'refs/heads/lane/'))" in live
+    # Only a pin ref stays build-only.
     notice = workflow_job(artifacts, "publish-ref-notice")
-    assert f"!(github.event_name == 'push' || {trusted})" in notice
+    assert "&& startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in notice
     # Branch-published trees are their own family (the R2 pruner's candidates).
     tree = workflow_job(artifacts, "publish-tree")
     assert '"family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch"' in tree
@@ -471,10 +479,12 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     # Per commit, except the marker path (cx-qlilk): a feat-cmux-next push whose
     # tree another run already published shares one group per key, because
     # only the missing daemon-tests marker is at stake there, not the tree.
-    assert ("group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.event_name == 'push' && "
+    # Off the trunk refs a branch's newer head cancels its older head's tests (DISPATCH_SUPERSEDED,
+    # test_branch_push_build_cancels_only_its_own_branch_older_build).
+    assert ("format('{0}-{1}', needs.tree-preflight.outputs.key, github.event_name == 'push' && "
             "github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.outputs.tree_ready == 'true' && "
-            "'marker' || github.sha }}") in daemon
-    assert "cancel-in-progress: false" in daemon
+            "'marker' || github.sha)") in daemon
+    assert "DISPATCH_SUPERSEDED" in daemon
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
@@ -911,7 +921,9 @@ def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
     typescript = workflow("sdk-publish-npm.yml")
     assert 'node-version: "22.23.4"' in typescript
     assert (
-        "cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json"
+        # RFD 0148 row 19: setup-node's npm cache is an actions/cache twin that
+        # saves on base branches only, keyed on this lockfile.
+        "hashFiles('cmux-tui/bindings/typescript/package-lock.json')"
         in typescript
     )
     assert "npm ci --no-audit --no-fund" in typescript
@@ -1466,9 +1478,9 @@ def _evaluate_branch_expression(template: str, context: dict[str, object]) -> st
 def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
     # BRANCH_BUILD_SUPERSEDED: on 2026-11-13..19 the builds of non-trunk branch
     # pushes ran 622 min/day after their branch had a newer push. A branch
-    # push's build shares one group per branch with cancel-in-progress; every
-    # trunk, integration, nightly and dispatch build keeps a group per run that
-    # nothing cancels. The R2 writers keep their per-run groups.
+    # push's (or dispatch's) build shares one group per branch with
+    # cancel-in-progress; every trunk, integration and nightly build, pushed or
+    # dispatched, keeps a group per run that nothing cancels. The R2 writers keep their per-run groups.
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     concurrency = jobs["build"]["concurrency"]
@@ -1479,27 +1491,47 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
                                 "repository": "manaflow-ai/cmux"}}
         )
 
-    for ref in ("refs/heads/fix/a", "refs/heads/leo/b", "refs/heads/feat-x"):
-        assert render(concurrency["group"], "push", ref) == f"cmux-tui-build-ref-{ref}", ref
-        assert render(concurrency["group"], "push", ref, "8") == render(concurrency["group"], "push", ref), ref
-        assert render(concurrency["cancel-in-progress"], "push", ref) == "True", ref
+    # DISPATCH_SUPERSEDED: a dispatch on such a branch (the hot verify rust look's tree request) shares the
+    # branch's group too, so a newer head's build cancels the older head's.
+    for event_name in ("push", "workflow_dispatch"):
+        for ref in ("refs/heads/fix/a", "refs/heads/leo/b", "refs/heads/feat-x", "refs/heads/lane/c"):
+            assert render(concurrency["group"], event_name, ref) == f"cmux-tui-build-ref-{ref}", ref
+            assert render(concurrency["group"], event_name, ref, "8") == render(concurrency["group"], event_name, ref), ref
+            assert render(concurrency["cancel-in-progress"], event_name, ref) == "True", ref
+            linux = jobs["build-linux"]["concurrency"]
+            assert render(linux["group"], event_name, ref) == f"cmux-tui-build-linux-ref-{ref}", ref
+            assert render(linux["cancel-in-progress"], event_name, ref) == "True", ref
+    assert (render(concurrency["group"], "push", "refs/heads/fix/a")
+            == render(concurrency["group"], "workflow_dispatch", "refs/heads/fix/a"))
     assert render(concurrency["group"], "push", "refs/heads/fix/a") != render(concurrency["group"], "push", "refs/heads/fix/b")
     kept = ["refs/heads/main", "refs/heads/feat-cmux-next", "refs/heads/nightly-next", "refs/heads/release-next",
             "refs/heads/feat-cmux-next-ios", "refs/heads/next-batch/1", "refs/heads/rc/1.2", "refs/heads/cmux-tui-pin-aa"]
-    for event_name, ref in [("push", ref) for ref in kept] + [("workflow_dispatch", "refs/heads/fix/a")]:
+    for event_name, ref in [(event, ref) for ref in kept for event in ("push", "workflow_dispatch")]:
         assert render(concurrency["group"], event_name, ref) == "cmux-tui-build-" + "k" * 12 + "-7", (event_name, ref)
         assert render(concurrency["cancel-in-progress"], event_name, ref) == "False", (event_name, ref)
     # The jobs that write R2 never share a group across runs and are never cancelled by one.
-    for name in ("publish-tree", "build-darwin-fallback", "cmux-next-daemon-tests"):
+    for name in ("publish-tree", "build-darwin-fallback"):
         assert jobs[name]["concurrency"]["cancel-in-progress"] == "false", name
+    # The daemon tests write nothing to R2: off the trunk refs they follow the build's branch group;
+    # on them they keep the per-key, per-commit (or marker) group nothing cancels.
+    daemon = {name: value.replace("needs.tree-preflight.outputs.tree_ready", "github.tree_ready")
+              for name, value in jobs["cmux-next-daemon-tests"]["concurrency"].items()}
+    for event_name in ("push", "workflow_dispatch"):
+        assert render(daemon["group"], event_name, "refs/heads/lane/c") == "cmux-tui-daemon-ref-refs/heads/lane/c"
+        assert render(daemon["cancel-in-progress"], event_name, "refs/heads/lane/c") == "True"
+        for ref in kept:
+            assert render(daemon["cancel-in-progress"], event_name, ref) == "False", (event_name, ref)
+            assert not render(daemon["group"], event_name, ref).startswith("cmux-tui-daemon-ref-"), (event_name, ref)
     assert "concurrency" not in jobs["publish"] or jobs["publish"]["concurrency"]["cancel-in-progress"] == "false"
     assert document["concurrency"]["cancel-in-progress"] == "false"
     # A build a newer push cancelled plans no macOS fallback once the branch has moved;
     # a timeout's cancel (FALLBACK_AFTER_TIMEOUT) and a failed head read still plan one.
     plan = next(s for s in jobs["darwin-fallback-plan"]["steps"] if s.get("id") == "plan")
     assert render(plan["env"]["BRANCH_PUSH"], "push", "refs/heads/fix/a") == "1"
+    assert render(plan["env"]["BRANCH_PUSH"], "workflow_dispatch", "refs/heads/lane/c") == "1"
     for ref in kept:
         assert render(plan["env"]["BRANCH_PUSH"], "push", ref) == "", ref
+        assert render(plan["env"]["BRANCH_PUSH"], "workflow_dispatch", ref) == "", ref
     assert '"$BUILD_RESULT" == cancelled && -n "${BRANCH_PUSH:-}"' in plan["run"]
     assert '"$head" =~ ^[0-9a-f]{40}$ && "$head" != "$GITHUB_SHA"' in plan["run"]
     assert jobs["darwin-fallback-plan"]["permissions"]["contents"] == "read"

@@ -50,27 +50,37 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         public var arguments: [String]
     }
 
-    /// Sparkle's staged installation folder (``UpdateInstallPreflight/stagedInstallation(bundleIdentifier:)``).
-    public let installation: URL
+    /// Sparkle's staged installation folders, the app's own first
+    /// (``UpdateInstallPreflight/stagedInstallations(bundleIdentifier:accountHome:)``).
+    public let installations: [URL]
+    /// The app's own staged installation folder (``UpdateInstallPreflight/stagedInstallation(bundleIdentifier:)``);
+    /// nil when ``installations`` is empty.
+    public var installation: URL? { installations.first }
     public let bundleIdentifier: String
     /// The staged build (`CFBundleVersion`).
     public let build: String
 
     public init(installation: URL, bundleIdentifier: String, build: String) {
-        self.installation = installation
+        self.init(installations: [installation], bundleIdentifier: bundleIdentifier, build: build)
+    }
+
+    /// An empty `installations` finds no staged bundle, so the pre-warm runs nothing.
+    public init(installations: [URL], bundleIdentifier: String, build: String) {
+        self.installations = installations
         self.bundleIdentifier = bundleIdentifier
         self.build = build
     }
 
     /// The staged bundle of ``build``, or nil. Sparkle 2's installer extracts each update two
     /// folders under the installation folder (`Installation/<unique>/<unique>/<name>.app`,
-    /// `AppInstaller`); the newest bundle with this bundle id and build wins. Blocking: reads folders.
+    /// `AppInstaller`); the newest bundle with this bundle id and build, in any of ``installations``,
+    /// wins. Blocking: reads folders.
     public func stagedBundle() -> URL? {
         let files = FileManager.checked, keys: [URLResourceKey] = [.contentModificationDateKey]
         func children(_ url: URL) -> [URL] {
             (try? files.contentsOfDirectory(at: url, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])) ?? []
         }
-        let candidates = children(installation).flatMap(children).flatMap(children).filter { url in
+        let candidates = installations.flatMap(children).flatMap(children).flatMap(children).filter { url in
             guard url.pathExtension == "app", let info = Self.info(url) else { return false }
             return info["CFBundleIdentifier"] as? String == bundleIdentifier && info["CFBundleVersion"] as? String == build
         }
@@ -154,7 +164,7 @@ public nonisolated struct StagedUpdatePrewarm: Equatable, Sendable {
         }
         let scan = Self.milliseconds(ContinuousClock.now - asked)
         guard let staged = scanned ?? nil else {
-            return "launch pre-warm: no staged bundle of \(build) in \(installation.path) (scan \(scan) ms)"
+            return "launch pre-warm: no staged bundle of \(build) in \(installations.map(\.path).joined(separator: " or ")) (scan \(scan) ms)"
         }
         let bundle = staged.0, planned = staged.1
         progress?("launch pre-warm of \(build): \(planned.count) runs in \(bundle.lastPathComponent) (scan \(scan) ms)")

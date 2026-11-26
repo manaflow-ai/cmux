@@ -24,6 +24,31 @@ import Testing
         #expect(TerminalStillPlan.rowsClip(bounds: bounds, topInset: 62, composerTop: 10).isEmpty)
     }
 
+    /// Leo, 2026-11-25: "the served cached thing included the gap induced by my
+    /// built-in keyboard". A still taken with the keyboard up is composed as at
+    /// rest: its rows end at the resting stack top, never at the raised one,
+    /// so no band of bare background is left where the keyboard was.
+    @Test func aStillWithTheKeyboardUpEndsItsRowsAtTheRestingTop() {
+        let place = TerminalStillPlan.placement(bounds: bounds, topInset: 62, composerTop: 400, restingComposerTop: 700)
+        #expect(place.clip == CGRect(x: 0, y: 62, width: 402, height: 638))
+        #expect(place.clip.maxY == 700)
+        #expect(place.shift == 300)
+        // The rows are read where they sit now: the bottom row just above the raised stack.
+        #expect(place.source == CGRect(x: 0, y: -238, width: 402, height: 638))
+        #expect(place.source.maxY == 400)
+    }
+
+    @Test func aStillAtRestIsReadWhereItIsDrawn() {
+        let place = TerminalStillPlan.placement(bounds: bounds, topInset: 62, composerTop: 700, restingComposerTop: 700)
+        #expect(place.shift == 0)
+        #expect(place.source == place.clip)
+        #expect(place.clip == TerminalStillPlan.rowsClip(bounds: bounds, topInset: 62, composerTop: 700))
+        // Under a point apart is rounding between the two measures, not a keyboard.
+        #expect(TerminalStillPlan.placement(bounds: bounds, topInset: 62, composerTop: 699.5, restingComposerTop: 700).shift == 0)
+        // A stack lower than rest (a hardware keyboard's bar gone) is drawn where it is.
+        #expect(TerminalStillPlan.placement(bounds: bounds, topInset: 62, composerTop: 760, restingComposerTop: 700).shift == 0)
+    }
+
     @Test func aStillDrawsNoChrome() {
         #expect(!TerminalStillPlan.drawsChromeLayers)
     }

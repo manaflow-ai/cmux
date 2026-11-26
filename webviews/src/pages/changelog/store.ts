@@ -332,6 +332,21 @@ export class ChangelogStore {
     return load;
   }
 
+  /** The person's Try again on notes that did not load: a build is asked again (`ensure` remembers a failed
+      build so a re-render does not ask on every frame, so only this clears it), the selected one shown when
+      it loads; with no build, the update's span is not in the list yet, so the list is read again. Before,
+      "not available offline yet" stayed until the page was reopened, with nothing to do about it. */
+  async retry(build?: string): Promise<void> {
+    if (!this.client) return;
+    if (!build) return this.load(this.latestSpan);
+    if (this.snapshot.unavailable[build]) {
+      const { [build]: _dropped, ...rest } = this.snapshot.unavailable;
+      this.set({ unavailable: rest });
+    }
+    if (build === this.snapshot.selected) return this.select(build);
+    await this.ensure(build);
+  }
+
   /** Whether the host lists Install (none on a DEV build, or a host without the op). */
   private async readInstallable(): Promise<void> {
     try {

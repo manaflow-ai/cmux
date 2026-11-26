@@ -162,6 +162,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         encode_profile: Default::default(),
         start_kbps: 2_000,
         max_kbps: 4_000,
+        pin_kbps: None,
         preset: String::new(),
         profile: String::new(),
         codec: String::new(),
@@ -180,6 +181,7 @@ fn outage_with_queue(unstarted: usize) -> Outage {
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
+        sharp_text: false,
     };
     let mut session = MediaSession::with_desktop(
         Box::new(QuietDesktop(UnixStream::pair().expect("socket pair"))),

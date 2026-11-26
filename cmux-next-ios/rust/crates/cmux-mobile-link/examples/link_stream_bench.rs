@@ -102,6 +102,7 @@ struct Args {
     /// `echo-flood` only: `wireguard` (the default) or `webrtc` (no path
     /// shaping: the WebRTC dial has no impairment hook, so this is loopback).
     transport: String,
+    profile: Option<String>,
 }
 
 fn args() -> Args {
@@ -115,6 +116,7 @@ fn args() -> Args {
         flood_mbps: 0.0,
         loss_pct: 0.0,
         transport: "wireguard".into(),
+        profile: None,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
@@ -130,6 +132,7 @@ fn args() -> Args {
             "--flood-mbps" => parsed.flood_mbps = value.parse().unwrap_or(0.0),
             "--loss" => parsed.loss_pct = value.parse().unwrap_or(0.0),
             "--transport" => parsed.transport = value.clone(),
+            "--profile" => parsed.profile = Some(value.clone()),
             other => eprintln!("ignoring unknown flag {other}"),
         }
     }
@@ -219,11 +222,18 @@ async fn main() {
     LAN_ONE_WAY_US.store(args.lan_rtt_ms * 500, Ordering::Relaxed);
     RELAY_ONE_WAY_US.store(args.relay_rtt_ms * 500, Ordering::Relaxed);
     let turn = TestTurn::start().await;
+    let shaped = args.profile.is_some();
+    if let Some(name) = &args.profile {
+        cmux_mobile_link::testing::set_link_profile(
+            Some(cmux_mobile_link::testing::LinkProfile::named(name)),
+            42,
+        );
+    }
     let mut options = DialOptions {
         include_loopback: true,
         timeout: Duration::from_secs(20),
         turn_tls_roots: Some(turn.roots.clone()),
-        impair_inbound: Some(impair),
+        impair_inbound: Some(if shaped { cmux_mobile_link::testing::shape_by_profile } else { impair }),
         ..DialOptions::default()
     };
     match args.row.as_str() {

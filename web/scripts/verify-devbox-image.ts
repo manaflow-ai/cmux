@@ -40,6 +40,7 @@ import {
   DEVBOX_WORK_USER,
 } from "../services/vms/images/workUser";
 import {
+  retryFreestyleOverload,
   CMUX_TUI_STATE_IMAGE_PATH,
   CMUX_TUI_STATE_MOUNT_HELPER_PATH,
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
@@ -121,6 +122,8 @@ const CHECKS: readonly string[] = [
   "cua-driver --version",
   `test "$(agent-desktop --version)" = "agent-desktop ${devboxAgentDesktopVersion()}" && echo agent-desktop-pinned`,
   "ffmpeg -version | head -1 && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
+  // Media and dev tools people's chats reach for (Leo, 2026-11-25: "ffprobe isn't installed"): each one runs.
+  "ffprobe -hide_banner -version | head -1 && convert -version | head -1 && identify -version >/dev/null && pdfinfo -v 2>&1 | grep -i poppler && command -v pdftotext && command -v pdftoppm && git lfs version && sqlite3 --version && unzip -v | head -1 && zip -v | sed -n 2p && echo media-dev-tools-ok",
   // Prove the current upstream binary is selected and can sandbox as cmux.
   devboxBubblewrapCheckCommand(),
   // Baked files are byte-identical to this checkout.
@@ -452,7 +455,7 @@ if (provider === "freestyle") {
     };
   };
   const t0 = Date.now();
-  const { vm, vmId } = await fs.vms.create({ snapshotId: image, displayName: verifyName, firewall });
+  const { vm, vmId } = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: verifyName, firewall }));
   console.log(`provisioned ${vmId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   try {
     const exec = execFor(vm);
@@ -496,7 +499,7 @@ if (provider === "freestyle") {
     let cloneIdentityOk = true;
     // A second machine from the same memory snapshot must mint its own
     // identity; a shared one would let every machine impersonate every other.
-    const second = await fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall });
+    const second = await retryFreestyleOverload("vm start", () => fs.vms.create({ snapshotId: image, displayName: `${verifyName}-2`, firewall }));
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
