@@ -45,7 +45,7 @@ let package = Package(
                 .process("Resources/CmuxHome.xcstrings"),
                 .copy("Resources/springs.json"),
             ],
-            swiftSettings: [
+            swiftSettings: [.define("CMUX_BENCH_HOOKS"), .define("CMUX_BLOCKING_CHECKS"),
                 .swiftLanguageMode(.v5),
                 .define("APPKIT_NATIVE"),
             ]
@@ -55,7 +55,7 @@ let package = Package(
             resources: [
                 .process("Resources/SidebarLocalizable.xcstrings"),
             ],
-            swiftSettings: [
+            swiftSettings: [.define("CMUX_BENCH_HOOKS"), .define("CMUX_BLOCKING_CHECKS"),
                 .swiftLanguageMode(.v5),
                 .define("APPKIT_NATIVE"),
             ]
@@ -70,7 +70,7 @@ let package = Package(
             ],
             // MessagesLab's shared/conversation.json (vendor.tsv), read by path.
             exclude: ["Fixtures"],
-            swiftSettings: [
+            swiftSettings: [.define("CMUX_BENCH_HOOKS"), .define("CMUX_BLOCKING_CHECKS"),
                 .swiftLanguageMode(.v5),
                 .define("APPKIT_NATIVE"),
             ]
@@ -78,7 +78,7 @@ let package = Package(
         .testTarget(
             name: "MessagesLabSidebarTests",
             dependencies: ["MessagesLabSidebar"],
-            swiftSettings: [
+            swiftSettings: [.define("CMUX_BENCH_HOOKS"), .define("CMUX_BLOCKING_CHECKS"),
                 .swiftLanguageMode(.v5),
                 .define("APPKIT_NATIVE"),
             ]
