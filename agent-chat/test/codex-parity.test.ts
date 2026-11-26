@@ -75,30 +75,14 @@ test("Codex request_user_input reaches the person as a question instead of being
   expect(events.map((evt) => evt.kind)).toEqual(["question"]);
 });
 
-test("Codex turn plan updates become plan entries", () => {
+test("Codex turn plan updates draw nothing", () => {
   const events = codexEventsForTest([
     notification("turn/plan/updated", {
-      explanation: "Start with the adapter",
-      plan: [
-        { step: "Read the adapter", status: "completed" },
-        { step: "Map the notifications", status: "inProgress" },
-        { step: "Add tests", status: "pending" },
-      ],
+      plan: [{ step: "Read the adapter", status: "inProgress" }],
     }),
-    // An empty plan carries nothing to show and must not blank the last one.
-    notification("turn/plan/updated", { plan: [] }),
   ]);
 
-  expect(events).toEqual([
-    {
-      kind: "plan",
-      entries: [
-        { text: "Read the adapter", status: "completed" },
-        { text: "Map the notifications", status: "in_progress" },
-        { text: "Add tests", status: "pending" },
-      ],
-    },
-  ]);
+  expect(events).toEqual([]);
 });
 
 test("Codex compaction shows one marker whether the item, the legacy notification or both arrive", () => {
