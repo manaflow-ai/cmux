@@ -457,6 +457,16 @@ struct CreateArgs {
     /// Allow public outbound traffic; requires vm:network
     #[arg(long)]
     public_egress: bool,
+    /// Lock the VM's outbound traffic to an allowlist: a preset (npm, pypi, rust, github,
+    /// anthropic, openai, openrouter, opencode) or an exact HTTPS host name; repeatable.
+    /// `--egress-allow npm` is registry-only: the VM reaches registry.npmjs.org and the names
+    /// every cmux VM needs (its CLI downloads, GitHub releases), and nothing else, not DNS
+    #[arg(
+        long = "egress-allow",
+        value_name = "PRESET|HOST",
+        conflicts_with = "public_egress"
+    )]
+    egress_allow: Vec<String>,
     /// Seconds without network activity before the VM pauses; -1 never pauses
     #[arg(long, value_name = "SECONDS", allow_negative_numbers = true)]
     idle_timeout: Option<i64>,
@@ -475,6 +485,39 @@ struct CreateArgs {
     /// Reuse this key when retrying, so the VM is created only once [default: a new random key]
     #[arg(long, value_name = "KEY")]
     idempotency_key: Option<String>,
+}
+
+/// The preset ids the VM API expands (workers/cmux-vm/src/egress-allowlist.ts EGRESS_PRESETS).
+const EGRESS_PRESETS: [&str; 8] = [
+    "anthropic",
+    "openai",
+    "openrouter",
+    "opencode",
+    "github",
+    "npm",
+    "pypi",
+    "rust",
+];
+
+/// `create`'s `initialNetwork`: public egress, an allowlist (`--egress-allow`, each word a
+/// preset id or an exact host name), or none (the API's default).
+fn initial_network(public_egress: bool, egress_allow: &[String]) -> Option<Value> {
+    if public_egress {
+        return Some(json!({ "publicEgress": true }));
+    }
+    if egress_allow.is_empty() {
+        return None;
+    }
+    let (presets, domains): (Vec<&str>, Vec<&str>) = egress_allow
+        .iter()
+        .flat_map(|word| word.split(','))
+        .map(str::trim)
+        .filter(|word| !word.is_empty())
+        .partition(|word| EGRESS_PRESETS.contains(word));
+    Some(json!({
+        "publicEgress": false,
+        "egress": { "mode": "allowlist", "presets": presets, "domains": domains },
+    }))
 }
 
 /// `KEY=VALUE` of `create --label`, both sides non-empty.
@@ -613,6 +656,76 @@ fn not_found(command: &Command) -> Option<(String, &'static str)> {
     }
 }
 
+/// The VM a verb acts on, which may be given by its name. `resize` and
+/// `retire` take only a public `vm_…` id and refuse anything else before any
+/// request, so they stay out.
+fn vm_target(command: &mut Command) -> Option<&mut String> {
+    match command {
+        Command::Get(a)
+        | Command::Start(a)
+        | Command::Stop(a)
+        | Command::Pause(a)
+        | Command::Resume(a) => Some(&mut a.vm_id),
+        Command::Delete(a) => Some(&mut a.vm_id),
+        Command::Exec(a) => Some(&mut a.vm_id),
+        Command::Fork(a) => Some(&mut a.vm_id),
+        Command::Identity(a) => Some(&mut a.vm_id),
+        _ => None,
+    }
+}
+
+/// Pages of the team's VMs read to find one by name, at most.
+const NAME_LOOKUP_PAGES: usize = 20;
+
+/// The id of the one VM whose display name is `name`, for a verb given a name
+/// instead of a `vm_…` id (the app's `cmux vm` resolves names itself; without
+/// the app this binary did not, so `cmux vm pause my-lane` was a 404).
+async fn vm_id_named(client: &Client, name: &str) -> Result<String, CliError> {
+    let mut named = Vec::new();
+    let mut cursor: Option<types::VmsListVmsCursor> = None;
+    for _ in 0..NAME_LOOKUP_PAGES {
+        let body =
+            fetch_body(client.vms_list_vms(None, cursor.as_ref(), None, Some("100"), None, None))
+                .await?;
+        let page: types::VmList = serde_json::from_slice(&body)
+            .map_err(|e| CliError::unexpected(format!("could not read the VM list: {e}")))?;
+        named.extend(
+            page.items
+                .iter()
+                .map(|vm| (vm.id.as_str().to_owned(), vm.display_name.clone())),
+        );
+        match page.next_cursor {
+            Some(next) => {
+                cursor = Some(next.parse().map_err(|e| {
+                    CliError::unexpected(format!("the VM list's next cursor is invalid: {e}"))
+                })?);
+            }
+            None => return pick_named(name, &named),
+        }
+    }
+    pick_named(name, &named)
+}
+
+/// The one id named `name` among `(id, display name)` pairs.
+fn pick_named(name: &str, vms: &[(String, Option<String>)]) -> Result<String, CliError> {
+    let ids: Vec<&str> = vms
+        .iter()
+        .filter(|(_, display)| display.as_deref() == Some(name))
+        .map(|(id, _)| id.as_str())
+        .collect();
+    match ids.as_slice() {
+        [id] => Ok((*id).to_owned()),
+        [] => Err(CliError::usage(format!(
+            "no VM named {name:?}: give its vm_… id, or see `cmux vm list`"
+        ))),
+        many => Err(CliError::usage(format!(
+            "{} VMs are named {name:?} ({}): give the vm_… id",
+            many.len(),
+            many.join(", ")
+        ))),
+    }
+}
+
 /// Whether `--json` appears before any `--`, so a parse failure can still be
 /// reported as JSON.
 fn json_requested(args: &[OsString]) -> bool {
@@ -711,6 +824,11 @@ async fn execute(
     let mut command = cli.command;
     if let Command::Exec(args) = &mut command {
         args.env_values = exec_env(&args.env_names, env)?;
+    }
+    if let Some(target) = vm_target(&mut command)
+        && !target.starts_with("vm_")
+    {
+        *target = vm_id_named(&client, target).await?;
     }
     match command {
         Command::Run(args) => run::run(&client, args, stdout, stderr).await,
@@ -849,7 +967,7 @@ async fn dispatch(
                 "snapshotId": args.snapshot,
                 "idleTimeoutSeconds": args.idle_timeout,
                 "image": image,
-                "initialNetwork": args.public_egress.then(|| json!({ "publicEgress": true })),
+                "initialNetwork": initial_network(args.public_egress, &args.egress_allow),
                 "resources": requested_resources(args.vcpus, args.memory_mib, args.disk_mib),
                 "labels": (!args.labels.is_empty())
                     .then(|| {
@@ -864,7 +982,7 @@ async fn dispatch(
             let vm = fetch_body(client.vms_create_vm(Some(&key), None, &body))
                 .await
                 .map_err(|e| e.with_idempotency_hint(&key_text))?;
-            if args.image.is_some() || args.public_egress {
+            if args.image.is_some() || args.public_egress || !args.egress_allow.is_empty() {
                 let response: Option<Value> = serde_json::from_slice(&vm).ok();
                 let confirmed = response.as_ref().is_some_and(|value| {
                     let image_confirmed = args.image.as_deref().is_none_or(|expected| {
@@ -877,7 +995,12 @@ async fn dispatch(
                             .pointer("/initialNetwork/publicEgress")
                             .and_then(Value::as_bool)
                             == Some(true);
-                    image_confirmed && network_confirmed
+                    let egress_confirmed = args.egress_allow.is_empty()
+                        || value
+                            .pointer("/initialNetwork/allowedDomains")
+                            .and_then(Value::as_array)
+                            .is_some_and(|names| !names.is_empty());
+                    image_confirmed && network_confirmed && egress_confirmed
                 });
                 if !confirmed {
                     let public_id = serde_json::from_slice::<types::Vm>(&vm)

@@ -12,8 +12,14 @@ again: 2026-11-20..21, 5.2k of their 7.5k machine-minutes were on heads the tip 
 Prints one word on stdout and exits 0:
   pass   the record for exactly this sha and repo, recipe 2, release-onone, passed
   fail   that record failed (a compile verdict, not a fault)
-  none   no usable verdict: no record within --no-record seconds, the service down, a record that
-         does not match, unavailable, or the --wait deadline passed. The caller compiles as before.
+  none   no usable verdict: no record within --no-record seconds, a record that does not match,
+         unavailable, or the --wait deadline passed. The caller compiles as before.
+  down   the build controller, which serves the results, was reached and did not answer (the CDN's 524,
+         or this read's own timeout) for DOWN_AFTER seconds, counted from the start of the first read that
+         failed. A compile submits to that same process, so the caller gives no verdict at once instead of
+         submitting; a caller that does not know the word compiles as before. A service that cannot be
+         reached at all (no connection, the tunnel's 502 or 530) is still "none" after DOWN_AFTER: the
+         controller may answer its own address.
   superseded  a feat-cmux-next push tip (no --pr) the controller will not check because a newer push
          tip is checked instead (its check covers this push's commits, and a red there names them).
          The caller confirms the branch head moved before it skips; a caller that does not know the
@@ -21,9 +27,13 @@ Prints one word on stdout and exits 0:
 With --phase app-debug it reads the pull request app compile's own check instead (the build fleet's Debug
 `--app` compile of a same-repository pull request head, configuration "debug"): the controller submits it
 when that job is queued or when this read names the pull request, and it never stands for the land Release.
+With --phase test-compile --packages A,B it reads the pull request's test-target compile of those packages
+(`swift build --build-tests`, configuration "test-compile"); the read submits it. With --phase rd-host-macos
+it reads cmux-rd-host's macOS fmt, clippy and tests (configuration "rd-host-macos"); the read submits it.
 
 Reasons go to stderr. Usage:
-  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug] [--wait 1500] [--no-record 600]
+  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug|rd-host-macos|scheme-debug|test-compile
+                          [--packages A,B]] [--job-out F] [--wait 1500] [--no-record 600]
 """
 import argparse
 import json
@@ -34,11 +44,24 @@ import urllib.parse
 import urllib.request
 
 RESULTS = "https://gh-events.cmux.com/compile-checks/v1"
-HOLD_MAX = 90  # under the gateway's ~100 s request limit
 RECIPE = 2
+# 2026-11-23 09:30-12:10Z the controller answered a plain read of this service in 78 s and the CDN cut reads at
+# 100 s (HTTP 524): the old two-minute bound, counted from the end of a failed read, took 6.4-7.5 min to say "none",
+# and each compile then submitted to the same controller ended with no verdict 5-8.5 min later (48 of 52 app compile
+# jobs from 10:00 to 10:50Z).
+DOWN_AFTER = 60
+# The CDN in front of the service ends a request with no answer at 100 s (524), and the service holds a read of a
+# queued or running record for up to its `wait`: a hold of 300 s ends such a read in a 524 at 100 s even with the
+# controller healthy. A 60 s hold answers within the CDN's bound, so a 524 means the controller did not answer.
+HOLD_MAX = 60
 CONFIGURATION = "release-onone"
 # The phases a read can name, and the configuration each one's record carries.
-PHASES = {"": CONFIGURATION, "app-debug": "debug"}
+# scheme-debug: the whole Debug cmux DEV app (the cmux app scheme's product) built by the fleet's app recipe for a
+# feat-cmux-next push or same-repository pull request head; its job_id names the zipped app (`cmux-ci artifact`).
+# rd-host-macos: cmux-rd-host's macOS fmt, clippy and tests (cmux-tui-rust-check.sh rd-host on a fleet Mac) for a
+# feat-cmux-next push or same-repository pull request head; the read submits it (fleet-rd-host-macos.yml).
+PHASES = {"": CONFIGURATION, "app-debug": "debug", "test-compile": "test-compile", "scheme-debug": "scheme-debug",
+          "rd-host-macos": "rd-host-macos"}
 
 
 def judge(record, sha, repo, configuration=CONFIGURATION):
@@ -77,8 +100,12 @@ def retry_after(headers):
     return min(max(v, 1), RETRY_AFTER_MAX) if v == v else None
 
 
+NO_ANSWER = -1  # fetch's code for a read that timed out: something took it and did not answer
+
+
 def fetch(url, timeout):
-    """(HTTP code, parsed body or None, Retry-After seconds or None); code 0 when nothing answered."""
+    """(HTTP code, parsed body or None, Retry-After seconds or None); code 0 when nothing could be reached,
+    NO_ANSWER when the read timed out."""
     try:
         # The CDN refuses urllib's default user agent with 403 (handbook cdn-refuses-the-default-client).
         req = urllib.request.Request(url, headers={"User-Agent": "cmux-ci-fleet-compile-result/1"})
@@ -88,7 +115,11 @@ def fetch(url, timeout):
             after = retry_after(r.headers)
     except urllib.error.HTTPError as e:
         return e.code, None, retry_after(e.headers)
-    except (urllib.error.URLError, OSError, ValueError):
+    except TimeoutError:
+        return NO_ANSWER, None, None
+    except urllib.error.URLError as e:
+        return (NO_ANSWER if isinstance(e.reason, TimeoutError) else 0), None, None
+    except (OSError, ValueError):
         return 0, None, None
     try:
         return code, json.loads(body), after
@@ -97,8 +128,8 @@ def fetch(url, timeout):
 
 
 def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetch, now=time.monotonic,
-         sleep=time.sleep, gap=30, phase=""):
-    """Wait up to `wait` s for this head's verdict; (word, reason)."""
+         sleep=time.sleep, gap=30, down_after=DOWN_AFTER, phase="", packages="", seen=None):
+    """Wait up to `wait` s for this head's verdict; (word, reason). `seen`, a dict, gets the last record's job_id."""
     start = now()
     deadline = start + wait
     q = {"repo": repo}
@@ -106,8 +137,11 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
         q["pr"] = pr
     if phase:
         q["phase"] = phase
+    if packages:
+        q["packages"] = packages
     base = f"{results}/{sha}?{urllib.parse.urlencode(q)}"
     down_since = None
+    down_unanswered = None  # every failed read since down_since was the controller not answering
     busy_since = None
     seen_record = False
     last = "no read"
@@ -116,40 +150,46 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
         left = deadline - now()
         if left <= 1:
             return "none", f"no verdict in {wait} s ({last})"
-        # The results service sits behind a gateway that ends a request held about 100 s (HTTP 524),
-        # so a 300 s hold read a healthy service as down and spent its two-minute grace on it.
         hold = int(min(max(left - 30, 1), HOLD_MAX))
+        asked = now()
         got = fetch(f"{base}&wait={hold}", hold + 15)
         code, body = got[0], got[1]
         after = got[2] if len(got) > 2 else None
         wait_next = gap
         if code == 200:
-            down_since = busy_since = None
+            down_since = down_unanswered = busy_since = None
             seen_record = True
             word, last = judge(body, sha, repo, PHASES[phase])
+            if seen is not None and isinstance(body, dict) and body.get("job_id"):
+                seen["job_id"] = str(body["job_id"])
             if word != "pending":
                 return word, last
             if after:
                 wait_next = after  # answered at once because the long-poll slots were full
         elif code == 404:
-            down_since = busy_since = None
+            down_since = down_unanswered = busy_since = None
             last = "no record yet"
             if not seen_record and now() - start >= no_record:
                 return "none", f"the tip check has no record of this head after {no_record} s"
         elif code in BUSY:
             # Busy is an answer: the service is up and asks us to come back (hq#24624: job 138782761400 read a 429
             # as "down" and failed closed). Back off as it says, else 30, 60, 120 s.
-            down_since = None
+            down_since = down_unanswered = None
             busy_since = busy_since if busy_since is not None else now()
             last = f"HTTP {code}, busy"
             if now() - busy_since >= BUSY_MAX:
                 return "none", f"results service busy for {BUSY_MAX} s ({last})"
             wait_next = after or min(gap * 2 ** min(int((now() - busy_since) // gap), 2), 120)
         else:
-            last = f"HTTP {code}" if code else "no answer"
-            down_since = down_since if down_since is not None else now()
-            # The results service is a cache, not a dependency: down for two minutes, compile here.
-            if now() - down_since >= 120:
+            unanswered = code in (524, NO_ANSWER)
+            last = "no answer in time" if code == NO_ANSWER else f"HTTP {code}" if code else "not reached"
+            # Counted from when the failed read was sent: one read the CDN holds 100 s before its 524 is
+            # already past the bound.
+            down_since = down_since if down_since is not None else asked
+            down_unanswered = unanswered and (down_unanswered is not False)
+            if now() - down_since >= down_after:
+                if down_unanswered:
+                    return "down", f"the controller did not answer ({last}) for {now() - down_since:.0f} s"
                 return "none", f"results service down ({last})"
         sleep(min(wait_next, max(deadline - now(), 0)))
 
@@ -162,12 +202,24 @@ def main(argv=None):
     p.add_argument("--wait", type=int, default=1500)
     p.add_argument("--no-record", type=int, default=600)
     p.add_argument("--phase", default="", choices=sorted(PHASES))
+    p.add_argument("--packages", default="", help="comma or space separated; phase test-compile only")
+    p.add_argument("--job-out", default="", help="write the matching record's fleet job id to this file")
     a = p.parse_args(argv)
     if len(a.sha) != 40 or any(c not in "0123456789abcdef" for c in a.sha):
         print(f"fleet compile result: bad sha {a.sha!r}", file=sys.stderr)
         print("none")
         return 0
-    word, why = read(a.sha, a.repo, a.pr if a.pr.isdigit() else "", a.wait, a.no_record, phase=a.phase)
+    packages = ",".join(sorted({x for x in a.packages.replace(",", " ").split() if x}))
+    if a.phase == "test-compile" and not packages:
+        print("fleet compile result: --phase test-compile needs --packages", file=sys.stderr)
+        print("none")
+        return 0
+    seen = {}
+    word, why = read(a.sha, a.repo, a.pr if a.pr.isdigit() else "", a.wait, a.no_record, phase=a.phase,
+                     packages=packages if a.phase == "test-compile" else "", seen=seen)
+    if a.job_out:
+        with open(a.job_out, "w") as f:
+            f.write(seen.get("job_id", "") + "\n")
     print(f"fleet compile result for {a.sha}: {word} ({why})", file=sys.stderr)
     print(word)
     return 0

@@ -174,6 +174,48 @@ import Testing
         }
     }
 
+    /// A Pinned group can list in a window because its workspace is open there, while each link, tab and app member
+    /// keeps its stored space. An unstamped member follows the group and a deleted space falls back to Default. No profile
+    /// capability leaves the list unfiltered because the window has no active space.
+    @Test func aPinnedGroupFiltersMixedRoomMembers() {
+        let records = SidebarDocRecords(sections: [
+            Self.pinned: SidebarDocSection(id: Self.pinned, kind: .pinned, region: .top),
+            Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
+        ], items: [
+            "itm_g": Self.group("itm_g", Self.pinned, room: Self.work),
+            "itm_ws": SidebarDocItem(id: "itm_ws", section: Self.pinned, parent: "itm_g", body: .workspace(Self.ref("ws-1"))),
+            "itm_link": SidebarDocItem(id: "itm_link", section: Self.pinned, parent: "itm_g", body: .url("https://work.example", title: nil), room: Self.work),
+            "itm_tab": SidebarDocItem(id: "itm_tab", section: Self.pinned, parent: "itm_g", body: .tab("tab-home"), room: Self.home),
+            "itm_app": SidebarDocItem(id: "itm_app", section: Self.pinned, parent: "itm_g", body: .app("acme.weather"), room: "deleted-space"),
+            "itm_legacy": SidebarDocItem(id: "itm_legacy", section: Self.pinned, parent: "itm_g", body: .url("https://legacy.example", title: nil)),
+        ])
+        let rows = [
+            SidebarDocRow(key: "itm_g", kind: "group", section: Self.pinned, item: "itm_g"),
+            SidebarDocRow(key: "itm_ws", kind: "item", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_ws", ref: Self.ref("ws-1")),
+            SidebarDocRow(key: "itm_link", kind: "url", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_link"),
+            SidebarDocRow(key: "itm_tab", kind: "tab", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_tab"),
+            SidebarDocRow(key: "itm_app", kind: "app", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_app"),
+            SidebarDocRow(key: "itm_legacy", kind: "url", section: Self.pinned, parent: "itm_g", depth: 1, item: "itm_legacy"),
+        ]
+        let projection = SidebarDocProjection(rows: rows, records: records, revision: 1)
+        let window = [SidebarSection(kind: .machine(Self.thisMac), nodes: [
+            .group(SidebarGroup(id: GroupID("itm_g"), name: "itm_g",
+                                workspaces: [SidebarWorkspace(id: WorkspaceID("ws-1"), title: "ws-1")])),
+        ])]
+        func members(room: String?, spaces: Set<String>?) -> Set<String> {
+            var drag = Self.drag(room: room)
+            drag.spaces = spaces
+            let arranged = projection.arrange(window, drag: drag)
+            return Set(arranged.flatMap(\.nodes).flatMap { node in
+                guard case let .group(group) = node else { return [String]() }
+                return group.items.map(\.item.id)
+            })
+        }
+        #expect(members(room: Self.work, spaces: Self.spaces) == ["itm_link", "itm_legacy"], "Work members leaked: \(members(room: Self.work, spaces: Self.spaces))")
+        #expect(members(room: Self.home, spaces: Self.spaces) == ["itm_app", "itm_legacy", "itm_tab"], "Default members missing: \(members(room: Self.home, spaces: Self.spaces))")
+        #expect(members(room: nil, spaces: nil) == ["itm_app", "itm_legacy", "itm_link", "itm_tab"], "A daemon without profiles filtered members: \(members(room: nil, spaces: nil))")
+    }
+
     /// #31378 item 1: Work's Pinned group `itm_pw` lists in Default too (its workspace `ws-1` is live in the Default
     /// window, rule 1's fallback). Its link `itm_uw` and its subgroup's link `itm_nw` store Work (moved into Pinned
     /// there): they draw only in Work, not in Default with the group. A link that stores no space (`itm_un`) or another
@@ -362,6 +404,18 @@ import Testing
      ]}
     """.utf8)
 
+    /// A group that is already in Pinned remains a group pin operation, without an item room stamp.
+    static let pinnedGroupDocument = Data("""
+    {"revision": "3",
+     "sections": [
+       {"id": "sec_pinned", "kind": {"type": "pinned"}, "region": "top", "order": "a"},
+       {"id": "sec_m_s-local", "kind": {"type": "machine", "session_id": "s-local"}, "order": "b"}
+     ],
+     "items": [
+       {"id": "itm_g", "section": "sec_pinned", "order": "a", "body": {"type": "group", "name": "G", "profile": "prof_work"}}
+     ]}
+    """.utf8)
+
     /// Move Group to Space stores the target on the document group, so it stays there once no workspace of it lists.
     /// A group already in the target sends nothing.
     @Test func movingAGroupToASpaceStoresItsSpace() async throws {
@@ -444,6 +498,7 @@ import Testing
         let document: Data
         private(set) var applied: [[[String: Any]]] = []
         private(set) var moved: [[String]] = []
+        private(set) var pinned: [[String]] = []
         init(document: Data) { self.document = document }
         var isAvailable: Bool { true }
         func get() async throws -> Data { document }
@@ -451,7 +506,10 @@ import Testing
             moved.append(items)
             return try await unanswered()
         }
-        func pin(_ items: [String], key: String) async throws -> SidebarDocReply { try await unanswered() }
+        func pin(_ items: [String], key: String) async throws -> SidebarDocReply {
+            pinned.append(items)
+            return try await unanswered()
+        }
         func unpin(_ items: [String], key: String) async throws -> SidebarDocReply { try await unanswered() }
         func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply { try await unanswered() }
         func apply(ops: Data, key: String) async throws -> SidebarDocReply {
@@ -511,6 +569,47 @@ import Testing
         let updated = sent.contains { $0["op"] as? String == "item.update" && $0["id"] as? String == "itm_l" }
         #expect(sent.contains { $0["op"] as? String == "move" } && updated,
                 "the move and its update go in one change: applied \(remote.applied), moved \(remote.moved)")
+    }
+
+    /// Pinning a mixed selection stamps only the top-level item entering Pinned. A member pinned inside
+    /// its group and an item already in Pinned both retain their owner.
+    @Test func aPinActionIntoPinnedTakesTheActingSpace() async throws {
+        let document = Data("""
+        {"revision":"1","sections":[
+          {"id":"sec_custom","kind":{"type":"custom"},"order":"a","title":"Links"},
+          {"id":"sec_pinned","kind":{"type":"pinned"},"order":"b","region":"top"}
+        ],"items":[
+          {"id":"itm_g","section":"sec_custom","order":"a","body":{"type":"group","name":"G"}},
+          {"id":"itm_l","section":"sec_custom","order":"b","body":{"type":"url","url":"https://new.example"}},
+          {"id":"itm_member","section":"sec_custom","parent":"itm_g","order":"a","body":{"type":"url","url":"https://member.example"}},
+          {"id":"itm_prev","section":"sec_pinned","order":"a","body":{"type":"url","url":"https://pinned.example"}}
+        ]}
+        """.utf8)
+        let remote = RecordingRemote(document: document)
+        let store = try await Self.loadedStore(remote)
+        store.newItemRoom = { Self.work }
+        let ids = ["itm_l", "itm_member", "itm_prev"]
+        store.pin(ids, title: "Pin")
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.applied.isEmpty || !remote.pinned.isEmpty }
+        let ops = try #require(remote.applied.first)
+        #expect(ops.first?["op"] as? String == "pin")
+        #expect(ops.first?["items"] as? [String] == ids)
+        #expect(ops.count == 2 && Self.roomUpdate(ops, item: "itm_l") == Self.work)
+        #expect(store.shownRecords.items["itm_member"]?.parent == "itm_g")
+    }
+
+    /// Groups do not carry `extra.room`: pinning one outside Pinned and pinning one already in Pinned both use the
+    /// reducer's pin operation without an item room stamp.
+    @Test func pinningGroupsDoesNotStampAnItemRoom() async throws {
+        for document in [Self.groupDocument, Self.pinnedGroupDocument] {
+            let remote = RecordingRemote(document: document)
+            let store = try await Self.loadedStore(remote)
+            store.newItemRoom = { Self.work }
+            store.pin(["itm_g"], title: "Pin")
+            await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.pinned.isEmpty || !remote.applied.isEmpty }
+            #expect(remote.pinned == [["itm_g"]], "the group did not use pin: \(remote.pinned), applied \(remote.applied)")
+            #expect(remote.applied.isEmpty, "pinning a group added a room stamp: \(remote.applied)")
+        }
     }
 
     /// The review of #27308: a link moved into Pinned from the Work window stays in Work's Pinned before the daemon

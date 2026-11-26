@@ -19,6 +19,7 @@ import { withTurnChecks } from "./turn-checks.ts"
 import { wakeCall } from "./wake.ts"
 import { autoCall } from "./jobs.ts"
 import { memoryCall } from "./memory-tools.ts"
+import { hubCall } from "./hub.ts"
 import { BOOT_MS, CcError, RUN_MS, createVm, execRoot, mintTailnetKey, removeVm, vmName, vmNetwork } from "./vm.ts"
 
 /**
@@ -83,6 +84,8 @@ and how to follow it; check on it in a later turn.
 You run as Claude Code in a fresh Linux machine that is deleted after this turn: nothing you write there
 is kept (keep work in a sandbox VM or push it). The view's zoom and date tools are a command here:
 \`chief-memory zoom ID N\` opens line ID+N of the view, \`chief-memory date ID\` gives a message's date.
+Integrations: \`chief-hub search|describe|call|status\` uses the accounts your owner linked to cmux (Stripe: charges,
+refunds). Their rules decide; a held call answers approval_required: tell them, and read it later with \`chief-hub status\`.
 Your last message is posted as your reply, so it must be the reply itself. Say in it what you learned that will matter later: the view is your only memory.
 
 Machine: ~/work/cmux (feat-cmux-next) and ~/work/cmuxterm-hq (main) are cached clones; \`git fetch\` first.
@@ -454,6 +457,8 @@ export async function ccNotes(b: ChiefBrainDO, token: string, body: { run?: unkn
   if (typeof action === "string" && action.startsWith("memory_")) return memoryCall(b.memory, body.vm)
   // The Chief's `chief-github` (github.ts): its own GitHub login, kept per Chief.
   if (typeof action === "string" && action.startsWith("github_")) return githubOf(b.doEnv, b.config().agent!).ccGithub(b.config().agent!, body.vm, true)
+  // The Chief's `chief-hub` (hub.ts): its owner's integrations hub, as this Chief (agent and owner from this brain).
+  if (typeof action === "string" && action.startsWith("hub_")) return hubCall(b.doEnv, b.config().owner, b.config().agent, body.vm)
   // The Chief's `chief-vm` (chief-turn-runner): its own sandbox VMs (sandbox.ts), kept per Chief in its `<agent>/sandboxes`
   // object (never per conversation), so its cap, identity and list are one; sandboxes this brain kept before move there.
   if (body.vm !== undefined) {

@@ -595,6 +595,49 @@ class PullRequestTiers(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(any(fnmatch.fnmatch(path, pattern.replace("**", "*")) for pattern in patterns), path)
 
+    def test_macos_placement_starts_only_where_a_mac_job_of_a_pull_request_can(self):
+        """A feat-cmux-next PR's placement follows its consumers' routes, not the broader `macos` (note-369).
+
+        Every job that needs macos-placement is either gated by a route output the placement clause names, or
+        never runs on an unlabeled feat-cmux-next PR's first attempt. A new consumer fails here until the clause
+        (and this map) names how it runs."""
+        import yaml
+        jobs = yaml.load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"),
+                         Loader=yaml.BaseLoader)["jobs"]
+        clause = ("needs.path_route.outputs.macos == 'true' && (github.event_name != 'pull_request'"
+                  " || github.event.pull_request.base.ref != 'feat-cmux-next'"
+                  " || contains(github.event.pull_request.labels.*.name, 'full-ci')"
+                  " || contains(github.event.pull_request.labels.*.name, 'dev-build')"
+                  " || needs.path_route.outputs.mac_release == 'true'"
+                  " || needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready'"
+                  " || needs.path_route.outputs.generated_host == 'generated-files')")
+        self.assertIn(clause, jobs["macos-placement"]["if"])
+        gate = {
+            # Push tier only (#54763): no pull request starts them.
+            "fast-tier": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+            "fast-tier-fleet": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+            # The Mac fallback of the push-only fleet fast tier: it runs only after that job reports unavailable.
+            "fast-tier-fleet-mac": "needs.fast-tier-fleet.outputs.verdict == 'unavailable'",
+            "swift-canary": "github.event_name != 'pull_request'",
+            "swift-canary-fleet": "github.event_name != 'pull_request'",
+            "daemon-test": "needs.path_route.outputs.tree_state == 'ready'",
+            "generated-files": "needs.path_route.outputs.generated_host == 'generated-files'",
+            # The PR's Release compile fallback: the clause's mac_release.
+            "release-compile": "needs.path_route.outputs.mac_release == 'true'",
+            # Never on a feat-cmux-next PR (not even full-ci): other bases only.
+            "swift-test": "github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')",
+            # Dev-build only on a feat-cmux-next PR: the label branch of the clause.
+            "cmux-scheme-compile": "contains(needs.path_route.outputs.labels, ',dev-build,')",
+            # Push only.
+            "release-compile-fast": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+            "fast-tier-rerun-placement": "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'",
+        }
+        consumers = sorted(name for name, job in jobs.items() if "macos-placement" in job.get("needs", []))
+        self.assertEqual(consumers, sorted(gate), "a new macos-placement consumer: name its route in the clause")
+        for name in consumers:
+            with self.subTest(job=name):
+                self.assertIn(gate[name], jobs[name]["if"])
+
     def test_dev_build_label_keeps_the_scheme_compile(self):
         """The dogfood artifact (#17500) is the scheme compile's app."""
         result = tiers(PR_17470, labels=frozenset({"dev-build"}))
@@ -824,13 +867,14 @@ class EveryTier(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
         self.assertIn("vendored_pin: ${{ steps.route.outputs.vendored_pin }}", workflow)
         swift_test = workflow[workflow.index("\n  swift-test:\n"):workflow.index("\n  daemon-test:\n")]
-        # Swift runs on a PR into feat-cmux-next labeled full-ci (same-repository or fork; since 2026-11-05,
-        # when every unlabeled PR run was cancelled or skipped and none passed), on a PR into another base
-        # (#49046) and on dispatches; a feat-cmux-next push skips it (push CI is the app build).
+        # Swift runs on a PR into another base (#49046) and on dispatches, never on a PR into feat-cmux-next
+        # (2026-11-26, full-ci or not: 0 real catches in 518 PR runs over 30 days, cmuxterm-hq
+        # docs/findings/2026-11-25-ci-value.md; the tip suite dispatch runs it after merge); a feat-cmux-next
+        # push skips it (push CI is the app build).
         condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')"
-                      " || contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
+        self.assertIn("(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))",
+                      condition)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertIn("    continue-on-error: false\n", swift_test)
         self.assertIn("    name: cmux-next swift test\n", swift_test)
@@ -938,6 +982,12 @@ class UnreadDocs(unittest.TestCase):
         self.assertEqual(mac_tiers(result), [])
         self.assertEqual(result["macos"], "false")
         self.assertEqual(result["swift_targets"], "")
+
+    def test_a_sidebar_owner_entry_file_alone_runs_no_mac_tier(self):
+        """New entries are one file each under plans/cmux-next/sidebar-owner/ (scripts/ci/entry_logs.py)."""
+        result = tiers(["plans/cmux-next/sidebar-owner/2026-11-25-title-inset.md"])
+        self.assertEqual(mac_tiers(result), [])
+        self.assertEqual(result["macos"], "false")
 
     def test_a_note_beside_swift_keeps_the_swift_route(self):
         result = tiers(["plans/cmux-next/sidebar-owner.md", *PR_17470])
@@ -1849,6 +1899,62 @@ class RouteLabels(unittest.TestCase):
         self.assertEqual(labels, "dev-build")
         self.assertEqual(len(gh_calls), 1)
         self.assertIn("issues/7/labels", gh_calls[0])
+
+
+class DevDailySuperseded(unittest.TestCase):
+    """A dev_daily dispatch whose feat-cmux-next tip moved before it started ends green with every tier off.
+
+    Run 45753471212 (2026-11-26) exited 1 at "Classify pull request paths" with "dev_daily asked for X but
+    feat-cmux-next moved to Y", so the feat-cmux-next run read as a base red and paged the incident desk though
+    nothing was broken. The dispatcher counts a run only at the SHA it asked for, so a green one stands in for no tip.
+    """
+
+    TIERS = ("native", "swift_canary", "cmuxnext_swift", "mac_release", "macos", "scheme", "generated", "swift",
+             "daemon", "full", "fast_tier")
+
+    def classify(self, dev_daily_sha: str, github_sha: str, same_tree_sha: str = ""):
+        import os
+        import subprocess
+        import tempfile
+        import yaml
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
+        step = next(s for s in workflow["jobs"]["path_route"]["steps"] if s.get("id") == "route")
+        with tempfile.TemporaryDirectory() as tmp:
+            out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+            env = {**{name: "" for name in step.get("env", {})}, **os.environ, "EVENT_NAME": "workflow_dispatch",
+                   "DEV_DAILY": "true", "DEV_DAILY_SHA": dev_daily_sha, "GITHUB_SHA": github_sha,
+                   "SAME_TREE_SHA": same_tree_sha, "GITHUB_REF": "refs/heads/feat-cmux-next",
+                   "TIP_SWIFT_SUITE": "false", "TIP_DAEMON_SUITE": "false", "BASE_TIER": "false",
+                   "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(out), "GITHUB_STEP_SUMMARY": str(summary)}
+            result = subprocess.run(["bash", "-e", str(ROOT / "scripts/ci/cmux-next-steps/classify-pull-request-paths.sh")],
+                                    cwd=ROOT, env=env, capture_output=True, text=True)
+            outputs = {}
+            for line in (out.read_text().splitlines() if out.exists() else []):
+                key, _, value = line.partition("=")
+                outputs[key] = value  # a later line of an output wins, as on a runner
+            return result, outputs, summary.read_text() if summary.exists() else ""
+
+    def test_a_moved_tip_ends_green_with_every_tier_off(self):
+        result, outputs, summary = self.classify("a" * 40, "b" * 40)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::notice title=cmux-next dev_daily superseded::", result.stdout)
+        self.assertNotIn("error:", result.stderr)
+        self.assertEqual(outputs.get("superseded"), "true")
+        for tier in self.TIERS:
+            self.assertEqual(outputs.get(tier), "false", tier)
+        self.assertIn("superseded dev-daily dispatch", summary)
+
+    def test_the_asked_tip_still_builds_the_scheme(self):
+        result, outputs, _ = self.classify("a" * 40, "a" * 40)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("superseded", outputs)
+        self.assertEqual(outputs.get("scheme"), "true")
+        self.assertEqual(outputs.get("macos"), "true")
+
+    def test_a_same_tree_mismatch_still_fails(self):
+        result, _, _ = self.classify("a" * 40, "b" * 40, same_tree_sha="c" * 40)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("same-tree mode is", result.stderr)
 
 
 class FfiRepinRoute(unittest.TestCase):

@@ -607,25 +607,54 @@ async fn a_session_closed_twice_is_remembered_once() {
     assert!(r.closed.contains(S));
 }
 
-/// Past MAX_TRACKS sessions each reporting a turn, a new session is not followed.
+/// Every session reporting a turn is followed, past the old cap of 4096: only quiet sessions are
+/// forgotten to make room.
 #[tokio::test]
-async fn the_followed_sessions_are_bounded() {
+async fn every_session_reporting_a_turn_is_followed() {
     let (mut r, fake) = reporter();
-    for i in 0..MAX_TRACKS {
+    for i in 0..QUIET_TRACKS_KEPT + 10 {
         r.tracks.insert(
             format!("acp_{i}"),
             Track { now: Now::Reporting { turn: 1, last: None }, ..Track::default() },
         );
     }
-    r.step(S, began(1)).await;
-    assert_eq!(r.tracks.len(), MAX_TRACKS);
-    assert!(fake.0.lock().unwrap().sent.is_empty());
-    // A quiet session makes room.
-    r.tracks.get_mut("acp_0").unwrap().now = Now::Quiet;
     fake.answer([ok(1, "running")]);
     r.step(S, began(1)).await;
-    assert!(r.tracks.len() <= MAX_TRACKS);
+    assert_eq!(r.tracks.len(), QUIET_TRACKS_KEPT + 11);
     assert_eq!(fake.take(), [s(1, "running", None)]);
+    // Quiet sessions are forgotten to make room; reporting ones stay.
+    for i in 0..100 {
+        r.tracks.get_mut(&format!("acp_{i}")).unwrap().now = Now::Quiet;
+    }
+    fake.answer([ok(1, "running")]);
+    r.step("acp_new", began(1)).await;
+    assert!(r.tracks.contains_key(S) && r.tracks.contains_key("acp_new"));
+    assert!(r.tracks.len() < QUIET_TRACKS_KEPT + 11);
+    let sent = std::mem::take(&mut fake.0.lock().unwrap().sent);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(
+        (&sent[0]["session"], &sent[0]["turn"], &sent[0]["status"]),
+        (&json!("acp_new"), &json!(1), &json!("running"))
+    );
+}
+
+/// A turn's end waits to be sent again however many others wait (the old cap was 4096).
+#[tokio::test]
+async fn every_unsent_turn_end_waits_to_be_sent_again() {
+    let (mut r, _fake) = reporter();
+    let later = |turn| Later {
+        turn,
+        status: "done",
+        note: None,
+        tries: 0,
+        at: tokio::time::Instant::now(),
+    };
+    for i in 0..5000 {
+        r.send_later(&format!("acp_{i}"), later(1));
+    }
+    r.send_later(S, later(2));
+    assert_eq!(r.later.len(), 5001);
+    assert_eq!(r.later.get(S).map(|l| l.turn), Some(2));
 }
 
 /// After the queue dropped steps, no needs-you or running goes on a turn being reported (its

@@ -88,6 +88,39 @@ fn prompt(id: &str, prompt_id: &str, text: &str) -> Value {
     json!({"sessionId": id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}})
 }
 
+/// The hybrid driver moves between turns. A model rejecting the very first prompt
+/// leaves no live turn to cut and no reply to resume on the destination.
+#[tokio::test]
+async fn transfer_begin_after_a_failed_first_prompt_with_no_output() {
+    let (_hub, mut src) = setup(PermissionPolicy::ApproveAll).await;
+    let session =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = session["sessionId"].as_str().unwrap();
+    let error = src
+        .request(method::SESSION_PROMPT, prompt(id, "p-first", "fail: HTTP 403 Forbidden"))
+        .await
+        .unwrap_err();
+    assert!(error.contains("403"), "{error}");
+    let results = records(&mut src, id, "turn_result").await;
+    assert_eq!(results.len(), 1, "{results:?}");
+    assert_eq!(results[0]["status"], "failed", "{results:?}");
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert!(info["turn"].is_null(), "{info}");
+
+    let begin = src
+        .request("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .unwrap();
+    assert_eq!(begin["sessionId"], id, "{begin}");
+    assert!(records(&mut src, id, "auto_resume_scheduled").await.is_empty());
+    src.request(
+        "_acpmux/transfer_abort",
+        json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]}),
+    )
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn a_moved_chat_keeps_its_history_queue_and_draft_and_each_queued_prompt_runs_once_there() {
     let (_a, mut src) = setup(PermissionPolicy::ApproveAll).await;
@@ -875,6 +908,43 @@ async fn a_stopped_chat_whose_move_only_began_is_not_replaced_by_a_receive() {
     let back = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert_eq!(back["moving"], false, "given back: {back}");
     assert!(back["movedTo"].is_null(), "{back}");
+}
+
+/// A source daemon that restarts with a move nobody read keeps no chat frozen for the lease: no
+/// target can have the chat, so the move ends at start (RFD 0063, "Nothing lives only on the VM").
+#[tokio::test]
+async fn a_restarted_source_gives_back_a_move_that_was_never_read() {
+    let dir = std::env::temp_dir().join(format!("acpmux-unread-{}", uuid::Uuid::now_v7()));
+    let hub = local_hub(&dir);
+    let mut src = connect(&hub).await;
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-hi", "hi")).await.unwrap();
+    src.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
+    wait_status(&mut src, &id, "closed").await;
+    let begin = src.request("_acpmux/transfer_begin", json!({"sessionId": id})).await.unwrap();
+    hub.shutdown_all().await;
+    drop(src);
+    drop(hub);
+
+    // The default lease is 300 s: the abort below comes from the restart, not the lease.
+    let hub = local_hub(&dir);
+    let mut src = connect(&hub).await;
+    let started = std::time::Instant::now();
+    loop {
+        let aborted = records(&mut src, &id, "transfer_aborted").await;
+        if !aborted.is_empty() {
+            assert_eq!(aborted[0]["transferId"], begin["transferId"], "{aborted:?}");
+            break;
+        }
+        assert!(started.elapsed() < Duration::from_secs(20), "the unread move stayed frozen");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let back = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(back["moving"], false, "given back: {back}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// `git` in `dir`, which must succeed.

@@ -2,6 +2,7 @@ public import CmuxNextAgentPane
 public import CmuxNextCloud
 public import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDesign
 public import CmuxNextDaemonService
 public import CmuxNextMobile
 public import CmuxNextSettings
@@ -44,6 +45,7 @@ extension IPhoneHostService {
         // A failed runtime Cloud selection is inert: do not pair the phone host
         // with a development mobile API or reuse production pairing state.
         guard !auth.configuration.apiBaseURL.isFileURL else { return }
+        signInBackend = auth.configuration.backendLabel.map { SignInButton.backendLine(kind: $0.kind, title: $0.title, detail: $0.detail) }
         let bundled = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux-mobile-host", isDirectory: false)
         // Debug builds may point at another hostd or service; a release build never does.
         #if DEBUG
@@ -57,6 +59,7 @@ extension IPhoneHostService {
         let serviceOverride: URL? = nil
         let nameOverride: String? = nil
         #endif
+        let instanceLabel = BuildIdentity(bundle: .main).instanceLabel
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         // Each Worker accepts only its own sign-in project's tokens.
         guard let base = auth.configuration.runtimeSelection?.mobileOrigin ?? serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
@@ -121,7 +124,13 @@ extension IPhoneHostService {
             workspaces: { [weak daemon] in daemon?.store.workspaces ?? [] },
             agentTabHost: agentTabHost,
             newChatPicks: newChatPicks,
-            computerName: { if let nameOverride { return nameOverride } else { return await computerName() } },
+            // Each build is its own device on the phone: the Stable lane by the computer's name
+            // alone, every other build with its lane (`MacBook Pro (NIGHTLY)`), so two builds on one
+            // Mac read apart. The rig's override is used as given.
+            computerName: {
+                if let nameOverride { return nameOverride }
+                return MobileHostDeviceName(computer: await computerName(), label: instanceLabel).value
+            },
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
             surfaceHosts: surfaceHosts,

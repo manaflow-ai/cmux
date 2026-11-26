@@ -44,6 +44,13 @@ extension AgentPaneModel {
         error.map(transportFailure) ?? AgentPaneReply.success()
     }
 
+    /// `transport.path_invalid` for a folder that is gone: the page names it and offers Choose
+    /// Folder (startRefusal.ts), never the generic refusal.
+    static func folderMissing(_ path: String) -> [String: Any] {
+        AgentPaneReply.failure(code: AgentPaneTransportError.pathInvalid.rawValue, message: folderMissingMessage(path),
+                               details: ["reason": AcpmuxPathPolicy.missingReason, "path": path], retryable: nil, origin: "native")
+    }
+
     static func transportFailure(_ error: AgentPaneTransportError) -> [String: Any] {
         AgentPaneReply.failure(code: error.rawValue, message: transportFailedMessage, details: nil, retryable: nil, origin: "native")
     }

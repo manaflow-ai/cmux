@@ -785,6 +785,7 @@
     "setting.sessions.allowFullAccess": true,
     "setting.sessions.keepAwake": "pluggedIn",
     "setting.sessions.keepAwakeForCommands": false,
+    "setting.sessions.keepAwakeWhenLocked": false,
     "setting.sessions.promptSuggestions": true,
     "setting.sessions.resumeAgents": true,
     "setting.shortcuts.showModifierHoldHints": true,

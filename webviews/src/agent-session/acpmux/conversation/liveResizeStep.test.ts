@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize, type LiveResizeClock } from "./liveResizeStep";
+import {
+  continuesLiveResize,
+  LIVE_RESIZE_MS,
+  LIVE_RESUME_MS,
+  resumesLiveResize,
+  stepLiveResize,
+  widthChanged,
+  type LiveResizeClock,
+} from "./liveResizeStep";
 
 /// A drag, step by step: each width arrives `gap` ms after the last one was served, and serving it
 /// costs `work` ms. Returns the step counts the transcript would have seen, one per width after the
@@ -67,5 +75,38 @@ describe("stepLiveResize", () => {
 
   it("keeps the step that began a drag at 0", () => {
     expect(stepLiveResize({ at: Number.NEGATIVE_INFINITY, steps: 0 }, 1).steps).toBe(0);
+  });
+});
+
+describe("resumesLiveResize", () => {
+  it("is false before any resize settled", () => {
+    expect(resumesLiveResize({ at: 0, steps: 0 }, 1)).toBe(false);
+  });
+
+  it("takes a drag that paused on the divider up again", () => {
+    // Leo's 2026-11-18 drag paused a few hundred ms at a time: past LIVE_RESIZE_MS, so it settled,
+    // and its next width started over two steps from flow.
+    expect(resumesLiveResize({ at: 0, steps: 0, settled: 1000 }, 1000 + 300)).toBe(true);
+  });
+
+  it("starts a new resize after a long quiet", () => {
+    expect(resumesLiveResize({ at: 0, steps: 0, settled: 1000 }, 1000 + LIVE_RESUME_MS + 1)).toBe(false);
+  });
+});
+
+describe("widthChanged", () => {
+  // A new chat has no session and no layout yet: `undefined === undefined` read as the same chat and the
+  // transcript's first render threw ("Cannot read properties of undefined (reading 'width')"), so a new
+  // chat's pane showed "The agent pane could not be drawn." (cmuxterm-hq#15602, fleet step b3282f50).
+  it("is false for a chat with no layout yet, session or not", () => {
+    expect(widthChanged(undefined, undefined, 640)).toBe(false);
+    expect(widthChanged(undefined, "s1", 640)).toBe(false);
+  });
+
+  it("is true for the same chat at another width or after a partial layout, false otherwise", () => {
+    expect(widthChanged({ sessionId: "s1", width: 600 }, "s1", 640)).toBe(true);
+    expect(widthChanged({ sessionId: "s1", width: 640, partial: true }, "s1", 640)).toBe(true);
+    expect(widthChanged({ sessionId: "s1", width: 640 }, "s1", 640)).toBe(false);
+    expect(widthChanged({ sessionId: "s0", width: 600 }, "s1", 640)).toBe(false);
   });
 });

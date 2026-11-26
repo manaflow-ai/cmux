@@ -586,7 +586,18 @@ async fn retry_restore_recovers_an_import_replacing_an_already_restored_session(
         hub.kill(&old, false).await.unwrap();
         // Memory-store equivalent of transfer_finish staging the old store aside.
         hub.store.delete(&old.id).unwrap();
-        let imported = hub.import_into(&bundle, None, true, None, true, false, None).await.unwrap();
+        let imported = hub
+            .import_into(
+                &bundle,
+                None,
+                crate::hub::transfer::Live::Moved(None),
+                None,
+                true,
+                false,
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(old.id, imported.id);
         assert!(!Arc::ptr_eq(&old, &imported));
         hub.resume_queues();
@@ -631,7 +642,18 @@ async fn retry_restore_old_task_cannot_consume_a_replacements_retry() {
     old.replaced.store(true, std::sync::atomic::Ordering::SeqCst);
     hub.kill(&old, false).await.unwrap();
     hub.store.delete(&old.id).unwrap();
-    let imported = hub.import_into(&bundle, None, true, None, true, false, None).await.unwrap();
+    let imported = hub
+        .import_into(
+            &bundle,
+            None,
+            crate::hub::transfer::Live::Moved(None),
+            None,
+            true,
+            false,
+            None,
+        )
+        .await
+        .unwrap();
     hub.restore_auto_resume(&imported);
     let before = hub.session_summary(&imported)["retry"].clone();
     assert!(before.is_object());

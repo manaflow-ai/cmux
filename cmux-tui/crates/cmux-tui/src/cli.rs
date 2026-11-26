@@ -29,6 +29,8 @@ mod agents;
 #[cfg(unix)]
 mod agents_doctor;
 #[cfg(unix)]
+mod api_tokens;
+#[cfg(unix)]
 mod app;
 pub(crate) mod app_action_help;
 #[cfg(unix)]
@@ -60,12 +62,15 @@ mod billing;
 mod caller_browser;
 mod caller_scope;
 mod capability_cache;
+#[cfg(unix)]
 mod share_requests;
 // `cmux settings change-background [VALUE]`: a YouTube address, file or id as the picker sets it.
 #[cfg(unix)]
 mod change_background;
 #[cfg(unix)]
 mod chat_cd;
+#[cfg(unix)]
+mod chat_move;
 #[cfg(unix)]
 mod chat_send;
 #[cfg(unix)]
@@ -103,6 +108,8 @@ mod cloud_pause_all;
 #[cfg(unix)]
 mod cloud_preflight;
 #[cfg(unix)]
+mod cloud_provider;
+#[cfg(unix)]
 mod cloud_repo;
 #[cfg(unix)]
 mod cloud_retention;
@@ -120,10 +127,10 @@ mod cloud_team_keys;
 mod cloud_workspaces;
 mod code_mode;
 #[cfg(unix)]
-mod coderouter;
 mod codex_app_server;
 mod command;
 mod completion;
+mod intent;
 #[cfg(unix)]
 mod key_broker;
 #[cfg(unix)]
@@ -172,6 +179,8 @@ mod lifecycle;
 #[cfg(unix)]
 mod live_code;
 #[cfg(unix)]
+mod mcp_loopback;
+#[cfg(unix)]
 mod mcp_servers;
 #[cfg(unix)]
 mod ps_gc;
@@ -180,10 +189,19 @@ mod repo_hold;
 #[cfg(unix)]
 mod repo_mcp_lazy;
 #[cfg(unix)]
+mod repo_remote;
+#[cfg(unix)]
+pub(crate) mod runnable_link;
+#[cfg(unix)]
 mod safe_mode;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
+mod repro;
+#[cfg(unix)]
 mod sandbox_run;
+// `cmux search QUERY`: sessions, workspaces, scrollback and browser history (cli/search.rs).
+#[cfg(unix)]
+mod search;
 #[cfg(unix)]
 mod start_stages;
 #[cfg(unix)]
@@ -192,6 +210,9 @@ mod vm;
 mod vm_bootstrap;
 #[cfg(unix)]
 mod vm_cleanup;
+#[cfg(unix)]
+mod vm_exec_input;
+#[cfg(unix)]
 mod vm_gcp;
 #[cfg(unix)]
 mod vm_ready;
@@ -209,12 +230,14 @@ pub(crate) use auth_token::{app_token, app_token_in};
 
 /// The app's Cloud machines (`cloud.machines` rows), best effort: `None` with no app or a failed
 /// read (`cmux spill`'s Cloud place).
+#[cfg(unix)]
 pub(crate) fn app_cloud_machines() -> Option<Vec<serde_json::Value>> {
     cloud_workspaces::read(&GlobalArgs::default())
 }
 
 /// The Cloud machine `selector` names among `machines` (its id, `machine:` target or exact
 /// title); `Err` when a title is ambiguous (`cmux spill --to cloud:NAME`).
+#[cfg(unix)]
 pub(crate) fn find_cloud_machine<'a>(
     machines: &'a [serde_json::Value],
     selector: &str,
@@ -263,6 +286,9 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 mod machine_link;
+#[cfg(unix)]
+mod machine_request;
+#[cfg(unix)]
 mod mobile_pair_requests;
 #[cfg(unix)]
 pub(crate) use machine_join::{
@@ -734,7 +760,13 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// acpmux's (`--json` is a global clap option there).
 /// `agent` is not one of them: its verbs acpmux runs (agent_engine_requested, agent_acp_scope_args) take
 /// `--json` after the scope, and its app verbs (`agent list`, `agent open`) read the cmux global one where it is.
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "send", "inbox"];
+
+/// Session-engine verbs that also answer as a plain top-level `cmux` word: `cmux send` is
+/// `cmux agent send` and `cmux inbox` is the engine's team inbox, one command grammar under
+/// both names (Leo, 2026-11-25: "start renaming more things out of acpmu and into just plain
+/// cmux"). A word here must not be a cmux scope or app verb; `cli_tests` checks it.
+pub(crate) const TOP_LEVEL_ENGINE_VERBS: &[&str] = &["send", "inbox"];
 
 /// `cmux --json <scope> …` for a scope `main` routes by its first word: the
 /// leading `--json` moves to just after the scope word (to the end for `host`
@@ -1031,6 +1063,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     if let Some(code) = chat_cd::run_if_requested(args) {
         return code;
     }
+    // `chat move SESSION --on local|cloud|auto`: Local, Cloud or AutoCloud (chat_move.rs).
+    #[cfg(unix)]
+    if let Some(code) = chat_move::run_if_requested(args) {
+        return code;
+    }
     // `chat send` from a coding agent is the agent's message, not the owner's
     // (chief/chat_scope.rs): a Chief's chat is sent here, any other chat runs
     // the app action with its text labelled.
@@ -1059,7 +1096,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         Err(code) => return code,
     };
     #[cfg(unix)]
-    if let Some(code) = agent_move::run_if_requested(args)
+    if let Some(code) = cloud_start_chat::direct::run_if_requested(args)
+        .or_else(|| agent_move::run_if_requested(args))
         .or_else(|| agent_start::run_if_requested(args))
         .or_else(|| agent_config::run_if_requested(args))
         .or_else(|| chat_start::run_if_requested(args))
@@ -1068,7 +1106,6 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| agents::run_if_requested(args))
         .or_else(|| chief::run_if_requested(args))
         .or_else(|| chief::run_avatar_if_requested(args))
-        .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| hosts::run_if_requested(args))
         .or_else(|| inference_gateway::run_if_requested(args))
         .or_else(|| inference_setup::run_if_requested(args))
@@ -1079,11 +1116,14 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| api_tokens::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| cloud_journey::run_if_requested(args))
+        .or_else(|| repro::run_if_requested(args))
+        .or_else(|| search::run_if_requested(args))
         .or_else(|| migrate::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
@@ -1091,6 +1131,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_secret::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
+        .or_else(|| cloud_provider::run_if_requested(args))
         .or_else(|| key_broker::run_if_requested(args))
         .or_else(|| cloud_start_chat::run_if_requested(args))
         .or_else(|| chat_start::hybrid_start::run_if_requested(args))
@@ -1106,6 +1147,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| cloud_hands::run_if_requested(args))
         .or_else(|| cloud_automation_relay::run_if_requested(args))
         .or_else(|| cloud_auth_handoff_relay::run_if_requested(args))
+        .or_else(|| machine_request::run_if_requested(args))
         .or_else(|| machine_link::run_if_requested(args))
         .or_else(|| mobile_pair_requests::run_if_requested(args))
         .or_else(|| machine_join::run_if_requested(args))
@@ -1205,6 +1247,16 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
                 .and_then(|(global, _)| skew::reexec_at_dead_end(&global).err().flatten());
             #[cfg(not(unix))]
             let skew: Option<String> = None;
+            // A mistyped or synonym scope or verb (`cmux sessions ls`) runs the one word it
+            // meant, said on stderr; once, so a still-refused command ends here (cli/intent.rs).
+            static INTENT_TRIED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
+            if skew.is_none()
+                && !INTENT_TRIED.swap(true, std::sync::atomic::Ordering::Relaxed)
+                && let Some(fixed) = intent::retry(args, startup_usage)
+            {
+                return run(&fixed, startup_usage);
+            }
             let message = if matches!(failure.output, OutputMode::Quiet | OutputMode::Human) {
                 format!("cmux: {}", failure.error)
             } else {
@@ -1860,6 +1912,7 @@ fn scope_help_with_keys(
         "pairing" => Cow::Borrowed(PAIRING_HELP),
         "projection" => Cow::Borrowed(PROJECTION_HELP),
         "provider" => Cow::Borrowed(PROVIDER_HELP),
+        #[cfg(unix)]
         "share" => Cow::Borrowed(share_requests::HELP),
         "raw" => Cow::Borrowed(RAW_HELP),
         #[cfg(unix)]
@@ -1925,6 +1978,8 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   notification  List and create notifications
   attention     Mark tabs where the person must act; find the next one
   agent         Manage agent sessions and terminal agents
+  send          Send a message to an agent session (`cmux agent send`)
+  inbox         Read and acknowledge messages other agents sent you
   move          Move agent sessions to another machine (also teleport, evacuate)
   room          Organize workspaces into rooms
   space         List and organize spaces
@@ -2015,7 +2070,11 @@ USAGE
 const AGENT_HELP: &str = "\
 USAGE
   cmux agent ls [PATTERN...] [--machine HOST] [--all] [--json]
-  cmux agent send SESSION [OPTIONS] [--] TEXT...
+  cmux agent new NAME [OPTIONS] [-- PROMPT...]
+  cmux agent send SESSION [OPTIONS] [--] TEXT...   (also: cmux send)
+  cmux agent wait SESSION [--timeout DURATION]
+  cmux agent last SESSION
+  cmux inbox [list|read|ack ...]               (the team inbox)
   cmux agent history SESSION [-n N]
   cmux agent search QUERY... [--role user|assistant|tool] [--since DURATION] [-n N]
   cmux agent resolve QUERY

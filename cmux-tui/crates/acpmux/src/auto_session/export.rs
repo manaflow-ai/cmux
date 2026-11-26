@@ -19,8 +19,8 @@ pub(crate) mod events;
 pub(crate) mod folder;
 mod ignore;
 pub(crate) mod leftover;
-mod redact;
 pub(crate) mod native;
+mod redact;
 pub(crate) mod snapshot;
 
 #[cfg(test)]
@@ -54,10 +54,14 @@ pub(crate) async fn copy<C: AutoCloud>(
     tool: Option<OpenTool>,
     now: u64,
 ) -> Result<Copied, (Option<u64>, snapshot::Failed)> {
-    let last_seq = events::upload(hub, cloud, session, fence, after)
+    // Capture the manifest's chat/native state before reading the event high-water mark. That
+    // state is therefore no newer than the events the bounded upload will cover, even when a
+    // running turn keeps appending while the upload is in flight.
+    let captured = snapshot::capture(hub, session, tool).await.map_err(|failed| (None, failed))?;
+    let last_seq = events::upload(hub, cloud, session, fence, after, captured.through)
         .await
         .map_err(|error| (None, snapshot::Failed::from(error)))?;
-    let stored = snapshot::upload(hub, cloud, session, fence, last_seq, tool, now)
+    let stored = snapshot::upload(cloud, session, fence, last_seq, captured, now)
         .await
         .map_err(|failed| (Some(last_seq), failed))?;
     Ok(Copied { last_seq, stored })

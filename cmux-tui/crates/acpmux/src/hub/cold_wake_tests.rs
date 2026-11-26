@@ -57,25 +57,41 @@ fn a_large_cold_batch_compacts_first_and_its_compaction_is_acpmuxs() {
 }
 
 #[test]
-fn both_settings_are_on_by_default_and_compacting_first_needs_batching() {
+fn both_settings_are_off_by_default_and_compacting_first_needs_batching() {
     let on = |a, b| Knobs { enabled: a, compact: b, compact_above: DEFAULT_COMPACT_ABOVE_TOKENS };
-    assert_eq!(settings(None), on(true, true));
-    assert_eq!(settings(Some(&json!({}))), on(true, true));
-    let no_compact = json!({"agents": {"coldWake": {"compact": false}}});
-    assert_eq!(settings(Some(&no_compact)), on(true, false));
+    assert_eq!(settings(None), on(false, false));
+    assert_eq!(settings(Some(&json!({}))), on(false, false));
+    let both = json!({"agents": {"coldWake": {"enabled": true, "compact": true}}});
+    assert_eq!(settings(Some(&both)), on(true, true));
+    let batching = json!({"agents": {"coldWake": {"enabled": true}}});
+    assert_eq!(settings(Some(&batching)), on(true, false));
+    let compact_alone = json!({"agents": {"coldWake": {"compact": true}}});
+    assert_eq!(settings(Some(&compact_alone)), on(false, false));
     let off = json!({"agents.coldWake.enabled": false});
     assert_eq!(settings(Some(&off)), on(false, false));
 }
 
 #[test]
-fn the_compaction_line_is_a_setting_clamped_to_its_range_and_50k_by_default() {
+fn the_compaction_line_is_a_setting_clamped_to_its_range_and_100k_by_default() {
     let line = |doc: Value| settings(Some(&doc)).compact_above;
-    assert_eq!(settings(None).compact_above, 50_000, "the default stays 50K");
+    assert_eq!(settings(None).compact_above, 100_000, "the default is 100K");
     assert_eq!(line(json!({"agents": {"coldWake": {"compactAboveTokens": 80_000}}})), 80_000);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 120_000})), 120_000);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 1})), COMPACT_ABOVE_RANGE.0);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 9e9})), COMPACT_ABOVE_RANGE.1);
-    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": "big"})), 50_000, "junk");
+    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": "big"})), 100_000, "junk");
+}
+
+#[test]
+fn the_default_line_sits_above_the_break_even() {
+    // Compacting first must cost less than the plain wake at the default line, and the 50K the
+    // line started at must stay a loss, so the model and the default cannot drift apart.
+    let line = DEFAULT_COMPACT_ABOVE_TOKENS;
+    assert!(cold_compact_cost(line) < plain_wake_cost(line), "the default pays on the wake");
+    let break_even = COLD_COMPACT_OVERHEAD_TOKENS;
+    assert!(line > break_even, "{line} must sit above the {break_even} break-even");
+    assert_eq!(cold_compact_cost(break_even), plain_wake_cost(break_even));
+    assert!(cold_compact_cost(50_000) > plain_wake_cost(50_000), "50K lost about 26K a wake");
 }
 
 #[test]
@@ -83,11 +99,15 @@ fn the_environment_beats_the_settings_file() {
     let env = |pairs: &'static [(&'static str, &'static str)]| {
         move |var: &str| pairs.iter().find(|(k, _)| *k == var).map(|(_, v)| v.to_string())
     };
-    let file = json!({"agents": {"coldWake": {"enabled": false, "compactAboveTokens": 80_000}}});
+    let file = json!({"agents": {"coldWake": {
+        "enabled": false, "compact": true, "compactAboveTokens": 80_000
+    }}});
     let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "1"), (ENV_COMPACT_ABOVE, "100000")]));
     assert_eq!(k, Knobs { enabled: true, compact: true, compact_above: 100_000 });
-    let k = settings_with(None, env(&[(ENV_COMPACT, "0")]));
+    let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "1"), (ENV_COMPACT, "0")]));
     assert_eq!((k.enabled, k.compact), (true, false), "ACPMUX_COLD_WAKE_COMPACT=0");
+    let k = settings_with(None, env(&[(ENV_ENABLED, "1"), (ENV_COMPACT, "1")]));
+    assert_eq!((k.enabled, k.compact), (true, true), "both turned on in the env");
     let k = settings_with(None, env(&[(ENV_ENABLED, "off"), (ENV_COMPACT, "1")]));
     assert_eq!((k.enabled, k.compact), (false, false), "compacting first needs batching");
     let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "junk"), (ENV_COMPACT_ABOVE, "x")]));
@@ -103,8 +123,8 @@ fn the_settings_source_matches_the_daemon() {
     let doc: Value = serde_json::from_str(SOURCE).unwrap();
     let rows = doc["lists"][0]["rows"].as_array().unwrap();
     let row = |key: &str| rows.iter().find(|r| r["key"] == key).unwrap().clone();
-    assert_eq!(row(SETTING_ENABLED)["default"], json!(true));
-    assert_eq!(row(SETTING_COMPACT)["default"], json!(true));
+    assert_eq!(row(SETTING_ENABLED)["default"], json!(false));
+    assert_eq!(row(SETTING_COMPACT)["default"], json!(false));
     let line = row(SETTING_COMPACT_ABOVE);
     assert_eq!(line["default"], json!(DEFAULT_COMPACT_ABOVE_TOKENS));
     assert_eq!(line["range"]["min"], json!(COMPACT_ABOVE_RANGE.0));
@@ -134,9 +154,12 @@ fn surgery_applied_sends_no_compact() {
 
 #[test]
 fn surgery_refused_or_failed_compacts_as_before() {
-    for reason in
-        ["mid-turn", "not a stored Claude conversation", "nothing to mask", "no transcript"]
-    {
+    for reason in [
+        "mid-turn",
+        "not a stored Claude or Codex conversation",
+        "nothing to mask",
+        "no transcript",
+    ] {
         let refused = Ok(json!({"applied": false, "reason": reason}));
         assert!(!surgery_suffices(&refused, LINE), "{reason}: no dry run answer");
         assert!(!surgery_applied(&refused), "{reason}: /compact");
@@ -164,6 +187,86 @@ fn surgery_switched_off_compacts() {
     let answer = Ok(json!({"applied": false, "reason": "off"}));
     assert!(!surgery_suffices(&answer, LINE));
     assert!(!surgery_applied(&answer));
+}
+
+/// A queue entry as `enqueue` makes it: another agent's message when `agent`, else a person's.
+fn queued(prompt_id: &str, agent: Option<&str>) -> super::super::queue::QueuedPrompt {
+    let run = super::super::queue::PromptRun {
+        size: Default::default(),
+        blocks: vec![json!({"type": "text", "text": "waits"})],
+        display_parts: None,
+        control: Control::Local,
+        cloud_mobile: false,
+        trust_gate: false,
+        provenance: None,
+        agent: agent.map(str::to_owned),
+        class: None,
+        supersede: None,
+        full_access_device: None,
+        message_id: None,
+        message_sender: None,
+    };
+    super::super::queue::QueuedPrompt {
+        prompt_id: prompt_id.into(),
+        turn_id: format!("t-{prompt_id}"),
+        client: "test".into(),
+        preview: "waits".into(),
+        queued_at: 0,
+        withdraw: Arc::new(tokio::sync::Notify::new()),
+        run: Arc::new(run),
+        restored: false,
+        resume: false,
+        steer: false,
+        steer_on_start: false,
+        held: false,
+        awaiting_owner: false,
+        revision: 0,
+        declined: Default::default(),
+        sent_now: false,
+        joined: Arc::new(std::sync::Mutex::new(None)),
+        requeued: false,
+        retries: 0,
+    }
+}
+
+fn idle_hub(id: &str) -> (Arc<Hub>, Arc<Session>) {
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let meta = json!({"schema": crate::store::META_SCHEMA, "id": id, "name": id,
+        "harness": "claude", "cwd": "/tmp", "status": "idle", "turnCount": 3,
+        "createdAt": 1, "updatedAt": 2});
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let hub = Hub::new(cfg, store);
+    hub.begin_startup(false);
+    let session = hub.resolve(id).unwrap();
+    session.meta.lock().unwrap().last_turn = Some(json!({"turnId": "t0", "endedAt": 1}));
+    (hub, session)
+}
+
+/// The batch's own gathered message waits in the queue (`agent_gather.rs`): the batch's
+/// compaction goes ahead of it. Before, the continuation check refused every cold compaction
+/// with `auto_resume.superseded` (15 of 15 on one lane VM over 48 h), so none ran.
+#[tokio::test]
+async fn a_cold_batchs_compaction_goes_ahead_of_the_batch_but_not_a_persons_prompt() {
+    let ours = json!({"kind": KIND});
+    let (_hub, session) = idle_hub("cold-q1");
+    let check = |prov: Option<&Value>| {
+        super::super::auto_resume::check_cut(&session, Some("t0"), false, prov).is_ok()
+    };
+    assert!(check(Some(&ours)), "an empty queue");
+    session.queue.lock().unwrap().push(queued("lane-msg", Some("lane")));
+    assert!(goes_ahead_of_batch(&session, Some(&ours)));
+    assert!(check(Some(&ours)), "the batch's gathered message waits behind its compaction");
+    assert!(!check(None), "another continuation still yields to what waits");
+    assert!(!goes_ahead_of_batch(&session, None), "only the batch's own compaction");
+    session.queue.lock().unwrap().push(queued("persons", None));
+    assert!(!goes_ahead_of_batch(&session, Some(&ours)));
+    assert!(!check(Some(&ours)), "a person's prompt waits: the compaction yields to it");
+    // The chat moved on: superseded, as before.
+    session.queue.lock().unwrap().clear();
+    session.meta.lock().unwrap().last_turn = Some(json!({"turnId": "t1", "endedAt": 2}));
+    assert!(!check(Some(&ours)));
 }
 
 /// End to end through `Hub::surgery`: a chat with no stored Claude conversation (or surgery
@@ -225,6 +328,7 @@ async fn task_and_offer_results_name_their_sender_and_join_the_window() {
             admitted: false,
             after_turn: false,
             steer_on_start: false,
+            answer_due: None,
         };
         super::super::digest::gathers(&session, &s)
     };

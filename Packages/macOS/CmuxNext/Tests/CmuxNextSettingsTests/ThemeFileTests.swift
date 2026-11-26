@@ -69,6 +69,33 @@ import Testing
         #expect(CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: []).diagnostics.isEmpty)
     }
 
+    /// One look for both appearances: a `light` and a `dark` half paint only their side, over the plain colors.
+    @Test func lightAndDarkHalvesPaintOnlyTheirSideOfTheThemePair() {
+        let overlay = Self.overlay(##"""
+        { "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine",
+          "colors": { "accent": "#907aa9", "foreground": "#575279",
+                      "light": { "background": "#faf4ed", "palette": ["#f2e9e1"] },
+                      "dark": { "background": "#191724", "foreground": "#e0def4" } } }
+        """##)
+        #expect(overlay.diagnostics.isEmpty)
+        #expect(overlay.applied(to: .object([:])).value(at: Self.edits) == .object([
+            "Rose Pine Dawn/accent": "#907aa9", "Rose Pine Dawn/foreground": "#575279",
+            "Rose Pine Dawn/background": "#faf4ed", "Rose Pine Dawn/0": "#f2e9e1",
+            "Rose Pine/accent": "#907aa9", "Rose Pine/foreground": "#e0def4", "Rose Pine/background": "#191724",
+        ]))
+    }
+
+    /// One theme for both appearances has no sides: its halves are refused, the plain colors still apply, and a
+    /// half holds no half of its own.
+    @Test func halvesNeedALightDarkPairAndHoldNoHalves() {
+        let single = Self.overlay(##"{ "appearance.theme": "Nord", "colors": { "accent": "#88c0d0", "light": { "accent": "#5e81ac" }, "dark": { "accent": "#81a1c1" } } }"##)
+        #expect(single.diagnostics.map(\.path) == ["colors.light", "colors.dark"])
+        #expect(single.diagnostics.allSatisfy { $0.message == ThemeFileOverlay.halfNeedsPair })
+        #expect(single.applied(to: .object([:])).value(at: Self.edits) == .object(["Nord/accent": "#88c0d0"]))
+        let nested = Self.overlay(##"{ "appearance.theme": "light:Rose Pine Dawn,dark:Rose Pine", "colors": { "light": { "dark": {}, "accent": "blue" }, "dark": "#000000" } }"##)
+        #expect(nested.diagnostics.map(\.path).sorted() == ["colors.dark", "colors.light.accent", "colors.light.dark"])
+    }
+
     @Test func aGhosttyBlockIsReadAsAGhosttyThemeFile() {
         let overlay = Self.overlay(#"{ "appearance.theme": "Nord", "ghostty": ["background = #2e3440", "foreground = #d8dee9", "palette = 4=#81a1c1"] }"#)
         let edits = overlay.applied(to: .object([:])).value(at: Self.edits)
@@ -247,7 +274,7 @@ import Testing
         let folder = SettingsSchemaExportTests.repoRoot.appending(path: "Resources/theme-files", directoryHint: .isDirectory)
         let home = try Home()
         let names = ThemeFileSetting.names(configDirectory: home.url, bundled: folder)
-        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "teal", "moss", "meadow", "lily-pond", "minimal-sessions"] { #expect(names.contains(look), "\(look)") }
+        for look in ["harbor", "classic-desktop", "phosphor", "claude-desktop", "charcoal", "teal", "moss", "meadow", "lily-pond", "minimal-sessions", "miku"] { #expect(names.contains(look), "\(look)") }
         for name in names {
             let source = try #require(ThemeFileOverlay.source(named: name, configDirectory: home.url, bundled: folder))
             let overlay = ThemeFileOverlay(name: name, source: source, base: .object([:]), folder: home.themes)

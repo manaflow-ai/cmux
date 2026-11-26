@@ -447,7 +447,11 @@ describe("delete_snapshot reference refusal (cleanup.ts --snapshot)", () => {
 
   test("the real channel files protect the serving dev image and every history entry", () => {
     const dev = JSON.parse(readFileSync(path.join(REPO, "images/cmux-vm/channels/dev.json"), "utf8")) as { snapshot_id: string; history: Array<{ snapshot_id: string }> };
-    for (const id of [dev.snapshot_id, ...dev.history.map((h) => h.snapshot_id)]) expect(snapshotReferences(REPO, [id]).length).toBeGreaterThan(0);
+    // One scan of the repo for every id: a scan per history entry ran past bun's 5 s test timeout (5901 ms in CI)
+    // as the history grew.
+    const ids = [dev.snapshot_id, ...dev.history.map((h) => h.snapshot_id)];
+    const refs = snapshotReferences(REPO, ids);
+    for (const id of ids) expect(refs.some((r) => r.endsWith(` mentions ${id}`))).toBe(true);
   });
 });
 

@@ -2,8 +2,12 @@ import Foundation
 import Testing
 @testable import CmuxMobileTransport
 
+// Calls pass `params: [:]` and `resources: []` explicitly: Swift 6.2's region checker rejects a
+// defaulted non-Sendable argument ([String: Any]) sent into the actor (#SendingRisksDataRace).
 @Suite struct DaemonClientTests {
-    @Test func orderedRepliesKeepEventPositionsAndMissingRepliesExpire() async throws {
+    /// The batch deadline covers every reply in it, the answered one too: 20 ms failed the
+    /// answered ping on a loaded Linux runner (run 45819272661). 2 s still cuts the dropped one.
+    @Test(.timeLimit(.minutes(1))) func orderedRepliesKeepEventPositionsAndMissingRepliesExpire() async throws {
         let link = MockMacLink { _, bytes in
             var result = [Data]()
             for line in bytes.split(separator: 0x0A) {
@@ -15,7 +19,7 @@ import Testing
             return result
         }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]), orderedEvents: true)
-        let replies = await client.requestsOrdered([("drop", [:]), ("ping", [:])], deadline: .milliseconds(20))
+        let replies = await client.requestsOrdered([("drop", [:]), ("ping", [:])], resources: [], deadline: .seconds(2))
         if case .failure(let error) = replies[0] {
             #expect((error as? LinkError)?.code == DaemonClient.replyTimeout)
         } else { Issue.record("Missing ordered reply succeeded") }
@@ -56,7 +60,7 @@ import Testing
         }
         let channel = try await link.openChannel(service: "daemon", args: [:])
         let client = DaemonClient(channel: channel)
-        let reply = try await client.request("identify")
+        let reply = try await client.request("identify", params: [:])
         let object = try JSONSerialization.jsonObject(with: reply) as! [String: Any]
         #expect(object["ok"] as? Bool == true)
         var iterator = client.events.makeAsyncIterator()
@@ -99,17 +103,19 @@ import Testing
         }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
         await #expect(throws: LinkError(code: DaemonClient.replyTimeout, message: "reply timed out")) {
-            try await client.request("list-workspaces", deadline: .milliseconds(20))
+            try await client.request("list-workspaces", params: [:], deadline: .milliseconds(20))
         }
         await #expect(throws: LinkError(code: DaemonClient.replyTimeout, message: "reply timed out")) {
-            try await client.resourceRequest("workspace.list", deadline: .milliseconds(20))
+            try await client.resourceRequest("workspace.list", params: [:], deadline: .milliseconds(20))
         }
-        let reply = try await client.request("ping")
+        let reply = try await client.request("ping", params: [:])
         #expect(String(decoding: reply, as: UTF8.self).contains("true"))
         await client.close()
     }
 
-    @Test func oneMissingBatchReplyDoesNotLoseOtherReplies() async throws {
+    /// The batch deadline covers every reply in it, the answered one too: 20 ms failed the
+    /// answered ping on a loaded Linux runner (run 45819272661). 2 s still cuts the dropped one.
+    @Test(.timeLimit(.minutes(1))) func oneMissingBatchReplyDoesNotLoseOtherReplies() async throws {
         let link = MockMacLink { _, bytes in
             bytes.split(separator: 0x0A).compactMap { line in
                 let object = try! JSONSerialization.jsonObject(with: Data(line)) as! [String: Any]
@@ -118,7 +124,7 @@ import Testing
             }
         }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
-        let replies = await client.requests([("drop", [:]), ("ping", [:])], deadline: .milliseconds(20))
+        let replies = await client.requests([("drop", [:]), ("ping", [:])], deadline: .seconds(2))
         if case .failure(let error) = replies[0] {
             #expect((error as? LinkError)?.code == DaemonClient.replyTimeout)
         } else { Issue.record("Missing reply succeeded") }
@@ -129,7 +135,7 @@ import Testing
     @Test func submittedReplyCanExpireBeforeItIsAwaited() async throws {
         let link = MockMacLink { _, _ in [] }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
-        let id = try await client.submit("send", deadline: .milliseconds(20))
+        let id = try await client.submit("send", params: [:], deadline: .milliseconds(20))
         try await Task.sleep(for: .milliseconds(50))
         await #expect(throws: LinkError(code: DaemonClient.replyTimeout, message: "reply timed out")) {
             try await client.reply(to: id)
@@ -140,7 +146,7 @@ import Testing
     @Test func cancellingReplyDoesNotWaitForDeadline() async throws {
         let link = MockMacLink { _, _ in [] }
         let client = DaemonClient(channel: try await link.openChannel(service: "daemon", args: [:]))
-        let id = try await client.submit("send", deadline: .seconds(60))
+        let id = try await client.submit("send", params: [:], deadline: .seconds(60))
         let waiter = Task { try await client.reply(to: id) }
         waiter.cancel()
         await #expect(throws: CancellationError.self) { try await waiter.value }
@@ -150,7 +156,7 @@ import Testing
     @Test func lateReplyIsDroppedInsteadOfBecomingAnEvent() async throws {
         let channel = DeadlineTestChannel()
         let client = DaemonClient(channel: channel)
-        let id = try await client.submit("send", deadline: .milliseconds(20))
+        let id = try await client.submit("send", params: [:], deadline: .milliseconds(20))
         await #expect(throws: LinkError.self) { try await client.reply(to: id) }
         channel.deliver(Data("{\"id\":\"\(id)\",\"ok\":true}\n{\"event\":\"tree.changed\"}\n".utf8))
         var iterator = client.events.makeAsyncIterator()
@@ -162,7 +168,7 @@ import Testing
     @Test(.timeLimit(.minutes(1))) func anEarlyReplySurvivesEOFBeforeReplyIsAwaited() async throws {
         let channel = ReplyThenEOFChannel()
         let client = DaemonClient(channel: channel)
-        let id = try await client.submit("send")
+        let id = try await client.submit("send", params: [:])
         // Stream completion happens after finish has set the channel error;
         // do not race reply(to:) against the reader with a scheduling sleep.
         var events = client.events.makeAsyncIterator()
@@ -180,7 +186,7 @@ import Testing
         let channel = SlowWriteChannel(steps: 20, pause: .milliseconds(50), moves: true)
         let client = DaemonClient(channel: channel)
         let started = ContinuousClock.now
-        let id = try await client.submit("send", deadline: .milliseconds(400))
+        let id = try await client.submit("send", params: [:], deadline: .milliseconds(400))
         let reply = try await client.reply(to: id)
         #expect(ContinuousClock.now - started >= .milliseconds(1000))
         #expect(String(decoding: reply, as: UTF8.self).contains("\"ok\":true"))
@@ -194,7 +200,7 @@ import Testing
         let client = DaemonClient(channel: channel)
         let started = ContinuousClock.now
         await #expect(throws: LinkError(code: "write_timeout", message: "write timed out")) {
-            _ = try await client.submit("send", deadline: .milliseconds(400))
+            _ = try await client.submit("send", params: [:], deadline: .milliseconds(400))
         }
         #expect(ContinuousClock.now - started < .milliseconds(3000))
         #expect(await client.outlivedFixedDeadline == 0)
@@ -203,15 +209,18 @@ import Testing
 
     /// An answer to an earlier send is progress for the ones written after it (the daemon
     /// answers a connection's lines in order): a queue of slow answers is not cut one by one.
+    /// The deadline is wall time: each wait is 2/3 of it, so a sleep that runs up to a second long
+    /// on a loaded runner (both legs run the whole kit at once; 1 s and 600 ms sleeps still ran past
+    /// it on the simulator leg) lands inside it, and the two waits together still outlive it.
     @Test(.timeLimit(.minutes(1))) func anEarlierAnswerIsProgressForLaterSends() async throws {
         let channel = DeadlineTestChannel()
         let client = DaemonClient(channel: channel)
-        let first = try await client.submit("send", deadline: .milliseconds(300))
-        let second = try await client.submit("send", deadline: .milliseconds(300))
-        try await Task.sleep(for: .milliseconds(200))
+        let first = try await client.submit("send", params: [:], deadline: .seconds(3))
+        let second = try await client.submit("send", params: [:], deadline: .seconds(3))
+        try await Task.sleep(for: .seconds(2))
         channel.deliver(Data("{\"id\":\"\(first)\",\"ok\":true}\n".utf8))
         _ = try await client.reply(to: first)
-        try await Task.sleep(for: .milliseconds(200))
+        try await Task.sleep(for: .seconds(2))
         channel.deliver(Data("{\"id\":\"\(second)\",\"ok\":true}\n".utf8))
         _ = try await client.reply(to: second)
         #expect(await client.outlivedFixedDeadline == 1)
@@ -224,7 +233,7 @@ import Testing
     @Test func aGenericEventBurstDoesNotBlockAReply() async throws {
         let channel = LargeEventReplyChannel()
         let client = DaemonClient(channel: channel)
-        let reply = try await client.request("snapshot", deadline: .seconds(2))
+        let reply = try await client.request("snapshot", params: [:], deadline: .seconds(2))
         #expect(String(decoding: reply, as: UTF8.self).contains("\"ok\":true"))
         await client.close()
     }
