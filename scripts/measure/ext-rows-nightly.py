@@ -3,6 +3,7 @@
 
     ext-rows-nightly.py --app APP --pid-file F --customize DIR --out DIR [--rows a,b,...]
     ext-rows-nightly.py --cli CMUX --daemon-socket S --customize DIR --out DIR [--rows ...]   (no Mac app)
+        [--bundle APP]   the NIGHTLY bundle CMUX came from (not running), for the receipt's commit and version
 
 APP is a running side-instance copy of the NIGHTLY (its own bundle id, data, daemon and customize folder; the
 person's own app is never asked anything). Everything goes through the copy's own bundled CLI: `cmux ext new`,
@@ -350,6 +351,39 @@ def row_newtab(ctx: Ctx) -> dict:
 row_newtab.needs_app = True
 
 
+def row_sidebar_list(ctx: Ctx) -> dict:
+    """The whole workspace list as an extension (#43027): with `sidebar.workspaceListApp` naming a
+    `cmux.sidebar/1` app (`cmux settings set`), the window's `apps.views` holds a cmux.sidebar/1 view with
+    its words; clearing the setting drops that view, so the built-in list is back (the fallback)."""
+    word = f"{ctx.token} workspace list"
+    install = install_customize(ctx, {
+        "name": "Rows workspace list", "description": "The workspace list.", "runtime": {"main": "main.js"},
+        "implements": {"cmux.sidebar/1": {"export": "renderSidebar", "title": "Rows workspaces",
+                                          "symbol": "sidebar.left"}},
+        "activation": ["onInterface:cmux.sidebar/1"]},
+        {"main.js": ("function renderSidebar() {\n"
+                     f"  console.log({json.dumps(word)} + ' rendered')\n"
+                     f"  return VStack([Panel({{ title: 'Rows' }}, [Text({json.dumps(word)})])])\n}}\n"
+                     "globalThis.__cmuxAppExports = { renderSidebar }\n")})
+    setting = ctx.ext(["settings", "set", "sidebar.workspaceListApp", CUSTOMIZE_APP], timeout=30)
+
+    def drawn() -> list[dict]:
+        return [v for v in views(ctx, "cmux.sidebar/1") if any(word in t for t in v.get("texts") or [])]
+
+    shown = wait_for(drawn, wait=20)
+    logged = logs_with(ctx, word, wait=5)
+    cleared = ctx.ext(["settings", "set", "sidebar.workspaceListApp", ""], timeout=30)
+    gone = wait_for(lambda: not drawn(), wait=20)
+    return {"checks": {"installed": install["installed"], "setting_set": setting.get("exit") == 0,
+                       "sidebar_shows_extension": bool(shown) or bool(logged),
+                       "cleared_falls_back": cleared.get("exit") == 0 and bool(gone)},
+            "install": install, "settings_set": setting, "settings_cleared": cleared,
+            "views": shown or views(ctx), "log_lines": logged}
+
+
+row_sidebar_list.needs_app = True
+
+
 def row_web_pane(ctx: Ctx) -> dict:
     """Web panes (#41546 Rust, #43033 Mac host): a `cmux.pane/1` with `web` lists its page (`apps-list`
     `web_pages`) and `app.open` opens it as a page tab (`snapshot.get` topology holds `app:local/customize`)."""
@@ -416,7 +450,7 @@ def row_ext_new(ctx: Ctx) -> dict:
         per_kind[kind] = {
             "ok": made.get("exit") == 0 and (folder / "cmux-app.json").is_file() and (folder / ".git").exists()
             and loaded,
-            "new_exit": made.get("exit"), "repo": (folder / ".git").exists(),
+            "new_exit": made.get("exit"), "repo": (folder / ".git").exists(), "scene_checked": bool(ctx.control),
             "load": {k: answer.get(k) for k in ("ok", "phase", "app", "errors", "placed", "web", "shot", "next")},
             "scene": scene_of(shot)[:20], "shot_exit": shot.get("exit"),
             **({"new_error": made.get("stderr") or made.get("output")} if made.get("exit") != 0 else {}),
@@ -937,8 +971,9 @@ def row_fork(ctx: Ctx) -> dict:
     answer = shot.get("json") if isinstance(shot.get("json"), dict) else {}
     loaded = answer.get("ok") is True or (answer.get("phase") == "shot" and not answer.get("errors"))
     scene = scene_of(shot)
+    # The scene is drawn only with the Mac app; with no app the check is left out, not passed.
     return {"checks": {"forked": original != fork_id, "fork_loaded": loaded,
-                       "scene_drawn": bool(scene) or not ctx.control},
+                       **({"scene_drawn": bool(scene)} if ctx.control else {})},
             "app": FORK_APP, "original_id": original, "fork_id": fork_id,
             "load": {k: answer.get(k) for k in ("ok", "phase", "app", "errors", "placed", "shot", "next")},
             "scene": scene[:20], "shot_exit": shot.get("exit"),
@@ -1134,7 +1169,9 @@ def row_typed_sdk(ctx: Ctx) -> dict:
                        "typechecks": clean.get("exit") == 0,
                        "wrong_type_refused": broken.get("exit") not in (0, None),
                        "edit_rebuilt": edited != source and word in built,
-                       "edit_drawn": loaded and (word in json.dumps(scene) or not ctx.control),
+                       # With no Mac app nothing is drawn: the edit must load, the drawn check is left out.
+                       **({"edit_drawn": loaded and word in json.dumps(scene)} if ctx.control
+                          else {"edit_loaded": loaded}),
                        "on_npm_at_shipped_version": bool(npm.get("version"))
                        and npm.get("version") == package.get("version")},
             "new": {k: made.get(k) for k in ("exit", "json", "stderr")}, "sdk_version": package.get("version"),
@@ -1161,6 +1198,7 @@ ROWS = {
     "fork": (row_fork, "#43005"),
     "ext_new": (row_ext_new, "#43371 #44828 #44877"),
     "newtab": (row_newtab, "#42998"),
+    "sidebar_list": (row_sidebar_list, "#43027"),
     "web_pane": (row_web_pane, "#41546 #43033"),
     "widget": (row_widget, "#45106"),
     "settings": (row_settings, "#43022"),
@@ -1223,6 +1261,7 @@ def main() -> int:
     parser.add_argument("--pid-file", help="the copy's pid file")
     parser.add_argument("--cli", help="a cmux binary, with --daemon-socket (no Mac app)")
     parser.add_argument("--daemon-socket")
+    parser.add_argument("--bundle", help="with --cli: the NIGHTLY bundle the binary came from, for the receipt")
     parser.add_argument("--control-socket")
     parser.add_argument("--mcp-config", type=Path, help="the private settings file prepared for the MCP probe")
     parser.add_argument("--customize", required=True, help="the copy's own customize folder")
@@ -1243,6 +1282,9 @@ def main() -> int:
         control, daemon = attach_copy(app, cli, Path(args.pid_file), args.control_socket)
     elif args.cli and args.daemon_socket:
         cli, daemon, control = Path(args.cli).resolve(), args.daemon_socket, args.control_socket
+        receipt["mode"] = "cli"  # no Mac app: rows that need it are skipped, drawn-scene checks left out
+        if args.bundle:
+            receipt |= {"app": args.bundle, **reload_nightly.hot.app_commit_receipt(Path(args.bundle))}
     else:
         parser.error("give --app and --pid-file, or --cli and --daemon-socket")
     receipt["version"] = subprocess.run([str(cli), "--version"], capture_output=True, text=True).stdout.strip()

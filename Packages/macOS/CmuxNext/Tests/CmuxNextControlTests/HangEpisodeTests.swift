@@ -75,6 +75,21 @@ struct HangEpisodeTrackerTests {
         #expect(recorder.entries.count == 3)
     }
 
+    /// hq#20008: two hangs that start in the same millisecond keep two files and two entries.
+    @Test func hangsStartingInTheSameMillisecondKeepTheirOwnFiles() {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = HangEpisodeRecorder(directory: directory, isEnabled: { true }, symbolicate: { $0.map { String($0) } })
+        let now = Date(timeIntervalSince1970: 1_790_000_000.123)
+        for beat in 1...3 { recorder.begin(beat: UInt64(beat), elapsed: .seconds(2), main: [1, 2, 3], others: [], observedAt: now) }
+        recorder.drain()
+        #expect(recorder.entries.count == 3)
+        let names = files(in: directory)
+        #expect(names.count == 3)
+        #expect(names.allSatisfy { $0.hasPrefix("hang-") && $0.hasSuffix(".txt") })
+        #expect(names.contains(HangEpisodeRecorder.fileName(now.addingTimeInterval(-2), sequence: 2)))
+    }
+
     @Test func writesTheStackWhenTheHangStartsAndTheDurationWhenItEnds() throws {
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }
