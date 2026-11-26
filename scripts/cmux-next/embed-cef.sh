@@ -325,9 +325,13 @@ done
 # 3b. The Chromium host app (prototype behind browserHost.helperPrototype,
 # plans/cmux-next/cef-helper-app-DESIGN.md): Chromium's browser process in an
 # app of its own, which uses the helpers above for its child processes. Debug
-# builds only, so Release, RC and NIGHTLY bundles do not change.
+# builds only, so Release, RC and NIGHTLY bundles do not change. MEASUREMENT BRANCH ONLY (remote-cocoa-bench): a
+# bench build (Release with -DCMUX_BENCH_HOOKS, never shipped: check-no-bench-hooks.sh) embeds it too, so the
+# bench configuration opens remote Cocoa pages (debug.chromium_host).
 host_app="$frameworks/$product Chromium Host.app"
-if [[ "${CONFIGURATION:-}" == "Debug" ]]; then
+bench_build=0
+[[ " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]] && bench_build=1
+if [[ "${CONFIGURATION:-}" == "Debug" || "$bench_build" == "1" ]]; then
   host_name="$product Chromium Host"
   mkdir -p "$host_app/Contents/MacOS"
   copy_if_changed "$shim_out/cmux-chromium-host" "$host_app/Contents/MacOS/$host_name"
