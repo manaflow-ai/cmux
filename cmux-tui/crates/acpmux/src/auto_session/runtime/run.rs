@@ -148,10 +148,15 @@ impl<C: AutoCloud + 'static> Loop<C> {
     async fn command(&mut self, command: Command) {
         match command {
             Command::Step { id, event, view } => {
+                let told = view.is_some();
                 if let (Some(tracked), Some(view)) = (self.chats.get_mut(&id), view) {
                     tracked.note_view(*view);
                 }
                 self.step(&id, event).await;
+                // The store's view may say that this machine has taken the chat's inbox.
+                if told {
+                    self.leave_when_home(&id).await;
+                }
             }
             Command::Work { id, change, needs_run, settles } => {
                 self.watch_settle(&id, settles);
@@ -168,7 +173,10 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Command::Listed { result } => self.listed(result).await,
             Command::Assigned(assignment) => self.assigned(*assignment).await,
             Command::Away { id, post, reply } => self.away(&id, post, reply),
-            Command::Copied { id, copy, result } => self.copied(&id, copy, result).await,
+            Command::Copied { id, copy, result } => {
+                self.copied(&id, copy, result).await;
+                self.leave_when_home(&id).await;
+            }
             Command::Imported { id, epoch, result } => self.imported(&id, epoch, result).await,
             Command::Leftover { id, result } => self.leftover_written(&id, result),
             Command::Registered { id, request, result } => {
@@ -176,7 +184,18 @@ impl<C: AutoCloud + 'static> Loop<C> {
             }
             Command::Closed { id, result } => self.closed(&id, result).await,
             Command::Kept { id, result, reply } => self.kept(&id, result, reply),
-            Command::LaneDone { id, drained } => self.lane_done(&id, drained),
+            Command::LaneDone { id, drained } => {
+                self.lane_done(&id, drained);
+                self.leave_when_home(&id).await;
+            }
+            Command::TurnStopped { id, stop, needs_run } => {
+                self.turn_stopped(&id, stop, needs_run).await;
+            }
+            Command::Move { id, to, reply } => self.move_chat(&id, to, false, reply),
+            Command::Local { id, reply } => self.go_local(&id, reply).await,
+            Command::Moved { id, to, leave, result, reply } => {
+                self.moved(&id, (to, leave), result, reply).await;
+            }
         }
     }
 
@@ -209,6 +228,8 @@ impl<C: AutoCloud + 'static> Loop<C> {
             self.effect(id, session.as_ref(), effect).await;
         }
         self.sync(id);
+        // The turn a give stopped goes on here when the chat stayed, ahead of the inbox.
+        self.carried_settles(id);
         self.project(id);
         // A chat that may run here again takes what the Cloud holds for it and what an
         // earlier drain still owes it. The drain's end reads its work, which copies it.
@@ -418,6 +439,13 @@ impl Tracked {
     pub(super) fn note_view(&mut self, view: SessionView) {
         if self.copying.is_none() {
             self.sent = view.last_seq;
+        }
+        // A daemon that started with the chat its own has stored no copy yet. While it holds
+        // the chat at the store's epoch, nobody else wrote to the store's log: its last record
+        // is one of this machine's.
+        let holds = matches!(self.chat.state, State::Holding { epoch } if epoch == view.epoch);
+        if self.own.is_none() && self.copying.is_none() && holds && !view.holder.is_parked() {
+            self.own = Some(view.last_seq);
         }
         self.view = Some(view);
     }

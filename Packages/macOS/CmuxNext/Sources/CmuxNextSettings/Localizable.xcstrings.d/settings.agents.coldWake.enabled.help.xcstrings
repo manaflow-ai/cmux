@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.coldWake.enabled.help" : {
+      "comment" : "Settings > General > Prompt Cache: help under the batch-cold-wakes toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تنتظر الرسائل إلى محادثة خاملة انتهت ذاكرتها المؤقتة قليلًا وتصل معًا، فيُقرأ سياقها مرة واحدة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Poruke neaktivnom chatu čiji je keš istekao malo čekaju i stižu zajedno, pa se njegov kontekst čita jednom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beskeder til en inaktiv chat, hvis cache er udløbet, venter lidt og ankommer samlet, så konteksten læses én gang."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nachrichten an einen ruhenden Chat mit abgelaufenem Cache warten kurz und kommen gemeinsam an, sodass sein Kontext einmal gelesen wird."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los mensajes a un chat inactivo cuya caché caducó esperan un poco y llegan juntos, así su contexto se lee una vez."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les messages destinés à un chat inactif dont le cache a expiré attendent un peu et arrivent ensemble : son contexte n’est lu qu’une fois."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I messaggi a una chat inattiva con la cache scaduta attendono un po’ e arrivano insieme, così il contesto viene letto una volta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "キャッシュが期限切れのアイドルチャットへのメッセージは少し待ってまとめて届くため、コンテキストの読み込みは1回で済みます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សារទៅការជជែកទំនេរដែលឃ្លាំងសម្ងាត់ផុតកំណត់ រង់ចាំបន្តិច ហើយមកដល់ជាមួយគ្នា ដូច្នេះបរិបទរបស់វាត្រូវបានអានតែម្តង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "캐시가 만료된 유휴 채팅으로 가는 메시지는 잠시 기다렸다가 함께 도착하므로 컨텍스트를 한 번만 읽습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meldinger til en inaktiv chat med utløpt hurtigbuffer venter litt og kommer samlet, så konteksten leses én gang."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wiadomości do bezczynnego czatu z wygasłą pamięcią podręczną chwilę czekają i docierają razem, więc jego kontekst jest czytany raz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mensagens para um chat ocioso cujo cache expirou esperam um pouco e chegam juntas, para que o contexto seja lido uma vez."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сообщения в простаивающий чат с истёкшим кэшем немного ждут и приходят вместе, поэтому его контекст читается один раз."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ข้อความถึงแชตที่ว่างซึ่งแคชหมดอายุจะรอสักครู่แล้วมาถึงพร้อมกัน จึงอ่านบริบทเพียงครั้งเดียว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Önbelleği dolmuş boştaki bir sohbete giden mesajlar biraz bekler ve birlikte gelir; böylece bağlamı bir kez okunur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Повідомлення до неактивного чату з простроченим кешем трохи чекають і надходять разом, тож його контекст читається один раз."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tin nhắn tới cuộc trò chuyện rảnh có bộ nhớ đệm đã hết hạn sẽ chờ một chút và đến cùng nhau, nên ngữ cảnh chỉ được đọc một lần."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发给缓存已过期的空闲聊天的消息会稍等片刻再一起送达，这样只需读取一次上下文。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "傳給快取已過期之閒置聊天的訊息會稍候片刻再一起送達，只需讀取一次上下文。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

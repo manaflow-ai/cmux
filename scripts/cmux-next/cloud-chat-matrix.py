@@ -563,7 +563,10 @@ def launch_argv(app: str, socket: str, credentials_file: str | None, backend: st
     CMUX_NEXT_CONFIG_FILE keeps every setting the run reads or writes out of the shared
     ~/.config/cmux/cmux-next.json that the person's other apps read."""
     argv = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_NEXT_SOCKET_PATH={socket}",
-            "--env", f"CMUX_NEXT_CONFIG_FILE={config}"]
+            "--env", f"CMUX_NEXT_CONFIG_FILE={config}",
+            # A NIGHTLY's SingleInstanceGuard otherwise hands off to the copy already running and exits
+            # before binding the socket (proof run 45821171663).
+            "--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"]
     if credentials_file:
         argv += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(credentials_file).resolve()}",
                  "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
@@ -577,7 +580,9 @@ def start_login(agent: str, login: str) -> list[str]:
     """A Claude cell's start-chat `--login` words: none unless `--login` names one. `none` copies nothing, so Claude runs
     on the machine's team mode (the SR2/CodeRouter gateway) and needs no consent. Codex never takes it: `none` would
     leave it signed out (its login is the Mac's broker)."""
-    return ["--login", login] if login and agent == "claude" else []
+    # `cmux cloud start-chat` has no --login any more (a machine's agents reach models through the Cloud model route;
+    # run 45643863592 died on `unexpected argument "--login"`), so no value is passed on.
+    return []
 
 
 def list_unread(message: str) -> bool:
@@ -609,6 +614,8 @@ class Matrix:
         self.claude_token = claude_login_cache.token_from(self.env) if args.cache_claude_login else ""
         self.env.pop(claude_login_cache.TOKEN_ENV, None)
         self.cached_logins: list[str] = []
+        # The Claude connections this run added (claude_login_cache.connect), removed with the logins.
+        self.added_connections: list[dict] = []
         self.config_dir = None
         if args.app:
             socket = f"/tmp/cmux-debug-{args.tag}.sock"
@@ -683,6 +690,14 @@ class Matrix:
                 return value
         return {}
 
+    def list_why(self) -> str:
+        """Why the app's machine list never loaded: `cloud.machines`' own last error and link route (a tagged
+        build's `app call`). A bare `{"loaded": false}` after 300 s said nothing (run 45665771439, prod)."""
+        code, out, _ = self.cmux("app", "call", "cloud.machines", "--json", timeout=30)
+        value = self.parsed(out) if code == 0 else {}
+        facts = {k: value.get(k) for k in ("last_error", "link_route") if value.get(k)}
+        return f"; cloud.machines {clean(json.dumps(facts), 300)}" if facts else ""
+
     def launch(self) -> str:
         """Launch --app signed in (as cloud-chat-proof.py), or check --cli's app is signed in."""
         args = self.args
@@ -716,6 +731,8 @@ class Matrix:
                 last = clean(self.error(out, err).get("message") or err or json.dumps(
                     {k: value.get(k) for k in ("signed_in", "backend", "cloud_environment", "loaded") if k in value}), 300)
                 if time.monotonic() >= deadline:
+                    if name == "cloud list-machines":
+                        last += self.list_why()
                     return f"the app is not ready: {name} after {limit} s ({last})"
                 time.sleep(3)
         if args.cache_claude_login:
@@ -728,6 +745,16 @@ class Matrix:
                 code, err = claude_login_cache.store(self.cli, self.env, entry, self.claude_token)
                 if code != 0:
                     return f"cache claude login: exit {code} ({clean(err, 300)})"
+            # A cached login is not a connection: the start gate runs a Claude chat only when one serves Cloud
+            # (or the team's gateway does). Add it as this account's Claude connection, as Set up Claude does.
+            code, err, added = claude_login_cache.connect(self.cli, self.env, self.claude_token,
+                                                          f"matrix {self.args.tag}")
+            if added:
+                self.added_connections.append(added)
+            elif code != 0:
+                return f"add claude connection: exit {code} ({clean(err, 300)})"
+            else:
+                return "add claude connection: the answer named no connection"
         return ""
 
     def remove_logins(self) -> list[str]:
@@ -738,6 +765,11 @@ class Matrix:
             code, err = claude_login_cache.remove(self.cli, self.env, entry)
             if code != 0:
                 left.append(f"{entry}: exit {code} ({clean(err, 200)})")
+        while self.added_connections:
+            added = self.added_connections.pop()
+            code, err = claude_login_cache.disconnect(self.cli, self.env, added)
+            if code != 0:
+                left.append(f"connection {added['id']}: exit {code} ({clean(err, 200)})")
         return left
 
     def quit(self) -> None:

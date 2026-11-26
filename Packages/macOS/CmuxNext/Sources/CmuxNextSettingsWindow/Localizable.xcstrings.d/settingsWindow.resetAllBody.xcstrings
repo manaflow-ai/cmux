@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.resetAllBody" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Every setting and shortcut in cmux-next.json goes back to its default. Custom actions stay."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json のすべての設定とショートカットがデフォルトに戻ります。カスタムアクションは残ります。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعود كل إعداد واختصار في cmux-next.json إلى قيمته الافتراضية. تبقى الإجراءات المخصصة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Svaka postavka i prečica u cmux-next.json vraća se na zadano. Prilagođene radnje ostaju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle indstillinger og genveje i cmux-next.json nulstilles til standard. Tilpassede handlinger bevares."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle Einstellungen und Kurzbefehle in cmux-next.json werden auf den Standard zurückgesetzt. Eigene Aktionen bleiben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todos los ajustes y atajos de cmux-next.json vuelven a su valor predeterminado. Las acciones personalizadas se mantienen."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chaque réglage et raccourci de cmux-next.json revient à sa valeur par défaut. Les actions personnalisées sont conservées."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ogni impostazione e scorciatoia in cmux-next.json torna al valore predefinito. Le azioni personalizzate restano."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រាល់ការកំណត់ និងផ្លូវកាត់ក្នុង cmux-next.json ត្រឡប់ទៅលំនាំដើម។ សកម្មភាពផ្ទាល់ខ្លួននៅដដែល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json의 모든 설정과 단축키가 기본값으로 돌아갑니다. 사용자 설정 동작은 유지됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Alle innstillinger og hurtigtaster i cmux-next.json tilbakestilles til standard. Tilpassede handlinger beholdes."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wszystkie ustawienia i skróty w cmux-next.json wracają do wartości domyślnych. Własne czynności zostają."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Todos os ajustes e atalhos do cmux-next.json voltam ao padrão. Ações personalizadas são mantidas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Все настройки и сочетания клавиш в cmux-next.json вернутся к значениям по умолчанию. Пользовательские действия сохранятся."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การตั้งค่าและปุ่มลัดทั้งหมดใน cmux-next.json จะกลับเป็นค่าเริ่มต้น การทำงานที่กำหนดเองยังคงอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json’daki tüm ayarlar ve kısayollar varsayılana döner. Özel eylemler korunur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Усі параметри та комбінації клавіш у cmux-next.json повернуться до типових. Власні дії залишаться."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mọi cài đặt và phím tắt trong cmux-next.json trở về mặc định. Tác vụ tùy chỉnh được giữ lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json 中的所有设置和快捷键都会恢复默认值。自定义操作会保留。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-next.json 中的所有設定和快速鍵都會恢復預設值。自訂動作會保留。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
