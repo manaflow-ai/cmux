@@ -121,13 +121,34 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
     async function pickModel(page: Page, harness: string | undefined, name: string) {
       const menu = await openModelMenu(page);
       if (harness) await menu.locator(`.acpmux-cols-tab[aria-label="${harness}"]`).first().click();
-      await menu
-        .locator("[role=option], [role=menuitemradio]")
-        .filter({ hasText: name })
-        .first()
-        .locator(MODEL_ROW_NAME)
-        .first()
-        .click();
+      const row = menu.locator("[role=option], [role=menuitemradio]").filter({ hasText: name }).first();
+      // A missing row is a wrong start (the menu opened on another harness's tab), not a slow
+      // click: say what the menu showed in 10 s instead of a bare 30 s click timeout. On
+      // 2026-11-23 and 11-25 this step timed out on "GPT-6.1 Sol" with the menu on Claude Code's
+      // tab, and each red took hours to read back from a failure dump (#56045, #56476).
+      if (
+        !(await row.waitFor({ timeout: 10_000 }).then(
+          () => true,
+          () => false,
+        ))
+      ) {
+        const shown = await page.evaluate(() => {
+          const menu = document.querySelector(".acpmux-cols, .acpmux-quick-menu");
+          const text = (el: Element | null | undefined) => (el?.textContent ?? "").trim();
+          const state = (window as any).cmuxAcpmuxDebug?.chatState?.();
+          return {
+            tab: text(menu?.querySelector(".acpmux-cols-tab[aria-selected=true]")) || "(no tabs)",
+            rows: [...(menu?.querySelectorAll("[role=option], [role=menuitemradio]") ?? [])].map(text),
+            connection: String(state?.connection ?? "unknown"),
+            catalog: state?.composerInputs?.catalog?.length ?? 0,
+          };
+        });
+        throw new Error(
+          `model menu has no "${name}" row${harness ? ` on the ${harness} tab` : ""}: it shows tab ${shown.tab}, ` +
+            `rows ${JSON.stringify(shown.rows)}; link ${shown.connection}, ${shown.catalog} harnesses from acpmux`,
+        );
+      }
+      await row.locator(MODEL_ROW_NAME).first().click();
       await page.keyboard.press("Escape").catch(() => {});
     }
 
@@ -178,6 +199,9 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           await page.locator(MODEL_PICKER).filter({ hasText: "GPT-6 Astra" }).first().waitFor({ timeout: 90_000 });
           const start = await settled(page);
           note(`new tab: ${JSON.stringify(start)}`);
+          // The start under test is acpmux's (Codex on GPT-6 Astra), not the page's pre-connect
+          // guess (Opus 5.5): a wrong start fails here, by name, before any pick.
+          expect(start.model).toMatch(/GPT-6 Astra/);
           await startValueSampler(page);
           await takeValues(page);
 
