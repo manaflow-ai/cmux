@@ -238,13 +238,13 @@ pub fn mac_recovery_advanced(
             next.result = Some(MacRecoveryResult::Connected);
         }
         O::Offline | O::Failed { failure: MacLinkFailureKind::HostUnreachable } => {
-            next.result = failed(MacRecoveryStep::Mac)
+            next.result = failed(MacRecoveryStep::Mac);
         }
         O::Failed { failure: MacLinkFailureKind::ServiceDown } => {
-            next.result = failed(MacRecoveryStep::Session)
+            next.result = failed(MacRecoveryStep::Session);
         }
         O::Failed { failure: MacLinkFailureKind::AuthRequired | MacLinkFailureKind::NotAllowed } => {
-            next.result = failed(attempt.step)
+            next.result = failed(attempt.step);
         }
     }
     next
