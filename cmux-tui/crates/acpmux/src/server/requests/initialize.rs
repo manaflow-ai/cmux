@@ -160,6 +160,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_WORKTREE_CLEAN,
     method::MUX_WORKTREE_REPORT,
     method::MUX_WORKTREE_RESTORE,
+    method::SESSION_SIGNATURE,
     super::super::peer_forward::TRUST_PEER_EXTENSION,
 ];
 
