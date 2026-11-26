@@ -1074,6 +1074,10 @@ jobs:
           workspaces: cmux-tui
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
+          # Save the build even when the journey goes red: the first run after #56495 built in 13 min but its
+          # journey ran past the job's 50 (job 139905166641), and a cancelled job never runs the save, so the
+          # cache would stay cold forever.
+          cache-on-failure: true
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -1104,6 +1108,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey (staging)
+        # Under the job's 50 so a slow journey fails as a step and rust-cache's post step still saves the build.
+        timeout-minutes: 32
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
