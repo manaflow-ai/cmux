@@ -80,6 +80,29 @@ fn home_is_replaced_only_as_a_whole_component() {
     }
 }
 
+/// A Windows cmux-tui's paths (RFD 0157, crash upload from the Windows daemon): the profile
+/// becomes `~` and any other `\Users\<name>` is redacted, with or without a drive or `\\?\`.
+#[test]
+fn windows_profiles_are_redacted() {
+    let home = Some(r"C:\Users\maya");
+    assert_eq!(scrub(r"open C:\Users\maya\x failed", home), r"open ~\x failed");
+    assert_eq!(scrub(r"open c:\users\MAYA\x", home), r"open ~\x");
+    assert_eq!(scrub(r"open C:\Users\maya\x", Some(r"C:\Users\maya\")), r"open ~\x");
+    assert_eq!(
+        scrub(r"at C:\Users\bob\.cargo\registry\src\lib.rs:3:1", home),
+        r"at C:\Users\<redacted>\.cargo\registry\src\lib.rs:3:1"
+    );
+    assert_eq!(scrub(r"at \\?\D:\Users\bob", None), r"at \\?\D:\Users\<redacted>");
+    assert_eq!(scrub("at C:/Users/bob/src", None), "at C:/Users/<redacted>/src");
+    // Only a whole name: `C:\Users\mayabelle` is someone else.
+    assert_eq!(scrub(r"at C:\Users\mayabelle", home), r"at C:\Users\<redacted>");
+    // A home that is the users' directory must not hide the name.
+    for home in [r"C:\Users", r"C:\Users\", r"\Users", "C:/Users"] {
+        let out = scrub(r"at C:\Users\alice\project and C:/Users/alice/x", Some(home));
+        assert!(!out.contains("alice"), "{home}: {out}");
+    }
+}
+
 #[test]
 fn url_credentials_keep_scheme_and_host() {
     assert_eq!(
