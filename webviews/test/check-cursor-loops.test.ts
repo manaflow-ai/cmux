@@ -39,3 +39,52 @@ test("a loop with no ends: marker is flagged; a marked one, prose and a do-while
     "18 while (cut > 0) {",
   ]);
 });
+
+test("a `while (` in a string or a template literal is no loop", () => {
+  const source = [
+    'const a = "while (true) {";', // 1
+    "const b = `do { spin(); } while (x); for (;;) {`;", // 2
+    "const c = `${'while (y)'} and ${a}`;", // 3
+    "const d = { for: 1, while: 2 }.while;", // 4
+  ].join("\n");
+  expect(findUnprovedLoops("fixture.ts", source)).toEqual([]);
+});
+
+test("a loop header split over lines is a loop, read at its first line", () => {
+  const source = [
+    "function f(items: number[]) {", // 1
+    "  let i = 0;", // 2
+    "  while (", // 3: flagged
+    "    i < items.length &&", // 4
+    "    items[i]! > 0", // 5
+    "  ) i += 1;", // 6
+    "  for (", // 7: flagged: a for with no condition
+    "    let j = 0;", // 8
+    "    ;", // 9
+    "    j += 1", // 10
+    "  ) if (j > 3) break;", // 11
+    "  // ends: `i` grows by one each pass, to items.length at most", // 12
+    "  while (", // 13: marked
+    "    i < items.length", // 14
+    "  ) i += 1;", // 15
+    "}", // 16
+  ].join("\n");
+  expect(findUnprovedLoops("fixture.ts", source).map((f) => `${f.line} ${f.text}`)).toEqual(["3 while (", "7 for ("]);
+});
+
+test("a do/while is one loop, flagged once at its `do` and proved by a marker above it", () => {
+  const unmarked = ["let n = 0;", "do {", "  n += 1;", "} while (n < 3);"].join("\n");
+  expect(findUnprovedLoops("fixture.ts", unmarked).map((f) => `${f.line} ${f.text}`)).toEqual(["2 do {"]);
+  const marked = ["let n = 0;", "// ends: `n` grows by one each pass, to 3", "do n += 1;", "while (n < 3);"].join("\n");
+  expect(findUnprovedLoops("fixture.ts", marked)).toEqual([]);
+});
+
+test("a counted for loop is no cursor loop; a marker in a string proves nothing", () => {
+  const source = [
+    "for (let i = 0; i < 3; i += 1) {}", // 1: has a condition
+    'while (go()) say("// ends: never");', // 2: flagged: the marker is in a string
+  ].join("\n");
+  expect(findUnprovedLoops("fixture.ts", source).map((f) => `${f.line} ${f.text}`)).toEqual([
+    '2 while (go()) say("// ends: never");',
+  ]);
+});
