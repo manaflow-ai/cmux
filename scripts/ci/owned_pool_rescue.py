@@ -569,6 +569,10 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/terminal-hang-diagnostics.yml",
     # Its full-text job takes the side label on attempt 1 (on both branches).
     ".github/workflows/test-feed-reply-providers.yml",
+    # feat-cmux-next's manual Cloud chat proof: both proof jobs take the owned gui pool on attempt 1 while
+    # CI_PR_POOL_OWNED is 1, and a re-run takes pick-proof-runner's Blacksmith label or the macos_26 pool
+    # (feat-cmux-next twin: cmux#58158).
+    ".github/workflows/cloud-chat-proof.yml",
 })
 # Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
 # re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
