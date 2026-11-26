@@ -34,6 +34,11 @@ nonisolated enum ChromiumPageWindowVisibility {
 
     static let parentSelector = #selector(getter: NSWindow.parent)
 
+    /// `CMUX_NEXT_CEF_SPACE_FROM_OCCLUSION=1` (a `CMUX_NEXT_` knob: the launch strip keeps it): an embedded page
+    /// window whose cmux window is visible answers that it is on the active Space from the cmux window's occlusion
+    /// state, without asking the window server (``followParentWindow(_:spaceFromOcclusion:)``).
+    static let spaceFromOcclusionKnob = ProcessInfo.processInfo.environment["CMUX_NEXT_CEF_SPACE_FROM_OCCLUSION"] == "1"
+
     private typealias StateQuery = @convention(c) (AnyObject, Selector) -> UInt
     private typealias Query = @convention(c) (AnyObject, Selector) -> Bool
     private typealias ObjectQuery = @convention(c) (AnyObject, Selector) -> Unmanaged<AnyObject>?
@@ -49,8 +54,11 @@ nonisolated enum ChromiumPageWindowVisibility {
     /// answer the parent window's state while the window is an embedded child
     /// window, and the superclass's otherwise. Returns false (and changes
     /// nothing) when the fork's embedded getter is missing. Safe to call again.
+    ///
+    /// - Parameter spaceFromOcclusion: a visible parent answers `isOnActiveSpace` from its occlusion state
+    ///   (``spaceFromOcclusionKnob`` by default).
     @discardableResult
-    static func followParentWindow(_ pageClass: AnyClass) -> Bool {
+    static func followParentWindow(_ pageClass: AnyClass, spaceFromOcclusion: Bool = spaceFromOcclusionKnob) -> Bool {
         let occlusionSel = occlusionSelector
         let spaceSel = activeSpaceSelector
         let parentSel = parentSelector
