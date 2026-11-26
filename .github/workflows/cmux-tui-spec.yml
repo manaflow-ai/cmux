@@ -25,6 +25,7 @@ on:
       - "scripts/ci/test_reds.py"
       - "scripts/ci/acpmux-tests-pr-deferred.txt"
       - "tests/test_cargo_test_verdict.py"
+      - ".github/workflows/cmux-next-post-merge.yml"
       - "scripts/ci/cargo-lib-tests-at-once.sh"
       - "scripts/ci/tests/cargo-lib-tests-at-once.test.sh"
       # The router's own files (affected_jobs.py SELF): a change to them runs every routed job.
