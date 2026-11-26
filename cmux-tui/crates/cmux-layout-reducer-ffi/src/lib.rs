@@ -17,6 +17,9 @@
 //! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! the tab drag's rules (`tab_drag_rule_*`: the preview and outcome at the pointer;
+//! `tab_moves_*`: the small rules of a tab move's daemon commands; `drop_overlay_*`: the
+//! drop overlay's rects),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -103,6 +106,7 @@ pub mod sidebar_face;
 pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
+mod tab_drag_rules;
 pub mod typed;
 pub mod window_close_selection;
 mod window_rules;
@@ -621,6 +625,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if tab_drag_rules::handles(operation) => {
+                tab_drag_rules::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
