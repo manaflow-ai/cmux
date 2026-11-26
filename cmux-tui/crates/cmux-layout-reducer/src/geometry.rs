@@ -36,6 +36,8 @@ pub mod window_frame;
 pub mod wire;
 
 #[cfg(test)]
+mod screen_tests;
+#[cfg(test)]
 mod split_tests;
 #[cfg(test)]
 mod strip_tests;
