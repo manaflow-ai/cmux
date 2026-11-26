@@ -699,7 +699,7 @@
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Renderer).app",
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Plugin).app",
 				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Helper (Alerts).app",
-				"$(TARGET_BUILD_DIR)/$(FRAMEWORKS_FOLDER_PATH)/$(PRODUCT_NAME) Chromium Host.app",
+				"$(TARGET_BUILD_DIR)/$(EXECUTABLE_FOLDER_PATH)/$(PRODUCT_NAME) Chromium Host",
 				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Extensions/ublock-origin",
 				"$(TARGET_TEMP_DIR)/embed-cef.stamp",
 			);

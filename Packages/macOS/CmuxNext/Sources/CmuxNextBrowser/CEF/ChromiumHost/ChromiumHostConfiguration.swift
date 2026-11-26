@@ -11,8 +11,10 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
         self.arguments = arguments
     }
 
-    /// The host app embed-cef.sh puts beside the helpers of `layout` in Debug
-    /// builds (`<Product> Chromium Host.app`), or nil when this build has none.
+    /// The host embed-cef.sh puts in the app's `Contents/MacOS` in Debug builds
+    /// (`<Product> Chromium Host`, beside the app's own executable: its main
+    /// bundle is the app, whose framework and helpers Chromium's helper sandbox
+    /// lets the helpers read), or nil when this build has none.
     ///
     /// - Parameters:
     ///   - layout: The app's CEF runtime.
@@ -26,7 +28,7 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
         let helper = layout.helperApp.deletingPathExtension().lastPathComponent
         guard helper.hasSuffix(" Helper") else { return nil }
         let name = String(helper.dropLast(" Helper".count)) + " Chromium Host"
-        let executable = layout.frameworksDirectory.appending(path: "\(name).app/Contents/MacOS/\(name)")
+        let executable = layout.frameworksDirectory.deletingLastPathComponent().appending(path: "MacOS/\(name)")
         guard fileManager.isExecutableFile(atPath: executable.path) else { return nil }
         return ChromiumHostConfiguration(
             executable: executable,
@@ -51,14 +53,14 @@ public nonisolated struct ChromiumHostConfiguration: Sendable, Equatable {
         // the resize-sync fork API (no AsyncLiveResize).
         var switchSet = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI,
                                             bundleIdentifier: bundleIdentifier, environment: environment)
-        // The host is its own app with its own data and sets no keychain item of its own: on the real keychain its
+        // The host has its own data and sets no keychain item of its own: on the real keychain its
         // Chromium would read the shared "Chromium Safe Storage" item and macOS would ask (CEFKeychainItem).
         switchSet.useMockKeychain = true
         let switches = switchSet.arguments
             // The host runs Chromium's own message loop: there is no external pump pass to slice.
             .filter { !$0.hasPrefix("cmux-pump-time-slice-us=") }
-            // Chromium's code-sign clone copies the main bundle (here the small host app)
-            // and starts helpers from the copy, but the helpers live outside it.
+            // Chromium's code-sign clone copies the main bundle (here the whole app, the
+            // host's main bundle) for every host it starts: off, as it was for the old host app.
             + ["disable-features=MacAppCodeSignClone"]
         return ["--framework=\(layout.frameworkDirectory.path)",
                 "--subprocess=\(layout.helperExecutable.path)",
