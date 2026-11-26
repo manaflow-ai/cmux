@@ -85,7 +85,6 @@ pub mod agent_cursor;
 mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
-pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_handler;
