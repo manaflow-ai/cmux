@@ -29,6 +29,18 @@ noise
 
 
 class Rfd0135GatesTest(unittest.TestCase):
+    def test_gates_run_tests_in_the_one_it_binary(self) -> None:
+        # cmux-tui's tests are modules of `--test it` (cmux#56677); a `--test lid_close_gate` target is gone.
+        with mock.patch.object(gates.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="", stderr="")) as run:
+            gates.cargo_test("lid_close_gate::", {})
+        cmd = run.call_args.args[0]
+        self.assertEqual(cmd[cmd.index("--test") + 1], "it")
+        self.assertEqual(cmd[-1], "lid_close_gate::")
+        tests = ROOT / "cmux-tui/crates/cmux-tui/tests"
+        if tests.is_dir():  # the unit job's sparse checkout has no cmux-tui
+            for name in ("lid_close_gate", "move_kill_drill"):
+                self.assertTrue((tests / f"{name}.rs").is_file(), name)
+
     def test_matrix_cells_reads_only_the_summary_table(self) -> None:
         cells = gates.matrix_cells(LOG)
         self.assertEqual([c["step"] for c in cells], ["before-begin", "after-begin", "mid-copy"])

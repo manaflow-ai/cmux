@@ -49,14 +49,15 @@ MATRIX_CELLS = 56
 P95_BUDGET_MS = 10_000
 
 
-def cargo_test(test: str, name: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    cmd = ["cargo", "test", "-p", "cmux-tui", "--test", test, "--", "--ignored", "--nocapture",
+def cargo_test(name: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    # cmux-tui's tests are modules of one binary, `it` (cmux#56677): a test's name starts with its file's.
+    cmd = ["cargo", "test", "-p", "cmux-tui", "--test", "it", "--", "--ignored", "--nocapture",
            "--test-threads", "1", name]
     return subprocess.run(cmd, cwd=TUI, env={**os.environ, **env}, text=True, capture_output=True)
 
 
 def gate_lid_close(args: argparse.Namespace) -> dict:
-    run = cargo_test("lid_close_gate", "lid_close_gate",
+    run = cargo_test("lid_close_gate::",
                      {"LID_CLOSE_RUNS": str(args.runs), "LID_CLOSE_SECS": str(args.secs)})
     sys.stderr.write(run.stderr[-20_000:])
     data = gate_line(run.stdout + "\n" + run.stderr, "lid-close")
@@ -119,7 +120,7 @@ def gate_move(args: argparse.Namespace) -> dict:
     if args.matrix_log:
         log = Path(args.matrix_log).read_text()
     else:
-        run = cargo_test("move_kill_drill", "move_kill_drill_matrix", {})
+        run = cargo_test("move_kill_drill::move_kill_drill_matrix", {})
         log = run.stderr
         sys.stderr.write(log[-20_000:])
     cells = matrix_cells(log)
