@@ -5,6 +5,56 @@ import Foundation
 import Testing
 import WebRTC
 
+/// RFD 0088 slice 3b, nothing on an idle screen: the host repeats a still
+/// picture a few times for the encoder, then sends no video until the
+/// picture changes or something asks for it again.
+struct IdleRefreshTests {
+    typealias Policy = ScreenStreamHost.IdleRefresh
+    static let period = Policy.periodNs
+
+    @Test func aNewPictureIsRepeatedABoundedNumberOfTimesThenNothing() {
+        var policy = Policy()
+        policy.pushed(now: 0, fresh: true)
+        var now: UInt64 = 0
+        var repeats = 0
+        for _ in 0 ..< 40 {
+            now += Self.period
+            if policy.repeatNow(now: now) {
+                repeats += 1
+                policy.pushed(now: now, fresh: false)
+            }
+        }
+        #expect(repeats == Policy.repeats)
+        #expect(policy.isIdle(now: now + Self.period))
+    }
+
+    @Test func noRepeatWhileThePictureIsFresh() {
+        var policy = Policy()
+        policy.pushed(now: 1_000, fresh: true)
+        #expect(!policy.repeatNow(now: 1_000 + Self.period / 2))
+        #expect(!policy.isIdle(now: 1_000 + Self.period * 10), "repeats are still owed")
+    }
+
+    @Test func armingOnAStillScreenRepeatsAgain() {
+        var policy = Policy()
+        policy.pushed(now: 0, fresh: true)
+        var now: UInt64 = 0
+        while !policy.isIdle(now: now) {
+            now += Self.period
+            if policy.repeatNow(now: now) { policy.pushed(now: now, fresh: false) }
+        }
+        #expect(!policy.repeatNow(now: now + Self.period))
+        policy.arm() // a keyframe request, a quality change, the viewer's refresh
+        #expect(policy.repeatNow(now: now + Self.period))
+        #expect(policy.remaining == Policy.repeats - 1)
+    }
+
+    @Test func nothingToRepeatBeforeTheFirstPicture() {
+        var policy = Policy()
+        #expect(!policy.repeatNow(now: Self.period * 3))
+    }
+}
+
 /// End to end in one process, the host's real path to a viewer: a still
 /// screen stops sending video, the viewer's refresh brings a picture, and a
 /// small changing region costs what it changes. Prints IDLE-SCREEN lines.
@@ -39,7 +89,7 @@ struct IdleScreenStreamTests {
         #expect(frames == 0, "a still screen sent \(frames) frames in 4 s")
 
         // The viewer's refresh brings the picture back.
-        viewer.send(ScreenInput(t: "refresh"))
+        viewer.send(ScreenInput(t: ScreenStreamViewer.refreshMessage))
         try await Task.sleep(for: .seconds(1)) // one repeat period and the round trip
         let refreshed = await viewer.videoStats()
         #expect(refreshed.framesReceived > after.framesReceived, "the viewer's refresh sent no picture")

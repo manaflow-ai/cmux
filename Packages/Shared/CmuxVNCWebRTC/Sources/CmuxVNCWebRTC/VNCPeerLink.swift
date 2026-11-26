@@ -533,6 +533,19 @@ extension VNCPeerLink {
 }
 
 extension VNCPeerLink {
+    /// The keyframes the viewer asked for so far (outbound video's PLI and
+    /// FIR counts); nil before video is sent.
+    func keyframeRequests() async -> Int? {
+        await withCheckedContinuation { continuation in
+            connection.statistics { report in
+                let video = report.statistics.values.first { $0.type == "outbound-rtp" && ($0.values["kind"] as? String) == "video" }
+                continuation.resume(returning: video.map { entry in
+                    ["pliCount", "firCount"].reduce(0) { $0 + ((entry.values[$1] as? NSNumber)?.intValue ?? 0) }
+                })
+            }
+        }
+    }
+
     /// Outbound video, one line (host diagnostics): the frames reaching the
     /// encoder (`source fps`), the encoder's output and what limits it, and
     /// the round trip.
