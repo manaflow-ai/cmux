@@ -101,6 +101,44 @@ fn git_in(dir: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?}");
 }
 
+#[test]
+fn carry_keeps_worktrees_submodules_and_subfolders_on_projection() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(folder.path()).unwrap();
+    let repo = root.join("repo");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
+    git_in(&repo, &["init", "-q"]);
+    git_in(&repo, &["add", "."]);
+    git_in(&repo, &["commit", "-qm", "init"]);
+
+    // A supported root still publishes its carried pack.
+    let carry = projection_carry(&repo).expect("ordinary repository carries by default");
+    let listed = list_with_carry(&repo, Some(&carry)).unwrap();
+    assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_some());
+    drop(carry);
+
+    let worktree = root.join("worktree");
+    git_in(&repo, &["worktree", "add", "--detach", worktree.to_str().unwrap()]);
+    git_in(
+        &repo,
+        &["-c", "protocol.file.allow=always", "submodule", "add", repo.to_str().unwrap(), "module"],
+    );
+    for at in [worktree, repo.join("module"), repo.join("src")] {
+        let carry = projection_carry(&at);
+        assert!(carry.is_none(), "{} must retain projection", at.display());
+        let listed = list_with_carry(&at, carry.as_ref()).unwrap();
+        assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_none());
+        assert!(listed.manifest.resolve(".git/cmux-carry.base").is_none());
+        if at.join(".git").is_file() {
+            let git = listed.manifest.resolve(".git").unwrap();
+            assert_eq!(listed.manifest.entry(git).unwrap().kind, Kind::File);
+        } else {
+            assert!(listed.manifest.resolve(".git").is_none());
+        }
+    }
+}
+
 /// RFD 0007, "Tracked files the skip rules keep home": in a folder of repositories, a secret a
 /// repository tracks is listed with its real stat and why, and its bytes are refused; an untracked
 /// secret is still not listed at all.
