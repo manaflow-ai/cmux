@@ -621,6 +621,11 @@ path = "tests/test_post_edit_checks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_prefetch_sparse_checkout.py"
+lane = "manual"
+reason = "No ci-guards step runs it yet. Pins scripts/ci/prefetch-sparse-checkout.sh (path_route's checkout): run python3 tests/test_prefetch_sparse_checkout.py after editing it or scripts/ci/path-route-sparse-checkout.txt."
+
+[[test]]
 path = "tests/test_preflight_trust.py"
 lane = "linux-guard"
 
