@@ -27,6 +27,9 @@
 // AgentPaneTunables.harnessSwitchInStartedChat, off by default; no cmux.json key): off, a chat with
 // a message keeps its harness and its model menu lists that harness's models alone (ComposerPickers).
 // `showMachineLoadWarnings` is the user setting for the Computer menu's cached host-health detail.
+// `showOverloadNotice` is `developerTools.overloadNotice` (Settings > Advanced > Developer Tools), off by
+// default (https://github.com/manaflow-ai/cmux/issues/56156): off, the chat never asks acpmux whether this
+// Mac is overloaded and never draws OverloadNotice.tsx's banner; only the host's `true` turns it on.
 // `composerRing` is `agentPane.composerRing` ("context" by default): what the ring at the end of the
 // quiet row shows, the chat's context window or the account's plan usage limits (5-hour, weekly;
 // PlanUsageCard.tsx), picked from the ring's right-click (Leo 2026-11-04: "i guess we can turn that
@@ -50,9 +53,9 @@
 // (followUpMode.ts); ⌘Return does the other. Anything else reads as "steer".
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
-// environment; no cmux.json key): on, picking Cloud in a new chat's strip adds the Environment chip
-// (CloudEnvironmentChip.tsx), on Auto. On by default, as the host's flag is: only the host's `false`
-// (CLOUD_ENVIRONMENTS_ENABLED=0 or false) hides it.
+// environment; no cmux.json key): on, a Cloud start names the environment Settings > Cloud > Default
+// Image picked (chatCloudEnvironment.ts). On by default, as the host's flag is: only the host's
+// `false` (CLOUD_ENVIRONMENTS_ENABLED=0 or false) turns it off, and every Cloud start runs on Auto.
 // `cloudLeaseOnOpen` is the launch flag CLOUD_LEASE_ON_OPEN (Swift AgentPaneCloudLeaseOnOpenFlag): on, a
 // composer that opens with Cloud already its target leases its machine at open (cloudComposeReservation.ts
 // `opened`). On by default, as the host's flag is: only the host's `false` (CLOUD_LEASE_ON_OPEN=0) turns it off.
@@ -87,6 +90,7 @@ export type ComposerSettings = {
   harnessPlacement: HarnessPlacement;
   harnessSwitch: boolean;
   showMachineLoadWarnings: boolean;
+  showOverloadNotice: boolean;
   newChatsIn: NewChatPlace;
   composerRing: ComposerRing;
   composerLook: ComposerLookSetting;
@@ -111,6 +115,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   harnessPlacement: "symbols",
   harnessSwitch: false,
   showMachineLoadWarnings: true,
+  showOverloadNotice: false,
   newChatsIn: "local",
   composerRing: "context",
   composerLook: "auto",
@@ -130,6 +135,7 @@ type ComposerFlag =
   | "harnessSwitch"
   | "scrollToBottomOnSend"
   | "showMachineLoadWarnings"
+  | "showOverloadNotice"
   | "cloudEnvironments"
   | "cloudLeaseOnOpen";
 
@@ -161,6 +167,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
         : "symbols",
     harnessSwitch: flag("harnessSwitch"),
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
+    showOverloadNotice: flag("showOverloadNotice"),
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
     composerLook: raw.composerLook === "studio" ? "studio" : "auto",

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentIntegrations
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -301,6 +302,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebAuthSessionHandler.install(webAuthHandler)
         NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleURLEvent(_:reply:)),
                                                      forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+        // A cmux tab's return to this app (GitHub's completion, the sign-in callback): same route, no prompt, its tab closes.
+        let ownLinks = BrowserExternalApps.shared, auth = services.cloud.auth
+        ownLinks.openOwnURL = { [weak self] in self?.routeOpenedURL($0) }
+        ownLinks.isOwnHandoff = { auth.isAppHandoff($0) }
+        ownLinks.closesHandoffTab = SignInPage.startedFlow
+        ownLinks.isFlowReturn = { SettingsConnections.isReturn($0) }  // Connections' return, from the tab its Connect opened
+        auth.openSignInInApp = { [weak services] url in  // a flow page (cmux sign-in, Connections) in a front-window tab its return closes
+            guard let services, let window = services.windows.active else { return false }
+            ownLinks.noteFlowPage(url); guard services.linkOpener.openWeb(url, from: window.focusedPane, background: false) else { return false }
+            services.windows.bringToFront(window); return true }
         services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         // A launch whose first window never draws (no window, a daemon that never answers) still
         // starts the work waiting for that frame.
@@ -340,11 +351,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WebDevOverride.setAllowed(launch.snapshot.updates.liveWebReload)
         if LaunchIdentity.ignoresCustomizations(keysHeld: NSEvent.modifierFlags.isSuperset(of: [.option, .shift])) { WebDevOverride.ignoreThisRun() }
         let registry = services.registry
-        let settings = SettingsController(writer: SettingsEditSender(services.daemon.settingsFile.edit(json:file:)), registry: registry, fileURL: launch.fileURL, launch: launch) // the home daemon writes the file
+        let settings = SettingsController(writer: SettingsEditSender(services.daemon.settingsFile.edit(json:file:)), registry: registry, fileURL: launch.fileURL, launch: launch, resolveThemeSlots: { [daemon = services.daemon] in await daemon.resolveThemeSlots(name: $0, text: $1) }) // the home daemon writes the file and resolves theme slots
         settings.applyManagedFeaturesNow()
         ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
         self.settings = settings
         services.settings = settings
+        services.onboarding.classicFolderDefaults = .standard
+        services.onboarding.importClassicSettings = { [weak services] in
+            GhosttyRuntime.shared.reloadConfig()
+            var failure: (any Error)?
+            do { try await settings.importClassicConfig(marker: .standard) } catch { failure = error }
+            do { try await settings.importClassicDefaults(marker: .standard) } catch { failure = failure ?? error }
+            do { try await services?.paletteUsage.importClassicHistory() } catch { failure = failure ?? error }
+            if let failure { throw failure }
+        }
         UserOnlySettingConfirmation.install(settings, services: services)
         // Every palette-exposed schema setting in the palette (R93).
         services.palette.sources.settings = SettingsPaletteSource(settings: settings, themes: services.themes.catalog) { [weak services] in
@@ -429,7 +449,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.apps.start()
         Task {
             await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy keys, classic imports, stored defaults: written by the daemon once it is live; the control socket does not wait
+            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy NEXT keys and stored defaults: written by the daemon once it is live; the control socket does not wait
             do {
                 try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
                 control.registerCloudMethods(services)
@@ -546,13 +566,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Something the user opened with cmux: an update relaunch's startup ends, so it can come forward.
         services.input.endRelaunchBehind("external open")
         let auth = services.cloud.auth // GitHub's install redirect handed back here: the app finishes it itself (#46018)
-        guard !CloudGitHubCompletion.handle(url, auth: auth), OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url) == .auth else { return }
-        Task {
-            guard await !auth.handleCallback(url) else { return }
-            await auth.awaitRestored()
-            guard auth.signInFailed, !auth.isSignedIn, !auth.isSigningIn else { return }
-            try? services.settingsWindow.show(section: .accounts)
-        }
+        guard !services.accounts.github.finishCompletion(url, auth: auth), OpenedURLRouting(isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) }).route(url) == .auth else { return }
+        Task { if await auth.callbackFailed(url) { try? services.settingsWindow.show(section: .accounts) } }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

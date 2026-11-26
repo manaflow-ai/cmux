@@ -280,6 +280,10 @@ pub struct Status {
     /// The machine record's disk report (its `disk_health`, cmux-cloud-machine `Machine.disk`);
     /// read before the MiB facts above.
     pub disk: Option<DiskReport>,
+    /// Each chat's bytes on the disk, largest first (`Machine.disk_chats`).
+    pub disk_chats: Vec<disk::ChatDisk>,
+    /// What the guest cleared the last time its disk ran low (`Machine.disk_evicted`).
+    pub disk_evicted: Option<disk::DiskEviction>,
     pub ipv4: Option<String>,
     pub desktop: bool,
     pub cost: Option<Cost>,
@@ -380,6 +384,10 @@ pub fn status_fields(status: &Status) -> Fields {
     put("disk_used_mb", status.disk_used_mb.map(Value::from));
     put("disk_total_mb", status.disk_total_mb.map(Value::from));
     put("disk", status.disk().and_then(|view| serde_json::to_value(view).ok()));
+    if !status.disk_chats.is_empty() {
+        put("disk_chats", serde_json::to_value(&status.disk_chats).ok());
+    }
+    put("disk_evicted", status.disk_evicted.as_ref().and_then(|e| serde_json::to_value(e).ok()));
     put("address", status.ipv4.clone().map(Value::from));
     fields.insert("desktop".into(), json!(status.desktop));
     if let Some(cost) = &status.cost {
@@ -417,6 +425,7 @@ pub fn describe(status: &Status) -> String {
     if let Some(disk) = status.disk() {
         lines.extend(disk_lines(&disk));
     }
+    lines.extend(disk_chat_lines(&status.disk_chats, status.disk_evicted.as_ref()));
     if let Some(address) = &status.ipv4 {
         lines.push(format!("address: {address}"));
     }
@@ -459,7 +468,7 @@ fn record_or_stats(record: Option<DiskReport>, stats: impl FnOnce() -> DiskRepor
 }
 
 /// The disk bar as `machine-status` prints it: "disk: 13.2 / 20 GB", then the
-/// split when the guest reports one, and "almost full" under 2 GiB free.
+/// split when the guest reports one, and "almost full" under 4 GiB or 15% free.
 pub fn disk_lines(disk: &DiskView) -> Vec<String> {
     let mut first = format!("disk: {}", disk.label);
     if disk.state == DiskState::AlmostFull {
@@ -483,6 +492,36 @@ pub fn disk_lines(disk: &DiskView) -> Vec<String> {
         .collect();
     if split.len() > 1 {
         lines.push(format!("disk split: {} GB", split.join(", ")));
+    }
+    lines
+}
+
+/// How many chats `machine-status` names on its disk line, largest first.
+pub const DISK_CHATS_SHOWN: usize = 3;
+
+/// The chats filling the disk ("disk chats: c-1 4.2, c-2 1.1 GB, 12 more") and the guest's last
+/// eviction ("disk cleared: 3.1 GB of caches and idle build output at 1700000000000").
+pub fn disk_chat_lines(
+    chats: &[disk::ChatDisk],
+    evicted: Option<&disk::DiskEviction>,
+) -> Vec<String> {
+    let mut lines = Vec::new();
+    if !chats.is_empty() {
+        let named: Vec<String> = chats
+            .iter()
+            .take(DISK_CHATS_SHOWN)
+            .map(|c| format!("{} {}", c.id, disk::number(disk::gb(c.bytes))))
+            .collect();
+        let more = chats.len().saturating_sub(DISK_CHATS_SHOWN);
+        let more = if more > 0 { format!(", {more} more") } else { String::new() };
+        lines.push(format!("disk chats: {} GB{more}", named.join(", ")));
+    }
+    if let Some(e) = evicted {
+        lines.push(format!(
+            "disk cleared: {} GB of caches and idle build output at {}",
+            disk::number(disk::gb(e.freed_bytes)),
+            e.at
+        ));
     }
     lines
 }

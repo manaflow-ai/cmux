@@ -279,6 +279,7 @@ export function PermissionCard({
   onDraft,
   onBuildPlan,
   onApproveEditedPlan,
+  onForkFirst,
   hold: holdOverride,
 }: {
   permission: AcpmuxPermission;
@@ -312,12 +313,18 @@ export function PermissionCard({
   /// before Approve"). With it, the card offers Edit plan; an Approve after an edit sends the edit
   /// here instead of the plain allow, and a build elsewhere starts from it.
   onApproveEditedPlan?(plan: string): Promise<unknown>;
+  /// "Fork first" on a risky step of a Cloud chat (`permission.forkOffer`, acpmux fork_risky.rs):
+  /// the app forks the machine, keeps the copy as a checkpoint, then allows `optionId`. A promise
+  /// that rejects is a refusal the card shows (the fork failed: the step still waits).
+  onForkFirst?(optionId: string): unknown;
   /// Hold to approve's scope and hold time, in place of the experiments' (holdToApprove.experiment.ts);
   /// `reduced` draws the stepped ring. The pane passes none; the gallery and tests do.
   hold?: { scope: HoldScope; durationMs: number; reduced?: boolean };
 }) {
   const t = useT();
   const command = permissionCommand(permission);
+  /// "Fork first" shows only where the pane can carry it out, and only while the ask waits.
+  const forkOffer = onForkFirst && permission.pending ? permission.forkOffer : undefined;
   const preview = useMemo(() => commandPreview(command), [command]);
   const external = permission.externalAccess;
   const [settingsError, setSettingsError] = useState<{ id: string; message: string }>();
@@ -482,16 +489,18 @@ export function PermissionCard({
   };
   // After an answer the keyboard goes back to the composer, so a stray key never answers the next
   // ask in line.
-  const answer = (option: PermissionOption) => {
+  const answer = (option: PermissionOption, forkFirst = false) => {
     const sent = begin();
     if (!sent) return;
     let reply: unknown;
     try {
       // Approve plan after an edit: the edited plan goes with the approval.
       reply =
-        option === allowOnce && editedText !== undefined && onApproveEditedPlan
-          ? onApproveEditedPlan(editedText)
-          : onAnswer(option.id);
+        forkFirst && onForkFirst
+          ? onForkFirst(option.id)
+          : option === allowOnce && editedText !== undefined && onApproveEditedPlan
+            ? onApproveEditedPlan(editedText)
+            : onAnswer(option.id);
     } catch (error) {
       reply = Promise.reject(error);
     }
@@ -718,10 +727,20 @@ export function PermissionCard({
         {title}
       </Surface.Header>
       {/* Rendered only with content: an empty slot would still add the role's gap. */}
-      {(waiting > 0 || detail || (fullAccessMode && permission.pending) || plan || editedText !== undefined) && (
+      {(waiting > 0 ||
+        detail ||
+        forkOffer ||
+        (fullAccessMode && permission.pending) ||
+        plan ||
+        editedText !== undefined) && (
         <Surface.Body className="acpmux-permission-request" data-harness={harness || undefined}>
           {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
           {detail && <p className="acpmux-permission-request-description">{detail}</p>}
+          {forkOffer && (
+            <p className="acpmux-permission-fork-offer">
+              {t("permission.forkFirstDetail", { reason: forkOffer.reason })}
+            </p>
+          )}
           {fullAccessMode && permission.pending && (
             <p className="acpmux-permission-one-time">
               {t(allowOnce ? "permission.fullAccessStillAsks" : "permission.fullAccessStillAsksNoOnce", {
@@ -846,6 +865,15 @@ export function PermissionCard({
           {(allowAlways || allowOnce) && (
             // The allows keep the trailing edge together, so a narrow card wraps them as a pair.
             <Surface.Trailing className="acpmux-permission-allows">
+              {forkOffer && allowOnce && (
+                <PermissionActionButton
+                  label={t("permission.forkFirst")}
+                  title={forkOffer.machine}
+                  kind="secondary"
+                  className="acpmux-permission-fork-first"
+                  onClick={() => answer(allowOnce, true)}
+                />
+              )}
               {allowAlways && allowAlwaysLabel && (
                 <PermissionActionButton
                   label={allowAlwaysLabel}
