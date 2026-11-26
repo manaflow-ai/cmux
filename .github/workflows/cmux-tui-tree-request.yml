@@ -49,7 +49,7 @@ jobs:
   request:
     name: request the cmux-tui tree publish
     if: ${{ github.event_name == 'workflow_dispatch' && github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       # actions: write re-runs a cmux-tui artifacts run.
@@ -73,10 +73,16 @@ jobs:
         shell: bash
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
             if ! git config --bool core.sparseCheckout | grep -qx true; then
               git sparse-checkout disable 2>/dev/null || true
-              git reset -q --hard HEAD
+              # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+              if git rev-parse --git-dir >/dev/null 2>&1; then
+                git reset -q --hard HEAD
+              fi
             fi
           fi
 

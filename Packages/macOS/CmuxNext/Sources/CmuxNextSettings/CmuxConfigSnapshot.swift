@@ -105,7 +105,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var pauseAgentMachines = CmuxConfigSnapshot.pauseAgentMachinesDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
-    /// `customize.doctorNotice`: the toast naming a file or layer that changes the setup (`CustomizeDoctorNotice`); on when unset.
+    /// `customize.doctorNotice`: the toast naming a file or layer that changes the setup (`CustomizeDoctorNotice`); off when unset (Leo 2026-11-25: "make it stop showing the customization not applied/reviewd and shit popup tosts"), Settings' doctor card lists the findings inline.
     public var customizeDoctorNotice = CmuxConfigSnapshot.customizeDoctorNoticeDefault
     /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
     public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
@@ -638,7 +638,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                             if let range = LayoutMetricSetting.ranges[name], !range.contains(number) {
                                 snapshot.diagnostics.append(SettingsDiagnostic(
                                     kind: .invalidValue, path: path,
-                                    message: "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
+                                    message: [MetricKey.spacingScale, .toolbarButtonActiveFill, .headerDivider].map(\.rawValue).contains(name)
+                                        ? "expected a number from \(range.lowerBound) to \(range.upperBound); clamped"
+                                        : "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
                                 ))
                             }
                         }
