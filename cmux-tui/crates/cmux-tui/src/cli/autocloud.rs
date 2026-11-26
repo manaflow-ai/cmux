@@ -1201,7 +1201,7 @@ async fn run(common: &Common, verb: &Verb, input: Option<Value>) -> Value {
         Ok(p) => p,
         Err(e) => return error_json("cli.invalid_args", &e),
     };
-    let http = match reqwest::Client::builder()
+    let http = match cmux_egress::client_builder("cmux_tui::cli::autocloud")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))
