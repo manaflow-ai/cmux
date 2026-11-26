@@ -19,6 +19,7 @@ fleet-test-compile.yml check; fleet/compile-check stays the app compile.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -102,15 +103,17 @@ class CompileTestPlanTests(unittest.TestCase):
 
     def test_local_package_change_compiles_it_and_its_dependents(self) -> None:
         plan = self.plan(["Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/AuthTokens.swift"])
-        # CMUXAuthCore and CmuxAuthRuntime are in the macOS package lane; CmuxNext uses both.
-        self.assertIsNone(plan.get("Packages/Shared/CMUXAuthCore", "missing"))
-        self.assertIsNone(plan.get("Packages/Shared/CmuxAuthRuntime", "missing"))
+        # CmuxHomeRender, in the macOS package lane, uses CMUXAuthCore; so does CmuxNext. CMUXAuthCore and
+        # CmuxAuthRuntime run on Linux (scripts/ci/swift-linux-packages.txt), so no macOS build compiles them here.
+        self.assertIsNone(plan.get("Packages/Shared/CmuxHomeRender", "missing"))
+        self.assertNotIn("Packages/Shared/CMUXAuthCore", plan)
+        self.assertNotIn("Packages/Shared/CmuxAuthRuntime", plan)
         self.assertIn(CMUXNEXT, plan)
         self.assertTrue(plan[CMUXNEXT], "the CmuxNext test targets that use CMUXAuthCore")
 
     def test_packages_outside_the_macos_lanes_are_not_compiled(self) -> None:
         # A package outside the lane's PACKAGES builds in its own jobs, not with a macOS `swift build`.
-        # (CmuxMobileSSH: scripts/ci/swift-test-targets.json says why the lane does not run it.)
+        # (CmuxMobileSSH runs on Linux: scripts/ci/swift-linux-packages.txt.)
         plan = self.plan(["Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/SSHStores.swift"])
         self.assertNotIn("Packages/iOS/CmuxMobileSSH", plan)
 
@@ -127,7 +130,7 @@ class CompileTestPlanTests(unittest.TestCase):
         self.assertEqual(dict(self.module.plan(ROOT, PR_23360, skip)), {})
         plan = dict(self.module.plan(ROOT, ["Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/AuthTokens.swift"], skip))
         self.assertNotIn(CMUXNEXT, plan)
-        self.assertIn("Packages/Shared/CMUXAuthCore", plan)
+        self.assertIn("Packages/Shared/CmuxHomeRender", plan)
         # Without the skip (the tip compile, a hand-run compile-tests) CmuxNext stays.
         self.assertIn(CMUXNEXT, self.plan(PR_23360))
 
@@ -332,12 +335,13 @@ class CompileTestsPhaseTests(unittest.TestCase):
 
 
 WORKFLOW = ROOT / ".github" / "workflows" / "fleet-test-compile.yml"
-STEP = "Compile the planned test targets on the Linux pool"
+STEP = "Compile the planned test targets through the gateway client"
+READ_STEP = "Read the Linux pool's test-target compile"
 
 
-def step_script() -> str:
+def step_script(name: str = STEP) -> str:
     lines = WORKFLOW.read_text().splitlines()
-    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {STEP}")
+    start = next(i for i, line in enumerate(lines) if line.strip() == f"- name: {name}")
     run = next(i for i in range(start, len(lines)) if lines[i].strip() == "run: |")
     indent = len(lines[run]) - len(lines[run].lstrip()) + 2
     body = []
@@ -350,7 +354,7 @@ def step_script() -> str:
 
 class PullRequestCompilesCmuxNextTests(unittest.TestCase):
     """The pull-request check compiles CmuxNext's test targets again: cmux-next.yml's swift test job
-    runs on a pull request only with full-ci (2026-11-05), so nothing else builds them on a PR."""
+    runs on a feat-cmux-next pull request never, with or without full-ci (#57353), so nothing else builds them on a PR."""
 
     def test_the_workflow_skips_no_package_in_either_plan(self) -> None:
         text = WORKFLOW.read_text()
@@ -359,14 +363,17 @@ class PullRequestCompilesCmuxNextTests(unittest.TestCase):
         # The step compiles the plan's packages as they are: it skips none either.
         self.assertNotIn("--skip-package", step_script())
 
-    def test_swift_test_runs_on_a_pull_request_only_with_full_ci(self) -> None:
-        # If swift test ran on every same-repository PR again, this check would compile CmuxNext twice.
+    def test_swift_test_never_runs_on_a_cmux_next_pull_request(self) -> None:
+        # If swift test ran on a feat-cmux-next PR again, this check would compile CmuxNext twice.
         text = (ROOT / ".github" / "workflows" / "cmux-next.yml").read_text()
         job = re.split(r"\n  [A-Za-z0-9_-]+:[^\n]*\n", text.split("\n  swift-test:\n", 1)[1], maxsplit=1)[0]
         condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
+        # #49046: a pull request into another base is not a cmux-next PR. #57353: one into feat-cmux-next
+        # runs swift test after merge only, with or without full-ci (0 real catches in 30 days).
+        self.assertIn("&& (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next'))",
                       condition)
+        self.assertNotIn("'full-ci')", condition.replace("fromJSON('[\"full-ci\",\"ready-to-land\"]')", ""))
 
     def test_the_tip_compile_keeps_cmuxnext(self) -> None:
         tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
@@ -387,16 +394,98 @@ class PullRequestRunsOnlyWithFullCiTests(unittest.TestCase):
         self.assertRegex(job, r"(?m)^    needs: plan$")
         self.assertNotIn("always()", job)
 
-    def test_the_tip_compile_still_runs_on_every_push(self) -> None:
+    def test_the_tip_compile_still_runs_after_every_merge(self) -> None:
+        # 2026-11-21: in the post-merge batch (suite tip-test-compile), not on each push.
         tip = (ROOT / ".github" / "workflows" / "cmux-next-tip-test-compile.yml").read_text()
-        self.assertIn("branches: [feat-cmux-next]", tip)
+        self.assertIn("workflow_call:", tip)
         self.assertNotIn("full-ci", tip)
+        suite = json.loads((ROOT / ".github" / "post-merge-batch.json").read_text())["suites"]["tip-test-compile"]
+        self.assertEqual(suite["workflow"], "cmux-next-tip-test-compile.yml")
+        self.assertIn("Packages/**", suite["paths"])
+
+
+def job(name: str) -> str:
+    text = WORKFLOW.read_text().split(f"\n  {name}:\n", 1)[1]
+    return re.split(r"\n  [a-z][a-z-]*:\n", text, maxsplit=1)[0]
+
+
+class ControllerReadTests(unittest.TestCase):
+    """fleet-test-compile.yml's compile job runs on a Linux runner and reads the controller's test-target compile
+    (fleet_compile_result.py --phase test-compile, the base's copy): pass is green, fail red, anything else a
+    warning and a verdict of none that lets the gateway fallback run (2026-11-25)."""
+
+    def read(self, word: str, needed: str = "true", packages: str = "CmuxNext CmuxUpdater",
+             reader: bool = True, phase_aware: bool = True) -> tuple[subprocess.CompletedProcess, list[str], str]:
+        with tempfile.TemporaryDirectory() as scratch:
+            work = Path(scratch)
+            argv = work / "argv"
+            out = work / "out"
+            if reader:
+                (work / "scripts" / "ci").mkdir(parents=True)
+                marker = '"test-compile"' if phase_aware else '"app-debug"'
+                (work / "scripts" / "ci" / "fleet_compile_result.py").write_text(
+                    f"# {marker}\nimport sys\nopen({str(argv)!r}, 'w').write('\\n'.join(sys.argv[1:]))\n"
+                    f"print('fleet compile result for {'a' * 40}: {word} (because)', file=sys.stderr)\n"
+                    f"print({word!r})\n")
+            env = {key: value for key, value in os.environ.items() if not key.startswith("GITHUB_")}
+            env.update(NEEDED=needed, REF="a" * 40, PR="12", PACKAGES=packages, RUNNER_TEMP=scratch,
+                       GITHUB_OUTPUT=str(out), GITHUB_REPOSITORY="manaflow-ai/cmux")
+            done = subprocess.run(["bash", "-c", step_script(READ_STEP)], cwd=work, env=env, capture_output=True,
+                                  text=True, timeout=60)
+            return (done, argv.read_text().splitlines() if argv.exists() else [],
+                    out.read_text() if out.exists() else "")
+
+    def test_pass_is_green_and_names_the_package_set(self) -> None:
+        done, argv, out = self.read("pass")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::", done.stdout)
+        self.assertEqual(out, "verdict=pass\n")
+        self.assertEqual(argv[argv.index("--phase") + 1], "test-compile")
+        self.assertEqual(argv[argv.index("--packages") + 1], "CmuxNext,CmuxUpdater")
+        self.assertEqual(argv[argv.index("--pr") + 1], "12")
+        self.assertEqual(argv[argv.index("--sha") + 1], "a" * 40)
+
+    def test_fail_is_red_with_its_reason(self) -> None:
+        done, _, out = self.read("fail")
+        self.assertEqual(done.returncode, 1, done.stdout)
+        self.assertIn("::error", done.stdout)
+        self.assertIn("because", done.stdout)
+        self.assertEqual(out, "verdict=fail\n")
+
+    def test_no_verdict_warns_and_hands_to_the_fallback(self) -> None:
+        for kw in ({"word": "none"}, {"word": "pending"}, {"word": "pass", "reader": False},
+                   {"word": "pass", "phase_aware": False}, {"word": "pass", "packages": ""},
+                   {"word": "pass", "packages": "../x"}):
+            with self.subTest(**kw):
+                done, _, out = self.read(**kw)
+                self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertIn("::warning", done.stdout)
+                self.assertNotIn("::error", done.stdout)
+                self.assertEqual(out, "verdict=none\n")
+
+    def test_no_plan_reads_nothing(self) -> None:
+        done, argv, out = self.read("fail", needed="false")
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual(argv, [])
+        self.assertEqual(out, "verdict=skip\n")
+
+    def test_it_runs_on_linux_with_the_base_reader(self) -> None:
+        compile_job = job("compile")
+        runs_on = re.search(r"^    runs-on: (.*)$", compile_job, re.M).group(1)
+        self.assertNotIn("GATEWAY", runs_on)
+        self.assertNotIn("vars.CI_TEST_COMPILE_GATEWAY", compile_job)
+        self.assertIn("'cmux-linux'", runs_on)
+        self.assertIn("ref: ${{ github.event.pull_request.base.sha || github.sha }}", compile_job)
+        self.assertIn("REF: ${{ github.event.pull_request.head.sha || github.sha }}", compile_job)
+        minutes = int(re.search(r"^    timeout-minutes: (\d+)$", compile_job, re.M).group(1))
+        wait = int(re.search(r"--wait (\d+)", compile_job).group(1))
+        self.assertGreaterEqual(minutes * 60, wait + 600, (minutes, wait))
 
 
 class AdvisoryVerdictTests(unittest.TestCase):
-    """fleet-test-compile.yml: red only for a test target that does not compile (the pool's exit 1); anything
-    else is no verdict. It compiles on the Linux pool, never as a Mac step (2026-11-15: 5 to 9 Mac
-    compile-tests steps at once held the owned minis' side-std listeners offline on CPU load)."""
+    """fleet-test-compile.yml's gateway fallback: red only for a test target that does not compile (the pool's
+    exit 1); anything else is no verdict. It compiles on the Linux pool, never as a Mac step (2026-11-15: 5 to 9
+    Mac compile-tests steps at once held the owned minis' side-std listeners offline on CPU load)."""
 
     def verdict(self, status: int, output: str = "", needed: str = "true", client: bool = True,
                 packages: str = "CmuxNext CmuxUpdater") -> tuple[subprocess.CompletedProcess, list[str]]:
@@ -435,8 +524,7 @@ class AdvisoryVerdictTests(unittest.TestCase):
             with self.subTest(status=status):
                 self.assert_green(self.verdict(status, "compile check CmuxNext: no verdict")[0], warned=True)
 
-    def test_no_plan_or_no_client_is_green(self) -> None:
-        self.assert_green(self.verdict(1, needed="false")[0], warned=False)
+    def test_no_client_is_green(self) -> None:
         self.assert_green(self.verdict(0, client=False)[0], warned=True)
 
     def test_a_package_name_that_is_not_a_directory_name_is_no_verdict(self) -> None:
@@ -461,21 +549,24 @@ class AdvisoryVerdictTests(unittest.TestCase):
     def test_it_never_takes_the_required_compiles_gateway(self) -> None:
         # Each gateway job holds a fleet runner while its client waits on the controller, so the advisory
         # check has its own label; on the required compile's it starved cmux-next app compile (2026-10-22).
-        job = WORKFLOW.read_text().split("\n  compile:\n", 1)[1]
-        self.assertNotIn("CI_COMPILE_CHECK_GATEWAY", job)
-        runs_on = re.search(r"^    runs-on: (.*)$", job, re.M).group(1)
-        condition = re.search(r"^    if: (.*)$", job, re.M).group(1)
-        self.assertIn("vars.CI_TEST_COMPILE_GATEWAY", runs_on)
+        # Only the fallback takes it, and only when the Linux read gave no verdict.
+        text = WORKFLOW.read_text()
+        self.assertNotIn("CI_COMPILE_CHECK_GATEWAY", text.split("\njobs:\n", 1)[1])
+        fallback = job("mac-fallback")
+        runs_on = re.search(r"^    runs-on: (.*)$", fallback, re.M).group(1)
+        condition = re.search(r"^    if: (.*)$", fallback, re.M).group(1)
+        self.assertEqual(runs_on, "${{ vars.CI_TEST_COMPILE_GATEWAY }}")
+        self.assertIn("needs.compile.outputs.verdict == 'none'", condition)
         self.assertIn("vars.CI_TEST_COMPILE_GATEWAY != ''", condition)
+        self.assertIn("::warning title=mac fallback::", fallback)
 
     def test_the_job_outlasts_the_client_so_a_slow_fleet_never_reads_red(self) -> None:
         # A GitHub job timeout concludes as a failure: the client's queue and run
         # timeouts must end first, with room for the client to report.
-        text = WORKFLOW.read_text()
-        job = text.split("\n  compile:\n", 1)[1]
-        minutes = int(re.search(r"^    timeout-minutes: (\d+)$", job, re.M).group(1))
-        queue = int(re.search(r"--queue-timeout (\d+)", job).group(1))
-        run = int(re.search(r"--timeout (\d+)", job).group(1))
+        fallback = job("mac-fallback")
+        minutes = int(re.search(r"^    timeout-minutes: (\d+)$", fallback, re.M).group(1))
+        queue = int(re.search(r"--queue-timeout (\d+)", fallback).group(1))
+        run = int(re.search(r"--timeout (\d+)", fallback).group(1))
         self.assertGreaterEqual(minutes * 60, queue + run + 300, (minutes, queue, run))
 
 

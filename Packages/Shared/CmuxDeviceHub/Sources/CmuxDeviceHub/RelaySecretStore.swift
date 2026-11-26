@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// Where this device keeps the relay secrets it opened.
 public protocol RelaySecretStore: Sendable {
@@ -10,6 +12,7 @@ public protocol RelaySecretStore: Sendable {
     func relayIDs() -> [String]
 }
 
+#if canImport(Security)
 /// Opened relay secrets (`relay-<id>`) in the data-protection keychain under
 /// the bundle's `<bundle id>.device-hub` service, like the app's other
 /// secrets. A secret an earlier build kept in the file keychain moves over
@@ -71,6 +74,7 @@ public struct KeychainRelaySecretStore: RelaySecretStore {
         failure == .keychain(errSecMissingEntitlement)
     }
 }
+#endif
 
 /// Secrets in memory only (tests, previews).
 public final class MemoryRelaySecretStore: RelaySecretStore {

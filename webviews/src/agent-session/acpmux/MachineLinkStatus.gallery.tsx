@@ -9,7 +9,8 @@
 //   - `words`: the dot and the state's word. Says what happens, not to which machine; a pane beside
 //     another machine's chat reads the same.
 //   - `named` (shipped): the dot, the machine and the state's word, the sidebar header's same word,
-//     with Reconnect when it is down. The words fold out of the dot, so the model chip and the
+//     and no Reconnect when it is down: the row redials on its own (Leo, 2026-11-22). The words
+//     fold out of the dot, so the model chip and the
 //     ring never move; connected folds back to the dot.
 //
 // References: claude/live/sidebar-project-groups-status-dots (a status dot per remote group, words
@@ -38,7 +39,7 @@ const longName: PeerLink = { machine: "gcp-codex-lane-12-us-central1-a", link: "
 function Row({ link, look, before = false, quietMs = 0 }: Props) {
   return (
     <div className="acpmux-shell" data-machine-link-fixture style={{ padding: 16 }}>
-      <form className="acpmux-composer">
+      <form className="acpmux-composer" data-foot="">
         <div className="acpmux-composer-bar acpmux-composer-foot" data-footer-look="plain">
           <span className="acpmux-chips">
             <span className="acpmux-access">

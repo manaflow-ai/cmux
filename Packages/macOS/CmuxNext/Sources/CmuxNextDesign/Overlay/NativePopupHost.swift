@@ -158,22 +158,24 @@ public final class NativePopupHost {
     /// `trailing` and `centered` align it on the anchor (``PopupPlacement/frame(anchor:size:preferred:trailing:centered:screen:gap:margin:)``).
     /// `makeKey` gives it the keys (a ``NativePopupPanel`` takes them only while the app is
     /// active). The popup shows in one frame, with no grow or fade in; its close still fades.
+    /// `sideGap` is a side-by-side card's distance from its anchor (0: flush, `experiments.menuStyleV2`).
     /// Returns the card frame and the side it took, or nil when it cannot show.
     @discardableResult
     public func show(size: CGSize, anchor: CGRect, in window: NSWindow, preferred: PopupPlacement.Side = .below,
                      trailing: Bool = false, centered: Bool = false, makeKey: Bool = false,
-                     sideBySide: Bool = false) -> (frame: CGRect, side: PopupPlacement.Side)? {
+                     sideBySide: Bool = false,
+                     sideGap: CGFloat = 4) -> (frame: CGRect, side: PopupPlacement.Side)? {
         guard window.isVisible, let screen = PopupPlacement.screen(for: anchor, fallback: window) else { return nil }
         let frame: CGRect
         let side: PopupPlacement.Side
         if sideBySide {
-            frame = PopupPlacement.sideBySideFrame(anchor: anchor, size: size, screen: screen.visibleFrame).frame
+            frame = PopupPlacement.sideBySideFrame(anchor: anchor, size: size, screen: screen.visibleFrame, gap: sideGap).frame
             // Side-by-side placement follows the row vertically; preserve the conventional side
             // in the return value for callers that only record the vertical preference.
             side = preferred
         } else {
             let placed = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
-                                              centered: centered, screen: screen.visibleFrame)
+                                              centered: centered, in: window, screen: screen.visibleFrame)
             frame = placed.frame
             side = placed.side
         }

@@ -139,10 +139,9 @@ async fn chat_with(name: &str, env: Value, setup: impl FnOnce(&Path) -> Value) -
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         // Only the recap's call runs the harness headless here: each person's turn would also
-        // ask for its title and rolling summary (`hub/titles.rs`, `hub/rolling_summary.rs`) on
-        // the route the chat had then, before a test binds it.
+        // ask for its title (`hub/titles.rs`) on the route the chat had then, before a test
+        // binds it.
         "titles": {"generate": false},
-        "summaries": {"generate": false},
     }))
     .unwrap();
     cfg.path = Some(root.join("home").join("config.json"));

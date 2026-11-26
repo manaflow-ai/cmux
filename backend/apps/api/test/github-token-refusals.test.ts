@@ -12,7 +12,10 @@ import { fakeGitHub, inDO, linkGitHub, ok, op, policy, read, testEnv, token } fr
 describe("GitHub token refusals", { timeout: 60_000 }, () => {
   it("refuses repositories outside the connection or policy, other owners, unknown permissions and workflows without the policy flag", async () => {
     const a = await signedInWithInstall("gh-token-2", "cli")
-    expect((await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })).body.error.code).toBe("integration.not_found")
+    const none = (await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })).body.error
+    expect(none.code).toBe("integration.not_found")
+    // Every refusal says what to do next (github-next.ts), and which cmux action does it.
+    expect([none.next, none.next_action]).toEqual([expect.stringContaining("Connect GitHub"), "accounts.githubConnect"])
     const { gh } = await linkGitHub(a.session, a.team)
     const t = (repo: string, permissions: unknown) => token(a.installToken, { team: a.team, repo, permissions }).then((r) => [r.status, r.body.error?.code])
     expect(await t("acme/secret", { contents: "read" })).toEqual([403, "policy.denied"])
@@ -23,6 +26,9 @@ describe("GitHub token refusals", { timeout: 60_000 }, () => {
     expect(await t("acme/web", { workflows: "write" })).toEqual([403, "policy.denied"])
     const reason = (repo: string, permissions: unknown) => token(a.installToken, { team: a.team, repo, permissions }).then((r) => r.body.error?.reason)
     expect(await reason("acme/web", { workflows: "write" })).toBe("workflows_not_allowed")
+    // Only a team admin can allow workflow changes: the step names them, and no Connect button is offered.
+    const workflows = (await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { workflows: "write" } })).body.error
+    expect([workflows.next, "next_action" in workflows]).toEqual([expect.stringContaining("team admin"), false])
     expect(await reason("other/web", { contents: "read" })).toBe("owner_not_connected")
     expect(gh.mints()).toHaveLength(0)
     await policy(a.session, a.team, { github: { allow_workflows: true } })
@@ -44,10 +50,10 @@ describe("GitHub token refusals", { timeout: 60_000 }, () => {
     gh.routes["https://api.github.com/app/installations/99/access_tokens"] = () => ok({ message: "There is at least one repository that does not exist or is not accessible to the parent installation." }, 422)
     const denied = await token(a.installToken, { team: a.team, repo: "acme/web", permissions: { contents: "read" } })
     const page = "https://github.com/organizations/acme/settings/installations/99"
-    expect([denied.status, denied.body.error]).toEqual([403, { code: "policy.denied", message: expect.any(String), configure_url: page, reason: "repo_not_granted" }])
+    expect([denied.status, denied.body.error]).toEqual([403, { code: "policy.denied", message: expect.any(String), configure_url: page, reason: "repo_not_granted", next: expect.stringContaining("Add the repository"), next_action: "accounts.githubConnect" }])
     // A repository of the owner the link left out (not selected when it was linked) is added on the same page.
     const unlisted = await token(a.installToken, { team: a.team, repo: "acme/secret", permissions: { contents: "read" } })
-    expect([unlisted.status, unlisted.body.error]).toEqual([403, { code: "policy.denied", message: expect.any(String), configure_url: page, reason: "repo_not_granted" }])
+    expect([unlisted.status, unlisted.body.error]).toEqual([403, { code: "policy.denied", message: expect.any(String), configure_url: page, reason: "repo_not_granted", next: expect.stringContaining("Add the repository"), next_action: "accounts.githubConnect" }])
     // The recorded list is the linking person's access: the installation may already include it, so both fixes are named.
     expect(unlisted.body.error.message).toContain("the person who connected GitHub could see")
     expect(unlisted.body.error.message).toContain("If the installation on GitHub leaves acme/secret out, add it there; then connect GitHub again as someone who can see acme/secret")

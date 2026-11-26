@@ -10,7 +10,8 @@
 //!   program) and whether the close earns an undo toast.
 //! - [`tabs`]: what a new tab or pane opens and where (its kind, the browser
 //!   open plan, a split's plan), tab moves, numbers, duplicates, restarts and
-//!   icons; [`tabs::panes`] the pane and terminal tables.
+//!   icons; [`tabs::panes`] the pane and terminal tables; [`tabs::strip`]
+//!   the strip's close, move and next-tab commands.
 //! - [`chat`]: where an agent chat, a tool opened from it and a column action
 //!   go (the chat dock, the strip, the column target), and the agent chat
 //!   handlers' rules ([`chat::agent`]).
@@ -32,6 +33,8 @@
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
+//! - [`editors`]: the code editors Open in Editor knows and which one opens
+//!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
 
@@ -40,6 +43,7 @@ pub mod browser;
 pub mod chat;
 pub mod close;
 pub mod closed;
+pub mod editors;
 pub mod files;
 pub mod history;
 pub mod launch;

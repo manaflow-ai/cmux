@@ -17,8 +17,6 @@ extension SidebarMapping {
         detail.contextTokens = chat?.contextTokens
         detail.contextWindow = chat?.contextWindow
         detail.costUsd24h = chat?.costUsd24h
-        detail.summary = chat?.summary
-        detail.nextAction = chat?.nextAction
         // The task: the chat's running prompt, else the terminal agent's last prompt (memory
         // only in the daemon), else what a working program says it does (OSC 7501 title, msg).
         detail.task = chat?.prompt ?? agentTab?.agent?.lastPrompt ?? tabs.lazy.filter { ProgramStatusRecord.strongest($0.programStatus)?.state == .working }
@@ -40,6 +38,21 @@ extension SidebarMapping {
             detail.commandsRunning += chat.commandsRunning
         }
         return detail
+    }
+
+    /// Who made the workspace, for its hover card: an agent's or a script's session, host and
+    /// purpose. Nil for the person, an unknown kind, or a creator with nothing to say (a bare
+    /// `{"kind":"script"}`), so the person's own workspaces show nothing new.
+    static func origin(_ creator: WorkspaceCreator?) -> SidebarWorkspaceOrigin? {
+        guard let creator else { return nil }
+        let kind: SidebarWorkspaceOrigin.Kind
+        switch creator.kind {
+        case .agent: kind = .agent
+        case .script: kind = .script
+        case .person, .other: return nil
+        }
+        return SidebarWorkspaceOrigin(kind: kind, sessionName: creator.sessionName, sessionID: creator.session,
+                                      host: creator.host, purpose: creator.purpose)
     }
 
     /// The running subagents and background commands of `tab`'s agent chat (acpmux's counts);

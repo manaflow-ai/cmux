@@ -4,7 +4,8 @@
  *
  *   bun scripts/cmux-next/machine-join-e2e.ts --origin https://cmux-platform-development.debussy.workers.dev \
  *     --acpmux PATH --user USER --home DIR --name NAME --evidence FILE --run ID --sha SHA [--bench SCRIPT]
- *     [--share-cmux-rd PATH --viewer-user USER --viewer-home DIR --device-hub URL]
+ *     [--share-cmux-rd PATH --viewer-user USER --viewer-home DIR --device-hub URL
+ *      [--share-install-script PATH --share-rd-sha256 HEX]]
  *
  * The stack account comes only from this process's environment (CMUX_UITEST_STACK_EMAIL and
  * CMUX_UITEST_STACK_PASSWORD, which the workflow maps from the repo's dev stack secrets). This
@@ -19,6 +20,9 @@
  * revoke, status and list show revoked, secret scan, evidence. The machine revoke and the install
  * revoke run in `finally` and on SIGINT/SIGTERM, so every path after the mint revokes.
  * Exit 0 when the evidence says pass, 1 otherwise, 2 for a refused invocation.
+ *
+ * `--scenario own-machine-parity` runs a different scenario (own-machine-parity.ts: a second Mac joined by sign-in, a chat
+ * in a picked folder, a dev server's port, a file, 3 runs, a JSON report); it reads no secret and joins nothing.
  *
  * Share (--share-cmux-rd): while joined, proves a joined headless Linux machine is shared with no
  * step on it (Leo, 2026-11-16: "if you've connected to a headlessly running mini why... would it
@@ -35,6 +39,13 @@
  * (the guest: CMUX_UITEST_GUEST_STACK_EMAIL and _PASSWORD, its own home under the viewer's) signs
  * in: its list must not show the machine, and the hub must refuse its request for the machine's
  * device id.
+ *
+ * The share's cmux-rd comes one of two ways. By default the run's own build is linked at
+ * ~/.local/bin/cmux-rd before the join, which tests the commit. With --share-install-script (the
+ * workflow's share_install: channel), nothing is there before the join: right after it, the join
+ * line's own cmux-rd step (machine-join.sh, CMUX_JOIN_STEP=cmux-rd, root-owned) installs cmux-rd
+ * from the channel, which must leave a regular file whose sha256 is the channel's
+ * (--share-rd-sha256). The viewer always uses the run's build.
  */
 import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
@@ -117,9 +128,11 @@ export interface Options {
   sha: string
   /** A root-owned script run as the disposable user while the machine is joined (before the revoke), or "". */
   bench?: string
-  /** Share mode: the run's root-owned cmux-rd (the joined home's ~/.local/bin/cmux-rd links to it), the
-   * viewer's disposable user and home, and the device hub. */
-  share?: { cmuxRd: string; viewerUser: string; viewerHome: string; hub: string }
+  /** Share mode: the run's root-owned cmux-rd (the joined home's ~/.local/bin/cmux-rd links to it, unless
+   * `install`), the viewer's disposable user and home, and the device hub. With `install`, the join line's
+   * cmux-rd step (the root-owned machine-join.sh) installs the host's cmux-rd from the channel, whose
+   * sha256 for this machine's build is `sha256`. */
+  share?: { cmuxRd: string; viewerUser: string; viewerHome: string; hub: string; install?: { joinScript: string; sha256: string } }
 }
 
 export interface ChildResult {
@@ -207,6 +220,10 @@ export interface ShareEvidence {
   viewerSignedIn: boolean
   /** Steps the run took on the host after the join, besides starting its daemon and reading: always 0. */
   hostSteps: number
+  /** Where the host's cmux-rd came from: the run's build, or the channel through the join line. */
+  install: "build" | "channel"
+  /** With the channel: what the join line left at ~/.local/bin/cmux-rd (a regular file, the channel's sha256). */
+  channelInstall: { regularFile: boolean | null; sha256Matches: boolean | null } | null
   /** How the daemon set the host up, as `acpmux share-host status --json` says it (plain words only). */
   daemonShareHost: { state: string | null; detail: string | null }
   deviceId: string | null
@@ -322,6 +339,10 @@ export function refusal(opts: Options): string | undefined {
     if (!sh.cmuxRd.startsWith("/") || sh.cmuxRd.includes("..")) return "cmux-rd must be an absolute path"
     if (!USER.test(sh.viewerUser) || sh.viewerUser === "root" || sh.viewerUser === opts.user) return "viewer user must be a plain disposable login name, not the joined user"
     if (!sh.viewerHome.startsWith("/") || sh.viewerHome.includes("..") || sh.viewerHome === opts.home) return "viewer home must be an absolute path of its own"
+    if (sh.install) {
+      if (!sh.install.joinScript.startsWith("/") || sh.install.joinScript.includes("..")) return "the join script must be an absolute path"
+      if (!/^[0-9a-f]{64}$/.test(sh.install.sha256)) return "the channel's cmux-rd sha256 must be 64 lowercase hex digits"
+    }
   }
   return undefined
 }
@@ -403,6 +424,10 @@ export function redact(text: string, secrets: ReadonlyArray<string>): string {
   for (const s of secrets) if (s.length >= 4) out = out.split(s).join("[secret]")
   return out.replace(TOKENISH, (m) => `${m.slice(0, 4)}[redacted]`).replace(JWT, "[jwt].")
 }
+
+/** GNU tar's warning for a socket it does not archive: `tar: ./PATH: socket ignored`. */
+export const isSocketSkip = (line: string) => /^tar: .+: socket ignored$/.test(line.trim())
+class HomeScanError extends Error {}
 
 const b64u = (bytes: ArrayBuffer) => Buffer.from(bytes).toString("base64url")
 
@@ -840,6 +865,8 @@ export async function runE2E(
       hub: sh.hub,
       viewerSignedIn: false,
       hostSteps: 0,
+      install: sh.install ? "channel" : "build",
+      channelInstall: null,
       daemonShareHost: { state: null, detail: null },
       deviceId: null,
       deviceOnlineMs: null,
@@ -854,9 +881,15 @@ export async function runE2E(
     evidence.share = ev
     const pause = (ms: number) => within(new Promise(() => undefined), Math.max(0, ms), true)
     live()
-    // The daemon runs ~/.local/bin/cmux-rd (the path the host unit runs): it must be the run's own build.
-    const link = await deps.run(asUserTool(["readlink", "-f", "--", hostRd()]), { env: childEnv, timeoutMs: 10_000 })
-    if (link.code !== 0 || link.stdout.trim() !== sh.cmuxRd) throw new Failed("share: ~/.local/bin/cmux-rd is not the run's cmux-rd")
+    if (sh.install) {
+      // From the channel: nothing at ~/.local/bin/cmux-rd before the join (`ls -d` lists a dangling link too).
+      const there = await deps.run(asUserTool(["ls", "-d", "--", hostRd()]), { env: childEnv, timeoutMs: 10_000 })
+      if (there.code === 0) throw new Failed("share: ~/.local/bin/cmux-rd is there before the join, so the join's install is not tested")
+    } else {
+      // The daemon runs ~/.local/bin/cmux-rd (the path the host unit runs): it must be the run's own build.
+      const link = await deps.run(asUserTool(["readlink", "-f", "--", hostRd()]), { env: childEnv, timeoutMs: 10_000 })
+      if (link.code !== 0 || link.stdout.trim() !== sh.cmuxRd) throw new Failed("share: ~/.local/bin/cmux-rd is not the run's cmux-rd")
+    }
     viewerStarted = true
     // The viewer's own display.
     const socket = `/tmp/.X11-unix/X${VIEWER_DISPLAY.slice(1)}`
@@ -887,6 +920,29 @@ export async function runE2E(
     const made = await deps.run(asViewerIn(sh, sh.viewerHome, ["mkdir", "-m", "700", "--", guestHome(sh)]), { env: childEnv, timeoutMs: 10_000 })
     if (made.code !== 0) throw new Failed("share: the guest's home could not be made")
     say("the viewer and the guest are ready; the host gets nothing after the join but its daemon")
+  }
+
+  /** share_install: channel. Right after the join, the join line's own cmux-rd step installs the host's cmux-rd
+   * from the channel (as the joined user, the root-owned script); it must leave a regular file with the
+   * channel's sha256 where the daemon looks. Part of the join, so before the daemon starts. */
+  const installFromChannel = async (install: NonNullable<NonNullable<Options["share"]>["install"]>) => {
+    const ev = evidence.share!
+    live()
+    const step = await deps.run(asUserTool(["/usr/bin/env", "CMUX_JOIN_STEP=cmux-rd", "CMUX_JOIN_INTERACTIVE=0", "/bin/sh", install.joinScript]), {
+      env: childEnv,
+      timeoutMs: 180_000,
+      signal: inFlight.signal
+    })
+    childText.push(step.stdout, step.stderr)
+    for (const line of `${step.stderr}\n${step.stdout}`.split("\n").filter((l) => l.trim()).slice(-10)) shareLog.push(`join cmux-rd step: ${cleanLine(line)}`)
+    live()
+    const kind = await deps.run(asUserTool(["stat", "-c", "%F", "--", hostRd()]), { env: childEnv, timeoutMs: 10_000 })
+    const sum = await deps.run(asUserTool(["sha256sum", "--", hostRd()]), { env: childEnv, timeoutMs: 60_000 })
+    const got = sum.code === 0 ? (sum.stdout.trim().split(/\s+/)[0] ?? "") : ""
+    ev.channelInstall = { regularFile: kind.code === 0 && kind.stdout.trim() === "regular file", sha256Matches: got === install.sha256 }
+    say(`join's cmux-rd step: exit ${step.code}; ~/.local/bin/cmux-rd ${ev.channelInstall.regularFile ? "is a regular file" : "is not a regular file"}, ${ev.channelInstall.sha256Matches ? "with the channel's sha256" : "not the channel's sha256"}`)
+    if (!ev.channelInstall.regularFile || !ev.channelInstall.sha256Matches)
+      throw new Failed(`share: the join did not install the channel's cmux-rd at ~/.local/bin/cmux-rd (${lastLine(step) || `exit ${step.code}`})`)
   }
 
   const runShare = async (sh: NonNullable<Options["share"]>, daemonStartedAt: number) => {
@@ -1132,6 +1188,18 @@ export async function runE2E(
     if (typeof record?.credential !== "string" || !/^cmm_[A-Za-z0-9_-]{16,4096}$/.test(record.credential)) throw new Failed("credential file holds no credential")
     if (record.machine_id !== evidence.machineId) throw new Failed("credential file names another machine")
 
+    // 3a. share_install: channel. The join line's cmux-rd step, part of the join, before the daemon starts.
+    // Its failure is the share's: the join's checks still run.
+    if (opts.share?.install && shareReady) {
+      try {
+        await installFromChannel(opts.share.install)
+      } catch (e) {
+        if (!(e instanceof Failed) || cleaning) throw e
+        problems.push(e.message)
+        shareReady = false
+      }
+    }
+
     // 4. Daemon in the foreground until a heartbeat under the limit.
     live()
     const daemonStartedAt = deps.now()
@@ -1238,13 +1306,23 @@ export async function runE2E(
     // One process with a fixed argv archives the whole home (names, link targets and contents), so no
     // file name ever reaches an argv. Incomplete is a failure: tar must read everything and exit 0.
     const archive = await deps.run(asUserTool(["tar", "-C", opts.home, "--one-file-system", "--format=gnu", "-cf", "-", "."]), { env: childEnv, timeoutMs: 30_000, binary: true })
-    // tar skips what it cannot archive (a socket, say) with only a warning and exit 0: any word on stderr
-    // means the archive is not the whole home.
-    if (archive.code !== 0 || archive.stderr.trim() !== "") throw new Error("tar failed or skipped an entry")
+    // tar skips what it cannot archive with only a warning and exit 0. A socket is the one entry it may skip:
+    // a socket holds no bytes (the share host's, left by its unit when the user's processes are killed), and
+    // its name, which tar prints, is scanned below like every other name. Any other word on stderr means the
+    // archive is not the whole home, and the failure names it.
+    const credentialEntry = `./${credentialFile.slice(opts.home.length + 1)}`
+    const warnings = archive.stderr.split("\n").filter((l) => l.trim())
+    // Never the credential file's own path: a socket there means the credential is not where it must be.
+    const skipped = warnings.filter((l) => !isSocketSkip(l) || l.trim() === `tar: ${credentialEntry}: socket ignored`)
+    if (archive.code !== 0 || skipped.length > 0) throw new HomeScanError(`tar ${archive.code !== 0 ? `exit ${archive.code}` : "skipped an entry"}${skipped.length ? `: ${cleanLine(skipped[0])}` : ""}`)
     let cmj = 0
     let cmm = 0
     let held = 0
-    const credentialEntry = `./${credentialFile.slice(opts.home.length + 1)}`
+    for (const line of warnings) {
+      cmj += count(line, "cmj_")
+      cmm += count(line, "cmm_")
+      for (const v of secrets) if (v.length >= 8 && !v.startsWith("cmm_") && line.includes(v)) held += 1
+    }
     for (const entry of tarEntries(archive.stdout)) {
       const meta = `${entry.name}\n${entry.link}`
       cmj += count(meta, "cmj_") + count(entry.body, "cmj_")
@@ -1257,10 +1335,10 @@ export async function runE2E(
     evidence.secretScan.home.cmj = cmj
     evidence.secretScan.home.cmm = cmm
     if (held > 0) problems.push("the home holds a value of this run's sign-in or tokens")
-  } catch {
+  } catch (e) {
     evidence.secretScan.home.cmj = null
     evidence.secretScan.home.cmm = null
-    problems.push("could not scan the whole disposable home")
+    problems.push(`could not scan the whole disposable home${e instanceof HomeScanError ? ` (${e.message})` : ""}`)
   }
   // The viewer's home: nothing of this run's sign-in (the access token reached the viewer on stdin only).
   if (opts.share && viewerStarted && evidence.share) {
@@ -1285,9 +1363,12 @@ export async function runE2E(
   }
   const logText = [...transcript, ...childText].join("\n")
   evidence.secretScan.log = { cmj: count(logText, "cmj_"), cmm: count(logText, "cmm_") }
-  expect(evidence.secretScan.home.cmj === 0, "the home holds a join token")
-  if (credentialPath) expect(evidence.secretScan.home.credentialFileCmm === 1, "the credential file does not hold exactly one credential")
-  expect(evidence.secretScan.home.cmm === 0, "the home holds a credential outside the credential file")
+  // An unscanned home is already a problem above; its counts are unknown, not found.
+  if (evidence.secretScan.home.cmj !== null) {
+    expect(evidence.secretScan.home.cmj === 0, "the home holds a join token")
+    if (credentialPath) expect(evidence.secretScan.home.credentialFileCmm === 1, "the credential file does not hold exactly one credential")
+    expect(evidence.secretScan.home.cmm === 0, "the home holds a credential outside the credential file")
+  }
   expect(evidence.secretScan.log.cmj === 0 && evidence.secretScan.log.cmm === 0, "output holds a token or credential")
   if (secrets.some((s) => s.length >= 4 && logText.includes(s))) problems.push("output holds a secret value")
 
@@ -1335,7 +1416,17 @@ export function parseArgs(argv: string[]): Options {
     sha: value("--sha"),
     bench: value("--bench"),
     ...(argv.includes("--share-cmux-rd")
-      ? { share: { cmuxRd: value("--share-cmux-rd"), viewerUser: value("--viewer-user"), viewerHome: value("--viewer-home"), hub: value("--device-hub") } }
+      ? {
+          share: {
+            cmuxRd: value("--share-cmux-rd"),
+            viewerUser: value("--viewer-user"),
+            viewerHome: value("--viewer-home"),
+            hub: value("--device-hub"),
+            ...(argv.includes("--share-install-script")
+              ? { install: { joinScript: value("--share-install-script"), sha256: value("--share-rd-sha256") } }
+              : {})
+          }
+        }
       : {})
   }
 }
@@ -1432,6 +1523,31 @@ export function realDeps(): Deps {
       }),
     timeout: (ms) => AbortSignal.timeout(ms)
   }
+}
+
+if (import.meta.main && process.argv.includes("--scenario")) {
+  // Scenarios other than the join: no stack secret is read or needed (the Macs are signed in by the person).
+  const argv = process.argv.slice(2)
+  const scenario = argv[argv.indexOf("--scenario") + 1]
+  if (scenario !== "own-machine-parity") {
+    console.error(`machine-join-e2e: refused: unknown scenario ${scenario}`)
+    process.exit(2)
+  }
+  const m = await import("./own-machine-parity")
+  const o = m.parseOptions(argv, process.env)
+  if (typeof o === "string") {
+    console.error(`machine-join-e2e: refused: ${o}`)
+    process.exit(2)
+  }
+  const real = realDeps()
+  const deps: import("./own-machine-parity").Deps = {
+    exec: (argv, timeoutMs) => real.run(argv, { env: { PATH: process.env.PATH ?? CHILD_PATH, HOME: process.env.HOME ?? "/" }, timeoutMs }),
+    now: real.now,
+    sleep: (ms) => real.sleep(ms),
+    write: real.write,
+    writeFile: real.writeFile
+  }
+  process.exit(m.exitCode(await m.runScenario(o, deps)))
 }
 
 if (import.meta.main) {

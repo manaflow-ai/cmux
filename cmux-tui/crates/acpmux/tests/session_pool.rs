@@ -32,7 +32,13 @@ struct Daemon {
     spare: bool,
     /// The readiness line of the current run (it has the `webUrl`).
     ready: String,
+    /// The daemon holds [`PERSON_KEY`] (`--person-key-fd`): a connection that proves it
+    /// (`Rpc::prove`) is the person's, and a chat it makes is the person's (`created_by.rs`).
+    proven: bool,
 }
+
+/// The person key a `proven` daemon holds.
+const PERSON_KEY: &str = "7a0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6";
 
 fn profile(tag: &str) -> Value {
     json!({"argv": ["python3", FAKE], "env": {
@@ -54,12 +60,18 @@ impl Daemon {
 
     /// `with_fakeb` with the cmux settings file `settings`, written before the first start.
     fn with_settings(tag: &str, debounce_ms: u64, fakeb: &Value, settings: Option<Value>) -> Self {
-        Self::with_all(tag, debounce_ms, fakeb, settings, false)
+        Self::with_all(tag, debounce_ms, fakeb, settings, false, false)
     }
 
     /// `new` with spares on.
     fn with_spare(tag: &str) -> Self {
-        Self::with_all(tag, 0, &profile("b"), None, true)
+        Self::with_all(tag, 0, &profile("b"), None, true, false)
+    }
+
+    /// `with_fakeb` on a daemon that holds the person key (`proven`): a Claude Code chat takes a
+    /// pooled agent only when the person made it (`hub/host_level.rs` `made_for_a_person`).
+    fn with_fakeb_proven(tag: &str, fakeb: &Value) -> Self {
+        Self::with_all(tag, 0, fakeb, None, false, true)
     }
 
     fn with_all(
@@ -68,6 +80,7 @@ impl Daemon {
         fakeb: &Value,
         settings: Option<Value>,
         spare: bool,
+        proven: bool,
     ) -> Self {
         // Short: socket paths must stay under the macOS limit.
         let home = std::env::temp_dir().join(format!("asp-{tag}-{}", std::process::id()));
@@ -80,6 +93,7 @@ impl Daemon {
             debounce_ms,
             spare,
             ready: String::new(),
+            proven,
         };
         daemon.write_config(fakeb);
         if let Some(settings) = settings {
@@ -105,8 +119,19 @@ impl Daemon {
 
     fn start(&mut self) {
         assert!(self.child.is_none());
-        let mut child = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[])
-            .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
+        let mut command = daemon_env::command(&self.home, daemon_env::Agents::StandIn, &[]);
+        command.args([
+            "daemon",
+            "run",
+            "--listen",
+            "127.0.0.1:0",
+            "--ready-fd",
+            "1",
+            "--log",
+            "warn",
+        ]);
+        let key_fd = self.proven.then(|| person_key_fd(&mut command));
+        let mut child = command
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
             // The cmux settings file: absent (every key at its default) unless a test writes it.
@@ -143,6 +168,10 @@ impl Daemon {
             .stderr(Stdio::inherit())
             .spawn()
             .expect("start daemon");
+        if let Some(fd) = key_fd {
+            // SAFETY: the child has its own copy on fd 3.
+            unsafe { libc::close(fd) };
+        }
         self.ready = daemon_env::ready_line(child.stdout.take().unwrap());
         self.child = Some(child);
     }
@@ -262,6 +291,21 @@ impl Rpc {
         v["result"].clone()
     }
 
+    /// Proves the person on this connection with [`PERSON_KEY`] (a `proven` daemon's).
+    async fn prove(&mut self) {
+        let init = self.call("initialize", json!({"protocolVersion": 1})).await;
+        let challenge = &init["_meta"]["acpmux"]["personChallenge"];
+        let proof = acpmux::hub::person::person_proof(
+            PERSON_KEY,
+            acpmux::hub::person::TRANSPORT_UNIX,
+            challenge["nonce"].as_str().unwrap_or_else(|| panic!("{init}")),
+            challenge["connection"].as_str().unwrap(),
+        )
+        .unwrap();
+        let proven = self.call("_acpmux/person_prove", json!({"proof": proof})).await;
+        assert_eq!(proven["person"], true, "{proven}");
+    }
+
     /// The error a request answers with.
     async fn call_err(&mut self, method: &str, params: Value) -> String {
         let v = self.raw(method, params).await;
@@ -288,6 +332,33 @@ impl Rpc {
             }
         }
     }
+}
+
+/// Gives `command` [`PERSON_KEY`] on fd 3 (`--person-key-fd 3`); returns the read end, which the
+/// caller closes once the daemon has started.
+fn person_key_fd(command: &mut std::process::Command) -> i32 {
+    use std::os::unix::process::CommandExt as _;
+    command.args(["--person-key-fd", "3"]);
+    let mut fds = [-1i32; 2];
+    // SAFETY: a fresh pipe; both ends are owned here.
+    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+    let line = format!("{PERSON_KEY}\n");
+    // SAFETY: the write end is open; the line fits the pipe buffer.
+    let n = unsafe { libc::write(fds[1], line.as_ptr().cast(), line.len()) };
+    assert_eq!(n as usize, line.len());
+    // SAFETY: closing our own write end.
+    unsafe { libc::close(fds[1]) };
+    let read_end = fds[0];
+    // SAFETY: only dup2 between fork and exec (async-signal-safe).
+    unsafe {
+        command.pre_exec(move || {
+            if libc::dup2(read_end, 3) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    read_end
 }
 
 fn alive(pid: i64) -> bool {
@@ -484,8 +555,10 @@ async fn a_credentialed_hint_is_taken_only_by_a_start_with_that_credential() {
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let fakeb =
         json!({"kind": "claude-stdio", "family": "claude", "argv": ["python3", fake_claude]});
-    let daemon = Daemon::with_fakeb("cred", 0, &fakeb);
+    // The person's chats: only theirs take a pooled Claude Code (`made_for_a_person`).
+    let daemon = Daemon::with_fakeb_proven("cred", &fakeb);
     let mut rpc = daemon.rpc().await;
+    rpc.prove().await;
     let home = daemon.home.clone();
     let credential = |token: &str| json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": token}});
     let start = |token: Option<&str>| {
@@ -764,8 +837,9 @@ async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
         "family": "claude",
         "argv": ["python3", fake_claude, "--permission-mode", "bypassPermissions"],
     });
-    let daemon = Daemon::with_fakeb("claudepool", 0, &fakeb);
+    let daemon = Daemon::with_fakeb_proven("claudepool", &fakeb);
     let mut rpc = daemon.rpc().await;
+    rpc.prove().await;
     let home = daemon.home.clone();
     let warmed =
         rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
@@ -810,8 +884,9 @@ async fn a_pooled_claude_pinned_to_manual_is_taken_in_manual() {
         "argv": ["python3", fake_claude, "--permission-mode", "default"],
         "env": {"FAKE_CLAUDE_INIT_ON_TURN": "1"},
     });
-    let daemon = Daemon::with_fakeb("claudepin", 0, &fakeb);
+    let daemon = Daemon::with_fakeb_proven("claudepin", &fakeb);
     let mut rpc = daemon.rpc().await;
+    rpc.prove().await;
     let home = daemon.home.clone();
     let warmed =
         rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
@@ -821,6 +896,89 @@ async fn a_pooled_claude_pinned_to_manual_is_taken_in_manual() {
     assert!(taken(&daemon, &claimed), "the session came from the pool");
     let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
     assert_eq!(info["modes"]["currentModeId"], "default", "{info}");
+}
+
+/// A Claude Code chat a script makes never takes a pooled Claude Code: the pool started it for
+/// the person, and its `initialize` asked for a next-prompt suggestion after every turn, which
+/// Claude Code decides once per process. Such a chat starts cold and asks for none
+/// (`hub/host_level.rs` `start_params`); the person's own chat still takes the warm one. On two
+/// Cloud agent machines 81 of the chats scripts made had taken one, and Claude Code kept
+/// suggesting after every turn (sr2 audit, 2026-11-22).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_scripts_claude_chat_starts_cold_without_suggestions_and_leaves_the_warm_one() {
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let tag = "claudescript";
+    let init_log = std::env::temp_dir().join(format!("asp-{tag}-init-{}.log", std::process::id()));
+    let _ = std::fs::remove_file(&init_log);
+    let fakeb = json!({
+        "kind": "claude-stdio",
+        "family": "claude",
+        "argv": ["python3", fake_claude],
+        "env": {"FAKE_CLAUDE_INIT_LOG": init_log.display().to_string()},
+    });
+    let daemon = Daemon::with_fakeb_proven(tag, &fakeb);
+    let home = daemon.home.clone();
+    // The script: a connection that proved nothing (`created_by.rs`: a script).
+    let mut script = daemon.rpc().await;
+    let warmed = script
+        .call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true}))
+        .await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut script, "fakeb").await;
+    let pooled = one_pool_record(&daemon).await;
+    let (scripts, _) = new_session(&mut script, &home, "fakeb").await;
+    assert!(!taken(&daemon, &scripts), "a script's chat took the person's warm Claude Code");
+    assert_ne!(scripts, pooled["session_id"].as_str().unwrap());
+    let harness_pid = |session: &str| {
+        let record = daemon
+            .host_records()
+            .into_iter()
+            .find(|r| r["session_id"] == session)
+            .unwrap_or_else(|| panic!("{session} has no host record"));
+        record["harness_pid"].as_i64().unwrap()
+    };
+    let asked = |pid: i64| {
+        let log = std::fs::read_to_string(&init_log).unwrap_or_default();
+        log.lines()
+            .filter_map(|l| l.strip_prefix(&format!("init {pid} ")))
+            .map(|v| v == "true")
+            .collect::<Vec<_>>()
+    };
+    // `session/new` returns before the harness's `initialize` (a deferred start): its line is
+    // waited for, bounded, never read once at once (an empty read was this test's red).
+    let settled = |pid: i64| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        loop {
+            let got = asked(pid);
+            if !got.is_empty() || std::time::Instant::now() > deadline {
+                let log = std::fs::read_to_string(&init_log).unwrap_or_default();
+                return (got, log);
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    let script_pid = harness_pid(&scripts);
+    let (got, log) = settled(script_pid);
+    assert_eq!(
+        got,
+        [false],
+        "the script's Claude Code asked for suggestions (pid {script_pid}; log {log:?})"
+    );
+
+    // The person's chat takes the warm one, which asked for them.
+    let mut person = daemon.rpc().await;
+    person.prove().await;
+    let (persons, _) = new_session(&mut person, &home, "fakeb").await;
+    assert!(taken(&daemon, &persons), "the person's chat started cold");
+    assert_runs_on_pooled_host(&daemon, &persons, &pooled);
+    let person_pid = harness_pid(&persons);
+    let (got, log) = settled(person_pid);
+    assert_eq!(
+        got,
+        [true],
+        "the person's Claude Code had no suggestions (pid {person_pid}; log {log:?})"
+    );
+    let _ = std::fs::remove_file(&init_log);
 }
 
 /// `sessions.allowFullAccess` off: a pooled chat whose harness started in full access on its own
@@ -1803,6 +1961,69 @@ async fn a_spare_whose_agent_died_is_replaced() {
     }
 }
 
+/// `with_spare` on a daemon that holds the person key: a connection that proves it is the
+/// person's (`Rpc::prove`), an unproven one is a script's.
+impl Daemon {
+    fn with_spare_proven(tag: &str) -> Self {
+        Self::with_all(tag, 0, &profile("b"), None, true, true)
+    }
+}
+
+/// The pool's entries with the spare role (`_acpmux/status` `pool`).
+async fn spare_entries(rpc: &mut Rpc) -> Vec<Value> {
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    status["pool"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["roles"].as_array().is_some_and(|r| r.iter().any(|r| r == "spare")))
+        .cloned()
+        .collect()
+}
+
+/// A spare gone while the person was away (idled out after `pool.spareIdleMinutes`, or drained,
+/// here by a config reload) starts again on the person's next request, never on a script's, and
+/// is never wanted twice while it warms or is ready.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_spare_gone_while_the_person_was_away_starts_again_when_they_are_back() {
+    let daemon = Daemon::with_spare_proven("sprp");
+    let home = daemon.home.clone();
+    let mut script = daemon.rpc().await;
+    new_session(&mut script, &home, "fakeb").await;
+    wait_spare_ready(&mut script, "fakeb").await;
+    // Every pooled entry ends at a config reload, the spare too, as at its idle exit.
+    script.call("_acpmux/reload_config", json!({})).await;
+    assert!(spare_entries(&mut script).await.is_empty(), "the reload drained the spare");
+
+    // A script's requests are no person: nothing starts.
+    for _ in 0..5 {
+        script.call("_acpmux/status", json!({})).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(spare_entries(&mut script).await.is_empty(), "a script's request starts no spare");
+
+    // The person's first request wants it again; a burst while it warms wants it once.
+    let mut person = daemon.rpc().await;
+    person.prove().await;
+    for _ in 0..20 {
+        person.call("_acpmux/status", json!({})).await;
+    }
+    let status = wait_spare_ready(&mut person, "fakeb").await;
+    let spares = spare_entries(&mut person).await;
+    assert_eq!(spares.len(), 1, "one spare: {status}");
+    for _ in 0..20 {
+        person.call("_acpmux/status", json!({})).await;
+    }
+    tokio::time::sleep(Duration::from_millis(INIT_MS + NEW_MS)).await;
+    assert_eq!(spare_entries(&mut person).await.len(), 1, "a ready spare is not wanted again");
+    assert_eq!(daemon.pool_records().len(), 1, "one pooled host: {:?}", daemon.pool_records());
+    // The spare has the shape of the session that made it (the script's here, as in
+    // `a_restarted_daemon_starts_a_spare_for_a_harness_it_used`): a session of that shape takes it.
+    let (next, _) = new_session(&mut script, &home, "fakeb").await;
+    assert!(taken(&daemon, &next), "the next session of its shape took the re-wanted spare");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn with_spares_off_a_session_leaves_no_spare() {
     let daemon = Daemon::new("spro", 0);
@@ -1845,8 +2066,9 @@ async fn a_pooled_claude_taken_under_a_name_runs_under_it_and_follows_a_rename()
         "argv": ["python3", fake_claude],
         "env": {"FAKE_CLAUDE_RENAMED": renamed.display().to_string()},
     });
-    let daemon = Daemon::with_fakeb("claudenamed", 0, &fakeb);
+    let daemon = Daemon::with_fakeb_proven("claudenamed", &fakeb);
     let mut rpc = daemon.rpc().await;
+    rpc.prove().await;
     let home = daemon.home.clone();
     let warmed =
         rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;

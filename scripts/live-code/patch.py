@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Live code patch for the app (Packages/macOS/CmuxNext/Sources/CmuxNextLiveCode/LiveCode.swift).
+"""Live code patch for the app (Packages/Shared/CmuxLiveCode: the macOS app, and the iPhone app in the
+iOS Simulator, scripts/live-code/ios-sim.sh; the frontend command's -target and -sdk pick the platform).
 
 Compiles edited Swift files, of any CmuxNext module, with the frontend command Xcode used for each
 file's module in the running app's build (scripts/live-code/build.sh keeps it in its xcodebuild log),
@@ -23,7 +24,13 @@ edits on disk included. A file that defines stored global or static state is lef
 would bring its own copy of that state, empty, and the app's would be lost. That file's functions
 keep the code they run now (the build's, or an earlier patch's).
 
-Prints `patch.py: DIR/patch-....dylib compile_s=... link_s=...`.
+Prints `patch.py: DIR/patch-....dylib lookup_s=... compile_s=... link_s=... place_s=... total_s=...`: finding
+the build's command (cached beside the log in LOG.commands.json, so after the first save it is a JSON read), the
+compile, the link and signing, the move into the live folder.
+
+  scripts/live-code/patch.py --log LOG --module MODULE --warm
+
+--warm only fills that cache (live mode runs it when its watcher starts).
 """
 import argparse
 import concurrent.futures
@@ -56,27 +63,83 @@ DROP = {
 }
 
 
-def module_commands(log, module):
-    """The last frontend compile argv for `module` in the log, and its driver's .SwiftFileList."""
-    frontend, filelist = None, None
+def scan_commands(log, module):
+    """The last frontend compile argv for `module` in the log, and its driver's .SwiftFileList.
+
+    A cheap substring test picks the candidate lines and only the last of each kind is split: a live
+    code build logs one long frontend line per batch, and splitting them all cost seconds a save."""
+    needle = f"-module-name {module} "
+    frontends, drivers = [], []
     with open(log, errors="replace") as lines:
         for raw in lines:
+            if needle not in raw:
+                continue
             text = raw.strip()
-            if f"-module-name {module} " not in text:
-                continue
-            try:
-                argv = shlex.split(text)
-            except ValueError:
-                continue
             if text.startswith("builtin-SwiftDriver "):
-                filelist = next((a[1:] for a in argv if a.startswith("@") and a.endswith(".SwiftFileList")), filelist)
-                continue
-            start = next((i for i, a in enumerate(argv) if a.endswith("/swift-frontend")), None)
-            if start is not None and "-frontend" in argv and "-c" in argv:
-                frontend = argv[start:]
+                if ".SwiftFileList" in text:
+                    drivers.append(text)
+            elif "/swift-frontend" in text and " -frontend" in text and " -c" in text:
+                frontends.append(text)
+    frontend, filelist = None, None
+    for text in reversed(frontends):
+        try:
+            argv = shlex.split(text)
+        except ValueError:
+            continue
+        start = next((i for i, a in enumerate(argv) if a.endswith("/swift-frontend")), None)
+        if start is not None and "-frontend" in argv and "-c" in argv:
+            frontend = argv[start:]
+            break
+    for text in reversed(drivers):
+        try:
+            argv = shlex.split(text)
+        except ValueError:
+            continue
+        filelist = next((a[1:] for a in argv if a.startswith("@") and a.endswith(".SwiftFileList")), None)
+        if filelist:
+            break
     if frontend and not filelist:
         # No driver line: the frontend's own list of the module's files (a file-at-a-time build).
         filelist = next((frontend[i + 1] for i, a in enumerate(frontend[:-1]) if a == "-filelist"), None)
+    return frontend, filelist
+
+
+def commands_cache(log):
+    return f"{log}.commands.json"
+
+
+def module_commands(log, module):
+    """scan_commands, kept beside the log (LOG.commands.json) per module and read again only when the
+    log's size or mtime moved: each save of a live mode compiles with the same build's command."""
+    try:
+        st = os.stat(log)
+    except OSError:
+        return None, None
+    key = [st.st_size, st.st_mtime_ns]
+    cache = commands_cache(log)
+    try:
+        with open(cache) as f:
+            known = json.load(f)
+    except (OSError, ValueError):
+        known = {}
+    if known.get("log") != key:
+        known = {"log": key, "modules": {}}
+    hit = known["modules"].get(module)
+    if hit and hit.get("frontend"):
+        return hit["frontend"], hit.get("filelist")
+    frontend, filelist = scan_commands(log, module)
+    if frontend:
+        known["modules"][module] = {"frontend": frontend, "filelist": filelist}
+        temp = f"{cache}.{os.getpid()}.tmp"
+        try:
+            with open(temp, "w") as f:
+                json.dump(known, f)
+            os.replace(temp, cache)  # whole or not at all: two saves at once never read half of it
+        except OSError:  # a log in a folder this user cannot write: no cache, the scan still answers
+            try:
+                os.unlink(temp)
+            except OSError:
+                pass
     return frontend, filelist
 
 
@@ -99,6 +162,11 @@ def source_commit(edited):
     head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     dirty = subprocess.run(["git", "-C", root, "diff", "--quiet", "HEAD", "--", *edited]).returncode != 0
     return head + ("+dirty" if dirty else "") if head else None
+
+
+def sidecar_record(edited):
+    """What `cmux live-code status` shows of a patch: its commit and files."""
+    return {"commit": source_commit(edited), "files": [os.path.relpath(p, source_root(edited) or "/") for p in edited]}
 
 
 def checkout_root(files, module):
@@ -215,6 +283,31 @@ def module_of(path):
     return parts[at + 1] if 0 <= at < len(parts) - 2 else None
 
 
+def module_in_log(log, path):
+    """The module whose file list in the build's log holds `path`: an Xcode target's sources are in no
+    Sources/ folder (the iPhone app's cmux-next-ios/App, scripts/live-code/ios-sim.sh)."""
+    real = os.path.realpath(path)
+    seen = set()
+    with open(log, errors="replace") as lines:
+        for raw in lines:
+            text = raw.strip()
+            if not text.startswith("builtin-SwiftDriver ") or "-module-name " not in text:
+                continue
+            try:
+                argv = shlex.split(text)
+            except ValueError:
+                continue
+            at = argv.index("-module-name") if "-module-name" in argv else len(argv)
+            module = argv[at + 1] if at + 1 < len(argv) else None
+            filelist = next((a[1:] for a in argv if a.startswith("@") and a.endswith(".SwiftFileList")), None)
+            if not module or not filelist or (module, filelist) in seen or not os.path.exists(filelist):
+                continue
+            seen.add((module, filelist))
+            if real in (os.path.realpath(f) for f in read_filelist(filelist)):
+                return module
+    return None
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--log", required=True, help="reload.sh's xcodebuild log of the running build")
@@ -227,8 +320,16 @@ def main():
     parser.add_argument("--optimize", action="store_true", help="compile at -O instead of the build's -Onone")
     parser.add_argument("--all", action="store_true", help="every file of the module, not only FILE")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 4, help="compiles at once")
+    parser.add_argument("--warm", action="store_true",
+                        help="only read --module's command from the log into LOG.commands.json, so a first save skips it")
     parser.add_argument("files", nargs="*")
     opts = parser.parse_args()
+    if opts.warm:
+        module = opts.module or "CmuxNextApp"
+        frontend, _ = module_commands(opts.log, module)
+        if not frontend:
+            sys.exit(f"patch.py: no frontend compile of {module} in {opts.log}")
+        return
     if not opts.files and not opts.all:
         parser.error("name the edited FILEs, or --all")
     started = time.time()
@@ -236,7 +337,7 @@ def main():
     # --all is one module's every file: --module's, else CmuxNextApp's.
     modules = {}
     for path in opts.files:
-        module = opts.module or module_of(path)
+        module = opts.module or module_of(path) or module_in_log(opts.log, path)
         if not module:
             sys.exit(f"patch.py: {path} is in no module's Sources/ folder; pass --module")
         modules.setdefault(module, []).append(path)
@@ -245,10 +346,16 @@ def main():
     if opts.all and len(modules) > 1:
         sys.exit("patch.py: --all is one module's files; these are in " + ", ".join(sorted(modules)))
     work = tempfile.mkdtemp(prefix="cmux-live-code-patch.")
+    # The sidecar's commit (git, up to a few hundred ms in a big checkout) is read while the compile runs.
+    sidecar_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    sidecar = None
+    lookup_s = 0.0
+    compile_started = None
     objects, argv, frontend = [], None, None
     # Every module's edited files, for the sidecar.
     all_edited = []
     for module, edited in modules.items():
+        looked = time.time()
         frontend, filelist = module_commands(opts.log, module)
         if not frontend:
             sys.exit(f"patch.py: no frontend compile of {module} in {opts.log} (built with scripts/live-code/build.sh?)")
@@ -264,7 +371,11 @@ def main():
             edited = [os.path.join(tree, path) for path in edited]
         else:
             edited = [os.path.realpath(path) for path in edited]
-        real = {path if opts.tree else os.path.realpath(path): path for path in files}
+        real = {path: path for path in files}
+        if not opts.tree and (opts.all or any(path not in real for path in edited)):
+            # The list names a file by another path than its real one (a symlinked folder): resolve them
+            # all. Skipped when every edited file is listed as is, the usual case: 1308 realpaths a save.
+            real = {os.path.realpath(path): path for path in files}
         if opts.all:
             edited = list(real)
         missing = [path for path in edited if path not in real]
@@ -272,11 +383,15 @@ def main():
             sys.exit(f"patch.py: not in {module}'s build: {', '.join(missing)} (a new file needs a rebuild for now)")
         if "-Onone" not in frontend or "-enable-testing" not in frontend:
             print(f"patch.py: warning: {module} was not built -Onone and testable; a patch may not show", file=sys.stderr)
+        lookup_s += time.time() - looked  # the command, the module's file list and its real paths
         module_work = os.path.join(work, module)
         os.makedirs(module_work)
         argv, module_objects = patch_argv(frontend, files, [real[path] for path in edited], module_work, optimize=opts.optimize)
         with open(os.path.join(module_work, "command"), "w") as f:
             f.write(shlex.join(argv) + "\n")
+        if len(modules) == 1 and not opts.all:  # one module: its edited files are the patch's
+            sidecar = sidecar_pool.submit(sidecar_record, list(edited))
+        compile_started = compile_started or time.time()
         failed = compile_all(argv, module_work, max(1, opts.jobs))
         if failed:
             sys.stderr.write(failed[0][-6000:])
@@ -316,14 +431,18 @@ def main():
     linked = time.time()
     os.makedirs(opts.live, exist_ok=True)
     # The sidecar first (`cmux live-code status` shows its commit and files), then the dylib.
+    record = sidecar.result() if sidecar else sidecar_record(all_edited)
+    sidecar_pool.shutdown(wait=False)
     with open(os.path.join(opts.live, name[:-len(".dylib")] + ".json"), "w") as f:
-        json.dump({"commit": source_commit(all_edited),
-                   "files": [os.path.relpath(p, source_root(all_edited) or "/") for p in all_edited]}, f)
+        json.dump(record, f)
     # Moved into place in one step, so the app never reads a half-written file.
     hidden = os.path.join(opts.live, "." + name)
     shutil.move(dylib, hidden)
     os.replace(hidden, os.path.join(opts.live, name))
-    print(f"patch.py: {os.path.join(opts.live, name)} compile_s={compiled - started:.2f} link_s={linked - compiled:.2f} "
+    placed = time.time()
+    print(f"patch.py: {os.path.join(opts.live, name)} lookup_s={lookup_s:.3f} "
+          f"compile_s={compiled - (compile_started or started):.2f} link_s={linked - compiled:.2f} "
+          f"place_s={placed - linked:.3f} total_s={placed - started:.2f} "
           f"started={started:.3f} files={len(objects)} kept_for_state={kept} optimized={int(opts.optimize)}")
 
 

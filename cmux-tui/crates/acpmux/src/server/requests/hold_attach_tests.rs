@@ -169,7 +169,8 @@ async fn hold_attach_supports_view_typing_presence_and_exact_live_kinds() {
     hub.append(&session, "mux", "tool_call", json!({"tool": "Bash"}));
     let event = first.notification_method(method::MUX_EVENT).await;
     assert_eq!(event["params"]["kind"], "named_kind");
-    assert!(tokio::time::timeout(Duration::from_millis(50), first.outgoing.recv()).await.is_err());
+    let extra = tokio::time::timeout(Duration::from_millis(50), first.outgoing.recv()).await;
+    assert!(extra.is_err(), "the first attach got more than named_kind: {extra:?}");
 
     let detached = second.call(method::MUX_DETACH, json!({"sessionId": ID})).await;
     assert!(detached.get("error").is_none(), "{detached}");

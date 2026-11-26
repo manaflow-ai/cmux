@@ -249,6 +249,29 @@ class RustWorkspacesTests(unittest.TestCase):
                 self.change(path, "{\"v\": 2}\n")
                 self.assertEqual(self.planned(), planned)
 
+    def test_reads_only_plans_a_workspace_only_for_a_file_it_reads_from_elsewhere(self) -> None:
+        # A pull request into feat-cmux-next skips this workflow's jobs (affected-jobs.json pull_request_skip), so
+        # #53827 changed DaemonLanePolicy.swift, which a cmux-next-ios/rust test include_str!s, and landed with that
+        # test red. --reads-only is what such a pull request still runs: the readers of a file it changes.
+        cases = {
+            "schemas/s.json": ["solo"],              # include_str! relative to the source file
+            "proto/v1_y.json": ["solo"],             # a concat! prefix: its directory
+            "fixtures/f.json": ["ws/crates/own"],    # CARGO_MANIFEST_DIR joined with a path
+            "tokens/t.json": ["term", "solo/tool"],  # a "../" const naming a tracked file; include_str!
+            "docs/vws-protocol.json": [],            # an entry's inputs: the push runs them
+            "solo/src/main.rs": [],                  # a workspace's own file: the push runs it
+            "ws/crates/a/src/lib.rs": [],            # a path dependency's file: the push runs it
+            ".github/rust-workspaces.toml": [],      # the planner's own files: its own job tests them
+        }
+        for path, planned in cases.items():
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, "// changed\n" if path.endswith(".rs") else "{\"v\": 2}\n"
+                            if path.endswith(".json") else LIST + "\n# changed\n")
+                result = self.script("plan", "--base", self.base, "--reads-only")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([job["root"] for job in json.loads(result.stdout)], planned)
+
     def test_a_dependencys_own_tests_reads_are_not_its_users_inputs(self) -> None:
         # cmux-action-catalog's tests join CARGO_MANIFEST_DIR with "../../.." (the repository root) and then a path:
         # read as a read of the whole tree, every change planned cmux-app-ffi, the cloud server and three more

@@ -43,6 +43,7 @@ const SCRIPTS: &[Script] = &[
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/zsh/ghostty-integration"),
             include_str!("shell_integration/agent-shims.zsh"),
+            include_str!("shell_integration/shell-state.zsh"),
             include_str!("shell_integration/incognito-history.zsh"),
         ),
     },
@@ -51,6 +52,7 @@ const SCRIPTS: &[Script] = &[
         contents: concat!(
             include_str!("../../../../ghostty-next/src/shell-integration/bash/ghostty.bash"),
             include_str!("shell_integration/agent-shims.bash"),
+            include_str!("shell_integration/shell-state.bash"),
             include_str!("shell_integration/incognito-history.bash"),
         ),
     },
@@ -223,13 +225,26 @@ pub fn keys_to_unset_in_child(env: &[(String, String)]) -> Vec<&'static str> {
     keys_to_unset_in_child_from(env, &|key| std::env::var(key).ok())
 }
 
+/// A tool call's bound: `CMUX_DEADLINE=<epoch s>` and the tool that set it.
+/// A bounded command (a timer, an agent's tool call) that starts the daemon or
+/// the app leaves them in the daemon's environment, and every terminal it
+/// launched would inherit them. A process past its `CMUX_DEADLINE` is ended by
+/// the fleet's orphan reaper (leo-workspace `tools/agent_orphan_reaper.py`), so
+/// a shell and the agent a person runs in it were SIGTERMed (exit 143) hours
+/// later, after a relaunch adopted them. A terminal lives as long as the person
+/// keeps it, never to a call's bound.
+pub const CALL_BOUND_ENV: [&str; 2] = ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"];
+
 /// [`keys_to_unset_in_child`] over the daemon's own environment `inherited`:
-/// the incognito markers a launch with environment `env` must not inherit.
+/// the incognito markers a launch with environment `env` must not inherit, and
+/// a tool call's bound ([`CALL_BOUND_ENV`]), whatever the launch says.
 fn keys_to_unset_in_child_from(
     env: &[(String, String)],
     inherited: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<&'static str> {
-    inherited_keys_to_unset_from(env, inherited)
+    let mut keys = inherited_keys_to_unset_from(env, inherited);
+    keys.extend(CALL_BOUND_ENV);
+    keys
 }
 
 fn inherited_keys_to_unset_from(
@@ -676,6 +691,9 @@ mod prompt_redraw_tests;
 
 #[cfg(all(test, unix))]
 mod incognito_history_tests;
+
+#[cfg(all(test, unix))]
+mod shell_state_tests;
 
 #[cfg(all(test, target_os = "macos"))]
 mod fork_watch;

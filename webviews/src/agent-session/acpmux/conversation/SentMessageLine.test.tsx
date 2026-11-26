@@ -7,8 +7,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
 import { acpmuxSendCall } from "./acpmuxSends";
-import { sendEntries, toolGroups } from "./toolGroups";
-import { AcpmuxSendLine } from "./SentMessageLine";
+import { sendEntries, toolGroups, type SentEntry } from "./toolGroups";
+import { AcpmuxSendLine, sentPageMatches } from "./SentMessageLine";
+import { ToolRows } from "./TurnRows";
 import { configureSentLook } from "./sentMessageLineModel";
 import { configureMessageLineLook } from "./messageLineLook";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
@@ -111,6 +112,39 @@ const toggleOf = (row: HTMLElement) =>
 const expanded = (row: HTMLElement) => toggleOf(row).getAttribute("aria-expanded");
 const rawButton = (container: ParentNode) =>
   container.querySelector<HTMLButtonElement>(".cv-sent__raw > .cv-received__more");
+
+test("a sent message uses its call date for inline timestamp hover", async () => {
+  const container = await line(
+    bash("acpmux send --no-wait coord-deputy 'Finished at 10:20 UTC.'", {
+      startedAt: Date.UTC(2026, 10, 19, 10, 30),
+      output: "queued",
+    }),
+  );
+  await act(async () => toggleOf(rowOf(container)).click());
+  expect(container.querySelector(".cv-received__text time.cv-time-hover")?.getAttribute("datetime")).toBe(
+    "2026-11-19T10:20:00.000Z",
+  );
+});
+
+test("a historical sent message falls back to its stored row date", async () => {
+  const tool = bash("acpmux send --no-wait coord-deputy 'Finished at 10:20 UTC.'", { output: "queued" });
+  const container = await render(
+    <ToolRows
+      row={{
+        id: "historical-send",
+        kind: "activity",
+        version: 1,
+        at: Date.UTC(2026, 10, 19, 10, 30),
+        settled: true,
+        items: [{ kind: "tool", text: tool.title, tool }],
+      }}
+    />,
+  );
+  await act(async () => toggleOf(rowOf(container)).click());
+  expect(container.querySelector(".cv-received__text time.cv-time-hover")?.getAttribute("datetime")).toBe(
+    "2026-11-19T10:20:00.000Z",
+  );
+});
 
 test("a sent message reads its target, how it was taken and its first line, and opens to all of it", async () => {
   const container = await line(
@@ -355,4 +389,16 @@ test("the default keeps the chip, the count and the first line on one line; stac
   } finally {
     await act(async () => configureMessageLineLook("single"));
   }
+});
+
+test("Find in a paged tag send mounts one row for the text every recipient shares, and a recipient's own row for its name", () => {
+  const item = { id: "tag-send", tool: bash("acpmux send --tag crew -") } as unknown as AcpmuxActivity;
+  const sent = (target: string, text: string) =>
+    ({ type: "send", item, send: { target, text, state: "sent" } }) as unknown as SentEntry;
+  const tag = Array.from({ length: 1025 }, (_, at) => sent(`peer-${at}`, "hello crew"));
+  expect(sentPageMatches(tag, { needle: "hello" })).toEqual([0]);
+  expect(sentPageMatches(tag, { needle: "peer-1024" })).toEqual([1024]);
+  // A batch whose messages say different things still finds each one.
+  const batch = [sent("a", "hello one"), sent("b", "hello two"), sent("c", "bye")];
+  expect(sentPageMatches(batch, { needle: "hello" })).toEqual([0, 1]);
 });

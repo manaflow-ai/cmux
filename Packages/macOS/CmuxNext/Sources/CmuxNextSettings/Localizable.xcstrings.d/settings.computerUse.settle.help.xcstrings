@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.computerUse.settle.help" : {
+      "comment" : "Settings > Computer Use: help for After Each Action",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ما ينتظره الوكيل بعد كل نقرة أو ضغطة مفتاح قبل أن ينظر مرة أخرى: أن تتوقف الشاشة عن التغيّر، أو ثانيتين ثابتتين، أو لا شيء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Šta agent čeka nakon svakog klika ili pritiska tipke prije nego ponovo pogleda: da ekran prestane da se mijenja, fiksne 2 sekunde ili ništa."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvad en agent venter på efter hvert klik eller tastetryk, før den ser igen: at skærmen holder op med at ændre sig, faste 2 sekunder eller ingenting."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Worauf ein Agent nach jedem Klick oder Tastendruck wartet, bevor er wieder hinsieht: bis sich der Bildschirm nicht mehr ändert, feste 2 Sekunden oder gar nicht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lo que espera un agente tras cada clic o pulsación de tecla antes de volver a mirar: que la pantalla deje de cambiar, 2 segundos fijos o nada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce qu’un agent attend après chaque clic ou frappe avant de regarder à nouveau : que l’écran cesse de changer, 2 secondes fixes, ou rien."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cosa attende un agente dopo ogni clic o pressione di tasto prima di guardare di nuovo: che lo schermo smetta di cambiare, 2 secondi fissi o niente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エージェントがクリックやキー入力のたびに、次に画面を見る前に待つもの：画面の変化が止まるまで、固定の2秒、または待たない。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អ្វីដែលភ្នាក់ងាររង់ចាំក្រោយការចុច ឬការចុចគ្រាប់ចុចនីមួយៗ មុនពេលមើលម្ដងទៀត៖ រហូតដល់អេក្រង់ឈប់ផ្លាស់ប្ដូរ ២ វិនាទីថេរ ឬគ្មាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "에이전트가 클릭이나 키 입력 후 다시 보기 전에 기다리는 것: 화면 변화가 멈출 때까지, 고정 2초, 또는 기다리지 않음."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hva en agent venter på etter hvert klikk eller tastetrykk før den ser igjen: at skjermen slutter å endre seg, faste 2 sekunder eller ingenting."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Na co agent czeka po każdym kliknięciu lub naciśnięciu klawisza, zanim znów spojrzy: aż ekran przestanie się zmieniać, stałe 2 sekundy albo nic."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O que um agente espera após cada clique ou tecla antes de olhar de novo: a tela parar de mudar, 2 segundos fixos ou nada."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Чего агент ждёт после каждого щелчка или нажатия клавиши, прежде чем снова посмотреть: пока экран не перестанет меняться, фиксированные 2 секунды или ничего."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "สิ่งที่เอเจนต์รอหลังคลิกหรือกดแป้นแต่ละครั้งก่อนจะดูอีกครั้ง: รอจนหน้าจอหยุดเปลี่ยน รอ 2 วินาทีคงที่ หรือไม่รอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bir ajanın her tıklama veya tuş basışından sonra yeniden bakmadan önce beklediği şey: ekranın değişmeyi bırakması, sabit 2 saniye veya hiçbir şey."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "На що агент чекає після кожного клацання чи натискання клавіші, перш ніж знову подивитися: поки екран перестане змінюватися, фіксовані 2 секунди або нічого."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Điều tác nhân chờ sau mỗi lần nhấp hoặc nhấn phím trước khi nhìn lại: màn hình ngừng thay đổi, cố định 2 giây, hoặc không chờ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理每次点击或按键后、再次查看前等待的内容：等屏幕停止变化、固定 2 秒，或不等待。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "代理程式每次點按或按鍵後、再次查看前等待的內容：等螢幕停止變化、固定 2 秒，或不等待。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

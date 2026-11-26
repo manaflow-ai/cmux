@@ -1,0 +1,626 @@
+{
+  "schema": "best-of-n-results/v1",
+  "measured_at": "2026-11-24T20:36:59Z",
+  "task_set": "cmux evals/best-of-n/tasks_real",
+  "model": "claude/haiku",
+  "attempts": 4,
+  "reviewer": "claude/sonnet",
+  "effort": null,
+  "diverse": "models",
+  "plan": [
+    [
+      "claude/haiku",
+      ""
+    ],
+    [
+      "claude/sonnet",
+      ""
+    ],
+    [
+      "codex",
+      ""
+    ],
+    [
+      "claude/haiku",
+      ""
+    ]
+  ],
+  "hints_emulated": null,
+  "n_tasks": 9,
+  "n_started": 9,
+  "single_solve_rate": 0.9444,
+  "pick_solve_rate": 1.0,
+  "oracle_solve_rate": 1.0,
+  "single_test_share": 0.9743,
+  "pick_test_share": 1.0,
+  "oracle_test_share": 1.0,
+  "mean_wall_s": 436.7778,
+  "rows": [
+    {
+      "task": "csvdefuse",
+      "race": "01a20f38066f755c92fef8d7b7a8b568",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "c2 is the only candidate that follows the spec on both disputed points. The spec makes a quoted cell risky for `\\r` only when `\\r` is its first character. c2 tests `first == \"\\r\"`. c1, c3 and c4 test for `\\r` anywhere in the cell, so they wrongly prefix `\"a\\rb\"`. For quoted cells the spec checks the text up to the next `\"`. c2 does that literally, so `\"-1\"\"x\"` is read as the number `-1`. c1 and c4",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 413.4,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "sonnet"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "codex",
+            "model": "gpt-6-astra"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 6,
+          "total": 6,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "eventbox",
+      "race": "01a20f380724757f82c2006fd0eeeed2",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "I read all four diffs against the spec and did not run any code. c1, c2 and c3 follow the spec on slot rule, replacement, `exited`, `empty` and `tree_changed`. c4 has a bug: its `exited` discard reads `k[1]` on every coalesced key. The `config_reload` key is `('config_reload',)`, which has no index 1, so an `exited` push while a `config_reload` is held raises IndexError. c2 skips `config_reload` e",
+      "single": 0.75,
+      "single_tests": 0.96875,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 708.3,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 8,
+          "total": 8,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "sonnet"
+          },
+          "passed": 7,
+          "total": 8,
+          "solved": false,
+          "failures": [
+            "test_empty_keeps_closures: AssertionError()"
+          ]
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "codex",
+            "model": "gpt-6-astra"
+          },
+          "passed": 8,
+          "total": 8,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 8,
+          "total": 8,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "promptmark",
+      "race": "01a20f38084573b882ecbf6f1cb1d9c6",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "c1, c2 and c3 all pass my own fuzz check. I ran 30,000 random byte strings built from mark fragments, each cut at random points, against an independent whole-string reference written from the spec. Every chunked result equalled the one-shot feed plus flush() and the reference. All three also hold `\\x1b` and `\\x1b]1` but pass `\\x1bX` and `]133;` straight through. c1 is the cleanest of the three. It",
+      "single": 0.75,
+      "single_tests": 0.8,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 351.5,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "sonnet"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "codex",
+            "model": "gpt-6-astra"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 1,
+          "total": 5,
+          "solved": false,
+          "failures": [
+            "test_every_split_matches_unsplit: AssertionError(18)",
+            "test_holds_only_a_mark_prefix: AssertionError()",
+            "test_split_finish_mark: AssertionError()",
+            "test_split_prompt_mark: AssertionError()"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "ptycut",
+      "race": "01a20f3809e0775586348b10540af910",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "I read all four diffs against the spec. c1, c2 and c4 are logically the same, and c3 differs only in the order of its checks, which gives the same results. c1 follows the spec's four rules in order with a clear scan for the last ESC in 1..room. It was also checked against a brute-force reference on 373,976 cases, including capacities 1, 2, 3 and 1022. It leaves no stray files and adds no `int | No",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 101.6,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "sonnet"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "codex",
+            "model": "gpt-6-astra"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "rustdoc",
+      "race": "01a20f380e5273359443c311316e2a8b",
+      "state": "completed",
+      "winner": "c3",
+      "reason": "All four candidates escape in a single pass, so `\\` becomes `\\\\`, each of `` ` ``, `<`, `[`, `]` gets one backslash, and `>` is left alone. Only c3 follows the spec's `str(text)` rule for falsy non-strings. It checks `text is None`, then returns `[]` if the folded string is empty, so `0` renders as `\"0\"`. c1, c2 and c4 keep `if not text`, so `0` returns `[]`. c2 also left an untracked `rustdoc/__p",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 276.6,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 4,
+          "total": 4,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "sonnet"
+          },
+          "passed": 4,
+          "total": 4,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "completed",
+          "target": {
+            "harness": "codex",
+            "model": "gpt-6-astra"
+          },
+          "passed": 4,
+          "total": 4,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 4,
+          "total": 4,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "secretlit",
+      "race": "01a20f380f937154b74f97165d646b9b",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "I read the diffs but did not run any of the candidates. c2 matches the spec on every point I checked. It makes NOT_LITERAL start-anchored (a sigil, or an identifier directly before `(` or `[`), so the bracket key now passes. It requires both the letter and the digit before the first `/`. It uses fullmatch, so a trailing newline can't pass, and it makes STAND_IN and NOT_LITERAL ASCII-only. c1 lets ",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 406.5,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "sonnet"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "codex",
+            "model": "gpt-6-astra"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "shellwords",
+      "race": "01a20f381402733dbc67effc61fe1e12",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "I ran all four candidates against about 60 spec cases: the bug case, quoting and escape rules, line continuations, error cases and assignment edge cases. They gave identical results on every case except an empty quoted subscript (`X[\"\"]=v`, `X['']=1`). c2 treats those words as assignments because the raw subscript text is non-empty. c1, c3 and c4 treat them as program words. Bash decides assignmen",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 945.6,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "sonnet"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "codex",
+            "model": "gpt-6-astra"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 7,
+          "total": 7,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "termtail",
+      "race": "01a20f38179c77ff9c4fc7cb75a53252",
+      "state": "completed",
+      "winner": "c2",
+      "reason": "c1, c2 and c4 agree with the spec. I fuzzed all four on 20,000 random byte streams, split across two chunks. I compared tails, change flags, return values and `pending`. c1, c2 and c4 gave identical results. c3 differed on 7 cases, because ESC inside a string stays in the string-escape state when the spec says it starts a new escape. Among the three, c2 is the smallest change. It keeps `strip_ansi",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 452.4,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "sonnet"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "codex",
+            "model": "gpt-6-astra"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 10,
+          "total": 10,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    },
+    {
+      "task": "titlesplit",
+      "race": "01a20f38197c74ef959b3cc3ff7c79d6",
+      "state": "completed",
+      "winner": "c1",
+      "reason": "I read all four diffs. c1, c2, c3 and c4 follow the spec for the glyph ranges and variation selectors. They also handle the whitespace-then-glyph loop, the glyph-only fallback, `store` announcing only when the split pair changes, and `shown_title` validating `title_activity`. c1 is the most robust: it checks activities against a tuple, so an unhashable `title_activity` can't raise. c4 checks again",
+      "single": 1.0,
+      "single_tests": 1.0,
+      "pick": 1.0,
+      "pick_tests": 1.0,
+      "oracle": 1.0,
+      "oracle_tests": 1.0,
+      "wall_s": 275.1,
+      "candidates": [
+        {
+          "id": "c1",
+          "state": "completed",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c2",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "sonnet"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c3",
+          "state": "discarded",
+          "target": {
+            "harness": "codex",
+            "model": "gpt-6-astra"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        },
+        {
+          "id": "c4",
+          "state": "discarded",
+          "target": {
+            "harness": "claude",
+            "model": "haiku"
+          },
+          "passed": 5,
+          "total": 5,
+          "solved": true,
+          "failures": []
+        }
+      ]
+    }
+  ],
+  "win_rate_gain": 0.0556,
+  "oracle_gain": 0.0556,
+  "judge_gap": 0.0
+}

@@ -52,12 +52,12 @@ extension AppActionContext {
         services.windows.reveal(workspaceID: workspaceID)
     }
 
-    /// Shows `tab` in its workspace and pane and selects it.
-    /// Nothing when the run may not change this client's view.
-    func reveal(_ located: LocatedTab) {
+    /// Shows `tab` in its workspace and pane and selects it; `front` gives its window the keys (a banner click: macOS
+    /// fronts the last key window, wrong for a chat in another). Nothing when the run may not change this client's view.
+    func reveal(_ located: LocatedTab, front: Bool = false) {
         guard ActionRunScope.viewChangeAllowed(), let controller = window(showing: located.workspace.id) else { return }
         controller.state.selection.jump(to: located.tab.id, in: located.pane.id, byPerson: ActionRunScope.isPersonsAction())
-        services.paneController(for: located.pane)?.select(StripTabID(located.tab.id))
+        services.paneController(for: located.pane)?.select(StripTabID(located.tab.id)); if front { services.windows.bringToFront(controller) }
     }
 
     /// Every tab in the mirror, workspace order then screen, pane, tab order.

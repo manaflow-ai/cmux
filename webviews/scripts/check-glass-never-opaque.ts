@@ -29,7 +29,9 @@ const SRC = join(dirname(fileURLToPath(import.meta.url)), "../src");
 const ALLOW = /glass-opaque-allow:\s*\S/;
 // Reduce Transparency contexts; `not (...)` and `:not([...])` are the glass side, so they stay checked.
 const REDUCE_MEDIA = /(?<!not\s*)\(\s*prefers-reduced-transparency\s*:\s*reduce\s*\)/;
-const REDUCE_ATTR = /(?<!:not\(\s*)\[data-reduce-transparency\]/;
+// The host's Reduce Transparency, or Liquid Glass off (appearance.liquidGlass, data-glass="off"),
+// outside a `:not(...)` list.
+const REDUCE_ATTR = /(?<!:not\([^)]*)\[data-reduce-transparency\]|(?<!:not\([^)]*)\[data-glass="off"\]/;
 // Host tokens (WebTheme.swift) the CSS never defines but documents as solid.
 const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 // A tooltip or hover card: `.ui-tooltip`, `.ui-title-tooltip`, `.ui-hint`, `.ui-card`, `.cu-tooltip`,
@@ -37,16 +39,22 @@ const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 const TOOLTIP = /tooltip|\.ui-hint\b|\.ui-card\b|hover-?card|\[role=["']?tooltip/i;
 // The History page menu (pages/shared/PageMenu.tsx) drew the solid popup surface under a border
 // (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
-// The suggestion lists, hover action bars and palettes that still drew the solid popup
-// surface a month after that ask (Leo 2026-10-21: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID
-// F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT") are named here too, so none goes solid again.
+// The hover previews, suggestion lists, hover action bars, toasts and the thread minimap's card that
+// still drew their own or the solid popup surface a month after that ask (Leo 2026-10-21: "WHERE IS
+// THE GLASS EVERYWHERE ALL THESE STUPID F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT") are named
+// here too, so none goes solid again.
 const REQUIRED_GLASS_CLASSES = new Set([
   "acpmux-omni",
   "page-menu",
+  "acpmux-header-preview",
+  "acpmux-file-search",
+  "acpmux-cols-card",
+  "acpmux-drop-refusal",
   "hm-suggestions",
   "hc-msg-toolbar",
   "hc-msg-more",
   "lg-palette",
+  "acpmux-minimap__card",
 ]);
 // Tooltip rules whose solid fill never paints, keyed `file selector`, with the reason. Prefer an
 // inline `glass-opaque-allow`; this list holds only fills in a file another open pull request is
@@ -295,6 +303,9 @@ export function fillKind(value: string): Kind {
 export function findOpaqueGlass(srcDir: string = SRC): string[] {
   const found: string[] = [];
   for (const block of glassContextRules(srcDir)) {
+    // A gallery stage (`*.gallery.css`) is not a product surface, as findOpaqueOverlays reckons it:
+    // kit.gallery.css re-declares the theme's opaque --glass-surface base per panel (#46118).
+    if (block.file.endsWith(".gallery.css")) continue;
     // A required surface stays glass even if its old markup has no ui-glass and its CSS no blur.
     const tooltip = TOOLTIP.test(block.selector);
     const glass =
@@ -446,6 +457,40 @@ export function findSolidTooltipMarkup(srcDir: string = SRC): string[] {
       if (names.includes("ui-glass")) continue;
       const line = text.slice(0, match.index).split("\n").length;
       found.push(`${relative(srcDir, file)}:${line}: ${match[0]}`);
+    }
+  }
+  return found;
+}
+
+// Hover surfaces a page draws itself (role="tooltip" in JSX) that are not cmux NEXT product UI, with
+// the reason. Keyed by the file under src/.
+const ROLE_TOOLTIP_ALLOWED = new Map<string, string>([
+  ["optchat-inspector/Term.tsx", "a developer inspector page with its own sheet; it loads no glass.css"],
+]);
+
+/** Every hover surface a page draws by hand (a JSX element with `role="tooltip"`) whose class list
+ * has no `ui-glass`, as `file:line: <the tag's className>`. The header icons' preview drew the solid
+ * elevated surface this way (Leo, 2026-11-20: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID
+ * F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"): neither the class check above nor the CSS check
+ * saw it, since its class named no tooltip and its sheet set no blur. */
+export function findSolidRoleTooltips(srcDir: string = SRC): string[] {
+  const found: string[] = [];
+  for (const file of sourceFiles(srcDir)) {
+    if (!file.endsWith(".tsx")) continue;
+    const where = relative(srcDir, file);
+    if (ROLE_TOOLTIP_ALLOWED.has(where)) continue;
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(/\brole=["']tooltip["']/g)) {
+      const at = match.index ?? 0;
+      const open = text.lastIndexOf("<", at);
+      // The tag's attributes around the role: from its `<` to the role, then a little past it.
+      const tag = text.slice(open, at + 400);
+      const end = tag.search(/\n\s*>|\/>|>\s*\n/);
+      const attributes = end < 0 ? tag : tag.slice(0, end);
+      const classes = /\bclassName\s*=\s*(?:\{\s*)?["`]([^"`]*)["`]/.exec(attributes)?.[1] ?? "";
+      if (classes.split(/\s+/).includes("ui-glass")) continue;
+      const line = text.slice(0, at).split("\n").length;
+      found.push(`${where}:${line}: ${JSON.stringify(classes)}`);
     }
   }
   return found;
@@ -658,6 +703,10 @@ if (import.meta.main) {
   }
   for (const line of findMissingGlassMarkup()) {
     console.error(`a floating surface is glass (add ui-glass): ${line}`);
+    failed = true;
+  }
+  for (const line of findSolidRoleTooltips()) {
+    console.error(`a hover surface is glass (add ui-glass): ${line}`);
     failed = true;
   }
   for (const line of findOpaqueGlass()) {

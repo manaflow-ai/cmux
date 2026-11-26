@@ -10,7 +10,8 @@ name: cmux NEXT base tier kick
 # a base tier run within 15 minutes. The Release compiles (nightly-next's input), the DEV landing
 # compile, the fast tier and every nightly, DEV or promote build still run on each push, untouched.
 # Once the tip has a base tier run, the kick cancels older base tier runs none of whose Mac jobs has
-# started: the tip's run covers their landings (on 2026-10-31 82% of base tier Mac minutes started
+# started or queued for a Mac runner (a queued one keeps its place; while one waits nothing is
+# dispatched; vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED = '0' cancels queued ones again): the tip's run covers their landings (on 2026-10-31 82% of base tier Mac minutes started
 # after a newer base tier run was dispatched). Nothing else is ever cancelled.
 # vars.CMUX_NEXT_BASE_TIER_COALESCE = '0' turns this off and puts the tier back on every push.
 # The kick calls GitHub with its own cmux-bot App token, never github.token: every workflow's
@@ -31,6 +32,10 @@ concurrency:
   group: cmux-next-base-tier-kick
   cancel-in-progress: false
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   kick:
     if: github.repository == 'manaflow-ai/cmux' && format('{0}', vars.CMUX_NEXT_BASE_TIER_COALESCE) != '0'
@@ -39,7 +44,7 @@ jobs:
     # dispatch. It reads the reconciled Linux pool (runner_pools.py keeps it on a
     # live small member), never a fixed Blacksmith size that can stall; the fork
     # routes in front of it never reach the pool read.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The one wait (at most the 15-minute window) plus the listing and the dispatch.
     timeout-minutes: 20
     # github.token only checks out; the API calls use the cmux-bot token minted below.
@@ -59,6 +64,7 @@ jobs:
             scripts/ci/cmux_tui_tree_handoff.py
             scripts/ci/cmux_tui_tree_takeover.py
             scripts/ci/gh_pages.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The kick lists runs and their jobs, dispatches cmux-next.yml and cancels superseded base tier
@@ -76,4 +82,7 @@ jobs:
       - name: Dispatch the base tier when it is due
         env:
           GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+          # '0' cancels and replaces base tier runs whose Mac jobs wait for a Mac runner again (the default
+          # since 2026-11-22 keeps them: a queued or started generated-files job runs to its verdict).
+          CMUX_NEXT_BASE_TIER_KEEP_QUEUED: ${{ vars.CMUX_NEXT_BASE_TIER_KEEP_QUEUED }}
         run: python3 -I scripts/ci/cmux_next_base_tier.py kick --repo "$GITHUB_REPOSITORY"

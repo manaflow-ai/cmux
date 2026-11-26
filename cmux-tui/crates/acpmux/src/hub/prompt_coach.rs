@@ -184,7 +184,16 @@ impl Hub {
             Some(rewrite) => rewrite(prompt),
             None => {
                 let chat = super::complete::ChatRoute::of(session);
-                match self.complete_own(&chat, prompt, MAX_TOKENS, TIMEOUT).await {
+                match self
+                    .complete_chat_own(
+                        &chat,
+                        prompt,
+                        MAX_TOKENS,
+                        TIMEOUT,
+                        super::complete::ModelFallback::HarnessDefault,
+                    )
+                    .await
+                {
                     Ok(text) => Some(text),
                     Err(e) => {
                         tracing::info!(session = %session.id, reason = e.reason(), "prompt coach: no rewrite");

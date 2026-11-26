@@ -45,7 +45,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "arrow.up.to.line",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 1).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         targets: &["workspace"],
         cli_name: "workspace new-at-top",
         starts_terminal: true,
@@ -59,7 +59,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "arrow.down.to.line",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 1).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         targets: &["workspace"],
         cli_name: "workspace new-at-bottom",
         starts_terminal: true,
@@ -102,7 +102,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "server.rack",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 2).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarNew", "create", 2)], ..SurfacePlan::DEFAULT },
         arguments: &[args::MACHINE],
         targets: &["workspace"],
         cli_name: "workspace new-on-machine",
@@ -171,8 +171,10 @@ pub static ACTIONS: &[Action] = &[
         keywords: &["top", "pin", "favorite", "home", "sidebar", "add to top", "remove from top"],
         category: "workspace",
         symbol: "pin.square",
-        surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceRow", "move", 206).folder("move")], ..SurfacePlan::DEFAULT },
+        // No menu row (Leo 2026-11-22, ask-890db939a2: "why is there even a remove from top option. just move it
+        // yourself. you can drag it anywhere you want."): a row is dragged into or out of the top rows.
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["workspace"],
         cli_name: "workspace toggle-top",
         ..Action::DEFAULT
@@ -185,7 +187,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "arrow.down.to.line",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceRow", "move", 203).folder("move")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("dragGesture"), ..SurfacePlan::DEFAULT },
         targets: &["workspace"],
         cli_name: "workspace move-to-bottom",
         ..Action::DEFAULT
@@ -298,7 +300,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "textformat.abc",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "move", 100).folder("sort")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "move", 100)], ..SurfacePlan::DEFAULT },
         targets: &["workspace"],
         cli_name: "workspace sort-by-name",
         ..Action::DEFAULT
@@ -311,7 +313,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "clock",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "move", 101).folder("sort")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "move", 101)], ..SurfacePlan::DEFAULT },
         targets: &["workspace"],
         cli_name: "workspace sort-by-last-used",
         ..Action::DEFAULT
@@ -324,7 +326,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "folder",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "move", 102).folder("sort")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "move", 102)], ..SurfacePlan::DEFAULT },
         targets: &["workspace"],
         cli_name: "workspace sort-by-directory",
         ..Action::DEFAULT
@@ -337,7 +339,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "rectangle.compress.vertical",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceGroup", "identity", 120).folder("options"), Placement::at("sidebarBackground", "organize", 103).folder("group")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceGroup", "identity", 120).folder("options"), Placement::at("sidebarBackground", "organize", 103)], ..SurfacePlan::DEFAULT },
         cli_name: "workspace-group collapse-all",
         ..Action::DEFAULT
     },
@@ -349,7 +351,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "rectangle.expand.vertical",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceGroup", "identity", 121).folder("options"), Placement::at("sidebarBackground", "organize", 104).folder("group")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("workspaceGroup", "identity", 121).folder("options"), Placement::at("sidebarBackground", "organize", 104)], ..SurfacePlan::DEFAULT },
         cli_name: "workspace-group expand-all",
         ..Action::DEFAULT
     },

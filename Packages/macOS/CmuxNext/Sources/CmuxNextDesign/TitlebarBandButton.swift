@@ -1,11 +1,11 @@
 public import AppKit
+import CmuxNextDesignTokens
 
 /// An icon button of the toolbar band and the pane's tab bar controls: the chrome's hover and
 /// pressed look.
 public final class TitlebarBandButton: ClickableButton {
-    /// The chrome's one button size, the top row's (``TopRowSpacing/buttonSide``): the top-left band, the pane's top-right
-    /// tools, the sidebar's + and the tab bar's `+ ⌄` all draw at it (Lawrence 2026-11-11: "we want the same buttons
-    /// everywhere and for all the buttons to be the same size based on the density").
+    /// The top row's button size (``TopRowSpacing/buttonSide``): the top-left band and the sidebar's + draw at it. A
+    /// pane's tab row draws its tools a tab tall instead (``Metrics/tabBarControlSide``, Lawrence 2026-11-23).
     public static var side: CGFloat { TopRowSpacing.buttonSide }
     /// The SF Symbol it draws, or a custom glyph name ``customImage`` draws.
     public var symbol: String {
@@ -105,11 +105,14 @@ public final class TitlebarBandButton: ClickableButton {
         applyInk()
     }
 
-    /// Secondary text at rest, tertiary while disabled, in the button's scope.
+    /// Secondary text at rest, tertiary while disabled, in the button's scope; on a popover's glass each fit to the
+    /// glass over any page (``NSView/glassInk(_:minimum:)``: 2.01:1 and, disabled, 1.35:1 over a black page before).
     private func applyInk() {
         performWithTheme {
-            contentTintColor = isEnabled ? Palette.textSecondary : Palette.textTertiary
-            badgeLabel.textColor = Palette.textSecondary
+            let secondary = glassInk(\.textSecondary, minimum: CmuxDialogButtonLook.minimumContrast) ?? Palette.textSecondary
+            contentTintColor = isEnabled ? secondary
+                : glassInk(\.textTertiary, minimum: CmuxDialogButtonLook.disabledMinimumContrast) ?? Palette.textTertiary
+            badgeLabel.textColor = secondary
         }
     }
 
@@ -120,18 +123,34 @@ public final class TitlebarBandButton: ClickableButton {
         // shape at every density (Lucas 2026-11-15: the tab's radius on a smaller button went nearly round at Spacious);
         // in a tab row, as the tabs beside it (Lawrence 2026-11-20).
         layer?.cornerRadius = roundsAsTabBarControl ? Metrics.tabBarControlCornerRadius(fitting: bounds.size)
-            : Metrics.buttonCornerRadius(proportionalTo: bounds.height)
+            : Metrics.toolbarButtonCornerRadius(side: bounds.height)
         let size = min(Metrics.space3, bounds.height)
         badgeLabel.frame = NSRect(x: bounds.maxX - size, y: bounds.maxY - size, width: size, height: size)
     }
 
+    /// The look metrics a band button's layout reads besides its side (`appearance.metrics.toolbarButtonGap` and
+    /// `toolbarButtonCornerRadius`): a window observes them and lays its buttons out again (``relayoutAll(in:)``).
+    public static var lookMetrics: [CGFloat] { [TopRowSpacing.groupGap, Metrics.toolbarButtonCornerRadius(side: side)] }
+
+    /// Lays out every band button under `root` again, so a look's toolbar button corner
+    /// (`appearance.metrics.toolbarButtonCornerRadius`) reaches buttons whose size did not change, live.
+    public static func relayoutAll(in root: NSView) {
+        for view in root.subviews {
+            if let button = view as? TitlebarBandButton { button.needsLayout = true }
+            relayoutAll(in: view)
+        }
+    }
+
     /// The width needed for the control's current symbol and optional text.
     /// Text is still middle-truncated by the button cell when its frame is tighter.
+    /// A tab-row tool (``roundsAsTabBarControl``) is a tab tall and as wide (``Metrics/tabBarControlSide``); the band's
+    /// are the top row's (``side``).
     public var preferredWidth: CGFloat {
-        guard let text, !text.isEmpty else { return Self.side }
+        let side = roundsAsTabBarControl ? Metrics.tabBarControlSide : Self.side
+        guard let text, !text.isEmpty else { return side }
         let textWidth = ceil((text as NSString).size(withAttributes: [.font: Typography.caption]).width)
         let badgeClearance = badge == nil ? 0 : Metrics.space3 + Metrics.space1
-        return Self.side + Metrics.space2 + textWidth + Metrics.space2 + badgeClearance
+        return side + Metrics.space2 + textWidth + Metrics.space2 + badgeClearance
     }
 
     /// Draws the glyph at the current density's size, once per size. `layout()` runs it; a container that measures the
@@ -177,7 +196,7 @@ public final class TitlebarBandButton: ClickableButton {
     public var opensMenuWhenDisabled = false
     /// Shows the right-click menu (tests record it instead).
     public var presentContextMenu: @MainActor (NSMenu, NSEvent, TitlebarBandButton) -> Void = { menu, event, button in
-        NSMenu.popUpContextMenu(menu, with: event, for: button)
+        NSMenu.popUpContextMenu(menu.withoutSystemItems(), with: event, for: button)
     }
 
     /// Told `true` as a menu this button opened (press, long-press or right-click) shows and

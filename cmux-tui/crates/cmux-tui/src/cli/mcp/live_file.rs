@@ -131,6 +131,15 @@ impl Watches {
         }
     }
 
+    /// The browser that shows `path` now, the newest when several do (`slides` updates a
+    /// deck in place instead of opening another tab).
+    pub(super) fn browser_for(&self, path: &Path) -> Option<String> {
+        let (folder, name) = (path.parent()?, path.file_name()?);
+        let path = folder.canonicalize().unwrap_or_else(|_| folder.to_path_buf()).join(name);
+        let entries = self.entries.lock().ok()?;
+        entries.iter().rev().find(|entry| entry.path == path).map(|entry| entry.browser.clone())
+    }
+
     #[cfg(test)]
     pub(super) fn watched(&self) -> Vec<(PathBuf, String)> {
         let entries = self.entries.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

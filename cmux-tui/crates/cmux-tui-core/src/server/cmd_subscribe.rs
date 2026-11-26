@@ -72,11 +72,23 @@ pub(super) fn subscribe_command(
             admission.server_capacity
         ),
     })?;
+    // A page relay hears only its page's events (page-router.json `events`;
+    // client_hello admits its `subscribe` only when there are some).
+    let page_events = super::origin_gate::page_relay_events(mux, client);
     let events = match surface {
         Some(surface) => mux
             .subscribe_surface_session(surface)
             .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?,
-        None => mux.subscribe(),
+        None => match page_events {
+            // Its mailbox takes only them: the output of every terminal never
+            // wakes its thread or becomes JSON it drops (audit 2026-11-18 §14).
+            // A remote device's incognito filter learns from tree events, so
+            // its relay keeps the whole stream.
+            Some(names) if !super::incognito_remote::is_remote_device(mux, client) => {
+                mux.subscribe_where(move |event| page_relay_takes(names, event))
+            }
+            _ => mux.subscribe(),
+        },
     };
     let event_mux = mux.clone();
     let trusted_pairing_client = mux.control_clients.is_unix(client);
@@ -88,9 +100,6 @@ pub(super) fn subscribe_command(
     // Conversation events go to the person's own clients: the Unix socket
     // and authenticated WebSocket connections (`ws-conversations-v1`).
     let conversation_client = mux.control_clients.is_owner_client(client);
-    // A page relay hears only its page's events (page-router.json `events`;
-    // client_hello admits its `subscribe` only when there are some).
-    let page_events = super::origin_gate::page_relay_events(mux, client);
     // Screen identity is an app-owned projection. The local app may arrive
     // over its authenticated owner WebSocket as well as the Unix socket;
     // page relays and unowned carriers never receive it.
@@ -158,6 +167,14 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // A chat's shares changed: only to the owner's own connections that asked
+                // (`agent-session-share-events-v1`).
+                #[cfg(unix)]
+                MuxEvent::AgentSessionShareChanged { .. }
+                    if !super::agent_session_attach::hears_share_events(&event_mux, client) =>
+                {
+                    continue;
+                }
                 MuxEvent::ScreenDeviceChanged(_) if !trusted_screen_client => continue,
                 // Read the cache at send time rather than trusting a queued
                 // payload; a rapid rotation/removal cannot regress the app.
@@ -197,6 +214,9 @@ pub(super) fn subscribe_command(
                     if matches!(
                         event.as_ref(),
                         crate::conversation_store::ConversationEvent::Inbox { participant, .. }
+                            | crate::conversation_store::ConversationEvent::Scheduled {
+                                participant, ..
+                            }
                             if *participant != event_mux.conversation_principal(client)
                     ) =>
                 {
@@ -407,6 +427,12 @@ pub(super) fn subscribe_command(
             if incognito.hides(&event_mux, client, &event, &mut value) {
                 continue;
             }
+            // The mailbox filter named it by `subscribed_event_name`: the two agree.
+            debug_assert!(
+                page_events.is_none()
+                    || value.field("event").as_str() == subscribed_event_name(&event),
+                "subscribed_event_name disagrees with the wire event {value}",
+            );
             if let Some(events) = page_events
                 && !value
                     .field("event")
@@ -425,6 +451,74 @@ pub(super) fn subscribe_command(
         }
     })?;
     Ok(json!({}))
+}
+
+/// Whether a page relay whose page hears `names` takes `event` into its
+/// mailbox: an event it would send (by `subscribed_event_name`), or the
+/// wake that ends the stream.
+pub(super) fn page_relay_takes(names: &[String], event: &MuxEvent) -> bool {
+    matches!(event, MuxEvent::Empty)
+        || subscribed_event_name(event).is_some_and(|name| names.iter().any(|n| n == name))
+}
+
+/// The `event` name `subscribed_event_json` gives `event` on a coarse stream,
+/// read without building it; `None` for the events no subscribe line carries.
+/// Every arm names the variant, so a new event cannot skip it.
+pub(super) fn subscribed_event_name(event: &MuxEvent) -> Option<&str> {
+    Some(match event {
+        MuxEvent::SurfaceOutput(_) => "surface-output",
+        MuxEvent::SurfaceResized { .. } => "surface-resized",
+        MuxEvent::SurfaceResizeFailed { .. } => "surface-resize-failed",
+        MuxEvent::SurfaceExited(..) => "surface-exited",
+        MuxEvent::SizeStateChanged { .. } => "size-state",
+        MuxEvent::TitleChanged { .. } => "title-changed",
+        MuxEvent::AgentChanged { .. } => "agent-changed",
+        MuxEvent::AgentPresenceChanged { .. } => "agent-presence-changed",
+        MuxEvent::Bell(_) => "bell",
+        MuxEvent::ProgramStatusChanged { .. } => "program-status-changed",
+        MuxEvent::Notification(_) => "notification",
+        MuxEvent::GraphicsStatus(_) => "graphics-status",
+        MuxEvent::Status(_) => "status",
+        MuxEvent::ScreenDeviceChanged(_) => "screen-device-changed",
+        MuxEvent::MachineUsageChanged(_) => "machine-usage-changed",
+        MuxEvent::ConfigReloadRequested => "config-reload-requested",
+        MuxEvent::WindowTitleRequested(_) => "window-title-requested",
+        MuxEvent::ScrollChanged { .. } => "scroll-changed",
+        MuxEvent::TreeChanged
+        | MuxEvent::TreeSelectionChanged(_)
+        | MuxEvent::WorkspacePresentationChanged(_)
+        | MuxEvent::TreeDelta(_) => "tree-changed",
+        MuxEvent::FrontendProjectionChanged { .. } => "frontend-projection-changed",
+        MuxEvent::PersonalChanged { .. } => "personal-changed",
+        MuxEvent::Conversation(event) => event.wire_name(),
+        MuxEvent::CloudConversation(event) => event.wire_name(),
+        MuxEvent::BookmarksChanged(_) => "bookmarks-changed",
+        MuxEvent::StashChanged { .. } => "stash-changed",
+        MuxEvent::HistoryChanged { .. } => "history-changed",
+        MuxEvent::FeedViewChanged { .. } => "feed-view-changed",
+        MuxEvent::FeedReportsChanged { .. } => "feed-reports-changed",
+        MuxEvent::SettingsChanged(_) => "settings-changed",
+        MuxEvent::KeybindingsChanged(_) => "keybindings-changed",
+        MuxEvent::TerminalRegistryChanged { .. } => "terminal-registry-changed",
+        MuxEvent::TerminalReaped { .. } => "terminal-reaped",
+        MuxEvent::LayoutChanged(..) => "layout-changed",
+        MuxEvent::ClientAttached { .. } => "client-attached",
+        MuxEvent::ClientChanged { .. } => "client-changed",
+        MuxEvent::ClientDetached(_) => "client-detached",
+        MuxEvent::ClientListInvalidated => "client-list-invalidated",
+        MuxEvent::PairingRequested(_) => "pairing-requested",
+        MuxEvent::PairingResolved { .. } => "pairing-resolved",
+        MuxEvent::AgentSessionShareChanged { .. } => "agent-session-share-changed",
+        MuxEvent::AppsChanged(payload)
+        | MuxEvent::TasksChanged(payload)
+        | MuxEvent::ComputerUseActivity(payload)
+        | MuxEvent::ComputerUsePreview(payload) => {
+            return payload.get("event").and_then(Value::as_str);
+        }
+        MuxEvent::ChatsChanged { .. } | MuxEvent::GitHubChanged { .. } | MuxEvent::Empty => {
+            return None;
+        }
+    })
 }
 
 pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
@@ -470,6 +564,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         }),
         MuxEvent::AgentChanged {
             surface,
+            terminal_id,
             state,
             source,
             session,
@@ -478,18 +573,25 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             updated_at_ms,
             since_ms,
             last_prompt,
-        } => json!({
-            "event": "agent-changed",
-            "surface": surface,
-            "state": state.as_ref(),
-            "source": source.as_ref(),
-            "session": session.as_deref(),
-            "agent": agent.as_deref(),
-            "agent_session_id": agent_session_id.as_deref(),
-            "updated_at_ms": updated_at_ms,
-            "since_ms": since_ms,
-            "last_prompt": last_prompt.as_deref(),
-        }),
+        } => {
+            let mut event = json!({
+                "event": "agent-changed",
+                "surface": surface,
+                "state": state.as_ref(),
+                "source": source.as_ref(),
+                "session": session.as_deref(),
+                "agent": agent.as_deref(),
+                "agent_session_id": agent_session_id.as_deref(),
+                "updated_at_ms": updated_at_ms,
+                "since_ms": since_ms,
+                "last_prompt": last_prompt.as_deref(),
+            });
+            // Optional, never null: an older remote daemon's forwarded event names no terminal.
+            if let Some(terminal_id) = terminal_id.as_deref() {
+                event["terminal_id"] = json!(terminal_id);
+            }
+            event
+        }
         MuxEvent::AgentPresenceChanged { surface, presence } => {
             let presence = presence.as_deref();
             json!({
@@ -634,6 +736,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "revision": change.revision,
             "origin": change.origin.as_str(),
         }),
+        MuxEvent::AgentSessionShareChanged { session } => json!({
+            "event": "agent-session-share-changed",
+            "session": session,
+        }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",
             "registry_id":registry_id,
@@ -710,3 +816,7 @@ pub(super) fn subscription_overflow_json() -> Value {
 fn host_replica_needed(event: &crate::cloud_conversations::CloudEvent) -> bool {
     matches!(event, crate::cloud_conversations::CloudEvent::HostReplicaNeeded { .. })
 }
+
+#[cfg(test)]
+#[path = "cmd_subscribe_names_tests.rs"]
+mod names_tests;

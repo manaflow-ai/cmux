@@ -4,6 +4,10 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "durable_agents/adopted_overload.rs"]
+mod adopted_overload;
+#[path = "durable_agents/adoption_unlogged_tail.rs"]
+mod adoption_unlogged_tail;
 #[path = "durable_agents/ancestor_answer.rs"]
 mod ancestor_answer;
 #[path = "durable_agents/answer_link_down.rs"]
@@ -15,6 +19,8 @@ mod bg_caller_restart;
 mod bg_replaced_binary;
 #[path = "durable_agents/caller_identity_restart.rs"]
 mod caller_identity_restart;
+#[path = "durable_agents/carried_overload.rs"]
+mod carried_overload;
 #[path = "durable_agents/carried_restart.rs"]
 mod carried_restart;
 #[cfg(target_os = "linux")]
@@ -24,18 +30,26 @@ mod credential_restart;
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
+#[path = "durable_agents/handoff_gap.rs"]
+mod handoff_gap;
 #[path = "durable_agents/host_crash.rs"]
 mod host_crash;
 #[path = "durable_agents/host_level_move.rs"]
 mod host_level_move;
+#[path = "durable_agents/host_reboot.rs"]
+mod host_reboot;
 #[path = "durable_agents/idle_adopted.rs"]
 mod idle_adopted;
 #[path = "durable_agents/idle_subsessions_restart.rs"]
 mod idle_subsessions_restart;
 #[path = "durable_agents/late_hello_adoption.rs"]
 mod late_hello_adoption;
+#[path = "durable_agents/loop_panic.rs"]
+mod loop_panic;
 #[path = "durable_agents/lost_link_turn.rs"]
 mod lost_link_turn;
+#[path = "durable_agents/overload_duress.rs"]
+mod overload_duress;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
@@ -56,6 +70,12 @@ mod stalled_turn;
 mod stop_if_idle_unadopted;
 #[path = "durable_agents/streaming_restart_gap.rs"]
 mod streaming_restart_gap;
+#[path = "durable_agents/take_over_dark_time.rs"]
+mod take_over_dark_time;
+#[path = "durable_agents/take_over_replaced_binary.rs"]
+mod take_over_replaced_binary;
+#[path = "durable_agents/take_over_under_load.rs"]
+mod take_over_under_load;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
 #[path = "durable_agents/translator_panic.rs"]
@@ -179,11 +199,42 @@ impl Daemon {
     }
 
     fn start(&mut self) {
+        self.start_with(&[]);
+    }
+
+    /// A new daemon takes this home over while this one runs (`daemon run --take-over`, as each
+    /// cmux NIGHTLY install starts one): the running one hands over and exits, its agents kept.
+    fn take_over(&mut self) {
+        let mut old = self.child.take().expect("a daemon runs");
+        self.start_with(&["--take-over"]);
+        let status = old.wait().unwrap();
+        assert!(status.success(), "the daemon taken over exited badly: {status}");
+    }
+
+    fn start_with(&mut self, extra: &[&str]) {
         assert!(self.child.is_none());
+        let mut child = self.spawn_daemon(extra);
+        // The ready line, after any log line the daemon printed first (a catalog refresh warning).
+        let ready = ready_line(&mut child);
+        assert!(ready.contains("\"ready\":true"), "daemon not ready");
+        // The socket it bound: a short alias when the configured path is past
+        // the Unix limit (a long TMPDIR).
+        if let Some(bound) = serde_json::from_str::<Value>(&ready)
+            .ok()
+            .and_then(|v| v["socket"].as_str().map(PathBuf::from))
+        {
+            self.socket = bound;
+        }
+        self.child = Some(child);
+    }
+
+    /// `daemon run` of this home with `extra`, its stdout piped for the ready line ([`ready_line`]).
+    fn spawn_daemon(&self, extra: &[&str]) -> Child {
         let mut command = std::process::Command::new(&self.exe);
         daemon_env::apply(&mut command, &self.home, daemon_env::Agents::StandIn, &[]);
         command
             .args(["daemon", "run", "--listen", "127.0.0.1:0", "--ready-fd", "1", "--log", "warn"])
+            .args(extra)
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", &self.socket)
             // No catalog fetch: a test never reaches the network, and the fetch's
@@ -216,27 +267,12 @@ impl Daemon {
                 });
             }
         }
-        let mut child = command.spawn().expect("start daemon");
+        let child = command.spawn().expect("start daemon");
         if fds[0] >= 0 {
             // SAFETY: the child has its own copy on fd 3.
             unsafe { libc::close(fds[0]) };
         }
-        // The ready line, after any log line the daemon printed first (a catalog refresh warning).
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut ready = String::new();
-        while stdout.read_line(&mut ready).unwrap() > 0 && !ready.contains("\"ready\":true") {
-            ready.clear();
-        }
-        assert!(ready.contains("\"ready\":true"), "daemon not ready");
-        // The socket it bound: a short alias when the configured path is past
-        // the Unix limit (a long TMPDIR).
-        if let Some(bound) = serde_json::from_str::<Value>(&ready)
-            .ok()
-            .and_then(|v| v["socket"].as_str().map(PathBuf::from))
-        {
-            self.socket = bound;
-        }
-        self.child = Some(child);
+        child
     }
 
     /// The daemon dies without any chance to clean up (a crash).
@@ -313,6 +349,17 @@ impl Daemon {
         let path = self.home.join("hosts").join(format!("{session}.json"));
         serde_json::from_slice(&std::fs::read(&path).expect("host record")).unwrap()
     }
+}
+
+/// A started daemon's ready line (`"ready":true`), past any log line it printed first; empty when
+/// its stdout closed without one.
+fn ready_line(child: &mut Child) -> String {
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut ready = String::new();
+    while stdout.read_line(&mut ready).unwrap() > 0 && !ready.contains("\"ready\":true") {
+        ready.clear();
+    }
+    ready
 }
 
 impl Drop for Daemon {
@@ -4342,4 +4389,37 @@ fn log_while_down(daemon: &Daemon, session: &str, kind: &str, msg: Value) {
     let record = json!({"seq": seq + 1, "at": 0, "dir": "mux", "kind": kind, "msg": msg});
     let mut f = std::fs::OpenOptions::new().append(true).open(last).unwrap();
     writeln!(f, "{record}").unwrap();
+}
+
+/// RFD 0049, leg `disk`, the bench's wakes: a link that breaks because an entry from its host
+/// could not be stored (a full disk; the debug seam `ACPMUX_TEST_UNLOGGED_ONCE`) answers the
+/// prompt open on it at once, with the store's refusal or the link's own error, rather than
+/// leaving it open until the client's 30 s limit. The next prompt reattaches and is answered.
+#[tokio::test]
+async fn a_prompt_open_when_its_link_breaks_on_an_unstored_entry_is_answered_at_once() {
+    let env = [("ACPMUX_TEST_UNLOGGED_ONCE", "wake-unstored")];
+    let daemon = Daemon::with_env("unstoredwake", "approve-all", &env);
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let hi = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    rpc.call("session/prompt", hi.clone()).await;
+    let wake = json!({"sessionId": session, "prompt": [{"type": "text", "text": "wake-unstored"}]});
+    let started = Instant::now();
+    let reply = tokio::time::timeout(Duration::from_secs(1), rpc.reply("session/prompt", wake))
+        .await
+        .unwrap_or_else(|_| panic!("the prompt whose link broke was still open after 1 s"));
+    assert!(
+        reply.get("error").is_some() || reply["result"]["stopReason"].is_string(),
+        "neither an answer nor an error after {:?}: {reply}",
+        started.elapsed()
+    );
+    // Its host still runs: the chat does not read dead while the next request reattaches.
+    let listed = rpc.call("_acpmux/sessions", json!({})).await;
+    let status = listed["sessions"]
+        .as_array()
+        .and_then(|l| l.iter().find(|s| s["sessionId"] == session.as_str()))
+        .map(|s| s["status"].clone());
+    assert_ne!(status, Some(json!("disconnected")), "after the break: {listed}");
+    let again = rpc.reply("session/prompt", hi).await;
+    assert!(again.get("error").is_none(), "the next prompt after the break: {again}");
 }

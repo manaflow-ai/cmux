@@ -120,6 +120,7 @@
   width: 11px;
   aspect-ratio: 1;
   background: var(--glass-tint);
+  /* one-material-allow: the arrow ::before of a .ui-glass tip, drawing the same tokens so it continues the tip's surface */
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
@@ -131,6 +132,6 @@
     background: var(--glass-opaque);
   }
 }
-:root[data-reduce-transparency] .ui-feature-tip-arrow::before {
+:root:is([data-reduce-transparency], [data-glass="off"]) .ui-feature-tip-arrow::before {
   background: var(--glass-opaque);
 }

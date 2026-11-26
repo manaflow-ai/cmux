@@ -155,6 +155,41 @@ export const IntegrationApprovalGet = def({
   mcp: { expose: "never", group: "integration" }
 })
 
+/**
+ * G8, one call (cmux-next Cloud create): the person's own session approves a Cloud request it confirmed, by the request
+ * instead of a feed item id. The Worker checks what the Mac checked in three calls (integration.approval.get: the op,
+ * pending, exactly these params; feed.list: the open approve item of `team`'s Cloud owner for that request and digest),
+ * answers that item allow once (feed.answer), and waits, bounded, for the approved run so the answer carries its reply
+ * (the create's machine). Behind CLOUD_APPROVE_ONE_CALL (staging); off, `approval.one_call_off` and the caller uses feed.answer.
+ */
+export const IntegrationApprovalApprove = def({
+  name: "integration.approval.approve",
+  owner: "cloud:FeedDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "feed_item",
+  principals: ["session"],
+  params: Schema.Struct({
+    request: Schema.String.check(isPattern(/^apr_[a-f0-9]{32}$/)),
+    op: Schema.String,
+    params: Schema.Unknown,
+    team: TeamId
+  }),
+  result: Schema.Struct({
+    request: Schema.String,
+    /** `here`: this call answered it; `elsewhere`: the team's item was already closed (the phone, the dashboard). */
+    answered: Schema.Literals(["here", "elsewhere"]),
+    /** The approval's state after the bounded wait (`pending`, `running`, `done`, `denied`, `expired`), when read. */
+    state: Schema.optionalKey(Schema.String),
+    /** The approved run's own answer once it is done: `{ok, value}` or `{ok: false, error}`. */
+    reply: Schema.optionalKey(Schema.Unknown)
+  }),
+  errors: [...mutationErrors, "selector.not_found", "approval.mismatch", "approval.one_call_off", "feed.closed"],
+  docs: "Approve, allow once, a Cloud request your own session confirmed, by its request id: refused unless it holds exactly that op and params, pending, posted by that team's Cloud. Answers the approved run's reply when it ends within the wait.",
+  cli: { path: "integration approve", visible: false },
+  mcp: { expose: "never", group: "integration" }
+})
+
 export const IntegrationPolicySet = def({
   name: "integration.policy.set",
   owner: "cloud:ConnectionDO",
@@ -182,7 +217,8 @@ const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
  * Where a connect started from a chat sends the person back after GitHub: a cmux object link to that chat, the
  * grammar of `plans/cmux-next/links.json` (`<scheme>://workspace|pane|tab/<prefix><32 hex>[?machine=]`,
  * `session/<id>[?machine=][#turn-<id>]`, `agent/<harness>/<session>[?host=&name=&message=]`). Schemes: `cmux`,
- * `cmux-nightly`, `cmux-rc`, and `cmux-dev[-<tag>]` (development builds; dropped on production). Nothing else:
+ * `cmux-nightly`, `cmux-rc`, `cmux-next` (cmux NEXT, installed beside cmux NIGHTLY), and `cmux-dev[-<tag>]`
+ * (development builds; dropped on production). Nothing else:
  * no web origin, no other scheme, no other query key.
  *
  * One more form, `<scheme>://integration/complete` (#46018): the app that started the connect finishes it. The
@@ -191,7 +227,7 @@ const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
  * a state signed for that same user and team.
  */
 export const CONNECT_RETURN_TO = new RegExp(
-  `^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
+  `^(?:cmux|cmux-nightly|cmux-rc|cmux-next|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
     `(?:workspace/ws_|pane/pane_|tab/tab_)${RETURN_HEX}(?:\\?machine=machine_${RETURN_HEX})?` +
     `|session/${RETURN_SESSION}(?:\\?machine=machine_${RETURN_HEX})?(?:#turn-${RETURN_SESSION})?` +
     `|agent/[a-z0-9-]{1,64}/[A-Za-z0-9._:-]{1,256}(?:\\?${RETURN_HINT}(?:&${RETURN_HINT}){0,2})?` +
@@ -248,7 +284,12 @@ export const IntegrationComplete = def({
     state: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
     code: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000))),
     installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
-    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
+    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40))),
+    /**
+     * GitHub, staging and development only: a GitHub Actions OIDC token from an allowed workflow run, in place of
+     * `code` (cmux-api integrations/github-actions-connect.ts). Production refuses it.
+     */
+    actions_oidc: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8000)))
   }),
   /**
    * From the verified state, never the redirect's query: `return_to`, the connect's return link; `configure_url`,
@@ -355,6 +396,7 @@ export const integrationOps = [
   IntegrationList,
   IntegrationPolicyGet,
   IntegrationApprovalGet,
+  IntegrationApprovalApprove,
   IntegrationPolicySet,
   GitHubIssueComment,
   LinearIssueCreate,
@@ -441,8 +483,16 @@ export const GitHubMachineTokenRequest = Schema.Struct({
   label: Schema.optionalKey(Label),
   ttlSec: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(60), Schema.isLessThanOrEqualTo(3600))),
 })
-/** `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. */
-export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId) })
+/** A machine joined with `acpmux machine join` (cmux-platform's join registry). */
+export const JoinedMachineId = Schema.String.check(isPattern(/^machine_[A-Za-z0-9_-]{1,120}$/)).annotate({
+  identifier: "JoinedMachineId",
+  description: "A machine joined to a team with acpmux machine join."
+})
+/**
+ * `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. `machine`
+ * (a team admin only, never with `install`): every token issued to that joined machine.
+ */
+export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId), machine: Schema.optionalKey(JoinedMachineId) })
 
 /** One mint as the team's audit records it (never the token); principal_kind is session or the install kind. */
 export const GitHubTokenMintedParams = Schema.Struct({

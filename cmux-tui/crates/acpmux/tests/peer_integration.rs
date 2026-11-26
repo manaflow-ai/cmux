@@ -3785,23 +3785,32 @@ async fn auto_placement_takes_a_running_name_only_with_reuse_here_or_on_a_peer()
     tokio::spawn(acpmux::server::serve_unix(a.clone(), l));
     let cli = acpmux::client::Client::connect(&sock).await.unwrap();
 
-    let here =
-        resolve(&cli, "agent", Some("near"), false, false, false).await.unwrap_err().to_string();
+    let here = resolve(&cli, "agent", Some("near"), false, false, false, false)
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(here.contains("already runs on this machine") && here.contains("--reuse"), "{here}");
-    assert_eq!(resolve(&cli, "agent", Some("near"), true, false, false).await.unwrap(), None);
-    let there =
-        resolve(&cli, "agent", Some("far"), false, false, false).await.unwrap_err().to_string();
+    assert_eq!(
+        resolve(&cli, "agent", Some("near"), true, false, false, false).await.unwrap(),
+        None
+    );
+    let there = resolve(&cli, "agent", Some("far"), false, false, false, false)
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(there.contains("already runs on b"), "{there}");
     assert_eq!(
-        resolve(&cli, "agent", Some("far"), true, false, false).await.unwrap().as_deref(),
+        resolve(&cli, "agent", Some("far"), true, false, false, false).await.unwrap().as_deref(),
         Some("b")
     );
     // On two machines: not guessed at, even with --reuse.
-    let two =
-        resolve(&cli, "agent", Some("both"), true, false, false).await.unwrap_err().to_string();
+    let two = resolve(&cli, "agent", Some("both"), true, false, false, false)
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(two.contains("this machine, b") && two.contains("--machine"), "{two}");
     // A new name goes to the pick (which a busy test machine may refuse).
-    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false).await {
+    if let Err(e) = resolve(&cli, "agent", Some("fresh"), false, false, false, false).await {
         let e = e.to_string();
         assert!(!e.contains("runs on") && !e.contains("--reuse"), "{e}");
     }
@@ -4589,4 +4598,110 @@ async fn a_switch_of_a_peer_chat_needs_a_peer_that_takes_one() {
         .await;
     assert!(reply.get("error").is_none(), "a plain fork still goes to the peer: {reply}");
     a.peer_by_name("old").unwrap().stop();
+}
+
+/// A standing pre-grant (`cli/standing_grant.rs`; Leo, 2026-11-23: "you guys should simply
+/// decide on case by case and allow permissions. i grant it beforehand"): a local client that is
+/// no person allows a pending tool ask with the grant's key, signed from the session's `pending`
+/// entry exactly as `acpmux allow --standing-grant` reads it. Unsigned it is refused; signed for
+/// a lasting allow it is refused; once the grant leaves `mac-approvers.json` it counts nothing.
+#[tokio::test]
+async fn a_standing_grant_allows_a_local_tool_ask_once_and_never_a_lasting_allow() {
+    use acpmux::cli::standing_grant as grant;
+    let home = std::env::temp_dir().join(format!("api-standing-grant-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    std::fs::create_dir_all(&home).unwrap();
+    let key_file = home.join(grant::KEY_FILE);
+    let key = grant::ensure_key(&key_file).unwrap();
+    // Made once, kept: a second grant signs with the same key.
+    let again = grant::ensure_key(&key_file).unwrap();
+    assert_eq!(grant::entry(&key), grant::entry(&again));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(&key_file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "the grant's key is this user's own");
+    }
+    let file = home.join(acpmux::hub::mac_approvers::FILE);
+    let write = |macs: Value| {
+        acpmux::config::write_atomic(&file, json!({"macs": macs}).to_string().as_bytes()).unwrap()
+    };
+    write(json!([grant::entry(&key)]));
+
+    let h = hub(config(PermissionPolicy::Ask)).await;
+    h.person.macs.open(file.clone());
+    let mut tool = plain(h.clone()).await;
+    let s = tool
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "coord"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    tool.call(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    let ask = async |c: &mut C, text: &str, after: Option<&str>| -> Value {
+        c.next += 1;
+        let line = Message::request(
+            c.next,
+            method::SESSION_PROMPT,
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]}),
+        );
+        c.tx.send(line.to_line()).await.unwrap();
+        let p = c
+            .wait(method::MUX_PERMISSION_PENDING, |p| {
+                p["sessionId"] == id && after.is_none_or(|a| p["permissionId"] != a)
+            })
+            .await;
+        // What the CLI signs from: the session's `pending` entry in `_acpmux/info`.
+        let info = c.call(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+        info["pending"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["permissionId"] == p["permissionId"])
+            .cloned()
+            .unwrap()
+    };
+    let now = acpmux::hub::approvers::unix_now();
+    let respond = |pending: &Value, option: &str, meta: Option<Value>| {
+        let mut r =
+            json!({"sessionId": id, "permissionId": pending["permissionId"], "optionId": option});
+        if let Some(meta) = meta {
+            r["_meta"] = json!({"acpmux": meta});
+        }
+        r
+    };
+
+    let pending = ask(&mut tool, "ask: rm", None).await;
+    // Unsigned, from a client that is no person: refused, and the prompt stays.
+    let e = tool.call(method::MUX_PERMISSION_RESPOND, respond(&pending, "yes", None)).await;
+    assert!(e.unwrap_err().contains("approve this on the Mac app"));
+    // Signed for the lasting allow: refused (a grant never widens).
+    let lasting = grant::signed_meta(&key, &id, &pending, "always", now).unwrap();
+    let e =
+        tool.call(method::MUX_PERMISSION_RESPOND, respond(&pending, "always", Some(lasting))).await;
+    assert!(e.unwrap_err().contains("approve this on the Mac app"));
+    // Signed for the one-time allow: it counts.
+    let once = grant::signed_meta(&key, &id, &pending, "yes", now).unwrap();
+    tool.call(method::MUX_PERMISSION_RESPOND, respond(&pending, "yes", Some(once.clone())))
+        .await
+        .unwrap();
+    let decided = tool
+        .wait(method::MUX_EVENT, |p| p["kind"] == "permission_decision" && p["sessionId"] == id)
+        .await;
+    assert_eq!(decided["msg"]["outcome"]["optionId"], "yes", "{decided}");
+
+    // The next prompt: the old signature counts nothing; a fresh one does, until the grant is
+    // removed from the file (`machine approvals rm standing-grant`, then the reload).
+    let next = ask(&mut tool, "ask: again", pending["permissionId"].as_str()).await;
+    let replay = json!({"sessionId": id, "permissionId": next["permissionId"], "optionId": "yes",
+                        "_meta": {"acpmux": once}});
+    assert!(tool.call(method::MUX_PERMISSION_RESPOND, replay).await.is_err());
+    write(json!([]));
+    h.person.macs.view(&json!({"reload": true}));
+    let fresh = grant::signed_meta(&key, &id, &next, "yes", now).unwrap();
+    let e = tool.call(method::MUX_PERMISSION_RESPOND, respond(&next, "yes", Some(fresh))).await;
+    assert!(e.unwrap_err().contains("approve this on the Mac app"));
+    let _ = std::fs::remove_dir_all(&home);
 }

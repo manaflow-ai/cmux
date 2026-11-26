@@ -5,8 +5,12 @@
   "name": { "en": "Cloud", "ja": "クラウド" },
   "version": "0.1.0",
   "description": {
-    "en": "Create, start, pause, resize and delete your cmux Cloud machines, take and restore snapshots, and see your plan and usage. cmux keeps your sign-in; this app never sees it.",
-    "ja": "cmux Cloud のマシンを作成、起動、一時停止、サイズ変更、削除し、スナップショットを作成、復元して、プランと使用量を確認します。サインイン情報は cmux が保持し、このアプリは参照しません。"
+    "en": "Create, start, pause, resize and delete your cmux Cloud machines, and connect to them from cmux. Take and restore snapshots, forward a machine's ports to this Mac, and see your plan and usage. Your sign-in stays with cmux; this app never sees it.",
+    "ja": "cmux Cloud のマシンを作成、起動、一時停止、サイズ変更、削除し、cmux から接続できます。スナップショットの作成と復元、マシンのポートのこの Mac への転送、プランと使用量の確認もできます。サインイン情報は cmux が保持し、このアプリが見ることはありません。"
+  },
+  "tagline": {
+    "en": "Start, pause and connect to your Cloud machines",
+    "ja": "Cloud のマシンを起動、一時停止して、接続します"
   },
   "publisher": { "name": "cmux", "url": "https://cmux.dev" },
   "repository": "https://github.com/manaflow-ai/cmux",
@@ -80,14 +84,15 @@
       "cloud.snapshot.create",
       "cloud.snapshot.delete",
       "cloud.snapshot.list",
-      "cloud.snapshot.restore"
+      "cloud.snapshot.restore",
+      "cloud.usage.current"
     ]
   },
   "scopes": {
-    "cloud:read": "See your Cloud machines, their status and stats, snapshots, plan and usage.",
-    "cloud:write": "Create, start, pause, resize and delete Cloud machines and snapshots, and forward their ports to this Mac, when you or an allowed agent asks. Deletes always need you.",
-    "cloud:execute": "Upgrade a classic Cloud machine: cmux installs its daemon on the machine. Only you can start an upgrade.",
-    "fs:write": "Write and make files on your Cloud machines. Removing a file and copying files to or from this Mac always need you."
+    "cloud:read": "See your Cloud machines and their status, your snapshots, and your plan and usage.",
+    "cloud:write": "Create, start, pause, resize and delete your Cloud machines and snapshots, and forward their ports to this Mac, when you or an agent you allowed asks. Deleting always needs your OK.",
+    "cloud:execute": "Upgrade an older Cloud machine by installing the current cmux on it. Only you can start an upgrade.",
+    "fs:write": "Create and change files on your Cloud machines. Deleting a file, or copying files between a machine and this Mac, always needs your OK."
   },
   "optionalScopes": {
     "terminal:backend": "Open terminals on your Cloud machines."

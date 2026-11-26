@@ -57,6 +57,19 @@ public nonisolated struct BrowserExitRecovery: Sendable {
         return isReloadOwed
     }
 
+    /// cmux ended the tab's renderer because it stayed hung while hidden (`BrowserHiddenHangBound`):
+    /// nobody chose that end, so the tab owes one automatic reload, unless it already reloaded by itself
+    /// within ``window``. A page that hangs again right after the reload shows the crash page instead
+    /// of looping.
+    ///
+    /// - Returns: True when the tab now owes one automatic reload (``takeReload(now:)``).
+    @discardableResult
+    public mutating func endedForHang(now: ContinuousClock.Instant) -> Bool {
+        let recent = lastReload.map { now - $0 < window } ?? false
+        isReloadOwed = !recent
+        return isReloadOwed
+    }
+
     /// The tab is shown (or was on screen when it ended): true once when it should reload now.
     public mutating func takeReload(now: ContinuousClock.Instant) -> Bool {
         guard isReloadOwed else { return false }

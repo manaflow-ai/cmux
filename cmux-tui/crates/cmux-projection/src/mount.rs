@@ -3,26 +3,68 @@
 //! `user_allow_other` in `/etc/fuse.conf`). The session loop answers metadata itself; reads,
 //! writes and everything that may fetch from the Mac run on a small pool of threads, so one slow
 //! fetch does not stall `ls` or `stat`.
+//!
+//! What the kernel keeps (so a warm read or `stat` never reaches this process):
+//! - a file's pages across opens (`FOPEN_KEEP_CACHE`) while its [`Version`] is the one it had at
+//!   the last open; any other version (an upper file changed on the disk, a lower file copied up)
+//!   opens without it, which drops the pages, after its cached attributes are dropped too;
+//! - an answer about a path only in the manifest for [`LOWER_TTL`] (the manifest is fixed for the
+//!   life of the mount, and every change to the path comes through the mount, which tells the
+//!   kernel), an answer about an upper path for [`UPPER_TTL`] (the upper folder
+//!   is plain files on the machine's disk);
+//! - a listing of a folder only in the manifest (`FOPEN_CACHE_DIR`), dropped by the kernel when a
+//!   change through the mount touches the folder, and each listed name's `stat` with it
+//!   (`FUSE_DO_READDIRPLUS`), so a walk asks this process once per folder and never per file;
+//! - `FUSE_AUTO_INVAL_DATA`: pages go when a fresh `stat` shows another size or mtime.
+//!
+//! No writeback cache: edits must be on the upper folder's disk when the write returns, because
+//! Bring Back and the daemon restart read that folder directly, never through the mount.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::Path;
 
+use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, SystemTime};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use fuser::consts::{
+    FOPEN_CACHE_DIR, FOPEN_KEEP_CACHE, FUSE_ATOMIC_O_TRUNC, FUSE_AUTO_INVAL_DATA,
+    FUSE_DO_READDIRPLUS,
+};
 use fuser::{
-    BackgroundSession, FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyCreate,
-    ReplyData, ReplyDirectory, ReplyEmpty, ReplyEntry, ReplyOpen, ReplyStatfs, ReplyWrite, Request,
-    TimeOrNow,
+    BackgroundSession, FileAttr, FileType, Filesystem, KernelConfig, MountOption, Notifier,
+    ReplyAttr, ReplyCreate, ReplyData, ReplyDirectory, ReplyDirectoryPlus, ReplyEmpty, ReplyEntry,
+    ReplyOpen, ReplyStatfs, ReplyWrite, Request, TimeOrNow,
 };
 
-use crate::overlay::{Attr, Overlay, Set, Type, Who};
+use crate::overlay::{Attr, Overlay, Set, Type, Version, Who};
 use crate::upper::SetTime;
 
-/// How long the kernel may keep an answer.
-const TTL: Duration = Duration::from_secs(1);
+/// How long the kernel may keep an answer about a path only in the manifest.
+pub const LOWER_TTL: Duration = Duration::from_secs(3600);
+/// How long the kernel may keep an answer about an upper path (a missing path is never kept).
+pub const UPPER_TTL: Duration = Duration::from_secs(1);
+
+/// Whether `version` is an upper file whose last change is too recent to tell apart from the next.
+fn racy(version: &Version) -> bool {
+    let Version::Upper { ctime_ns, .. } = *version else { return false };
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|since| i64::try_from(since.as_nanos()).ok())
+        .unwrap_or(i64::MAX);
+    now.saturating_sub(ctime_ns) < 1_000_000_000
+}
+
+fn ttl(attr: &Attr) -> Duration {
+    if attr.upper { UPPER_TTL } else { LOWER_TTL }
+}
+
+/// A listed name: its number, kind, name, and its attributes when the listing had them.
+type Listed = (u64, FileType, String, Option<Attr>);
+
 /// Threads that run reads and writes.
 const WORKERS: usize = 16;
 
@@ -31,9 +73,31 @@ type Job = Box<dyn FnOnce() + Send>;
 /// A mounted projection; dropping it unmounts.
 pub struct Mounted {
     session: Option<BackgroundSession>,
+    notifier: Option<Notifier>,
 }
 
 impl Mounted {
+    /// Tells the kernel to drop what it cached of `name` in folder `parent` (a number the overlay
+    /// gave), so the next lookup asks the overlay again: after [`Overlay::swap_to_link`].
+    pub fn forget_entry(&self, parent: u64, name: &str) -> std::io::Result<()> {
+        match &self.notifier {
+            Some(notifier) => notifier.inval_entry(parent, OsStr::new(name)),
+            None => Ok(()),
+        }
+    }
+
+    /// Tells the kernel to drop what it cached of each folder or file in `inos` (numbers the
+    /// overlay gave): its attributes, its pages, and a folder's listing, so the next `stat`,
+    /// read and `ls` ask the overlay again: after [`Overlay::extend`].
+    pub fn forget_inodes(&self, inos: &[u64]) {
+        if let Some(notifier) = &self.notifier {
+            for ino in inos {
+                // ENOENT: the kernel holds nothing of it, which is fine.
+                let _ = notifier.inval_inode(*ino, 0, 0);
+            }
+        }
+    }
+
     /// Unmounts and waits for the session to end.
     pub fn unmount(mut self) {
         if let Some(session) = self.session.take() {
@@ -66,6 +130,11 @@ pub struct Options {
     /// Access times follow the machine's disk (its `relatime`) instead of staying put (`noatime`,
     /// the default). A read-only mount always keeps them.
     pub disk_atime: bool,
+    /// Unmount, so the server exits, once no request has come for this long and nothing holds the
+    /// mount (no open file, no working directory in it: the unmount is not lazy, and the kernel
+    /// refuses it while either exists). The writes stay in the upper folder, so mounting the same
+    /// path again gives the same checkout. `None` (the default) serves until unmounted.
+    pub idle_exit: Option<Duration>,
 }
 
 /// Mounts `overlay` at `at` (an existing, empty folder).
@@ -75,17 +144,36 @@ pub fn mount(overlay: Arc<Overlay>, at: &Path) -> anyhow::Result<Mounted> {
 
 /// Mounts `overlay` at `at` (an existing, empty folder) as `options` say.
 pub fn mount_with(overlay: Arc<Overlay>, at: &Path, options: Options) -> anyhow::Result<Mounted> {
-    let session =
-        fuser::spawn_mount2(filesystem(overlay, &options)?, at, &mount_options(&options))?;
-    Ok(Mounted { session: Some(session) })
+    let (fs, notifier) = filesystem(overlay, &options)?;
+    let session = fuser::spawn_mount2(fs, at, &mount_options(&options))?;
+    // Set before this returns, so before anything the caller starts opens through the mount.
+    let _ = notifier.set(session.notifier());
+    Ok(Mounted { notifier: Some(session.notifier()), session: Some(session) })
 }
 
 /// Mounts `overlay` at `at` and serves it on this thread until it is unmounted from outside
-/// (`fusermount3 -u`). `mounted` runs once the mount is up, before the first request.
+/// (`fusermount3 -u`) or this process gets SIGTERM, SIGINT or SIGHUP, which unmount it
+/// ([`unmount_on_signal`]). `mounted` runs once the mount is up, before the first request.
 pub fn serve(overlay: Arc<Overlay>, at: &Path, mounted: impl FnOnce()) -> anyhow::Result<()> {
-    let options = Options::default();
-    let mut session =
-        fuser::Session::new(filesystem(overlay, &options)?, at, &mount_options(&options))?;
+    serve_with(overlay, at, Options::default(), mounted)
+}
+
+/// [`serve`] as `options` say (a read-only lower: `read_only`).
+pub fn serve_with(
+    overlay: Arc<Overlay>,
+    at: &Path,
+    options: Options,
+    mounted: impl FnOnce(),
+) -> anyhow::Result<()> {
+    let (fs, notifier) = filesystem(overlay, &options)?;
+    let touched = fs.touched.clone();
+    let mut session = fuser::Session::new(fs, at, &mount_options(&options))?;
+    unmount_on_signal(at)?;
+    if let Some(idle) = options.idle_exit {
+        unmount_when_idle(at, idle, touched);
+    }
+    // Set before the first request is read, so before any open.
+    let _ = notifier.set(session.notifier());
     mounted();
     session.run()?;
     Ok(())
@@ -105,7 +193,11 @@ fn mount_options(options: &Options) -> Vec<MountOption> {
     mount_options
 }
 
-fn filesystem(overlay: Arc<Overlay>, options: &Options) -> anyhow::Result<Fs> {
+/// The file system, and where its session's notifier goes once the session exists.
+fn filesystem(
+    overlay: Arc<Overlay>,
+    options: &Options,
+) -> anyhow::Result<(Fs, Arc<OnceLock<Notifier>>)> {
     let (sender, receiver) = channel::<Job>();
     let receiver = Arc::new(Mutex::new(receiver));
     for index in 0..WORKERS {
@@ -121,7 +213,131 @@ fn filesystem(overlay: Arc<Overlay>, options: &Options) -> anyhow::Result<Fs> {
         })?;
     }
     overlay.keep_atime(options.read_only || !options.disk_atime);
-    Ok(Fs { overlay, jobs: sender, listings: HashMap::new() })
+    let notifier: Arc<OnceLock<Notifier>> = Arc::new(OnceLock::new());
+    let fs = Fs {
+        overlay,
+        jobs: sender,
+        listings: HashMap::new(),
+        versions: Arc::new(Mutex::new(HashMap::new())),
+        notifier: notifier.clone(),
+        read_only: options.read_only,
+        touched: Arc::new(AtomicU64::new(now_s())),
+    };
+    Ok((fs, notifier))
+}
+
+/// The write end of the pipe [`on_stop_signal`] wakes the unmounting thread through (-1: none).
+static STOP_PIPE: AtomicI32 = AtomicI32::new(-1);
+
+extern "C" fn on_stop_signal(_: libc::c_int) {
+    let fd = STOP_PIPE.load(Ordering::Relaxed);
+    if fd >= 0 {
+        let byte = 1_u8;
+        // SAFETY: write(2) is async-signal-safe; the byte outlives the call.
+        let _ = unsafe { libc::write(fd, (&raw const byte).cast(), 1) };
+    }
+}
+
+/// On SIGTERM, SIGINT or SIGHUP, unmounts `at`, so the session loop of [`serve`] sees the device
+/// go and returns, and the process exits with no mount left behind. A service manager's stop (or
+/// Ctrl-C) used to kill the server with its mount still in the table: every call at `at` then
+/// failed with ENOTCONN ("Transport endpoint is not connected") until someone ran
+/// `fusermount3 -u`. The handler only writes a byte to a pipe; a thread does the unmount: a plain
+/// one first, a lazy one when something still has the mount open (its edits are on the upper
+/// folder's disk already, nothing is lost). Handlers reset at exec, so no child inherits them.
+fn unmount_on_signal(at: &Path) -> anyhow::Result<()> {
+    let mut fds = [0; 2];
+    // SAFETY: pipe2 writes two descriptors into `fds`.
+    anyhow::ensure!(
+        unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } == 0,
+        "pipe2: {}",
+        std::io::Error::last_os_error()
+    );
+    let [read, write] = fds;
+    STOP_PIPE.store(write, Ordering::Relaxed);
+    let at = at.to_path_buf();
+    std::thread::Builder::new().name("projection-stop".into()).spawn(move || {
+        let mut byte = 0_u8;
+        loop {
+            // SAFETY: reads one byte into `byte` from the pipe this function made.
+            let got = unsafe { libc::read(read, (&raw mut byte).cast(), 1) };
+            if got == 1 {
+                break;
+            }
+            if got < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+            {
+                continue;
+            }
+            return;
+        }
+        let plain = std::process::Command::new("fusermount3")
+            .arg("-u")
+            .arg(&at)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if !plain.is_ok_and(|status| status.success()) {
+            unmount_stale(&at);
+        }
+    })?;
+    for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
+        // SAFETY: a zeroed sigaction with a handler that only calls write(2).
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = on_stop_signal as extern "C" fn(libc::c_int) as usize;
+            action.sa_flags = libc::SA_RESTART;
+            libc::sigemptyset(&raw mut action.sa_mask);
+            anyhow::ensure!(
+                libc::sigaction(signal, &raw const action, std::ptr::null_mut()) == 0,
+                "sigaction: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Seconds since the epoch, for [`Fs::touched`].
+fn now_s() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
+}
+
+/// Whether a mount last asked at `touched` (seconds since the epoch) is idle at `now` for `idle`.
+fn idle_since(touched: u64, now: u64, idle: Duration) -> bool {
+    now.saturating_sub(touched) >= idle.as_secs()
+}
+
+/// A thread that unmounts `at` (ending [`serve_with`]'s session) once no request came for `idle`
+/// and the kernel agrees nothing holds it: `fusermount3 -u` without `-z` fails while a process has
+/// a file open or its working directory inside, and the thread tries again later.
+fn unmount_when_idle(at: &Path, idle: Duration, touched: Arc<AtomicU64>) {
+    let at = at.to_owned();
+    let look = (idle / 4).clamp(Duration::from_secs(1), Duration::from_secs(60));
+    let _ = std::thread::Builder::new().name("projection-idle-exit".into()).spawn(move || {
+        loop {
+            std::thread::sleep(look);
+            if !idle_since(touched.load(Ordering::Relaxed), now_s(), idle) {
+                continue;
+            }
+            let unmounted = std::process::Command::new("fusermount3")
+                .arg("-u")
+                .arg(&at)
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success());
+            if unmounted {
+                eprintln!(
+                    "cmux-projection: {} unmounted after {} s with no request",
+                    at.display(),
+                    idle.as_secs()
+                );
+                return;
+            }
+            // Held: look again after another idle period, not every tick.
+            touched.store(now_s(), Ordering::Relaxed);
+        }
+    });
 }
 
 /// Lazily unmounts whatever is mounted at `at` (a dead mount a daemon restart left), ignoring
@@ -141,7 +357,14 @@ struct Fs {
     jobs: Sender<Job>,
     /// Folder listings by handle, taken at `opendir` and again at each read from the start, so
     /// paging is stable and cheap.
-    listings: HashMap<u64, Vec<(u64, FileType, String)>>,
+    listings: HashMap<u64, Arc<[Listed]>>,
+    /// Each file's [`Version`] at its last open: the pages the kernel holds are of it.
+    versions: Arc<Mutex<HashMap<u64, Version>>>,
+    notifier: Arc<OnceLock<Notifier>>,
+    /// A read-only mount: nothing in it ever changes, so the kernel keeps folder listings.
+    read_only: bool,
+    /// When the kernel last sent a request, in seconds since the epoch ([`Options::idle_exit`]).
+    touched: Arc<AtomicU64>,
 }
 
 fn file_type(kind: Type) -> FileType {
@@ -201,24 +424,95 @@ fn who(req: &Request<'_>) -> Who {
 
 impl Fs {
     /// Folder `ino`'s listing as `readdir` pages it: `.`, `..`, then its names.
-    fn listing(&self, ino: u64) -> Result<Vec<(u64, FileType, String)>, i32> {
-        let entries = self.overlay.readdir(ino)?;
+    fn listing(&self, ino: u64) -> Result<Vec<Listed>, i32> {
+        let entries = self.overlay.readdir_plus(ino)?;
         let mut listing = Vec::with_capacity(entries.len() + 2);
-        listing.push((ino, FileType::Directory, ".".to_owned()));
-        listing.push((ino, FileType::Directory, "..".to_owned()));
-        listing.extend(entries.into_iter().map(|(ino, kind, name)| (ino, file_type(kind), name)));
+        listing.push((ino, FileType::Directory, ".".to_owned(), None));
+        listing.push((ino, FileType::Directory, "..".to_owned(), None));
+        listing.extend(
+            entries.into_iter().map(|(ino, kind, name, attr)| (ino, file_type(kind), name, attr)),
+        );
         Ok(listing)
     }
 
+    /// The listing a read of handle `fh` at `offset` answers from. A read from the start (the
+    /// first, or one after rewinddir) lists the folder as it is now: POSIX has rewinddir see
+    /// names made or deleted since the folder was opened.
+    fn listing_at(&mut self, ino: u64, fh: u64, offset: i64) -> Result<Arc<[Listed]>, i32> {
+        if offset == 0 && self.listings.contains_key(&fh) {
+            let listing = self.listing(ino)?;
+            self.listings.insert(fh, listing.into());
+        }
+        self.listings.get(&fh).cloned().ok_or(libc::EBADF)
+    }
+
+    /// Notes a request now, for [`Options::idle_exit`].
+    fn touch(&self) {
+        self.touched.store(now_s(), Ordering::Relaxed);
+    }
+
     fn run(&self, job: impl FnOnce(&Overlay) + Send + 'static) {
+        self.touch();
         let overlay = self.overlay.clone();
         let _ = self.jobs.send(Box::new(move || job(&overlay)));
     }
 }
 
+/// `FOPEN_KEEP_CACHE` when file `ino` is at the version it had at its last open (the kernel's
+/// pages are of these bytes), else nothing, which drops them. A changed file's cached attributes
+/// go first, so the opener's `fstat` sees its size now. No page is held during an open, so telling
+/// the kernel here, before the answer, cannot wait on this open.
+fn open_flags(
+    overlay: &Overlay,
+    versions: &Mutex<HashMap<u64, Version>>,
+    notifier: &OnceLock<Notifier>,
+    ino: u64,
+) -> u32 {
+    let mut versions = versions.lock().unwrap_or_else(PoisonError::into_inner);
+    let Ok(Some(now)) = overlay.version(ino) else {
+        versions.remove(&ino);
+        return 0;
+    };
+    // An upper file changed under a second ago is never recorded (git's "racily clean"): on a
+    // disk with coarse timestamps a same-size rewrite in the same tick leaves size, mtime and
+    // ctime as they were, so only a version seen a second or more after its change can later
+    // earn the kept cache.
+    let before = if racy(&now) { versions.remove(&ino) } else { versions.insert(ino, now) };
+    drop(versions);
+    let inval = || {
+        if let Some(notifier) = notifier.get() {
+            // ENOENT: the kernel holds nothing of it, which is fine.
+            let _ = notifier.inval_inode(ino, -1, 0);
+        }
+    };
+    match before {
+        Some(before) if before == now && !racy(&now) => FOPEN_KEEP_CACHE,
+        Some(_) => {
+            inval();
+            0
+        }
+        // A first open of an upper version (a copy-up since the lookup): drop the lower attrs
+        // the kernel keeps for an hour.
+        None if matches!(now, Version::Upper { .. }) => {
+            inval();
+            0
+        }
+        None => 0,
+    }
+}
+
+/// `FOPEN_CACHE_DIR | FOPEN_KEEP_CACHE` for a folder only in the manifest, else nothing. The
+/// manifest is fixed for the life of the mount, so such a folder's names change only by a create,
+/// unlink, rename or rmdir through the mount, each of which drops the kernel's cached listing
+/// itself; the next walk (`git status`, `find`, `rg`) is then answered by the kernel, with no
+/// `READDIR`. An upper folder is plain files on the machine's disk and is listed afresh.
+fn dir_flags(overlay: &Overlay, ino: u64) -> u32 {
+    if overlay.lower_only(ino) { FOPEN_CACHE_DIR | FOPEN_KEEP_CACHE } else { 0 }
+}
+
 fn entry(reply: ReplyEntry, made: Result<Attr, i32>) {
     match made {
-        Ok(attr) => reply.entry(&TTL, &file_attr(&attr), 0),
+        Ok(attr) => reply.entry(&ttl(&attr), &file_attr(&attr), 0),
         Err(errno) => reply.error(errno),
     }
 }
@@ -231,13 +525,34 @@ fn empty(reply: ReplyEmpty, done: Result<(), i32>) {
 }
 
 impl Filesystem for Fs {
+    fn init(&mut self, _req: &Request<'_>, config: &mut KernelConfig) -> Result<(), libc::c_int> {
+        // A kernel without it still works: an open of a changed file drops its pages anyway.
+        let _ = config.add_capabilities(FUSE_AUTO_INVAL_DATA);
+        // open(O_TRUNC) arrives as one open with the flag, not an open and then a truncate: a
+        // lower file it empties copies up empty, never fetching the bytes it drops.
+        let _ = config.add_capabilities(FUSE_ATOMIC_O_TRUNC);
+        // Every listing carries its entries' attributes (not `FUSE_READDIRPLUS_AUTO`, which sends
+        // them only for a folder's first chunk or one already looked up in): the manifest answers
+        // them with no fetch, and a walk then never asks per file. A kernel without it lists as
+        // before and looks each name up.
+        let _ = config.add_capabilities(FUSE_DO_READDIRPLUS);
+        Ok(())
+    }
+
+    fn forget(&mut self, _req: &Request<'_>, ino: u64, _nlookup: u64) {
+        // The kernel let the inode go, and its pages with it.
+        self.versions.lock().unwrap_or_else(PoisonError::into_inner).remove(&ino);
+    }
+
     fn lookup(&mut self, _req: &Request<'_>, parent: u64, name: &OsStr, reply: ReplyEntry) {
+        self.touch();
         entry(reply, name_of(name).and_then(|name| self.overlay.lookup(parent, name)));
     }
 
     fn getattr(&mut self, _req: &Request<'_>, ino: u64, reply: ReplyAttr) {
+        self.touch();
         match self.overlay.getattr(ino) {
-            Ok(attr) => reply.attr(&TTL, &file_attr(&attr)),
+            Ok(attr) => reply.attr(&ttl(&attr), &file_attr(&attr)),
             Err(errno) => reply.error(errno),
         }
     }
@@ -262,9 +577,11 @@ impl Filesystem for Fs {
     ) {
         let set =
             Set { size, mode, uid, gid, atime: atime.map(set_time), mtime: mtime.map(set_time) };
-        // A size or mode change may copy a lower file up (a fetch): off the session loop.
+        // A size or mode change may copy a lower file up (a fetch): off the session loop. A change
+        // through an open handle (`futimens`, `ftruncate`, `fchmod`: tar sets each file's time that
+        // way) goes to the file that handle holds, without a lookup or an open.
         self.run(move |overlay| match overlay.setattr(ino, fh, set) {
-            Ok(attr) => reply.attr(&TTL, &file_attr(&attr)),
+            Ok(attr) => reply.attr(&ttl(&attr), &file_attr(&attr)),
             Err(errno) => reply.error(errno),
         });
     }
@@ -372,9 +689,10 @@ impl Filesystem for Fs {
     }
 
     fn open(&mut self, _req: &Request<'_>, ino: u64, flags: i32, reply: ReplyOpen) {
+        let (versions, notifier) = (self.versions.clone(), self.notifier.clone());
         // A write open copies a lower file up (a fetch): off the session loop.
         self.run(move |overlay| match overlay.open_handle(ino, flags) {
-            Ok(handle) => reply.opened(handle, 0),
+            Ok(handle) => reply.opened(handle, open_flags(overlay, &versions, &notifier, ino)),
             Err(errno) => reply.error(errno),
         });
     }
@@ -418,7 +736,10 @@ impl Filesystem for Fs {
     }
 
     fn flush(&mut self, _req: &Request<'_>, _ino: u64, _fh: u64, _owner: u64, reply: ReplyEmpty) {
-        reply.ok();
+        // Nothing is buffered here (every write is on the disk when it is answered) and there are
+        // no locks to drop: ENOSYS tells the kernel to stop sending a flush on every close, one
+        // round trip less per file a tool writes. The close itself succeeds.
+        reply.error(libc::ENOSYS);
     }
 
     fn release(
@@ -453,6 +774,7 @@ impl Filesystem for Fs {
     }
 
     fn opendir(&mut self, _req: &Request<'_>, ino: u64, _flags: i32, reply: ReplyOpen) {
+        self.touch();
         // The overlay's handle keeps the folder's attributes readable (fstat) after it is deleted
         // or renamed over, as an open folder on a disk does.
         let listed = self.listing(ino).and_then(|listing| {
@@ -460,8 +782,15 @@ impl Filesystem for Fs {
         });
         match listed {
             Ok((handle, listing)) => {
-                self.listings.insert(handle, listing);
-                reply.opened(handle, 0);
+                self.listings.insert(handle, listing.into());
+                // Read only, a folder never changes: the kernel answers every later listing of it
+                // from its cache (`find` and git's untracked scan then make no round trip here).
+                let flags = if self.read_only {
+                    FOPEN_CACHE_DIR | FOPEN_KEEP_CACHE
+                } else {
+                    dir_flags(&self.overlay, ino)
+                };
+                reply.opened(handle, flags);
             }
             Err(errno) => reply.error(errno),
         }
@@ -475,27 +804,57 @@ impl Filesystem for Fs {
         offset: i64,
         mut reply: ReplyDirectory,
     ) {
-        // A read from the start (the first, or one after rewinddir) lists the folder as it is now:
-        // POSIX has rewinddir see names made or deleted since the folder was opened.
-        if offset == 0 && self.listings.contains_key(&fh) {
-            match self.listing(ino) {
-                Ok(listing) => {
-                    self.listings.insert(fh, listing);
-                }
-                Err(errno) => {
-                    reply.error(errno);
-                    return;
-                }
+        let listing = match self.listing_at(ino, fh, offset) {
+            Ok(listing) => listing,
+            Err(errno) => {
+                reply.error(errno);
+                return;
             }
-        }
-        let Some(listing) = self.listings.get(&fh) else {
-            reply.error(libc::EBADF);
-            return;
         };
         let start = usize::try_from(offset).unwrap_or(0);
-        for (at, (ino, kind, name)) in listing.iter().enumerate().skip(start) {
+        for (at, (ino, kind, name, _)) in listing.iter().enumerate().skip(start) {
             let next = i64::try_from(at + 1).unwrap_or(i64::MAX);
             if reply.add(*ino, next, *kind, name) {
+                break;
+            }
+        }
+        reply.ok();
+    }
+
+    /// A listing with each entry's attributes (`FUSE_DO_READDIRPLUS`), so the kernel holds every
+    /// name and `stat` of the folder from one call: a walk (`find`, `git status`, `rg`) then
+    /// `stat`s each file with no `LOOKUP` round trip. The attributes are the ones `lookup` would
+    /// answer, kept as long ([`LOWER_TTL`], [`UPPER_TTL`]).
+    fn readdirplus(
+        &mut self,
+        _req: &Request<'_>,
+        ino: u64,
+        fh: u64,
+        offset: i64,
+        mut reply: ReplyDirectoryPlus,
+    ) {
+        let listing = match self.listing_at(ino, fh, offset) {
+            Ok(listing) => listing,
+            Err(errno) => {
+                reply.error(errno);
+                return;
+            }
+        };
+        let start = usize::try_from(offset).unwrap_or(0);
+        for (at, (child, _, name, listed)) in listing.iter().enumerate().skip(start) {
+            let next = i64::try_from(at + 1).unwrap_or(i64::MAX);
+            // `.` and `..` are never linked by the kernel (it takes no lookup for them), so their
+            // attributes are the folder's own. A name the listing had no attributes for (an upper
+            // folder's) is looked up.
+            let attr = match listed {
+                Some(attr) => Ok(*attr),
+                None if at < 2 => self.overlay.getattr(ino),
+                None => self.overlay.lookup(ino, name),
+            };
+            // A name gone since the listing was taken (a race with an unlink): leave it out, as
+            // a fresh listing would.
+            let Ok(attr) = attr else { continue };
+            if reply.add(*child, next, name, &ttl(&attr), &file_attr(&attr), 0) {
                 break;
             }
         }
@@ -516,6 +875,7 @@ impl Filesystem for Fs {
     }
 
     fn statfs(&mut self, _req: &Request<'_>, _ino: u64, reply: ReplyStatfs) {
+        self.touch();
         match self.overlay.statfs() {
             Ok(vfs) => reply.statfs(
                 vfs.f_blocks,
@@ -532,6 +892,7 @@ impl Filesystem for Fs {
     }
 
     fn access(&mut self, _req: &Request<'_>, ino: u64, _mask: i32, reply: ReplyEmpty) {
+        self.touch();
         match self.overlay.getattr(ino) {
             Ok(_) => reply.ok(),
             Err(errno) => reply.error(errno),
@@ -550,7 +911,11 @@ impl Filesystem for Fs {
     ) {
         let who = who(req);
         match name_of(name).and_then(|name| self.overlay.create(parent, name, mode & !umask, who)) {
-            Ok((attr, handle)) => reply.created(&TTL, &file_attr(&attr), 0, handle, 0),
+            Ok((attr, handle)) => {
+                // A new file: whatever the kernel held under this number is not of it.
+                self.versions.lock().unwrap_or_else(PoisonError::into_inner).remove(&attr.ino);
+                reply.created(&ttl(&attr), &file_attr(&attr), 0, handle, 0);
+            }
             Err(errno) => reply.error(errno),
         }
     }

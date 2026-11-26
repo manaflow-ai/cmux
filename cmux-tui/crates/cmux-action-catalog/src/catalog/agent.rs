@@ -57,6 +57,23 @@ pub static ACTIONS: &[Action] = &[
         main_menu: Some("view"),
         ..Action::DEFAULT
     },
+    // Cmd-R in a chat reloads it under a picture of itself, its draft kept (Leo, 2026-11-22: "apparently i cant cmd r to
+    // refresh an agent page"); without it Cmd-R fell to Rename Tab. A more specific binding than renameTab, as in a page.
+    Action {
+        id: "agentPaneReload",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentPaneReload", "Agent Chat: Reload"),
+        keywords: &["agent", "chat", "reload", "refresh"],
+        default_shortcut: Some(Shortcut { key: "r", modifiers: CMD }),
+        category: "agents",
+        symbol: "arrow.clockwise",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "agent reload",
+        ..Action::DEFAULT
+    },
     Action {
         id: "agentChat.toggleNotificationMute",
         group: GROUP,
@@ -82,6 +99,24 @@ pub static ACTIONS: &[Action] = &[
         targets: &["tab"],
         cli_name: "action agent-chat-subagent-limit",
         is_person_only: true,
+        ..Action::DEFAULT
+    },
+    // The focused chat's agent session, by the name `cmux agent ls` and `HOST/NAME` read (acpmux
+    // `_acpmux/rename`); Rename Tab only retitles the tab. Leo, 2026-11-20: "we need to honestly
+    // like rename the VMs that we have, and then like rename the sessions that we have". The CLI
+    // verb is acpmux's own: `cmux agent session rename SESSION NEW_NAME`.
+    Action {
+        id: "agentChat.renameSession",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agentChat.renameSession", "Rename Agent Session…"),
+        keywords: &["rename", "session", "agent", "chat", "name", "handle", "title"],
+        category: "agents",
+        symbol: "pencil",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("guiOnly"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::NAME_2],
+        requires: &["agentPaneFocused"],
+        targets: &["pane"],
+        cli_name: "action agent-chat-rename-session",
         ..Action::DEFAULT
     },
     Action {
@@ -268,7 +303,15 @@ pub static ACTIONS: &[Action] = &[
         category: "agents",
         symbol: "scope",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…"))], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[
+            Placement::at("agentChat", "inspect", 1).folder("tools").label(Text::raw("Point at Element…")),
+            // Native UI too (ask-5077a4ec48): the picker starts on the right-clicked tab, pane or sidebar row and
+            // costs nothing until then (UIInspectorController: no monitor, observer or hit-test outside a pick).
+            Placement::at("tab", "inspect", 510).label(Text::raw("Point at Element…")),
+            Placement::at("pane", "inspect", 511).label(Text::raw("Point at Element…")),
+            Placement::at("workspaceRow", "inspect", 410).label(Text::raw("Point at Element…")),
+            Placement::at("sidebarItem", "view", 130).label(Text::raw("Point at Element…")),
+        ], ..SurfacePlan::DEFAULT },
         cli_name: "agent toggle-ui-pointer",
         ..Action::DEFAULT
     },
@@ -1039,6 +1082,17 @@ pub static ACTIONS: &[Action] = &[
         symbol: "brain",
         surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
         cli_name: "action chief-toggle-memory-inspector",
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "chief.toggleComputer",
+        group: GROUP,
+        title: t("ActionCatalog", "action.chief.toggleComputer", "Chief: Toggle Computer"),
+        keywords: &["chief", "computer", "screen", "cloud", "profile", "panel", "show", "hide"],
+        category: "agents",
+        symbol: "desktopcomputer",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        cli_name: "action chief-toggle-computer",
         ..Action::DEFAULT
     },
     Action {

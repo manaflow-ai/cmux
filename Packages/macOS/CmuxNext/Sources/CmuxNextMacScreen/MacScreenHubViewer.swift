@@ -95,6 +95,14 @@ public final class MacScreenHubViewer {
         }
     }
 
+    /// A hub came (the saved sign-in finished restoring, or the person signed in): a tab
+    /// refused only because there was none asks again for the scope it wanted. A tab opened
+    /// in the first seconds after launch otherwise kept "Not Signed In" after sign-in completed.
+    func hubArrived() {
+        guard case let .refused(.notSignedIn, requested) = phase, hub() != nil else { return }
+        request(requested)
+    }
+
     /// The request's HTTP answer came back. Cancelled (the person cancelled,
     /// or asked again) ends the session it made, unless this tab already runs
     /// that session (its ticket came first): ends are keyed to session ids.
@@ -235,7 +243,7 @@ public final class MacScreenHubViewer {
     /// pushed while this Mac's hub socket was down is gone, and the card said
     /// Connecting forever. Past the wait the ticket is asked for directly
     /// (`/reattach` re-admits an approved session); if the hub has none either,
-    /// the session ends here with the failed card and its Try Again.
+    /// the session ends here with the failed card (the pane asks again on its own when that prompts nobody).
     private func scheduleTicketWait(_ id: String, hub: DeviceHub?) {
         guard let hub else { return }
         // One wait per approved session; a ticket, a cancel, an end or a new request cancels it.

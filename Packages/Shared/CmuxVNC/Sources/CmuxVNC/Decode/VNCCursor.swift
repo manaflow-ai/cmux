@@ -1,5 +1,7 @@
-import CoreGraphics
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 /// One physical display inside the framebuffer (ExtendedDesktopSize).
 public struct VNCScreen: Sendable, Equatable {
@@ -33,6 +35,7 @@ public struct VNCCursor: Sendable, Equatable {
 
     public var isEmpty: Bool { width == 0 || height == 0 }
 
+    #if canImport(CoreGraphics)
     public func makeImage() -> CGImage? {
         guard !isEmpty else { return nil }
         let data = pixels.withUnsafeBytes { Data($0) }
@@ -42,4 +45,5 @@ public struct VNCCursor: Sendable, Equatable {
                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: info, provider: provider, decode: nil,
                        shouldInterpolate: false, intent: .defaultIntent)
     }
+    #endif
 }
