@@ -150,8 +150,8 @@ impl<P: HubPost> HubSource<P> {
             "type": handed.kind,
             "outcome": if ok { "done" } else { "failed" },
         });
-        if let Some(d) = detail {
-            body["detail"] = Value::String(d);
+        if let (Some(d), Some(fields)) = (detail, body.as_object_mut()) {
+            fields.insert("detail".to_owned(), Value::String(d));
         }
         let (status, answer) = self.post.post(ACK_PATH, &body)?;
         if !(200..300).contains(&status) {
