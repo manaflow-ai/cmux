@@ -20,11 +20,11 @@ extension CmuxAccountState {
     /// and whether the last one failed. `backend` is a dev build's Cloud backend line
     /// (`CloudRuntimeSelection.developerBackendLabel`: its tag's backend.json, a launch override or the picker's).
     @MainActor
-    public init(_ source: some CmuxAccountSource, backend: String? = nil) {
+    public init(_ source: some CmuxAccountSource, backend: String? = nil, signInBackend: String? = nil) {
         self.init(signedIn: source.isSignedIn,
                   label: source.isSignedIn ? Self.mask(source.accountEmail) ?? source.accountName : nil,
                   signingIn: source.isSigningIn, waitingForBrowser: source.signInWaitsInBrowser,
-                  failed: source.signInFailed, backend: backend)
+                  failed: source.signInFailed, backend: backend, signInBackend: signInBackend)
     }
 }
 
