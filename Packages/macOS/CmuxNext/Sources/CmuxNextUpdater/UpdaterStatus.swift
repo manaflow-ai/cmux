@@ -37,6 +37,9 @@ nonisolated public struct UpdaterStatus: Sendable, Equatable {
     /// The footer pill's label ("Update Ready" for a staged update), or nil
     /// when it does not show.
     public var badge: String? = nil
+    /// The automatic install the moment holds: why, since when, and whether it outlived its bound
+    /// (``UpdaterService/relaunchHold``), or nil.
+    public var relaunchHold: UpdateRelaunchHoldState?
 }
 
 /// The Sparkle flow's phase as a stable name for scripts.

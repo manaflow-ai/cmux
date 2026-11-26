@@ -248,19 +248,13 @@ pub fn from_mcp_client(client_info: &Value) -> Option<Value> {
     Some(claim)
 }
 
-static MCP_CLIENT: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
-
-/// Keep the `clientInfo` of this MCP server's `initialize`: one client per server process.
-pub fn note_mcp_client(params: &Value) {
-    if let Some(info) = params.get("clientInfo").filter(|i| i.is_object()) {
-        let _ = MCP_CLIENT.set(info.clone());
-    }
-}
+/// Moved to `tools_mcp.rs`, the MCP server that reads it; kept here by its old path.
+pub use crate::tools_mcp::note_mcp_client;
 
 /// The claim an MCP tool's send makes: the environment's, else the MCP client's.
 pub fn of_this_mcp_server() -> Option<Value> {
-    let env = |key: &str| std::env::var(key).ok();
-    of_mcp(&env, || chain(lookup, std::process::id()), MCP_CLIENT.get())
+    let env = crate::tool_env::var;
+    of_mcp(&env, || chain(lookup, std::process::id()), crate::tools_mcp::mcp_client())
 }
 
 /// [`of_this_mcp_server`] over `env`, with `walk` read only when needed.

@@ -47,6 +47,7 @@ function QuestionCardInPane({ otherText, look, answeredLook, uiFont, ...props }:
     const root = pane.current;
     if (!otherText || !root) return;
     // After the mount's effects, so the card's own update runs as it does for a click.
+    // gallery-capture: the `otherText` arms' play `typed` waits for the typed answer.
     const timer = setTimeout(() => {
       root.querySelector<HTMLElement>(".acpmux-question-other-choice")?.click();
       const field = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(
@@ -68,7 +69,8 @@ function QuestionCardInPane({ otherText, look, answeredLook, uiFont, ...props }:
       style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16, ...font.style }}
     >
       <div className="acpmux-permission">
-        <div className="acpmux-asks-stack" ref={stack}>
+        {/* As App.tsx's: its card's tooltips may leave it (ui/titleTooltips.ts). */}
+        <div className="acpmux-asks-stack" ref={stack} data-tooltip-escape="">
           <QuestionCard {...props} />
         </div>
       </div>
@@ -77,9 +79,21 @@ function QuestionCardInPane({ otherText, look, answeredLook, uiFont, ...props }:
   );
 }
 
+/// The capture moment of an `otherText` arm: its custom answer typed (the mount's timer above),
+/// not the frame before it.
+const typed =
+  (otherText: string): Play =>
+  ({ waitFor, document }) =>
+    waitFor(
+      () =>
+        document.querySelector<HTMLInputElement | HTMLTextAreaElement>(".acpmux-question-other :is(input, textarea)")
+          ?.value === otherText,
+    );
+
 const variant = (question: unknown, note: string, otherText?: string) => ({
   note,
   props: { question: question as AgentQuestion, onReply: () => undefined, otherText },
+  ...(otherText ? { play: typed(otherText) } : {}),
 });
 
 /// The preview fixture with each mockup wrapped in a Markdown fence, as agents often send it: the
@@ -95,6 +109,57 @@ const fenced = (question: AgentQuestion): AgentQuestion => ({
     ),
   })),
 });
+
+/// Three questions of very different lengths in one ask (cmux#56534): a long title with two short
+/// options, a one-line title with four options and their details, and a short one with no Other whose
+/// options carry previews. The
+/// card keeps one size, and its rows, last row and buttons one place, on every page.
+const pagingUneven: AgentQuestion = {
+  ...(pending4 as unknown as AgentQuestion),
+  id: "perm_toolu_paging",
+  items: [
+    {
+      id: "p0",
+      header: "Migration",
+      prompt:
+        "The settings migration rewrites every saved workspace layout on first launch, and a layout written by the new build cannot be read by the old one. Should the first launch keep a backup of the old file so a downgrade can restore it, even though that doubles the file on disk for a release?",
+      options: [
+        { id: "backup", label: "Keep a backup" },
+        { id: "none", label: "No backup" },
+      ],
+      multiSelect: false,
+      allowsOther: true,
+    },
+    {
+      id: "p1",
+      header: "Platforms",
+      prompt: "Which platforms first?",
+      options: [
+        { id: "macOS", label: "macOS", detail: "Native AppKit app, the one the team dogfoods every day." },
+        { id: "iOS", label: "iOS", detail: "iPhone and iPad, through the paired Mac." },
+        { id: "Linux", label: "Linux", detail: "Terminal client only, no GUI." },
+        { id: "Web", label: "Web", detail: "Read-only viewer in the browser." },
+      ],
+      multiSelect: true,
+      allowsOther: true,
+    },
+    {
+      id: "p2",
+      header: "Flag",
+      prompt: "Ship behind a flag?",
+      options: [
+        {
+          id: "yes",
+          label: "Yes",
+          preview: { format: "markdown", text: "Settings\n  Labs\n    [x] New layouts\n  Restart to apply" },
+        },
+        { id: "no", label: "No", preview: { format: "markdown", text: "Settings\n  (no Labs entry)" } },
+      ],
+      multiSelect: false,
+      allowsOther: false,
+    },
+  ],
+} as AgentQuestion;
 
 /// A Claude Code AskUserQuestion of a sub-session, answered by the session that started it
 /// (acpmux `subsession_answer.rs`): the record names that session, never a person.
@@ -360,6 +425,10 @@ export default componentEntry({
       "Previews sent inside a Markdown fence: the box stands for the fence, so no backticks show.",
     ),
     "pending-4-questions": variant(pending4, "Four questions in one ask."),
+    "pending-paging-uneven": variant(
+      pagingUneven,
+      "Three questions of very different lengths: the card is as tall as the tallest on every page, and Next moves nothing.",
+    ),
     "codex-user-input": variant(
       codexUserInput,
       "A Codex user-input request: two questions, the second free text only (no options).",

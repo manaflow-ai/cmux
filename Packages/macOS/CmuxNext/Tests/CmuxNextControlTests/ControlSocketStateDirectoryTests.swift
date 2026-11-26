@@ -21,12 +21,12 @@ import Testing
         defer { try? FileManager.default.removeItem(atPath: home) }
         let (identity, tag) = launch(home: home)
         let service = try ControlService.start(registry: ActionRegistry(catalog: []), settings: nil, launch: identity, environment: [:])
-        let socketPath = "\(home)/.local/state/cmux/cmux-debug-\(tag).sock"
+        let socketPath = "\(home)/.local/state/cmux-next/cmux-debug-\(tag).sock"
         let link = "/tmp/cmux-debug-\(tag).sock"
 
         var info = stat()
         #expect(lstat(socketPath, &info) == 0 && info.st_mode & S_IFMT == S_IFSOCK, "the socket is in the state folder")
-        #expect(lstat("\(home)/.local/state/cmux", &info) == 0 && info.st_mode & 0o777 == 0o700, "the state folder is the user's alone")
+        #expect(lstat("\(home)/.local/state/cmux-next", &info) == 0 && info.st_mode & 0o777 == 0o700, "the state folder is the user's alone")
         let identify = try LineClient(path: socketPath).call("system.identify")
         #expect(identify["result"]?["socket_path"] == .string(socketPath))
 
@@ -41,7 +41,7 @@ import Testing
     @Test func anExistingCanonicalStateDirectoryIsTightenedToOwnerOnly() throws {
         let home = "/tmp/cnch-\(UUID().uuidString.prefix(8).lowercased())"
         defer { try? FileManager.default.removeItem(atPath: home) }
-        let state = "\(home)/.local/state/cmux"
+        let state = "\(home)/.local/state/cmux-next"
         try FileManager.default.createDirectory(atPath: state, withIntermediateDirectories: true)
         try #require(chmod(state, 0o755) == 0)
         let (identity, _) = launch(home: home)

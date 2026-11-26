@@ -301,6 +301,7 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
         env: Default::default(),
         fast: false,
         peer: None,
+        stop_condition: None,
     }
 }
 

@@ -11,7 +11,7 @@ public import Foundation
 /// unchanged, so that the risk tier grades this trust decision on its own.
 ///
 /// The members of AcpmuxEnvironment.swift it uses are named `AcpmuxEnvironment.<member>`, so the
-/// defaults guard (scripts/ci/defaults_guard.py), which follows same-file names and `Type.member`
+/// defaults snapshot (scripts/ci/defaults_guard.py), which follows same-file names and `Type.member`
 /// references, still tracks them as dependencies of `resolve`.
 nonisolated extension AcpmuxEnvironment {
     /// Resolves the environment of `build` (nil: no build, the shared home),
@@ -80,9 +80,12 @@ nonisolated extension AcpmuxEnvironment {
         var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
                                 "ACPMUX_SECRET_TOOLS": "1"]
         childEnvironment.merge(launchEnvironment) { _, new in new }
-        for key in AcpmuxEnvironment.agentLaunchKeys {
+        for key in AcpmuxEnvironment.agentLaunchKeys + AcpmuxEnvironment.traceKeys {
             if let value = environment[key], !value.isEmpty { childEnvironment[key] = value }
         }
+        // A DEV build's own settings file and host budget (BuildStatePaths): acpmux reads them, and a
+        // signed acpmux gets no other inherited variable.
+        childEnvironment.merge(BuildStatePaths.childEnvironment(from: environment)) { _, file in file }
         if let cli = bundledBinDirectory?.appending(path: "cmux", directoryHint: .notDirectory).path, isExecutable(cli) {
             childEnvironment["CMUX_BUNDLED_CLI_PATH"] = cli
         }

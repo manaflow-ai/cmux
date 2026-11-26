@@ -4,8 +4,10 @@
 //
 // A list longer than LISTBOX_WINDOW_AFTER rows mounts only the rows near its viewport (one viewport
 // of overscan each side) and the highlighted row, in list order between spacers, so it costs the
-// same at a thousand rows as at ten thousand; windowed rows carry aria-posinset/aria-setsize. Each
-// row is a memoized component: a highlight change re-renders the two rows it moved between.
+// same at a thousand rows as at ten thousand; windowed rows carry aria-posinset/aria-setsize. Rows
+// may differ in height (a steer-queue row with its line and last message): each mounted row's height
+// is kept by its key, and a row not yet measured is taken as the measured rows' mean. Each row is a
+// memoized component: a highlight change re-renders the two rows it moved between.
 import {
   memo,
   useCallback,
@@ -18,9 +20,12 @@ import {
   type ReactNode,
   type Ref,
   type UIEventHandler,
+  useMemo,
 } from "react";
 import { cx } from "./cx";
 import { useScrollEdges } from "./scrollEdges";
+import type { ListCommand } from "./keyStyle";
+import { useListKeys } from "./useListKeys";
 import "./popupSurface.css";
 
 export interface ListboxProps<T> {
@@ -28,7 +33,9 @@ export interface ListboxProps<T> {
   getKey(item: T): string;
   /** The text typeahead matches. */
   textValue(item: T): string;
-  renderItem(item: T, index: number): ReactNode;
+  /** A row's content; `selected` is that row's own highlight, so a renderer that reads it, not the
+   *  list's active index, stays the same function as the highlight moves and no other row draws again. */
+  renderItem(item: T, index: number, selected: boolean): ReactNode;
   itemAttributes?(item: T, index: number): Record<string, string | undefined>;
   getItemId?(item: T, index: number): string;
   label: string;
@@ -63,7 +70,7 @@ export interface ListboxProps<T> {
 const TYPEAHEAD_RESET_MS = 700;
 /** Up to this many rows all mount (a menu's worth); past it the list windows itself. */
 export const LISTBOX_WINDOW_AFTER = 50;
-/** A row's height before one is measured. */
+/** A row's height before any is measured. */
 const ESTIMATED_ROW_PX = 28;
 
 export function Listbox<T>({
@@ -99,8 +106,10 @@ export function Listbox<T>({
   };
   const focused = useRef(false);
   const listEdges = useScrollEdges();
+  const scroller = useRef<HTMLDivElement | null>(null);
   const attachList = useCallback(
     (element: HTMLDivElement | null) => {
+      scroller.current = element;
       listEdges(element);
       if (typeof externalListRef === "function") externalListRef(element);
       else if (externalListRef) externalListRef.current = element;
@@ -120,11 +129,32 @@ export function Listbox<T>({
     element?.scrollIntoView?.({ block: "nearest" });
   }, [activeId]);
 
-  // The list's own window: the scroller's offset and height, and a row's measured height.
+  const last = items.length - 1;
+  // `app.keyStyle` (Vim j/k/gg/G/l, Emacs Ctrl-N/P/A/E/F): the same moves as the arrows, Home,
+  // End and Return. The rest (h, /, Esc, paging) is not this list's, so it goes on unchanged.
+  const listKeys = useListKeys({
+    onCommand: (command) => {
+      const to: Partial<Record<ListCommand, number>> = {
+        "list.next": Math.min(last, current + 1),
+        "list.previous": Math.max(0, current - 1),
+        "list.first": 0,
+        "list.last": last,
+      };
+      if (command in to) {
+        if (items.length) setCurrentHighlight(to[command]!);
+        return;
+      }
+      if (command !== "list.open") return false;
+      const item = items[current];
+      if (item) onOpen(item);
+    },
+  });
+
+  // The list's own window: the scroller's offset and height, and each mounted row's measured height
+  // by its key (a new Map when one changes, so the offsets below recompute).
   const ownWindow = visibleWindow === undefined && items.length > LISTBOX_WINDOW_AFTER;
-  const scroller = useRef<HTMLDivElement | null>(null);
   const [view, setView] = useState({ top: 0, height: 0 });
-  const [rowPx, setRowPx] = useState(0);
+  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
   const readView = useCallback(() => {
     const node = scroller.current;
     if (!node) return;
@@ -143,27 +173,38 @@ export function Listbox<T>({
     observer.observe(node);
     return () => observer.disconnect();
   }, [ownWindow, readView]);
+  // When the mounted rows can change (the list, the scroll, the highlight), read their heights (only
+  // those, so it costs the window, not the list); a row whose height is new or changed updates the
+  // map once.
   useLayoutEffect(() => {
-    if (!ownWindow || rowPx > 0) return;
-    const row = scroller.current?.querySelector<HTMLElement>(":scope > [role='option']");
-    if (row && row.offsetHeight > 0) setRowPx(row.offsetHeight);
-  });
-  const segments = ownWindow
-    ? listboxSegments(items.length, current, view.top, view.height, rowPx || ESTIMATED_ROW_PX)
+    if (!ownWindow) return;
+    const rows = scroller.current?.querySelectorAll<HTMLElement>(":scope > [role='option']") ?? [];
+    let next: Map<string, number> | undefined;
+    for (const row of rows) {
+      const index = Number(row.getAttribute("aria-posinset")) - 1;
+      const item = items[index];
+      const px = row.offsetHeight;
+      if (item === undefined || px <= 0) continue;
+      const key = getKey(item);
+      if ((next ?? heights).get(key) === px) continue;
+      next ??= new Map(heights);
+      next.set(key, px);
+    }
+    if (next) setHeights(next);
+  }, [ownWindow, items, getKey, heights, view, current]);
+  const offsets = useMemo(
+    () => (ownWindow ? listboxOffsets(items, getKey, heights) : undefined),
+    [ownWindow, items, getKey, heights],
+  );
+  const segments = offsets
+    ? listboxSegments(offsets, current, view.top, view.height)
     : visibleWindow
       ? [{ start: visibleWindow.start, end: visibleWindow.end, before: visibleWindow.topSpace }]
       : [{ start: 0, end: items.length, before: 0 }];
-  const after = ownWindow
-    ? Math.max(0, items.length - (segments.at(-1)?.end ?? 0)) * (rowPx || ESTIMATED_ROW_PX)
+  const after = offsets
+    ? Math.max(0, offsets[items.length] - offsets[segments.at(-1)?.end ?? 0])
     : (visibleWindow?.bottomSpace ?? 0);
   const windowed = ownWindow || visibleWindow !== undefined;
-  const attachScroller = useCallback(
-    (element: HTMLDivElement | null) => {
-      scroller.current = element;
-      attachList(element);
-    },
-    [attachList],
-  );
   // The rows' handlers are stable (a memoized row must not re-render for a new closure); they read
   // the list's latest state when they run.
   const latest = useRef({ current, items, onOpen, setCurrentHighlight });
@@ -179,9 +220,10 @@ export function Listbox<T>({
   }, []);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    listKeys(event);
+    if (event.defaultPrevented) return;
     // Cmd, Ctrl and Option chords are the app's.
     if (event.metaKey || event.altKey || event.ctrlKey) return;
-    const last = items.length - 1;
     const moves: Record<string, number> = {
       ArrowDown: Math.min(last, current + 1),
       ArrowUp: Math.max(0, current - 1),
@@ -213,7 +255,7 @@ export function Listbox<T>({
 
   const list = (
     <div
-      ref={attachScroller}
+      ref={attachList}
       id={listId}
       className={cx("ui-listbox ui-scroll-edge-fade", shellClassName !== undefined && "ui-popup-scroll", className)}
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a native select cannot hold rich rows.
@@ -259,7 +301,9 @@ export function Listbox<T>({
   );
   if (shellClassName === undefined) return list;
   return (
-    <div ref={shellRef} className={cx(shellClassName, "ui-popup-scroll-shell")}>
+    // A listbox shell is the live answer to what is typed in a field beside it (the composer's
+    // slash, mention and emoji lists): its box follows the rows (ui/popupSettle.ts).
+    <div ref={shellRef} className={cx(shellClassName, "ui-popup-scroll-shell")} data-popup-settle="results">
       {list}
     </div>
   );
@@ -273,7 +317,7 @@ interface ListboxRowProps<T> {
   selected: boolean;
   /** Set when the list is windowed: the full length, for aria-setsize and aria-posinset. */
   setSize?: number;
-  renderItem(item: T, index: number): ReactNode;
+  renderItem(item: T, index: number, selected: boolean): ReactNode;
   itemAttributes?(item: T, index: number): Record<string, string | undefined>;
   onHover(index: number): void;
   onOpen(index: number): void;
@@ -310,34 +354,63 @@ const ListboxRow = memo(function ListboxRow<T>({
         onOpen(index);
       }}
     >
-      {renderItem(item, index)}
+      {renderItem(item, index, selected)}
     </div>
   );
 }) as <T>(props: ListboxRowProps<T> & { key?: string }) => ReactNode;
 
+/** Each row's top in a self-windowed list, and the list's height as the last entry: a row's measured
+ * height by its key, else the measured rows' mean (ESTIMATED_ROW_PX before any is measured). */
+export function listboxOffsets<T>(
+  items: readonly T[],
+  getKey: (item: T) => string,
+  heights: ReadonlyMap<string, number>,
+): Float64Array {
+  let sum = 0;
+  for (const px of heights.values()) sum += px;
+  const estimate = heights.size > 0 ? sum / heights.size : ESTIMATED_ROW_PX;
+  const offsets = new Float64Array(items.length + 1);
+  for (let index = 0; index < items.length; index++)
+    offsets[index + 1] = offsets[index] + (heights.get(getKey(items[index])) ?? estimate);
+  return offsets;
+}
+
+/** The row whose box holds `px` (the last row past the end), by binary search over the offsets. */
+function rowAt(offsets: Float64Array, px: number): number {
+  const count = offsets.length - 1;
+  let low = 0;
+  let high = count;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (offsets[middle + 1] <= px) low = middle + 1;
+    else high = middle;
+  }
+  return Math.min(low, Math.max(0, count - 1));
+}
+
 /** The row ranges a self-windowed list mounts, each with the spacer height before it: the rows in
  * view with one viewport of overscan each side, and the highlighted row when it is outside them (so
- * aria-activedescendant names a mounted row), in list order. Before the viewport is measured (no
- * layout yet) a viewport is taken as 400 px. */
+ * aria-activedescendant names a mounted row), in list order. `offsets` is listboxOffsets' (each row's
+ * top, then the total). Before the viewport is measured (no layout yet) a viewport is taken as 400 px. */
 export function listboxSegments(
-  count: number,
+  offsets: Float64Array,
   highlighted: number,
   scrollTop: number,
   viewportPx: number,
-  rowPx: number,
 ): { start: number; end: number; before: number }[] {
+  const count = offsets.length - 1;
+  if (count <= 0) return [{ start: 0, end: 0, before: 0 }];
   const height = viewportPx > 0 ? viewportPx : 400;
-  const overscan = Math.ceil(height / rowPx);
-  const start = Math.max(0, Math.floor(scrollTop / rowPx) - overscan);
-  const end = Math.min(count, Math.ceil((scrollTop + height) / rowPx) + overscan);
-  if (highlighted < 0 || (highlighted >= start && highlighted < end)) return [{ start, end, before: start * rowPx }];
+  const start = rowAt(offsets, Math.max(0, scrollTop - height));
+  const end = Math.min(count, rowAt(offsets, scrollTop + 2 * height) + 1);
+  if (highlighted < 0 || (highlighted >= start && highlighted < end)) return [{ start, end, before: offsets[start] }];
   if (highlighted < start)
     return [
-      { start: highlighted, end: highlighted + 1, before: highlighted * rowPx },
-      { start, end, before: (start - highlighted - 1) * rowPx },
+      { start: highlighted, end: highlighted + 1, before: offsets[highlighted] },
+      { start, end, before: offsets[start] - offsets[highlighted + 1] },
     ];
   return [
-    { start, end, before: start * rowPx },
-    { start: highlighted, end: highlighted + 1, before: (highlighted - end) * rowPx },
+    { start, end, before: offsets[start] },
+    { start: highlighted, end: highlighted + 1, before: offsets[highlighted] - offsets[end] },
   ];
 }

@@ -144,8 +144,11 @@ class World:
         if letter == "t":
             self.add("newtab")
             self.stale = 1 if self.faults.get("page_gets_the_keys_late") else 0
-            self.openings.append({"spare": len(self.openings) % 2 == 0, "cross_window": False, "refit": False,
-                                  "ms": 3.0 if len(self.openings) % 2 == 0 else 120.0 + len(self.openings)})
+            # `ready_opens_are_idle_pages`: an app whose record has `idle`, and each ready open took an idle page (the
+            # page of a new tab that the person did not use), so its `spare` is false. Else an app before that field.
+            ready, idle = len(self.openings) % 2 == 0, "ready_opens_are_idle_pages" in self.faults
+            self.openings.append({"spare": ready and not idle, **({"idle": ready} if idle else {}), "cross_window": False,
+                                  "refit": False, "ms": 3.0 if ready else 120.0 + len(self.openings)})
             return
         self.closes += 1
         tab = self.tabs[self.selected()]
@@ -557,11 +560,14 @@ class Case(unittest.TestCase):
             stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
             yield
 
-    def rows(self, world, rounds=1, form="one-key", film=None, sample=0):
-        """`run()` on the fake app: the report. `sample`: the seconds of --sample-s."""
+    def rows(self, world, rounds=1, form="one-key", film=None, sample=0, recent=(0, 0), letter_cases=0, letter_only=False):
+        """`run()` on the fake app: the report. `sample`: the seconds of --sample-s. `recent`: --recent-sites and
+        --recent-pages. `letter_cases`, `letter_only`: --letter-cases and --letter-only (the budget is 5 s)."""
         opts = argparse.Namespace(workspaces=3, live_shells=0, page_url="http://127.0.0.1:9/", seed_deadline=1.0, out=self.out,
                                   neighbours=2, rounds=rounds, film=film, keys="app-queue", hold_ms=3000.0, every_ms=500.0,
-                                  repeat_delay_ms=0.0, repeat_ms=0.0, deadline=1.0, sample_s=sample)
+                                  repeat_delay_ms=0.0, repeat_ms=0.0, deadline=1.0, sample_s=sample,
+                                  recent_sites=recent[0], recent_pages=recent[1], recent_deadline=600.0,
+                                  letter_cases=letter_cases, letter_only=letter_only, letter_budget_s=5.0)
         app = argparse.Namespace(rpc=world.rpc, socket="/fake-app.sock", process=argparse.Namespace(pid=1))
         report = {"rows": [], "failures": []}
         with self.fakes(world):
@@ -1074,10 +1080,20 @@ class Rows(Case):
         report = self.rows(World())
         hold = next(row for row in report["rows"] if row["scenario"] == "hold")
         # `hold` made 4 tabs after the 4 of `mixed`: the opens 4 to 7 of the fake app (2 from the ready page, 2 not).
-        self.assertEqual((hold["opens"]["warm"], hold["opens"]["cold"]), (2, 2))
+        self.assertEqual((hold["opens"]["warm"], hold["opens"]["cold"], hold["opens"]["idle"]), (2, 2, 0))
         self.assertEqual(hold["opens"].get("main_ms"),
                          {"warm": {"n": 2, "p50": 3.0, "p95": 3.0, "p99": 3.0, "max": 3.0, "sum": 6.0},
                           "cold": {"n": 2, "p50": 127.0, "p95": 127.0, "p99": 127.0, "max": 127.0, "sum": 252.0}})
+
+    def test_an_open_that_took_an_idle_page_is_a_warm_one(self):
+        # The app's record says `spare` false and `idle` true for an open that took the page of a new tab that the
+        # person did not use: no page was made for it, so the row counts it as `warm`, and `idle` says how many.
+        report = self.rows(World(ready_opens_are_idle_pages=True))
+        hold = next(row for row in report["rows"] if row["scenario"] == "hold")
+        self.assertEqual((hold["opens"]["warm"], hold["opens"]["cold"]), (2, 2))  # first: a row that reads `spare` only says (0, 4)
+        self.assertEqual(hold["opens"].get("idle"), 2)
+        self.assertEqual(hold["opens"]["main_ms"]["warm"], {"n": 2, "p50": 3.0, "p95": 3.0, "p99": 3.0, "max": 3.0, "sum": 6.0})
+        self.assertEqual(hold["opens"]["main_ms"]["cold"]["n"], 2)
 
     def test_a_slow_key_says_its_wait_and_its_commit_time(self):
         world = World()
@@ -1111,6 +1127,57 @@ class Rows(Case):
                            "between": [{"what": "stall.main_task class=background owner=NewTabSparePool.warm", "ms": 180.0, "count": 1},
                                        {"what": "tab-switch.switch", "ms": 20.0, "count": 1}],
                            "own_call_tasks_left_out": {"count": 1, "ms": 270.0}}])
+
+    def letters(self, world, **options):
+        """`rows` with a record in the place of the letter cases (new-tab-letters.py `Letters`): (the report, each
+        call of the cases as (the app's call, the count, the budget, the tabs that the keys had made at the call))."""
+        calls = []
+
+        class Cases:
+            def __init__(self, builder, rpc, wait):
+                self.rpc = rpc
+
+            def run(self, count, budget_s):
+                calls.append((self.rpc, count, budget_s, len(world.openings)))
+                return {"forms": ["the cases' report"]}
+
+        with mock.patch.object(M.LETTERS, "Letters", Cases):
+            return self.rows(world, **options), calls
+
+    def test_the_letter_cases_come_after_the_rows_with_the_count_and_the_budget(self):
+        world = World()
+        report, calls = self.letters(world, letter_cases=2)
+        self.assertEqual(report.get("letter_cases"), {"forms": ["the cases' report"]})
+        # ONE call, with the app's own call, after the last row: the keys made no tab after it.
+        self.assertEqual(calls, [(world.rpc, 2, 5.0, len(world.openings))])
+        self.assertGreater(len(world.openings), 0)
+        self.assertEqual(len(report["rows"]), 4)  # the rows are the rows of a run with no letter case
+
+    def test_no_letter_case_with_no_option(self):
+        report, calls = self.letters(World())
+        self.assertEqual((calls, "letter_cases" in report, len(report["rows"])), ([], False, 4))
+
+    def test_letter_only_runs_the_cases_and_no_row(self):
+        world = World()
+        report, calls = self.letters(world, letter_cases=1, letter_only=True)
+        self.assertEqual((report["rows"], report["failures"], len(world.openings)), ([], [], 0))
+        self.assertEqual((calls, report.get("letter_cases")), ([(world.rpc, 1, 5.0, 0)], {"forms": ["the cases' report"]}))
+
+    def test_a_round_with_no_valid_row_ends_the_run_before_the_letter_cases(self):
+        # Key 1 of each row has no record of its action, so no row of the round is valid and the run ends there: the
+        # report then has no `letter_cases` from `run()` (`main()` writes the `not_run` words, see Launch).
+        real = M.key_runs
+        with mock.patch.object(M, "key_runs", lambda intervals, record: {k: v for k, v in real(intervals, record).items() if k != 1}):
+            report, calls = self.letters(World(), letter_cases=2)
+        self.assertEqual((calls, "letter_cases" in report), ([], False))
+        self.assertIn("round 0 has no valid row: the run ends here", report["failures"])
+
+    def test_rows_that_are_not_run_do_not_stop_the_letter_cases(self):
+        # The pane of the rows is gone after the first row: the round has its valid row, each later row is not run,
+        # and the cases still run (each case has a workspace of its own).
+        report, calls = self.letters(World(pane_gone="after mixed"), letter_cases=2)
+        self.assertEqual(([count for _, count, _, _ in calls], report.get("letter_cases")), ([2], {"forms": ["the cases' report"]}))
+        self.assertTrue([why for why in report["failures"] if "not run" in why], report["failures"])
 
 
 class FirstFrame(Case):
@@ -1746,13 +1813,17 @@ class Launch(unittest.TestCase):
     """`main()` to its first row: the launch forms, what makes the app active, and the engine's word. The preflight,
     the window's placement, the session and the rows are not in it (`preflight`, `place` and `run` are stubs)."""
 
-    def main(self, faults, *args, engine=(CEF_READY,)):
-        """`main()` with `faults`: (exit code, the report, the printed lines, each fake launch)."""
+    def main(self, faults, *args, engine=(CEF_READY,), run=None):
+        """`main()` with `faults`: (exit code, the report, the printed lines, each fake launch). `run`: what the stub
+        of `run()` does with the report (None: one valid row). `self.opts`: the options that `run()` got."""
         App.made, App.faults, App.engine = [], set(faults), list(engine)
         out, said = tempfile.mkdtemp(prefix="held-new-tab-test-"), io.StringIO()
         self.addCleanup(shutil.rmtree, out, True)
 
         def rows(opts, app, signposts, report, form):
+            self.opts = opts
+            if run:
+                return run(report)
             report["rows"].append({"scenario": "mixed", "round": 0, "key_source": form, "errors": [], "invalid": []})
 
         fakes = ((M, "hid_grant", lambda: True), (M, "subprocess", LaunchServices), (M, "STRESS", Stress(World())),
@@ -1805,6 +1876,262 @@ class Launch(unittest.TestCase):
         self.assertEqual([line for line in lines if line.startswith("PREFLIGHT page engine:")],
                          ["PREFLIGHT page engine: engine=chromium default_engine=chromium chromium_state=ready unavailable=none webkit_fallbacks=0"])
         self.assertEqual(code, 0)
+
+    def test_the_letter_options_get_to_the_run_and_letter_only_with_no_case_run_is_a_failure_and_exit_1(self):
+        code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "3", "--letter-only", "--letter-budget-s", "7")
+        self.assertEqual((self.opts.letter_cases, self.opts.letter_only, self.opts.letter_budget_s), (3, True, 7.0))
+        # The stub of `run()` made no case: the report says that, and does not leave the key out. The cases were the
+        # run's only work, so the run proved nothing: a failure, and an exit that is not 0.
+        self.assertEqual(report.get("letter_cases"), {"not_run": "the run ended before the letter cases"})
+        self.assertEqual(report["failures"], ["--letter-only: no letter case ran: the run ended before the letter cases"])
+        self.assertEqual(code, 1)
+
+    def cases(self, *words):
+        """A stub of `run()` that makes no row and the report of the letter cases with a form for each of `words`."""
+        return lambda report: report.update({"letter_cases": {"forms": [{"form": f"form {index}", "verdict": word} for index, word in enumerate(words)]}})
+
+    def test_letter_only_with_each_form_not_run_is_a_failure_and_exit_1(self):
+        code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "2", "--letter-only", run=self.cases("NOT RUN", "NOT RUN"))
+        self.assertEqual((code, report["failures"]), (1, ["--letter-only: no letter case ran: each form is NOT RUN"]))
+
+    def test_letter_only_with_a_form_that_ran_is_exit_0_and_a_case_changes_no_exit_code(self):
+        for words in (("PASS", "NOT RUN"), ("FAIL", "NOT RUN"), ("NOT PROVED: too few chord cases",)):
+            code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "2", "--letter-only", run=self.cases(*words))
+            self.assertEqual((code, report["failures"], report["rows"]), (0, [], []), words)
+
+    def test_with_rows_a_run_with_no_case_keeps_the_exit_of_its_rows(self):
+        # The rows are the run's work: its exit is theirs, and the report says that no case ran.
+        code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "3")
+        self.assertEqual((code, report["failures"], report.get("letter_cases")), (0, [], {"not_run": "the run ended before the letter cases"}))
+
+    def test_letter_only_with_no_case_asked_and_a_count_below_0_are_not_run_before_a_launch(self):
+        class WentOn(Exception):
+            """The tool went on after its check of the option."""
+
+        def refused(*args):
+            said = io.StringIO()
+            with contextlib.ExitStack() as stack:
+                for target, name, fake in ((M, "hid_grant", lambda: True), (sys, "argv", ["held-new-tab.py", "--app", BUNDLE, *args])):
+                    stack.enter_context(mock.patch.object(target, name, fake))
+                stack.enter_context(mock.patch.object(M.os, "makedirs", side_effect=WentOn))
+                stack.enter_context(contextlib.redirect_stdout(said))
+                return M.main(), said.getvalue().splitlines()
+
+        for args in (("--letter-only",), ("--letter-only", "--letter-cases", "0"), ("--letter-cases", "-2"), ("--letter-cases", "-2", "--letter-only")):
+            code, lines = refused(*args)
+            self.assertEqual(code, 3, (args, lines))
+            self.assertTrue([line for line in lines if line.startswith("held-new-tab: NOT RUN: --letter-cases")], (args, lines))
+        for args in (("--letter-only", "--letter-cases", "1"), ("--letter-cases", "1"), ()):  # the check lets these go on
+            with self.assertRaises(WentOn):
+                refused(*args)
+
+    def test_a_run_with_no_letter_option_has_no_letter_cases(self):
+        code, report, lines, launches = self.main({"launch-activates"})
+        self.assertEqual((self.opts.letter_cases, self.opts.letter_only, self.opts.letter_budget_s), (0, False, M.LETTERS.BUDGET_S))
+        self.assertEqual((code, "letter_cases" in report), (0, False))
+
+    def test_the_cases_of_a_run_stay_in_the_report(self):
+        code, report, lines, launches = self.main({"launch-activates"}, "--letter-cases", "1",
+                                                  run=lambda report: report.update({"letter_cases": {"forms": []}}))
+        self.assertEqual(report.get("letter_cases"), {"forms": []})
+
+    def test_letter_only_with_a_failure_is_not_the_exit_of_a_round_with_no_row(self):
+        # A run with no row and one failure: with rows asked that is exit 1 (the round has no valid row). With
+        # --letter-only no round is asked, so the same report is exit 2 when a case ran.
+        def failed(report):
+            report["failures"].append("a fake failure")
+            self.cases("PASS")(report)
+
+        self.assertEqual(self.main({"launch-activates"}, "--letter-cases", "1", run=failed)[0], 1)
+        self.assertEqual(self.main({"launch-activates"}, "--letter-cases", "1", "--letter-only", run=failed)[0], 2)
+
+
+class Recent:
+    """recent-pages.py as `run()` uses it: each call of `seed`, and what the fake app had at the call."""
+
+    LIST = [{"url": "http://127.0.0.1:9000/p/0", "icon": True}]  # what `listed` gives for the app's state
+
+    def __init__(self, world, invalid=(), lost=()):
+        """`invalid`: the reasons of `seed`. `lost`: the reasons of the judge after the rows."""
+        self.world, self.invalid, self.lost, self.calls, self.judged = world, list(invalid), list(lost), [], []
+
+    def seed(self, builder, state, sites, pages, seconds, wait):
+        before = len(self.world.calls)
+        state()
+        self.calls.append({"sites": sites, "pages": pages, "seconds": seconds, "rows_workspace": self.world.space,
+                           "state_calls": self.world.calls[before:], "builder": type(builder).__name__, "wait": wait is Stress.wait})
+        return {"asked": {"sites": sites, "pages": pages}, "visits_seen": pages, "state_reads": pages + 1, "invalid": list(self.invalid)}
+
+    def listed(self, state):
+        return self.LIST if isinstance(state, dict) else None
+
+    def after_rows(self, report, pages):
+        self.judged.append({"the_apps_list": pages is self.LIST, "calls": len(self.world.calls), "last_call": self.world.calls[-1]})
+        report["invalid"] += self.lost
+        return list(self.lost)
+
+
+class RecentPages(Case):
+    """--recent-sites and --recent-pages: `run()` gives the session its recent pages before the rows' workspace, the
+    report has what the option read, and a run with no option is the run of before."""
+    TODAY = ["failures", "rows", "session"]  # the keys of the report of `run()` before the option
+
+    def test_a_run_with_no_option_has_the_report_of_before_and_no_call_of_the_option(self):
+        world = World()
+        recent = Recent(world)
+        with mock.patch.object(M, "RECENT", recent, create=True):
+            report = self.rows(world)
+        self.assertEqual((sorted(report), recent.calls), (self.TODAY, []))
+
+    def test_the_option_gives_the_pages_before_the_rows_workspace_and_the_report_has_them(self):
+        world = World()
+        recent = Recent(world)
+        with mock.patch.object(M, "RECENT", recent, create=True):
+            report = self.rows(world, recent=(2, 4))
+        self.assertEqual(len(recent.calls), 1, "the option was not run")
+        call = recent.calls[0]
+        self.assertEqual((call["sites"], call["pages"], call["seconds"]), (2, 4, 600.0))
+        self.assertIsNone(call["rows_workspace"])  # the rows' workspace is made after the pages' workspace is closed
+        self.assertEqual((call["builder"], call["wait"]), ("Builder", True))
+        self.assertEqual(call["state_calls"], [("debug.new_tab", "state")])  # the option's read of the app's list
+        self.assertEqual(report.get("recent_pages"), {"asked": {"sites": 2, "pages": 4}, "visits_seen": 4, "state_reads": 5, "invalid": []})
+        self.assertEqual(sorted(report), sorted(self.TODAY + ["recent_pages"]))
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why], [])
+        self.assertEqual(len(report["rows"]), 4)
+
+    def test_an_invalid_option_is_a_failure_of_the_run_and_the_rows_still_run(self):
+        world = World()
+        with mock.patch.object(M, "RECENT", Recent(world, invalid=["after the close: 3 of those 4 pages have no icon"]), create=True):
+            report = self.rows(world, recent=(2, 4))
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why],
+                         ["recent pages: INVALID FOR THE OPTION (these rows are not rows of a session with recent pages): "
+                          "after the close: 3 of those 4 pages have no icon"])
+        self.assertEqual(len(report["rows"]), 4)
+
+    def with_the_row_lines(self, world, module, **options):
+        """`rows` with `module` as the option's module: (the report, the `recent_pages` mark of each row when its
+        `HELD-NEW-TAB-ROW` line was printed)."""
+        at_the_line, printed = [], M.printed
+
+        def line(row):
+            at_the_line.append(row.get("recent_pages"))
+            return printed(row)
+
+        with mock.patch.object(M, "RECENT", module, create=True), mock.patch.object(M, "printed", line):
+            report = self.rows(world, **options)
+        return report, at_the_line
+
+    def test_an_option_that_did_not_take_effect_marks_each_row_and_the_sentence_of_the_session(self):
+        world = World()
+        report, at_the_line = self.with_the_row_lines(world, Recent(world, invalid=["after the close: 3 of those 4 pages have no icon"]),
+                                                      recent=(2, 4))
+        mark = "INVALID FOR THE OPTION (these rows are not rows of a session with recent pages)"
+        self.assertEqual(len(report["rows"]), 4)
+        self.assertEqual([row.get("recent_pages") for row in report["rows"]], [mark] * 4)  # no row says `valid` with no mark
+        self.assertEqual(at_the_line, [mark] * 4)  # and each row's printed line has it
+        limit = report.get("session_limit")
+        self.assertIsNotNone(limit, "the report of a run whose option did not take effect has no sentence for it")
+        self.assertEqual(limit, getattr(M, "RECENT_NOT_TAKEN", None))
+        self.assertIn("did NOT take effect", limit)
+        self.assertIn("`recent_pages.invalid`", limit)  # where the report says why
+        self.assertIn("not known", limit)  # the favicon work in the rows
+        self.assertNotIn("only that of the recent pages", limit)  # the sentence of an option that took effect
+        self.assertIn("one folder", limit)  # the folders' limit holds in each case
+
+    def test_an_option_that_took_effect_marks_no_row_and_the_apps_list_is_judged_one_time_after_the_last_row(self):
+        world = World()
+        recent = Recent(world)
+        report, at_the_line = self.with_the_row_lines(world, recent, recent=(2, 4))
+        self.assertEqual(len(recent.judged), 1, "the app's list was not judged after the rows")
+        # The judge got the app's list of ONE read of the state, and that read is the run's last call: after the last row.
+        self.assertEqual(recent.judged[0], {"the_apps_list": True, "calls": len(world.calls), "last_call": ("debug.new_tab", "state")})
+        self.assertEqual(len(report["rows"]), 4)
+        self.assertEqual(([row.get("recent_pages") for row in report["rows"]], at_the_line), ([None] * 4, [None] * 4))
+        self.assertNotIn("session_limit", report)  # `main()`'s sentence stays
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why], [])
+
+    def test_a_list_that_lost_pages_or_icons_in_the_rows_is_a_failure_and_marks_each_row_of_the_report(self):
+        world = World()
+        lost = "after the rows: the app's list has 4 pages of the sites, 3 with an icon; after the close it had 4 pages, 4 with an icon"
+        report, at_the_line = self.with_the_row_lines(world, Recent(world, lost=[lost]), recent=(2, 4))
+        mark = "INVALID FOR THE OPTION (these rows are not rows of a session with recent pages)"
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why], [f"recent pages: {mark}: {lost}"])
+        self.assertEqual([row.get("recent_pages") for row in report["rows"]], [mark] * 4)
+        self.assertEqual(at_the_line, [None] * 4)  # the rows' lines were printed before the judge: the report has the mark
+        self.assertEqual(report.get("session_limit"), getattr(M, "RECENT_NOT_TAKEN", None))
+        self.assertEqual(report["recent_pages"]["invalid"], [lost])
+
+    def test_a_run_with_no_option_has_no_judge_after_the_rows(self):
+        world = World()
+        recent = Recent(world)
+        report, at_the_line = self.with_the_row_lines(world, recent)
+        self.assertEqual((recent.judged, sorted(report)), ([], self.TODAY))
+        self.assertEqual(at_the_line, [None] * len(report["rows"]))
+
+    def test_a_judge_after_the_rows_that_stops_is_a_failure_with_the_mark(self):
+        world = World()
+        recent = Recent(world)
+        recent.after_rows = mock.Mock(side_effect=OSError("no socket"))
+        report, _ = self.with_the_row_lines(world, recent, recent=(2, 4))
+        self.assertEqual(recent.after_rows.call_count, 1, "the app's list was not judged after the rows")
+        mark = "INVALID FOR THE OPTION (these rows are not rows of a session with recent pages)"
+        self.assertEqual([why for why in report["failures"] if "recent pages" in why],
+                         [f"recent pages: {mark}: after the rows: the judge of the app's list stopped: OSError('no socket')"])
+        self.assertEqual([row.get("recent_pages") for row in report["rows"]], [mark] * 4)
+
+    def test_more_sites_than_the_apps_list_has_places_is_not_run_before_a_launch(self):
+        self.assertEqual(getattr(M.RECENT, "MOST_SITES", None), 40, "the option has no limit of its sites")
+
+        class WentOn(Exception):
+            """The tool went on after its check of the option."""
+
+        with mock.patch.object(M.os, "makedirs", side_effect=WentOn):
+            code, lines = self.refused("--recent-sites", "41", "--recent-pages", "41")
+            self.assertEqual(code, 3, lines)
+            said = [line for line in lines if line.startswith("held-new-tab: NOT RUN: --recent-sites 41")]
+            self.assertTrue(said, lines)
+            self.assertIn("40 sites at most", said[0])
+            with self.assertRaises(WentOn):  # 40 sites: the check lets the run go on
+                self.refused("--recent-sites", "40", "--recent-pages", "40")
+
+    def refused(self, *args):
+        """`main()` with `args`: (its exit code, or the words of an argument parser that stopped; the printed lines)."""
+        said = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(M, "hid_grant", lambda: True))
+            stack.enter_context(mock.patch.object(sys, "argv", ["held-new-tab.py", "--app", BUNDLE, "--out", self.out, *args]))
+            stack.enter_context(contextlib.redirect_stdout(said))
+            stack.enter_context(contextlib.redirect_stderr(said))
+            try:
+                code = M.main()
+            except SystemExit as stop:
+                code = f"the argument parser stopped with {stop.code}"
+        return code, said.getvalue().splitlines()
+
+    def test_an_option_that_cannot_run_is_not_run_before_a_launch(self):
+        for args in (("--recent-sites", "3", "--recent-pages", "2"), ("--recent-pages", "5"), ("--recent-sites", "-1", "--recent-pages", "5")):
+            code, lines = self.refused(*args)
+            self.assertEqual(code, 3, (args, lines))
+            self.assertTrue([line for line in lines if line.startswith("held-new-tab: NOT RUN: --recent-sites")], (args, lines))
+            self.assertFalse(os.path.exists(os.path.join(self.out, "report.json")))
+
+
+class SessionLimit(unittest.TestCase):
+    """`session_limit` of the report: what the session does not have, with no recent pages and with them."""
+
+    def limit(self, sites):
+        sentence = getattr(M, "session_limit", None)
+        self.assertIsNotNone(sentence, "the tool has no sentence of the session's limit for the option")
+        return sentence(sites)
+
+    def test_a_run_with_no_option_has_the_sentence_of_before(self):
+        self.assertEqual(self.limit(0), M.SEED_LIMIT)
+
+    def test_a_run_with_recent_pages_does_not_say_that_no_favicon_work_is_in_its_rows(self):
+        text = self.limit(40)
+        self.assertNotIn("favicon work and", text)  # the sentence of before: no favicon work is in the rows
+        self.assertIn("`recent_pages`", text)  # where the report says what the icons are, and their limits
+        self.assertIn("one folder", text)  # the folders' limit holds with the option
 
 
 class Engine(unittest.TestCase):

@@ -119,5 +119,5 @@ for arm in "${arm_list[@]}"; do
 done
 mkdir -p artifacts
 # A fleet step has no LaunchServices session: the bench launches the app binaries directly.
-CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/devtools-calls-bench.py "${apps[@]}" \
+CMUX_BENCH_LAUNCH=direct python3 scripts/cmux-next/devtools-calls-bench.py ${apps[@]+"${apps[@]}"} \
   --json artifacts/devtools-calls.json ${bench_args[@]+"${bench_args[@]}"}

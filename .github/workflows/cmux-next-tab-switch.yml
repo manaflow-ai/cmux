@@ -8,12 +8,17 @@ name: cmux-next tab switch (advisory)
 # animation ends where it should. Leo, 2026-11-15: tab switching "should be instant even under load", and we should
 # have had CI for it long ago.
 #
-# Every pull request runs it (no paths): the verdict job's name is the one context a ruleset can require, and a
-# required check must report. Out of scope, it is green at once and takes no Mac. GATE_MODE below says whether a
-# budget miss fails the check (enforce) or only warns (report); a pull request flips it, not a setting.
+# After merge, not on pull requests (2026-11-21, CI 10x). Leo: "Make each one advisory, after-merge or path-gated,
+# unless it caught a real failure." In 11-13..21 this check was advisory (GATE_MODE report), so it never failed a
+# pull request for a budget miss; its frames job's reds were the fleet's (no client, no report), and it cost up to
+# 15.2k runner-minutes a day on 11-16..17 plus the exclusive display Macs. Each feat-cmux-next push that touches the
+# scope (tab_switch_gate.py SCOPE) is now measured once, at the merged commit; a pull request starts no run. A pull
+# request that makes the check enforcing puts the pull_request trigger back (and drops the `github.event_name ==
+# 'push'` job conditions below). GATE_MODE below says whether a budget miss fails the check (enforce) or only warns
+# (report).
 #
 # Advisory for now (coordinator, 2026-11-15): GATE_MODE is report and the workflow name ends "(advisory)", so
-# merge_hold's ADVISORY_WORKFLOW does not hold a pull request while the display run waits in the exclusive queue.
+# land-judge's ADVISORY_WORKFLOW does not hold a pull request while the display run waits in the exclusive queue.
 # Once the remount fix's pull request passes it, a pull request sets GATE_MODE: enforce, drops the suffix, and the
 # ruleset adds the verdict job's context.
 #
@@ -21,9 +26,9 @@ name: cmux-next tab switch (advisory)
 # build-fleet gateway runner's thin cmux-ci client, as cmux-next-perf-bench.yml and cmux-next-hot-verify.yml do. The
 # gateway admits this job only once glaeda's runner hook lists (cmux-next-tab-switch.yml, frames) in GATEWAY_JOBS.
 #
-# It is a background step (--background): it queues behind every foreground job, a foreground step that needs the
-# display worker preempts it, and when this job stops waiting the client cancels it, so it gives its place back. As a
-# foreground step it kept its place after the job gave up, with nobody left to read it. In the 24 hours to
+# It is an idle-priority step (--priority idle; the client refuses --background with --measurement, since a
+# foreground job may cancel a background step mid-measure), and when this job stops waiting (exit 75) it cancels the
+# step, so it gives its place back. A step left queued kept its place after the job gave up, with nobody to read it. In the 24 hours to
 # 2026-11-17 02:10Z the frames job submitted 321 steps; 133 started after their job had left (116 could not measure),
 # they took 31 of the 68 exclusive host-hours, the exclusive queue's p90 wait was about 9 hours, and every lane
 # measurement (startup launch A/Bs) waited behind them. Leo's ask: a measurement step waits minutes, not hours.
@@ -32,26 +37,91 @@ name: cmux-next tab switch (advisory)
 # submitting, it reads the controller's measure-host table (/v1/status measure_hosts, one 15 ms read) and submits
 # only when fewer exclusive steps are queued for the display Macs than are running there now (ADMIT below: the step
 # would start within QUEUE_WAIT_S); otherwise it records "not measured: the display queue is busy" and ends in
-# seconds, and the verdict warns. An unreadable table submits anyway (fail open), and QUEUE_WAIT_S bounds the wait.
+# seconds, and the verdict reads not measured. An unreadable table submits anyway (fail open), and QUEUE_WAIT_S
+# bounds the wait.
 # In the 24 hours to 2026-11-17 08:27Z the frames job ran 354 times at p50 60.2 min: 220 "successes" were the client
 # waiting out --queue-timeout 3600 with 60 exclusive steps ahead and returning no report, and none of 354 returned
 # one. Each wait held one of its mini's two gateway tokens (glaeda docs/CMUX_MINI_RUNNER.md, gatewayRunners), which
 # the fleet compile and test clients and signing jobs need: 23 gateway jobs (test-compile, hot verify, this one) were
 # refused in "Set up runner" after waiting 600 s with "all 2 gateway tokens are taken".
 
+# Cut from pull requests on 2026-11-21 (#48515; ci-time-map: advisory, GATE_MODE report, never required; ~4.2k fleet
+# runner-min a day). It runs after merge (an in-scope feat-cmux-next push) and on workflow_dispatch;
+# docs-only-fallback.yml no longer calls it.
 on:
-  pull_request:
+  # After merge only (see the header): no pull_request trigger, so a pull request starts no run and takes no queue
+  # slot (#48515 took the pull_request trigger off). A pull request that makes the check enforcing puts it back.
+  # Each feat-cmux-next push is scoped (one short Linux job) and, in scope, measured at its commit.
+  push:
     branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review]
+    # tab_switch_gate.py SCOPE (plus its gate tests), minus EXCLUDE: a push outside them starts no run. The scope
+    # job still decides; keep this list equal to SCOPE when SCOPE changes.
+    paths:
+      - ".github/workflows/cmux-next-tab-switch.yml"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentChatTab*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTab*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneBackdropState.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneFullWidthTabs.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneMounts.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneSelectionPresenter.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneTabBars.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PreparedTabClose.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/StripNewTab.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContent*.swift"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserTabs/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextLayout/**"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/**"
+      - "cmux-tui/crates/cmux-tui-core/src/server/cmd_panes.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/server/cmd_tabs.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/server/raw_tab.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/state/conversation_tabs.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/state/kept_tabs.rs"
+      - "cmux-tui/crates/cmux-tui-core/src/state/tabs.rs"
+      - "scripts/cmux-next/bench-tab-switch.sh"
+      - "scripts/cmux-next/bench_tab_switch.py"
+      - "scripts/cmux-next/tab-switch-stages.py"
+      - "scripts/cmux-next/tab_switch_gate.py"
+      - "scripts/measure/tab-switch.sh"
+      - "tests/test_cmux_next_tab_switch_gate.py"
+      - "webviews/src/agent-session/acpmux/App.tsx"
+      - "webviews/src/agent-session/acpmux/Composer*.tsx"
+      - "webviews/src/agent-session/acpmux/PaneBoundary.tsx"
+      - "webviews/src/agent-session/acpmux/chatSnapshot/**"
+      - "webviews/src/agent-session/acpmux/composer/**"
+      - "webviews/src/agent-session/acpmux/composerRestore.ts"
+      - "webviews/src/agent-session/acpmux/conversation/**"
+      - "webviews/src/agent-session/acpmux/main.tsx"
+      - "webviews/src/agent-session/acpmux/mount.tsx"
+      - "webviews/src/agent-session/acpmux/mountModel.tsx"
+      - "webviews/src/agent-session/acpmux/pane*.ts"
+      - "webviews/src/agent-session/acpmux/restoredTail.ts"
+      - "webviews/src/agent-session/acpmux/snapshotCache.ts"
+      - "!**/Tests/**"
+      - "!**/*Tests.swift"
+      - "!**/Playground/**"
+      - "!**/Demo/**"
+      - "!**/*.test.ts"
+      - "!**/*.test.tsx"
+      - "!**/*.gallery.*"
+      - "!**/*.md"
+  # By hand: the dispatched ref's last commit (HEAD^1..HEAD), measured when it is in scope.
+  workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: cmux-next-tab-switch-${{ github.event.pull_request.number }}
+  # One run per pull request, or per feat-cmux-next commit: a newer push never cancels a merged commit's measure.
+  group: cmux-next-tab-switch-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 env:
-  # enforce: a budget miss or a missing report fails the check. report: it warns, and the check stays green.
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+  # enforce: a budget miss or a failed frames job fails the check. report: it warns, and the check stays green.
+  # Either way a run that measured nothing (scope cancelled, no report, queue busy) reads "not measured", green.
   GATE_MODE: report
   LOADS: idle,cpu,agents
   ROUNDS: "3"
@@ -68,7 +138,9 @@ env:
 jobs:
   scope:
     name: tab switch scope
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    # After merge only (see the header): a pull request's run takes no runner.
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -88,6 +160,7 @@ jobs:
             !/cmux-next-ios/verify/
       - name: Gate tests
         run: python3 tests/test_cmux_next_tab_switch_gate.py
+      # A pull request's merge commit or a feat-cmux-next push's commit: HEAD^1 is the base either way.
       - name: Does this change touch a tab, a pane or the chat pane?
         id: scope
         run: |
@@ -103,13 +176,12 @@ jobs:
     needs: scope
     if: >-
       needs.scope.outputs.in_scope == 'true' && github.repository == 'manaflow-ai/cmux'
-      && github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
-      && vars.CI_EVAL_STEP_GATEWAY != ''
+      && github.event_name != 'pull_request' && vars.CI_EVAL_STEP_GATEWAY != ''
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
     # The job holds one of the gateway runner's two tokens while it waits, so it waits only when the queue is short
     # (ADMIT), at most QUEUE_WAIT_S (20 min) for a display worker, and an hour for the build and the measure. Past
-    # QUEUE_WAIT_S in the queue the client cancels the background step (exit 75) and the verdict has no report, which
-    # only warns while GATE_MODE is report.
+    # QUEUE_WAIT_S in the queue the client stops waiting (exit 75), the job cancels the step and the verdict reads not measured
+    # (green in either GATE_MODE: a missing measurement is not a budget miss).
     timeout-minutes: 90
     permissions: {}
     steps:
@@ -117,9 +189,9 @@ jobs:
       # commit (the harness) and builds the head.
       - name: Measure tab switches on a display Mac
         env:
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           BASE_SHA: ${{ needs.scope.outputs.base_sha }}
-          PR: ${{ github.event.pull_request.number }}
+          PR: ${{ github.event.pull_request.number || 'push' }}
           FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
         run: |
           set -uo pipefail
@@ -173,12 +245,18 @@ jobs:
           fi
           log="$RUNNER_TEMP/tab-switch/step.log"
           status=0
-          "$client" run --class exclusive --measurement --display --background \
+          # --priority idle, not --background: the client refuses --background with --measurement (a foreground job
+          # may cancel a background step mid-measure), so every admitted run failed before it queued.
+          "$client" run --class exclusive --measurement --display --priority idle \
             --script scripts/measure/tab-switch.sh --ref "$BASE_SHA" --repo manaflow-ai/cmux \
             --key "tab-switch-pr$PR-$HEAD_SHA-$GITHUB_RUN_ATTEMPT" \
             --arg="build=$HEAD_SHA" --arg="rounds=$ROUNDS" --arg="load=$LOADS" \
             --artifact "$REPORT_PATH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          if [[ "$status" == 75 && -n "$step" ]]; then
+            # Not started within QUEUE_WAIT_S: a non-background step stays queued after the client stops waiting.
+            "$client" cancel "$step" --reason "tab switch: not started within ${QUEUE_WAIT_S}s" || true
+          fi
           out="$RUNNER_TEMP/tab-switch/$(basename "$REPORT_PATH")"
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out" || "$client" artifact --failed "$step" "$out" || true
@@ -191,7 +269,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: tab-switch-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          name: tab-switch-${{ github.event.pull_request.number || 'push' }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tab-switch
           retention-days: 3
           if-no-files-found: ignore
@@ -200,8 +278,8 @@ jobs:
     # The context a ruleset requires: keep this name.
     name: tab switch (frames, under load)
     needs: [scope, frames]
-    if: always()
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -209,14 +287,16 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/cmux-next/tab_switch_gate.py
+          sparse-checkout: |
+            scripts/cmux-next/tab_switch_gate.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Download the report
         if: needs.frames.result != 'skipped'
         continue-on-error: true
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: tab-switch-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          name: tab-switch-${{ github.event.pull_request.number || 'push' }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/tab-switch
       - name: Judge the budgets
         env:
@@ -236,10 +316,21 @@ jobs:
             printf '\nReport only (GATE_MODE=report): this would fail the check once it is enforced.\n' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           }
-          if [[ "$SCOPE_RESULT" != success ]]; then
-            printf '### %s: no verdict\n\nThe scope job %s (its gate tests or the diff read).\n' "$title" "$SCOPE_RESULT" >> "$GITHUB_STEP_SUMMARY"
-            echo "::error title=$title::the scope job $SCOPE_RESULT"; exit 1
-          fi
+          # Nothing was measured, so there is nothing to judge: not a budget miss, green in either mode. Only a
+          # budget miss, a failed frames job or failed gate tests judge the change.
+          unmeasured() {
+            printf '### %s: not measured\n\n%s A missing measurement is not a budget miss, so the check stays green.\n' \
+              "$title" "$1" >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=$title::not measured: $1"
+            exit 0
+          }
+          case "$SCOPE_RESULT" in
+            success) ;;
+            failure)  # its gate tests failed, or the diff could not be read
+              printf '### %s: no verdict\n\nThe scope job failed (its gate tests or the diff read).\n' "$title" >> "$GITHUB_STEP_SUMMARY"
+              echo "::error title=$title::the scope job failed"; exit 1 ;;
+            *) unmeasured "The scope job was ${SCOPE_RESULT:-not run} (a newer push cancels this run), so nothing ran." ;;
+          esac
           if [[ "$IN_SCOPE" != true ]]; then
             printf '### %s: not measured\n\nThis change touches no tab, pane or chat-pane path (scripts/cmux-next/tab_switch_gate.py SCOPE).\n' "$title" >> "$GITHUB_STEP_SUMMARY"
             exit 0
@@ -252,21 +343,22 @@ jobs:
           step_exit="$(cat "$RUNNER_TEMP/tab-switch/step-exit" 2>/dev/null || echo none)"
           if [[ "$step_exit" == skipped ]]; then
             why="$(cat "$RUNNER_TEMP/tab-switch/skipped" 2>/dev/null || echo "the display queue was busy")"
-            printf '### %s: not measured\n\nThe display Macs could not start this step within the queue wait, so the frames job did not submit it: %s. No verdict is never a pass.\n' \
-              "$title" "$why" >> "$GITHUB_STEP_SUMMARY"
-            miss "not measured: $why"
+            unmeasured "The display Macs could not start this step within the queue wait, so the frames job did not submit it: $why."
           fi
           if [[ "$step_exit" == "$CANNOT_MEASURE_EXIT" ]]; then
-            printf '### %s: no verdict\n\nThe harness could not measure on its worker (exit %s, for example no Screen Recording grant): see the frames job. No verdict is never a pass.\n' \
-              "$title" "$step_exit" >> "$GITHUB_STEP_SUMMARY"
-            miss "the harness could not measure (exit $step_exit)"
+            unmeasured "The harness could not measure on its worker (exit $step_exit, for example no Screen Recording grant): see the frames job."
           fi
-          if [[ "$FRAMES_RESULT" != success || ! -s "$report" ]]; then
-            printf '### %s: no verdict\n\nThe display run %s and returned no report (a fork, no gateway runner, or the fleet step failed: see the frames job). No verdict is never a pass.\n' \
-              "$title" "$FRAMES_RESULT" >> "$GITHUB_STEP_SUMMARY"
-            miss "no report from the display run (frames: $FRAMES_RESULT)"
+          if [[ "$FRAMES_RESULT" == failure ]]; then
+            printf '### %s: no verdict\n\nThe frames job failed (see it).\n' "$title" >> "$GITHUB_STEP_SUMMARY"
+            miss "the frames job failed"
+          fi
+          if [[ "$FRAMES_RESULT" != success ]]; then
+            unmeasured "The frames job was ${FRAMES_RESULT:-not run} (a fork, no gateway runner, or its run was cancelled or timed out)."
+          fi
+          if [[ ! -s "$report" ]]; then
+            unmeasured "The display run returned no report (fleet step exit $step_exit; with nothing returned the frames job uploads no artifact)."
           fi
           status=0
           python3 scripts/cmux-next/tab_switch_gate.py evaluate "$report" --loads "$LOADS" \
-            --summary "$GITHUB_STEP_SUMMARY" --sheet "artifact tab-switch-${{ github.event.pull_request.number }}-${{ github.run_attempt }} ($ARTIFACTS_URL)" || status=$?
+            --summary "$GITHUB_STEP_SUMMARY" --sheet "artifact tab-switch-${{ github.event.pull_request.number || 'push' }}-${{ github.run_attempt }} ($ARTIFACTS_URL)" || status=$?
           [[ "$status" == 0 ]] || miss "a switch missed its budget, or the report could not be judged (see the summary)"

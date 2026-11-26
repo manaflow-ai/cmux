@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "elevation.ask" : {
+      "comment" : "Agent pane: an agent's sudo card (request_elevation): who asks, on which machine. {agent} is the agent's name, {host} the machine.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يطلب {agent} تشغيل هذا بصلاحيات الجذر على {host}"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} traži da ovo pokrene kao root na {host}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} beder om at køre dette som root på {host}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} möchte dies als root auf {host} ausführen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} asks to run this as root on {host}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} pide ejecutar esto como root en {host}"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} demande à exécuter ceci en root sur {host}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} chiede di eseguire questo come root su {host}"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} が {host} でこれを root として実行しようとしています"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} ស្នើសុំដំណើរការវាជា root នៅលើ {host}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent}에서 {host}에서 이 명령을 root로 실행하려고 합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} ber om å kjøre dette som root på {host}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} prosi o uruchomienie tego jako root na {host}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} pede para executar isto como root em {host}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} просит запустить это от root на {host}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} ขอเรียกใช้คำสั่งนี้ในฐานะ root บน {host}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent}, bunu {host} üzerinde root olarak çalıştırmak istiyor"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} просить запустити це від root на {host}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} xin chạy lệnh này với quyền root trên {host}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} 请求在 {host} 上以 root 身份运行此命令"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{agent} 要求在 {host} 上以 root 身分執行此指令"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

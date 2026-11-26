@@ -70,7 +70,12 @@ export function comboboxCase(pinned: boolean): VisibleListCase {
       const style = document.createElement("style");
       style.textContent =
         ".case-list { max-height: 320px; overflow: auto; } .ui-combobox-item { box-sizing: border-box; }" +
-        (vary ? " .ui-combobox-item { line-height: 18px; padding: 5px 8px; }" : " .ui-combobox-item { height: 28px; }");
+        (vary
+          ? " .ui-combobox-item { line-height: 18px; padding: 5px 8px; }"
+          : " .ui-combobox-item { height: calc(28px * var(--cmux-interface-scale, 1)); }");
+      // `?scale=1.1`: the interface scale (Text Size), as the App writes it: rows of 30.8 px.
+      const scale = new URLSearchParams(location.search).get("scale");
+      if (scale) document.documentElement.style.setProperty("--cmux-interface-scale", scale);
       document.head.append(style);
       flushSync(() => createRoot(root).render(<CaseCombobox n={n} pinned={pinned} />));
       const scroller = () =>

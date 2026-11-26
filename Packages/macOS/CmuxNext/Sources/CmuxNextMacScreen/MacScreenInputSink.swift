@@ -23,17 +23,25 @@ final class MacScreenInputSink: RemoteViewInputSink {
 /// first) tells the pane, which updates the stats and the picture state.
 /// It also keeps the stream's frame timings (`mac_screen.state`), bounded.
 nonisolated final class MacScreenFrameCounter: Sendable {
+    // carve-out: counted from the decode/present callbacks, off any actor, once per frame.
     private let state = Mutex((pending: 0, timings: MacScreenFrameTimings()))
 
-    /// Counts one frame (the host's `frame` number, decoded at `decodedAtNanos`, `DispatchTime`
-    /// uptime) as it reaches the presenter; true when the pane should hear now.
-    func tick(frame: UInt32 = 0, decodedAtNanos: UInt64 = 0) -> Bool {
+    /// Counts one frame (the host's `frame` number, released at `releasedAtNanos` and decoded at
+    /// `decodedAtNanos`, `DispatchTime` uptime) as it reaches the presenter; true when the pane
+    /// should hear now.
+    func tick(frame: UInt32 = 0, releasedAtNanos: UInt64 = 0, decodedAtNanos: UInt64 = 0) -> Bool {
         let nowNanos = DispatchTime.now().uptimeNanoseconds, now = ContinuousClock.now
         return state.withLock { state in
-            state.timings.presented(frame: frame, decodedAtNanos: decodedAtNanos, nowNanos: nowNanos, now: now)
+            state.timings.presented(frame: frame, releasedAtNanos: releasedAtNanos, decodedAtNanos: decodedAtNanos,
+                                    nowNanos: nowNanos, now: now)
             state.pending += 1
             return state.timings.total == 1 || state.pending >= 15
         }
+    }
+
+    /// A frame reached the glass (the presenter's presented handler, any thread).
+    func shown(_ times: RemoteViewerFrameTimes) {
+        state.withLock { $0.timings.shown(times) }
     }
 
     /// The stream's timings so far (a copy of a few kilobytes at most).

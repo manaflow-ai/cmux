@@ -14,6 +14,7 @@ extension UpdaterService: UpdateActionDelegate {
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("will_relaunch")
         #endif
+        relaunchingForUpdate = true
         recordRelaunchFocus()
         UpdateInstallCheck.write(installingBuild.map { .init(fromBuild: identity.build, targetBuild: $0, recordedAt: now()) }, defaults: defaults)
         willRelaunch?()
@@ -45,6 +46,10 @@ extension UpdaterService: UpdateActionDelegate {
     public func updaterDefersAutomaticInstall(until ready: @escaping @MainActor () -> Void) -> Bool {
         relaunchMomentHold.hold(ready)
     }
+
+    /// The automatic install the moment holds, with its reason and age, or nil (observable): the
+    /// staged update card, the Settings Updates card and `updates.status` read it.
+    public var relaunchHold: UpdateRelaunchHoldState? { relaunchMomentHold.state }
 
     /// A click, a cancel or the end of the update session took over: the hold goes, with its observers and timer.
     public func updaterEndsAutomaticInstallHold() {

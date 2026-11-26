@@ -32,7 +32,7 @@ extension AcpmuxHub {
                                   timeout: Duration) async throws -> JSONValue {
         try await LinkDeadline.run(
             timeout: timeout,
-            timeoutError: LinkError(code: "timeout", message: "The Mac didn't answer (\(method))"),
+            timeoutError: LinkError(code: "timeout", message: "no reply to \(method)"),
             operation: { try await connection.reply(to: id) }
         )
     }
@@ -42,7 +42,8 @@ extension AcpmuxHub {
     /// (``readRest(after:on:firstPage:timeout:)`` lets go of the ones gone), so a reconnect
     /// does not hide older chats for a moment. A row a notice already told is older than the
     /// notice, and a chat purged since the watch began stays gone.
-    func applyFirstPage(_ rows: [JSONValue], whole: Bool) -> Set<String> {
+    func applyFirstPage(_ rows: [JSONValue], whole: Bool) -> (ids: Set<String>, changed: Bool) {
+        let previous = sessions
         var next = whole ? [:] : sessions
         var ids: Set<String> = []
         for value in rows {
@@ -55,7 +56,7 @@ extension AcpmuxHub {
         }
         sessions = next
         listWhole = whole
-        return ids
+        return (ids, next != previous)
     }
 
     /// Reads the list after `cursor` while `connection` is this hub's, adding each row a notice
@@ -70,6 +71,7 @@ extension AcpmuxHub {
         var cursors: Set<String> = [cursor]
         var next: String? = cursor
         var pages = 0
+        let previous = sessions
         while let page = next {
             guard let reply = await laterPage(page, on: connection, timeout: timeout) else {
                 await restStopped(on: connection, listed: listed, firstPage: firstPage, after: pages, timeout: timeout)
@@ -107,7 +109,9 @@ extension AcpmuxHub {
         ConnectivityTelemetry.shared.record(.hub, "list_whole", outcome: .success, fields: [
             "sessions": .number(Double(sessions.count)), "pages": .number(Double(pages + 1)),
         ])
-        onWatchEvent?(.sessionsLoaded(Array(sessions.values)))
+        if sessions != previous {
+            onWatchEvent?(.sessionsLoaded(Array(sessions.values)))
+        }
         await seedPending(connection, requestTimeout: timeout, among: listed.subtracting(firstPage))
     }
 
@@ -118,8 +122,11 @@ extension AcpmuxHub {
     private func restStopped(on connection: AcpmuxConnection, listed: Set<String>, firstPage: Set<String>, after pages: Int, timeout: Duration) async {
         guard !Task.isCancelled, !(await connection.isClosed), self.connection === connection else { return }
         log.error("acpmux list rest stopped after \(pages, privacy: .public) pages")
+        let previous = sessions
         sessions = sessions.filter { listed.contains($0.key) || toldSinceWatch.contains($0.key) }
-        onWatchEvent?(.sessionsLoaded(Array(sessions.values)))
+        if sessions != previous {
+            onWatchEvent?(.sessionsLoaded(Array(sessions.values)))
+        }
         await seedPending(connection, requestTimeout: timeout, among: listed.subtracting(firstPage))
     }
 

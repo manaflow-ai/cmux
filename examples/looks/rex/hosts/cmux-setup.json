@@ -1,0 +1,9 @@
+{
+  "cmuxSetup": 1,
+  "cmuxProfile": 1,
+  "id": "manaflow-ai/rex-hosts",
+  "name": "Rex Hosts",
+  "version": "1.0.0",
+  "description": "Opt-in hosts view using existing cmux actions.",
+  "settings": {}
+}
