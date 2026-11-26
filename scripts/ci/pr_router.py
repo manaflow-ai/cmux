@@ -33,6 +33,8 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              true for a workflow that starts only on a land's own heads: the `labeled` event that adds
              ready-to-land or full-ci (the land handoff), or a synchronize of a ready-to-land PR whose head
              is GitHub's base merge (land's update-branch). Any other head, full tier or not, skips it;
+  land_affected
+             true to consider the callee's paths on the affected landing tier as well as the full tier;
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
@@ -172,6 +174,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
     the head is GitHub's base merge into a ready-to-land PR (land_update_head), for `land_handoff_only` callees."""
     tier, tier_reason = decided or head_tier.tier("pull_request", event, draft_switch)
     cheap = tier == "cheap"
+    landing_affected = head_tier.land_affected((tier, tier_reason))
     pr = event.get("pull_request") or {}
     labels = head_tier.labels_of(event)
     # Fast-track (scripts/ci/fast_track.py): a docs, plans, skills, copy or tests-only change gets the cheap tier.
@@ -219,7 +222,7 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
             continue
-        if cheap and not config.get("draft"):
+        if cheap and not config.get("draft") and not (landing_affected and config.get("land_affected")):
             why[name] = ("draft: starts when marked ready for review (or with full-ci)" if pr.get("draft") is not False
                          else tier_reason)
             continue

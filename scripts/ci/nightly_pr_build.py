@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """The NIGHTLY's own app compile and Rust helper builds, on a pull request (.github/workflows/nightly-pr-build.yml).
 
-Why: on 2026-11-25 a direct push (a3b465f1367) broke the cmux NEXT Nightly's app compile and the
-NIGHTLY went over 5 hours without publishing. The pull request checks compile the app in Debug or a
-plain Release; the Nightly compiles it with -DCMUX_BLOCKING_CHECKS, -Osize (hot targets at -O) and for
-arm64 and x86_64, and it builds its Rust helpers in release with their own features. Code that only
-those settings reject reached the Nightly first. This runs the Nightly's settings on the pull request,
+The ordinary pull request checks compile the app in Debug or plain Release. The Nightly uses
+-DCMUX_BLOCKING_CHECKS and -Osize (hot targets at -O) for arm64 and x86_64, and it builds its Rust
+helpers in release with their own features. This runs the Nightly's settings on the pull request,
 advisory: no rule requires its checks.
 
   route --base B --rev R
