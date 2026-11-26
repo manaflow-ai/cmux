@@ -1580,6 +1580,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-sync"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "getrandom 0.3.4",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-build-identity"
 version = "0.1.0"
 dependencies = [
@@ -2405,6 +2421,13 @@ name = "cmux-launch-image"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-launch-preread"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-layout-reducer"
 version = "0.1.0"
 dependencies = [
@@ -2893,6 +2916,19 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-remote-web"
+version = "0.1.0"
+dependencies = [
+ "cmux-remote-protocol",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "snow",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -3843,9 +3879,12 @@ name = "cmux-vnc"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "base64",
  "flate2",
  "getrandom 0.3.4",
  "num-bigint",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

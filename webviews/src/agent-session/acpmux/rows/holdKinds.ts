@@ -23,7 +23,7 @@ export const HOLD_MAX_KINDS = 16;
 const CATEGORIES = new Set(["transcript", "mux", "wire", "all"]);
 
 /// The hold's params: acpmux's `AttachParams` with `hold`, which the generated type does not name yet.
-export type HoldAttach = AttachParams & {
+export type HoldAttach = Pick<AttachParams, "sessionId"> & {
   hold: true;
   eventStream: true;
   kinds: string[];
