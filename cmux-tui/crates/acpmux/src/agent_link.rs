@@ -62,7 +62,7 @@ static NATIVE: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::
 });
 
 /// The link in `text`, which may be the bare URL or a line that carries one (a PR footer's
-/// markdown `[big-red](https://...)`). None when `text` holds no agent link (a URL on another
+/// markdown `[my-vm](https://...)`). None when `text` holds no agent link (a URL on another
 /// host or path, a session name); an error naming what is wrong when it holds one that names no
 /// session.
 pub fn find(text: &str) -> Option<Result<AgentLink, String>> {

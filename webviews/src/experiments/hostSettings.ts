@@ -21,6 +21,7 @@ export const SETTING_ARMS: Readonly<Record<string, SettingArmEntry>> = {
   jumpLatestLands: { experiment: "jump-latest-lands", arm: "on" },
   toastGlass: { experiment: "toast-glass", arm: "host" },
   composerHatGroups: { experiment: "subagent-tray-fold-head", arm: "groups" },
+  forumCallCard: { experiment: "forum-call-card", arm: "card" },
 };
 
 /**

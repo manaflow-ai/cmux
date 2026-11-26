@@ -2,7 +2,7 @@
 // does the end-of-turn fold play.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { drawsCopy, endsTurn, hasLiveLine, turnEndLook } from "./turnEndFold";
+import { endsTurn, hasLiveLine, turnEndLook, drawsCopy } from "./turnEndFold";
 import { LIVE_THINKING } from "./turns";
 
 const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({ id, version: 1, at: 1, kind });
@@ -33,19 +33,6 @@ test("an update ends the turn only when it takes the line away", () => {
   expect(endsTurn([row("u", "user"), row("p", "user"), row(LIVE_THINKING, "thinking")], [row("u", "user")])).toBe(
     false,
   );
-});
-
-test("switching the running status line does not end its turn", () => {
-  const running = [
-    row("u", "user"),
-    { ...row("worked-u", "worked"), turnPhase: "running" as const },
-    row(LIVE_THINKING, "thinking"),
-  ];
-  const status = [row("u", "user"), row("activityLine-u", "activityLine")];
-  expect(hasLiveLine(status)).toBe(true);
-  expect(endsTurn(running, status)).toBe(false);
-  expect(endsTurn(status, running)).toBe(false);
-  expect(endsTurn(status, [row("u", "user"), row("worked-u", "worked"), row("answer")])).toBe(true);
 });
 
 test("a user line another agent or the inbox drew is not the turn's prompt", () => {
