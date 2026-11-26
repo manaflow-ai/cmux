@@ -89,6 +89,14 @@ name = "cmux-config/once#LEDGER_VERSION"
 policy = "unreviewed"
 
 [[format]]
+file = "crates/cmux-customize/src/library/doctor.rs"
+const = "STATE_VERSION"
+name = "settings-doctor-state"
+about = "the settings doctor's dismissed findings (id to fingerprint)"
+policy = "rebuild"
+why = "dismissals of settings findings; a build that cannot read them shows a dismissed finding once more, and the settings files themselves stay"
+
+[[format]]
 file = "crates/cmux-customize/src/setup/check.rs"
 const = "SCHEMA_VERSION"
 name = "cmux-customize/check#SCHEMA_VERSION"
