@@ -142,11 +142,78 @@ jobs:
           set -euo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "sha must be 40 lowercase hex" >&2; exit 1; }
 
-      # Bounded: a fetch that hangs on the mini (run 45608822951, 2026-11-25:
-      # 90 min in this step, then the job timeout cancelled the run) fails
-      # here in minutes, and the trigger's backoff retries it.
+      # The commit from this host's git mirror first, GitHub only when it has none. On a fleet Mac
+      # the github.com fetch stalled (curl 92 stream reset, early EOF) until the 20 min bound below
+      # in runs 45773843030 and 45808800614 (2026-11-26). The mirror (glaeda-git-mirror: main,
+      # feat-cmux-next and nightly-next, fetched every 60 s) already holds every feat-cmux-next head
+      # this builds. The same borrow as nightly.yml's warm checkout and cmux-next.yml's release
+      # compile: objects/info/alternates plus the glaeda-mirror-borrow.json record, the mirror used
+      # only when glaeda verified it and is not repairing it. No mirror (Blacksmith, a Mac without
+      # one) or a commit it lacks after one fetcher pass: the step reports source=github and the
+      # checkout below runs as before.
+      - name: Checkout the commit from the host's git mirror
+        id: mirror-checkout
+        timeout-minutes: 8
+        continue-on-error: true
+        env:
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "source=github" >> "$GITHUB_OUTPUT"
+          mirror="${GLAEDA_GIT_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
+          if ! { [ -d "$mirror/objects" ] && [ ! -L "$mirror/objects" ] && [ ! -L "$mirror" ] && [ -f "$mirror/HEAD" ] \
+              && [ -f "$mirror/glaeda-verified" ] && [ ! -e "$mirror/glaeda-repair-pending" ] && [ ! -e "$mirror/shallow" ]; }; then
+            echo "no verified git mirror at $mirror: the checkout fetches from GitHub"
+            exit 0
+          fi
+          in_mirror() { git --git-dir="$mirror" cat-file -e "$SHA^{commit}" 2>/dev/null; }
+          # A head pushed seconds ago may not be in the mirror yet: ask the host's one fetcher for a
+          # pass and wait for it (bounded), instead of fetching from GitHub here.
+          mirror_tool="${GLAEDA_GIT_MIRROR_TOOL:-$HOME/.local/bin/glaeda-git-mirror}"
+          if ! in_mirror && [ -x "$mirror_tool" ]; then
+            echo "the mirror lacks $SHA: asking the host's mirror fetcher for a pass"
+            # macOS has no timeout(1): the pass runs in the background and this waits at most 240 s.
+            "$mirror_tool" --apply --wait > "$RUNNER_TEMP/git-mirror-pass.log" 2>&1 &
+            kick=$!
+            until=$((SECONDS + 240))
+            while ! in_mirror && kill -0 "$kick" 2>/dev/null && (( SECONDS < until )); do sleep 5; done
+            in_mirror || echo "the mirror's pass ended without $SHA: $(tail -c 400 "$RUNNER_TEMP/git-mirror-pass.log" 2>/dev/null)"
+          fi
+          in_mirror || { echo "$SHA is not in $mirror: the checkout fetches from GitHub"; exit 0; }
+          cd "$GITHUB_WORKSPACE"
+          [ -d .git ] || git init -q .
+          git config gc.auto 0
+          if git remote get-url origin >/dev/null 2>&1; then git remote set-url origin "$REPO_URL"; else git remote add origin "$REPO_URL"; fi
+          if ! grep -qxF "$mirror/objects" .git/objects/info/alternates 2>/dev/null; then
+            # GNU stat first: its -f reads the file system, not the file (nightly.yml's order).
+            ids=$(stat -c '%d %i' "$mirror/objects" 2>/dev/null || stat -f '%d %i' "$mirror/objects")
+            [[ "$ids" =~ ^[0-9]+\ [0-9]+$ ]] || { echo "cannot read $mirror/objects's device and inode: the checkout fetches from GitHub"; exit 0; }
+            printf '{"objects": "%s", "dev": %s, "ino": %s}\n' "$mirror/objects" "${ids% *}" "${ids#* }" > .git/.glaeda-mirror-borrow.json.tmp
+            mv -f .git/.glaeda-mirror-borrow.json.tmp .git/glaeda-mirror-borrow.json
+            mkdir -p .git/objects/info
+            echo "$mirror/objects" >> .git/objects/info/alternates
+          fi
+          git -c protocol.file.allow=always fetch -q --no-tags --no-recurse-submodules "$mirror" "$SHA"
+          git cat-file -e "$SHA^{commit}"
+          git checkout -q -f --detach "$SHA"
+          git clean -q -ffdx
+          [ "$(git rev-parse HEAD)" = "$SHA" ]
+          echo "source=mirror" >> "$GITHUB_OUTPUT"
+          echo "::notice title=checkout::$SHA from this host's git mirror, no github.com fetch"
+
+      # GitHub, when the mirror had nothing: bounded, and a stalled transfer (under 1 KiB/s for 60 s)
+      # aborts so the action's own retry starts instead of holding the step to its bound. A fetch that
+      # hangs on the mini (run 45608822951, 2026-11-25: 90 min in this step, then the job timeout
+      # cancelled the run) fails here in minutes, and the trigger's backoff retries it.
       - name: Checkout the commit
+        if: steps.mirror-checkout.outputs.source != 'mirror'
         timeout-minutes: 20
+        env:
+          GIT_CONFIG_COUNT: '2'
+          GIT_CONFIG_KEY_0: http.lowSpeedLimit
+          GIT_CONFIG_VALUE_0: '1024'
+          GIT_CONFIG_KEY_1: http.lowSpeedTime
+          GIT_CONFIG_VALUE_1: '60'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -225,6 +292,14 @@ jobs:
           root="$HOME/cmux-mobile-builds"
           [ "$HOSTED_FALLBACK" != true ] || root="$RUNNER_TEMP/cmux-mobile-builds"
           export CMUX_MOBILE_BUILDS_ROOT="$root"
+          # Swift package clones outlive the job on every Mac, not only the dedicated mini: under the
+          # job's temp a fleet Mac cloned apple/swift-asn1 and swift-crypto from github.com on every
+          # build and got 403 ("Could not resolve package dependencies", runs 45717448413 through
+          # 45760129544). Kept, a build whose pins are cloned resolves with no fetch. Only this
+          # workflow writes it, and its concurrency group runs one build at a time.
+          if [ "$HOSTED_FALLBACK" = true ]; then
+            export CMUX_MOBILE_SPM_CACHE="$HOME/Library/Caches/cmux-mobile-internal/spm"
+          fi
           cmux-next-ios/scripts/testflight-build.sh --ref "$SHA" --unsigned --no-asc \
             --marketing-version "$MARKETING" --build-number "$BUILD_NUMBER"
           out="$(find "$root" -maxdepth 1 -type d -name "*-${SHA:0:10}-testflight" -print0 | xargs -0 ls -td | head -1)"
