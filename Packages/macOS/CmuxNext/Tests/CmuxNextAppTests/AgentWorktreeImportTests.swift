@@ -80,7 +80,7 @@ struct AgentWorktreeImportTests {
         let center = ImportSuggestionsCenter(defaults: defaults,
             ledgerURL: FileManager.default.temporaryDirectory.appending(path: suite))
         center.host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] },
-                                      openSettings: { _ in }, importClassic: { _ in nil }, importConductor: { _ in nil }, classicWorkspaces: { nil })
+                                      openSettings: { _ in }, importClassic: { _ in nil }, importConductor: { _ in nil }, classicAvailability: { .unavailable })
         let events = AsyncStream<Int>.makeStream()
         var releaseFirst: CheckedContinuation<Void, Never>?
         var scans = 0

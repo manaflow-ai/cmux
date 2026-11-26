@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import Foundation
 
 /// Files a local chat gets pasted that have no path on this Mac (any file, Lawrence 2026-10-20), written
-/// owner-only under `~/Library/Application Support/cmux/Chat Uploads/[sessions/<session>/]<random>/<index>/<name>`:
+/// owner-only under `~/Library/Application Support/cmux-next/Chat Uploads/[sessions/<session>/]<random>/<index>/<name>`:
 /// staged as the page streams them and renamed into place, never copied again through the acpmux
 /// socket (``AgentPeerUploads`` is for a peer's chat only).
 /// Older `sessions/<session>/...` folders, no longer written, go after ``maximumAge`` (``sweep(_:now:)``, at

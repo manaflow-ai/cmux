@@ -102,5 +102,128 @@ class LaunchShiftTests(unittest.TestCase):
         self.assertEqual((w["geometry_frames"], w["pixel_frames"]), (1, 0))
 
 
+class PerceivedTests(unittest.TestCase):
+    """settled_match_ms, first_frame_is_final, shift_score, alpha_changes and tti_ms (Leo, 2026-11-24: perceived
+    speed over anything; layout shifts are bad)."""
+
+    def test_a_launch_final_at_its_first_frame(self):
+        rec = recording([PAGE] * 40)
+        rec["movedRects"] = [[] for _ in range(40)]
+        rec["alpha"] = [1.0] * 40
+        w = ls.window(rec)
+        self.assertEqual(w["settled_match_ms"], w["first_paint_ms"])
+        self.assertEqual(w["settled_match_ms"], 900)
+        self.assertTrue(w["first_frame_is_final"])
+        self.assertTrue(w["settled"])
+        self.assertEqual(w["shift_score"], 0)
+        self.assertFalse(w["shift_score_approx"])
+        self.assertEqual(w["alpha_changes"], 0)
+
+    def test_a_frame_that_fills_in_late_sets_the_settled_match(self):
+        w = ls.window(recording([BLANK] * 3 + [PAGE] * 40))
+        self.assertFalse(w["first_frame_is_final"])
+        self.assertEqual(w["settled_match_ms"], round(900 + 3 * 16.7))
+        # Under the pixel threshold (a caret) still matches the settled frame.
+        w = ls.window(recording([changed(PAGE, 2)] + [PAGE] * 40))
+        self.assertTrue(w["first_frame_is_final"])
+
+    def test_one_view_sliding_100_pt(self):
+        n = 40
+        rec = recording([PAGE] * n, moved=[0, 0, 1] + [0] * (n - 3))
+        rec["window"] = [[0, 0, 1000, 600]] * n
+        rec["movedRects"] = [[] for _ in range(n)]
+        rec["movedRects"][2] = [{"name": "SidebarView", "from": [0, 0, 240, 600], "to": [100, 0, 240, 600]}]
+        w = ls.window(rec)
+        diagonal = (1000 ** 2 + 600 ** 2) ** 0.5
+        expected = (100 / diagonal) * ((340 * 600) / (1000 * 600))
+        self.assertAlmostEqual(w["shift_score"], round(expected, 4))
+        self.assertFalse(w["shift_score_approx"])
+        self.assertFalse(w["first_frame_is_final"])
+        self.assertEqual(w["settled_match_ms"], round(900 + 2 * 16.7))
+
+    def test_shift_math(self):
+        self.assertEqual(ls.move_distance([0, 0, 240, 600], [0, 0, 312, 600]), 72)
+        self.assertAlmostEqual(ls.shift_of([0, 0, 100, 100], [0, 0, 100, 100], [0, 0, 1000, 1000]), 0)
+        # The impact is capped at the window.
+        self.assertLessEqual(ls.shift_of([0, 0, 1000, 1000], [500, 0, 1000, 1000], [0, 0, 1000, 1000]),
+                             500 / (2 ** 0.5 * 1000))
+
+    def test_a_moved_window_counts_as_the_whole_window(self):
+        n = 40
+        rec = recording([PAGE] * n, window=[[0, 0, 1000, 600]] * 2 + [[0, 0, 1100, 600]] * (n - 2))
+        rec["movedRects"] = [[] for _ in range(n)]
+        w = ls.window(rec)
+        self.assertGreater(w["shift_score"], 0)
+        self.assertEqual(w["settled_match_ms"], round(900 + 2 * 16.7))
+
+    def test_an_older_recording_approximates_the_score(self):
+        w = ls.window(recording([PAGE] * 10, moved=[0, 1, 0, 1, 0, 0, 0, 0, 0, 0]))
+        self.assertTrue(w["shift_score_approx"])
+        self.assertAlmostEqual(w["shift_score"], 0.2)
+        self.assertIsNone(w["alpha_changes"])
+
+    def test_an_alpha_change_counts(self):
+        rec = recording([PAGE] * 40)
+        rec["alpha"] = [0.0, 0.5] + [1.0] * 38
+        w = ls.window(rec)
+        self.assertEqual(w["alpha_changes"], 2)
+        self.assertFalse(w["first_frame_is_final"])
+        self.assertEqual(w["settled_match_ms"], round(900 + 2 * 16.7))
+
+    def test_not_settled_when_the_last_change_is_recent(self):
+        w = ls.window(recording([PAGE] * 10 + [BLANK]))
+        self.assertFalse(w["settled"])
+
+    def test_tti_reads_the_earliest_input_mark(self):
+        self.assertEqual(ls.tti({"window_usable": 700.4, "terminal_input_accepted": 655.5}), (656, "terminal_input_accepted"))
+        self.assertEqual(ls.tti({"first_key_down": 630}), (630, "first_key_down"))
+        self.assertEqual(ls.tti({"main_start": 3}), (None, None))
+        rec = recording([PAGE] * 5)
+        rec["launchMarks"] = {"window_usable": 812.0}
+        self.assertEqual((ls.window(rec)["tti_ms"], ls.window(rec)["tti_mark"]), (812, "window_usable"))
+
+    def test_the_launch_total_and_headline(self):
+        with tempfile.TemporaryDirectory() as root:
+            first = recording([BLANK, PAGE], ended="closed")
+            second = recording([BLANK] * 2 + [PAGE] * 40)
+            second["launchMarks"] = {"window_usable": 1200}
+            second["alpha"] = [1.0] * 42
+            for n, rec in ((1, first), (2, second)):
+                os.makedirs(os.path.join(root, f"window-{n}"))
+                with open(os.path.join(root, f"window-{n}", "frames.json"), "w") as f:
+                    json.dump(rec, f)
+            total = ls.summarize(root)["total"]
+            self.assertEqual(total["settled_match_ms"], round(900 + 2 * 16.7))  # the closed window does not count
+            self.assertFalse(total["first_frame_is_final"])
+            self.assertEqual((total["tti_ms"], total["tti_mark"]), (1200, "window_usable"))
+            self.assertEqual(total["alpha_changes"], 0)
+            line = ls.headline(total)
+            self.assertTrue(line.startswith(f"PERCEIVED settled_match_ms=933 shift_score={total['shift_score']} "
+                                            "tti_ms=1200 first_frame_is_final=false"), line)
+            self.assertTrue(ls.table(ls.summarize(root)).startswith("PERCEIVED "))
+            # A harness's own marks fill in a recording that carries none.
+            del second["launchMarks"]
+            with open(os.path.join(root, "window-2", "frames.json"), "w") as f:
+                json.dump(second, f)
+            self.assertEqual(ls.summarize(root, marks={"terminal_input_accepted": 990})["total"]["tti_ms"], 990)
+
+
+class RelaunchBenchMedianTests(unittest.TestCase):
+    def test_the_medians_carry_the_perceived_numbers(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("relaunch_shift_bench", Path(__file__).resolve().parent.parent / "relaunch-shift-bench.py")
+        bench = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench)
+        rounds = [{"total": {"settled_match_ms": ms, "shift_score": score, "tti_ms": 800, "tti_mark": "window_usable",
+                             "first_frame_is_final": final, "alpha_changes": 0}}
+                  for ms, score, final in ((900, 0, True), (1300, 0.12, False), (950, 0.02, True))]
+        median = bench.median_of(rounds)
+        self.assertEqual((median["settled_match_ms"], median["shift_score"], median["tti_ms"]), (950, 0.02, 800))
+        self.assertTrue(median["first_frame_is_final"])
+        self.assertEqual(median["first_frame_final_rounds"], "2/3")
+        self.assertTrue(ls.headline(median).startswith(
+            "PERCEIVED settled_match_ms=950 shift_score=0.02 tti_ms=800 first_frame_is_final=true"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -33,6 +33,7 @@
 // moves nothing and the view steps at once, as before.
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
+import { motionToken } from "../../../ui/motion/motionTokens";
 import { currentChatMetrics } from "../chatDisplay";
 import { bezierAt, parseBezier } from "../../../ui/cubicBezier";
 import { MAX_FRAME_STEP_MS } from "../threadMinimap/scrollMotion";
@@ -248,9 +249,7 @@ export function sendMotionMs(node: HTMLElement): number {
 }
 
 function sendMsOf(node: HTMLElement, scale: number): number {
-  const token = cssTimeMs(
-    node.ownerDocument.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-send") ?? "",
-  );
+  const token = cssTimeMs(motionToken(node, "--agent-motion-send"));
   return token ?? MOTION_SEND_MS * scale;
 }
 
@@ -317,7 +316,7 @@ export function alongsideMove(animations: Iterable<Animation> | undefined, dt: n
 function speedOf(node: HTMLElement): number {
   const doc = node.ownerDocument;
   if (motionMode(doc, node) !== "full") return 0;
-  const token = cssTimeMs(doc.defaultView?.getComputedStyle(node).getPropertyValue("--agent-motion-move") ?? "");
+  const token = cssTimeMs(motionToken(node, "--agent-motion-move"));
   return token === undefined ? 1 : token / MOTION_MS.standard;
 }
 

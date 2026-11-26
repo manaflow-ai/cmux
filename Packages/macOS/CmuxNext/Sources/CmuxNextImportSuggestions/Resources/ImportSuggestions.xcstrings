@@ -13888,6 +13888,399 @@
         }
       }
     },
+    "classicImport.preview.consentTitle" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import from classic cmux?"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus dem klassischen cmux importieren?"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer depuis cmux classique ?"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "¿Importar desde cmux clásico?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "从经典版 cmux 导入？"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "從經典版 cmux 匯入？"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "従来の cmux から読み込みますか？"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "클래식 cmux에서 가져올까요?"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importare da cmux classico?"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importar do cmux clássico?"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer fra klassisk cmux?"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importér fra klassisk cmux?"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zaimportować dane z klasycznej wersji cmux?"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортировать из классической версии cmux?"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Імпортувати з класичної версії cmux?"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klasik cmux’tan içe aktarılsın mı?"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nhập từ cmux cổ điển?"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uvesti iz klasičnog cmuxa?"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "هل تريد الاستيراد من cmux الكلاسيكي؟"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "นำเข้าจาก cmux รุ่นคลาสสิกไหม"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "នាំចូលពី cmux ជំនាន់ចាស់ឬ?"
+          }
+        }
+      }
+    },
+    "classicImport.preview.consentData" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Import your settings, shortcuts, palette history, terminal configuration and saved workspaces."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importiere Einstellungen, Tastenkürzel, den Palettenverlauf, die Terminalkonfiguration und gespeicherte Arbeitsbereiche."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importez vos réglages, vos raccourcis, l’historique de la palette, la configuration du terminal et vos espaces de travail enregistrés."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa tus ajustes, atajos, historial de la paleta, configuración del terminal y espacios de trabajo guardados."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "导入你的设置、快捷键、命令面板历史记录、终端配置和已保存的工作区。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "匯入你的設定、快速鍵、指令面板記錄、終端機設定和已儲存的工作區。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "設定、ショートカット、パレットの履歴、ターミナルの構成、保存済みのワークスペースを読み込みます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "설정, 단축키, 팔레트 기록, 터미널 구성과 저장된 작업 공간을 가져옵니다."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importa le impostazioni, le scorciatoie, la cronologia della palette, la configurazione del terminale e gli spazi di lavoro salvati."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importe seus ajustes, atalhos, histórico da paleta, configuração do terminal e espaços de trabalho salvos."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importer innstillinger, snarveier, paletthistorikk, terminaloppsett og lagrede arbeidsområder."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Importér dine indstillinger, genveje, palethistorik, terminalopsætning og gemte arbejdsområder."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zaimportuj ustawienia, skróty, historię palety, konfigurację terminala i zapisane obszary robocze."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Импортируйте настройки, сочетания клавиш, историю палитры, конфигурацию терминала и сохранённые рабочие пространства."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Імпортуйте налаштування, клавіатурні скорочення, історію палітри, конфігурацію термінала та збережені робочі простори."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ayarlarınızı, kısayollarınızı, palet geçmişinizi, terminal yapılandırmanızı ve kayıtlı çalışma alanlarınızı içe aktarın."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nhập cài đặt, phím tắt, lịch sử bảng lệnh, cấu hình terminal và các không gian làm việc đã lưu."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uvezite postavke, prečice, historiju palete, konfiguraciju terminala i sačuvane radne prostore."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "استورد إعداداتك واختصاراتك وسجل لوحة الأوامر وإعدادات الطرفية ومساحات العمل المحفوظة."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "นำเข้าการตั้งค่า ปุ่มลัด ประวัติแผงคำสั่ง การกำหนดค่าเทอร์มินัล และพื้นที่ทำงานที่บันทึกไว้"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "នាំចូលការកំណត់ ផ្លូវកាត់ ប្រវត្តិផ្ទាំងបញ្ជា ការកំណត់ស្ថានីយ និងកន្លែងធ្វើការដែលបានរក្សាទុក។"
+          }
+        }
+      }
+    },
+    "classicImport.preview.consentEffects" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opening saved workspaces can reconnect SSH hosts, load pages and resume agent chats."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beim Öffnen gespeicherter Arbeitsbereiche können SSH-Verbindungen wiederhergestellt, Seiten geladen und Agenten-Chats fortgesetzt werden."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvrir ces espaces peut rétablir des connexions SSH, charger des pages et reprendre des discussions avec des agents."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Al abrir los espacios guardados se pueden restablecer conexiones SSH, cargar páginas y reanudar chats con agentes."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开已保存的工作区可能会重新连接 SSH 主机、加载页面并恢复与智能体的对话。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "開啟已儲存的工作區可能會重新連線至 SSH 主機、載入頁面並繼續與代理程式的對話。"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存済みのワークスペースを開くと、SSH ホストへの再接続、ページの読み込み、エージェントとのチャットの再開が行われる場合があります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "저장된 작업 공간을 열면 SSH 호스트에 다시 연결하거나 페이지를 불러오거나 에이전트 채팅을 재개할 수 있습니다."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aprendo gli spazi di lavoro salvati, puoi riconnetterti agli host SSH, caricare pagine e riprendere le chat con gli agenti."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abrir os espaços de trabalho salvos pode reconectar hosts SSH, carregar páginas e retomar conversas com agentes."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Når du åpner lagrede arbeidsområder, kan SSH-forbindelser gjenopprettes, sider lastes inn og agentsamtaler fortsette."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Når du åbner gemte arbejdsområder, kan SSH-forbindelser genoprettes, sider indlæses og agentsamtaler genoptages."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otwarcie zapisanych obszarów roboczych może wznowić połączenia SSH, wczytać strony i wznowić rozmowy z agentami."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "При открытии сохранённых рабочих пространств могут восстановиться SSH-соединения, загрузиться страницы и возобновиться чаты с агентами."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Відкриття збережених робочих просторів може відновити SSH-з’єднання, завантажити сторінки та продовжити чати з агентами."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kayıtlı çalışma alanlarını açmak SSH bağlantılarını yeniden kurabilir, sayfaları yükleyebilir ve ajan sohbetlerini sürdürebilir."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Khi mở không gian làm việc đã lưu, ứng dụng có thể kết nối lại với máy chủ SSH, tải trang và tiếp tục các cuộc trò chuyện với tác nhân."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otvaranje sačuvanih radnih prostora može ponovo uspostaviti SSH veze, učitati stranice i nastaviti razgovore s agentima."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "قد يؤدي فتح مساحات العمل المحفوظة إلى إعادة الاتصال بمضيفي SSH وتحميل الصفحات واستئناف المحادثات مع الوكلاء."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การเปิดพื้นที่ทำงานที่บันทึกไว้อาจเชื่อมต่อโฮสต์ SSH อีกครั้ง โหลดหน้าเว็บ และสนทนากับเอเจนต์ต่อ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការបើកកន្លែងធ្វើការដែលបានរក្សាទុកអាចភ្ជាប់ទៅម៉ាស៊ីន SSH ឡើងវិញ ផ្ទុកទំព័រ និងបន្តការជជែកជាមួយភ្នាក់ងារ។"
+          }
+        }
+      }
+    },
     "classicImport.preview.title" : {
       "comment" : "The title of the prompt that offers to import classic cmux's (the older app's) saved workspaces.",
       "extractionState" : "manual",

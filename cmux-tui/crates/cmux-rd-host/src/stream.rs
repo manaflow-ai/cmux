@@ -35,11 +35,19 @@ pub struct SessionCfg {
     /// or none is the whole X screen). macOS picks through `display` itself.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub display_pick: Option<String>,
+    /// Share this one window instead of a display (Linux X11: an X window id, it wins over
+    /// `display_pick`; macOS: a CGWindowID). The session ends when the window is closed or
+    /// resized. The Wayland portal refuses a session that names one.
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
+    pub window: Option<u32>,
     pub max_fps: u32,
     /// `--encode-profile`: standard (default) or ultra (the engine marks every frame with it).
     pub encode_profile: cmux_rd_core::profile::EncodeProfile,
     pub start_kbps: u32,
     pub max_kbps: u32,
+    /// `--pin-kbps N` (bench builds): the controller's floor, equal to its start and ceiling,
+    /// so the target holds at N. `None` keeps the controller's own floor.
+    pub pin_kbps: Option<u32>,
     #[cfg_attr(target_os = "macos", allow(dead_code))] // software encoders only
     pub preset: String,
     pub profile: String,
@@ -467,6 +475,9 @@ impl MediaSession {
                 max_fps: cfg.max_fps,
                 start_bps: u64::from(cfg.start_kbps) * 1000,
                 max_bps: u64::from(cfg.max_kbps) * 1000,
+                min_bps: cfg
+                    .pin_kbps
+                    .map_or(EngineConfig::default().min_bps, |k| u64::from(k) * 1000),
                 max_datagram,
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,

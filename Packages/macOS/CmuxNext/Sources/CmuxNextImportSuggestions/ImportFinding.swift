@@ -55,14 +55,14 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
     /// Browser profiles (only those not imported yet) or iTerm2 profiles.
     public var profiles: [Profile]
     /// Sessions, threads or workspaces, for the agent, Classic and Conductor sources.
-    public var count: Int
+    public var count: Int?
     public var access: Access
     /// Whether this finding has a real Conductor installation. Generic agent worktree findings
     /// keep the `.conductor` executor kind while suppressing Conductor-only copy and deadline text.
     public var hasConductor: Bool
 
     public init(id: String, kind: ImportSourceKind, browser: ImportBrowser? = nil, name: String,
-                profiles: [Profile] = [], count: Int = 0, access: Access = .ready, hasConductor: Bool = true) {
+                profiles: [Profile] = [], count: Int? = 0, access: Access = .ready, hasConductor: Bool = true) {
         self.id = id
         self.kind = kind
         self.browser = browser
@@ -84,7 +84,7 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
         browser = try container.decodeIfPresent(ImportBrowser.self, forKey: .browser)
         name = try container.decode(String.self, forKey: .name)
         profiles = try container.decodeIfPresent([Profile].self, forKey: .profiles) ?? []
-        count = try container.decodeIfPresent(Int.self, forKey: .count) ?? 0
+        count = try container.decodeIfPresent(Int.self, forKey: .count)
         access = try container.decodeIfPresent(Access.self, forKey: .access) ?? .ready
         hasConductor = try container.decodeIfPresent(Bool.self, forKey: .hasConductor) ?? true
     }

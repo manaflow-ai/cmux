@@ -3,6 +3,7 @@ public import CmuxNextSettings
 public import Foundation
 // Only the runner: CmuxNextDaemon has a JSONValue of its own, and this file speaks the page's.
 import struct CmuxNextDaemon.ProcessRunner
+import CmuxNextCompat
 
 /// Settings' try-on bar (webviews `TryOnBar.tsx`): `cmux.settings.customize.run {verb}` runs
 /// `cmux --json customize VERB` for `status`, `keep` or `revert` through the bundled CLI and answers
@@ -30,7 +31,7 @@ public final class CustomizeTryOnPage: PageProvider {
             throw PageError.invalidParams("verb is status, keep or revert")
         }
         guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no cmux CLI") }
-        let (status, stdout, stderr) = try await runCLI(cli, ["--json", "customize", verb])
+        let (status, stdout, stderr) = try await awaitConcurrently({ try await runCLI(cli, ["--json", "customize", verb]) })
         return (try? JSONValue.parse(status == 0 ? stdout : stderr)) ?? .object([:])
     }
 

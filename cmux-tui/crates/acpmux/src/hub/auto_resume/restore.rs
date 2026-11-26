@@ -81,6 +81,7 @@ impl Hub {
         }
         let (mut retry, mut from) = (None::<RetrySummary>, None::<String>);
         let mut not_before = None::<u64>;
+        let mut slash = None::<String>;
         let mut manual = None::<Value>;
         let mut manual_recorded = false;
         let mut has_retry_marker = false;
@@ -154,6 +155,7 @@ impl Hub {
                     {
                         has_retry_marker = true;
                         not_before = e.msg.get("notBefore").and_then(Value::as_u64);
+                        slash = e.msg.get("slash").and_then(Value::as_str).map(str::to_owned);
                         retry = serde_json::from_value(e.msg).ok();
                     }
                     // Old stop records had no id; the turn boundary reset scopes those. New
@@ -300,13 +302,20 @@ impl Hub {
             } else {
                 delays.clone()
             };
+            // A capacity outage, a rate limit or a refused connection never uses its attempts
+            // up (`super::waits_it_out`).
+            let unbounded = super::waits_it_out(reason, &error, &delays);
+            let delay = if unbounded {
+                Some(super::capacity_wait(done, &delays, &session.id))
+            } else {
+                delays.get(done).map(|&d| staggered(d, &session.id))
+            };
             if !root.is_empty()
-                && let Some(&delay) = delays.get(done)
+                && let Some(delay) = delay
             {
-                let delay = staggered(delay, &session.id);
                 let recovered = RetrySummary {
                     attempt: done.saturating_add(1) as u64,
-                    of: delays.len() as u64,
+                    of: if unbounded { delays.len().max(done + 1) } else { delays.len() } as u64,
                     reason,
                     next_at: last.at.saturating_add(delay),
                     prompt_id: root.to_owned(),
@@ -400,6 +409,9 @@ impl Hub {
             }
             // A restored `rate_limit` wait holds the chat again until its deadline.
             hub.wait_retry(&session, &turn_id, retry.reason, retry.next_at, &wake).await;
+            // A restored capacity wait reads as an outage still on: the first due probes it.
+            hub.capacity_gate_cut(&session, Some(retry.reason));
+            let _permit = hub.capacity_gate_admit(&session, &turn_id, retry.reason, &wake).await;
             let cut = CutTurn {
                 from: from.as_deref(),
                 prompt_id: &retry.prompt_id,
@@ -408,6 +420,7 @@ impl Hub {
                 trust_gate: trust_gate || control == Control::Web,
                 error: &error,
                 not_before,
+                slash: slash.as_deref(),
             };
             let attempt = usize::try_from(retry.attempt).unwrap_or(usize::MAX);
             hub.resume_or_compact(&session, cut, attempt).await;

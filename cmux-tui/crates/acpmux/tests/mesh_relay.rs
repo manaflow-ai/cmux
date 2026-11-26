@@ -14,15 +14,17 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
-    Ack, AckState, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub,
-    Mode, OutMessage, Receipt, RefuseControl, Sender, SessionRow, Target,
+    Ack, AckState, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub, Mode, OutMessage,
+    Receipt, Sender, SessionRow, Target,
 };
 use acpmux::mesh_control::{
     Command as ControlCommand, ControlRequest, MeshControlRelay, Recipient, submit,
 };
 use acpmux::mesh_http::MeshControlFrom;
 use acpmux::rpc::Message;
-use acpmux::server::mesh_relay::{MeshControlHook, MeshRelay, RelayOptions, relay_connection};
+use acpmux::server::mesh_relay::{
+    ControlHook, MeshControlHook, MeshRelay, RefuseControl, RelayOptions, relay_connection,
+};
 use acpmux::server::{Origin, serve_connection_with};
 use acpmux::store::{EventRecord, MemoryStore, SessionStatus, Store};
 use futures::future::BoxFuture;
@@ -496,6 +498,8 @@ async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
         agent_session_id: None,
         host_build: None,
         handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1281,6 +1285,22 @@ async fn a_send_to_a_name_no_peer_has_goes_through_the_hub_and_is_delivered_with
     );
     let to = fake.with(|s| s.sent.last().unwrap().to.clone());
     assert_eq!((to.host.as_deref(), to.name.as_deref()), (Some("fs-peer-1"), Some("dep-land")));
+    // `HOST/ID` the same way, by the session's id (a chat just moved there is named so): never
+    // looked up here as a name and refused as "no session HOST/ID on this machine".
+    let by_id = format!("fs-peer-1/{session}");
+    let far = sender.call("_acpmux/send_queue", send_queue(&by_id, "prompt-0006")).await;
+    assert!(
+        far.pointer("/result/deliveryId")
+            .and_then(Value::as_str)
+            .is_some_and(|d| d.starts_with("mesh:")),
+        "{far}"
+    );
+    let to = fake.with(|s| s.sent.last().unwrap().to.clone());
+    assert_eq!(
+        (to.host.as_deref(), to.session_id.as_deref(), to.name.as_deref()),
+        (Some("fs-peer-1"), Some(session.as_str()), None),
+        "{to:?}"
+    );
 
     // A supersede key cannot cross the hub: the send goes without it and says so, as the
     // sender would have sent it again anyway (cmuxterm-hq
@@ -1374,6 +1394,8 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         agent_session_id: None,
         host_build: None,
         handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1417,6 +1439,8 @@ async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_oth
         agent_session_id: None,
         host_build: None,
         handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1479,6 +1503,8 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         agent_session_id: None,
         host_build: None,
         handle: None,
+        former_names: Vec::new(),
+        roles: Vec::new(),
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1610,4 +1636,47 @@ async fn a_send_right_after_a_start_through_the_hub_reaches_the_new_session() {
     fake.until("delivered", |s| s.receipts[&message].state == "delivered").await;
     relay.stop().await;
     b.shutdown_all().await;
+}
+
+/// A relayed start runs under the owner's grant for its sender (`maxPolicy`): an entry without one
+/// holds an approve-all start to `ask` as a remote chain, and only an entry granting approve-all
+/// (what `host join` writes for the person's own machines) starts this machine's own chat in the
+/// policy it names (cmux#50026).
+#[tokio::test]
+async fn a_relayed_start_runs_under_the_senders_max_policy() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let cwd = root.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    let mut config = config();
+    config.harnesses.get_mut("fake").unwrap().family = None;
+    config.web_roots = vec![root.to_string_lossy().into_owned()];
+    config.web_asking_modes.insert("fake".into(), vec!["normal".into(), "strict".into()]);
+    let hub = Hub::new(config, Box::new(MemoryStore::default()));
+    let start = |id: &str| {
+        let mut request = message(id, "", Kind::Control);
+        request.body = json!({"version": 1, "params": {"cwd": cwd, "mcpServers": [],
+            "_meta": {"acpmux": {"harness": "fake", "name": id, "policy": "approve-all"}}}})
+        .to_string();
+        request
+    };
+    let entry = |extra: Value| {
+        let mut entry = json!({"daemonId": "inst_a"});
+        entry.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        serde_json::from_value::<MeshControlFrom>(entry).unwrap()
+    };
+    for (id, extra, policy, remote) in [
+        ("capped-default", json!({}), "ask", true),
+        ("capped-edits", json!({"maxPolicy": "approve-edits"}), "approve-edits", true),
+        ("owner-grant", json!({"maxPolicy": "approve-all"}), "approve-all", false),
+    ] {
+        let hook =
+            MeshControlHook::new(vec![entry(extra)], Some(dir.path().join(format!("{id}.json"))));
+        let ack = hook.control(&hub, &start(id)).await.unwrap();
+        assert_eq!(ack.state, AckState::Delivered, "{id}: {ack:?}");
+        let meta = hub.resolve(id).unwrap().meta();
+        assert_eq!(meta.permission_policy.as_deref(), Some(policy), "{id}");
+        assert_eq!(meta.remote_origin, remote, "{id}");
+    }
+    hub.shutdown_all().await;
 }
