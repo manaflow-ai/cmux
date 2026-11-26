@@ -160,14 +160,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           # The bisector reads the reconciler's read-only last-known-green ref below.
           # Credentials stay disabled; the read step scopes its token to one fetch.
           persist-credentials: false

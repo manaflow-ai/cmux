@@ -2,6 +2,24 @@
   "roots": ["nightly.yml"],
   "workflows": {
     "nightly.yml": {
+      "check-nightly-app-store-shelf": {
+        "Install Linux build dependencies": {"plumbing": true},
+        "Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)": {"plumbing": true},
+        "Install zig": {"plumbing": true},
+        "Set up pinned cmux-tui Rust": {"plumbing": true},
+        "Every Discover listing installs and shows something, on the build commit": {"nightly_only": "scripts/ci/app-store-shelf-check.sh installs every live Discover listing on the build commit; it reads the live shelf, which a pull request cannot change"}},
+      "nightly-next-pkg": {
+        "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Forget the kept clone's sparse-checkout mode": {"plumbing": true},
+        "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
+        "Mint the release App token for this job's gh calls": {"nightly_only": "mints release GitHub App token"},
+        "Send this job's gh calls as the release App, github.token as the fallback": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publish jobs send gh calls as the release App first"},
+        "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
+        "Select Xcode": {"plumbing": true},
+        "Select the SDK of the selected Xcode": {"plumbing": true},
+        "Download published variant": {"plumbing": true},
+        "Cleanup keychain": {"nightly_only": "deletes the signing keychain"},
+        "Build, sign, notarize and upload the pre-warming .pkg": {"nightly_only": "signs and notarizes the published variant's .pkg with the release identity and uploads it to the release (#54859); a pull request holds no signing key"}},
       "runner-preflight": {
         "Every routing label has an online runner": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly runner preflight fails a run whose routing label has no online runner", "note": "tests/test_nightly_runner_preflight.py runs scripts/ci/nightly_runner_preflight.py on the 2026-11-10 census and variables"}},
       "decide": {
@@ -62,6 +80,10 @@
         "libghostty-vt Zig packages are covered by the notices": {"pr": "cmux-next-guards.yml:static-checks:The nightly's Ghostty license checks pass on fixtures", "note": "check_ghostty_vt_notices.py --license-manifest on fixture manifests; the real manifests come from the source archive"},
         "Strip the Ghostty CLI helper": {"nightly_only": "Apple strip -S -x of the Zig-built helper (the pass prepare-nightly-variant made, now on Linux); only the nightly builds this helper for macOS"}},
       "build-nightly-app": {
+        "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
+        "Restore pinned Node 24.22.1 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
+        "Start building in-tree acpmux for the compilation cache": {"plumbing": true, "note": "starts the in-tree acpmux build in the background; the Finish step waits for it"},
+        "Finish building in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle"},
         "Resolve immutable SSH daemon metadata": {"nightly_only": "reads the compiled Release app version and checks the current nightly feed build floors"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Mint the glaeda read token for the unsigned restore": {"nightly_only": "mints a glaeda-route GitHub App token with actions and contents read only, for the unsigned restore's run, artifact and compare reads, only on a nightly-next sign dispatch; an empty token falls back to GITHUB_TOKEN"},
@@ -81,7 +103,6 @@
         "Stand in for the acpmux companion while the tree publishes": {"plumbing": true},
         "Fetch the resolved cmux-tui tree companions": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Prefetch the cmux-tui client while the tree publishes": {"plumbing": true, "note": "fills the client cache beside the compile; Bundle the cmux-tui client re-verifies every slice against the attested manifest"},
-        "Build in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle"},
         "Prepare the OptChat Chief cache key": {"plumbing": true, "note": "combines the portable source key with the Mac SDK, compiler and environment identity"},
         "Restore the OptChat Chief cache": {"plumbing": true, "note": "restores an exact source and environment keyed Chief artifact; no product check"},
         "Build the OptChat Chief (cmux-next)": {"nightly_only": "cargo build of optchat-chief for the macOS arm64 and x86_64 targets needs the macOS SDK; PR builds skip it (bundle-optchat-chief.sh exits 0 without a binary)"},
@@ -127,6 +148,8 @@
         "Retry the daemon attestation": {"nightly_only": "build provenance attestation needs OIDC"},
         "Report a missing daemon attestation": {"plumbing": true}},
       "build-nightly-inputs": {
+        "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
+        "Restore pinned Node 24.22.1 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
         "Set up Rust for the third-party notices": {"plumbing": true, "note": "Installs Cargo for exact notice dependency trees on clean fleet Linux runners"},
         "Source key of the web bundles": {"plumbing": true},
         "Restore the published web bundles": {"plumbing": true, "note": "Restores the same keyed bundle as cmux-next.yml; the installer verifies its source manifest before use"},
@@ -135,13 +158,19 @@
         "Build the web bundles": {"pr": "cmux-next.yml:web-bundles:Build the web bundles for this source key"},
         "Generate the third-party notices": {"pr": "cmux-next-guards.yml:rust-notices-tree:Generate the Rust notices from this tree (as the nightly does)"}},
       "check-nightly-webviews": {
+        "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
+        "Restore pinned Node 24.22.1 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
         "Webview checks on the build commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check (1); this test pins that the nightly runs them on its build commit and that publication waits for them"},
         "Report the lint-class webview checks": {"pr": "ci-guards.yml:workflow-guard-tests:Validate lint-class webview checks are fixed forward on the nightly"},
         "Hand a type error with no machine fix to fixit-handoff": {"nightly_only": "writes fixit-compile's no-fix record to this job's outputs for the fixit-handoff job (scripts/ci/oops/fixit_handoff.py signal; tests/test_ci_fixit_handoff.py)"}
       },
       "early-nightly-webviews": {
+        "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
+        "Restore pinned Node 24.22.1 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
+        "Note the red webview checks as a stale part": {"plumbing": true, "note": "records a stale-part note for the publish gate; the webview checks themselves are the check"},
         "Webview checks on the tip commit": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly publishes no red webview tree and no known-bad commit", "note": "the same fast_gate_webviews_checks.py pieces run on every feat-cmux-next pull request in ci-web.yml react-apps-check; this job runs them on the tip before the signer (#50866; tests/test_nightly_early_webviews.py)"}},
       "resolve-nightly-cmux-tui-client": {
+        "Drop the reused git store after a failed checkout": {"plumbing": true},
         "Fix this run's build number": {"plumbing": true},
         "Install gh if this runner lacks it": {"plumbing": true},
         "Compute portable OptChat Chief input key": {"plumbing": true, "note": "computes the source key before the Mac build so the Chief cache is portable across nightly runs; no product check"},
@@ -190,6 +219,7 @@
         "Put llvm-lipo on PATH as lipo": {"plumbing": true},
         "Require the cmux-tui client build-nightly-app bundled": {"nightly_only": "compares the cmux-tui.version build-nightly-app wrote with the commit resolve-nightly-cmux-tui-client chose; only the nightly installs a resolved client into a Release app"}},
       "build-sign-notarize-nightly": {
+        "Restore pinned Node 22.23.4 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
         "Download prepared app (parallel)": {"plumbing": true, "note": "a ranged, digest-checked download (download-run-artifact.py, tests/test_download_run_artifact_modes.py); download-artifact stays the fallback"},
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
         "Claim the whole Mac for signing": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
@@ -342,6 +372,7 @@
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
         "Write the owned-pool watch marker": {"nightly_only": "writes the owned-pool rescue's watch marker only when a nightly-next dispatch or re-run picked an owned Mac; its guard is checked by tests/test_nightly_build_runner.py"}},
       "pick-nightly-next-signer": {
+        "Mint a spare read token for the pick": {"plumbing": true},
         "Pick an idle signer Mac, else the one whose build ends soonest": {"nightly_only": "chooses the live nightly-next run's signer from the runner census and active jobs; tests/test_nightly_next_signer_pick.py exercises the same decision with fixtures"}},
       "pick-nightly-sign-runner": {
         "Mint the glaeda read token": {"nightly_only": "mints a glaeda-route GitHub App token with actions read only, for the pool snapshot and signing-job reads, on nightly-next push and dispatch runs with owned pools on; its scope and the GITHUB_TOKEN fallback are checked by tests/test_nightly_sign_runner.py"},
@@ -403,6 +434,8 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask the push group for the newest head": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after a failed nightly-next run whose commit is still the head (tests/test_nightly_next_single_loop.py)"}},
       "nightly-next-one": {
+        "Start building in-tree acpmux for the compilation cache": {"plumbing": true, "note": "starts the in-tree acpmux build in the background; the Finish step waits for it"},
+        "Finish building in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle"},
         "Fail when this build's publication was refused": {"nightly_only": "turns nightly-next-one red when the final gate or the R2 feed write refused a build it should publish (run 45607031207 showed green with nothing published)"},
         "Hand a type error with no machine fix to fixit-handoff": {"nightly_only": "writes fixit-compile's no-fix record to this job's outputs for the fixit-handoff job (scripts/ci/oops/fixit_handoff.py signal; tests/test_ci_fixit_handoff.py)"},
         "Hold the whole Mac before any credential": {"pr": "ci-guards.yml:workflow-guard-tests:Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain"},
@@ -438,7 +471,6 @@
         "Fetch the resolved cmux-tui tree companions": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Stand in for the acpmux companion while the tree publishes": {"plumbing": true},
         "Prefetch the cmux-tui client while the tree publishes": {"plumbing": true, "note": "fills the client cache beside the compile; Bundle the cmux-tui client re-verifies every slice against the attested manifest"},
-        "Build in-tree acpmux for the compilation cache": {"pr": "cmux-next.yml:cmux-scheme-compile:Build in-tree acpmux for the app bundle"},
         "Prepare the OptChat Chief cache key": {"plumbing": true, "note": "combines the portable source key with the Mac SDK, compiler and environment identity"},
         "Restore the OptChat Chief cache": {"plumbing": true, "note": "restores an exact source and environment keyed Chief artifact; no product check"},
         "Build the OptChat Chief (cmux-next)": {"nightly_only": "cargo build of optchat-chief for the macOS arm64 and x86_64 targets needs the macOS SDK; PR builds skip it (bundle-optchat-chief.sh exits 0 without a binary)"},
@@ -581,6 +613,8 @@
         "Mint the owned-pool routing token": {"nightly_only": "mints the owned-pool routing App token from the ci-routing-agent environment"},
         "Pick an idle owned session runner": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"}},
       "visual-gate-nightly": {
+        "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
+        "Restore pinned Node 24.11.1 from the CI cache bucket": {"plumbing": true, "note": "scripts/ci/toolchain-r2.sh restores a pinned toolchain archive from the CI cache bucket before the setup step it serves (#53053); best-effort, no check"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
         "Check the states": {"pr": "ci-guards.yml:workflow-guard-tests:Test the cmux NEXT nightly visual gate"},

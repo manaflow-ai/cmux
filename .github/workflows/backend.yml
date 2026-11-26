@@ -718,10 +718,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
@@ -889,10 +885,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.
@@ -1083,10 +1075,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # This job compares with earlier commits of feat-cmux-next. checkout's fetch-depth 0 fetched every branch and
       # tag (80,000+ refs) and stalled on all three tries ("curl 28 ... bad pack header"): deploy-staging jobs
       # 138123838319 and 138095039278, deploy-dashboard-staging 137939866003. One branch's history is enough.

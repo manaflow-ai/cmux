@@ -425,6 +425,7 @@ jobs:
             scripts/ci/job_input_fingerprint.py
             scripts/ci/job_reuse.py
             scripts/ci/cmux_next_route.py
+            scripts/ci/app_ffi_pin.py
             scripts/ci/select_package_tests.py
             scripts/ci/gh_expressions.py
             .github/workflows/cmux-tui-artifacts.yml

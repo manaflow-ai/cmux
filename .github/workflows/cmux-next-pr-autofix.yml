@@ -168,6 +168,9 @@ jobs:
             scripts/ci/defaults_guard.py
             scripts/ci/job_inputs.py
             scripts/ci/fast_check_route.py
+            scripts/ci/detect_linux_guard_changes.py
+            scripts/ci/workflow_guard_groups.py
+            scripts/ci/workload_entrypoints.py
             scripts/ci/same_tree_reuse.py
             scripts/ci/fast-check-inputs.json
             scripts/ci/generated-files.json
@@ -234,6 +237,9 @@ jobs:
             scripts/ci/defaults_guard.py
             scripts/ci/job_inputs.py
             scripts/ci/fast_check_route.py
+            scripts/ci/detect_linux_guard_changes.py
+            scripts/ci/workflow_guard_groups.py
+            scripts/ci/workload_entrypoints.py
             scripts/ci/same_tree_reuse.py
             scripts/ci/fast-check-inputs.json
             scripts/ci/generated-files.json
@@ -319,6 +325,9 @@ jobs:
             scripts/ci/defaults_guard.py
             scripts/ci/job_inputs.py
             scripts/ci/fast_check_route.py
+            scripts/ci/detect_linux_guard_changes.py
+            scripts/ci/workflow_guard_groups.py
+            scripts/ci/workload_entrypoints.py
             scripts/ci/same_tree_reuse.py
             scripts/ci/fast-check-inputs.json
             scripts/ci/generated-files.json
@@ -752,18 +761,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           persist-credentials: false
           submodules: false
 
@@ -1030,18 +1027,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           persist-credentials: false
 
       # The merge base for Changed paths and the stale-inputs guard, and the base commit the autofix
@@ -1105,6 +1090,9 @@ jobs:
               scripts/ci/defaults_guard.py
               scripts/ci/job_inputs.py
               scripts/ci/fast_check_route.py
+              scripts/ci/detect_linux_guard_changes.py
+              scripts/ci/workflow_guard_groups.py
+              scripts/ci/workload_entrypoints.py
               scripts/ci/same_tree_reuse.py
               scripts/ci/fast-check-inputs.json
               scripts/ci/generated-files.json

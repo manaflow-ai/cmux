@@ -151,8 +151,9 @@ def post_publish_runnable() -> list[str]:
     return runnable
 
 
+# nightly-next-pkg (#54859) packages the published build, as keep-published-dsyms does.
 POST_PUBLISH_JOBS = ["published-build", "publish-nightly-next-github", "keep-published-dsyms", "build-nightly-deltas", "generate-nightly-deltas",
-                     "republish-nightly-deltas", "published-in", "sign-release-notes", "publish-release-notes",
+                     "republish-nightly-deltas", "nightly-next-pkg", "published-in", "sign-release-notes", "publish-release-notes",
                      "publish-nightly-reel", "sentry-dsyms-nightly", "report-nightly-failure", "close-nightly-failure-issue"]
 runnable = post_publish_runnable()
 if sorted(runnable) != sorted(POST_PUBLISH_JOBS):

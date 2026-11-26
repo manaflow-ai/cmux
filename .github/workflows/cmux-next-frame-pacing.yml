@@ -248,6 +248,7 @@ jobs:
             scripts/cmux-next/cmd-n-paint-e2e.py
             scripts/cmux-next/bench-startup.py
             scripts/cmux-next/bench_memory.py
+            scripts/cmux-next/macos_libs.py
             scripts/cmux-next/bench_arms.py
             scripts/cmux-next/bench_cli_storm.py
             scripts/cmux-next/bench_launch.py
