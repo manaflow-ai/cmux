@@ -33,8 +33,10 @@ from test_outbound_hosts import SCAN  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 SEEDED = ROOT / "tests" / "egress_seeded.json"
 GATE = "cmux-tui/crates/cmux-egress/"
-CALL = re.compile(r"\bcmux_egress::(?:client_builder_with|client_builder|blocking_client_builder|client|get|"
-                  r"ws::(?:connect_async_tls_with_config|connect_async_with_config|connect_async|checked))\s*\(")
+# cmux-mobile-link's `egress::http_client_builder(site)` wraps the gate's builder with the system proxy.
+CALL = re.compile(r"\b(?:cmux_egress::(?:client_builder_with|client_builder|blocking_client_builder|client|get|"
+                  r"ws::(?:connect_async_tls_with_config|connect_async_with_config|connect_async|checked))"
+                  r"|(?:crate|cmux_mobile_link)::egress::http_client_builder)\s*\(")
 LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')
 SITE = re.compile(r"^[A-Za-z_][\w-]*(?:::[\w-]+)*$")
 
