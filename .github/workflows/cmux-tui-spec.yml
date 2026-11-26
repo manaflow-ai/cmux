@@ -193,7 +193,7 @@ jobs:
         if: ${{ github.event_name != 'pull_request' || !startsWith(runner.name, 'cmux-runner-pool-') }}
         timeout-minutes: 3
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: &tui-spec-route-checkout
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -215,7 +215,7 @@ jobs:
         if: steps.checkout.outcome == 'failure'
         timeout-minutes: 3
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: *tui-spec-route-checkout
       - name: Pause before the last checkout try
         if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
@@ -223,7 +223,7 @@ jobs:
       - name: Retry the checkout a last time
         if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
         timeout-minutes: 3
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with: *tui-spec-route-checkout
 
       # A cmux-runner-pool VM checks out from its local git mirror (/var/lib/cmux-git) instead, as
@@ -367,7 +367,7 @@ jobs:
     timeout-minutes: 20
     steps:
       # The merge commit, its base parent and the 30 commits before it, each with its own parent.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -387,7 +387,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10 # the machine join test runs its suite under three shells (about 4 min on a lane VM)
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -444,7 +444,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -482,7 +482,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -594,7 +594,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -935,7 +935,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1016,7 +1016,7 @@ jobs:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1096,7 +1096,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -1168,7 +1168,7 @@ jobs:
       CMUX_GHOSTTY_SRC: ""
       CMUX_GHOSTTY_VT_ZIG_CPU: baseline
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
