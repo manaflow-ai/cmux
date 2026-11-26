@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentCursor
+import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextCloud
 import CmuxNextCloudUI
@@ -16,7 +17,6 @@ public import CmuxNextRemoteView
 import CmuxNextRemoteViewSessions
 import CmuxNextSettings
 import Foundation
-import Observation
 import QuartzCore
 
 extension AppServices {
