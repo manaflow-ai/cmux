@@ -16,6 +16,7 @@ import os
 /// - `input_age` / `input_wait`: how long the newest and the oldest pointer event the step shows waited for it;
 /// - `step_precommit` (just before Core Animation's commit observer) and `step_commit` (just after it, with the step's
 ///   line count and the time its own lines took, `log_us`); `step_cut` when the next step began first;
+/// - `gesture` at a gesture's first step, with the in-tree pages mode it runs in (`in_tree=on|off|...`, `source=`);
 /// - `turn`: every main run-loop turn's busy time while a gesture is on (a step in the last 250 ms), `stepped=1` for the
 ///   turn of a step: the other turns are the work between steps (Chromium's tasks, timers);
 /// - facts reported later for a step (``ResizeStepTimes/note(_:ms:step:detail:)``: the resize fence's outcome).
@@ -56,7 +57,13 @@ enum ResizeStepLog {
         installObservers()
         steps &+= 1
         let begun = DispatchTime.now().uptimeNanoseconds
+        let newGesture = begun &- lastStepAt >= gestureNanos
         step = Step(kind: kind, id: steps, start: begun)
+        if newGesture {
+            // The mode this gesture runs in, from the app itself (a harness checks it rather than infer it).
+            let pages = InTreePages.shared
+            write(kind, "gesture", 0, detail: " in_tree=\(pages.status.replacingOccurrences(of: " ", with: "_")) source=\(pages.source)")
+        }
         lastKind = kind
         lastStepAt = begun
         turnStepped = true

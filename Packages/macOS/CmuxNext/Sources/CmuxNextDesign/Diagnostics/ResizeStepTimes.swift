@@ -73,13 +73,15 @@ public struct ResizeStepTimes {
     /// Records under `phase` (built only when there is a start) the time since `start`: into ``live`` in DEBUG and bench
     /// builds, and to the log while it streams. `kind` names a phase outside any step (a divider's mouse event); inside
     /// one, the step's kind.
-    public static func recordLive(_ phase: @autoclosure () -> String, kind: StepKind? = nil, since start: UInt64?) {
+    /// `detail` (built only while the log streams) follows the time on the phase's line, as ` key=value` pairs.
+    public static func recordLive(_ phase: @autoclosure () -> String, kind: StepKind? = nil, since start: UInt64?,
+                                  detail: @autoclosure () -> String = "") {
         guard let start else { return }
         let ms = Double(DispatchTime.now().uptimeNanoseconds &- start) / 1_000_000
         let kind = ResizeStepLog.step?.kind ?? kind ?? .window
         let name = phase()
         keep(kind, name, ms)
-        ResizeStepLog.write(kind, name, ms)
+        if ResizeStepLog.isStreaming { ResizeStepLog.write(kind, name, ms, detail: detail()) }
     }
 
     /// One fact of a step that is not a time of its own: a resize fence's wait and outcome (`CEFResizeFences`). `step`:

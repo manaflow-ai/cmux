@@ -511,7 +511,7 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
             return super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
         }
         super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
-        ResizeStepTimes.recordLive("set_frame", since: start)
+        ResizeStepTimes.recordLive("set_frame", since: start, detail: " x=\(Int(frame.minX)) w=\(Int(frame.width)) h=\(Int(frame.height))")
     }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { WindowPlacement.constrainsToScreen ? super.constrainFrameRect(frameRect, to: screen) : frameRect }
 
