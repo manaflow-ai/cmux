@@ -42,6 +42,10 @@ class FakeSmoke:
     def own_pids(self, *_):
         return []
 
+    def forget_apps(self, *_):
+        # round_once unregisters its copies from LaunchServices in its finally (#44420); nothing to forget here.
+        pass
+
 
 class UpdateArm(unittest.TestCase):
     def setUp(self):
