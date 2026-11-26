@@ -407,6 +407,14 @@ impl OpenedDesktop {
             ready_us: now_us(),
         })
     }
+
+    /// Whether its stream suits a viewer that negotiated `profile`: the one it was opened for,
+    /// or baseline from an encoder that only makes Constrained Baseline (OpenH264). Opening the
+    /// desktop again for the profile alone put a whole open (capture and encoder, 340-410 ms on a
+    /// Linux VM) between the viewer's start and the first keyframe.
+    fn serves_profile(&self, profile: &str) -> bool {
+        self.profile == profile || (profile == "baseline" && self.frames.constrained_baseline())
+    }
 }
 
 impl MediaSession {
@@ -439,7 +447,7 @@ impl MediaSession {
     ) -> Res<Self> {
         let cfg = &*session_cfg(cfg, negotiated_caps);
         let cursor = wants_cursor(negotiated_caps);
-        let opened = if opened.cursor == cursor && opened.profile == cfg.profile {
+        let opened = if opened.cursor == cursor && opened.serves_profile(&cfg.profile) {
             opened
         } else {
             // The capture closes before it opens again.

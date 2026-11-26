@@ -268,6 +268,10 @@ impl FrameSource for X11Frames {
         self.enc.name()
     }
 
+    fn constrained_baseline(&self) -> bool {
+        self.enc.constrained_baseline()
+    }
+
     fn idr_cause(&self) -> Option<&'static str> {
         self.enc.idr_cause()
     }
