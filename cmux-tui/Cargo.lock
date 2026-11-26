@@ -1569,6 +1569,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-build-identity"
 version = "0.1.0"
 dependencies = [
@@ -1604,9 +1612,12 @@ dependencies = [
  "base64",
  "blake3",
  "cmux-signed-envelope",
+ "flate2",
  "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
  "zstd",
 ]
@@ -2453,6 +2464,7 @@ name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-mobile-core",
+ "cmux-rd-screen",
  "serde_json",
  "uniffi",
 ]
@@ -2482,6 +2494,25 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tokio",
+]
+
+[[package]]
+name = "cmux-no-checkout"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "cmux-no-checkout",
+ "cmux-process",
+ "cmux-scope",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -2679,6 +2710,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-screen"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "p256",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-redact"
 version = "0.1.0"
 dependencies = [
@@ -2812,6 +2853,14 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "cmux-screenshots"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]
@@ -3255,6 +3304,7 @@ dependencies = [
  "cmux-lifeline",
  "cmux-link",
  "cmux-migrate",
+ "cmux-no-checkout",
  "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
