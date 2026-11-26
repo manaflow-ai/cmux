@@ -920,7 +920,10 @@ impl Hub {
             Self::hold_unwritten(session, hold, &record, told, &work);
         }
         let changes = session.status_changes.load(Ordering::SeqCst);
+        let _p2 = crate::gauges::global().phase("TEMP rec: recover_work");
         self.recover_work(session, &child, &incarnation, work).await;
+        drop(_p2);
+        let _p3 = crate::gauges::global().phase("TEMP rec: status");
         // The status after recovery, not before it: set before, `ready` was logged and shown
         // between `host_adopted` and a turn the host still runs (an idle chat that was working).
         // Recovery sets the turn and `running` under the spawn lock every new prompt waits on, so
@@ -937,8 +940,12 @@ impl Hub {
             }
             drop(state);
         }
+        drop(_p3);
         self.restart_unproven(session, proven);
+        let _p4 = crate::gauges::global().phase("TEMP rec: save_meta");
         self.save_meta(session);
+        drop(_p4);
+        let _p5 = crate::gauges::global().phase("TEMP rec: chat_adopted");
         // Adopted and recovered: a prompt to this chat waits for no other host (`wait_adopted`).
         self.chat_adopted(&session.id);
         Ok(())
@@ -970,7 +977,15 @@ impl Hub {
     ) {
         Self::recover_floor(session, &work);
         session.compacting.store(work.compacting, Ordering::SeqCst);
-        self.recover_processes(session);
+        {
+            let _p = crate::gauges::global().phase("TEMP rec: rebuild_processes");
+            self.rebuild_processes(session);
+        }
+        {
+            let _p = crate::gauges::global().phase("TEMP rec: watch_previews");
+            self.watch_previews(session);
+        }
+        let _pt = crate::gauges::global().phase("TEMP rec: turn");
         // A carried turn the restart cut before its prompt went out (or before it started):
         // the agent runs it still, and it goes on (`carried_turn.rs`).
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone()
@@ -1214,6 +1229,8 @@ impl Hub {
                 }
             }
         }
+        drop(_pt);
+        let _pr = crate::gauges::global().phase("TEMP rec: requests");
         let epoch = session.permission_epoch.load(Ordering::SeqCst);
         let turn_id = session.turn().map(|t| t.turn_id);
         // The remote floor cancelled the recovered turn (in the log, or just
