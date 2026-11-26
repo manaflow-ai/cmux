@@ -1038,7 +1038,10 @@ if [[ "$mode" == channel ]]; then
   step go ensure_go
   channel_build_t0=$SECONDS
   channel_build_log="$channel_out/acpmux-build.txt"
-  channel_build_acpmux >"$channel_build_log" 2>&1 &
+  # Its own target dir: one cargo target dir is one lock, so a shared one would make the build wait for the
+  # tests instead of running beside them (ci-v2.md step 10b).
+  channel_musl_target="$root/.build/cmux-tui-channel-musl-target"
+  (export CARGO_TARGET_DIR="$channel_musl_target"; channel_build_acpmux) >"$channel_build_log" 2>&1 &
   channel_build_pid=$!
   step "channel daemon tests" channel_daemon_tests
   channel_build_rc=0
@@ -1181,11 +1184,8 @@ if [[ "$mode" == clippy || "$mode" == test || "$mode" == all ]]; then
   step go ensure_go
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
-  # A crate whose tests/ files are modules of one `it` binary (tests/it/main.rs, #56677) reaches them
-  # through a generated list cargo fmt cannot follow, so they are named to rustfmt.
-  fmt_tests=()
-  for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done
-  step fmt cargo fmt --all --check ${fmt_tests[@]+-- "${fmt_tests[@]}"}
+  # The it-binary crates' test files are checked per crate, with that crate's edition.
+  step fmt bash "$script_dir/cmux-tui-fmt.sh" --check
 fi
 if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   # The frozen holder fixture (cmux-holder-v3) is an old shipped holder, never edited: no new
