@@ -987,7 +987,7 @@ class PathRoutingStructure(unittest.TestCase):
         swift = jobs["swift-test"]
         self.assertIn("SWIFT_PRIORITY_FILTER", job_env(swift))
         run = next(step for step in swift["steps"] if step.get("name", "").startswith("Run package tests"))
-        script = run["run"]
+        script = step_run(run)
         self.assertIn("SWIFT_PRIORITY_FILTER", script)
         self.assertIn("--skip", script)
         self.assertIn("priority", script.lower())
@@ -1916,9 +1916,9 @@ class SameTreeIsAnEvent(unittest.TestCase):
         ready = steps["Report the ready same-tree cmux-tui"]
         failed = steps["Report the unavailable same-tree cmux-tui"]
         self.assertIn("== 'ready'", ready["if"])
-        self.assertNotIn("exit 1", ready["run"])
+        self.assertNotIn("exit 1", step_run(ready))
         self.assertIn("== 'failed'", failed["if"])
-        self.assertIn("exit 1", failed["run"])
+        self.assertIn("exit 1", step_run(failed))
 
     def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
         jobs = load_yaml(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]

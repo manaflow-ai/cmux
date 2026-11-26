@@ -184,14 +184,26 @@ grep -qx 'web/scripts/export-next-docs.ts --settings' "$tmp/bun-args" || fail "t
 pin="$tmp/pin"; pgen="$tmp/pin-generated"; mk=cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin
 mkdir -p "$pin/plans/cmux-next" "$pin/$mk/actions" "$pin/$mk/removal" "$pgen/plans/cmux-next"
 for f in actions/landed actions/waiting actions/half removal/gone removal/kept; do echo '# note' > "$pin/$mk/$f"; done
+# fields/ markers: a pointer the regenerated export changed from the committed one is settled (taken out; the
+# file goes with its last), one it left alone or a /surfacePlan/ one stays.
+mkdir -p "$pin/$mk/fields"
+printf '# the dump has the old flag until the re-pin\n/focuses\n' > "$pin/$mk/fields/kept"
+printf '# note\n/focuses\n/title\n' > "$pin/$mk/fields/landed"
+printf '/surfacePlan/palette\n' > "$pin/$mk/fields/plan"
 echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-surfaces.json"
-echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-catalog.json"
+echo '{"actions":[{"id":"kept","focuses":false},{"id":"landed","focuses":false,"title":"A"},{"id":"plan","surfacePlan":{"palette":"x"}}]}' > "$pin/plans/cmux-next/action-catalog.json"
 echo '{"actions":[{"id":"landed"},{"id":"half"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-surfaces.json"
-echo '{"actions":[{"id":"landed"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-catalog.json"
+echo '{"actions":[{"id":"landed","focuses":true,"title":"A"},{"id":"kept","focuses":true},{"id":"plan","surfacePlan":{"palette":"y"}}]}' > "$pgen/plans/cmux-next/action-catalog.json"
 git -C "$pin" init -q && git -C "$pin" add -A && git -C "$pin" -c user.name=t -c user.email=t@t commit -qm fixture
 bash "$FIX" --no-fmt --generated "$pgen" "$pin" > "$tmp/out" 2>&1 || fail "the fixer must succeed on settled re-pin markers"
 [[ ! -e "$pin/$mk/actions/landed" ]] || fail "an actions marker both regenerated exports carry must be deleted"
 [[ ! -e "$pin/$mk/removal/gone" ]] || fail "a removal marker neither regenerated export has must be deleted"
 for f in actions/waiting actions/half removal/kept; do [[ -e "$pin/$mk/$f" ]] || fail "the unsettled marker $f must stay"; done
 grep -q "^fixed: deleted $mk/actions/landed" "$tmp/out" || fail "a deleted marker must be reported"
+[[ ! -e "$pin/$mk/fields/kept" ]] || fail "a fields marker whose every pointer the regenerated export changed must be deleted"
+grep -q "^fixed: deleted $mk/fields/kept" "$tmp/out" || fail "a deleted fields marker must be reported"
+[[ "$(grep -v '^#' "$pin/$mk/fields/landed")" == /title ]] || fail "only the settled pointer must leave a fields marker: $(cat "$pin/$mk/fields/landed")"
+grep -q '^# note' "$pin/$mk/fields/landed" || fail "a fields marker keeps its note"
+grep -q "^fixed: took /focuses out of $mk/fields/landed" "$tmp/out" || fail "a settled pointer must be reported"
+[[ "$(cat "$pin/$mk/fields/plan")" == /surfacePlan/palette ]] || fail "a /surfacePlan/ pointer stays for a person"
 echo "base autofix: ok"

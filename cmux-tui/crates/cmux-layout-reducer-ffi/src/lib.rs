@@ -123,6 +123,7 @@ pub mod sidebar_mirror;
 mod tab_discard;
 pub mod tab_drag;
 mod tab_groups;
+mod tab_layout;
 mod tab_strip;
 pub mod typed;
 mod vnc;
@@ -667,6 +668,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
             }
+            operation if tab_layout::handles(operation) => tab_layout::respond(operation, request)?,
             operation if notification_rings::handles(operation) => {
                 notification_rings::respond(operation, request)?
             }
