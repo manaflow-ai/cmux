@@ -32,7 +32,9 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
   land_handoff_only
              true for a workflow that starts only on a land's own heads: the `labeled` event that adds
              ready-to-land or full-ci (the land handoff), or a synchronize of a ready-to-land PR whose head
-             is GitHub's base merge (land's update-branch). Any other head, full tier or not, skips it;
+             is GitHub's base merge (land's update-branch), and the merge train's tip. The label handoff
+             itself skips it unless $CI_MC_HANDOFF_LABEL_SKIP is 0 (handoff_label_skip). Any other head,
+             full tier or not, skips it;
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
@@ -84,6 +86,20 @@ FULL_CI_ONLY_JOBS = ("web-browser",)
 def full_ci_only_jobs() -> tuple[str, ...]:
     """FULL_CI_ONLY_JOBS, or none when $CI_PR_BROWSER_FULL_CI_ONLY is 0."""
     return () if os.environ.get("CI_PR_BROWSER_FULL_CI_ONLY", "1").strip() == "0" else FULL_CI_ONLY_JOBS
+# A land_handoff_only callee (the machine channel PR head build) skips the label handoff itself and builds only
+# the merge train's tip and land's update-branch head. 13-17Z 2026-11-26: 72 of 112 PR head builds (1,769 of
+# 3,002 runner-min) came from a ready-to-land or full-ci label being added, 66 of the 102 PRs built had not merged
+# by 20Z, and a labeled head had fallen behind the base by its merge (0 of 18 merges squashed their own head's
+# tree, #58765), so find never took those builds. yap-goblin's unlabel/relabel of ready-to-land rebuilt the same
+# head up to 3 times. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+# The repository variable CI_MC_HANDOFF_LABEL_SKIP=0 turns this off (passed in by pr-router.yml).
+
+
+def handoff_label_skip() -> bool:
+    """Whether a land_handoff_only callee skips the label handoff ($CI_MC_HANDOFF_LABEL_SKIP, on unless 0)."""
+    return os.environ.get("CI_MC_HANDOFF_LABEL_SKIP", "1").strip() != "0"
+
+
 MANIFEST = HERE / "pr_router.json"
 ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
@@ -166,10 +182,11 @@ def table_jobs_routed(callees: dict, files: list[str] | None, table: Path | None
 
 def route(event: dict, callees: dict, files: list[str] | None,
           draft_switch: str = "1", decided: tuple[str, str] | None = None,
-          land_update: bool = False) -> tuple[list[str], dict[str, str]]:
+          land_update: bool = False, carried: set[str] | None = None) -> tuple[list[str], dict[str, str]]:
     """(the callee files to start, a reason per callee) for one pull_request event. DECIDED: head_tier's
     (tier, reason) when the caller read the head's facts (route mode); else the draft rule alone. LAND_UPDATE:
-    the head is GitHub's base merge into a ready-to-land PR (land_update_head), for `land_handoff_only` callees."""
+    the head is GitHub's base merge into a ready-to-land PR (land_update_head), for `land_handoff_only` callees.
+    CARRIED: callees the red-head base merge rule keeps off (rerun_plan): they passed at the previous head."""
     tier, tier_reason = decided or head_tier.tier("pull_request", event, draft_switch)
     cheap = tier == "cheap"
     pr = event.get("pull_request") or {}
@@ -209,12 +226,20 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = (f"land handoff only: starts when {head_tier.LAND_LABEL} or {FULL_CI} is added, or on land's "
                          f"update-branch head")
             continue
+        if config.get("land_handoff_only") and handoff and not land_update and handoff_label_skip():
+            why[name] = (f"label handoff: the merge train's tip ({TRAIN_TIP}) and land's update-branch head build the "
+                         f"tree a merge takes; $CI_MC_HANDOFF_LABEL_SKIP=0 builds here too")
+            continue
         if added and added in config.get("labels", []):
             start.append(name)
             why[name] = f"label '{added}' added"
             continue
         if tier == "none":
             why[name] = tier_reason
+            continue
+        if carried and name in carried:
+            why[name] = (f"{head_tier.RERUN_REASON}: this base merge's previous head ran it green; only what was "
+                         f"red there runs again ({FULL_CI} or the land runs it)")
             continue
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
@@ -260,6 +285,93 @@ def land_update_head(event: dict, callees: dict) -> bool:
         return False
     facts = head_tier.head_facts(event) or {}
     return bool(facts.get("base_merge_only") and facts.get("by_github") is True)
+
+
+# A callee or table job that passed at the previous head in less than this reruns anyway (red-head base merge rule).
+RERUN_SHORT_SECONDS = 60
+GREEN_JOB = frozenset({"success", "skipped"})
+
+
+def caller_names(text: str) -> dict[str, str]:
+    """{callee file: its caller job's `name:`} from pr-router.yml: the prefix of the callee's job names in a run."""
+    names, current, name = {}, None, ""
+    for line in text.splitlines():
+        if m := re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line):
+            current, name = m.group(1), ""
+        elif current and (m := re.match(r"^    name:\s*(.+?)\s*$", line)):
+            name = m.group(1).strip("'\"")
+        elif current and name and (m := re.match(r"^    uses: \./\.github/workflows/([^\s@]+)\s*$", line)):
+            names[m.group(1)] = name
+    return names
+
+
+def _seconds(job: dict) -> float | None:
+    import datetime as dt
+    try:
+        start = dt.datetime.fromisoformat(str(job["started_at"]).replace("Z", "+00:00"))
+        end = dt.datetime.fromisoformat(str(job["completed_at"]).replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    return (end - start).total_seconds()
+
+
+def proved(jobs: list) -> bool:
+    """Whether a callee's (or table job's) jobs at the previous head passed and took RERUN_SHORT_SECONDS or more:
+    each completed `success` or `skipped`, at least one `success`. A red, cancelled, unfinished, short or absent
+    one reruns."""
+    if not jobs or not all(isinstance(j, dict) and j.get("status") == "completed"
+                           and j.get("conclusion") in GREEN_JOB for j in jobs):
+        return False
+    if not any(j.get("conclusion") == "success" for j in jobs):
+        return False
+    took = [_seconds(j) for j in jobs if j.get("conclusion") == "success"]
+    return all(t is not None for t in took) and sum(took) >= RERUN_SHORT_SECONDS
+
+
+def rerun_plan(jobs: list | None, names: dict[str, str], table: list[str]) -> tuple[set[str], set[str]]:
+    """(callee files, table jobs) the red-head base merge rule keeps off: those whose every job passed at the
+    previous head's router run (proved). JOBS: that run's jobs (the jobs API); None (unread) keeps nothing off."""
+    if not isinstance(jobs, list):
+        return set(), set()
+
+    def under(prefix: str) -> list:
+        return [j for j in jobs if isinstance(j, dict) and (str(j.get("name") or "") == prefix
+                or str(j.get("name") or "").startswith(prefix + " / ")
+                or str(j.get("name") or "").startswith(prefix + " ("))]
+
+    carried = {callee for callee, name in names.items() if proved(under(name))}
+    pipeline = names.get("pr-pipeline.yml", "")
+    rows = {job for job in table if pipeline and proved(under(f"{pipeline} / {job}"))}
+    return carried, rows
+
+
+def router_jobs_at(runs: list | None, repo: str, token: str) -> list | None:
+    """The jobs of the newest pr-router.yml run among RUNS (a commit's Actions runs), or None when there is none or
+    they cannot be read whole (at most three pages of 100)."""
+    newest = head_tier.newest_runs(runs)
+    run = next((r for path, r in newest.items() if path.split("@")[0].endswith("/pr-router.yml")), None)
+    if not run or not re.fullmatch(r"\d+", str(run.get("id") or "")) or not token:
+        return None
+    import urllib.request
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    out: list = []
+    try:
+        import deadline_http
+        for page in (1, 2, 3):
+            req = urllib.request.Request(
+                f"{head_tier.API}/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100&page={page}",
+                headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
+                         "X-GitHub-Api-Version": "2022-11-28"})
+            status, body, _ = deadline_http.request(req, head_tier.VERDICT_SECONDS)
+            data = json.loads(body) if status == 200 else None
+            if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+                return None
+            out += data["jobs"]
+            if len(out) >= int(data.get("total_count") or 0):
+                return out
+    except Exception:  # fail open: an unread answer keeps everything on
+        return None
+    return None
 
 
 def caller_jobs(text: str) -> dict[str, str]:
@@ -326,6 +438,20 @@ def land_status(event: dict, decided: tuple[str, str]) -> str:
             else "pending")
 
 
+def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tuple[set[str], set[str]]:
+    """rerun_plan for this head when the red-head base merge rule reached the router: the head only merges the base
+    onto a previous head where some run was not green and the router's own run there was not green either (a green
+    one gave the tier `none` already). ({}, {}) when it does not apply or anything is unread."""
+    if (decided[0] == "none" or not facts or facts.get("previous_green") is not False
+            or not isinstance(facts.get("previous_runs"), list)):
+        return set(), set()
+    jobs = router_jobs_at(facts["previous_runs"], os.environ.get("GITHUB_REPOSITORY", ""),
+                          os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "")
+    table = [job for config in callees.values() for job in config.get("table_jobs", [])]
+    carried, rows = rerun_plan(jobs, caller_names(ENTRY.read_text()), table)
+    return {c for c in carried if c in callees}, rows
+
+
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
                   table: list[str] | None = None, status: str = "") -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
@@ -350,14 +476,20 @@ def main(argv: list[str]) -> int:
     if mode == "route":
         event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
         files = changed_files()
-        decided = head_tier.decide("pull_request", event)
-        start, why = route(event, callees, files, decided=decided, land_update=land_update_head(event, callees))
+        decided, facts = head_tier.decide_with_facts("pull_request", event)
+        carried, rows = plan_for(decided, facts, callees)
+        start, why = route(event, callees, files, decided=decided, land_update=land_update_head(event, callees),
+                           carried=carried)
         labels = head_tier.labels_of(event)
         full = decided[0] == "full" or FULL_CI in labels
         added = str((event.get("label") or {}).get("name") or "") if event.get("action") == "labeled" else ""
-        write_outputs(start, why, files, table_jobs_routed(callees, files, full=full,
-                                                           full_ci=FULL_CI in labels or added == FULL_CI),
-                      land_status(event, decided))
+        table = [job for job in table_jobs_routed(callees, files, full=full,
+                                                  full_ci=FULL_CI in labels or added == FULL_CI) if job not in rows]
+        if rows:
+            why["pr-pipeline.yml"] = why.get("pr-pipeline.yml", "") + (
+                f" (table jobs that ran green at the previous head stay off: {', '.join(sorted(rows))})")
+        status = land_status(event, decided)
+        write_outputs(start, why, files, table, "pending" if status and (carried or rows) else status)
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)
