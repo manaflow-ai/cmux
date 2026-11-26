@@ -8,8 +8,8 @@ The workflows and the config files that register them. Scripts, tests and the gi
 There are about 270 files in `workflows/`. Most work lands on `feat-cmux-next`; its pull requests run:
 
 - `pr-router.yml` ("pr router"): lists the changed files once. `scripts/ci/pr_router.py` and
-  `scripts/ci/pr_router.json` pick which callees run: `pr-pipeline.yml`, `web-validation.yml`,
-  `swift-linux-packages.yml`, `classic-api-guard.yml`, `cmux-next-size-budget.yml`.
+  `scripts/ci/pr_router.json` pick which callees run: `pr-pipeline.yml`, `swift-linux-packages.yml`,
+  `classic-api-guard.yml`, `cmux-next-size-budget.yml`.
 - `pr-pipeline.yml`: the `linux` steps of `ci/steps.toml` that the change routes, run by `ci/run`.
 - `cmux-next-guards.yml`: the `ci-guards.yml` guard tests a change reaches; a push runs the release-notary
   group at the tip.
