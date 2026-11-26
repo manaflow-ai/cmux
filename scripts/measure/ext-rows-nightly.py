@@ -726,6 +726,146 @@ def row_cli_name(ctx: Ctx) -> dict:
             "log_lines": logged}
 
 
+def row_settings(ctx: Ctx) -> dict:
+    """Extension settings (#43022): a manifest `settings` schema is listed by `apps.settings.list` with its
+    defaults, the running host gets those values at init (its `cmux.app.settings()` logged, `apps-logs`), and a
+    change from outside the app is refused: `apps.settings.set` is the person's own (Settings > Extensions, the
+    verified app connection, Gate A2), so neither a plain CLI call nor one claiming origin `user` stores it, and
+    the listed values stay the defaults."""
+    word = f"{ctx.token}-settings"
+    defaults = {"greeting": f"Hi {ctx.token[-4:]}", "limit": 10}
+    install = install_customize(ctx, {
+        "name": "Rows settings", "description": "Reads its own settings.", "runtime": {"main": "main.js"},
+        "activation": ["onStartup"],
+        "settings": {"type": "object", "properties": {
+            "greeting": {"type": "string", "title": "Greeting", "default": defaults["greeting"], "maxLength": 40},
+            "limit": {"type": "integer", "title": "Limit", "minimum": 1, "maximum": 50,
+                      "default": defaults["limit"]}}}},
+        {"main.js": (f"console.log({json.dumps(word)} + ' init ' + JSON.stringify(cmux.app.settings()))\n"
+                     "globalThis.__cmuxAppExports = {}\n")})
+
+    def listed():
+        reply = store_op(ctx, "apps.settings.list")
+        rows = [a for a in (reply.get("data") or {}).get("apps") or [] if a.get("app") == CUSTOMIZE_APP]
+        return rows[0] if rows else None
+
+    row = wait_for(listed, wait=15) or {}
+    init = logs_with(ctx, f"{word} init")
+    change = {"limit": 25}
+    plain = store_op(ctx, "apps.settings.set", {"app": CUSTOMIZE_APP, "values": change,
+                                                "idempotency_key": f"{ctx.token}-set"})
+    claimed = op(ctx, {"cmd": "apps-store", "origin": "user", "op": "apps.settings.set",
+                       "args": {"app": CUSTOMIZE_APP, "values": change, "idempotency_key": f"{ctx.token}-user"}})
+    after = listed() or {}
+    properties = (row.get("schema") or {}).get("properties") or {}
+    return {"checks": {"installed": install["installed"],
+                       "listed_with_schema": set(defaults) <= set(properties),
+                       "defaults_listed": all((row.get("values") or {}).get(k) == v for k, v in defaults.items()),
+                       "host_got_defaults": any(json.dumps(defaults["greeting"]) in line for line in init),
+                       "cli_set_refused": plain.get("ok") is not True,
+                       "claimed_user_set_refused": claimed.get("ok") is not True,
+                       "values_unchanged": (after.get("values") or {}).get("limit") == defaults["limit"]},
+            "install": install, "listed": row, "log_lines": init, "set": plain, "set_as_user": claimed,
+            "after": after}
+
+
+def row_git_install(ctx: Ctx) -> dict:
+    """Installs from a source (#42068 `cmux ext add SOURCE`, #44897 git references), with no network: a local
+    folder (an `ext new` scaffold, itself a git repo) loads through `ext add` in the copy's daemon without
+    installing, and only https repository references are taken. `ext add file://...` is refused, as are
+    `catalog.get` (the consent card's fetch) of a `file://` URL, an `http://` URL ("only https repositories
+    install") and an https URL on a host that is not a public name; none of them fetches. A pinned https
+    install and `apps.update`'s `apps.update.needs_consent` need the network and a fetched app: not here."""
+    folder = ctx.work / "git-src"
+    shutil.rmtree(folder, ignore_errors=True)
+    made = ctx.ext(["ext", "new", f"rows-git{ctx.token[-4:]}", "--kind", "section", "--dir", str(folder),
+                    "--json"], timeout=60)
+    added = ctx.ext(["ext", "add", str(folder), "--json", "--no-install"], timeout=120)
+    answer = added.get("json") if isinstance(added.get("json"), dict) else {}
+    by_file = ctx.ext(["ext", "add", folder.as_uri(), "--json", "--no-install"], timeout=60)
+
+    def staged(reference: str) -> dict:
+        return store_op(ctx, "apps.catalog.get", {"app": reference})
+
+    stages = {"file": staged(folder.as_uri()), "http": staged("http://example.com/owner/repo"),
+              "private_host": staged("https://localhost/owner/repo")}
+
+    def said(reply: dict, text: str) -> bool:
+        return reply.get("ok") is not True and text in json.dumps(reply.get("error"))
+
+    return {"checks": {"scaffolded": made.get("exit") == 0 and (folder / ".git").exists(),
+                       "folder_added": added.get("exit") == 0 and answer.get("ok") is not False
+                       and bool(answer.get("app")),
+                       "file_url_add_refused": by_file.get("exit") not in (0, None),
+                       "file_url_not_staged": stages["file"].get("ok") is not True,
+                       "http_refused_https_only": said(stages["http"], "only https"),
+                       "private_host_refused": said(stages["private_host"], "public host")},
+            "new": {k: made.get(k) for k in ("exit", "json", "stderr")}, "add": added, "add_file_url": by_file,
+            "catalog_get": stages}
+
+
+def row_toolbar(ctx: Ctx) -> dict:
+    """Toolbar items (#47325): a manifest's `contributes.toolbarItems` button whose action is one of the app's
+    own catalog ops is listed by `apps.toolbar.list` (the daemon answer the Mac toolbar draws) with that op and
+    its args, and a saved manifest that retitles it is the next answer, with no relaunch. The click runs as the
+    person (`apps-run` origin `user`, the verified app only), so the CLI claiming it is refused."""
+    def sample(title: str) -> tuple[dict, str, str]:
+        verb = f"probe{ctx.token[-6:]}"
+        return op_sample(ctx, "toolbar", {"contributes": {"toolbarItems": [{
+            "id": "rows", "kind": "button", "title": title, "icon": {"symbol": "star"},
+            "action": {"op": f"local.customize.{verb}", "args": {"from": "toolbar"}}, "order": 20}]}})
+
+    def listed(title: str):
+        def probe():
+            reply = store_op(ctx, "apps.toolbar.list")
+            items = [i for i in (reply.get("data") or {}).get("items") or [] if i.get("app") == CUSTOMIZE_APP]
+            return items if any(i.get("title") == title for i in items) else None
+        return wait_for(probe, wait=15)
+
+    first_title, second_title = f"Rows {ctx.token[-4:]}", f"Retitled {ctx.token[-4:]}"
+    first, op_name, word = sample(first_title)
+    shown = listed(first_title) or []
+    claimed = op(ctx, {"cmd": "apps-run", "origin": "user", "app": CUSTOMIZE_APP, "op": op_name,
+                       "args": {"from": "toolbar"}})
+    second, _, _ = sample(second_title)
+    retitled = listed(second_title) or []
+    return {"checks": {"installed": first["installed"] and second["installed"],
+                       "listed_with_its_op": any(i.get("op") == op_name and (i.get("args") or {}).get("from")
+                                                 == "toolbar" for i in shown),
+                       "save_retitled": bool(retitled),
+                       "cli_click_as_person_refused": claimed.get("ok") is not True},
+            "install": [first, second], "op": op_name, "listed": shown, "retitled": retitled,
+            "run_as_user": claimed}
+
+
+def row_overlay(ctx: Ctx) -> dict:
+    """Overlays (#43014): an app whose `cmux.pane/1` declares `presentation.overlay` opens one only from the
+    person's gesture. An `apps-mount` on the overlay surface from the CLI is refused (`apps.overlay_gesture`),
+    and so is one claiming origin `user` (the verified app only); nothing floats in front of the person."""
+    word = f"{ctx.token} overlay"
+    install = install_customize(ctx, {
+        "name": "Rows overlay", "description": "An overlay pane.", "runtime": {"main": "main.js"},
+        "implements": {"cmux.pane/1": {"export": "renderPane", "title": "Rows overlay"}},
+        "presentation": {"overlay": {"width": 360, "height": 240}}},
+        {"main.js": ("function renderPane() {\n"
+                     f"  console.log({json.dumps(word)} + ' rendered')\n"
+                     f"  return VStack([Text({json.dumps(word)})])\n}}\n"
+                     "globalThis.__cmuxAppExports = { renderPane }\n")})
+    context = {"surface": "overlay", "contribution": f"{CUSTOMIZE_APP}#cmux.pane/1"}
+    mount = {"cmd": "apps-mount", "app": CUSTOMIZE_APP, "interface": "cmux.pane/1", "context": context}
+    plain = op(ctx, {**mount, "mount_id": f"{ctx.token}-o1"})
+    claimed = op(ctx, {**mount, "origin": "user", "mount_id": f"{ctx.token}-o2"})
+    for reply, mount_id in ((plain, "o1"), (claimed, "o2")):
+        if reply.get("ok") is True:
+            op(ctx, {"cmd": "apps-unmount", "mount_id": f"{ctx.token}-{mount_id}"})
+    return {"checks": {"installed": install["installed"],
+                       "cli_overlay_refused": plain.get("ok") is not True
+                       and "apps.overlay_gesture" in json.dumps(plain.get("error")),
+                       "claimed_user_overlay_refused": claimed.get("ok") is not True},
+            "install": install, "mount": plain, "mount_as_user": claimed,
+            "log_lines": logs_with(ctx, f"{word} rendered", wait=2)}
+
+
 FORK_APP = "widget-clock"
 
 
@@ -784,6 +924,10 @@ ROWS = {
     "newtab": (row_newtab, "#42998"),
     "web_pane": (row_web_pane, "#41546 #43033"),
     "widget": (row_widget, "#45106"),
+    "settings": (row_settings, "#43022"),
+    "git_install": (row_git_install, "#42068 #44897"),
+    "toolbar": (row_toolbar, "#47325"),
+    "overlay": (row_overlay, "#43014"),
 }
 
 
