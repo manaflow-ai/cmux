@@ -73,6 +73,7 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     # Generated (scripts/cmux-next/generated_outputs.py OUTPUTS): cmux-next-pr-autofix's drift check reads a hand edit.
     "plans/cmux-next/actions.md",
     "docs/mdm/managed-preferences.md",
+    "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md",
     # Read by a ci-guards group test (test_no_guard_group_test_reads_docs lists any new one).
     "docs/ci/health-report.md",  # tests/test_ci_health_report.py
     "docs/privacy.md",  # tests/test_outbound_hosts.py
@@ -89,6 +90,7 @@ DOCS_ONLY_PATHS: tuple[str, ...] = (
     "cmux-tui/crates/cmux-extension-sdk/README.md",
     "cmux-tui/vendor/terminput-crossterm/README.md",
     "mux/packages/brain/conformance/README.md",
+    "Native/OptChat/chief-kernel/src/turn_checks.md",
 )
 
 # The workflows whose pull_request trigger carries DOCS_ONLY_PATHS. None is a required check: a required check that
