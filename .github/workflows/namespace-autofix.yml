@@ -140,12 +140,49 @@ jobs:
           # The PR's own files (GitHub's merge-base diff), never `git diff BASE_SHA
           # HEAD_SHA`: that two-dot diff against base's tip also lists every file
           # base changed since the branch point, and the fix then rewrote and
-          # pushed the PR's stale copies of them (#55382). Both checkouts are
-          # depth 1, so there is no merge-base here to diff against.
-          GH_TOKEN="$READ_TOKEN" gh api --paginate \
+          # pushed the PR's stale copies of them (#55382). The API's list is the
+          # first source. github.token's quota is the repo's, shared with every
+          # job here, and it ran dry too ("API rate limit exceeded for
+          # installation", cmux#58259 at 18:17Z and 18:30Z on 2026-11-26), so a
+          # failed listing falls back to git: deepen both depth-1 histories until
+          # they meet and diff from their merge base, the same three-dot diff.
+          listed="$RUNNER_TEMP/namespace-listed.txt"
+          if ! GH_TOKEN="$READ_TOKEN" gh api --paginate \
             "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
-            --jq '.[] | select(.status != "removed") | .filename' \
-            | awk '/^(Packages|ios\/cmux)\/.*\.swift$/ { print }' \
+            --jq '.[] | select(.status != "removed") | .filename' > "$listed"; then
+            echo "::warning::Listing the PR's files through the API failed (see above); using git's merge-base diff instead."
+            merge_base=""
+            fetch_failed=""
+            for deepen in 100 400 1600 6400; do
+              merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)"
+              [ -z "$merge_base" ] || break
+              # One fetch per side: given both at once, git deepened only one of them.
+              # The head goes through refs/pull/N/head, as above: a fork PR's raw
+              # head SHA may not be fetchable from origin.
+              if ! git fetch --no-tags --quiet --deepen="$deepen" origin "$BASE_SHA"; then
+                fetch_failed="deepening base $BASE_SHA by $deepen"; break
+              fi
+              if ! git fetch --no-tags --quiet --deepen="$deepen" origin "+refs/pull/${{ github.event.pull_request.number }}/head:refs/remotes/pr/head"; then
+                fetch_failed="deepening the PR head by $deepen"; break
+              fi
+            done
+            [ -n "$merge_base" ] || merge_base="$(git merge-base "$BASE_SHA" "$HEAD_SHA" 2>/dev/null || true)"
+            if [ -z "$merge_base" ]; then
+              # Refuse, never skip: a skipped autofix would read as clean.
+              if [ -n "$fetch_failed" ]; then
+                echo "::error::Both sources of the PR's files failed: the API listing (above) and git, whose fetch failed while $fetch_failed (above). Rerun the job."
+              else
+                echo "::error::Both sources of the PR's files failed: the API listing (above) and git, which found no merge base of $BASE_SHA and $HEAD_SHA within 8500 commits. Rerun once the API quota resets."
+              fi
+              exit 1
+            fi
+            echo "Merge base: $merge_base"
+            # quotePath off: git otherwise prints non-ASCII paths quoted and
+            # escaped ("Packages/\303\251.swift"), which the API never does and
+            # the Packages/ filter below would silently drop.
+            git -c core.quotePath=false diff --no-renames --name-only --diff-filter=d "$merge_base" "$HEAD_SHA" > "$listed"
+          fi
+          awk '/^(Packages|ios\/cmux)\/.*\.swift$/ { print }' "$listed" \
             | sort -u > "$RUNNER_TEMP/namespace-files.txt"
           if [ ! -s "$RUNNER_TEMP/namespace-files.txt" ]; then
             echo "No changed package Swift files; namespace autofix is clean."

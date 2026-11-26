@@ -115,6 +115,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/merge_freeze.py
             scripts/ci/api_call_log
+            .github/actions/app-token-spread/
             .gitmodules
           sparse-checkout-cone-mode: false
       # The manaflow-glaeda-route App's token, so these reads draw on the App's own budget
@@ -146,10 +147,12 @@ jobs:
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.glaeda-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: read
