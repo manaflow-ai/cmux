@@ -97,8 +97,6 @@ import { useMissingPaths } from "../chips/linkStore";
 import { TasksSection } from "./TasksSection";
 import { AgentSideRows } from "./AgentSideRows";
 import type { AgentSideRow } from "./agentSide";
-import { ProgressSection } from "./ProgressSection";
-import { planDone, type SessionInfoPlan } from "./progressSectionModel";
 import { attributeCommands } from "../summary/workflowView";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
 import { UsageSection, type UsageOwnRowLayout } from "./UsageSection";
@@ -124,6 +122,7 @@ import {
 } from "./sessionInfoModel";
 import { tooltipProps } from "../shortcuts";
 import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
+import { useLiveSummary } from "../liveSummary";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -347,7 +346,7 @@ const NO_AGENT_SIDE: readonly AgentSideRow[] = [];
 
 /// The sections for one chat.
 export function SessionInfo({
-  summary,
+  summary: drawnSummary,
   machineName,
   peerKinds,
   place,
@@ -359,7 +358,6 @@ export function SessionInfo({
   rows = [],
   outputFiles,
   produced: givenProduced,
-  plan,
   toolCalls,
   agents = [],
   waiting = new Set(),
@@ -438,8 +436,6 @@ export function SessionInfo({
   /// The pull requests, issues and commits the chat produced (producedLinks.ts), where the caller reads
   /// them; else read from `rows`.
   produced?: readonly ProducedLink[];
-  /// The agent's current plan (ProgressSection.tsx `currentPlan`); without one, no Progress.
-  plan?: SessionInfoPlan;
   /// The tool calls the loaded transcript holds (toolCallIds), where the caller reads them; else read
   /// from `rows`.
   toolCalls?: ReadonlySet<string>;
@@ -547,6 +543,8 @@ export function SessionInfo({
   imessage?: IMessageView | false;
 }) {
   const t = useT();
+  // A usage update reaches the sections without the pane (liveSummary.ts).
+  const summary = useLiveSummary(drawnSummary);
   const liveIMessage = useIMessage(imessageFixture === undefined);
   const imessage = imessageFixture || liveIMessage;
   const language = usePaneLanguage();
@@ -847,27 +845,6 @@ export function SessionInfo({
       />
     </SessionInfoSection>
   );
-  // The agent's plan, live: its steps done of its steps, on Context's meter.
-  const planSteps = plan?.entries.length ?? 0;
-  const stepsDone = plan ? planDone(plan) : 0;
-  const progressSection = plan && planSteps > 0 && (
-    <SessionInfoSection
-      id="progress"
-      title={t("sessionInfo.progress")}
-      open={state.progress ?? true}
-      onOpenChange={fold("progress")}
-      meta={
-        <>
-          {value(t("sessionInfo.progress.count", { done: stepsDone, total: planSteps }))}
-          <span className="acpmux-session-info-meter" aria-hidden="true">
-            <span style={{ width: `${Math.round((stepsDone / planSteps) * 100)}%` }} />
-          </span>
-        </>
-      }
-    >
-      <ProgressSection plan={plan} />
-    </SessionInfoSection>
-  );
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
   const workflowIds = new Set(workflows.map((workflow) => workflow.id));
   const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
@@ -1001,7 +978,6 @@ export function SessionInfo({
           changes,
           sources: sourcesSection,
           outputs: outputsSection,
-          progress: progressSection,
           subagents: subagentsSection,
           tasks,
           alsoHere: alsoHereSection,
