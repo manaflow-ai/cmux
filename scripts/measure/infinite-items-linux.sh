@@ -210,11 +210,15 @@ fi
 if [[ "$alloc_ab" == 1 ]]; then
   ab="$(mktemp -d)"
   trap 'rm -rf "$ab"; [ -n "${FAST_CHECKS_OUT:-}" ] || rm -rf "$out"' EXIT
-  mkdir "$ab/mimalloc" "$ab/system" "$ab/dhat"
+  mkdir "$ab/mimalloc" "$ab/mimalloc2" "$ab/system" "$ab/dhat"
   cp "$bin/acpmux" "$bin/cmux-tui" "$bin/cmux-tui-host" "$ab/mimalloc/"
   for arm in $alloc_arms; do
     [[ "$arm" == mimalloc ]] && continue
-    feature=system-alloc; [[ "$arm" == dhat ]] && feature=dhat-heap
+    case "$arm" in
+      dhat) feature=dhat-heap ;;
+      mimalloc2) feature=mimalloc-v2 ;;
+      *) feature=system-alloc ;;
+    esac
     t0=$SECONDS
     (cd "$root/cmux-tui" && cargo build --locked --release -p acpmux --bin acpmux --features "$feature" 2>&1 | tail -n 3
      exit "${PIPESTATUS[0]}")
