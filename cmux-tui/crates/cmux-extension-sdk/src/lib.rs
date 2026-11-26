@@ -44,6 +44,10 @@ pub use cmux_app_host::motion;
 /// validator the app host runs on every scene batch.
 pub use cmux_app_manifest::scene_nodes;
 
+/// A look's `motion` block (theme file `motion`): named `{duration, bounce}` spring presets and
+/// design-token spring and fade overrides, clamped to `cmux.motion/1`.
+pub use cmux_app_host::motion_profile;
+
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
