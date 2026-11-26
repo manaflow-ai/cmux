@@ -1261,6 +1261,26 @@ impl WorkspaceRegistry {
         acked_notification_ids_in(&self.connection.get())
     }
 
+    /// When each notification was first read, by id: its console acknowledgement
+    /// (`notification_acks`) or a client's read (`resource_notification_reads`),
+    /// whichever came first. Both tables keep only retained notifications, so
+    /// this is bounded by the ledger.
+    pub(crate) fn notification_first_reads(&self) -> anyhow::Result<HashMap<String, u64>> {
+        let db = self.connection.get();
+        let mut statement = db.prepare(
+            "SELECT notification_id, MIN(at) FROM (
+               SELECT notification_id, acked_at_ms AS at FROM notification_acks
+               UNION ALL
+               SELECT notification_id, read_at_ms AS at FROM resource_notification_reads
+             ) GROUP BY notification_id",
+        )?;
+        let reads = statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .map(|row| row.map(|(id, at)| (id, u64::try_from(at).unwrap_or(0))))
+            .collect::<Result<HashMap<_, _>, _>>()?;
+        Ok(reads)
+    }
+
     /// Replace every tab group and membership (metadata-only changes that leave tab order alone).
     pub fn replace_tab_groups(&mut self, state: &TabGroupState) -> anyhow::Result<()> {
         let db = self.connection.get();

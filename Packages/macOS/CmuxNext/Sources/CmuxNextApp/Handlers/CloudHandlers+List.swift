@@ -66,8 +66,8 @@ extension CloudHandlers {
         let machines: [[String: Any]] = context.services.machines.cloud.map { session in
             let machine = session.machine
             return ["machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue,
-                    "createdBy": machine.createdBy as Any, "createdAt": machine.createdAt?.timeIntervalSince1970 as Any,
-                    "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any].compacted
+                    "createdBy": machine.createdBy as Any, "createdAt": machine.createdAt?.timeIntervalSince1970 as Any, "diskAllocatedMb": machine.size?.storageMb as Any,
+                    "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any, "disk": machine.diskFacts as Any].compacted
         }
         let creating: [[String: Any]] = cloud.creations.all.filter { $0.session == nil }.map { creation in
             var failed: String?
@@ -121,7 +121,7 @@ extension CloudHandlers {
             "machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue, "state": stats.state,
             "cpus": stats.cpus as Any, "cpuPercent": stats.cpuPercent as Any, "memoryUsedMb": stats.memoryUsedMb as Any,
             "memoryTotalMb": stats.memoryTotalMb as Any, "diskUsedMb": stats.diskUsedMb as Any, "diskTotalMb": stats.diskTotalMb as Any,
-            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop,
+            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop, "disk": machine.diskFacts as Any,
         ]
         if let cost = CloudCreationRows.cost(machine, limits: nil) {
             facts["cost"] = ["hourlyRateUsd": cost.hourlyRateUsd as Any, "runningSince": cost.runningSince?.timeIntervalSince1970 as Any,
@@ -150,10 +150,10 @@ extension CloudHandlers {
         let services = context.services, store = services.cloud.computerControl
         store.onHumanRequested = { [weak services] machine, state in services.map { postComputerAsk($0, machine: machine, reason: state.reason) } }
         store.onAskEnded = { [weak services] machine in services?.notifications.desktop.withdraw(["chief-computer." + machine]) }
-        let bound = registry.bindEffect("cloud.computerControl", requires: nil) { invocation in
+        // A miss (a stale FFI pin) is noted in uncataloguedBindings, never trapped (UncataloguedBindingTests).
+        _ = registry.bindEffect("cloud.computerControl", requires: nil) { invocation in
             store.effect(invocation, knows: { services.machines.session($0) != nil })
         }
-        assert(bound, "cloud.computerControl is not in the action catalog")
         // `cmux cloud chief-computer`: a Chief of this Mac drives its own computer (ChiefComputerControlClient+Act.swift).
         _ = registry.bindEffect("cloud.chiefComputer", requires: nil) { ChiefComputerControlClient(send: services.home.hostedChief.brainRoute).actEffect($0) }
     }

@@ -8,7 +8,7 @@ export type CookieImportCardModel = {
   title: string;
   importTitle: string;
   notNowTitle: string;
-  /** Don't Show Again; absent or null shows only Not Now and Import. */
+  /** Never for Chrome; absent or null shows only Not now and Import. */
   neverTitle?: string | null;
   /** The browser's app icon as a data URL (PNG); absent shows no icon. */
   icon?: string | null;
@@ -22,9 +22,9 @@ export type CookieImportCommand = { type: CookieImportChoice };
 
 /**
  * The card's looks (gallery). The app draws `toast`.
- * - `toast`: one row in the toast's grammar: icon, the line, Don't Show Again quiet and Import bold
- *   as clear text, the close button as Not Now.
- * - `buttons`: one row: icon, the line, Don't Show Again as a ghost button, Not Now and Import as
+ * - `toast`: one row in the toast's grammar: icon, the line, Never for Chrome quiet and Import bold
+ *   as clear text, one Not now button.
+ * - `buttons`: one row: icon, the line, Never for Chrome as a ghost button, Not now and Import as
  *   compact buttons.
  * - `stacked`: icon and the line, then a row of the three answers under it.
  */

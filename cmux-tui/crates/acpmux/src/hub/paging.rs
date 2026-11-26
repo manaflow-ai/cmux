@@ -90,9 +90,15 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     // A line from outside any chat, such as cmux Cloud's after it resized the machine
     // (`server/host_notice.rs`).
     "host_notice",
+    // A chat moved to another place from the place menu (`server/place_set.rs`).
+    "moved",
     // A model name read as its catalog id, or a turn retried under it (`model_alias.rs`).
     "model_rewrite",
     "model_reroute",
+    // A sustained overload moved the chat to a smaller model, or back
+    // (`auto_resume/capacity_failover.rs`).
+    "capacity_failover",
+    "capacity_restored",
     "forked",
     "imported",
     "session_offer",
@@ -682,7 +688,7 @@ impl Hub {
         let bounded = max_bytes.is_some();
         let over = filter.stub_over(bounded);
         // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let session = self.session_get(id);
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.

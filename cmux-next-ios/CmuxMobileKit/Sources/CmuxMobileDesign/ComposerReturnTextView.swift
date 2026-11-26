@@ -17,7 +17,9 @@ import UIKit
 /// yet never shows. Nothing here toggles a property that changes the view's
 /// measured size, so measuring it never feeds back into another layout.
 open class ComposerReturnTextView: UITextView {
-    public var returnPolicy: ComposerReturnPolicy
+    public var returnPolicy: ComposerReturnPolicy {
+        didSet { unsettle() }
+    }
     /// Called when Return should send the draft.
     public var onSend: (() -> Void)?
     /// Whether the edit menu offers New Line (for a composer whose Return sends).
@@ -27,6 +29,18 @@ open class ComposerReturnTextView: UITextView {
     /// plain text view offers no Paste for an image at all). The paste is the
     /// person's own action, so reading the pasteboard then asks nothing.
     public var onPasteAttachments: (() -> Void)?
+    /// A downward swipe inside the text, starting at its top, ends editing:
+    /// the keyboard goes down and the composer returns to its resting row
+    /// (`ComposerSwipeCollapse`), when Settings → Composer → Swipe Down to
+    /// Collapse is on (`CmuxMobilePreferences.swipeDownCollapsesComposer`, off
+    /// by default). Set false to opt one composer out.
+    public var collapsesOnSwipeDown = true
+    /// Whether the swipe is on for this view now: its own switch and the setting.
+    public var swipeCollapseEnabled: Bool {
+        collapsesOnSwipeDown && CmuxMobilePreferences.swipeDownCollapsesComposer()
+    }
+    /// Called after a swipe down collapsed the composer.
+    public var onSwipeCollapse: (() -> Void)?
 
     private let placeholderLabel = UILabel()
     /// Set while this view inserts its own line break, so the delegate's
@@ -35,7 +49,9 @@ open class ComposerReturnTextView: UITextView {
 
     public init(policy: ComposerReturnPolicy) {
         returnPolicy = policy
-        super.init(frame: .zero, textContainer: nil)
+        let stack = Self.textKit1Stack()
+        ownedTextStorage = stack?.storage
+        super.init(frame: .zero, textContainer: stack?.container)
         isScrollEnabled = true
         alwaysBounceVertical = false
         showsHorizontalScrollIndicator = false
@@ -48,10 +64,69 @@ open class ComposerReturnTextView: UITextView {
         placeholderLabel.numberOfLines = 1
         placeholderLabel.isAccessibilityElement = false
         addSubview(placeholderLabel)
+        swipeCollapse.addTarget(self, action: #selector(swipeCollapseChanged(_:)))
+        swipeCollapse.cancelsTouchesInView = false
+        swipeCollapse.delegate = swipeCollapseDelegate
+        addGestureRecognizer(swipeCollapse)
     }
 
     @available(*, unavailable)
     public required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    // MARK: Text system
+
+    /// The view's text storage, held here: a text view made with its own container keeps
+    /// the container, the container only points back at its layout manager, and the layout
+    /// manager at its storage, so nothing else keeps the storage alive.
+    private let ownedTextStorage: NSTextStorage?
+
+    /// TextKit 1 with noncontiguous layout: the text storage, layout manager and container
+    /// a composer (and its measuring probes) is made with.
+    ///
+    /// TextKit 2 lays a paragraph out and draws it as one layout fragment, so a key typed
+    /// into a 10,000-character draft with no line break laid out and drew all 10,000
+    /// characters (70-100 ms per key, in stacks of `NSTextLayoutFragment _layout`,
+    /// `CTTypesetterCreateWithAttributedStringAndOptions` and `_UITextLayoutFragmentView
+    /// drawRect` with no composer code on them; Leo, 2026-11-24: "for really lo gb text
+    /// messages actually, it lags"; ComposerTypingLagUITests' one-paragraph cells).
+    /// TextKit 1 lays lines out from the edit on, only as far as the field shows
+    /// (`allowsNonContiguousLayout`), and draws only the lines that changed.
+    /// Nil (TextKit 2, the system's default) under `-cmux-mobile-composer-textkit2`, the
+    /// bench's other side.
+    static func textKit1Stack() -> (storage: NSTextStorage, container: NSTextContainer)? {
+        #if DEBUG
+        if usesTextKit2 { return nil }
+        #endif
+        let storage = NSTextStorage()
+        let manager = NSLayoutManager()
+        manager.allowsNonContiguousLayout = true
+        storage.addLayoutManager(manager)
+        let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        manager.addTextContainer(container)
+        return (storage, container)
+    }
+
+    #if DEBUG
+    /// `-cmux-mobile-composer-textkit2`: composers on TextKit 2, as before
+    /// (ComposerTypingLagUITests' `testLongTextMatrixTextKit2`).
+    public static let usesTextKit2 = CommandLine.arguments.contains("-cmux-mobile-composer-textkit2")
+    #endif
+
+    /// A plain text view on the composer's text system, for measuring: a probe on another
+    /// text system lays lines out to other heights than the field it measures.
+    final class Probe: UITextView {
+        private let ownedTextStorage: NSTextStorage?
+
+        init() {
+            let stack = ComposerReturnTextView.textKit1Stack()
+            ownedTextStorage = stack?.storage
+            super.init(frame: .zero, textContainer: stack?.container)
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    }
 
     public var placeholder: String = "" {
         didSet {
@@ -61,7 +136,85 @@ open class ComposerReturnTextView: UITextView {
     }
 
     override open var text: String! {
-        didSet { updatePlaceholder() }
+        didSet {
+            handedDraft = nil
+            updatePlaceholder()
+            unsettle()
+        }
+    }
+
+    // MARK: Draft
+
+    /// The draft as last handed to the binding (`draftText()`) or taken from it
+    /// (`takeDraft(_:)`): what the view's text is, as a native Swift string. Nil after any
+    /// other change to `text`.
+    private var handedDraft: String?
+
+    /// The view's text for the binding, after an edit (the delegate's `textViewDidChange`).
+    ///
+    /// `UITextView.text` bridges as a lazy NSString (the text storage's NSBigMutableString),
+    /// so every Swift comparison of it (the binding's `didSet`, `@Observable`'s change
+    /// check, SwiftUI's diff of the views that hold it) walked it a character at a time with
+    /// Unicode normalization: hundreds of ms per key in a 10,000-character chat draft, in
+    /// stacks of `NSBigMutableString characterAtIndex` and `_NFCNormalizer` under
+    /// `AgentChatSurface.text` and `ViewBodyAccessor` (Leo, 2026-11-24; ComposerTypingLagUITests).
+    /// One native copy per key (`nativeCopy(of:)`, one bulk conversion) makes each of those a
+    /// buffer compare, and the copy kept here lets `differs(from:)` answer the binding's next
+    /// update by identity.
+    public func draftText() -> String {
+        #if DEBUG
+        if Self.measuresWholeDraft { return text ?? "" }
+        #endif
+        let draft = Self.nativeCopy(of: textStorage.string as NSString)
+        handedDraft = draft
+        return draft
+    }
+
+    /// A native Swift string of `string` in one bulk UTF-16 to UTF-8 conversion
+    /// (`CFStringGetBytes`). `makeContiguousUTF8()` on the bridged text copied it through
+    /// String's foreign-string path a scalar at a time (`_foreignSubscript` in the
+    /// long-text matrix's stacks). A string CFStringGetBytes cannot convert whole (a lone
+    /// surrogate) takes that path still.
+    static func nativeCopy(of string: NSString) -> String {
+        let length = string.length
+        guard length > 0 else { return "" }
+        let capacity = CFStringGetMaximumSizeForEncoding(length, CFStringBuiltInEncodings.UTF8.rawValue)
+        var converted = 0
+        let copy = String(unsafeUninitializedCapacity: capacity) { buffer in
+            var used = 0
+            converted = CFStringGetBytes(string, CFRange(location: 0, length: length), CFStringBuiltInEncodings.UTF8.rawValue,
+                                         0, false, buffer.baseAddress, capacity, &used)
+            return used
+        }
+        if converted == length { return copy }
+        var slow = string as String
+        slow.makeContiguousUTF8()
+        return slow
+    }
+
+    /// Whether the binding's draft differs from the view's text (`updateUIView`). The
+    /// binding hands back the string `draftText()` gave it, the same storage, which
+    /// compares in O(1); only a draft set from outside reads and compares the view's text.
+    public func differs(from draft: String) -> Bool {
+        #if DEBUG
+        if Self.measuresWholeDraft { return text != draft }
+        #endif
+        if let handedDraft, handedDraft == draft { return false }
+        return text != draft
+    }
+
+    /// Sets the view's text from the binding (`updateUIView`), remembered as handed.
+    public func takeDraft(_ draft: String) {
+        text = draft
+        handedDraft = draft
+    }
+
+    override open var font: UIFont? {
+        didSet { unsettle() }
+    }
+
+    override open var textContainerInset: UIEdgeInsets {
+        didSet { unsettle() }
     }
 
     // MARK: Height
@@ -73,6 +226,20 @@ open class ComposerReturnTextView: UITextView {
                             maxLines: returnPolicy.maxLines)
     }
 
+    /// Shares the card with `reserved` points above the field (the attachment strip): the
+    /// field grows to `baseMaxLines` less the lines the strip takes
+    /// (``ComposerFieldHeight/maxLines(_:sharing:lineHeight:)``). True when that changed the
+    /// field's limit; its size is asked again then.
+    @discardableResult
+    public func shareCard(reserved: CGFloat, baseMaxLines: Int) -> Bool {
+        let lineHeight = Self.laidOutLineHeight(font ?? .preferredFont(forTextStyle: .body))
+        let lines = ComposerFieldHeight.maxLines(baseMaxLines, sharing: reserved, lineHeight: lineHeight)
+        guard lines != returnPolicy.maxLines else { return false }
+        returnPolicy = ComposerReturnPolicy(style: returnPolicy.style, maxLines: lines)
+        invalidateIntrinsicContentSize()
+        return true
+    }
+
     /// One line's height as a text view lays it out in `font`. It is taller
     /// than `font.lineHeight` (22 pt against 20.3 for the 17 pt body), so a
     /// maximum computed from the font cut the sixth line in half and
@@ -81,7 +248,7 @@ open class ComposerReturnTextView: UITextView {
 
     private static func laidOutLineHeight(_ font: UIFont) -> CGFloat {
         if let height = lineHeights[font] { return height }
-        let probe = UITextView(frame: .zero, textContainer: nil)
+        let probe = Probe()
         probe.font = font
         probe.textContainerInset = .zero
         probe.textContainer.lineFragmentPadding = 0
@@ -96,17 +263,86 @@ open class ComposerReturnTextView: UITextView {
         return height
     }
 
-    /// The text's own height at `width` (all of it, however tall). SwiftUI asks for the
-    /// field's size several times in one update, each a full text layout; the last
-    /// answer stands while the text, width, font and insets are the same.
+    /// The text's height at `width`, as far as the field's height depends on it: all of a
+    /// draft that fits in `maxLines`, else the height of a leading part already taller than
+    /// the field (it scrolls, so its height is `maxHeight` whatever follows).
+    ///
+    /// Constant cost per keystroke in the draft's length: a draft past the field is measured
+    /// from its first `measureChunk` units (doubled until they overflow the field), so typing
+    /// anywhere after them measures nothing (the same prefix is cached). Measuring the whole
+    /// draft on every key laid out all of it, several times per SwiftUI update, one width
+    /// per slot: seconds of lag per few keys in a 5,000-character draft on a phone in Low
+    /// Power Mode (Leo, 2026-11-23; ComposerTypingLagUITests).
     public func contentHeight(width: CGFloat) -> CGFloat {
-        let key = MeasureKey(text: text ?? "", width: max(width, 1), font: font, inset: textContainerInset,
+        let full = (text ?? "") as NSString
+        let width = max(width, 1)
+        #if DEBUG
+        if Self.measuresWholeDraft {
+            // The old rule, for a before/after from one harness: the whole draft, one answer kept.
+            let height = measure(full as String, width: width, whole: true)
+            measured = measured.filter { $0.key.width == width }
+            return height
+        }
+        #endif
+        var limit = Self.measureChunk
+        while true {
+            if full.length <= limit { return measure(full as String, width: width, whole: true) }
+            let cut = full.rangeOfComposedCharacterSequence(at: limit).location
+            let height = measure(full.substring(to: cut), width: width, whole: false)
+            if fieldHeight.scrolls(contentHeight: height) { return height }
+            limit *= 2
+        }
+    }
+
+    /// UTF-16 units measured first in a long draft: more than the field holds on a
+    /// phone (14 lines of ~45 characters); an iPad's wider lines double it once or twice.
+    static let measureChunk = 1_024
+
+    /// The height of `text` at `width` in this view's font and insets. `whole`: the view's
+    /// own text (measured by the view, as before); else a prefix, measured by a probe
+    /// configured the same. SwiftUI's HStack asks for the field's size at several widths in
+    /// one pass (none, zero, unbounded, the offered one) and asks again in each pass: one
+    /// answer per width stands while text, font and insets are the same. A short ring of
+    /// answers visited in turn by more widths than it holds never hit (the gate measured
+    /// 45 prefix layouts per key with four slots).
+    private func measure(_ text: String, width: CGFloat, whole: Bool) -> CGFloat {
+        #if DEBUG
+        Self.measureCalls += 1
+        #endif
+        let key = MeasureKey(text: text, width: width, font: font, inset: textContainerInset,
                              padding: textContainer.lineFragmentPadding)
-        if let measured, measured.key == key { return measured.height }
-        let height = sizeThatFits(CGSize(width: key.width, height: .greatestFiniteMagnitude)).height
-        measured = (key, height)
+        if let index = measured.firstIndex(where: { $0.key.width == width }) {
+            if measured[index].key == key { return measured[index].height }
+            measured.remove(at: index)
+        }
+        #if DEBUG
+        let began = CACurrentMediaTime()
+        defer { Self.measureSeconds += CACurrentMediaTime() - began }
+        #endif
+        let height: CGFloat
+        if whole {
+            height = sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        } else {
+            let probe = measureProbe
+            probe.font = font
+            probe.textContainerInset = textContainerInset
+            probe.textContainer.lineFragmentPadding = textContainer.lineFragmentPadding
+            probe.text = text
+            height = probe.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
+        }
+        #if DEBUG
+        Self.measuredUnits += (text as NSString).length
+        #endif
+        measured.append((key, height))
+        if measured.count > Self.measuredWidths { measured.removeFirst(measured.count - Self.measuredWidths) }
         return height
     }
+
+    private lazy var measureProbe: UITextView = {
+        let probe = Probe()
+        probe.isScrollEnabled = isScrollEnabled
+        return probe
+    }()
 
     private struct MeasureKey: Equatable {
         var text: String
@@ -115,13 +351,123 @@ open class ComposerReturnTextView: UITextView {
         var inset: UIEdgeInsets
         var padding: CGFloat
     }
-    private var measured: (key: MeasureKey, height: CGFloat)?
+    /// One answer per width, the oldest width dropped past this many.
+    private static let measuredWidths = 16
+    private var measured: [(key: MeasureKey, height: CGFloat)] = []
 
-    /// The field's size for a proposed width (SwiftUI's `sizeThatFits`):
-    /// as wide as offered, as tall as `fieldHeight` says for the text.
+    /// The field's size for a proposed width (SwiftUI's `sizeThatFits`): as wide as offered,
+    /// as tall as `fieldHeight` says for the text at the field's own width.
+    ///
+    /// The height is settled after each edit (`settleAfterEdit()`) and on a width change, and
+    /// answered here as stored, whatever width is proposed: SwiftUI's HStack asks several
+    /// widths per pass, and passes repeat, so measuring here measured tens of times per key
+    /// (seconds of lag in a 5,000-character draft, Leo 2026-11-23; ComposerTypingLagUITests).
+    /// Before the view has a width it measures at the proposed one.
     public func fittingSize(proposedWidth: CGFloat?) -> CGSize {
         let width = proposedWidth ?? (bounds.width > 0 ? bounds.width : 240)
-        return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width)))
+        #if DEBUG
+        InputLatencyTrace.shared?.count("size_questions")
+        #endif
+        #if DEBUG
+        if Self.measuresWholeDraft {
+            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width), reserve: stripReserve))
+        }
+        #endif
+        if let settled { return CGSize(width: width, height: settled.height) }
+        guard bounds.width > 0 else {
+            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: width), reserve: stripReserve))
+        }
+        return CGSize(width: width, height: settle(width: bounds.width).height)
+    }
+
+    /// After the text changed (the delegate's `textViewDidChange`): settles the height for the
+    /// new text and asks SwiftUI to size the field again only when the height changed. A key
+    /// typed into a draft already past `maxLines` lays out nothing: typing only adds lines,
+    /// and the field is at its cap.
+    public func settleAfterEdit() {
+        let insertedOnly = insertingOnly
+        insertingOnly = false
+        #if DEBUG
+        if Self.measuresWholeDraft { return invalidateIntrinsicContentSize() }
+        #endif
+        guard let old = settled else { return invalidateIntrinsicContentSize() }
+        if insertedOnly, old.scrolls { return }
+        if settle(width: old.width).height != old.height { invalidateIntrinsicContentSize() }
+    }
+
+    /// The field's height at the field's width: `height`, and whether the text overflows it.
+    private var settled: (width: CGFloat, height: CGFloat, scrolls: Bool)?
+
+    /// The text's height as last settled (`contentHeight(width:)` at the field's width): past
+    /// `maxLines` a leading part already taller than the field, so clamp against it only. Nil
+    /// until the field has a width and a size was asked. For layout that follows the field's
+    /// height (an inset, an overlap): read this, never measure per layout pass.
+    public private(set) var settledContentHeight: CGFloat?
+
+    /// Something outside the text changed the height rule (a reserve, a strip): measure again
+    /// at the field's width, and ask SwiftUI to size the field again if its height changed.
+    public func resettle() {
+        guard bounds.width > 0 else { return unsettle(invalidate: true) }
+        let old = settled?.height
+        if settle(width: bounds.width).height != old { invalidateIntrinsicContentSize() }
+    }
+
+    /// The attachment strip's height above this field inside the composer
+    /// (0: none): the field gives that much of its cap to the strip
+    /// (`ComposerFieldHeight.height(contentHeight:reserve:)`).
+    public var stripReserve: CGFloat = 0 {
+        didSet { if oldValue != stripReserve { resettle() } }
+    }
+
+    /// How far the strip reaches above the field's height without it; the
+    /// page's content inset leaves it out (`ComposerFieldHeight.stripOverlap`).
+    /// Reads the settled text height; measures only before the field has settled.
+    public var stripOverlap: CGFloat {
+        guard stripReserve > 0 else { return 0 }
+        let content = settledContentHeight ?? contentHeight(width: bounds.width > 0 ? bounds.width : 240)
+        return fieldHeight.stripOverlap(contentHeight: content, reserve: stripReserve)
+    }
+
+    /// Set while a typed text goes in at a caret with nothing selected or marked.
+    private var insertingOnly = false
+
+    @discardableResult
+    private func settle(width: CGFloat) -> (width: CGFloat, height: CGFloat, scrolls: Bool) {
+        let rule = fieldHeight
+        let content = contentHeight(width: width)
+        settledContentHeight = content
+        let height = rule.height(contentHeight: content, reserve: stripReserve)
+        // A strip's reserve caps the field below `maxLines`: past that cap it scrolls too.
+        let scrolls = rule.scrolls(contentHeight: content) || height < rule.height(contentHeight: content)
+        let result = (width: width, height: height, scrolls: scrolls)
+        settled = result
+        return result
+    }
+
+    /// Text, font, insets or `maxLines` changed: the next size asked for measures again.
+    private func unsettle(invalidate: Bool = false) {
+        settled = nil
+        settledContentHeight = nil
+        if invalidate { invalidateIntrinsicContentSize() }
+    }
+
+    /// Whether the text now wants another field height than the field has: an edit gained
+    /// or lost a line (`ComposerLineMotion`). False before the field is laid out.
+    public var lineCountChangePending: Bool {
+        guard bounds.width > 0, bounds.height > 0 else { return false }
+        return abs(fittingSize(proposedWidth: bounds.width).height - bounds.height) > 0.5
+    }
+
+    /// Whether the caret's line shows in the field's visible rect: at least three quarters
+    /// of the caret is inside. A field with no inset (chat) sizes to the line box, which
+    /// the caret overhangs by a point or two, so "wholly inside" read "out" on a fitting
+    /// one-line draft; a line hidden under the edge shows a quarter or less.
+    public var caretInView: Bool {
+        guard let end = selectedTextRange?.end else { return true }
+        let caret = caretRect(for: end)
+        guard caret.height > 0, !caret.isNull, !caret.isInfinite else { return true }
+        let shown = min(caret.maxY, bounds.maxY) - max(caret.minY, bounds.minY)
+        return shown >= caret.height * 0.75
     }
 
     /// Whether the text is taller than the field (it scrolls inside).
@@ -132,7 +478,7 @@ open class ComposerReturnTextView: UITextView {
     public func followCaret() {
         if !textOverflows {
             pinToTop()
-        } else if NSMaxRange(selectedRange) >= (text as NSString? ?? "").length {
+        } else if NSMaxRange(selectedRange) >= textStorage.length {
             // Typing at the end: the field's bottom inset shows below the last
             // line, as it does at rest (scrollRangeToVisible stops at the
             // caret, leaving the line flush against the field's bottom edge).
@@ -152,19 +498,88 @@ open class ComposerReturnTextView: UITextView {
         if contentOffset.y != top { contentOffset.y = top }
     }
 
+    /// Key-to-glyph stamps (`ComposerKeyStamp`): signposts in every build, samples under `InputLatencyTrace`.
+    private lazy var keyStamp = ComposerKeyStamp { [weak self] in self?.accessibilityIdentifier ?? "composer" }
+
+    override open func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if let event, presses.contains(where: { $0.key != nil }) { keyStamp.pressed(at: event.timestamp) }
+        super.pressesBegan(presses, with: event)
+    }
+
     #if DEBUG
-    /// A typed key to the frame that draws it (`InputLatencyTrace`: `<field id>_key_frame`).
+    /// UTF-16 units every composer has laid out to measure its height, so a
+    /// test can see what one keystroke costs in text layout
+    /// (`<field id>_key_layout_units`, ComposerTypingLagUITests).
+    public static var measuredUnits = 0
+    /// Height lookups (cached or not) and the widths asked, per key (`_key_measure_calls`).
+    public static var measureCalls = 0
+    /// Time spent laying out text to measure it (`_key_measure_ms`).
+    public static var measureSeconds: CFTimeInterval = 0
+
+    /// `-cmux-mobile-composer-measure-whole`: measure the whole draft on every key with one
+    /// answer kept, as before the fix (ComposerTypingLagUITests' before rows).
+    /// Composers read the draft in their body while it is on (base's per-key rebuild, too).
+    public static let measuresWholeDraft = CommandLine.arguments.contains("-cmux-mobile-composer-measure-whole")
+
+    #endif
+
+    /// A typed text at a bare caret only adds lines (`settleAfterEdit()`).
     override open func insertText(_ text: String) {
-        guard let trace = InputLatencyTrace.shared else { return super.insertText(text) }
+        insertingOnly = selectedRange.length == 0 && markedTextRange == nil
+        defer { insertingOnly = false }
+        #if DEBUG
+        if let trace = InputLatencyTrace.shared { return tracedInsert(text, trace: trace) }
+        #endif
+        keyStamp.insert { super.insertText(text) }
+    }
+
+    #if DEBUG
+    /// A typed key to the frame that draws it (`InputLatencyTrace`:
+    /// `<field id>_key_frame`), to its frame committed (`_key_commit`), and
+    /// the text it laid out to measure the field (`_key_layout_units`).
+    private func tracedInsert(_ text: String, trace: InputLatencyTrace) {
+        let id = accessibilityIdentifier ?? "composer"
         let start = CACurrentMediaTime()
-        super.insertText(text)
-        trace.sampleAtNextFrame("\(accessibilityIdentifier ?? "composer")_key_frame", since: start)
+        trace.typed()
+        trace.beginKey("\(id)_key_frame")
+        let cpu = InputLatencyTrace.threadCPUms()
+        let units = Self.measuredUnits
+        let calls = Self.measureCalls
+        let seconds = Self.measureSeconds
+        let counters = trace.counters
+        keyStamp.insert { super.insertText(text) }
+        trace.sampleAtNextFrame("\(id)_key_frame", since: start)
+        trace.sampleAfterCommit("\(id)_key_commit", since: start)
+        // The main thread's CPU from the key to its frame committed.
+        trace.afterCommit { trace.sample("\(id)_key_cpu", ms: InputLatencyTrace.threadCPUms() - cpu) }
+        trace.atNextFrame {
+            for (name, value) in trace.counters { trace.sample("\(id)_key_\(name)", ms: Double(value - (counters[name] ?? 0))) }
+            trace.sample("\(id)_key_layout_units", ms: Double(Self.measuredUnits - units))
+            trace.sample("\(id)_key_measure_calls", ms: Double(Self.measureCalls - calls))
+            trace.sample("\(id)_key_measure_ms", ms: (Self.measureSeconds - seconds) * 1_000)
+        }
     }
     #endif
 
+    /// The height the last layout pass saw: a change (an attachment strip
+    /// taking or giving back its share of the cap) keeps the caret in view.
+    private var laidOutHeight: CGFloat = 0
+
     override open func layoutSubviews() {
         super.layoutSubviews()
-        if !textOverflows { pinToTop() }
+        // A new width (rotation, the send button showing): the height for it.
+        if let old = settled, bounds.width > 0, abs(bounds.width - old.width) > 0.5,
+           settle(width: bounds.width).height != old.height {
+            invalidateIntrinsicContentSize()
+        }
+        if !textOverflows {
+            pinToTop()
+        } else if abs(bounds.height - laidOutHeight) > 0.5, laidOutHeight > 0 {
+            // The field shrank under a strip: without this the text stays
+            // at its old offset and the caret line sits below the field.
+            followCaret()
+        }
+        laidOutHeight = bounds.height
         let width = max(0, bounds.width - textContainerInset.left - textContainerInset.right)
         let size = placeholderLabel.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         placeholderLabel.frame = CGRect(x: textContainerInset.left + textContainer.lineFragmentPadding, y: textContainerInset.top,
@@ -178,8 +593,63 @@ open class ComposerReturnTextView: UITextView {
     }
 
     public func updatePlaceholder() {
-        placeholderLabel.isHidden = !(text ?? "").isEmpty
+        placeholderLabel.isHidden = hasText
         accessibilityLabel = placeholder
+    }
+
+    // MARK: Swipe down to collapse
+
+    private let swipeCollapse = UIPanGestureRecognizer()
+    private let swipeCollapseDelegate = SwipeCollapseDelegate()
+    private let swipeCollapseRule = ComposerSwipeCollapse()
+    /// When the finger came down, and whether the text was at its top then
+    /// (read at touch-down: by the pan's `.began` the text's own scroll may
+    /// already have moved).
+    fileprivate var touchDownTime: TimeInterval = 0
+    fileprivate var swipeBeganAtTop = false
+    private var swipeHeldFor: TimeInterval = 0
+
+    /// Whether the text shows its first line (a fitting draft always does).
+    fileprivate var atTop: Bool { contentOffset.y <= -adjustedContentInset.top + 0.5 }
+
+    @objc private func swipeCollapseChanged(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            swipeHeldFor = touchDownTime > 0 ? max(0, CACurrentMediaTime() - touchDownTime) : 0
+        case .changed, .ended:
+            guard swipeCollapseEnabled, isFirstResponder,
+                  swipeCollapseRule.collapses(translation: pan.translation(in: self), velocity: pan.velocity(in: self),
+                                              beganAtTop: swipeBeganAtTop, heldFor: swipeHeldFor) else { return }
+            // Stop this drag so it collapses once.
+            pan.isEnabled = false
+            pan.isEnabled = true
+            resignFirstResponder()
+            onSwipeCollapse?()
+        default:
+            break
+        }
+    }
+
+    /// Lets the swipe run beside the text view's own scroll, selection and
+    /// loupe gestures (a separate object: a UIScrollView subclass must not
+    /// become a recognizer delegate itself).
+    private final class SwipeCollapseDelegate: NSObject, UIGestureRecognizerDelegate {
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
+
+        /// The finger came down (touch timestamps share `CACurrentMediaTime`'s clock).
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if let view = gestureRecognizer.view as? ComposerReturnTextView {
+                view.touchDownTime = touch.timestamp
+                view.swipeBeganAtTop = view.atTop
+            }
+            return true
+        }
+
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard let view = gestureRecognizer.view as? ComposerReturnTextView else { return false }
+            return view.swipeCollapseEnabled && view.isFirstResponder
+        }
     }
 
     // MARK: Return
@@ -218,14 +688,20 @@ open class ComposerReturnTextView: UITextView {
     }
 
     override open var keyCommands: [UIKeyCommand]? {
+        (super.keyCommands ?? []) + returnCommands
+    }
+
+    /// Built once: UIKit reads `keyCommands` as the field becomes first
+    /// responder, before the keyboard's first frame.
+    private lazy var returnCommands: [UIKeyCommand] = {
         let commands = [
             UIKeyCommand(input: "\r", modifierFlags: [], action: #selector(hardwareReturn)),
             UIKeyCommand(input: "\r", modifierFlags: .shift, action: #selector(hardwareShiftReturn)),
             UIKeyCommand(input: "\r", modifierFlags: .alternate, action: #selector(hardwareOptionReturn)),
         ]
         commands.forEach { $0.wantsPriorityOverSystemBehavior = true }
-        return (super.keyCommands ?? []) + commands
-    }
+        return commands
+    }()
 
     override open func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         switch action {
@@ -244,8 +720,19 @@ open class ComposerReturnTextView: UITextView {
     /// An image or a copied file leads the pasteboard, for a composer that
     /// takes attachments (`composerPastesAttachments`).
     private var pastesAttachments: Bool {
-        onPasteAttachments != nil && UIPasteboard.general.composerPastesAttachments
+        guard onPasteAttachments != nil else { return false }
+        // UIKit validates Paste as the field becomes first responder, before
+        // the keyboard's first frame; reading the pasteboard's types costs
+        // about 0.4 ms. Read them again only once the pasteboard changed.
+        let pasteboard = UIPasteboard.general
+        let change = pasteboard.changeCount
+        if let pasteCheck, pasteCheck.change == change { return pasteCheck.attaches }
+        let attaches = pasteboard.composerPastesAttachments
+        pasteCheck = (change, attaches)
+        return attaches
     }
+
+    private var pasteCheck: (change: Int, attaches: Bool)?
 
     override open func paste(_ sender: Any?) {
         if pastesAttachments, let onPasteAttachments {
@@ -263,5 +750,14 @@ open class ComposerReturnTextView: UITextView {
         }
         builder.insertChild(UIMenu(options: .displayInline, children: [newLine]), atStartOfMenu: .standardEdit)
     }
+}
+
+/// The composer's live text view, for the screen that lays out the page
+/// under it: it reads `stripOverlap` in the same layout pass.
+@MainActor public final class ComposerFieldRef {
+    public weak var view: ComposerReturnTextView?
+    public init() {}
+    /// How far the attachment strip reaches above the field's own height (0 with no strip).
+    public var stripOverlap: CGFloat { view?.stripOverlap ?? 0 }
 }
 #endif

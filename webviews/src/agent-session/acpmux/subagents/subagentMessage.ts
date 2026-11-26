@@ -24,7 +24,7 @@ export type SubagentTarget = {
 
 /// Whether `family` is harness `base` or one of its profiles (`claude-sr2`, `codex_work`), as the mode
 /// menu reads it (harnessModes.ts `familyMenu`).
-function isHarness(family: string | undefined, base: "claude" | "codex"): boolean {
+export function isHarness(family: string | undefined, base: "claude" | "codex"): boolean {
   const id = (family ?? "").toLowerCase();
   return id === base || id.startsWith(`${base}-`) || id.startsWith(`${base}_`);
 }

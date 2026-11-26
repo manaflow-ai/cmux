@@ -14,7 +14,7 @@ import re
 import statistics
 import sys
 
-METRICS = ("quit_to_usable_ms", "launch_to_usable_ms", "relaunch_ms")
+METRICS = ("quit_to_usable_ms", "launch_to_usable_ms", "page_painted_ms", "relaunch_ms")
 ROW = re.compile(r"^L5-PAIR (base|head) (\d+) (\S+) (\{.*\})\s*$")
 
 
