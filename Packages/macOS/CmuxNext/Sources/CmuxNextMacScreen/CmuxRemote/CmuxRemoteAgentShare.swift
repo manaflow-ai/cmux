@@ -30,30 +30,24 @@ enum CmuxRemoteAgentShare {
         // The hub's value now, not a cached one: the permission may have just gone off elsewhere.
         await hub.refreshSettings()
         if hub.me == nil { await hub.refreshMe() }
-        var params: [String: CmuxNextDaemon.JSONValue] = [
-            "ticket": .string(ticket),
-            "allowed": .bool(hub.agentsMayShare),
-            "account": .string(hub.me?.userId ?? ""),
-            "this_device": .object(["id": .string(hub.identity.id), "name": .string(hub.thisDevice?.name ?? hub.deviceName)]),
+        // What to send and how to read the answer: Rust (cmux-rd-ffi `ui/agents.rs`).
+        let args: [String: Any] = [
+            "ticket": ticket, "allowed": hub.agentsMayShare, "account": hub.me?.userId ?? "",
+            "thisDevice": ["id": hub.identity.id, "name": hub.thisDevice?.name ?? hub.deviceName],
+            "alreadyShared": hub.thisDevice?.macScreenShared == true,
+            "target": target.map { ["id": $0.id, "name": $0.name] as Any } ?? NSNull(),
         ]
-        // A share the person already has on stays theirs: the daemon puts no agent countdown on it.
-        if target == nil, hub.thisDevice?.macScreenShared == true { params["already_shared"] = .bool(true) }
-        if let target {
-            // Listed among this account's devices: the same account (the hub lists no other).
-            params["target"] = .object(["id": .string(target.id), "name": .string(target.name), "account": .string(hub.me?.userId ?? "")])
-        }
+        guard let params = RdUI.decode(RdUI.call("agents.redeemParams", args), as: CmuxNextDaemon.JSONValue.self) else { return nil }
         let answer: CmuxNextDaemon.JSONValue
-        do { answer = try await remote.call("agent.redeem", .object(params)) } catch {
-            // Another account's device is refused outright; anything else (a daemon without agent
-            // tickets, no daemon) leaves the decision to the person, as before.
-            let text = String(describing: error)
-            if text.contains("agents.other_account") || text.contains("is not a device of this account") { throw error }
+        do { answer = try await remote.call("agent.redeem", params) } catch {
+            // Another account's device is refused outright; anything else leaves the decision to the person.
+            if RdUI.call("agents.redeemRefused", ["error": String(describing: error)]) as? Bool == true { throw error }
             return nil
         }
-        guard answer["dialog"]?.boolValue == false else { return nil }
-        return CmuxRemoteAgentGrant(session: answer["agent"]?["session"]?.stringValue ?? "",
-                                    label: answer["agent_label"]?.stringValue ?? "",
-                                    notice: answer["notice"] ?? .null, action: answer["action"]?.stringValue ?? "", ticket: ticket)
+        guard let grant = RdUI.call("agents.redeemGrant", encoding: ["answer": answer]) as? [String: Any] else { return nil }
+        return CmuxRemoteAgentGrant(session: grant["session"] as? String ?? "", label: grant["label"] as? String ?? "",
+                                    notice: RdUI.decode(grant["notice"]) ?? .null, action: grant["action"] as? String ?? "",
+                                    ticket: ticket)
     }
 
     /// Tells the daemon whether the granted change reached the hub: only a made change arms (or
@@ -72,11 +66,11 @@ enum CmuxRemoteAgentShare {
     /// The quiet notice on this Mac for an agent's change, with Turn Off when it turned sharing
     /// on here; `turnOff` runs the same path as the palette's Stop Sharing This Mac.
     static func post(_ grant: CmuxRemoteAgentGrant, in window: NSWindow?, turnOff: @escaping @MainActor () -> Void) {
-        let device = grant.notice["device_name"]?.stringValue ?? ""
-        let on = grant.notice["kind"]?.stringValue == "shared"
-        let offers = grant.notice["turn_off"]?.stringValue != nil
-        post(message: on ? CmuxRemoteAgentStrings.shared(device) : CmuxRemoteAgentStrings.unshared(device), detail: CmuxRemoteAgentStrings.byAgent(grant.label),
-             offersTurnOff: on && offers, in: window, turnOff: turnOff)
+        let notice = RdUI.call("agents.notice", encoding: ["notice": grant.notice]) as? [String: Any] ?? [:]
+        let device = notice["device"] as? String ?? ""
+        post(message: notice["kind"] as? String == "shared" ? CmuxRemoteAgentStrings.shared(device) : CmuxRemoteAgentStrings.unshared(device),
+             detail: CmuxRemoteAgentStrings.byAgent(grant.label), offersTurnOff: notice["offersTurnOff"] as? Bool == true,
+             in: window, turnOff: turnOff)
     }
 
     static func post(message: String, detail: String?, offersTurnOff: Bool, in window: NSWindow?,
