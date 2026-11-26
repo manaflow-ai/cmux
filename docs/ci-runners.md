@@ -1257,3 +1257,11 @@ requests get HTTP 403, so for a command that mentions `swift`, `checks-mac`
 first seeds SwiftPM binary targets such as `CCmuxAppFFI` into the mini's shared
 cache and resolves each package's pins with the job's read-only token (#57947).
 The command step itself never sees the token.
+
+A glaeda mini checks the snapshot out through glaeda's git shim. The shim
+waits for its mirror only when the run asks for the run's own commit, so the
+merge snapshot `lane-gh ci` dispatches goes straight to github.com. Each
+github.com fetch is bounded: 60 s with no bytes ends it, and the shim starts no
+new try past 240 s (glaeda#2906). A stall then fails the checkout step in
+minutes with exit 5 ("no verdict") instead of holding the runner to its
+10-minute timeout.
