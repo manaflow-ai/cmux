@@ -50,6 +50,7 @@ extension IconName {
         .agentPaused,
         .agentQuestion,
         .agentSession,
+        .agentSparkles,
         .alarm,
         .appCmux,
         .appDev,

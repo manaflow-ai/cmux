@@ -192,7 +192,7 @@
      "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9M4.5 5v4h4'/><path d='M10 11v1.5M14 11v1.5'/></svg>"
     },
     {
-     "label": "Four-point sparkle (keeps today's sparkles meaning)",
+     "label": "Four-point sparkle (now its own icon, agent.sparkles)",
      "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5Q13 11 20.5 12Q13 13 12 20.5Q11 13 3.5 12Q11 11 12 3.5Z'/></svg>",
      "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5Q13 11 20.5 12Q13 13 12 20.5Q11 13 3.5 12Q11 11 12 3.5Z'/></svg>"
     }
@@ -201,6 +201,13 @@
    "replaces": [
     "sparkles"
    ]
+  },
+  {
+   "name": "agent.sparkles",
+   "meaning": "The sparkles mark, drawn by name where a row wants sparkles and not the history session bubble (Chief Activity sidebar row).",
+   "line": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5Q13 11 20.5 12Q13 13 12 20.5Q11 13 3.5 12Q11 11 12 3.5Z'/></svg>",
+   "solid": "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='currentColor' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M12 3.5Q13 11 20.5 12Q13 13 12 20.5Q11 13 3.5 12Q11 11 12 3.5Z'/></svg>",
+   "sf": "sparkles"
   },
   {
    "name": "automation",

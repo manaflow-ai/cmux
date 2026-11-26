@@ -288,6 +288,13 @@
    "family": "agent"
   },
   {
+   "name": "agent.sparkles",
+   "meaning": "The sparkles mark, drawn by name where a row wants sparkles and not the history session bubble (Chief Activity sidebar row).",
+   "sf": "sparkles",
+   "family": "agent",
+   "alias": false
+  },
+  {
    "name": "alarm",
    "meaning": "Alarm",
    "sf": "alarm",

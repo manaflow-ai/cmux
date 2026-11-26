@@ -48,6 +48,7 @@ extension IconName {
     nonisolated public static let agentPaused = IconName("agent.paused")
     nonisolated public static let agentQuestion = IconName("agent.question")
     nonisolated public static let agentSession = IconName("agent.session")
+    nonisolated public static let agentSparkles = IconName("agent.sparkles")
     nonisolated public static let alarm = IconName("alarm")
     nonisolated public static let appCmux = IconName("app.cmux")
     nonisolated public static let appDev = IconName("app.dev")
