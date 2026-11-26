@@ -167,6 +167,8 @@ class OpenPrsQuery(unittest.TestCase):
 
     def setUp(self):
         nb.DETAILS.clear()
+        nb.LISTED.clear()
+        nb.LISTED_AT.clear()
 
     def node(self, number: int, draft: bool = False, state: str = "SUCCESS") -> dict:
         return {"id": f"PR_{number}", "number": number, "title": "t", "url": "u", "isDraft": draft,
@@ -313,6 +315,57 @@ class OpenPrsQuery(unittest.TestCase):
             prs = nb.open_prs(gh, fresh=True, only={2})
         self.assertEqual([item[1] for item in seen if item[0] == "detail"], ["PR_2"])
         self.assertEqual([pr.files for pr in prs], [[], ["b"]])
+
+    def delta_fake(self, lists: dict[str, list[dict]], details: dict) -> tuple[nb.GitHub, list]:
+        """lists["full"|"changed"|"gone"]: one page each; detail queries as in fake."""
+        gh, seen = self.fake([], details)
+        detail = gh.graphql
+
+        def graphql(query, **variables):
+            if "pullRequests(" not in query:
+                return detail(query, **variables)
+            kind = "gone" if "CLOSED" in query else "changed" if "UPDATED_AT" in query else "full"
+            seen.append(("list", kind))
+            return {"repository": {"pullRequests": {"nodes": lists[kind],
+                                                    "pageInfo": {"hasNextPage": True, "endCursor": "more"}
+                                                    if kind != "full" else {"hasNextPage": False, "endCursor": None}}}}
+        gh.graphql = graphql
+        return gh, seen
+
+    def test_a_serve_poll_lists_only_what_changed_since_the_last_list(self):
+        """~3,800 open PRs (2026-11-25): each 60 s serve poll listed about 80 pages.
+        Between full lists a poll reads PRs updated since the last one, stops at the
+        first older one (no second page), and drops PRs closed or merged since."""
+        fresh_at = (nb.now() + dt.timedelta(seconds=5)).isoformat()
+        old_at = (nb.now() - dt.timedelta(hours=1)).isoformat()
+        lists = {"full": [self.node(1), self.node(2), self.node(3)]}
+        details = {(f"PR_{n}", ""): (["a"], [], None) for n in (1, 2, 3, 4)}
+        gh, seen = self.delta_fake(lists, details)
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            nb.open_prs(gh, need=nb.MAX_PRS)
+            moved = self.node(3)
+            moved["headRefOid"] = "f" * 40
+            lists["changed"] = [dict(self.node(4), updatedAt=fresh_at), dict(moved, updatedAt=fresh_at),
+                                dict(self.node(1), updatedAt=old_at)]
+            lists["gone"] = [{"number": 2, "updatedAt": fresh_at}, {"number": 9, "updatedAt": old_at}]
+            seen.clear()
+            prs = nb.open_prs(gh, need=nb.MAX_PRS)
+        self.assertEqual([item for item in seen if item[0] == "list"], [("list", "changed"), ("list", "gone")])
+        self.assertEqual([(pr.number, pr.sha) for pr in prs], [(1, self.node(1)["headRefOid"]), (3, "f" * 40),
+                                                               (4, self.node(4)["headRefOid"])])
+        # #1 was not re-listed: its checks are read again, not taken from the cache.
+        self.assertIn(("detail", "PR_1", True, ""), seen)
+
+    def test_a_full_list_comes_back_after_its_window_and_for_landing(self):
+        lists = {"full": [self.node(1)], "changed": [], "gone": []}
+        gh, seen = self.delta_fake(lists, {("PR_1", ""): (["a"], [], None)})
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}):
+            nb.open_prs(gh, need=nb.MAX_PRS)
+            seen.clear()
+            nb.open_prs(gh, fresh=True, only={1})
+            nb.LISTED_AT[0] -= dt.timedelta(seconds=nb.FULL_LIST_SECONDS + 1)
+            nb.open_prs(gh, need=nb.MAX_PRS)
+        self.assertEqual([item[1] for item in seen if item[0] == "list"], ["full", "full"])
 
     def test_landing_rechecks_without_the_cache(self):
         pages = [{"repository": {"pullRequests": {"nodes": [self.node(1)],
