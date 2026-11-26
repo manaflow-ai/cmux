@@ -66,6 +66,10 @@ Mac). A one-line edit in cmux-tui-core takes tens of seconds, nearly all of it c
 (cmux-tui-core and cmux-tui are large crates); the swap itself is under a second. A build error
 leaves the running daemon as it was; `cmux live status` shows the error.
 
+Each swap that lands (Rust, Chromium, and an applied Swift live code patch) also tells acpmux, which
+takes a frame of the running turn then, so the chat's frame strip and preview window show the
+swapped build with no `look` call (`scripts/cmux-next/live_build_beacon.py`, `hub/live_builds.rs`).
+
 ## Chromium's renderer code
 
 `cmux live start --chromium --build-host HOST --src SRC` does the same for renderer-side code in the

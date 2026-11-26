@@ -394,6 +394,18 @@ def scan(root: Path) -> dict[str, int]:
     return seen
 
 
+def live_build_done(surface: str, tree) -> None:
+    """Tells acpmux a swap landed, so the running turn's frames show it (RFD 0152, live_build_beacon.py)."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("live_build_beacon", Path(__file__).resolve().with_name("live_build_beacon.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.built(surface, tree)
+    except Exception:  # a frame is a nicety; the swap already happened
+        pass
+
+
 def record(state: Path, entry: dict) -> None:
     state.mkdir(parents=True, exist_ok=True)
     (state / "last.json").write_text(json.dumps(entry, indent=2) + "\n")
@@ -422,6 +434,7 @@ def cycle(cfg: dict, state: Path, builder: Builder, rels: list[str], saved_at: f
         result = swap(app, built, cfg.get("gpu", False))
         t.update(result.pop("seconds"))
         entry["respawn"] = result
+        live_build_done("chromium", Path(cfg["edits"]))
     t["save_to_reloaded"] = time.time() - saved_at
     entry["seconds"] = {k: round(v, 3) for k, v in t.items()}
     record(state, entry)

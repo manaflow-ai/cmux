@@ -428,6 +428,10 @@ path = "tests/test_list_macho_candidates.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_live_build_beacon.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_live_code_cost.py"
 lane = "manual"
 reason = "Run by the lane that changes scripts/measure/live-code-cost.* (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 tests/test_live_code_cost.py; needs only python3."
