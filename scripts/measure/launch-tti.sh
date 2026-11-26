@@ -6,6 +6,12 @@
 #   cmux-ci run --class exclusive --measurement --label measure --display \
 #     --script scripts/measure/launch-tti.sh --ref <landed sha> [--arg=dmg=nightly|URL] [--arg=input=auto|posted|in_app] \
 #     [--arg=plan=warm:terminal,warm:terminal] [--arg=workspaces=120] [--arg=control=500] [--arg=session=auto|own] --artifact .build/launch-tti/report.tgz --timeout 2400
+#   plan=        KIND:FRONT rounds; repeat=N runs each item N times in a row (plan=cold_install:terminal repeat=20: the
+#                startup-matrix row, twenty cold launches, printed as TTI-PCT p50/p95 with the load each ran at; the
+#                controller's arg allowlist refuses a `*` in plan=, so the count goes in repeat=)
+#   load=X       the load bound per core (default 0.5): each round waits up to 120 s for the 1-minute load per core to
+#                fall to X; rounds launched over it are left out of TTI-PCT, and a cell under min_quiet=N (default 5)
+#                quiet rounds is refused, never posted
 #   dmg=nightly  the newest build the NIGHTLY feed offers (default); dmg=https://... one DMG
 #   input=       who types (the check's --input): auto posts keys when this process holds the PostEvent grant and
 #                otherwise has the app type its own first-frame key (CMUX_NEXT_LAUNCH_TYPE_PROBE=1)
@@ -24,19 +30,28 @@ set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 3
 out="$PWD/.build/launch-tti"
 rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-dmg=nightly extra=() control=
+dmg=nightly extra=() control= plan= repeat=
 for arg in "$@"; do
   case "$arg" in
     dmg=nightly|dmg=https://*) dmg="${arg#dmg=}" ;;
     input=auto|input=posted|input=in_app) extra+=(--input "${arg#input=}") ;;
-    plan=*) extra+=(--plan "${arg#plan=}") ;;
+    plan=*) plan="${arg#plan=}" ;;
+    repeat=*) repeat="${arg#repeat=}"
+      [[ "$repeat" =~ ^[1-9][0-9]?$ ]] || { echo "repeat=N takes 1-99" >&2; exit 2; } ;;
     workspaces=*) extra+=(--workspaces "${arg#workspaces=}") ;;
+    load=*) extra+=(--max-load-per-core "${arg#load=}") ;;
+    min_quiet=*) extra+=(--min-quiet "${arg#min_quiet=}") ;;
     session=auto|session=own) export CONSOLE_SESSION="${arg#session=}" ;;
     control=*) control="${arg#control=}"
       [[ "$control" =~ ^[1-9][0-9]{0,3}$ ]] && (( control <= 5000 )) || { echo "control=MS takes 1-5000 ms" >&2; exit 2; } ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
+if [[ -n "$repeat" ]]; then
+  [[ -n "$plan" ]] || { echo "repeat=N needs plan=" >&2; exit 2; }
+  plan="$(sed "s/\([^,]*\)/\1*$repeat/g" <<<"$plan")"  # each item N times: the check's KIND:FRONT*N
+fi
+[[ -n "$plan" ]] && extra+=(--plan "$plan")
 if [[ "$dmg" == nightly ]]; then
   feed="https://files-next.cmux.com/nightly-next/appcast-arm64.xml"
   curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-launch-tti/1 -H "Cache-Control: no-cache" -o "$out/feed.xml" "$feed" || { echo "TTI feed download failed"; exit 3; }
