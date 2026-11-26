@@ -102,6 +102,15 @@ HOSTED_LOOP_JOBS = {
 # (tests/test_nightly_runner_preflight.py). No nightly job waits on GitHub-hosted Ubuntu before publish.
 HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 # Secret-free Linux controls on our own persistent Linux pool, cmux-linux: one label for every own-branch Linux job.
+# The post-feed dispatch jobs (#56483): a refused dispatch moves to cmux-bot's and the CI pools' installation hours at
+# once instead of sleeping out github.token's (run 45562645699 slept 18.4 and 12.9 min), so each mints those App
+# tokens, and takes the nightly Linux label so the keys stay off the nightly mini. They hold only those dispatch keys.
+# job -> why.
+LINUX_DISPATCH_JOBS = {
+    "wake-nightly-next-tick": "asks main's nightly-next tick; a refused dispatch moves to another App's hour",
+    "dispatch-published-in": "asks for the post-publication run; a refused dispatch moves to another App's hour",
+}
+LINUX_DISPATCH_SECRETS = {"CMUX_BOT_APP_KEY", "CMUX_CI_POOL_KEYS"}
 # A fork takes GitHub-hosted Ubuntu.
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
@@ -190,6 +199,11 @@ class EveryJobOnOurMinis(unittest.TestCase):
         failures = {}
         for name, job in JOBS.items():
             if name in HOSTED_TAIL_JOBS or name in HOSTED_LOOP_JOBS or name in HOSTED_PREFLIGHT_JOBS or job.get("uses"):
+                continue
+            if name in LINUX_DISPATCH_JOBS:
+                if (workflow_jobs.runs_on_cells(job) != [NIGHTLY_PINNED_RUNS_ON]
+                        or not workflow_jobs.secret_names(job) <= LINUX_DISPATCH_SECRETS):
+                    failures[name] = "a post-feed dispatch takes the nightly Linux label and holds only the dispatch keys"
                 continue
             if name in CMUX_LINUX_JOBS:
                 expected = NIGHTLY_PINNED_RUNS_ON if name in NIGHTLY_PINNED_JOBS else CMUX_LINUX_RUNS_ON

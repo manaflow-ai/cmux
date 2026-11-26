@@ -43,7 +43,8 @@ SIGN_PICKERS = {
     "pick-nightly-sign-runner": "needs.pick-nightly-sign-runner.outputs.runner",
     "find-nightly-next-recovery": "needs.find-nightly-next-recovery.outputs.sign_runner",
 }
-OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || vars.CI_SIDE_LANE_RUNNER || 'glaeda-std-xcode-26.6' }}"
+# The secret-free verify jobs end on the nightly-only Mac pool, never the PR-shared side lane (#53861, RFD 0021).
+OWNED_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
 # The notarization recovery's own owned pick (find-nightly-next-recovery), then the nightly build pool.
 RECOVERY_FALLBACK = "|| vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}"
 # The secret-bearing jobs end on the signer's label alone (a trusted-only mini that runs no pull request job), never a
@@ -725,15 +726,15 @@ class OwnedVerify(unittest.TestCase):
             "vars.CMUX_CI_XCODE_APP_MACOS_26": "/Applications/Xcode-overflow.app",
         }
         # Nightlies never use Blacksmith: without a pick for this attempt each job takes the owned nightly
-        # slot, then the side lane, then the owned std pool, with the overflow Xcode variable (both name the
-        # same Xcode on the minis).
+        # slot, then the nightly-only std pool (never the PR-shared side lane, #53861), with the overflow Xcode
+        # variable (both name the same Xcode on the minis).
         cases = (
             ({}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-side-std-xcode-26.6", "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.run_attempt": "3"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.run_attempt": "4"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"vars.CI_PR_POOL_OWNED": "0"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
-            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, "glaeda-std-xcode-26.6", "overflow"),
+            ({"vars.CI_NIGHTLY_NEXT_BUILD_RUNNER": "", "vars.CI_SIDE_LANE_RUNNER": ""}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.ref_name": "main"}, "glaeda-nightly-std-xcode-26.6", "overflow"),
             ({"github.repository_owner": "fork"}, "macos-26", "overflow"),
             ({"github.run_attempt": "1"}, "glaeda-runner-old-single-host", "fleet"),

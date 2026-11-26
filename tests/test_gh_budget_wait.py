@@ -516,6 +516,9 @@ SHARED_TOKEN_ONLY = {
     ("prepare-nightly-variant", "Verify shipped libintl has its source"),
     ("find-nightly-next-recovery", "List newer pending nightly-next notarizations"),
     ("published-in", "Comment the build on its PRs"),
+    # A git fetch over https with the job token as its auth header (anonymous fetches got 403, tail 45725593921):
+    # git, not the REST API, so no API rate limit to wait through.
+    ("published-in", "Fetch the published span"),
     ("sign-release-notes", "Build and sign the release notes"),
     ("publish-nightly-reel", "Build and publish the reel"),
     ("build-nightly-app", "Look up the nightly app compiled on the same inputs"),
