@@ -501,7 +501,7 @@ private final class LiveResizeWindow: NSWindow {
         return refs
     }
 
-    func makeHosted(_ enabled: Bool = true, deadlineOffMain: Bool = false) -> (CEFLayerHosting, NSView, NSWindow) {
+    func makeHosted(_ enabled: Bool = true) -> (CEFLayerHosting, NSView, NSWindow) {
         let window = NSWindow(contentRect: NSRect(x: -4000, y: -4000, width: 400, height: 300),
                               styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -513,8 +513,7 @@ private final class LiveResizeWindow: NSWindow {
         let hosting = CEFLayerHosting(isEnabled: { enabled }, schedule: { $0() },
                                       makePage: { CEFHostedPageView(frame: $0, makeLayerHost: { _ in CALayer() }) },
                                       refreshIntervals: { [1.0 / 60] },
-                                      resizeFences: CEFResizeFences(clock: clock, makePort: { _ in ports.make() },
-                                                                    deadlineOffMain: deadlineOffMain))
+                                      resizeFences: CEFResizeFences(clock: clock, makePort: { _ in ports.make() }))
         hosting.view = view
         hosting.pageWindowCreated(browser: 3, fork: fork.fork)
         return (hosting, view, window)
@@ -664,24 +663,6 @@ private final class LiveResizeWindow: NSWindow {
     }
 
     /// A page that never reports holds the window no longer than this app's deadline (the fork's and one refresh).
-    @Test func aFenceGoesAtItsDeadline() async throws {
-        let (hosting, _, window) = makeHosted()
-        defer { window.close() }
-        hosting.paneResizeDrag(active: true)
-        hosting.pageViewResized()
-        let fence = try #require(fork.fences.first)
-        endTurn()
-        let expired = CEFHostView.trackerStats.resizeFencesExpired
-        try await clock.waitForSleeper()
-        clock.advance(by: .milliseconds(40))
-        for _ in 0..<50 where sendRights(fence.port) != 0 { await Task.yield() }
-        #expect(sendRights(fence.port) == 0)
-        #expect(CEFHostView.trackerStats.resizeFencesExpired == expired + 1)
-        // A late report finds the right gone and changes nothing.
-        for done in fork.dones { done(false) }
-        #expect(sendRights(fence.port) == 0)
-    }
-
     /// The window's commit waits for this app's send right, and the main thread can itself wait for that commit: the
     /// next commit's backing-store update synchronizes with the render server (`CABackingStoreSynchronize`), which
     /// holds the fenced commit. So the fences every app makes (``CEFResizeFences``' defaults) drop the right at the
@@ -703,7 +684,9 @@ private final class LiveResizeWindow: NSWindow {
         let until = Date().addingTimeInterval(2)
         while sendRights(fence.port) != 0, Date() < until { usleep(1_000) }
         #expect(sendRights(fence.port) == 0, "the fence's send right waited for the main thread")
-        for _ in 0..<50 where CEFHostView.trackerStats.resizeFencesExpired == expired { await Task.yield() }
+        // The bookkeeping hops to the main actor from the deadline's task: yield until it ran (bounded).
+        let settled = Date().addingTimeInterval(2)
+        while CEFHostView.trackerStats.resizeFencesExpired == expired, Date() < settled { await Task.yield() }
         #expect(CEFHostView.trackerStats.resizeFencesExpired == expired + 1)
         // A late report finds the right gone and changes nothing.
         for done in fork.dones { done(false) }
@@ -713,7 +696,7 @@ private final class LiveResizeWindow: NSWindow {
     /// A fence whose right went at its deadline off the main thread takes no later page: a resize still in that turn
     /// opens a fence of its own, so no page is handed a port name the app no longer holds.
     @Test func aPageResizedAfterTheDeadlineDroppedTheRightJoinsANewFence() async throws {
-        let (hosting, _, window) = makeHosted(deadlineOffMain: true)
+        let (hosting, _, window) = makeHosted()
         defer { window.close() }
         hosting.paneResizeDrag(active: true)
         hosting.pageViewResized()
