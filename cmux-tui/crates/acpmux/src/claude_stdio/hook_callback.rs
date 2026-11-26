@@ -16,8 +16,10 @@ pub(super) const TOOL_TIMEOUT_S: u64 = 10;
 #[cfg(unix)]
 pub(super) const SYNC_TIMEOUT_S: u64 = 90;
 
-/// When acpmux gives up on a callback's answer and sends the safe default (`{}`: the agent carries
-/// on): four fifths of its timeout, the rest left for the reply's trip to Claude Code.
+/// When acpmux gives up on a callback's answer and sends its safe default: four fifths of its
+/// timeout, the rest left for the reply's trip to Claude Code. The default is `{}` (the agent
+/// carries on) for the stop and tool callbacks, and the barrier's denial for the repository sync,
+/// which fails closed.
 pub(super) const fn deadline(timeout_s: u64) -> Duration {
     Duration::from_millis(timeout_s.saturating_mul(800))
 }
@@ -117,7 +119,13 @@ impl Translator {
                 Some(Ok(Ok(()))) => {}
                 Some(Ok(Err(error))) => return cmux_git::native_hook::denial(&error.to_string()),
                 Some(Err(error)) => return cmux_git::native_hook::denial(&error.to_string()),
-                None => return json!({}),
+                // A stalled barrier fails closed, as its error does: the tool never runs on a
+                // repository that may still be mid-sync.
+                None => {
+                    return cmux_git::native_hook::denial(
+                        "it did not finish inside the hook's timeout",
+                    );
+                }
             }
             let tool = input["tool_name"].as_str().unwrap_or("");
             input["hook_event_name"] == "PreToolUse"

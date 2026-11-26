@@ -83,7 +83,7 @@ async fn registered_pre_tool_callback_waits_and_failed_sync_returns_denial() {
 /// deadline is shortened, as the blocking wait holds a paused clock still.
 #[cfg(unix)]
 #[tokio::test]
-async fn a_stalled_sync_answers_the_safe_default_at_its_deadline() {
+async fn a_stalled_sync_fails_closed_at_its_deadline() {
     use cmux_git::sync_barrier::Sync;
     use std::time::Duration;
     let root = tempfile::tempdir().unwrap();
@@ -102,11 +102,11 @@ async fn a_stalled_sync_answers_the_safe_default_at_its_deadline() {
     let took = started.elapsed();
     sync.complete().unwrap();
     assert!(took >= deadline && took < cmux_git::native_hook::WAIT, "{took:?}");
-    assert_eq!(
-        t.take_stdin_replies().await,
-        vec![json!({"type": "control_response", "response": {
-            "subtype": "success", "request_id": "stalled", "response": {}}})]
-    );
+    // Fails closed: a stalled barrier denies the tool, never lets it run unchecked.
+    let replies = t.take_stdin_replies().await;
+    assert_eq!(replies.len(), 1, "{replies:?}");
+    let decision = &replies[0]["response"]["response"]["hookSpecificOutput"];
+    assert_eq!(decision["permissionDecision"], "deny", "{replies:?}");
     // Other tests in this process may miss too: at least this one.
     assert!(answers.misses() > misses);
     let status = crate::gauges::global().status();
