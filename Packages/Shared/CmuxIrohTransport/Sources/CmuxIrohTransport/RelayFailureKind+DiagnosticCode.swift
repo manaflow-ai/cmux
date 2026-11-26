@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import IrohLib
 
 extension RelayFailureKind {
@@ -16,3 +17,4 @@ extension RelayFailureKind {
         }
     }
 }
+#endif

@@ -61,6 +61,86 @@ class TickTest(unittest.TestCase):
         runs.insert(0, run(2, "a" * 40, "2026-11-21T11:55:00Z"))
         self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "skip")
 
+    def test_a_batch_with_no_verdict_on_an_older_tip_opens_no_window(self) -> None:
+        # Run 45105503067 (2026-11-23): its plan failed on 4ec58f90a4 and the tip moved on; the window held the
+        # next batch back two hours.
+        runs = [run(1, "b" * 40, "2026-11-21T11:30:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: True)[0], "skip")
+
+    def test_dispatches_inside_the_window_once_ten_merges_pile_up(self) -> None:
+        # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." A batch every ~10 merges.
+        runs = [run(1, "b" * 40, "2026-11-21T11:50:00Z")]
+        asked = []
+
+        def ahead(base):
+            asked.append(base)
+            return 10
+
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=10, ahead=ahead)[0], "dispatch")
+        self.assertEqual(asked, ["b" * 40])
+        action, reason = pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=10, ahead=lambda base: 9)
+        self.assertEqual(action, "skip")
+        self.assertIn("9 of 10 merges", reason)
+        # An unknown count (the compare call failed) and a count of 0 (off) leave the window alone in charge.
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=10, ahead=lambda base: None)[0], "skip")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, every_merges=0, ahead=lambda base: 50)[0], "skip")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 5, every_merges=10, ahead=lambda base: 1)[0], "dispatch")
+
+    def test_the_count_never_overrides_a_batch_in_flight_or_a_tested_tip(self) -> None:
+        def ahead(base):
+            raise AssertionError("no compare call needed")
+
+        live = [run(2, "b" * 40, "2026-11-21T11:55:00Z", status="in_progress")]
+        self.assertEqual(pmb.tick_decision("a" * 40, live, NOW, 120, every_merges=10, ahead=ahead)[0], "skip")
+        tested = [run(1, "a" * 40, "2026-11-21T11:50:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, tested, NOW, 120, every_merges=10, ahead=ahead)[0], "skip")
+
+    def test_a_finishing_batch_starts_the_next(self) -> None:
+        # The judge's last step ticks with its own run id: that run is in progress and its judge job has not
+        # concluded yet, but it is neither in flight nor unjudged for the tick.
+        own = [run(7, "b" * 40, "2026-11-21T11:40:00Z", status="in_progress"), run(6, "c" * 40, "2026-11-21T11:20:00Z")]
+        unjudged = lambda rid: rid != 7  # noqa: E731
+        self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 12, self_run_id=7)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 3, self_run_id=7)[0], "skip")
+        self.assertEqual(pmb.tick_decision("b" * 40, own, NOW, 120, unjudged, 10, lambda base: 0, self_run_id=7)[0], "skip")
+        # Another batch already queued behind it still holds the next one back.
+        queued = [run(8, "d" * 40, "2026-11-21T11:58:00Z", status="queued"), *own]
+        self.assertEqual(pmb.tick_decision("a" * 40, queued, NOW, 120, unjudged, 10, lambda base: 12, self_run_id=7)[0], "skip")
+        # Without its id the same run reads as in flight.
+        self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 12)[0], "skip")
+
+    def test_every_merges_value(self) -> None:
+        self.assertEqual(pmb.every_merges(None), 10)
+        self.assertEqual(pmb.every_merges("bad"), 10)
+        self.assertEqual(pmb.every_merges("0"), 0)
+        self.assertEqual(pmb.every_merges("25"), 25)
+
+    def test_ahead_by_reads_one_compare(self) -> None:
+        calls = []
+
+        def api(path, **_):
+            calls.append(path)
+            return {"ahead_by": 11}
+
+        self.assertEqual(pmb.ahead_by("o/r", "b" * 40, "a" * 40, api=api), 11)
+        self.assertEqual(calls, [f"repos/o/r/compare/{'b' * 40}...{'a' * 40}?per_page=1"])
+
+        def broken(path, **_):
+            raise RuntimeError("HTTP 404")
+
+        with unittest.mock.patch("sys.stdout"):
+            self.assertIsNone(pmb.ahead_by("o/r", "b" * 40, "a" * 40, api=broken))
+        self.assertIsNone(pmb.ahead_by("o/r", "", "a" * 40, api=api))
+
+    def test_the_judge_ticks_the_next_batch_and_never_fails_for_it(self) -> None:
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["judge"]["steps"]
+        last = steps[-1]
+        self.assertIn("tick", last["run"])
+        self.assertIn('--self-run-id "$GITHUB_RUN_ID"', last["run"])
+        self.assertTrue(last["continue-on-error"])
+        self.assertIn("inputs.mode != 'probe'", last["if"])
+
     def test_window_value(self) -> None:
         self.assertEqual(pmb.window_minutes(""), 120)
         self.assertEqual(pmb.window_minutes("bad"), 120)

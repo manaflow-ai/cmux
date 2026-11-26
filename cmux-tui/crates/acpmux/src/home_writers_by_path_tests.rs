@@ -64,15 +64,25 @@ use syn::visit::Visit;
 
 /// The writes by path left as they are, each with why: (file, function, write, reason). `*`
 /// matches any file or function; a write ending in `*` any write it starts.
-const ALLOWED: &[(&str, &str, &str, &str)] = &[(
-    "*",
-    "*",
-    "owner_only::*",
-    "Windows owner-only creates (CreateFileW with an owner-only descriptor) go by path: Windows \
+const ALLOWED: &[(&str, &str, &str, &str)] = &[
+    (
+        "*",
+        "*",
+        "owner_only::*",
+        "Windows owner-only creates (CreateFileW with an owner-only descriptor) go by path: Windows \
      has no *at calls. Each runs right after its own home check (`config::private_state_*`, \
      `store::open_private_append`), and a temporary file it makes is renamed through `home_fs`, \
      which checks the home's file id again (#41372).",
-)];
+    ),
+    (
+        "src/memory_mount/link.rs",
+        "symlink",
+        "fs::symlink_dir",
+        "Windows only: `home_fs::symlink` is Unix-only and Windows has no *at symlink call. It links a \
+     harness memory folder the user names to the memory mount, right after `home_fs::rename` moved \
+     the old folder aside.",
+    ),
+];
 
 /// Whether `pattern` (an `ALLOWED` field) matches `value`.
 fn matches(pattern: &str, value: &str) -> bool {

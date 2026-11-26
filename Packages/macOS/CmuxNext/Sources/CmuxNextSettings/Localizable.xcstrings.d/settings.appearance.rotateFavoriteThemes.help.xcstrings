@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.rotateFavoriteThemes.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Switches the terminal theme to the next starred one. Needs two starred themes."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يبدّل سمة الطرفية إلى السمة التالية المميزة بنجمة. يتطلب سمتين مميزتين بنجمة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mijenja temu terminala u sljedeću označenu zvjezdicom. Potrebne su dvije teme označene zvjezdicom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skifter terminaltemaet til det næste stjernemarkerede. Kræver to stjernemarkerede temaer."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wechselt das Terminal-Design zum nächsten mit Stern markierten. Erfordert zwei mit Stern markierte Designs."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cambia el tema del terminal al siguiente marcado con estrella. Requiere dos temas marcados con estrella."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passe le thème du terminal au thème suivant marqué d’une étoile. Nécessite deux thèmes marqués d’une étoile."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Passa il tema del terminale al successivo con stella. Richiede due temi con stella."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ターミナルのテーマを次のスター付きのテーマに切り替えます。スター付きのテーマが2つ必要です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ប្ដូររូបរាងទែមីណាល់ទៅរចនាប័ទ្មដែលបានដាក់ផ្កាយបន្ទាប់។ ត្រូវការរចនាប័ទ្មដែលបានដាក់ផ្កាយពីរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "터미널 테마를 별표한 다음 테마로 바꿉니다. 별표한 테마가 두 개 있어야 합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bytter terminaltemaet til neste stjernemerkede. Krever to stjernemerkede temaer."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zmienia motyw terminala na następny oznaczony gwiazdką. Wymaga dwóch motywów oznaczonych gwiazdką."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Troca o tema do terminal para o próximo tema com estrela. Requer dois temas com estrela."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Меняет тему терминала на следующую отмеченную. Нужны две отмеченные темы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปลี่ยนธีมเทอร์มินัลเป็นธีมที่ติดดาวถัดไป ต้องมีธีมที่ติดดาวสองธีม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Terminal temasını sıradaki yıldızlı temaya geçirir. İki yıldızlı tema gerektirir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Перемикає тему термінала на наступну позначену. Потрібні дві позначені теми."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chuyển chủ đề terminal sang chủ đề được gắn sao tiếp theo. Cần hai chủ đề được gắn sao."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "将终端主题切换到下一个已加星标的主题。需要两个已加星标的主题。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將終端機主題切換到下一個已加星號的主題。需要兩個已加星號的主題。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

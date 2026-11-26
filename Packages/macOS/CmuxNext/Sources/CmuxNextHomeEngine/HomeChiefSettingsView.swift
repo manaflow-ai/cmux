@@ -36,6 +36,8 @@ public final class HomeChiefSettingsView: NSView {
     /// The card's width; its height follows its content (`fittingSize`).
     public static let width: CGFloat = 320
     static let inset: CGFloat = 16
+    /// The width of a grouped row's text (``HomeChiefFormGroup``): the card's column less the group's padding.
+    static let groupWidth: CGFloat = width - 2 * inset - 2 * HomeChiefFormGroup.padding
     static let avatarSize: CGFloat = 52
     static let pickerWidth: CGFloat = 188
     /// The shown Chief's mux home (its avatar, traces, the brain line); `use` moves it.
@@ -73,12 +75,12 @@ public final class HomeChiefSettingsView: NSView {
     /// Why the engine could not be read or set, or a picture could not be used.
     let failure = ThemedLabel(wrappingLabelWithString: "")
     /// Whether a tapback can wake this Chief, and the classifier that decides (``HomeChiefReactionRows``).
-    let reactionRows = HomeChiefReactionRows(width: HomeChiefSettingsView.width - 2 * HomeChiefSettingsView.inset)
+    let reactionRows = HomeChiefReactionRows(width: HomeChiefSettingsView.groupWidth)
     /// The Chief's automations (issue 25573): hidden for a brain that keeps none (a hosted cloud Chief).
     let automationsHeader = ThemedLabel(labelWithString: HomeEngineStrings.automationsSection)
     let automationRows = HomeChiefAutomationRows(width: HomeChiefSettingsView.width - 2 * HomeChiefSettingsView.inset)
     let appearanceHeader = ThemedLabel(labelWithString: HomeEngineStrings.appearanceSection)
-    let appearanceRows = NSStackView()
+    let appearanceRows = HomeChiefFormGroup()
     let diagnosticsToggle = NSButton()
     let diagnostics = NSStackView()
     let stats = ThemedLabel(wrappingLabelWithString: "")
@@ -117,14 +119,11 @@ public final class HomeChiefSettingsView: NSView {
     /// Makes this Chief the account's primary one (texts to the cmux line reach it); nil when it
     /// is primary now, else why not. The app sets it for a cloud Chief.
     public var onMakePrimary: @MainActor () async -> String? = { nil }
-    /// The Primary Chief switch and its note; hidden for a Chief with no account record (``setPrimary(_:)``).
+    /// The Primary Chief switch (what it means is its tooltip); hidden for a Chief with no account record (``setPrimary(_:)``).
     /// A switch, as the card's other on/off rows (Leo: "a toggle is nicer than a checkbox").
     let primaryBox = NSSwitch()
     /// The Primary Chief row: its title at the leading edge, ``primaryBox`` at the trailing edge.
     lazy var primaryRowView: NSView = Self.row(HomeEngineStrings.primaryRow, primaryBox)
-    let primaryNote = HomeChiefSettingsView.footnote(HomeEngineStrings.primaryNote)
-    /// Runs On: where this Mac's Chief runs, whose chip opens the Teleport menu (``showTeleport(_:)``); hidden for other Chiefs.
-    let teleportRow = NSStackView()
     /// Computer: where a Chief of this Mac does computer use, this Mac or a Cloud machine
     /// (``addComputerRow()``, cmux issue 36047); hidden for a Chief whose brain runs elsewhere.
     let computerRow = NSStackView()
@@ -203,14 +202,15 @@ public final class HomeChiefSettingsView: NSView {
             addFullWidth(section)
             gap(after: section)
         }
-        // Details: who the Chief is, where it runs, what it may reach (``HomeChiefProfileTab``).
+        // Details: who the Chief is and what it may reach (``HomeChiefProfileTab``), in grouped rows with no
+        // explanations (Lawrence 2026-11-23: "we have to drastically improve these UIs").
         filling = .details
-        let identity = identityRow()
-        addFullWidth(identity)
-        gap(after: identity)
-        addPrimaryRow()
-        addTeleportRow()
-        // The Chief's vault and the accounts it acts through (cmux issue 34263).
+        let who = HomeChiefFormGroup()
+        who.add(identityRow())
+        addPrimaryRow(to: who)
+        addFullWidth(who)
+        gap(after: who)
+        // The Chief's vault and the accounts it acts through (cmux issue 34263): each shows only with something in it.
         connections.onResize = { [weak self] in self?.onResize() }
         addFullWidth(connections)
         gap(after: connections)
@@ -232,37 +232,39 @@ public final class HomeChiefSettingsView: NSView {
         }
         editChief.setAccessibilityIdentifier("cmux.home.chief.editChief")
         sections[.details].addArrangedSubview(editChief)
-        // Settings: how the Chief works and looks.
+        // Settings: how the Chief works and looks, one group per kind; the rest is in All Chief Settings….
         filling = .settings
         addFullWidth(Self.sectionHeader(HomeEngineStrings.agentSection))
+        let agent = HomeChiefFormGroup()
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort),
                                 (speed, HomeEngineStrings.speed)] {
             button.target = self
             button.action = #selector(picked(_:))
             button.font = Typography.body
             button.setAccessibilityLabel(label)
-            addFullWidth(Self.row(label, button))
+            agent.add(Self.row(label, button))
             if button === harness {
                 harnessHint.font = Typography.caption
                 harnessHint.ink = .secondary
                 harnessHint.isHidden = true
                 harnessHint.setAccessibilityIdentifier("cmux.home.chief.harnessHint")
-                harnessHint.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
-                addFullWidth(harnessHint)
+                harnessHint.preferredMaxLayoutWidth = Self.groupWidth
+                agent.add(harnessHint)
             }
         }
         speed.superview?.isHidden = true
-        let note = Self.footnote(HomeEngineStrings.nextTurn)
-        note.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
-        addFullWidth(note)
-        gap(after: note)
+        addFullWidth(agent)
+        gap(after: agent)
         // Reactions: whether a tapback wakes this Chief, and the classifier that decides (a416).
         addFullWidth(Self.sectionHeader(HomeEngineStrings.reactionsSection))
         reactionRows.onPick = { [weak self] fields in self?.pick(fields) }
         reactionRows.onResize = { [weak self] in self?.onResize() }
-        addFullWidth(reactionRows)
-        gap(after: reactionRows)
-        // Automations: what the Chief runs on a schedule or an event; pause, resume and delete here.
+        let reactions = HomeChiefFormGroup()
+        reactions.add(reactionRows)
+        addFullWidth(reactions)
+        gap(after: reactions)
+        // Automations: what the Chief runs on a schedule or an event; pause, resume and delete here. Shown only
+        // while it has one.
         automationsHeader.font = Typography.header
         automationsHeader.ink = .secondary
         addFullWidth(automationsHeader)
@@ -273,15 +275,12 @@ public final class HomeChiefSettingsView: NSView {
         // Appearance: rows other features add; the section shows once it has one.
         appearanceHeader.font = Typography.header
         appearanceHeader.ink = .secondary
-        appearanceRows.orientation = .vertical
-        appearanceRows.alignment = .leading
-        appearanceRows.spacing = Metrics.space2
         addFullWidth(appearanceHeader)
         addFullWidth(appearanceRows)
         gap(after: appearanceRows)
         appearanceHeader.isHidden = true
         appearanceRows.isHidden = true
-        // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
+        // The rest of the Chief's settings (every Chief, the Feed in the chat) live in Settings.
         let allSettings = Self.footerButton(HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
         allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
         sections[.settings].addArrangedSubview(allSettings)

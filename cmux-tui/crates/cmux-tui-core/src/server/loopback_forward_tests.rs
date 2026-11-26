@@ -11,8 +11,7 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use super::loopback_forward::{
-    DAEMON_RECEIVE_WINDOW, LoopbackForwardPolicy, LoopbackTarget, MAX_FRAME_BYTES,
-    MAX_STREAMS_PER_CLIENT, classify_target,
+    DAEMON_RECEIVE_WINDOW, LoopbackForwardPolicy, LoopbackTarget, MAX_FRAME_BYTES, classify_target,
 };
 use super::*;
 
@@ -513,14 +512,16 @@ fn a_stream_opened_during_its_connections_disconnect_ends_when_the_writer_closes
     );
 }
 
+/// No stream count refuses a stream: one connection opens past the old cap of
+/// 128 per connection and 512 per daemon (each stream's cost is bounded on its
+/// own: a socket, two small-stack threads, its windows).
 #[test]
-fn loopback_streams_are_limited_per_client() {
+fn loopback_streams_are_not_capped_by_count() {
     let forwarder = loopback_forward::LoopbackForwarder::default();
-    for stream in 0..MAX_STREAMS_PER_CLIENT as u64 {
-        assert!(forwarder.reserve_for_test(1, stream), "slot {stream} must be free");
+    for stream in 0..600_u64 {
+        assert!(forwarder.reserve_for_test(1, stream), "stream {stream} must be admitted");
     }
-    assert!(!forwarder.reserve_for_test(1, 10_000), "the per-client limit must hold");
-    assert!(forwarder.reserve_for_test(2, 0), "another client has its own budget");
+    assert!(forwarder.reserve_for_test(2, 0), "another client opens too");
     forwarder.release_for_test(1);
     assert!(forwarder.reserve_for_test(1, 10_001), "a released slot is reusable");
 }
@@ -549,7 +550,8 @@ fn loopback_status_reports_limits_and_audit() {
     let status = client.request(json!({"cmd": "loopback-status"}));
     assert_eq!(status["ok"], true, "{status}");
     assert_eq!(status["data"]["enabled"], true);
-    assert_eq!(status["data"]["limits"]["per_client"], MAX_STREAMS_PER_CLIENT);
+    assert_eq!(status["data"]["limits"]["frame_bytes"], MAX_FRAME_BYTES);
+    assert!(status["data"]["limits"].get("per_client").is_none());
     let outcomes: Vec<String> = status["data"]["audit"]
         .as_array()
         .unwrap()

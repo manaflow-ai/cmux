@@ -95,6 +95,10 @@ pub enum Via {
     Wireguard,
     /// The configured `ws://` or `wss://` URL.
     Url,
+    /// The peer's listener at its tailnet address, through the user's own Tailscale
+    /// (`tailnet_carrier.rs`, opt-in). Offered only when the setting is on and the tailnet path
+    /// measures as direct (or any tailnet path under `on`).
+    Tailnet,
     /// `ssh -W` to the configured `ssh://` URL.
     Ssh,
     /// The hub relay: the hub carrier's stream with the `hub-carrier` feature, else mailbox
@@ -105,7 +109,7 @@ pub enum Via {
 impl Via {
     pub fn carrier(self) -> Carrier {
         match self {
-            Self::Link | Self::Wireguard | Self::Url => Carrier::Direct,
+            Self::Link | Self::Wireguard | Self::Url | Self::Tailnet => Carrier::Direct,
             Self::Ssh => Carrier::Ssh,
             Self::Hub => Carrier::Hub,
         }
@@ -116,13 +120,14 @@ impl Via {
             Self::Link => "link",
             Self::Wireguard => "wireguard",
             Self::Url => "url",
+            Self::Tailnet => "tailnet",
             Self::Ssh => "ssh",
             Self::Hub => "hub",
         }
     }
 
     pub fn parse(text: &str) -> Option<Self> {
-        [Self::Link, Self::Wireguard, Self::Url, Self::Ssh, Self::Hub]
+        [Self::Link, Self::Wireguard, Self::Url, Self::Tailnet, Self::Ssh, Self::Hub]
             .into_iter()
             .find(|via| via.as_str() == text)
     }
@@ -208,6 +213,8 @@ pub struct Paths {
     stats: LinkStats,
     /// Relay first: the hub relay streams, so a cold connect opens on it at once.
     relay_first: bool,
+    /// The most ids handed to the selector so far (it never reuses a retired one).
+    ids: u16,
 }
 
 /// The selector's rules with this file's clock: a path is reported lost once, when its trust
@@ -245,7 +252,8 @@ impl Paths {
                 });
             }
         }
-        Self { selector, paths, remembered: None, stats: LinkStats::default(), relay_first }
+        let ids = paths.iter().map(|path: &Path| path.id.0).max().unwrap_or(0);
+        Self { selector, paths, remembered: None, stats: LinkStats::default(), relay_first, ids }
     }
 
     /// Whether a cold connect opens on the hub relay at once (see the module rules).
@@ -292,13 +300,11 @@ impl Paths {
         if self.find(via).is_some() {
             return false;
         }
-        let next =
-            self.paths.iter().map(|path| path.id.0).max().map_or(Some(0), |id| id.checked_add(1));
-        let Some(next) = next else { return false };
-        let id = PathId(next);
+        let Some(id) = self.next_id() else { return false };
         if self.selector.add_path(id, via.kind()).is_err() {
             return false;
         }
+        self.ids = id.0;
         self.paths.push(Path {
             via,
             id,
@@ -308,6 +314,62 @@ impl Paths {
             up_since: None,
             recover_at: None,
         });
+        true
+    }
+
+    fn next_id(&self) -> Option<PathId> {
+        if self.paths.is_empty() && self.ids == 0 {
+            return Some(PathId(0));
+        }
+        self.ids.checked_add(1).map(PathId)
+    }
+
+    /// Whether `via` is one of these paths.
+    pub fn has(&self, via: Via) -> bool {
+        self.find(via).is_some()
+    }
+
+    /// Take `via` out of the live set (a tailnet path whose hint is no longer offered). The
+    /// selector retires its id; adding it again takes a fresh one. True when it was there.
+    pub fn remove(&mut self, via: Via) -> Option<Option<Via>> {
+        let at = self.paths.iter().position(|path| path.via == via)?;
+        let path = self.paths.remove(at);
+        if self.remembered == Some(via) {
+            self.remembered = None;
+        }
+        let switch = self.selector.remove_path(path.id).ok().flatten();
+        Some(switch.and_then(|switch| switch.to.and_then(|id| self.via_of(id))))
+    }
+
+    /// Set the tailnet path's class: direct (a Direct hint: ranked with the other direct paths,
+    /// so the round trip picks) or relayed (DERP or a peer relay, `on` only: it competes with
+    /// the hub relay and never beats a direct path). Returns whether the class changed (the
+    /// path is replaced then: its health starts over); false when it was right already or
+    /// there is no tailnet path.
+    pub fn set_tailnet_relayed(&mut self, relayed: bool) -> bool {
+        let Some(path) = self.find(Via::Tailnet) else { return false };
+        let kind = if relayed { PathKind::TurnRelay } else { PathKind::DirectLan };
+        if self.selector.path(path.id).is_some_and(|view| view.kind == kind) {
+            return false;
+        }
+        let old = path.id;
+        let Some(id) = self.next_id() else { return false };
+        if self.selector.add_path(id, kind).is_err() {
+            return false;
+        }
+        self.ids = id.0;
+        let _ = self.selector.remove_path(old);
+        if let Some(path) = self.find_mut(Via::Tailnet) {
+            *path = Path {
+                via: Via::Tailnet,
+                id,
+                last_pong: None,
+                dead_at: None,
+                recoveries: 0,
+                up_since: None,
+                recover_at: None,
+            };
+        }
         true
     }
 
@@ -368,6 +430,7 @@ impl Paths {
     pub fn failed(&mut self, via: Via, now: u64) -> Option<Option<Via>> {
         let answering = self.answering(via)?;
         self.stats.failed(via, answering);
+        self.stats.attempt_failed(via, now);
         let path = self.find_mut(via)?;
         let id = path.id;
         if path.dead_at.is_none() {
@@ -453,6 +516,12 @@ impl Paths {
             // file's doubt (`in_doubt`).
             SelectorState::Suspect => Health::Doubt,
         })
+    }
+
+    /// When `via` falls in doubt unless a pong comes first: the first millisecond past
+    /// [`DOUBT_AFTER`] since its last pong. None when it never answered.
+    pub fn doubt_at(&self, via: Via) -> Option<u64> {
+        self.find(via)?.last_pong.map(|at| at.saturating_add(millis(DOUBT_AFTER) + 1))
     }
 
     /// Whether the active path is in doubt (or there is none): the moment a sender would use

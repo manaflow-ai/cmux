@@ -1186,3 +1186,110 @@ fn a_page_is_counted_in_the_mailbox_with_every_member_it_carries() {
     let encoded = serde_json::to_vec(&keyed).expect("encodes").len();
     assert!(keyed_len >= plain + encoded - 64, "1,000 keys of {encoded} bytes counted {keyed_len}");
 }
+
+/// A Claude reply's image block of 40 KB settles out of line, and its row still names the
+/// image's size: the page reserves the box from the window alone, before it reads the blob, so a
+/// decoded image never changes a row's height (agent-transcript-clean-slate.md, "One row log").
+#[test]
+fn an_image_row_out_of_line_names_its_size_in_its_head() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path();
+    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    png.extend(640u32.to_be_bytes());
+    png.extend(160u32.to_be_bytes());
+    png.extend([8, 6, 0, 0, 0]);
+    png.resize(30_000, 7);
+    // Standard base64, so the test needs no encoder crate.
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut data = String::new();
+    for chunk in png.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+        for i in 0..4 {
+            data.push(if i <= chunk.len() {
+                ABC[(n >> (18 - 6 * i) & 63) as usize] as char
+            } else {
+                '='
+            });
+        }
+    }
+    let lines = [
+        serde_json::json!({"type":"user","uuid":"u1","timestamp":"2026-11-23T00:00:00Z",
+            "message":{"role":"user","content":"draw it"}}),
+        serde_json::json!({"type":"assistant","uuid":"a1","timestamp":"2026-11-23T00:00:01Z",
+            "message":{"id":"m1","role":"assistant","content":[{"type":"image",
+                "source":{"type":"base64","media_type":"image/png","data":data}}],
+                "stop_reason":"end_turn"}}),
+    ];
+    let mut raw = Vec::new();
+    for line in &lines {
+        serde_json::to_writer(&mut raw, line).unwrap();
+        raw.push(b'\n');
+    }
+    fs::write(book.join("source.ndjson"), raw).unwrap();
+    let source = book.join("source.ndjson");
+    let config =
+        ChatConfig::new("chat", book, Harness::Claude).with_source_factory(Arc::new(move || {
+            source::FileSource::open(&source).map(|raw| Box::new(raw) as Box<dyn source::RawSource>)
+        }));
+    catch_up(config);
+    let image = rows(book)
+        .into_iter()
+        .map(|(_, text)| serde_json::from_slice::<serde_json::Value>(&text).unwrap())
+        .find(|row| row["kind"] == "image")
+        .expect("an image row");
+    assert!(image["blob"]["bytes"].as_u64().unwrap() > 16 * 1024, "{image}");
+    assert_eq!(image["body"], serde_json::json!({"h":160,"w":640}), "{image}");
+}
+
+/// The bench's row-store stand-in (webviews/bench/first-load-after-restart.bench.ts, `ROWS=1`):
+/// the first window a reload's `chat.rows.open` gets for a recorded chat, as the store makes it.
+/// Run by hand: `ACPMUX_BENCH_SOURCE=chat.ndjson ACPMUX_BENCH_WINDOW=out.json cargo test -p
+/// acpmux-core bench_first_window -- --ignored`.
+#[test]
+#[ignore = "bench helper, run by hand"]
+fn bench_first_window() {
+    let source = PathBuf::from(std::env::var_os("ACPMUX_BENCH_SOURCE").unwrap());
+    let out = PathBuf::from(std::env::var_os("ACPMUX_BENCH_WINDOW").unwrap());
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    fs::create_dir_all(&book).unwrap();
+    fs::copy(&source, book.join("source.ndjson")).unwrap();
+    catch_up(config_at(&book));
+    let mut state = open_state(config_at(&book)).unwrap();
+    while !read_source(&mut state).unwrap() {}
+    let (frame, _) =
+        stream::window(&mut state, "bench", &stream::person_id(None), log::Anchor::End, 0).unwrap();
+    fs::write(&out, frame.payload()).unwrap();
+}
+
+/// The settled row ids of the first window a reload gets for `source`.
+fn first_window_ids(source: &[u8]) -> Vec<u64> {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    fs::create_dir_all(&book).unwrap();
+    fs::write(book.join("source.ndjson"), source).unwrap();
+    catch_up(config_at(&book));
+    let mut state = open_state(config_at(&book)).unwrap();
+    while !read_source(&mut state).unwrap() {}
+    let (frame, _) =
+        stream::window(&mut state, "test", &stream::person_id(None), log::Anchor::End, 0).unwrap();
+    let window: serde_json::Value = serde_json::from_slice(frame.payload()).unwrap();
+    window["rows"].as_array().unwrap().iter().map(|row| row["id"].as_u64().unwrap()).collect()
+}
+
+/// A reload mid-turn draws no settled row the turn's end folds away: the open turn's work comes
+/// folded, as the same rows come once it ends.
+#[test]
+fn a_reload_mid_turn_draws_nothing_the_turns_end_folds_away() {
+    let ended = corpus(2);
+    let text = String::from_utf8(ended.clone()).unwrap();
+    // The last turn without its end record: its work settled, its last reply still open.
+    let lines = text.lines().count();
+    let open: String = text.lines().take(lines - 1).map(|line| format!("{line}\n")).collect();
+    let after = first_window_ids(&ended);
+    let during = first_window_ids(open.as_bytes());
+    assert!(!during.is_empty());
+    for id in &during {
+        assert!(after.contains(id), "row {id} drawn mid-turn folds away: {during:?} {after:?}");
+    }
+}

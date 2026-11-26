@@ -21,7 +21,8 @@ use crate::plan;
 pub struct Policy {
     /// How long every runner of a machine must be idle before it pauses.
     pub idle_ms: u64,
-    /// Idle online runners the pool keeps up for the next job.
+    /// Idle online runners the pool keeps up for the next job. 0 by default: no floor, every idle machine that
+    /// opted in pauses after `idle_ms` and queued jobs resume one (Leo: "you shouldnt need to set minimums").
     pub keep_idle: u32,
     /// Runner-name prefixes of the pool (`fsp-`, `cmux-runner-pool-`).
     pub prefixes: Vec<String>,
@@ -42,7 +43,7 @@ impl Default for Policy {
     fn default() -> Self {
         Self {
             idle_ms: 10 * 60 * 1000,
-            keep_idle: 4,
+            keep_idle: 0,
             prefixes: vec!["fsp-".to_owned(), "cmux-runner-pool-".to_owned()],
             label: "cmux-linux".to_owned(),
             busy_pct: 90.0,

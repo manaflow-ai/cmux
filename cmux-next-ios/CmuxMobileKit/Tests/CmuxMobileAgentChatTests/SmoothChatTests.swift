@@ -82,6 +82,22 @@ import Testing
         #expect(changes.count == 1, "one store change for 50 chunks, got \(changes.count)")
     }
 
+    @Test func equalReplayBatchDoesNotBumpRevision() {
+        let store = AgentChatStore(source: Silent())
+        let history = Self.turn(0)
+        store.apply(.batch(history))
+        let revision = store.revision
+        let turns = store.turns
+        store.apply(.batch(history))
+        print("SILENT_DELTA transcript_equal before=1 after=\(store.revision == revision ? 0 : 1)")
+        #expect(store.revision == revision)
+        #expect(store.turns == turns)
+
+        store.apply(.batch(Self.turn(1)))
+        #expect(store.revision > revision)
+        #expect(store.turns.count == turns.count + 1)
+    }
+
     @Test func otherEventsKeepTheirOrderAfterWaitingChunks() async {
         let store = AgentChatStore(source: Silent())
         let frames = Frames()
@@ -115,7 +131,7 @@ import Testing
         let changes = Changes()
         changes.watch {
             _ = (store.hasTurns, store.isRunning, store.pendingPermission, store.pendingQuestion, store.firstPrompt,
-                 store.hasAgentEdits, store.runningPlanEntries)
+                 store.hasAgentEdits)
         }
         store.apply(.update(.agentMessageChunk(text: "more", messageId: "m0")))
         await Task.yield()

@@ -7,7 +7,7 @@ extension AppServices: WindowHomeHost {
     var windowHomeConnection: DaemonConnection? { daemon.connection }
     var windowHomeStore: DaemonStore { daemon.store }
     func windowHomeApplied(_ connection: DaemonConnection) async { _ = await daemon.appliedThroughReply(on: connection, after: "create window home") }
-    func windowHomeMembers(_ window: String) -> [String] { windows.registry.members(of: window) }
+    func windowHomeMembers(_ window: String) -> [String] { WindowProfiles.visible(windows.registry.members(of: window), profile: windows.states[window]?.profileID ?? .defaultProfile, machines: machines) }
     func windowHomeOpenOwner(of workspace: String) -> String? { windows.openOwner(of: workspace) }
     func windowHomeIsOpen(_ window: String) -> Bool { windows.registry.value.window(window)?.isOpen == true }
     var windowHomeWindows: [String: [String]] { windows.membersByWindow }

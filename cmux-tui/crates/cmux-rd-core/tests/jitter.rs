@@ -490,6 +490,76 @@ fn loss_reduces_immediately_without_qualified_delay_evidence() {
 }
 
 #[test]
+fn repeated_loss_reports_cut_once_per_response_window() {
+    let mut cc = controller();
+    cc.on_feedback(&[], 0.4, 1);
+    let reduced = cc.target_bps();
+    // One rolling loss window is reported at frame/feedback cadence. Repeating
+    // it cannot repeatedly reduce a rate the receiver has not seen yet.
+    for now in [16_667, 33_334, 50_001, 100_001, 199_999, 200_000] {
+        cc.on_feedback(&[], 0.4, now);
+        assert_eq!(cc.target_bps(), reduced, "another reduction at {now} us");
+    }
+    cc.on_feedback(&[], 0.4, 200_001);
+    assert_eq!(cc.target_bps(), reduced * 4 / 5);
+}
+
+#[test]
+fn delay_and_loss_in_one_report_choose_one_reduction() {
+    let mut delay_only = controller();
+    let mut combined = controller();
+    for seq in 0..90u16 {
+        let sent = u64::from(seq) * 16_667;
+        let arrived = sent + 25_000 + u64::from(seq) * 2_000;
+        let now = arrived + 25_000;
+        let arrivals = [Arrival { transport_seq: seq, arrival_us: arrived as u32 }];
+        delay_only.on_sent(seq, sent);
+        combined.on_sent(seq, sent);
+        let before = delay_only.target_bps();
+        delay_only.on_feedback(&arrivals, 0.0, now);
+        if delay_only.target_bps() < before {
+            combined.on_feedback(&arrivals, 0.4, now);
+            // Delay asks for 0.85x and loss for 0.8x: choose 0.8x, not 0.68x.
+            assert_eq!(combined.target_bps(), before * 4 / 5);
+            combined.on_feedback(&[], 0.4, now + 1);
+            assert_eq!(combined.target_bps(), before * 4 / 5);
+            return;
+        }
+        combined.on_feedback(&arrivals, 0.0, now);
+    }
+    panic!("trace never produced delay overuse");
+}
+
+#[test]
+fn response_window_waits_for_rtt_and_keeps_its_original_deadline() {
+    let mut cc = controller();
+    cc.on_rtt(500_000);
+    cc.on_feedback(&[], 0.4, 1);
+    let reduced = cc.target_bps();
+    cc.on_rtt(50_000);
+    cc.on_feedback(&[], 0.4, 200_001);
+    assert_eq!(cc.target_bps(), reduced, "RTT update shortened an outstanding response window");
+    cc.on_feedback(&[], 0.4, 500_000);
+    assert_eq!(cc.target_bps(), reduced);
+    cc.on_feedback(&[], 0.4, 500_001);
+    assert_eq!(cc.target_bps(), reduced * 4 / 5);
+}
+
+#[test]
+fn path_change_clears_the_previous_response_window() {
+    let mut cc = controller();
+    cc.on_rtt(500_000);
+    cc.on_feedback(&[], 0.4, 1);
+    let reduced = cc.target_bps();
+    cc.on_path_changed(PathKind::DirectWan);
+    cc.on_feedback(&[], 0.4, 2);
+    assert_eq!(cc.target_bps(), reduced * 4 / 5, "old path prevented a new path's first cut");
+    let reduced = cc.target_bps();
+    cc.on_feedback(&[], 0.4, 200_002);
+    assert_eq!(cc.target_bps(), reduced * 4 / 5, "old RTT survived the path change");
+}
+
+#[test]
 fn a_path_change_discards_delay_state_and_applies_the_relay_cap() {
     let mut cc = controller();
     let delays: Vec<_> = (0..10).map(|i| (25_000 + i * 2_000, 25_000)).collect();

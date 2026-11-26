@@ -6,7 +6,7 @@ import Foundation
 import Observation
 
 /// An authenticated directory entry from the paired Mac's current Cloud registry.
-public struct CloudChatMachine: Decodable, Hashable, Identifiable, Sendable {
+public struct CloudChatMachine: Codable, Hashable, Identifiable, Sendable {
     public let machineID: String
     public let teamID: String
     public let name: String
@@ -94,6 +94,7 @@ public final class CloudChatRelay {
     init(machine: CloudChatMachine, macID: String) {
         self.machine = machine
         self.macID = macID
+        hub.onSubmit = { CloudWakeOnIntent.shared.input(machine: machine.machineID) }
     }
 
     func bind(_ link: any MacLink, force: Bool = false) {

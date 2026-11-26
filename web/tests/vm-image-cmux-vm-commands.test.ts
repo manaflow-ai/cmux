@@ -6,9 +6,9 @@ import path from "node:path";
 import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
-import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
+import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry, UBUNTU_ARCHIVE } from "../scripts/cmux-vm-image/lock";
 import { imageLeftoversCommand, programChecksCommand, programProblems, rolesOffFontsOnCommand, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
-import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand } from "../scripts/cmux-vm-image/daemon-uptime";
+import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand, legacyErrorFilter } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
 import { runChild } from "./helpers/run-child";
 import { CMUX_CLOUD_HOME, CMUX_TUI_LEGACY_HOME } from "../services/vms/drivers/cmuxTuiDaemon";
@@ -51,6 +51,26 @@ describe("cmux VM image guest commands", () => {
     await bashSyntax(imageLeftoversCommand());
     // Existence only: the leftover scan never reads or prints a sign-in file's contents.
     expect(imageLeftoversCommand()).not.toMatch(/\b(cat|head -c|grep [^|]*credentials)\b/);
+  });
+
+  // Rolls 45541312694 and 45561599772 failed the smoke on an unbound VM's refusal line, which names no migration.
+  test("daemon uptime journal filter: the migration refusal matches, other refusals do not", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "uptime-journal-"));
+    try {
+      const log = path.join(dir, "journal.log");
+      writeFileSync(log, [
+        "cmux-host: cloud: auto-session machine: refused vm.unbound",
+        "cmux-host: carrier ticket: refused vm.unbound in 4 ms",
+        "cmux-host: session host started",
+        "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains",
+      ].join("\n") + "\n");
+      const result = await runChild("bash", ["-c", legacyErrorFilter(log)], { timeout: 20_000 });
+      expect(result.stdout.trim().split("\n")).toEqual([
+        "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // Bake run 41701438675 passed with a session host that crash-looped after any rebind (cmux#34128).
@@ -268,7 +288,9 @@ describe("cmux VM image apt index", () => {
   test("smoke refuses openbox only on an image without the agent tools", async () => {
     const command = rolesOffFontsOnCommand();
     expect(command).toContain("{ test -x /opt/cmux/agent-tools/bin/cmux-cua || ! command -v openbox >/dev/null; }");
-    expect(command).toContain("! command -v ffmpeg >/dev/null");
+    // Roll 3641: #56284 bakes ffmpeg, and smoke still refused it.
+    expect(command).toContain("command -v ffprobe >/dev/null");
+    expect(command).not.toContain("! command -v ffmpeg");
     await bashSyntax(command);
   });
 
@@ -283,7 +305,7 @@ describe("cmux VM image apt index", () => {
       mkdirSync(path.join(dir, "mirror/pool/main/x/x"), { recursive: true });
       writeFileSync(path.join(dir, "mirror/pool/main/x/x/x_1_all.deb"), body);
       const run = async (snapshot: string, debs = { "x=1": deb }) => {
-        const command = aptDebFetchCommand(debs, ["x=1"], snapshot, path.join(dir, "out")).replace("http://archive.ubuntu.com/ubuntu/", `file://${dir}/no-archive/`);
+        const command = aptDebFetchCommand(debs, ["x=1"], snapshot, path.join(dir, "out")).replaceAll(UBUNTU_ARCHIVE, `file://${dir}/no-archive/`);
         return runChild("sh", ["-c", command], { timeout: 20_000, env: { PATH: "/usr/bin:/bin" } });
       };
       const fetched = await run(`file://${dir}/mirror/`);
@@ -443,13 +465,15 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     };
     const loginEnv = at('L.step(vm, "acpmux-login-env"');
     const checks = at('L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand())');
+    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand())');
     const clean = at('L.step(vm, "clean"');
     const tmpEmpty = at('L.step(vm, "tmp-empty"');
     const warm = at('"drop-cache-warm-bind-path"');
     const writers = at('L.step(vm, "tmp-no-writer", tmpWritersCommand())');
     const ready = at('L.step(vm, "snapshot-ready", snapshotReadyCommand())');
     expect(loginEnv).toBeLessThan(checks);
-    expect(checks).toBeLessThan(clean);
+    expect(checks).toBeLessThan(probes);
+    expect(probes).toBeLessThan(clean);
     expect(clean).toBeLessThan(tmpEmpty);
     expect(warm).toBeLessThan(writers);
     expect(writers).toBeLessThan(ready);
@@ -472,6 +496,37 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     expect(wait).not.toMatch(/sleep (?!1;)\d/);
     expect(wait).toContain("acpmux's harness check did not finish");
   });
+
+  test("waits for acpmux's model probes (cwd in the unattended folder) to exit before clean", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "acpmux-unattended-"));
+    const { spawn } = await import("node:child_process");
+    const run = (limit: number) => runChild("bash", ["-c", bake.acpmuxProbesQuietCommand(limit, dir)], { timeout: 30_000 });
+    try {
+      const idle = await run(3);
+      expect(idle.stdout).toContain("acpmux-probes-quiet after 0s");
+      expect(idle.status).toBe(0);
+      // A probe that exits within the bound: the wait returns once it is gone.
+      const short = spawn("sleep", ["2"], { cwd: dir, stdio: "ignore" });
+      await new Promise((r) => setTimeout(r, 200));
+      const waited = await run(10);
+      expect(waited.status).toBe(0);
+      expect(waited.stdout).toMatch(/acpmux-probes-quiet after [1-9]\d*s/);
+      short.kill("SIGKILL");
+      // A probe still running at the bound: fail, naming it.
+      const stuck = spawn("sleep", ["300"], { cwd: dir, stdio: "ignore" });
+      try {
+        await new Promise((r) => setTimeout(r, 200));
+        const late = await run(2);
+        expect(late.status).not.toBe(0);
+        expect(late.stderr).toContain("model probes still run after 2s");
+        expect(late.stderr).toContain(`probe pid ${stuck.pid}: sleep 300`);
+      } finally {
+        stuck.kill("SIGKILL");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   async function writers(dir: string) {
     return runChild("bash", ["-c", bake.tmpWritersCommand([dir])], { timeout: 30_000 });
@@ -508,6 +563,8 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
       expect(out).toContain(`open by pid ${holder.pid}: sleep 300`);
       expect(out).toContain(`named by pid ${namer.pid}:`);
       expect(out).toContain("processes of");
+      expect(out).not.toContain("Usage:");
+      expect(out.trimEnd().split("\n").at(-1)).toContain(`written after clean: ${leftover}`);
     } finally {
       holder.kill("SIGKILL");
       namer.kill("SIGKILL");

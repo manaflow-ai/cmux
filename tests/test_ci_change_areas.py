@@ -714,8 +714,10 @@ def test_standalone_browser_and_remote_daemon_skip_app_host_macos() -> None:
 
 def test_required_ci_owns_standalone_browser_and_remote_daemon_pr_validation() -> None:
     changes = workflow_job_block("changes")
-    assert "browser: ${{ steps.standalone.outputs.browser }}" in changes
-    assert "remote_daemon: ${{ steps.standalone.outputs.remote_daemon }}" in changes
+    # A draft head's cheap tier (scripts/ci/head_tier.py, #48920) runs neither; every other tier takes the router's answer.
+    tier_off = "(steps.tier.outputs.tier == 'cheap' || steps.tier.outputs.tier == 'none') && 'false'"
+    assert f"browser: ${{{{ {tier_off} || (steps.standalone.outputs.browser) }}}}" in changes
+    assert f"remote_daemon: ${{{{ {tier_off} || (steps.standalone.outputs.remote_daemon) }}}}" in changes
     route = workflow_job_step_script("changes", "Route standalone project workflows")
     assert "cmux-browser/*|.github/workflows/cmux-browser.yml" in route
     assert "daemon/remote/*|scripts/*remote_daemon*" in route
@@ -1901,7 +1903,7 @@ def ci_router_trigger_problems(workflow: str) -> list[str]:
     problems = []
     on = yaml.load(workflow, Loader=yaml.BaseLoader)["on"]
     pull_request = on.get("pull_request") or {}
-    if pull_request.get("types") != ["opened", "synchronize", "reopened", "labeled", "unlabeled"]:
+    if pull_request.get("types") != ["opened", "synchronize", "reopened", "labeled", "unlabeled", "ready_for_review"]:
         problems.append(f"pull_request types are {pull_request.get('types')!r}")
     if set(pull_request) - {"types", "paths"}:
         problems.append(f"pull_request has other filters: {sorted(set(pull_request) - {'types', 'paths'})}")
@@ -1930,7 +1932,8 @@ def test_ci_router_trigger_check_catches_a_filtered_merge_group_or_extra_paths()
     assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "  merge_group:\n    types: [checks_requested]\n", 1))
     assert ci_router_trigger_problems(workflow.replace("  merge_group:\n", "", 1))
     assert ci_router_trigger_problems(workflow.replace("  workflow_call:\n", "  push:\n    paths: [\"x/**\"]\n  workflow_call:\n", 1))
-    assert ci_router_trigger_problems(workflow.replace(", unlabeled]", "]", 1))
+    assert ci_router_trigger_problems(workflow.replace(", unlabeled, ready_for_review]", ", ready_for_review]", 1))
+    assert ci_router_trigger_problems(workflow.replace(", ready_for_review]", "]", 1))
     assert ci_router_trigger_problems(workflow.replace('      - "!**/*.md"\n', "", 1))
 
 
@@ -2107,6 +2110,10 @@ def run_web_status(
     inputs: dict[str, str] | None = None,
     results: dict[str, str] | None = None,
     subareas: dict[str, str] | None = None,
+    event: str = "",
+    base_ref: str = "",
+    workflow: str = "",
+    land_tier: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     route_inputs = {
         "web": "true",
@@ -2148,7 +2155,13 @@ def run_web_status(
         **os.environ,
         "WEB_INPUTS": json.dumps(route_inputs),
         "WEB_NEEDS": json.dumps(needs),
+        "WEB_EVENT": event,
+        "WEB_BASE_REF": base_ref,
+        "WEB_WORKFLOW": workflow,
     }
+    env.pop("WEB_LAND_TIER", None)
+    if land_tier is not None:
+        env["WEB_LAND_TIER"] = land_tier
     return subprocess.run(
         ["bash", "-c", script],
         cwd=ROOT,
@@ -4326,7 +4339,8 @@ def test_unchanged_build_inputs_skip_mac_compile_before_runner_allocation() -> N
         in changes
     )
     assert (
-        "ghosttykit_release: ${{ steps.unchanged_inputs.outputs.compile_admitted == 'true' && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
+        "ghosttykit_release: ${{ (steps.unchanged_inputs.outputs.compile_admitted == 'true' || (github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && "
+        "!contains(github.event.pull_request.labels.*.name, 'full-ci') && steps.ghosttykit_provenance.outputs.changed == 'false')) && 'false' || steps.linux_guards.outputs.ghosttykit_release }}"
         in changes
     )
 
@@ -4578,7 +4592,7 @@ def test_suite_labels_are_read_from_the_run_event_snapshot() -> None:
 
 def test_full_ci_label_changes_start_a_fresh_run_instead_of_mutating_a_rerun() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "  pull_request:\n    types: [opened, synchronize, reopened, labeled, unlabeled]" in workflow
+    assert re.search(r"(?m)^  pull_request:\n(?:    #.*\n)*    types: \[opened, synchronize, reopened, labeled, unlabeled, ready_for_review\]$", workflow)
 
     suite = workflow_step_block("changes", "Choose the macOS suite for this run")
     assert "gh api" not in suite
@@ -5100,6 +5114,90 @@ def test_web_status_rejects_selected_skip_failure_or_cancellation() -> None:
             assert result.returncode != 0, (web_job, outcome)
 
 
+def test_web_status_allows_the_typecheck_skip_only_on_a_feat_cmux_next_pull_request() -> None:
+    # A feat-cmux-next pull request runs web-typecheck as the ci/steps.toml step (pr-pipeline.yml): the job skips.
+    result = run_web_status(results={"web-typecheck": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
+    assert result.returncode == 0, result.stderr
+    for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+        result = run_web_status(results={"web-typecheck": "skipped"}, event=event, base_ref=base_ref)
+        assert result.returncode != 0, (event, base_ref)
+    for outcome in ("failure", "cancelled"):
+        result = run_web_status(results={"web-typecheck": outcome}, event="pull_request", base_ref="feat-cmux-next")
+        assert result.returncode != 0, outcome
+    # A routed job that did not move (web-db-migrations needs its postgres service): its skip is still a red there.
+    result = run_web_status(results={"web-db-migrations": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
+    assert result.returncode != 0
+    block = workflow_job_block("web-typecheck", WEB_WORKFLOW)
+    assert "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}" in block
+
+
+def test_web_status_allows_the_land_tier_skips_only_on_a_cheap_head() -> None:
+    # A feat-cmux-next head not handed to land (#54886, WEB_LAND_TIER false) skips webviews-typecheck; react-apps-check
+    # still runs and passes the skipped shards. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+    result = run_web_status(results={"webviews-typecheck": "skipped"}, event="pull_request", base_ref="feat-cmux-next",
+                            land_tier="false")
+    assert result.returncode == 0, result.stderr
+    for land_tier in ("true", None, ""):
+        result = run_web_status(results={"webviews-typecheck": "skipped"}, event="pull_request",
+                                base_ref="feat-cmux-next", land_tier=land_tier)
+        assert result.returncode != 0, land_tier
+    for outcome in ("failure", "cancelled"):
+        result = run_web_status(results={"webviews-typecheck": outcome}, event="pull_request",
+                                base_ref="feat-cmux-next", land_tier="false")
+        assert result.returncode != 0, outcome
+    block = workflow_job_block("react-apps-check", WEB_WORKFLOW)
+    assert 'required = required and os.environ.get("WEB_LAND_TIER") != "false"' in block
+
+
+def test_web_status_allows_the_web_tests_and_production_build_skips_only_on_a_feat_cmux_next_pull_request() -> None:
+    # A feat-cmux-next pull request runs them as the ci/steps.toml steps web-tests-1..4 and web-production-build
+    # (pr-pipeline.yml): the jobs skip. The docs-only fallback skips them too: pr-router still routes its paths.
+    for job in ("web-tests", "web-production-build"):
+        for workflow in ("CI", "docs-only fallback"):
+            result = run_web_status(results={job: "skipped"}, event="pull_request", base_ref="feat-cmux-next",
+                                    workflow=workflow)
+            assert result.returncode == 0, (job, workflow, result.stderr)
+        for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+            result = run_web_status(results={job: "skipped"}, event=event, base_ref=base_ref)
+            assert result.returncode != 0, (job, event, base_ref)
+        for outcome in ("failure", "cancelled"):
+            result = run_web_status(results={job: outcome}, event="pull_request", base_ref="feat-cmux-next")
+            assert result.returncode != 0, (job, outcome)
+        block = workflow_job_block(job, WEB_WORKFLOW)
+        assert "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}" in block
+
+
+def test_web_status_allows_the_diff_sidecar_skip_only_on_a_feat_cmux_next_pull_request() -> None:
+    result = run_web_status(results={"diff-sidecar-check": "skipped"}, event="pull_request", base_ref="feat-cmux-next")
+    assert result.returncode == 0, result.stderr
+    for event, base_ref in (("pull_request", "main"), ("push", ""), ("workflow_dispatch", "")):
+        result = run_web_status(results={"diff-sidecar-check": "skipped"}, event=event, base_ref=base_ref)
+        assert result.returncode != 0, (event, base_ref)
+    result = run_web_status(results={"diff-sidecar-check": "skipped"}, event="pull_request",
+                            base_ref="feat-cmux-next", workflow="docs-only fallback")
+    assert result.returncode != 0
+    block = workflow_job_block("diff-sidecar-check", WEB_WORKFLOW)
+    assert ("&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || "
+            "github.workflow == 'docs-only fallback') }}") in block
+
+
+def test_the_web_typecheck_step_keeps_the_jobs_commands() -> None:
+    # The step a feat-cmux-next pull request runs instead (ci/steps.toml) keeps the job's install, catalog check,
+    # retry and fixit-compile wrappers and its retry of a native tsgo abort.
+    import tomllib
+
+    step = tomllib.loads((ROOT / "ci/steps.toml").read_text())["step"]["web-typecheck"]["run"]
+    script = workflow_job_step_script("web-typecheck", "Typecheck", WEB_WORKFLOW)
+    for line in ("bun install --frozen-lockfile", "bun tools/generate-managed-iroh-relay-catalog.ts --check",
+                 "python3 -I ../scripts/ci/oops/retry.py --job web-typecheck -- \\",
+                 "python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck 2>&1 | tee \"$log\"",
+                 "grep -Fq 'Aborted (core dumped)' \"$log\""):
+        assert line in step, line
+    for line in ("python3 -I ../scripts/ci/oops/fixit_compile.py run --kind tsc -- bun run typecheck",
+                 "grep -Fq 'Aborted (core dumped)' \"$log\""):
+        assert line in script, line
+
+
 def test_web_status_checks_react_when_real_daemon_tests_are_unselected() -> None:
     # An unrelated standalone test still needs React validation even though it
     # does not need another acpmux build. The summary must distinguish the two.
@@ -5608,15 +5706,6 @@ def test_guard_python_setup_is_scoped_to_owning_groups() -> None:
     assert block.count("actions/setup-python@") == 1
 
 
-def test_pipe_safe_capture_guard_runs_once_in_app_host_execution_group() -> None:
-    block = workflow_job_block("workflow-guard-tests", GUARD_WORKFLOW)
-    start = block.index("      - name: Validate pipe-safe CI capture")
-    end = block.index("      - name: Validate focused test launcher", start)
-    step = block[start:end]
-    assert "if: ${{ !cancelled() && matrix.group == 'app-host-execution' }}" in step
-    assert block.count("Validate pipe-safe CI capture") == 1
-
-
 def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     """The producer lookups must survive ci.yml reaching admission indirectly.
 
@@ -5672,9 +5761,12 @@ def test_reuse_lookups_match_the_job_name_github_actually_reports() -> None:
     definitions = {
         ".github/workflows/ci.yml": ".github/workflows/ci-macos.yml",
         ".github/workflows/test-e2e.yml": ".github/workflows/test-e2e.yml",
-        ".github/workflows/seed-derived-data.yml": ".github/workflows/seed-derived-data.yml",
     }
     for path, (job_name, step_name) in reuse_app_host_products.COMPILE_JOBS.items():
+        # The push producer runs from main (TRUSTED_BRANCHES), whose copy this
+        # branch does not carry (ci-v2 step 3, R12).
+        if path == reuse_app_host_products.TRUSTED_WORKFLOWS["push"]:
+            continue
         workflow = yaml.safe_load((ROOT / definitions[path]).read_text(encoding="utf-8"))
         producer = next(
             (job for job in workflow["jobs"].values()
@@ -5737,6 +5829,37 @@ def _run_named_test(name: str) -> tuple[str, str | None]:
     except BaseException:
         return name, traceback.format_exc()
     return name, None
+
+
+def test_the_helper_walk_widens_a_narrow_sparse_checkout_before_it_searches() -> None:
+    # ci.yml's `changes` job checks out fewer paths than .github/checkout-lean.json's
+    # `sparse_checkout`; the walk's `git grep` sees only checked-out files, so it widens first
+    # and finds a referrer outside the narrow set. Without the table it cannot widen and
+    # answers None ("could not search"), which routes every area.
+    env = git_fixture_env.fixture_env()
+
+    def git(repo: Path, *args: str) -> None:
+        subprocess.run(["git", "-C", str(repo), *args], env=env, check=True, capture_output=True, text=True)
+
+    for keep_table in (True, False):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = git_fixture_env.init_repo(Path(temp_dir) / "repo", env=env)
+            (repo / ".github").mkdir()
+            (repo / ".github" / "checkout-lean.json").write_text(
+                json.dumps({"sparse_checkout": ["/*", "!/drop/verify/"]}) if keep_table else "{}")
+            (repo / "drop").mkdir()
+            (repo / "drop" / "runner.sh").write_text("scripts/widen-probe.sh\n")
+            git(repo, "add", "-A")
+            git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "fixture")
+            git(repo, "sparse-checkout", "set", "--no-cone", "/*", "!/drop/")
+            assert not (repo / "drop" / "runner.sh").exists()
+            module._tree_is_complete.cache_clear()
+            found = module._files_naming(repo, "scripts/widen-probe.sh")
+            if keep_table:
+                assert found == ["drop/runner.sh"], found
+            else:
+                assert found is None, found
+    module._tree_is_complete.cache_clear()
 
 
 def _main() -> int:

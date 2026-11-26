@@ -151,6 +151,7 @@ cmux agent ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=
 acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
 cmux agent resolve Mango                         # the handle, stable session id, host and task
 cmux agent session rename --handle NAME Mango    # change the handle without changing the task or id
+acpmux icon @ 🥭                                   # the icon every surface draws for this session (emoji, sf:NAME, .svg, URL; `none` clears)
 cmux agent ls Mango                               # the same session's handle, task, host and harness
 acpmux --json ls --machine local --live            # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
 cmux agent session info NAME                           # model, mode, policy, pending permissions, usage
@@ -318,6 +319,7 @@ cmux agent wait A B --all --timeout 600 --print  # every named session, print ea
 cmux agent wait NAME --until running             # the prompt was accepted
 cmux agent wait NAME --until done                # turn ended while no client was attached
 cmux agent wait NAME --match "tests pass"        # or --regex; existing text matches at once
+cmux agent session tail NAME --since seen       # recap the records since the reader’s cutover, as JSON lines
 cmux agent session tail NAME --since CURSOR -f   # raw events as JSON lines; cursor = sessionId:seq
 ```
 
@@ -516,12 +518,20 @@ surface, one line each in `acpmux --help`: `race` and `compare` (one task on
 several models), `fork-run` (fork a Cloud machine N ways, keep one), `continue`
 (move a chat to another harness), `briefs` and `task` (tracked work), `watch`
 (wake me when others finish), `inbox` and `deliver` (durable messages, reports),
-`forum`, `bridge`, `desktop` and `register` (desktop apps), `group` (sidebar
+`trigger` (wake a Cloud chat on a CI failure or PR comment), `forum`, `run-ask`
+(run an accepted forum run ask here or through the scheduler), `bridge`,
+`desktop` and `register` (desktop apps), `group` (sidebar
 groups), `account` (sign the Codex, Claude and GitHub accounts in or out, add,
 switch, remove, list; `account readiness` says which still need installing or a
 sign-in), `harness`, `capabilities`,
 `machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
-`stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
+`stdio`, `cli-agent`, `uniichat-agent`, `pr-wait` and `ci` (wait on a pull request's checks or a
+workflow run with one shared poller), `scorecard` (tokens and steering per settled pull request),
+`fetch` (one large download over parallel ranges), `channel` (named byte channels to an agent on
+another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), `listen` (read a
+teammate's agent address while its grant lets you), `memory` (the fleet memory mount), `succeed`
+(make a session the successor of ones that died or moved), `role` (claim `goal:SLUG`-style
+addresses), and `skill` (this guide).
 
 ## 8. Output
 

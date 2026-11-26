@@ -59,6 +59,4 @@ Do these in the same pull request:
 
 - [docs/ci/landing.md](../docs/ci/landing.md), [docs/ci/risk-tiers.md](../docs/ci/risk-tiers.md)
 - [docs/ci-runners.md](../docs/ci-runners.md): runner labels and repo variables
-- [docs/ci/derived-not-declared.md](../docs/ci/derived-not-declared.md)
-- [docs/ci/workflow-inventory.md](../docs/ci/workflow-inventory.md): required checks; its table is a 2026-09 snapshot
 - [skills/cmux-testing/references/pr-ci-coverage.md](../skills/cmux-testing/references/pr-ci-coverage.md)

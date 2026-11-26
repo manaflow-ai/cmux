@@ -100,6 +100,14 @@ extension AcpmuxHub {
         // (nothing else rebinds then; a link that is down makes `onStall` a no-op and its own
         // reconnect binds the next channel).
         guard connection === stale || connection == nil, let onStall else { return }
+        // A write still going out (a prompt with a large attachment on a slow link) holds the
+        // channel: the read and any probe queue behind its bytes, so neither can be answered yet.
+        // Rebinding then would cut the write off and lose the prompt; the write's own deadline
+        // (``AcpmuxConnection/writeBound(bytes:base:)``) bounds a link that really stopped.
+        if why == "stalled" || why == "timeout", await stale.isSending {
+            log.info("acpmux read \(method, privacy: .public) queued behind a write still being sent: not recovering")
+            return
+        }
         // A read that is only slow behind a prompt or mutation on a healthy channel is left to its
         // own deadline: replacing the channel would cut that work off. The channel is asked a
         // cheap read first: answered, it is alive (busy, not stalled); unanswered, it is dead and

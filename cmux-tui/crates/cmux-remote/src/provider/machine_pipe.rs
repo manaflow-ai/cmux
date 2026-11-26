@@ -58,6 +58,11 @@ impl MachinePipeDialer {
 
     /// One pipe: the request line, the reply line, then the circuit's bytes.
     async fn open_pipe(&self, port: u16) -> Result<UnixStream, LinkError> {
+        self.open_pipe_with(machine_pipe_request(&self.machine, port)).await
+    }
+
+    /// One pipe that `request` (one line) asks for.
+    async fn open_pipe_with(&self, request: String) -> Result<UnixStream, LinkError> {
         let mut stream = UnixStream::connect(&self.socket).await.map_err(|error| {
             LinkError::Transport(format!(
                 "acpmux is not running at {}: {error}",
@@ -65,7 +70,7 @@ impl MachinePipeDialer {
             ))
         })?;
         stream
-            .write_all(machine_pipe_request(&self.machine, port).as_bytes())
+            .write_all(request.as_bytes())
             .await
             .map_err(|error| LinkError::Transport(error.to_string()))?;
         // One byte at a time: nothing past the newline may be read, it is the daemon's.
@@ -103,6 +108,16 @@ pub fn machine_pipe_request(machine: &str, port: u16) -> String {
     format!("{request}\n")
 }
 
+/// The request line for a pipe `machine`'s acpmux holds across this machine's acpmux
+/// restarting (RFD 0127 cut 4, [`MachinePipeDialer::hold`]).
+pub fn machine_pipe_resume_request(machine: &str, port: u16) -> String {
+    let request = json!({
+        "jsonrpc": "2.0", "id": 1, "method": MACHINE_PIPE_METHOD,
+        "params": {"machine": machine, "port": port, "resume": true},
+    });
+    format!("{request}\n")
+}
+
 /// The reasons a pipe is refused that no redial cures: each needs a person to act (on that
 /// machine or in this command), so redialing only hides it. Anything else (`machine.unreachable`:
 /// the relay or the far slot is not there yet; `service.unreachable`: the far daemon is not
@@ -119,6 +134,9 @@ pub fn machine_pipe_request(machine: &str, port: u16) -> String {
 /// - `service.unknown`, `service.bad_answer`: the far side does not speak this service (a
 ///   version apart).
 /// - `machine.unknown`: this machine has no route to the machine named.
+/// - `machine.not_joined`: the hub does not know the machine named (its 404 `machine.not_found`
+///   on the connect ticket); it joins the hub there (`cmux machine add`, or signing in to the
+///   app), and no redial here changes that.
 /// - `machine.self`: the machine named is this one; the hub carries only between two machines.
 /// - `carrier.not_serving`: the far machine's hub carrier is off (the hub has none registered for
 ///   it, or it never joined); its owner updates or restarts acpmux there, and a redial only waits
@@ -132,6 +150,7 @@ pub const TERMINAL_REFUSALS: &[&str] = &[
     "service.unknown",
     "service.bad_answer",
     "machine.unknown",
+    "machine.not_joined",
     "machine.self",
     "carrier.not_serving",
 ];
@@ -232,6 +251,9 @@ impl Dialer for MachinePipeDialer {
         }
     }
 }
+
+#[path = "machine_pipe_hold.rs"]
+mod hold;
 
 #[cfg(test)]
 mod tests {

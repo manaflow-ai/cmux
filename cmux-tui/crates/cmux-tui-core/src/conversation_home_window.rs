@@ -48,6 +48,7 @@ pub(crate) struct HomeWindowRead {
     /// The whole list's order.
     pub order: Arc<HomeOrder>,
     /// Whether the order was read from the store (false: the kept one).
+    #[allow(dead_code)] // read by no caller yet; kept for the window protocol
     pub ordered_now: bool,
 }
 
