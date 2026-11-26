@@ -289,5 +289,25 @@ fn worker_forwarded_payloads_are_known_to_the_link() {
     let worker: BTreeSet<_> = kinds.iter().map(String::as_str).collect();
     let rust = super::signals::payload_tags();
     assert_eq!(worker.difference(&rust).next(), None, "the link drops a Worker-forwarded payload kind");
-    assert_eq!(rust.difference(&worker).next(), None, "the Worker refuses a Rust payload kind");
+    // A kind the Worker writes itself (PROTOCOL.md "Early relay ticket": only the
+    // service sends `wg-ticket`) is one the link reads but the Worker never forwards.
+    let own = service_sent_kinds();
+    let own: BTreeSet<_> = own.iter().map(String::as_str).collect();
+    assert_eq!(worker.intersection(&own).next(), None, "the Worker forwards a kind only it may send");
+    assert_eq!(own.difference(&rust).next(), None, "the link drops a payload kind the Worker sends");
+    let reached: BTreeSet<_> = worker.union(&own).copied().collect();
+    assert_eq!(
+        rust.difference(&reached).next(),
+        None,
+        "the Worker neither forwards nor sends a Rust payload kind"
+    );
+}
+
+// The payload kinds the Worker writes itself, as literal `payload: { kind: "..." }` sends.
+fn service_sent_kinds() -> Vec<String> {
+    TEAM_HUB
+        .split("payload: { kind: \"")
+        .skip(1)
+        .map(|rest| rest.split_once('"').expect("Worker payload kind literal").0.to_owned())
+        .collect()
 }
