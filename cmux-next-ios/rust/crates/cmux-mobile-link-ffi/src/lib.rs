@@ -50,6 +50,7 @@ mod terminal_projection;
 mod vnc;
 mod window_layout;
 mod workspace_groups;
+mod workspace_row_actions;
 
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
@@ -100,6 +101,10 @@ pub use window_layout::{WindowLayout, overview_columns, window_layout};
 pub use workspace_groups::{
     GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,
     PhoneSidebarRow, PhoneWorkspaceGroup, WorkspaceGroupSlot, pending_group_edit_step, workspace_group_slots,
+};
+pub use workspace_row_actions::{
+    WorkspaceRowFacts, WorkspaceRowPlacement, workspace_edge_anchor, workspace_merge_targets,
+    workspace_row_placements,
 };
 
 uniffi::setup_scaffolding!();
