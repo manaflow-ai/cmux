@@ -259,6 +259,8 @@ final class MacScreenCardView: MacScreenThemedView {
         // Not signed in: Sign In, the shared button every "sign in" place shows (msg 3790).
         if answer["signIn"] as? Bool == true { row.append(signInButton()) }
         if !row.isEmpty { buttons(row) }
+        // Under the row: the backend this Sign In signs in to ("Signs in to cmux.com").
+        if answer["signIn"] as? Bool == true, let line = SignInButton.backendLineLabel(actions.signInBackend()) { stack.addArrangedSubview(line) }
     }
 
     /// One of Rust's card buttons: its title localized, its run one of the chrome's actions.
