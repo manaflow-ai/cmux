@@ -92,6 +92,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod registry_store;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -623,6 +624,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if window_registry::handles(operation) => {
                 window_registry::respond(operation, request)?
+            }
+            operation if registry_store::handles(operation) => {
+                registry_store::respond(operation, request)?
             }
             _ => return Err(ERR_INVALID),
         };

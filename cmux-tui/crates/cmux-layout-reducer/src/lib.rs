@@ -984,6 +984,9 @@ pub mod sidebar_layout_plan;
 pub mod sidebar_row;
 pub mod sidebar_row_layout;
 pub mod window_registry;
+pub mod window_registry_store;
+#[cfg(test)]
+mod window_registry_store_tests;
 #[cfg(test)]
 mod window_registry_tests;
 pub mod workspace_port_links;
