@@ -15,7 +15,9 @@
 //!   must be an absolute path to an existing directory; the request goes on
 //!   with the canonical path (symlinks resolved, no `..`). A Web `session/new` folder must
 //!   also sit in a root; the owner's own daemon asking for itself may also use an existing
-//!   git checkout whose top is neither home nor above it (`peer_folder::owner_checkout`).
+//!   git checkout whose top is neither home nor above it (`peer_folder::owner_checkout`),
+//!   or an existing folder of its home that is not home, hidden or in `~/Library`
+//!   (`peer_folder::owner_home_folder`).
 //!   An `acp.trust.set`
 //!   for a peer's session names the peer's folder: it goes on to that peer
 //!   unchanged, and the peer's own guard checks the folder there.
@@ -97,7 +99,7 @@ pub(super) use hint::check;
 use hint::{CWD_MISSING, CWD_OUTSIDE_ROOTS, MODE_REFUSED};
 use peer_folder::{
     configured_web_roots, cwd_refused, guarded_roots, make_inside_root, outside_told,
-    owner_checkout,
+    owner_checkout, owner_home_folder,
 };
 
 /// Whether a session method acpmux does not handle itself goes on to the
@@ -731,10 +733,12 @@ async fn check_inner(
             };
             if let Some(canonical) = canonical {
                 // The owner's own daemon asking for itself (no Web client or paired device
-                // behind it) may also start in a git checkout outside the roots.
+                // behind it) may also start in a git checkout outside the roots, or in a
+                // folder of its home its chooser picked (`owner_home_folder`).
                 let owners_checkout = peer_new
                     && cancel_owner::owner(origin, auth, params)
-                    && owner_checkout(Path::new(&canonical)).await;
+                    && (owner_checkout(Path::new(&canonical)).await
+                        || owner_home_folder(Path::new(&canonical)).await);
                 if !inside(&canonical) && !owners_checkout {
                     return Err(outside_told(cwd, &told).await);
                 }

@@ -199,8 +199,8 @@ pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcE
         format!("; this machine's webRoots: {}", listed.join(", "))
     });
     e.message.push_str(
-        " (a git checkout on this machine works anywhere outside them; with no folder at all, \
-         a scratch folder is made for the session)",
+        " (a git checkout on this machine works anywhere outside them, and so does a folder in \
+         its home folder; with no folder at all, a scratch folder is made for the session)",
     );
     let mut pick = roots.first().cloned();
     if let (Some(root), Some(leaf)) = (roots.first(), Path::new(cwd).file_name()) {
@@ -243,6 +243,40 @@ async fn checkout_outside_home(canonical: &Path, home: &Path) -> bool {
         }
     }
     false
+}
+
+/// Whether `canonical` (an existing folder, already resolved) is a folder of the owner's home
+/// that the owner's own daemon may start a chat in outside the roots: the folder their app's
+/// chooser shows for that machine (its tabs' and chats' folders) and the one a person picks
+/// on their own second Mac joined by sign-in (remote-machine-parity, cmuxterm-hq#21222: "A
+/// machine joined by sign-in gets a workspace, folder chooser, ports and files"). Never home
+/// itself or anything above it, no hidden folder on the way (`~/.ssh`, `~/.config`), and
+/// nothing under `~/Library` (keychains, app data). A Web client and a forward for one or for
+/// a paired device never get here (the caller holds them to the roots).
+pub(super) async fn owner_home_folder(canonical: &Path) -> bool {
+    let home = match dirs::home_dir() {
+        Some(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
+        None => return false,
+    };
+    folder_inside_home(canonical, &home)
+}
+
+fn folder_inside_home(canonical: &Path, home: &Path) -> bool {
+    let Ok(rest) = canonical.strip_prefix(home) else { return false };
+    let mut parts = rest.components().peekable();
+    if parts.peek().is_none() {
+        return false;
+    }
+    let mut first = true;
+    for part in parts {
+        let Component::Normal(name) = part else { return false };
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || (first && name == "Library") {
+            return false;
+        }
+        first = false;
+    }
+    true
 }
 
 /// `webRoots` from config.json, under `web_roots`' guards, in config order.
@@ -293,6 +327,27 @@ mod tests {
         assert!(make_below(&root, Path::new("a/b/child")).is_err());
         assert!(!outside.join("b/child").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_home_folder_counts_unless_it_is_home_hidden_library_or_outside() {
+        let home = Path::new("/Users/me");
+        assert!(folder_inside_home(&home.join("work/picked-folder"), home));
+        assert!(folder_inside_home(&home.join("Projects"), home));
+        assert!(folder_inside_home(&home.join("_work/_temp/x"), home));
+        assert!(!folder_inside_home(home, home), "home itself");
+        assert!(!folder_inside_home(Path::new("/Users"), home), "above home");
+        assert!(!folder_inside_home(Path::new("/"), home));
+        assert!(!folder_inside_home(Path::new("/tmp/x"), home), "outside home");
+        assert!(
+            !folder_inside_home(Path::new("/Users/meow/x"), home),
+            "a sibling sharing a prefix"
+        );
+        assert!(!folder_inside_home(&home.join(".ssh"), home));
+        assert!(!folder_inside_home(&home.join("src/.git/hooks"), home), "hidden on the way");
+        assert!(!folder_inside_home(&home.join("Library"), home));
+        assert!(!folder_inside_home(&home.join("Library/Keychains"), home));
+        assert!(folder_inside_home(&home.join("src/Library"), home), "only home's own Library");
     }
 
     #[tokio::test]
