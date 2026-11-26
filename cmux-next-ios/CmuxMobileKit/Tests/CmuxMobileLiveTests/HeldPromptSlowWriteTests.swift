@@ -39,6 +39,8 @@ import Testing
         private var gate: CheckedContinuation<Void, Never>?
         private var gateOpen = false
         private var _promptWrites = 0
+        private var closeInfo: LinkError?
+        var closedBy: LinkError? { lock.withLock { closeInfo } }
         private let inbox: AsyncStream<Data>
         private let continuation: AsyncStream<Data>.Continuation
         private var iterator: AsyncStream<Data>.AsyncIterator
@@ -133,7 +135,10 @@ import Testing
         }
 
         func receive() async throws -> Data? { await iterator.next() }
-        func close(code: String, reason: String) async { continuation.finish() }
+        func close(code: String, reason: String) async {
+            lock.withLock { closeInfo = LinkError(code: code, message: reason) }
+            continuation.finish()
+        }
     }
 
     func openChat(_ channel: SlowMac, clock: FakeClock) async -> (AcpmuxHub, AcpmuxSessionSource, AgentChatStore) {
@@ -289,6 +294,43 @@ import Testing
         #expect(store.clientError == nil)
         #expect(store.returnedDraft == nil)
     }
+
+    @Test func aRetiredPartialMessageChannelIsReopenedBeforeTheNextPrompt() async throws {
+        let mac = ChatPromptBlipTests.Mac()
+        let clock = FakeClock()
+        let first = SlowMac(mac, clock: clock)
+        let (hub, _, store) = await openChat(first, clock: clock)
+        var rebinds = 0
+        hub.onStall = {
+            rebinds += 1
+            await hub.bind(SlowMac(mac, clock: clock))
+        }
+        await first.close(code: "partial_message", reason: "write was cancelled")
+        await eventually { rebinds == 1 && hub.isReady }
+        #expect(rebinds == 1)
+        store.send(prompt: "next")
+        await eventually { !mac.prompts.isEmpty }
+        #expect(mac.prompts.map(\.text) == ["next"])
+        #expect(store.returnedDraft == nil)
+    }
+
+    #if canImport(CmuxMobileLinkFFI)
+    @Test func preparationCompletingNinetySecondsAfterTapStillDeliversInOrder() async throws {
+        let mac = ChatPromptBlipTests.Mac()
+        let clock = FakeClock()
+        let (hub, _, store) = await openChat(SlowMac(mac, clock: clock), clock: clock)
+        defer { withExtendedLifetime(hub) {} }
+        // The attachment's completed upload is on the Mac. Both taps are recorded synchronously,
+        // and neither queued MainActor preparation task hands off its payload until we yield.
+        let file = AgentAttachment(kind: .file, name: "clip.mov", macPath: "/w/clip.mov")
+        store.send(prompt: "see clip", attachments: [file])
+        store.send(prompt: "then reply")
+        clock.advance(by: .seconds(90))
+        await eventually { mac.prompts.count == 2 }
+        #expect(mac.prompts.map(\.text) == ["see clip", "then reply"])
+        #expect(store.returnedDraft == nil)
+    }
+    #endif
 
     /// The write bound grows with the payload: 30 s, plus its bytes at 16 KiB/s.
     @Test func theWriteBoundScalesWithThePayload() {
