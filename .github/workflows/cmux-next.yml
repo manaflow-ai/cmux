@@ -228,6 +228,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-agent-pane-policy-swift.py
+      - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
@@ -610,6 +612,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-agent-pane-policy-swift.py
+      - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
@@ -1785,6 +1789,7 @@ jobs:
             bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
             bash scripts/ci/tests/package-test-lane-unverified-build.test.sh
             bash scripts/ci/tests/swiftpm-resolve-seeds-artifacts.test.sh
+            bash scripts/ci/tests/swiftpm-resolve-github-refusal.test.sh
             bash scripts/ci/tests/ios-sim-fetch-commit.test.sh
             bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
             bash scripts/ci/tests/first-turn-cost-route-probe.test.sh
@@ -2778,7 +2783,7 @@ jobs:
           # Why: note-551
           if [[ "$word" == superseded ]]; then
             authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-            head="$(git -c "http.extraHeader=Authorization: Basic $authorization" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 \
+            head="$(git -c "http.extraHeader=Authorization: Basic $authorization" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 \
               ls-remote "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "$GITHUB_REF" 2>/dev/null | awk 'NR==1{print $1}')" || head=""
             if [[ -n "$head" && "$head" != "$REF" ]]; then
               echo "::notice title=Build fleet compile check::superseded push $REF: the branch head is $head, whose tip check covers this push; not compiled here"
@@ -2798,7 +2803,7 @@ jobs:
   app-compile-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     needs: [path_route, push-head-preflight, fast-tier-cargo]
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.app_compile_pr != 'false' && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false') && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next app compile placement
     runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Why: note-179
@@ -2881,7 +2886,7 @@ jobs:
   app-compile-fleet:
     needs: [path_route, push-head-preflight, app-compile-placement]
     # Why: note-371
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.app_compile_pr != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next app compile (build fleet)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || format('cmux-next-pr-{0}-app-compile-fleet', github.event.pull_request.number) }}
@@ -5933,7 +5938,7 @@ jobs:
             if [[ "$state" == superseded ]]; then
               head=""
               if [[ "${SUPERSEDED_GATE:-1}" != 0 ]]; then
-                head="$(timeout 30 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 ls-remote \
+                head="$(timeout 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
                   "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
                   awk 'NR==1{print $1}')" || head=""
               fi
@@ -7971,7 +7976,7 @@ jobs:
             [[ -z "${PR:-}" && "${SUPERSEDED_GATE:-1}" != 0 && -z "$head_read" ]] || return 1
             head_read=1
             local head
-            head="$(timeout 30 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 ls-remote \
+            head="$(timeout 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
               "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
               awk 'NR==1{print $1}')" || head=""
             [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$SHA" ]]
