@@ -1784,6 +1784,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_toolchain_r2.sh
 
+      - name: Validate the machine bun store puts the pinned bun back with no download
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_bun_store.sh
+
       - name: Validate curl-seeded Ghostty Zig package archives
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_seed_zig_package_archives.sh
