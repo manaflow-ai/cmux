@@ -4,6 +4,7 @@ import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxTabsKit
 import Foundation
+import Observation
 
 /// Which list the command palette shows (the Mac's palette scopes, `palette.open`).
 public enum PaletteScope: String, Hashable, Identifiable, Sendable {
@@ -261,7 +262,9 @@ extension WorkspaceTabsSource {
     /// screen (`new-browser-tab {url, pane}`), a terminal with the command typed, or a new
     /// agent chat that sends the prompt.
     func submitText(_ meaning: NewTabText) {
-        if let pending = pendingTabTitle { return show("Still opening \(pending). Try again once it's open.") }
+        // Another tab is still opening: this one opens right after it instead of asking the person
+        // to submit the same text again (a "Try again" with only one answer).
+        if pendingTabTitle != nil { return submitTextAfterPendingTab(meaning) }
         switch meaning {
         case .none: return
         case .address(let url):
@@ -282,6 +285,23 @@ extension WorkspaceTabsSource {
             open(Self.option(.agentChat)) { source, tab, workspace in
                 source.chatStore(tab, workspace).send(prompt: prompt)
             }
+        }
+    }
+
+    /// Submits `meaning` once the tab being opened is open (or its open failed), at most 30 s
+    /// on: past that the open is stuck, and the notice says the text was not opened.
+    private func submitTextAfterPendingTab(_ meaning: NewTabText) {
+        // task-owner: bounded by BoundedWait (30 s); it holds only a weak reference to the source.
+        Task { @MainActor [weak self] in
+            let opened = await BoundedWait(.seconds(30)).run { @MainActor [weak self] in
+                // No strong reference across the wait: a source closed meanwhile goes away.
+                await BoundedWait.observing { self?.pendingTabTitle != nil }
+            }
+            guard let self else { return }
+            if !opened, let pending = self.pendingTabTitle {
+                return self.show("\(pending) is still opening, so this one didn't open.")
+            }
+            self.submitText(meaning)
         }
     }
 
