@@ -11137,6 +11137,18 @@ export class AcpmuxDirectClient {
         running.turnId !== this.runningTurnId
       )
         this.rows.placeAfterCurrent(id);
+      // A compaction the person steered into while it ran ends where its live line stood, under
+      // that steer: the note never lands over the steer and pushes it down (Leo, 2026-11-25: "the
+      // animation for compaction and a message sent/steered during compaction is weird ... layout
+      // shifts and awkward looking animations"). One look over the rows since it started (a few).
+      else if (
+        compaction.state !== "running" &&
+        running?.seq !== undefined &&
+        this.rows
+          .rowsFrom(running.seq + 1)
+          .some((row) => row.kind === "user" && !row.incoming && !row.received && row.from === undefined)
+      )
+        this.rows.placeAfterCurrent(id);
     }
   }
 
@@ -12031,6 +12043,7 @@ export class AcpmuxDirectClient {
       ...(this.shownEarlierPrompts().length ? { earlierPrompts: this.shownEarlierPrompts() } : {}),
       ...(this.promptCountAwaited() !== undefined ? { promptCount: this.promptCountAwaited() } : {}),
       historyFrom: this.firstSeq,
+      heldFromAt: this.events[0]?.at,
       ...(this.newerLeft && !fromStore
         ? { canLoadNewer: true, historyThrough: this.newerLeft.after, laterPrompts: this.shownLaterPrompts() }
         : {}),
