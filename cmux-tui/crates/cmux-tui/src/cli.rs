@@ -924,21 +924,22 @@ fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
-    // `agent hook emit --deadline-ms N` answers by N (cli/hook_emit_deadline.rs).
-    if let Some(deadline) =
-        parse_globals(args).ok().and_then(|(_, command)| hook_emit_deadline::requested(&command))
-    {
-        let (args, usage) = (args.to_vec(), startup_usage.to_owned());
-        return hook_emit_deadline::within(deadline, move || run_unbounded(&args, &usage));
+    if let Ok((_, command)) = parse_globals(args) {
+        vm_words::activate_for(&command);
+        match command::hook_emit_budget(&command) {
+            Ok(Some(deadline)) => {
+                let (args, usage) = (args.to_vec(), startup_usage.to_owned());
+                return hook_emit_deadline::within(deadline, move || run_unbounded(&args, &usage));
+            }
+            Err(error) => return early_usage_error(args, &error.0),
+            Ok(None) => {}
+        }
     }
     run_unbounded(args, startup_usage)
 }
 
 fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
-    if let Ok((_, command)) = parse_globals(args) {
-        vm_words::activate_for(&command);
-    }
     // `cmux completion zsh|bash|fish` and the scripts' `cmux __complete -- WORDS`.
     if let Some(code) = completion::run_if_requested(args) {
         return code;

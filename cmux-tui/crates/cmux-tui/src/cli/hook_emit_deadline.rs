@@ -13,23 +13,6 @@
 
 use std::time::Duration;
 
-/// The flag's value from the command words of `agent hook emit`, when it is there.
-pub(super) fn requested(command: &[String]) -> Option<Duration> {
-    if command.get(..3)? != ["agent", "hook", "emit"] {
-        return None;
-    }
-    let mut words = command[3..].iter();
-    while let Some(word) = words.next() {
-        let value = match word.strip_prefix("--deadline-ms") {
-            Some("") => words.next()?.as_str(),
-            Some(inline) => inline.strip_prefix('=')?,
-            None => continue,
-        };
-        return value.parse::<u64>().ok().filter(|ms| *ms > 0).map(Duration::from_millis);
-    }
-    None
-}
-
 /// Runs the command on a worker thread and answers 0 at the deadline if it has
 /// not answered by then; the caller's exit then ends the blocked request.
 pub(super) fn within(deadline: Duration, command: impl FnOnce() -> i32 + Send + 'static) -> i32 {
@@ -45,7 +28,8 @@ pub(super) fn within(deadline: Duration, command: impl FnOnce() -> i32 + Send + 
 
 #[cfg(test)]
 mod tests {
-    use super::{requested, within};
+    use super::within;
+    use crate::cli::command::hook_emit_budget;
     use std::time::Duration;
 
     fn words(line: &str) -> Vec<String> {
@@ -54,14 +38,20 @@ mod tests {
 
     #[test]
     fn reads_the_deadline_of_an_emit_only() {
-        let emit = "agent hook emit --source claude --event Stop --deadline-ms 3500";
-        assert_eq!(requested(&words(emit)), Some(Duration::from_millis(3500)));
-        let inline = "agent hook emit --deadline-ms=3500 --source claude --event Stop";
-        assert_eq!(requested(&words(inline)), Some(Duration::from_millis(3500)));
-        assert_eq!(requested(&words("agent hook emit --source claude --event Stop")), None);
-        assert_eq!(requested(&words("agent hook emit --deadline-ms 0")), None);
-        assert_eq!(requested(&words("agent hook emit --deadline-ms soon")), None);
-        assert_eq!(requested(&words("agent list --deadline-ms 3500")), None);
+        for emit in [
+            "agent hook emit --source claude --event Stop --deadline-ms 3500",
+            "agent hook emit --deadline-ms=3500 --source claude --event Stop",
+            "agent --deadline-ms 3500 hook emit --source claude --event Stop",
+        ] {
+            assert_eq!(hook_emit_budget(&words(emit)).unwrap(), Some(Duration::from_millis(3500)));
+        }
+        assert_eq!(
+            hook_emit_budget(&words("agent hook emit --source claude --event Stop")).unwrap(),
+            None
+        );
+        assert!(hook_emit_budget(&words("agent hook emit --deadline-ms 0")).is_err());
+        assert!(hook_emit_budget(&words("agent hook emit --deadline-ms soon")).is_err());
+        assert_eq!(hook_emit_budget(&words("agent list --deadline-ms 3500")).unwrap(), None);
     }
 
     #[test]

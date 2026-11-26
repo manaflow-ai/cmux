@@ -137,3 +137,58 @@ fn emit_with_its_installed_deadline_answers_inside_the_hook_timeout() {
         assert!(worst <= BUDGET, "{state}: emit took {worst:?}, over {BUDGET:?}");
     }
 }
+
+/// Keep the writer open, so the real emit cannot finish reading its input.
+/// This exercises the watchdog even when the socket's own timeout is shorter
+/// than the deadline a normal installation uses.
+#[test]
+fn emit_with_stalled_input_honors_or_rejects_its_budget() {
+    use wait_timeout::ChildExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    for (budget, exit) in [("200", 0), ("soon", 2), ("0", 2)] {
+        let start = Instant::now();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .args([
+                "agent",
+                "hook",
+                "emit",
+                "--source",
+                "claude",
+                "--event",
+                "Stop",
+                "--deadline-ms",
+                budget,
+            ])
+            .env("HOME", dir.path())
+            .env("CMUX_TUI_SOCKET", dir.path().join("missing.sock"))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let _open_input = child.stdin.take().unwrap();
+        if child.wait_timeout(Duration::from_secs(5)).unwrap().is_none() {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("emit kept waiting on stdin with --deadline-ms {budget}");
+        }
+        let elapsed = start.elapsed();
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(exit), "{output:?}");
+        assert!(output.stdout.is_empty(), "{output:?}");
+        if exit == 0 {
+            eprintln!("EMIT-STALLED-INPUT budget_ms={budget} elapsed_ms={}", elapsed.as_millis());
+            assert!(
+                (Duration::from_millis(150)..Duration::from_millis(1500)).contains(&elapsed),
+                "200 ms deadline completed after {elapsed:?}"
+            );
+            assert!(output.stderr.is_empty(), "{output:?}");
+        } else {
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains("--deadline-ms"),
+                "{output:?}"
+            );
+        }
+    }
+}
