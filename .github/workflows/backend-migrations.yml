@@ -352,7 +352,7 @@ jobs:
     name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && 'backend migrations metadata edit (ignored)' || github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name) && 'backend migrations label (ignored)' || 'backend migrations applied' }}
     needs: [plan, apply-production]
     # This adds about 25 s on each real event, keeping the required check answerable without masking failures.
-    if: always() && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name))
+    if: always() && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name)) && !(needs.plan.result == 'success' && needs.plan.outputs.migrations == 'false')
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
@@ -405,3 +405,23 @@ jobs:
             echo "::error::migrations are not applied (or the database has migrations this tree lacks). Merge the base, then add the label backend:apply-migrations; merging deploys."
             exit 1
           fi
+
+  # `backend migrations applied` when the plan succeeded and found no migration change: the gate's work is then one
+  # echo (no checkout, environment, token or secret), so it needs no one-job VM and takes cmux-linux, the persistent
+  # pool, like merge-group-policy-checks.yml's bridges. gate (above) skips on exactly this answer and keeps every other
+  # one: a plan that failed, was cancelled or skipped, or found migrations to verify with the databases' secrets. Both
+  # jobs carry the same expression name, so the one that skips publishes the unevaluated expression, never the required
+  # name. 2026-11-25 21:22-21:50Z: about 126 PR heads in 20 min each queued plan and gate on cmux-gcp-gate-jit-x64; 96
+  # of the 127 queued gate-label jobs were this echo, and gate jobs waited about 14 min for a VM.
+  gate-no-change:
+    name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && 'backend migrations metadata edit (ignored)' || github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name) && 'backend migrations label (ignored)' || 'backend migrations applied' }}
+    needs: plan
+    if: ${{ !cancelled() && !(github.event.pull_request.state == 'closed' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && startsWith(github.event.label.name, 'fix-cause:')) && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name)) && needs.plan.result == 'success' && needs.plan.outputs.migrations == 'false' }}
+    # The merge-group bridges' selector (#57252): cmux-linux behind only the fleet-wide overflow switch. test_ci_fork_runner_routing.py
+    # INERT_POOL_RUNNER_LINE admits this one line only for a job with no permissions and only literal echo steps.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Plan succeeded with no migration changes
+        run: echo "no migration changes (the plan succeeded and found none), or a merge group of PRs whose gate passed"
