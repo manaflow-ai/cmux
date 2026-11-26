@@ -21,6 +21,7 @@ use prompt_sender::{app_pane_unproven, owner_terminal};
 mod presets;
 mod queued;
 mod session_open;
+mod signature;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[cfg(test)]
 #[path = "requests/hold_attach_tests.rs"]
@@ -1446,15 +1447,14 @@ async fn dispatch_request_with_identity(
             let peer = hub
                 .peer_by_name(name)
                 .ok_or_else(|| RpcError::not_found(format!("no peer {name:?}")))?;
-            if !peer.ready() {
-                return Err(peer.unreachable_error());
-            }
-            let mut answer =
-                tokio::time::timeout(std::time::Duration::from_secs(5), peer.request(m, json!({})))
-                    .await
-                    .map_err(|_| {
-                        RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
-                    })??;
+            let mut answer = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                super::peer_targeted::request(&peer, m, json!({})),
+            )
+            .await
+            .map_err(|_| {
+                RpcError::internal(format!("peer {name:?} did not report harnesses in 5 s"))
+            })??;
             answer
                 .as_object_mut()
                 .ok_or_else(|| RpcError::internal("peer did not report a harness object"))?
@@ -1996,6 +1996,8 @@ async fn dispatch_request_with_identity(
                 require_asking: crate::hub::require_asking::asked(meta),
                 credential,
                 create_key,
+                placed_by: pick("placedBy")
+                    .filter(|p| p == crate::autocloud_enroll::PLACED_BY_AUTOCLOUD),
             };
             let s = match &admitted {
                 Some(admitted) => {
@@ -2983,6 +2985,9 @@ async fn dispatch_request_with_identity(
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
+        super::autocloud_enroll::METHOD => {
+            super::autocloud_enroll::handle(hub, conn, &params).await
+        }
         super::host_notice::METHOD => super::host_notice::handle(hub, conn, &params).await,
         // This daemon's copy of a peer session's events (`hub/peer_snapshot.rs`): transcripts
         // this machine's clients read, so for the app and the unix socket only.
@@ -3283,6 +3288,8 @@ async fn dispatch_request_with_identity(
         }
         // Read-only and the same for every origin, like `_acpmux/schema`.
         method::MUX_PROTOCOL => Ok(crate::protocol::served().clone()),
+        // A pure function of the ids asked, the same for every origin (`requests/signature.rs`).
+        method::SESSION_SIGNATURE => signature::handle(params),
         method::MUX_HISTORY => {
             let s = hub.resolve(session_key(&params)?)?;
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
@@ -3434,6 +3441,9 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
+        }
+        method::MUX_HARNESS_DISABLE => {
+            super::harness_enable::disable(hub, conn.origin, &params).await
         }
         name if super::agent_login::METHODS.contains(&name) => {
             super::agent_login::handle(hub, conn, name, &params).await
@@ -3918,6 +3928,7 @@ async fn dispatch_request_with_identity(
             }
             Ok(done)
         }
+        method::MUX_ROOMS => view::rooms(hub, conn, &params),
         method::MUX_TYPING => {
             let done = view::typing(hub, conn, &params)?;
             // A person typing into a hibernated chat wakes its agent now (`hub/idle.rs`).

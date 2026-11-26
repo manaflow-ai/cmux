@@ -50,6 +50,8 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var paneSeparation: PaneSeparation = .borders
     /// The focus ring (`focusRing.*`). Drawn in the overlay plane only.
     public var focusRing = FocusRingSettings()
+    /// The theme's glow around the focused pane (`appearance.accentGlow.*`); nil draws none.
+    public var accentGlow: ThemeFlourishes.Glow?
     /// The attention ring of panes with an unread notification
     /// (`notifications.attention.*`).
     public var attention = AttentionSettings()
@@ -133,6 +135,7 @@ extension LayoutStyle {
         style.drawsLines = Borders.drawsLines
         style.paneSeparation = Metrics.paneSeparation
         style.focusRing = DesignSettings.shared.focusRing
+        style.accentGlow = DesignSettings.shared.flourishes.accentGlow
         style.focusIndicator = DesignSettings.shared.effectiveFocusIndicator
         style.inactiveTabStyle = DesignSettings.shared.effectiveInactiveTabStyle
         style.inactiveTabStrength = FocusIndicatorTunables.inactiveTabStrength.value
