@@ -7,6 +7,7 @@ import SwiftUI
 /// linked Mac's Allow (``MacPairRequests``), newest Mac's last.
 struct PairRequestsOverlay: View {
     let requests: MacPairRequests
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // Up to eight cards per Mac, with large text: they scroll within the screen instead of
@@ -31,12 +32,13 @@ struct PairRequestsOverlay: View {
                     onAllow: { requests.answer(card, allow: true) },
                     onDeny: { requests.answer(card, allow: false) }
                 )
-                .transition(.move(edge: .top).combined(with: .opacity))
+                // Reduce Motion: the card crossfades in place instead of sliding from the top.
+                .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
             }
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
-        .animation(.snappy, value: requests.cards.map(\.id))
+        .animation(reduceMotion ? .easeOut(duration: 0.2) : .snappy, value: requests.cards.map(\.id))
     }
 }
 #endif

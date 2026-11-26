@@ -35,8 +35,10 @@ WEB_SITE = re.compile(r"""\.animate\(\s*[\[{]|behavior:\s*["']smooth["']""")
 WEB_GATE = re.compile(r"prefers-reduced-motion|isAgentMotionOff|cmuxMotion|agentMotion|data-cmux-motion|"
                       r"data-agent-motion|reducedMotion|motionOff|"
                       # The shared helpers that read it: ui/motion/motionMode.ts, conversation/fold.ts,
-                      # session-info/foldMotion.ts, composer/SendSlotGlyph.tsx.
-                      r"\bmotionMode\(|\bfoldMs\(|\bfoldMoves\(|\bmotionAllowed\(", re.I)
+                      # session-info/foldMotion.ts, composer/SendSlotGlyph.tsx, and apps/scene/motionProps.ts
+                      # (sceneMotionEnv reads motionMode; sceneTiming is null unless it is "full").
+                      r"\bmotionMode\(|\bfoldMs\(|\bfoldMoves\(|\bmotionAllowed\(|\bsceneMotionEnv\(|"
+                      r"\bsceneTiming\(", re.I)
 # The NEXT iPhone app (cmux-next-ios, its home is CmuxMobileHome) and the shared packages it builds on. The classic
 # iOS app (ios/) is frozen: no change may land there, so counting it would keep the goal from ever reading 0.
 IOS_DIRS = ("cmux-next-ios", "Packages/iOS")

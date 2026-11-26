@@ -13,6 +13,7 @@ import { VirtualTranscript } from "../App";
 import { FIELD_GROWTH_EVENT, type FieldGrowthDetail } from "../composer/fieldGrowthEvent";
 import type { AcpmuxRow } from "../model";
 import { MOTION_MS, MOTION_SETTLE } from "../../../motion/scale.generated";
+import { motionMode } from "../../../ui/motion/motionMode";
 import { REPLY } from "./streamingTextFixture";
 import {
   CARD_DRAFT,
@@ -133,6 +134,11 @@ function growField(root: ParentNode, lines: number) {
   if (!field) return;
   const from = field.getBoundingClientRect().height;
   const to = from + lines * LINE;
+  // Reduce Motion and motion off land the height in the frame, as fieldGrowth.ts does: no motion to tell.
+  if (motionMode(field.ownerDocument, field) !== "full") {
+    field.style.height = `${to}px`;
+    return;
+  }
   const duration = MOTION_MS.standard;
   const animation = field.animate([{ height: `${from}px` }, { height: `${to}px` }], {
     duration,
