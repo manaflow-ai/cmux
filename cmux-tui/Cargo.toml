@@ -69,6 +69,7 @@ members = [
     "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-intent",
     "crates/cmux-local-url",
     "crates/cmux-journal",
     "crates/cmux-session-pack",
@@ -155,6 +156,7 @@ members = [
     "crates/cmux-interactivity",
     "crates/cmux-wallpaper",
     "crates/cmux-config",
+    "crates/cmux-home-rules",
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
@@ -257,6 +259,7 @@ default-members = [
     "crates/cmux-agent-customize",
     "crates/cmux-tui-util",
     "crates/cmux-json",
+    "crates/cmux-intent",
     "crates/cmux-local-url",
     "crates/cmux-journal",
     "crates/cmux-api-compat",
@@ -326,6 +329,7 @@ default-members = [
     "crates/cmux-interactivity",
     "crates/cmux-wallpaper",
     "crates/cmux-config",
+    "crates/cmux-home-rules",
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
@@ -516,6 +520,7 @@ cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-stack-auth = { path = "crates/cmux-stack-auth" }
 cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
 cmux-config = { path = "crates/cmux-config" }
+cmux-home-rules = { path = "crates/cmux-home-rules" }
 cmux-customize = { path = "crates/cmux-customize" }
 cmux-customize-recipes = { path = "crates/cmux-customize-recipes" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }
@@ -526,6 +531,7 @@ cmux-agent-customize = { path = "crates/cmux-agent-customize" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-terminal-host-protocol = { path = "crates/cmux-terminal-host-protocol" }
 cmux-json = { path = "crates/cmux-json" }
+cmux-intent = { path = "crates/cmux-intent" }
 cmux-embed = { path = "crates/cmux-embed" }
 cmux-local-url = { path = "crates/cmux-local-url" }
 cmux-journal = { path = "crates/cmux-journal" }
