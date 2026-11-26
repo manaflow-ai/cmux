@@ -5157,6 +5157,7 @@ dependencies = [
  "ghostty-vt-sys",
  "memchr",
  "png",
+ "simdutf8",
 ]
 
 [[package]]

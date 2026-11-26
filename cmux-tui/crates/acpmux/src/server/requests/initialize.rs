@@ -83,6 +83,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_MESH_CONTROL,
     method::MUX_NATIVE_HISTORY,
     method::MUX_PAUSE,
+    method::MUX_PAUSED_FILES,
     method::MUX_PERF,
     method::MUX_PERMISSION_RESPOND,
     method::MUX_PIN,
