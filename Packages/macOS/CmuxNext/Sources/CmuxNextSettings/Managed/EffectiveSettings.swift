@@ -60,7 +60,7 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
     /// set catalog settings (never a whole object, shortcuts or custom actions).
     public static func merge(file: JSONValue, managed: ManagedPreferences, team: TeamPolicyLayer) -> EffectiveSettings {
         let team = team.limitedToCatalog()
-        let reply = SettingsRust().answer("effective.merge", [
+        let reply = SettingsRust.answer("effective.merge", [
             "file": file,
             "managed": ["forced": .object(managed.forced), "recommended": .object(managed.recommended)],
             "team": ["teamName": .string(team.teamName), "defaults": .object(team.defaults), "enforced": .object(team.enforced)],

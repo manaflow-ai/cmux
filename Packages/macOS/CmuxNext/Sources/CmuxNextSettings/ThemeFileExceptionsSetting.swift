@@ -16,7 +16,7 @@ public nonisolated struct ThemeFileExceptionsSetting: Sendable {
     /// (``unexceptionable``), are ignored: a hand-written `"appearance"` must not switch the whole
     /// file off. Rust answers (`theme.exceptions`).
     public static func keys(in root: JSONValue) -> Set<String> {
-        Set(SettingsRust().answer("theme.exceptions", .object(["root": root]))["keys"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+        Set(SettingsRust.answer("theme.exceptions", .object(["root": root]))["keys"]?.arrayValue?.compactMap(\.stringValue) ?? [])
     }
 
     /// The list edit for writing `writes` (dotted key, whether the write sets a value) while `overlay`
@@ -32,7 +32,7 @@ public nonisolated struct ThemeFileExceptionsSetting: Sendable {
             "writes": .array(writes.map { .object(["key": .string($0.key), "sets": .bool($0.sets)]) }),
         ]
         if let overlay { request["file_keys"] = .array(overlay.values.map { .string($0.path.joined(separator: ".")) }) }
-        let reply = SettingsRust().answer("theme.exception_edit", .object(request))
+        let reply = SettingsRust.answer("theme.exception_edit", .object(request))
         guard reply["change"]?.boolValue == true, let value = reply["value"] else { return nil }
         if case .null = value { return .some(nil) }
         return .some(value)

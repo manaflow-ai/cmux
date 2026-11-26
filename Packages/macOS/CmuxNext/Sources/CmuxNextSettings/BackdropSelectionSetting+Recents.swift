@@ -1,54 +1,46 @@
-public import Foundation
-import CmuxNextDesign
+public import CmuxNextDesign
+import Foundation
 
-/// `appearance.backgroundRecents` (schemas/settings/source/appearance.json): the backgrounds shown
-/// before, newest first. The daemon's settings write records it (cmux-config schema/backdrop.rs
-/// record_recent); the app only validates and reads it.
-extension BackdropSelectionSetting {
-    /// At most this many recents (cmux-config RECENTS_CAP).
-    public static let recentsCap = 8
+/// `appearance.backgroundPlacement`: picture id to where that picture lies (``BackdropPlacement``;
+/// Rust `cmux-config` `backdrop_placement` is the spec). Unset, and any picture without an entry,
+/// is today's centered fill. Adjust Background… and the Settings page's Background preview write it.
+public struct BackdropPlacementSetting: Sendable {
+    public init() {}
 
-    /// Whether a value is valid for `appearance.backgroundRecents`: an array of at most
-    /// ``recentsCap`` different background values.
-    static func acceptsRecents(_ value: JSONValue) -> Bool {
-        SettingsRust().answer("backdrop.accepts", ["kind": .string("recents"), "value": value])["valid"]?.boolValue ?? false
-    }
-
-    /// The valid recents in `root`, newest first.
-    public static func recents(in root: JSONValue) -> [String] {
-        SettingsRust().answer("backdrop.recents", ["root": root])["recents"]?.arrayValue?.compactMap(\.stringValue) ?? []
-    }
-
-    /// The background Switch to Previous Background goes to: the newest recent that is not the
-    /// current one (cmux-config previous_background).
-    public static func previous(in root: JSONValue) -> String? {
-        SettingsRust().answer("backdrop.previous", ["root": root])["value"]?.stringValue
-    }
-}
-
-/// How Recent Backgrounds… and the window menu name one recent background.
-public nonisolated struct BackdropRecentLabel: Sendable, Hashable {
-    public let value: String
-    public let title: String
-    /// An SF Symbol: a folder for a rotating folder, a shuffle for the paintings, a photo otherwise.
-    public let symbol: String
-}
-
-extension BackdropSelectionSetting {
-    /// A recent's row: a rotating folder by its folder's name, a picture or mode by the title the
-    /// Background setting gives it (None, Shuffle Paintings, a painting, your own image by name).
-    public static func recentLabel(_ raw: String) -> BackdropRecentLabel {
-        if let path = folderPath(raw) {
-            return BackdropRecentLabel(value: raw, title: (path as NSString).lastPathComponent, symbol: "folder")
+    /// The placements by picture id; a value that is not a map of placement texts is none plus a
+    /// diagnostic, and so is each entry that does not read (the others still apply).
+    public static func parse(_ root: JSONValue, diagnostics: inout [SettingsDiagnostic]) -> [String: BackdropPlacement] {
+        guard let value = root.value(at: placementPath) else { return [:] }
+        guard let members = value.objectValue else {
+            diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.backgroundPlacement",
+                                                  message: "expected an object of picture ids to placements, such as {\"munch-scream\": \"fit\"}"))
+            return [:]
         }
-        let title = SettingsSchema.descriptor(for: configPath)?
-            .paletteOptions(current: .string(raw), themeColors: []).first(where: \.isCurrent)?.title
-        let symbol = switch raw {
-        case dailyID: "shuffle"
-        case "none": "circle.slash"
-        case BackdropSelection.desktopID: "desktopcomputer"
-        default: "photo"
+        var out: [String: BackdropPlacement] = [:]
+        for (id, entry) in members {
+            let reply = SettingsRust.answer("backdrop.placement", ["action": .string("parse"), "text": entry.stringValue.map(JSONValue.string) ?? .null])
+            if !id.trimmingCharacters(in: .whitespaces).isEmpty, let text = reply["value"]?.stringValue,
+               let placement = BackdropPlacement(text: text) {
+                out[id] = placement
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.backgroundPlacement.\(id)",
+                                                      message: "expected fill, fit, center or stretch, then optionally X Y (0 to 1) and a zoom (1 to 4)"))
+            }
         }
-        return BackdropRecentLabel(value: raw, title: title ?? raw, symbol: symbol)
+        return out
+    }
+
+    /// Whether `value` loads with no diagnostic (Rust `is_placement_map`).
+    static func accepts(_ value: JSONValue) -> Bool {
+        SettingsRust.answer("backdrop.placement", ["action": .string("accepts"), "value": value])["valid"]?.boolValue ?? false
+    }
+
+    /// The whole map with `id` set to `placement` (removed for a centered fill, so Reset leaves
+    /// no entry), as the file's value; nil when nothing is left.
+    public static func value(_ current: [String: BackdropPlacement], setting id: String, to placement: BackdropPlacement) -> JSONValue? {
+        var next = current
+        next[id] = placement.isCenteredFill ? nil : placement
+        guard !next.isEmpty else { return nil }
+        return .object(next.mapValues { .string($0.text) })
     }
 }

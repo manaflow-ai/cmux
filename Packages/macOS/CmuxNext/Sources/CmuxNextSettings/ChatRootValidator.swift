@@ -42,12 +42,12 @@ public nonisolated struct ChatRootValidator: Sendable {
         var request = request
         var links: [String: JSONValue] = [:]
         request["links"] = .object(links)
-        var reply = SettingsRust().answer(op, .object(request))
+        var reply = SettingsRust.answer(op, .object(request))
         // Each turn answers a folder not yet asked about, so the walk ends.
         while let need = reply["need"]?.stringValue, links[need] == nil {
             links[need] = readLink(need).map(JSONValue.string) ?? .null
             request["links"] = .object(links)
-            reply = SettingsRust().answer(op, .object(request))
+            reply = SettingsRust.answer(op, .object(request))
         }
         return reply
     }
