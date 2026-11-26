@@ -24,7 +24,7 @@
 #          [--app-id <ASC app id>] [--bundle-id <id>] [--app-name <ASC record name>]
 #          [--what-to-test <text>]
 #
-#   --ref                 commit to build (default HEAD); the source is `git archive` of it
+#   --ref                 commit to build (default HEAD); build only source recorded at this commit
 #   --marketing-version   CFBundleShortVersionString (default: project.yml MARKETING_VERSION, the
 #                         configuration's own when it sets one); must be >= every version
 #                         already uploaded to the app record
@@ -436,7 +436,18 @@ log "cmux-next-ios $config archive $sha -> $out"
 # --- Source (the commit only) ----------------------------------------------
 paths=(cmux-next-ios Packages vendor/stack-auth-swift-sdk-prerelease AppIcon.icon
        cmux-tui schemas backend/catalog backend/packages plans/cmux-next skills mux samples)
-git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+if [[ ${CMUX_INTERNAL_SPARSE_ARCHIVE:-0} == 1 ]]; then
+  # git archive can prefetch excluded blobs in a partial clone. Materialize
+  # the tracked build inputs from this commit, even if the worktree is dirty.
+  (
+    export GIT_INDEX_FILE="$private/source.index"
+    git -C "$repo" -c core.sparseCheckout=false read-tree "$sha"
+    git -C "$repo" ls-files --error-unmatch -z -- "${paths[@]}" ':(exclude)cmux-next-ios/verify' |
+      git -C "$repo" checkout-index --prefix="$work/src/" -z --stdin
+  )
+else
+  git -C "$repo" archive --format=tar "$sha" "${paths[@]}" | tar -x -C "$work/src"
+fi
 
 # --- CmuxMobileLinkFFI.xcframework (gitignored; same cache key as demo-build.sh) ------
 key=$(printf '%s\n' "$(git -C "$repo" rev-parse "$sha:cmux-next-ios/rust")" \
@@ -482,6 +493,26 @@ else
          CMUX_MOBILE_SERVICE_EXTENSION_PROFILE="$svc_profile_uuid"
          CMUX_MOBILE_ASSOCIATED_DOMAINS="$associated_domains")
 fi
+# Swift packages: resolve on their own, with bounded backoff, then archive with
+# no package fetch. On 11-26 GitHub answered a fleet Mac's clones of
+# apple/swift-asn1 and swift-crypto with 403 (runs 45733165601, 45752138226),
+# so the archive failed after its 65 min xcframework build. A 403 or 429 there
+# refuses the machine's address for a while; it says nothing about the commit.
+log "swift packages: resolve"
+resolve_waits=(0 60 180 300)
+for i in "${!resolve_waits[@]}"; do
+  [[ ${resolve_waits[$i]} == 0 ]] || { echo "swift packages: GitHub refused the fetch; trying again in ${resolve_waits[$i]} s"; sleep "${resolve_waits[$i]}"; }
+  if xcodebuild -resolvePackageDependencies -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+       -clonedSourcePackagesDirPath "$cache/spm" > "$out/logs/resolve.log" 2>&1; then
+    break
+  fi
+  if ! grep -Eq "returned error: (403|429|5[0-9][0-9])|badResponseStatusCode\((403|429|5[0-9][0-9])\)|Could not resolve host|Connection (reset|refused|timed out)" "$out/logs/resolve.log" \
+     || (( i == ${#resolve_waits[@]} - 1 )); then
+    grep -E "error:|fatal:" "$out/logs/resolve.log" | sort -u | head -20
+    die "swift package resolve failed (logs/resolve.log)"
+  fi
+done
+args+=(-disableAutomaticPackageResolution)
 log "xcodebuild archive"
 xcodebuild archive "${args[@]}" > "$out/logs/archive.log" 2>&1 \
   || { grep -E "error:|ARCHIVE FAILED" "$out/logs/archive.log" | sort -u | head -20; die "archive failed (logs/archive.log)"; }

@@ -87,6 +87,7 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             vm_boundary: AtomicBool::new(false),
+            group_override: StdMutex::new(None),
             wake_hook: std::sync::OnceLock::new(),
             github_broker: AtomicBool::new(false),
             github_slots: crate::github_broker::owner_slots(name),
@@ -365,7 +366,7 @@ impl Peer {
         if self.stop.load(Ordering::SeqCst) {
             return Err("peer stopped".to_owned());
         }
-        let (child, stream, _, errors) = self.spawn_tunnel()?;
+        let (child, stream, _, errors) = self.spawn_tunnel().await?;
         // Replacing the previous channel ends its ssh process.
         *tunnel = Some(child);
         if self.stop.load(Ordering::SeqCst) {
@@ -380,7 +381,7 @@ impl Peer {
     /// Spawn an `ssh -W` stdio channel to the peer's WebSocket port, owned by the caller (it
     /// ends when dropped). `open_tunnel` keeps the link's in `tunnel`; a path probe keeps its own.
     #[allow(clippy::type_complexity)]
-    pub(super) fn spawn_tunnel(
+    pub(super) async fn spawn_tunnel(
         &self,
     ) -> Result<
         (
@@ -392,18 +393,21 @@ impl Peer {
         String,
     > {
         let (host, remote_port) = self.ssh_parts().ok_or_else(|| "not an ssh peer".to_owned())?;
-        let mut child = self
-            .ssh_command()
+        let mut command = self.ssh_command();
+        command
             .args(tunnel_argv(&host, remote_port, self.ssh_connect_secs()))
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| format!("spawn ssh: {e}"))?;
+            .kill_on_drop(true);
+        let login = self.begin_ssh_login(&command).await.map_err(|e| format!("spawn ssh: {e}"))?;
+        let mut child = command.spawn().map_err(|e| format!("spawn ssh: {e}"))?;
         let errors = ssh_errors::Capture::start(child.stderr.take());
         let stdout = child.stdout.take().ok_or_else(|| "ssh stdout".to_owned())?;
         let stdin = child.stdin.take().ok_or_else(|| "ssh stdin".to_owned())?;
+        if let Some(login) = login {
+            login.wait(self, &mut child).await.map_err(|e| format!("spawn ssh: {e}"))?;
+        }
         Ok((child, tokio::io::join(stdout, stdin), remote_port, errors))
     }
 
@@ -444,16 +448,20 @@ impl Peer {
         if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
             return Ok((t.clone(), Some(p.clone())));
         }
-        let mut child = self
-            .ssh_command()
+        let mut command = self.ssh_command();
+        command
             .args(read_config_argv(&host, self.ssh_connect_secs()))
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| format!("read remote config: {e}"))?;
+            .kill_on_drop(true);
+        let login =
+            self.begin_ssh_login(&command).await.map_err(|e| format!("read remote config: {e}"))?;
+        let mut child = command.spawn().map_err(|e| format!("read remote config: {e}"))?;
         let errors = ssh_errors::Capture::start(child.stderr.take());
+        if let Some(login) = login {
+            login.wait(self, &mut child).await.map_err(|e| format!("read remote config: {e}"))?;
+        }
         let read = tokio::time::timeout(self.timings.connect, child.wait_with_output());
         // A stop ends the read (its ssh is killed on drop), so no tunnel follows it.
         let out = tokio::select! {
@@ -619,6 +627,15 @@ impl Peer {
         self.vm_boundary.store(on, Ordering::SeqCst);
     }
 
+    /// From its config (`Hub::spawn_peer`, a reload): the person's own `group` for this machine.
+    pub fn set_group_override(&self, group: Option<String>) {
+        *self.group_override.lock().unwrap_or_else(|e| e.into_inner()) = group;
+    }
+
+    pub fn group_override(&self) -> Option<String> {
+        self.group_override.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// Whether this caller opts its remote chains on the peer out of the sandbox.
     pub fn vm_boundary(&self) -> bool {
         self.vm_boundary.load(Ordering::SeqCst)
@@ -628,6 +645,7 @@ impl Peer {
     /// GitHub login. Read again for each action, so turning it off holds at once.
     pub fn set_github_broker(&self, on: bool) {
         self.github_broker.store(on, Ordering::SeqCst);
+        self.demand_changed();
         if !on {
             self.github_revoked.notify_waiters();
         }
@@ -783,10 +801,12 @@ impl Peer {
             "lastSeen": link.last_seen,
             "downSince": link.down_since,
             "parked": link.parked(crate::store::now_ms()),
+            "agentLogin": self.lists(crate::agent_login::FEATURE),
             "attempts": link.attempts,
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            "received": self.received.split(),
         })
     }
 
