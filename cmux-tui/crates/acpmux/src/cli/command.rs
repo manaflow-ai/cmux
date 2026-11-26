@@ -1158,6 +1158,10 @@ pub enum Command {
     #[command(hide = true)]
     Retention(RetentionArgs),
     #[command(hide = true)]
+    HistoryDelete(HistoryDeleteArgs),
+    #[command(hide = true)]
+    HistoryOffload(HistoryOffloadArgs),
+    #[command(hide = true)]
     Status {
         #[arg(long)]
         show_token: bool,
@@ -1478,6 +1482,13 @@ pub enum DaemonCmd {
     /// Compact the event logs of chats closed for longer than `store.closedLogDays` (default
     /// 14): their raw harness lines and long tool output go, their messages stay.
     Retention(RetentionArgs),
+    /// Delete the history of chats unchanged for longer than `agents.chats.deleteHistoryAfterDays`
+    /// (or --older-than-days): closed or archived, not pinned, nothing using them. --dry-run
+    /// previews them; --export copies each one first.
+    HistoryDelete(HistoryDeleteArgs),
+    /// Move old cold-archived chats to cloud history (`agents.chats.cloudOffload`), keeping a stub
+    /// that fetches them back on open. --dry-run lists them.
+    HistoryOffload(HistoryOffloadArgs),
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
     /// Every model id each harness declares or reports (`provider/model` for OpenCode and pi).
@@ -1508,6 +1519,30 @@ pub struct RetentionArgs {
     /// the old segments stay there.
     #[arg(long)]
     pub unread_only: bool,
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct HistoryDeleteArgs {
+    /// Only list the chats a pass would delete, with their size; delete nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Chats unchanged for longer than this many days, instead of the setting.
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
+    /// Copy each chat's folder to `<folder>/<chat id>/` before it is deleted; a chat whose copy
+    /// fails is kept.
+    #[arg(long)]
+    pub export: Option<PathBuf>,
+}
+
+#[derive(Args, Clone, Debug)]
+pub struct HistoryOffloadArgs {
+    /// Only list the chats a pass would offload.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Chats unchanged for longer than this many days, instead of the setting (default 14).
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
 }
 
 /// `session stop`'s condition (`hub/stop_if_idle.rs`). Not with `--mesh`: the mesh hub's stop
@@ -1682,6 +1717,8 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Harnesses => Command::Harnesses,
             DaemonCmd::Reload => Command::Reload,
             DaemonCmd::Retention(args) => Command::Retention(args),
+            DaemonCmd::HistoryDelete(args) => Command::HistoryDelete(args),
+            DaemonCmd::HistoryOffload(args) => Command::HistoryOffload(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },

@@ -97,6 +97,7 @@ pub mod drag_handle;
 pub mod focus;
 mod imessage;
 pub mod input;
+mod pane_focus;
 pub mod keychain;
 mod screen;
 pub mod scroll;
@@ -610,6 +611,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cloud_hybrid::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
+            operation if pane_focus::handles(operation) => pane_focus::respond(request)?,
             operation if cloud_sequence::handles(operation) => {
                 cloud_sequence::respond(operation, request)?
             }
