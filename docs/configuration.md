@@ -404,6 +404,18 @@ Off by default: hovering or scrolling over a pane leaves keyboard focus where yo
 
 With it on, focus still stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, while a mouse button is held, within a second of typing, and over a window that is not active. A pointer that stays inside one pane does not undo a keyboard move to another pane. Change it in **Settings > General > Columns**, with **Focus Follows Mouse** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.focusFollowsMouse true`. It replaces `layout.focusPaneOnScroll`, which was on by default.
 
+## `layout.fadeInactivePanes`
+
+Off by default. Turn it on to fade every pane except the one you are working in: when focus moves to another pane, the pane you left fades under a light veil of the pane color, and the pane you moved to fades back to full strength. With one pane on screen nothing fades.
+
+```json
+{
+  "layout": { "fadeInactivePanes": true }
+}
+```
+
+The fade's strength is the theme's inactive-pane dim (Debug Settings: `panes.inactiveDimming`); a Ghostty `unfocused-split-opacity` you set still wins. Change it in **Settings > General > Scrolling and Focus**, with **Fade Inactive Panes** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.fadeInactivePanes true`.
+
 ## `layout.scrollAreas`
 
 Side-by-side panes that do not fit scroll sideways instead of shrinking below **Minimum Pane Width** (`layout.minimumPaneWidth`). This works in docked columns, in columns of the strip and on a screen without columns.
