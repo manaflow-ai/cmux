@@ -115,6 +115,41 @@ public final class BrowserSingleSignOnNavigationGate {
         admitWaitersWhileFree()
     }
 
+    /// A main-frame navigation WebKit has asked about and that is not decided yet.
+    ///
+    /// Only its identity matters: ``begin(owner:)`` hands one out and
+    /// ``admit(_:url:admission:)`` takes it back.
+    @MainActor
+    public final class UndecidedNavigation {
+        fileprivate weak var owner: AnyObject?
+
+        fileprivate init(owner: AnyObject) {
+            self.owner = owner
+        }
+    }
+
+    /// Records that WebKit asked about a main-frame navigation of the owner.
+    ///
+    /// - Parameter owner: The web view the navigation belongs to. Held weakly.
+    /// - Returns: The navigation, to pass to ``admit(_:url:admission:)``.
+    public func begin(owner: AnyObject) -> UndecidedNavigation {
+        UndecidedNavigation(owner: owner)
+    }
+
+    /// Runs `admission` now, or once every earlier owner's navigation has an outcome.
+    ///
+    /// - Parameters:
+    ///   - navigation: The navigation ``begin(owner:)`` returned.
+    ///   - url: Its destination.
+    ///   - admission: Called at most once with the decision to apply.
+    public func admit(_ navigation: UndecidedNavigation, url: URL?, admission: @escaping Admission) {
+        guard let owner = navigation.owner else {
+            _ = admission(false)
+            return
+        }
+        admit(url: url, owner: owner, admission: admission)
+    }
+
     /// Records that the owner's navigation has an outcome: it started
     /// loading, committed, failed or stopped.
     ///

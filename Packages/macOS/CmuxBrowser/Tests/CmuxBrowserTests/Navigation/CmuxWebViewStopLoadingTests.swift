@@ -23,6 +23,31 @@ struct CmuxWebViewStopLoadingTests {
         #expect(webView.stopLoadingCount > 1)
     }
 
+    @Test func eitherStopCancelsTheNavigationStillAwaitingItsDecision() {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let webView = CmuxWebView(frame: .zero, configuration: configuration, host: Host())
+        let gate = configuration.websiteDataStore.singleSignOnNavigationGate
+        var decisions: [Bool] = []
+        let decide: BrowserSingleSignOnNavigationGate.Admission = { admitted in
+            decisions.append(admitted)
+            return false
+        }
+
+        gate.admit(gate.begin(owner: webView), url: nil, admission: decide)
+
+        let stopped = gate.begin(owner: webView)
+        webView.stopLoading()
+        gate.admit(stopped, url: nil, admission: decide)
+
+        // The menu action is its own entry into WebKit, not a call to the first.
+        let stoppedFromMenu = gate.begin(owner: webView)
+        webView.stopLoading(nil)
+        gate.admit(stoppedFromMenu, url: nil, admission: decide)
+
+        #expect(decisions == [true, false, false])
+    }
+
     private final class Host: CmuxWebViewHost {
         private final class KeyRouter: CmuxWebViewNavigationKeyRouting {
             func reset() {}

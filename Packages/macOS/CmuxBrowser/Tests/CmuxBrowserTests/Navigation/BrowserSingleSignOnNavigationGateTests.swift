@@ -31,14 +31,24 @@ struct BrowserSingleSignOnNavigationGateTests {
         BrowserSingleSignOnNavigationGate { $0.host == "login.example.com" }
     }
 
+    /// WebKit asks about a navigation and its delegate takes it straight to the gate.
+    private func navigate(
+        _ gate: BrowserSingleSignOnNavigationGate,
+        to url: URL?,
+        in owner: AnyObject,
+        admission: @escaping BrowserSingleSignOnNavigationGate.Admission
+    ) {
+        gate.admit(gate.begin(owner: owner), url: url, admission: admission)
+    }
+
     @Test func secondWebViewWaitsUntilTheFirstNavigationHasAnOutcome() {
         let gate = makeGate()
         let journal = Journal()
         let first = WebView()
         let second = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
         #expect(journal.decisions == ["first:allow"])
 
         gate.resolve(first)
@@ -51,7 +61,7 @@ struct BrowserSingleSignOnNavigationGateTests {
         let webViews = [WebView(), WebView(), WebView()]
 
         for (index, webView) in webViews.enumerated() {
-            gate.admit(url: signInURL, owner: webView, admission: journal.admission("\(index)"))
+            navigate(gate, to: signInURL, in: webView, admission: journal.admission("\(index)"))
         }
         #expect(journal.decisions == ["0:allow"])
 
@@ -68,8 +78,8 @@ struct BrowserSingleSignOnNavigationGateTests {
         let first = WebView()
         let second = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
         gate.resolve(second)
 
         #expect(journal.decisions == ["first:allow"])
@@ -81,9 +91,9 @@ struct BrowserSingleSignOnNavigationGateTests {
         let first = WebView()
         let second = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: plainURL, owner: second, admission: journal.admission("plain"))
-        gate.admit(url: nil, owner: second, admission: journal.admission("none"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: plainURL, in: second, admission: journal.admission("plain"))
+        navigate(gate, to: nil, in: second, admission: journal.admission("none"))
 
         #expect(journal.decisions == ["first:allow", "plain:allow", "none:allow"])
     }
@@ -98,8 +108,8 @@ struct BrowserSingleSignOnNavigationGateTests {
         let second = WebView()
         let fileURL = URL(fileURLWithPath: "/tmp/login.example.com.html")
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: fileURL, owner: second, admission: journal.admission("file"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: fileURL, in: second, admission: journal.admission("file"))
 
         #expect(journal.decisions == ["first:allow", "file:allow"])
         #expect(journal.checkedURLs == [signInURL])
@@ -111,9 +121,9 @@ struct BrowserSingleSignOnNavigationGateTests {
         let first = WebView()
         let second = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first-result"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first-result"))
         #expect(journal.decisions == ["first:allow", "first-result:allow"])
 
         gate.resolve(first)
@@ -127,9 +137,9 @@ struct BrowserSingleSignOnNavigationGateTests {
         let second = WebView()
         let third = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first", stillInFlight: false))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
-        gate.admit(url: signInURL, owner: third, admission: journal.admission("third"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first", stillInFlight: false))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: third, admission: journal.admission("third"))
 
         #expect(journal.decisions == ["first:allow", "second:allow"])
     }
@@ -141,9 +151,9 @@ struct BrowserSingleSignOnNavigationGateTests {
         let second = WebView()
         let third = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
-        gate.admit(url: signInURL, owner: third, admission: journal.admission("third"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: third, admission: journal.admission("third"))
         gate.abandon(second)
         #expect(journal.decisions == ["first:allow", "second:cancel"])
 
@@ -157,8 +167,8 @@ struct BrowserSingleSignOnNavigationGateTests {
         let first = WebView()
         let second = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
         gate.abandon(first)
 
         #expect(journal.decisions == ["first:allow", "second:allow"])
@@ -171,10 +181,10 @@ struct BrowserSingleSignOnNavigationGateTests {
         let second = WebView()
         let third = WebView()
 
-        gate.admit(url: signInURL, owner: first!, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: first!, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
         first = nil
-        gate.admit(url: signInURL, owner: third, admission: journal.admission("third"))
+        navigate(gate, to: signInURL, in: third, admission: journal.admission("third"))
         #expect(journal.decisions == ["first:allow", "second:allow"])
 
         gate.resolve(second)
@@ -188,9 +198,9 @@ struct BrowserSingleSignOnNavigationGateTests {
         var second: WebView? = WebView()
         let third = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second!, admission: journal.admission("second"))
-        gate.admit(url: signInURL, owner: third, admission: journal.admission("third"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second!, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: third, admission: journal.admission("third"))
         second = nil
         gate.resolve(first)
 
@@ -204,10 +214,10 @@ struct BrowserSingleSignOnNavigationGateTests {
         let second = WebView()
         let third = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
-        gate.admit(url: signInURL, owner: third, admission: journal.admission("third"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second-reload"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: third, admission: journal.admission("third"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second-reload"))
         #expect(journal.decisions == ["first:allow", "second:cancel"])
 
         gate.resolve(first)
@@ -223,9 +233,9 @@ struct BrowserSingleSignOnNavigationGateTests {
         let first = WebView()
         let second = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
-        gate.admit(url: plainURL, owner: second, admission: journal.admission("second-elsewhere"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
+        navigate(gate, to: plainURL, in: second, admission: journal.admission("second-elsewhere"))
         #expect(journal.decisions == ["first:allow", "second:cancel", "second-elsewhere:allow"])
 
         gate.resolve(first)
@@ -239,9 +249,9 @@ struct BrowserSingleSignOnNavigationGateTests {
         let second = WebView()
         let third = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second", stillInFlight: false))
-        gate.admit(url: signInURL, owner: third, admission: journal.admission("third"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second", stillInFlight: false))
+        navigate(gate, to: signInURL, in: third, admission: journal.admission("third"))
         gate.resolve(first)
 
         #expect(journal.decisions == ["first:allow", "second:allow", "third:allow"])
@@ -253,9 +263,9 @@ struct BrowserSingleSignOnNavigationGateTests {
         let first = WebView()
         let second = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first-result", stillInFlight: false))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first-result", stillInFlight: false))
 
         #expect(journal.decisions == ["first:allow", "first-result:allow", "second:allow"])
     }
@@ -268,14 +278,14 @@ struct BrowserSingleSignOnNavigationGateTests {
         let third = WebView()
         let fourth = WebView()
 
-        gate.admit(url: signInURL, owner: first, admission: journal.admission("first"))
-        gate.admit(url: signInURL, owner: second) { admitted in
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second) { admitted in
             journal.decisions.append("second:\(admitted ? "allow" : "cancel")")
             gate.resolve(second)
             return false
         }
-        gate.admit(url: signInURL, owner: third, admission: journal.admission("third"))
-        gate.admit(url: signInURL, owner: fourth, admission: journal.admission("fourth"))
+        navigate(gate, to: signInURL, in: third, admission: journal.admission("third"))
+        navigate(gate, to: signInURL, in: fourth, admission: journal.admission("fourth"))
         gate.resolve(first)
         #expect(journal.decisions == ["first:allow", "second:allow", "third:allow"])
 
@@ -289,16 +299,91 @@ struct BrowserSingleSignOnNavigationGateTests {
         let first = WebView()
         let second = WebView()
 
-        gate.admit(url: signInURL, owner: first) { admitted in
+        navigate(gate, to: signInURL, in: first) { admitted in
             journal.decisions.append("first:\(admitted ? "allow" : "cancel")")
             gate.resolve(first)
-            gate.admit(url: signInURL, owner: first, admission: journal.admission("first-again"))
+            navigate(gate, to: signInURL, in: first, admission: journal.admission("first-again"))
             return false
         }
-        gate.admit(url: signInURL, owner: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
         #expect(journal.decisions == ["first:allow", "first-again:allow"])
 
         gate.resolve(first)
         #expect(journal.decisions == ["first:allow", "first-again:allow", "second:allow"])
+    }
+
+    // A delegate may reach the gate some time after WebKit asked, and some
+    // navigations never reach it. WebKit drops a navigation still awaiting its
+    // decision when the web view starts another or is stopped, and reports
+    // nothing, so the gate has to know from the moment WebKit asks.
+
+    @Test func navigationSupersededBeforeItReachesTheGateIsCancelled() {
+        let gate = makeGate()
+        let journal = Journal()
+        let first = WebView()
+
+        let older = gate.begin(owner: first)
+        let newer = gate.begin(owner: first)
+        gate.admit(older, url: plainURL, admission: journal.admission("older"))
+        gate.admit(newer, url: signInURL, admission: journal.admission("newer"))
+
+        #expect(journal.decisions == ["older:cancel", "newer:allow"])
+    }
+
+    @Test func navigationAbandonedBeforeItReachesTheGateIsCancelledAndHoldsNothing() {
+        let gate = makeGate()
+        let journal = Journal()
+        let first = WebView()
+        let second = WebView()
+
+        let stopped = gate.begin(owner: first)
+        gate.abandon(first)
+        gate.admit(stopped, url: signInURL, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
+
+        #expect(journal.decisions == ["first:cancel", "second:allow"])
+    }
+
+    @Test func newerNavigationThatNeverReachesTheGateCancelsTheWaitingOne() {
+        let gate = makeGate()
+        let journal = Journal()
+        let first = WebView()
+        let second = WebView()
+        let third = WebView()
+
+        navigate(gate, to: signInURL, in: first, admission: journal.admission("first"))
+        navigate(gate, to: signInURL, in: second, admission: journal.admission("second"))
+        navigate(gate, to: signInURL, in: third, admission: journal.admission("third"))
+        _ = gate.begin(owner: second)
+        #expect(journal.decisions == ["first:allow", "second:cancel"])
+
+        gate.resolve(first)
+        #expect(journal.decisions == ["first:allow", "second:cancel", "third:allow"])
+    }
+
+    @Test func navigationIsDecidedOnlyOnce() {
+        let gate = makeGate()
+        let journal = Journal()
+        let first = WebView()
+
+        let navigation = gate.begin(owner: first)
+        gate.admit(navigation, url: plainURL, admission: journal.admission("once"))
+        gate.admit(navigation, url: plainURL, admission: journal.admission("twice"))
+
+        #expect(journal.decisions == ["once:allow", "twice:cancel"])
+    }
+
+    @Test func navigationOfAnotherWebViewLeavesThisOneUndecided() {
+        let gate = makeGate()
+        let journal = Journal()
+        let first = WebView()
+        let second = WebView()
+
+        let navigation = gate.begin(owner: first)
+        _ = gate.begin(owner: second)
+        gate.abandon(second)
+        gate.admit(navigation, url: plainURL, admission: journal.admission("first"))
+
+        #expect(journal.decisions == ["first:allow"])
     }
 }
