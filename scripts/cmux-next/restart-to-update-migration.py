@@ -256,6 +256,33 @@ def app_pids(app):
     return [int(r[0]) for r in rows if len(r) == 2 and os.path.realpath(r[1]).startswith(prefix)]
 
 
+def processes(app):
+    """Every process running from the bundle, with its start time: a restart between two reads shows here."""
+    prefix = os.path.realpath(app) + "/Contents/"
+    rows = run("ps", "-axo", "pid=,lstart=,command=").stdout.splitlines()
+    return [r.strip() for r in rows if prefix in r or "cmux-tui" in r or "cmux-holder" in r]
+
+
+def keep_crash_reports(since, out):
+    """Copy the crash and hang reports macOS wrote for cmux since `since` into out/crash (read after a FAIL)."""
+    kept = []
+    for folder in (os.path.join(HOME, "Library/Logs/DiagnosticReports"), "/Library/Logs/DiagnosticReports"):
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            continue
+        for name in names:
+            path = os.path.join(folder, name)
+            try:
+                if "cmux" in name.lower() and os.path.getmtime(path) >= since:
+                    os.makedirs(os.path.join(out, "crash"), exist_ok=True)
+                    shutil.copy2(path, os.path.join(out, "crash", name))
+                    kept.append(name)
+            except OSError:
+                pass
+    return kept
+
+
 def seed(app, work):
     made = {}
     pidfile = os.path.join(work, "terminal.pid")
@@ -425,8 +452,10 @@ def main():
         if not launched:
             # Every later check needs the socket; stop here instead of reporting their empty reads.
             raise SystemExit(1)
+        report["processes_launched"] = processes(app)
         made = seed(app, work)
         report["seed"] = made
+        report["processes_seeded"] = processes(app)
         tabless = seed_tabless(app, work, opts.tabless) if opts.tabless else []
         report["tabless"] = tabless
         if opts.tabless:
@@ -455,6 +484,8 @@ def main():
             record("tab-less terminals alive at the click (the attach streams hold them)", not ended and bool(tabless),
                    f"ended before the update: {ended}" if ended else f"{len(tabless)} alive")
         pids = app_pids(app)
+        report["processes_at_click"] = processes(app)
+        print("at the click:", json.dumps(report["processes_at_click"]), flush=True)
         steps_before = steps(work)
         clicked = time.time()
         report["clicked"] = clicked
@@ -514,6 +545,16 @@ def main():
         if opts.agents and os.path.exists(HARNESS_FILE) and (report.get("agents") or {}).get("profile_written"):
             os.unlink(HARNESS_FILE)
         failed = [r for r in results if r["state"] == "FAIL"]
+        report["processes_end"] = processes(app) if app else []
+        report["crash_reports"] = keep_crash_reports(report.get("film_started", time.time() - 3600) - 60, opts.out)
+        if report["crash_reports"]:
+            print("crash reports:", report["crash_reports"], flush=True)
+        if failed:
+            try:
+                tail = open(log, errors="replace").read().splitlines()[-120:]
+                print("app.log, last lines:\n" + "\n".join(tail), flush=True)
+            except OSError:
+                pass
         report.update(results=results, ok=not failed, film=film if os.path.exists(film) else None)
         with open(os.path.join(opts.out, "report.json"), "w") as f:
             json.dump(report, f, indent=1)
