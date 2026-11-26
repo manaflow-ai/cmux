@@ -3,7 +3,7 @@
 
 use super::out::Out;
 use super::{
-    Answer, CopyState, Effect, Event, GiveStep, ImportReason, MoveTo, State, Stop, Verdict, give,
+    Answer, Effect, Event, GiveStep, ImportReason, MoveTo, State, Stop, Verdict, give,
 };
 use crate::consts::SELF_STOP_MS;
 
