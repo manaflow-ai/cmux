@@ -8,127 +8,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا يوجد وكيل له تخطيط خاص. أضف وكيلًا لتمنح صفوفه أسطرًا خاصة."
+            "value" : "لا يوجد وكيل له تخطيط خاص. أضف واحدًا لتخصيصه."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nijedan agent nema vlastiti raspored. Dodajte agenta da njegovi redovi dobiju svoje redove."
+            "value" : "Nijedan agent nema svoj raspored. Dodajte jedan za prilagodbu."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ingen agent har sit eget layout. Tilføj en agent for at give dens rækker egne linjer."
+            "value" : "Ingen agent har sit eget layout. Tilføj en for at tilpasse."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kein Agent hat ein eigenes Layout. Füge einen Agenten hinzu, um seinen Zeilen eigene Zeilen zu geben."
+            "value" : "Kein Agent hat ein eigenes Layout. Füge einen hinzu, um es anzupassen."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No agent has a layout of its own. Add an agent to give its rows their own lines."
+            "value" : "No agent has its own layout. Add one to customize."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ningún agente tiene diseño propio. Añade un agente para dar a sus filas sus propias líneas."
+            "value" : "Ningún agente tiene su propio diseño. Añade uno para personalizarlo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aucun agent n’a sa propre disposition. Ajoutez un agent pour donner ses propres lignes à ses rangées."
+            "value" : "Aucun agent n'a sa propre disposition. Ajoutez-en un pour la personnaliser."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nessun agente ha un layout proprio. Aggiungi un agente per dare alle sue righe linee proprie."
+            "value" : "Nessun agente ha un layout proprio. Aggiungine uno per personalizzarlo."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "独自のレイアウトを持つエージェントはありません。エージェントを追加すると、その行に専用の行構成を設定できます。"
+            "value" : "独自のレイアウトを持つエージェントはありません。追加してカスタマイズしてください。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "គ្មានភ្នាក់ងារណាមានប្លង់ផ្ទាល់ខ្លួនទេ។ បន្ថែមភ្នាក់ងារ ដើម្បីឱ្យជួររបស់វាមានបន្ទាត់ផ្ទាល់ខ្លួន។"
+            "value" : "គ្មានភ្នាក់ងារណាមានប្លង់ផ្ទាល់ខ្លួនទេ។ បន្ថែមមួយដើម្បីប្តូរតាមបំណង។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "자체 레이아웃이 있는 에이전트가 없습니다. 에이전트를 추가하면 그 행에 별도의 줄을 지정할 수 있습니다."
+            "value" : "자체 레이아웃이 있는 에이전트가 없습니다. 추가해서 사용자화하세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ingen agent har eget oppsett. Legg til en agent for å gi radene dens egne linjer."
+            "value" : "Ingen agent har sitt eget oppsett. Legg til en for å tilpasse."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Żaden agent nie ma własnego układu. Dodaj agenta, aby jego wiersze miały własne linie."
+            "value" : "Żaden agent nie ma własnego układu. Dodaj jednego, aby dostosować."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nenhum agente tem layout próprio. Adicione um agente para dar às linhas dele suas próprias linhas."
+            "value" : "Nenhum agente tem layout próprio. Adicione um para personalizar."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ни у одного агента нет своего макета. Добавьте агента, чтобы задать его строкам свои линии."
+            "value" : "Ни у одного агента нет своей раскладки. Добавьте агента, чтобы настроить."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ยังไม่มีเอเจนต์ที่มีเลย์เอาต์ของตัวเอง เพิ่มเอเจนต์เพื่อให้แถวของมันมีบรรทัดของตัวเอง"
+            "value" : "ยังไม่มีเอเจนต์ที่มีเลย์เอาต์ของตัวเอง เพิ่มหนึ่งตัวเพื่อปรับแต่ง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hiçbir ajanın kendi düzeni yok. Satırlarına kendi satırlarını vermek için bir ajan ekleyin."
+            "value" : "Hiçbir ajanın kendi düzeni yok. Özelleştirmek için bir tane ekleyin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Жоден агент не має власного макета. Додайте агента, щоб його рядки мали власні лінії."
+            "value" : "Жоден агент не має власного макета. Додайте агента, щоб налаштувати."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chưa tác tử nào có bố cục riêng. Thêm một tác tử để các hàng của nó có dòng riêng."
+            "value" : "Chưa tác tử nào có bố cục riêng. Thêm một tác tử để tùy chỉnh."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "还没有代理拥有自己的布局。添加代理即可为其行设置专属的行内容。"
+            "value" : "没有代理拥有自己的布局。添加一个来自定义。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "還沒有代理擁有自己的版面配置。加入代理即可為其列設定專屬的行內容。"
+            "value" : "沒有代理擁有自己的版面。新增一個來自訂。"
           }
         }
       }

@@ -8,127 +8,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يعمل استخدام الكمبيوتر في الدردشات على هذا الـ Mac"
+            "value" : "استخدام الكمبيوتر يعمل على جهاز Mac هذا"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Korištenje računara radi u chatovima na ovom Macu"
+            "value" : "Korištenje računara radi na ovom Macu"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Computerbrug virker i chats på denne Mac"
+            "value" : "Computerbrug virker på denne Mac"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Computernutzung funktioniert in Chats auf diesem Mac"
+            "value" : "Computernutzung funktioniert auf diesem Mac"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Computer use works in chats on this Mac"
+            "value" : "Computer use works on this Mac"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "El uso del ordenador funciona en los chats de este Mac"
+            "value" : "El uso del ordenador funciona en este Mac"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "L’utilisation de l’ordinateur fonctionne dans les chats de ce Mac"
+            "value" : "L'utilisation de l'ordinateur fonctionne sur ce Mac"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "L’uso del computer funziona nelle chat su questo Mac"
+            "value" : "L'uso del computer funziona su questo Mac"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "コンピュータ操作はこの Mac 上のチャットで使えます"
+            "value" : "コンピュータ操作はこの Mac で使えます"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ការប្រើកុំព្យូទ័រដំណើរការក្នុងការជជែកនៅលើ Mac នេះ"
+            "value" : "ការប្រើកុំព្យូទ័រដំណើរការលើ Mac នេះ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "컴퓨터 사용은 이 Mac의 채팅에서 작동합니다"
+            "value" : "컴퓨터 사용은 이 Mac에서 작동합니다"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Datamaskinbruk fungerer i chatter på denne Macen"
+            "value" : "Databruk fungerer på denne Macen"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Obsługa komputera działa w czatach na tym Macu"
+            "value" : "Używanie komputera działa na tym Macu"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "O uso do computador funciona em chats neste Mac"
+            "value" : "O uso do computador funciona neste Mac"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Управление компьютером работает в чатах на этом Mac"
+            "value" : "Управление компьютером работает на этом Mac"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "การใช้คอมพิวเตอร์ใช้ได้ในแชตบน Mac เครื่องนี้"
+            "value" : "การใช้คอมพิวเตอร์ทำงานบน Mac เครื่องนี้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Bilgisayar kullanımı bu Mac'teki sohbetlerde çalışır"
+            "value" : "Bilgisayar kullanımı bu Mac'te çalışır"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Керування комп’ютером працює в чатах на цьому Mac"
+            "value" : "Керування комп'ютером працює на цьому Mac"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Sử dụng máy tính hoạt động trong các cuộc trò chuyện trên máy Mac này"
+            "value" : "Dùng máy tính hoạt động trên máy Mac này"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "电脑操作仅适用于这台 Mac 上的聊天"
+            "value" : "电脑操控可在这台 Mac 上使用"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "電腦操作僅適用於這台 Mac 上的聊天"
+            "value" : "電腦操控可在這台 Mac 上使用"
           }
         }
       }
