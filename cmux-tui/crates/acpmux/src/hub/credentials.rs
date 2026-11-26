@@ -2,8 +2,8 @@
 //! replaces the Cloud credential of one of this daemon's own sessions (`agent_credentials.rs`), a
 //! refreshed ChatGPT access token about ten minutes before the last one expires. Its agent then
 //! restarts on the new credential and resumes the same conversation (Codex `thread/resume`, Claude
-//! `--resume`), as a route switch does (`route_switch.rs` `restart_harnesses`): between turns now,
-//! in a turn when the turn ends, never cancelled.
+//! `--resume`), after the idle gates and process census find it quiet. A refresh never cuts work; the next
+//! prompt after hibernation starts with the new credential.
 //!
 //! Nothing of it is recorded: no log record, meta field or event names the change, and the reply
 //! carries no value.
@@ -113,19 +113,8 @@ impl Hub {
             // The next start runs on it.
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
         }
-        let only = std::collections::BTreeSet::from([session.id.clone()]);
-        let out = self.restart_harnesses(None, Some(&only)).await;
-        if let Some((_, error)) = out.failed.first() {
-            return Err(RpcError::internal(format!("the agent did not start again: {error}")));
-        }
-        let restart = if out.now > 0 {
-            "now"
-        } else if out.after_turn > 0 {
-            "afterTurn"
-        } else {
-            "none"
-        };
-        Ok(json!({"sessionId": session.id, "restart": restart}))
+        self.respawn_when_quiet(&session);
+        Ok(json!({"sessionId": session.id, "restart": "whenQuiet"}))
     }
 }
 
@@ -216,7 +205,7 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn an_update_restarts_the_agent_on_the_new_credential_in_the_same_chat() {
+    async fn automatic_restart_refresh_keeps_work_then_uses_the_new_credential() {
         let hub = hub();
         let req = NewRequest {
             cwd: Some(std::env::temp_dir()),
@@ -225,8 +214,15 @@ mod tests {
         };
         let session = hub.new_session(req).await.unwrap();
         let before = hub.child_for(&session).await.unwrap().generation;
+        *session.work_below_since.lock().unwrap() = 1;
         let reply = hub.update_credential(&session.id, credential(SECOND)).await.unwrap();
-        assert_eq!(reply["restart"], "now");
+        assert_eq!(reply["restart"], "whenQuiet");
+        assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
+        assert!(session.respawn_when_quiet.load(std::sync::atomic::Ordering::SeqCst));
+        assert!(!hub.idle_eligible(&session), "background work holds the refresh");
+        *session.work_below_since.lock().unwrap() = 0;
+        // Exercise the shared quiet exit without waiting thirty wall-clock seconds.
+        assert!(hub.end_quiet_stale(&session, "credential-test", false).await);
         let after = hub.child_for(&session).await.unwrap().generation;
         assert_ne!(before, after, "a new agent process");
         assert_eq!(launched(&session).get(CLAUDE_OAUTH).map(String::as_str), Some(SECOND));

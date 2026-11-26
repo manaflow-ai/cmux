@@ -10,6 +10,9 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/quiet_restart.rs"]
+mod quiet_restart;
+
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
@@ -252,6 +255,7 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
     launcher(&good);
     let path = write_config(&root, &good, "--old-arg");
     let hub = hub_from_file(&root, &path);
+    let clock = quiet_restart::clock(&hub);
     let mut local = Client::open(&hub);
 
     let chat = local.new_chat("good").await;
@@ -312,16 +316,7 @@ async fn profile_change_respawns_a_busy_agent_with_the_new_args_after_its_turn()
     };
     assert_eq!(reply["result"]["stopReason"], "end_turn", "the turn was not cut: {reply}");
 
-    // An automatic profile change hibernates only after the quiet period, with a census.
-    // Reading the summary does not keep the harness awake or start its replacement.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-    while hub.resolve(&chat).unwrap().meta().hibernated_ms == 0 {
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "the quiet profile change never hibernated"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    quiet_restart::hibernate(&hub, &chat, &clock).await;
 
     // The next turn runs on a new agent with the new argv, resuming the same agent session.
     let next = local.harness_args(&chat).await;

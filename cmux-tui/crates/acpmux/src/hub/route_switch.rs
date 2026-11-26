@@ -440,9 +440,9 @@ impl Hub {
                     session,
                     "mux",
                     "route_changed",
-                    json!({"from": id, "to": next.id, "when": "after-turn", "reason": "fallback"}),
+                    json!({"from": id, "to": next.id, "when": "when-quiet", "reason": "fallback"}),
                 );
-                session.route_switch.store(true, Ordering::SeqCst);
+                self.respawn_when_quiet(session);
                 out.set_path(&["fallback", "applied"], json!(true));
             }
         }

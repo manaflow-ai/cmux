@@ -161,7 +161,7 @@ impl Hub {
     /// The immediate automatic exit uses the same leases, activity checks, census and
     /// hibernation as the idle pass. Unknown descendants keep the agent alive. Only the
     /// firing retry caller may omit its own continuation from the eligibility check.
-    async fn end_quiet_stale(
+    pub(super) async fn end_quiet_stale(
         &self,
         session: &Arc<Session>,
         cause: &'static str,

@@ -7,6 +7,9 @@
 //!
 //! One test: the methods read acpmux's and Codex's homes from ACPMUX_HOME and CODEX_HOME, process-wide.
 
+#[path = "support/quiet_restart.rs"]
+mod quiet_restart;
+
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
@@ -129,6 +132,7 @@ async fn a_codex_chat_moves_between_its_signed_in_logins_and_keeps_its_conversat
         std::env::set_var("CODEX_HOME", &base);
     }
     let hub = hub(&root);
+    let clock = quiet_restart::clock(&hub);
     let mut local = client(&hub, Origin::Local);
     let added = local
         .ok(
@@ -158,6 +162,7 @@ async fn a_codex_chat_moves_between_its_signed_in_logins_and_keeps_its_conversat
     let (failed, _) = local.call_text("session/prompt", limit.clone()).await;
     assert_eq!(failed["error"]["data"]["fallback"]["routeId"], "work", "{failed}");
     assert_eq!(failed["error"]["data"]["fallback"]["applied"], true, "{failed}");
+    quiet_restart::hibernate(&hub, &id, &clock).await;
     assert_eq!(local.env_of(&id, "CODEX_HOME").await, format!("CODEX_HOME={}", work.display()));
     let info = local.ok("_acpmux/info", json!({"sessionId": id})).await;
     assert_eq!(info["agentSessionId"], started, "the same conversation: {info}");
@@ -165,6 +170,7 @@ async fn a_codex_chat_moves_between_its_signed_in_logins_and_keeps_its_conversat
     // Its limit moves the chat back onto the CLI's own login.
     let (failed, _) = local.call_text("session/prompt", limit.clone()).await;
     assert_eq!(failed["error"]["data"]["fallback"]["routeId"], "codex-login", "{failed}");
+    quiet_restart::hibernate(&hub, &id, &clock).await;
     assert_eq!(local.env_of(&id, "CODEX_HOME").await, format!("CODEX_HOME={}", base.display()));
 
     // The accounts list names both, signed in and on; one turned off is never moved onto.
