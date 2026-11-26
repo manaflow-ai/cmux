@@ -77,9 +77,9 @@ sent to the customization lead. Gap letters are the lines sent.
 | Motion | Reference | Status | How, or the gap |
 | --- | --- | --- | --- |
 | Sent prompt pops in and settles | pop past size ~0.25% at 300 ms, settles by 450 ms (measured, claude-code/send-pop) | matched | agentPane.display.sendPop true |
-| Sidebar opens and closes | unmeasured | partial | ui.animations.sidebar on (cmux's timing); gap (b): a look cannot set motion durations or easings |
-| Model picker opens | unmeasured | partial | ui.animations.overlays on (cmux's timing); gap (b): a look cannot set motion durations or easings |
-| Streaming text arrives | unmeasured | partial | cmux's streaming; gap (b): a look cannot set motion durations or easings |
-| Panes drag and reorder | unmeasured | partial | ui.animations.panes on (cmux's timing); gap (b): a look cannot set motion durations or easings |
-| Hover and press | unmeasured | partial | ui.animations.feedback on (cmux's timing); gap (b): a look cannot set motion durations or easings |
-| Working spinner | unmeasured | partial | ui.animations.indicators on (cmux's timing); gap (b): a look cannot set motion durations or easings |
+| Sidebar opens and closes | unmeasured | partial | ui.animations.sidebar on (cmux's timing); gap (b): a look's motion tokens time only the chat pane, not this |
+| Model picker opens | unmeasured | partial | ui.animations.overlays on; a look can set `--cmux-motion-micro` and `--cmux-ease-out` (look-addons.md, Motion), left at cmux's values until the app's timing is measured |
+| Streaming text arrives | unmeasured | partial | cmux's streaming; gap (b): no motion token times streaming |
+| Panes drag and reorder | unmeasured | partial | ui.animations.panes on (cmux's timing); gap (b): a look's motion tokens time only the chat pane, not this |
+| Hover and press | unmeasured | partial | ui.animations.feedback on; a look can set `--cmux-motion-quick` in the chat, left at cmux's value until the app's timing is measured |
+| Working spinner | unmeasured | partial | ui.animations.indicators on (cmux's timing); gap (b): no motion token times the spinner |
