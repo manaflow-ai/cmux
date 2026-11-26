@@ -50,6 +50,21 @@ export const LOCALES = [
   "zh-Hant",
 ];
 
+/** The pane connect card's own words outside `connect.` (acpmux/ConnectCard.tsx), for pages that draw it. */
+const CONNECT_CARD_KEYS = [
+  "picker.tryAgain",
+  "picker.connectClaude.refused",
+  "picker.connectClaude.failed",
+  "picker.connectClaude.connected",
+  "picker.connectClaude.invalid",
+  "picker.setup.cancel",
+  "harness.notNow",
+  "cloudSetup.steps.progress",
+  "cloudSetup.chatgpt",
+  "turn.signIn.save",
+  "turn.signIn.keyLabel",
+];
+
 const readJSON = (file) => JSON.parse(fs.readFileSync(path.join(repo, file), "utf8"));
 
 /** Every key a settings schema export names (titles, help, summaries, groups, default labels, choices, page layout). */
@@ -115,6 +130,10 @@ export const PAGES = {
     catalogs: [{ file: "webviews/src/pages/shared/Localizable.xcstrings" }],
   },
   // The device sign-in card and account list (Settings > Accounts, onboarding): their own table.
+  connect: {
+    out: "webviews/src/pages/shared/connect/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/shared/connect/Localizable.xcstrings" }],
+  },
   signIn: {
     out: "webviews/src/pages/shared/signIn/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" }],
@@ -191,6 +210,8 @@ export const PAGES = {
         file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d",
         keys: (all) => all.filter((key) => key.startsWith("connect.")),
       },
+      // Settings > Integrations > Connections: the shared connect card and All connections.
+      { file: "webviews/src/pages/shared/connect/Localizable.xcstrings" },
     ],
   },
   history: {
@@ -395,11 +416,6 @@ export const PAGES = {
     out: "webviews/src/pages/chief-views/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/chief-views/Localizable.xcstrings" }],
   },
-  // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
-  coderouter: {
-    out: "webviews/src/pages/coderouter/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/coderouter/Localizable.xcstrings" }],
-  },
   // The channels Home (cmux-page://cmux.home-channels/) has no Swift page; its table lives next to it.
   "home-channels": {
     out: "webviews/src/pages/home-channels/generated/strings.json",
@@ -477,13 +493,18 @@ export const PAGES = {
   // Settings > Agents > Harnesses draws the agent pane's plan usage card under each account
   // (ProviderAccounts.tsx, acpmux/PlanUsageCard.tsx), which reads the pane's table; the page installs
   // only its `planUsage.` keys (settings/paneStrings.ts). Without them the shipped page showed the
-  // raw keys (planUsage.window.session) in every account's usage.
+  // raw keys (planUsage.window.session) in every account's usage. Settings > Integrations >
+  // Connections draws each app as the pane's connect card (acpmux/ConnectCard.tsx), so the page also
+  // installs that card's own words (CONNECT_CARD_KEYS).
   "settings-pane": {
     out: "webviews/src/pages/settings/generated/pane-strings.json",
     catalogs: [
       {
         file: "webviews/src/agent-session/acpmux/Localizable.xcstrings.d",
-        keys: (all) => all.filter((key) => key.startsWith("planUsage.")),
+        keys: (all) =>
+          all.filter(
+            (key) => key.startsWith("planUsage.") || key.startsWith("connect.") || CONNECT_CARD_KEYS.includes(key),
+          ),
       },
     ],
   },
