@@ -14,4 +14,5 @@ workspace = true
 base64.workspace = true
 ghostty-vt-sys.workspace = true
 memchr.workspace = true
+simdutf8.workspace = true
 png.workspace = true

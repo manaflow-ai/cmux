@@ -32,7 +32,7 @@ the profiles lane goes here first, then into a PR.
 | Keybindings an extension declares | Yes: `contributes.keybindings` in keybindings.json form (`{key, command, when?, args?}`, the same parser), an own op or a cmux action, in the app binding layer below the person's keybindings.json; a pair bound twice warns (`keybindings.shortcutConflict`) | Bare keys outside a bare-key `when` stay the person's |
 | Menus and toolbar items | Yes: `contributes.menus`, `contributes.toolbarItems` | None found |
 | Panes and overlays | Yes: `cmux.pane/1` (`presentation.overlay` too), `cmux.section/1`, `cmux.newtab/1`; panel flows: `cmux.app.openPane(args)` resolves the pane's `ctx.close(result)`, and the pane context has `args`, `onOpen` and `onClose` (runtime 1.5.0) | None for the flow itself |
-| Pane state that survives a reload | Partly: `app.storage.*`, and `cmux ext dev` hot-reloads the script | Scene state (scroll position, focused field, expanded rows) is lost on a hot reload. There is no `state` export the host keeps and hands back |
+| Pane state that survives a reload | Yes: `ctx.keep(name, initial)` on every view context, a signal the daemon keeps with the mount through a `cmux ext dev` save, a host restart or a Reload, and `ctx.state` (runtime 1.6.0); `app.storage.*` for what outlives the view | Scroll position and focus are the renderer's, not kept yet |
 | Composer layout (toolbar, chips, model and reasoning picker) | Yes: `cmux.composer.toolbar/1`, `cmux.composer.chip/1`, `cmux.composer.model.picker/1` | None found |
 | Chat message actions and widgets | Yes: `cmux.chat.action/1`, `cmux.chat.widget/1` | None found |
 | Hover cards and sidebar row decorations | Yes: `cmux.hovercard/1`, `cmux.sidebar.rows/1` | `cmux.sidebar.rows/1.json` was not valid JSON (unescaped quotes in `docs`), so its options schema did not load. Fixed in the same PR as `cmux.motion/1` |
@@ -59,7 +59,7 @@ The codex profile (`examples/looks/codex/profile`, built from these docs only) f
    landed (`cmux-app-host/src/motion_profile.rs`, theme file `motion`, `theme.slots.resolve`); next: the app
    applies the answer to its chrome, and `.animation("presetName")` resolves a look preset.
 5. Done (runtime 1.5.0): `cmux.pane/1` open arguments and results, so a pane can return a value (panel flows).
-6. Scene state that survives a hot reload.
+6. Done (runtime 1.6.0): view state that survives a hot reload (`ctx.keep`, `app.view.state`).
 7. Timed transitions (`{kind, motion}`) (landed).
 
 ## The `motion` block (for agents)
