@@ -105,6 +105,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_REVIEW_QUEUE,
     method::MUX_REVIEW_VERDICT,
     method::MUX_AUDIT,
+    // Computer Use on another machine: its `session` is the caller's own Computer Use session
+    // key and `name` the tool, so a forward by session would strip both (`computer_use_relay.rs`).
+    method::MUX_COMPUTER_USE_CALL,
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
     // Every live chat on this daemon (`host_notice.rs`).

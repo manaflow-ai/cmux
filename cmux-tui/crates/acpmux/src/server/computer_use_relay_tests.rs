@@ -60,6 +60,15 @@ fn a_device_name_never_carries_control_characters() {
     );
 }
 
+/// A relayed call carries the caller's Computer Use `session` and the tool's `name`. Were the
+/// method session-scoped, a caller whose session sits on a peer would be forwarded whole with
+/// both fields dropped (`peer_forward` strips them), and the far machine would refuse
+/// `unknown Computer Use tool ""` on every `machine:` call.
+#[test]
+fn a_relayed_call_is_never_forwarded_by_its_session() {
+    assert!(!super::super::peer_forward::names_a_session(method::MUX_COMPUTER_USE_CALL));
+}
+
 fn base() -> serde_json::Value {
     json!({"name": "click", "arguments": {"window_id": "w"}, "session": "s", "call_id": "c"})
 }
