@@ -489,6 +489,9 @@ is forwarded, and the service never answers it.
   after its ping was counted lost does not take it back). `switches`: path
   changes since the link came up. `net`: `cellular` or `other` (the app's last
   `set_cellular_path`). `upS`: seconds up. `lib`: the link library version.
+  `egress` (optional): `proxy` or `inspected` when this network's link
+  connections left through a proxy, or one that inspects TLS ("Corporate
+  networks"); absent when direct.
 - `echo`, `ack`, `spikeCount`, `spikes` (added 2026-11-24; absent when no key
   was typed): the keystroke round trips since the last stat, from the key's tap
   (`cmux-mobile-link/src/key_echo.rs`). `echo` (n, p50, p95, p99, max): tap to
@@ -665,6 +668,28 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   fails at once. `CMUX_MOBILE_DEV_NO_RELAY=1` dials without it, and
   `CMUX_MOBILE_RELAY=0` turns it off for `cmux-mobile-host`.
 
+### Early relay ticket
+
+A dialer whose gather left it no path but the relay (`relay: "now"`) used to
+learn its ticket only from the Mac's `wg-resp`, so its join (TCP, TLS and the
+upgrade, about three round trips to the edge) waited behind the Mac's gather
+and answer. Now it asks for the ticket at once:
+
+- **Ask:** the dialer's `wg-init` carries `ticketEarly: true`, only when it
+  sends `relay: "now"`. Absent means false; an older Mac ignores the field.
+- **Answer:** a hub that forwarded that `wg-init` sends the dialer, on its
+  own signaling socket, `{"type":"signal","to":<dialer>,"from":<mac>,
+  "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
+  dialer's ticket>}`. Only the service sends `wg-ticket`: it is not in the
+  kinds a client may send, so a client's is refused `unknown payload kind`.
+- **Join:** the dialer starts its relay join when `wg-ticket` arrives
+  (timeline `relay_early_join`) and keeps waiting for `wg-resp`; the relay
+  watch's first join takes that carrier instead of starting its own. A plan
+  that ends with no relay (the Mac offered none) aborts it.
+- **Old and new:** an older dialer never asks and never gets `wg-ticket`; a
+  new dialer with an older hub gets no `wg-ticket` and joins after `wg-resp`
+  as before. The ticket is the one `wg-resp` carries too.
+
 ### Relay placement
 
 A Durable Object stays where it is first created, so the first reach of it
@@ -712,7 +737,8 @@ split wins.
 A WireGuard dial records what each way did: plain UDP (`blocked`: no STUN
 answer; `off`: a debug mode), TURN (`none_offered`, `no_allocation`, with
 the TURN host) and the relay (`unavailable`, `peer_cannot`, `refused` with
-the HTTP status, `off`, `tls_rejected` with the TLS error, `unreachable`,
+the HTTP status, `off`, `proxy_refused` with the proxy's reason,
+`tls_rejected` with the TLS error, `unreachable`,
 `timeout`, `no_token`, `peer_absent`). When nothing from the Mac ever
 authenticated and the relay failed too (or the Mac's build has none), the
 dial ends with that record instead of waiting out its timeout: at once when
@@ -1130,6 +1156,33 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   `bad_request`, `io`) is answered `{"error","message"}` before the channel
   closes with that code. The name is made safe, and an existing file is never
   replaced (`name 2.ext`, ...).
+- `bundle` (`bundle-v1`; added 2026-11-24, backward compatible): an attachment
+  upload or a file open as sealed, content-defined chunks (cmux-tui
+  `cmux-bundle`, RFD 0142 R7), so a file the far end already holds costs one
+  round trip and its manifest (36 bytes per ~64 KiB chunk) instead of its bytes.
+  Every message is `u32 BE length | bytes`; one that starts with `{` is JSON,
+  any other a `cmux-bundle` sync message (offer, want, chunks). A length past
+  4 MiB is refused. The Mac's first message is `{"v":1,"key":"<64 hex>"}`, the
+  pair's bundle secret: `blake3::derive_key("cmux-bundle v1 pair secret", the
+  Mac's box key (derived from its identity key) || phone device id)`, so the
+  same phone always gets the same key; chunk ids and seals derive from it, and
+  a relay cache never sees it. The phone keeps it per Mac and may offer before
+  reading it; the Mac takes one offer under a stale key and the next.
+  - `{"op":"put","name","size","cwd"?}` (as `upload`, needs what `upload`
+    needs): the phone offers; the Mac answers a want (the chunks it lacks); the
+    phone sends those chunks without waiting; the Mac publishes the file as
+    `upload` does and answers `{"path","size"}`, then `eof`.
+  - `{"op":"get","path"}` (as `file`: the same roots and open checks): the Mac
+    offers; the phone answers a want, or closes when it holds every chunk; the
+    Mac sends the chunks, then an empty message.
+  Files past 256 MiB are refused `too_large` (the phone uses `upload` or
+  `file`); a chunk that does not open to its id, an offer under another key, or
+  chunks the offer does not name are refused `bad_request`, and nothing is
+  published. Refusals are `{"error","message"}` before the close. The Mac keeps
+  chunks (ciphertext) under `<uploads>/bundle-chunks`, at most 2 GiB, least
+  recently used out first; the phone keeps its own per Mac in its Caches. An
+  older Mac closes `bundle` with `unknown_service`; the phone then uses
+  `upload` / `file` for the rest of the link.
 - `browser`: `{"tab", "url"?}` a streamed Mac browser tab
   (verify/browser-stream.md). The channel carries the `cmux.rd/1` stream
   carrier (`u8 kind | u32 LE len | payload`, kind 1 control JSON, 2 datagram)
@@ -1505,6 +1558,7 @@ cmux-tui daemon's names hostd itself declares or checks. Printed from
 | `phone-frames-v1` | hostd `version` | The host serves `phone-frames`: the phone's terminal scroll frame times, logged to `phone-frames.jsonl` on the Mac. |
 | `tab-snapshots-v1` | hostd `version` | (2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes. |
 | `mailbox-send-v1` | hostd `version` | (2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link. |
+| `bundle-v1` | hostd `version` | (2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest. |
 | `browser-stream-v1` | hostd `version` | The host streams browser tabs (`browser`); listed only when the Mac has a browser host. |
 | `browser-video-track-v1` | hostd `version` | With `browser-stream-v1`: `browser {"video":"track"}` carries the page's video on the media lane (WebRTC, and WireGuard since 2026-10-14). |
 | `surface-stream-v1` | hostd `version` | (2026-10-22) The host streams the Mac's phone tabs' simulators (`surface`); listed only when the Mac app streams simulators. |
@@ -1710,9 +1764,9 @@ The phone's link line names the path: "WireGuard direct", "WireGuard relay
 
 ## Corporate networks
 
-The link's own connections (the signaling WebSocket, the HTTP API and TURN
-over TLS or TCP, on the phone and on the Mac's hostd) leave the device the
-way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
+The link's own connections (the signaling WebSocket, the HTTP API, TURN
+over TLS or TCP, and the WebSocket relay's join, on the phone and on the
+Mac's hostd) leave the device the way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
 
 - **TLS inspection.** A company network that inspects TLS re-signs every
   server's certificate with its own root, which an MDM profile (or Settings
@@ -1723,6 +1777,11 @@ way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
   certificate the OS does not trust still fails. This is safe for the link
   because WireGuard authenticates and encrypts every byte end to end inside
   that TLS (SECURITY.md "Link transport").
+  A chain the OS trusts but the public web PKI bundled in the app does not
+  marks its host **inspected** (`egress::tls::inspected`); the connection
+  goes on unchanged. The link's `link_stat` carries `egress: "inspected"`
+  (or `"proxy"` for a proxy that does not inspect; absent when every link
+  connection went direct), cleared at each network change.
 - **Proxy only.** A network whose only way out is its HTTP proxy. Each
   connection asks the system for the proxies of its destination
   (`CFNetworkCopyProxiesForURL` for `https://host:port/` on iOS and macOS: a
@@ -1733,8 +1792,10 @@ way URLSession's do. No wire change; `cmux-mobile-link` `egress/`.
   server's name, unresolved: the proxy resolves it), a SOCKS proxy with SOCKS5.
   Credentials the system's settings hold go along: HTTP Basic
   (`Proxy-Authorization`) and SOCKS5 user name and password (RFC 1929). The
-  answer is cached for 30 s per destination, and a PAC file gets 4 s to answer
-  (then direct, as CFNetwork does). Loopback is never proxied.
+  answer is cached for 30 s per destination and forgotten at a network change,
+  and a PAC file gets 4 s to answer (then direct, as CFNetwork does).
+  Loopback is never proxied. A destination name with a space or a control
+  character is refused before it reaches the proxy.
   - A proxy that asks for **NTLM or Kerberos (Negotiate)** fails the dial at
     once, before `wg-init`, with a sentence that names the proxy, the server
     and the schemes it asked for. The link does not do those: Apple exposes no

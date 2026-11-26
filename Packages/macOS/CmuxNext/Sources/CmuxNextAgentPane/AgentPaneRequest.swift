@@ -229,6 +229,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `cloud.handoffTurn {sessionId}`: before a prompt that starts a turn of this pane's chat on a
     /// Cloud machine, the hand-off turn it names (``AgentPaneModel/onCloudHandoffTurn``, ``AgentPaneHandoffPrompt``).
     case cloudHandoffTurn(sessionId: String)
+    /// `cloud.forkFirst {sessionId, permissionId, optionId, machine, clientKey}`: "Fork first" on a risky
+    /// step's card in a Cloud chat (``AgentPaneForkFirst``, ``AgentPaneModel/onCloudForkFirst``).
+    case cloudForkFirst(AgentPaneForkFirst)
     /// `cloudMachine.list|open|resume`: the account's Cloud machines in the environment picker (``AgentPaneCloudMachineRequest``).
     case cloudMachine(AgentPaneCloudMachineRequest)
     /// Cloud repository discovery and attachment, forwarded to the authenticated daemon.
