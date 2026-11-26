@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.composerPlaceholder.help" : {
+      "comment" : "Settings > Agent Chat > Message Box: what the placeholder row does",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "النص الظاهر في مربع رسالة فارغ. الفارغ يستخدم نص cmux الخاص."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tekst prikazan u praznom polju za poruku. Prazno koristi cmuxov vlastiti."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Teksten i et tomt beskedfelt. Tomt bruger cmux’ egen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Text in einem leeren Nachrichtenfeld. Leer verwendet den von cmux."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The text shown in an empty message box. Empty uses cmux's own."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El texto que aparece en un cuadro de mensaje vacío. Vacío usa el de cmux."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le texte affiché dans une zone de message vide. Vide utilise celui de cmux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il testo mostrato in una casella del messaggio vuota. Vuoto usa quello di cmux."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "空のメッセージ欄に表示するテキスト。空欄なら cmux 標準のものを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អត្ថបទដែលបង្ហាញក្នុងប្រអប់សារទទេ។ ទទេប្រើអត្ថបទរបស់ cmux ផ្ទាល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "빈 메시지 입력창에 표시되는 텍스트입니다. 비워 두면 cmux 기본값을 씁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Teksten i et tomt meldingsfelt. Tomt bruker cmux sin egen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tekst widoczny w pustym polu wiadomości. Puste używa tekstu cmux."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O texto mostrado em uma caixa de mensagem vazia. Vazio usa o do cmux."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Текст в пустом поле сообщения. Пустое значение использует текст cmux."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ข้อความที่แสดงในช่องข้อความว่าง เว้นว่างไว้จะใช้ของ cmux เอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boş mesaj kutusunda görünen metin. Boş bırakılırsa cmux’un kendi metni kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Текст у порожньому полі повідомлення. Порожнє значення використовує текст cmux."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Văn bản hiển thị trong ô tin nhắn trống. Để trống sẽ dùng văn bản của cmux."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "空消息框中显示的文字。留空则使用 cmux 自带的文字。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "空白訊息框中顯示的文字。留空則使用 cmux 內建的文字。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
