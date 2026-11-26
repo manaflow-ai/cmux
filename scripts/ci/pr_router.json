@@ -1,6 +1,16 @@
 {
  "about": "One router per push (scripts/ci/pr_router.py, .github/workflows/pr-router.yml, RFD 0023). Each callee: the pull_request activity types and path filter that used to start it on its own, and optionally `affects`, the inputs it reads. Edit this file and pr-router.yml together; `python3 scripts/ci/pr_router.py check` says whether they agree.",
  "callees": {
+  "cmux-machine-channel.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "affects_why": "PR_HEAD_FAST_LANE (cmux-machine-channel.yml): a full-tier head (the land tier, once land-judge adds ready-to-land or full-ci; never a cheap or draft head) gets the Cloud machine channel's thin Linux pair built before merge, so the merge points the channel without its own cargo build. Its plan job builds only when the head's merge with the base changes the v2 tree key (scripts/cmux-next/cmux-tui-tree-inputs.txt, over a dozen roots and growing, so the key decides, not a path list), and only for this repository's heads.",
+   "skip_docs_only": true
+  },
   "cmux-next-size-budget.yml": {
    "types": [
     "opened",
