@@ -389,6 +389,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "375989decec1a0fa424442bed520fa12ede43a48475ce8c7417d2c69b32b5f6b"
 dependencies = [
  "find-msvc-tools",
+ "jobserver",
+ "libc",
  "shlex",
 ]
 
@@ -527,6 +529,10 @@ name = "cmux-braid-carrier"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-braid-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
@@ -541,6 +547,44 @@ version = "0.1.0"
 dependencies = [
  "cmux-agent-pane-policy",
  "http",
+]
+
+[[package]]
+name = "cmux-bundle"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20poly1305",
+ "zstd",
+]
+
+[[package]]
+name = "cmux-cloud-disk"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-cloud-handlers"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-disk",
+ "cmux-cloud-start-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-cloud-start-core"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
 ]
 
 [[package]]
@@ -632,8 +676,10 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "base64 0.22.1",
+ "blake3",
  "bytes",
  "cmux-build-space",
+ "cmux-bundle",
  "cmux-deadline",
  "cmux-fault",
  "cmux-message-preview",
@@ -685,8 +731,10 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "cmux-braid-carrier",
+ "cmux-braid-class",
  "cmux-braid-path",
  "cmux-build-space",
+ "cmux-bundle",
  "cmux-fault",
  "cmux-mobile-host",
  "cmux-mobile-link",
@@ -735,7 +783,10 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "cmux-auto-session",
+ "cmux-bundle",
+ "cmux-cloud-handlers",
  "cmux-composer-send",
+ "cmux-fault",
  "cmux-follow-cam",
  "cmux-mobile-auto",
  "cmux-mobile-core",
@@ -813,6 +864,7 @@ dependencies = [
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "serde",
  "serde_json",
 ]
 
@@ -862,6 +914,7 @@ name = "cmux-remote-protocol"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "cmux-braid-class",
  "serde",
  "serde_json",
  "uuid",
@@ -960,6 +1013,7 @@ dependencies = [
  "base64 0.22.1",
  "boringtun",
  "bytes",
+ "cmux-braid-class",
  "cmux-braid-path",
  "cmux-transport",
  "getrandom 0.3.4",
@@ -1294,7 +1348,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1933,6 +1987,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "jobserver"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
+dependencies = [
+ "getrandom 0.4.3",
+ "libc",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2290,6 +2354,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "pkg-config"
+version = "0.3.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+
+[[package]]
 name = "plain"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2439,7 +2509,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.5",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2787,7 +2857,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2845,7 +2915,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3336,10 +3406,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4262,7 +4332,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4547,3 +4617,31 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zstd"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cdb02c3132d251ab1606e9fc913a7da6c6ed08cc263df15edf082e1dc497d157"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c8ea04668f5de8d8d51051714ba560c9536519cadcdb8829bba4fe2ad159b03"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.1.2+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "481ada9c543b2323cbb7bbdbb5249177fbf0188ed959ed2c15e4b22421c84ed3"
+dependencies = [
+ "cc",
+ "pkg-config",
+]
