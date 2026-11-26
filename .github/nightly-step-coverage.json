@@ -143,10 +143,9 @@
         "Keep the resumed daemon assets": {"plumbing": true},
         "Build immutable SSH daemon assets once for every app variant": {"pr": "pr-pipeline.yml:linux:Run the routed linux steps (ci/steps.toml)", "note": "ci/steps.toml step remote-daemon-packaging, the commands of cmux-next-remote-daemon.yml step 'Build and exercise stable, nightly and rc daemon artifacts'"}},
       "attest-nightly-remote-daemon": {
-        "Wait for API budget before the daemon attestation": {"plumbing": true},
-        "Attest immutable SSH daemon assets": {"nightly_only": "build provenance attestation needs OIDC"},
-        "Wait for the API budget before retrying the daemon attestation": {"plumbing": true},
-        "Retry the daemon attestation": {"nightly_only": "build provenance attestation needs OIDC"},
+        "Put the pinned Node on PATH": {"plumbing": true},
+        "Sign the SSH daemon provenance offline": {"nightly_only": "signs the daemon assets' build provenance with the run's OIDC identity (attest-offline/sign.mjs); a pull request has no id-token to sign with"},
+        "Store the daemon attestation (one try, no budget wait)": {"nightly_only": "stores the signed bundle through the attestations API with a write token (attest-store.sh); a pull request writes no attestation"},
         "Report a missing daemon attestation": {"plumbing": true}},
       "build-nightly-inputs": {
         "Restore pinned Bun 1.4.4 from the CI cache bucket": {"plumbing": true, "note": "restores a pinned toolchain from the CI cache bucket (scripts/ci/toolchain-r2.sh, `|| true`); the setup step after it installs the same version either way; no product check"},

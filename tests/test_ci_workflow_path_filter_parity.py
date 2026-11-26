@@ -85,6 +85,14 @@ PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
         "earns its Release compile before promotion; the base-red classifier runs "
         "only on pushes",
     ),
+    # RFD 0166 row W1 replays each published web bundle: every merge that publishes one (webviews/, the archive
+    # script, the signed envelope) must rerun it on push; a pull request publishes no bundle to replay.
+    "cas-replay.yml": (
+        "paths",
+        frozenset({"cmux-tui/crates/cmux-signed-envelope/**", "scripts/cmux-next/web-bundle-archive.py", "webviews/**"}),
+        "the W1 replay reads the feat-cmux-next web bundle publishes, so the merges that publish one rerun it; "
+        "a pull request publishes none",
+    ),
 }
 
 # name -> (filter, pull-request-only patterns, why). The mirror allowance: only
