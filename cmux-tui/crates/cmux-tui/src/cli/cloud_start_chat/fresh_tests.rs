@@ -226,7 +226,7 @@ fn a_stuck_machine_that_is_pausing_is_deleted_once_it_can_be_and_replaced() {
 #[test]
 fn a_create_that_never_lands_within_the_release_wait_stops_the_retry() {
     let creating = ok(json!({"account": {"signed_in": true}, "machines": [],
-                             "creating": [{"name": "chat-fresh"}]}));
+                             "creating": [{"name": "chat-fresh", "stage": "approval.pending", "token": "x"}]}));
     let mut answers = vec![signed_in(), not_connected("chat-fresh", "vm-stuck")];
     answers.extend(std::iter::repeat_n(creating, 40));
     let mut fake = Fake::new(answers);
@@ -235,6 +235,12 @@ fn a_create_that_never_lands_within_the_release_wait_stops_the_retry() {
     };
     assert_eq!(starts(&fake), 1);
     assert_eq!(error["details"]["fresh_retry"][0]["deleted"], false);
+    // How far the create got is kept; a field not on the list is not.
+    assert_eq!(
+        error["details"]["fresh_retry"][0]["error"]["creating"],
+        json!({"stage": "approval.pending"}),
+        "{error}"
+    );
     assert!(fake.paused <= RELEASE_WAIT, "{:?}", fake.paused);
     assert!(error["message"].as_str().unwrap().contains("could not be deleted"), "{error}");
 }
@@ -426,5 +432,7 @@ fn a_refused_look_is_kept_and_the_delete_goes_on() {
     let Outcome::Done(answer) = run(&mut fake, &request(CWD)) else { panic!("{:?}", fake.ran) };
     let guest = &answer["fresh_retry"][0]["guest"];
     assert_eq!(guest["error"]["message"], "no exec here", "{guest}");
+    // What the service listed of it outlives the delete, when the machine itself cannot answer.
+    assert_eq!(guest["listed"], json!({"status": "running"}), "{guest}");
     assert_eq!(fake.said.len(), 1, "only the retry is said: {:?}", fake.said);
 }
