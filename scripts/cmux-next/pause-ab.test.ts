@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
-import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, pairTable, pairsOf, parseWaitOutput, historyTurnStatus, waitVerdict, percentile, pool, vmUnavailableTurns, parseGuestUpdate, parseReportState, missingCapability, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
+import { GUEST_CMUX, accountCensus, failedCreateIsTransient, failureFacts, stubRestart, stubStop, aggregate, gapLine, gapSchedule, guestLine, integrate, markdownTable, pairTable, pairsOf, parseWaitOutput, historyTurn, historyTurnStatus, waitVerdict, percentile, pool, vmUnavailableTurns, parseGuestUpdate, parseReportState, missingCapability, reportLine, stalePauseAbMachines, type MachineResult } from "./pause-ab.ts";
 
 describe("gapSchedule", () => {
   test("same seed, same gaps, only from the choices", () => {
@@ -311,6 +311,13 @@ describe("waitVerdict (run 45869919450: acp wait exit 1 after a resume, right re
     expect(historyTurnStatus(h, "[pab t turn 2]")).toBe("running");
     expect(historyTurnStatus(h, "[pab t turn 3]")).toBeNull();
     expect(historyTurnStatus("not json", "[pab t turn 1]")).toBeNull();
+  });
+  test("historyTurn says why a turn failed", () => {
+    const h = `{"turns":[{"prompt":"[pab t turn 1] Run","status":"failed","error":"the daemon restarted before this turn settled","detail":"outcome_unknown"},{"prompt":"[pab t turn 2] Run","status":"completed"}]}`;
+    expect(historyTurn(h, "[pab t turn 1]")).toEqual({ status: "failed", why: "the daemon restarted before this turn settled; outcome_unknown" });
+    expect(historyTurn(h, "[pab t turn 2]")).toEqual({ status: "completed", why: "" });
+    const v = waitVerdict({ code: "1", text: reply, werr: "", turnStatus: "failed (outcome_unknown)", nonce, waitFails: 0 });
+    expect(v).toEqual({ kind: "reply", note: "acp wait exit 1; history lists the turn failed (outcome_unknown)" });
   });
   test("exit 0 with the nonce is a reply; without it a failure", () => {
     expect(waitVerdict({ code: "0", text: reply, werr: "", turnStatus: null, nonce, waitFails: 0 })).toEqual({ kind: "reply" });

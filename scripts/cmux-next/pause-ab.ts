@@ -283,10 +283,21 @@ export function parseWaitOutput(stdout: string): { code: string | undefined; tex
 
 /** The status `acp --json history` lists for the turn whose prompt starts with MARKER, or null. */
 export function historyTurnStatus(stdout: string, marker: string): string | null {
+  return historyTurn(stdout, marker)?.status ?? null;
+}
+
+/**
+ * The marker's turn in `acp --json history`: its status and, for a turn that ended badly, why
+ * (the row's `error` and `detail`, e.g. `outcome_unknown` after a daemon restart, `stalled`).
+ * Run 45869919450's turns read "acp wait exit 1; history lists the turn failed" with no reason.
+ */
+export function historyTurn(stdout: string, marker: string): { status: string; why: string } | null {
   try {
     const turns: any[] = JSON.parse(stdout.slice(stdout.indexOf("{"))).turns ?? [];
     const t = turns.find((x) => typeof x?.prompt === "string" && x.prompt.startsWith(marker));
-    return typeof t?.status === "string" ? t.status : null;
+    if (typeof t?.status !== "string") return null;
+    const why = [t.error, t.detail].filter((x) => typeof x === "string" && x.trim()).map((x: string) => x.trim().slice(0, 200)).join("; ");
+    return { status: t.status, why };
   } catch {
     return null;
   }
@@ -307,7 +318,7 @@ export function waitVerdict(a: { code: string | undefined; text: string; werr: s
   if (a.code === "0" && a.text) return hasNonce ? { kind: "reply" } : { kind: "fail", error: `reply lacks the stub nonce: ${a.text.slice(-160)}` };
   if (!a.code || a.code === "0" || a.code === "3") return { kind: "again" };
   const why = `acp wait exit ${a.code}${a.werr ? `: ${a.werr.slice(-200)}` : ""}`;
-  if (hasNonce && a.turnStatus && !TURN_UNFINISHED.has(a.turnStatus)) return { kind: "reply", note: `${why}; history lists the turn ${a.turnStatus}` };
+  if (hasNonce && a.turnStatus && !TURN_UNFINISHED.has(a.turnStatus.split(" ")[0])) return { kind: "reply", note: `${why}; history lists the turn ${a.turnStatus}` };
   if (a.waitFails < 3) return { kind: "retry" };
   return { kind: "fail", error: `${why}; turn ${a.turnStatus ?? "not listed"}; last: ${a.text.slice(-160)}` };
 }
@@ -664,7 +675,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         let turnStatus: string | null = null;
         if (code && code !== "0" && code !== "3") {
           const h = await exec(`${GUEST}"$c" acp --json history ${shq(session)} --limit 5 2>&1`, 45_000).catch(() => null);
-          turnStatus = h ? historyTurnStatus(h.stdout, marker) : null;
+          const listed = h ? historyTurn(h.stdout, marker) : null;
+          turnStatus = listed ? (listed.why ? `${listed.status} (${listed.why})` : listed.status) : null;
         }
         const v = waitVerdict({ code, text, werr, turnStatus, nonce, waitFails });
         if (v.kind === "reply") {
