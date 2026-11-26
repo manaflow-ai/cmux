@@ -58,7 +58,7 @@ pub fn entries<'a>(machines: &'a [Machine], kinds: &[Kind]) -> Vec<Entry<'a>> {
                 )
             })
             .collect();
-    all.sort_by(|a, b| b.item.closed_at_ms.cmp(&a.item.closed_at_ms));
+    all.sort_by_key(|entry| std::cmp::Reverse(entry.item.closed_at_ms));
     all
 }
 
