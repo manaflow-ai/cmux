@@ -794,7 +794,7 @@ xcodegen_version=2.46.0
 xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 # The verified zip is kept in the CI cache's tools dir, keyed by its sha256,
 # so a step downloads it only on a host's first run: a per-step GitHub fetch
-# failed whole sim runs when GitHub answered 403 (2026-11-26, cmux9s-Mac-mini).
+# failed whole sim runs when GitHub answered 403 (2026-11-26).
 xcodegen_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-next-ios-sim-xcodegen.XXXXXX")"
 xcodegen_cache="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/tools/xcodegen-$xcodegen_version-$xcodegen_sha256.zip"
 xcodegen_sum() { shasum -a 256 "$1" | awk '{ print $1 }'; }
