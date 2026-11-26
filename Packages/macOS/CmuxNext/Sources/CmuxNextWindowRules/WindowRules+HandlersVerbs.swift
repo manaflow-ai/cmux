@@ -2,7 +2,7 @@ public import Foundation
 
 /// The verb handlers' small rules (cmux-window-rules `handlers_verbs`, ops `handlers_verbs_*`): a remote
 /// port argument and port list, Switch Host's pick, Open as Pane's folder, a workspace's PR links,
-/// Duplicate Tab's plan, a tab move that becomes a split, and a group walk and its ungroup index.
+/// Duplicate Tab's plan, a tab move that becomes a split, a group walk and its ungroup index, and a Space move's index.
 extension WindowRules {
     /// A `--port` argument as the invocation holds it: an integer or text.
     public nonisolated enum PortValue: Encodable, Sendable {
@@ -141,5 +141,12 @@ extension WindowRules {
         return call("handlers_verbs_ungroup_index",
                     Request(ungroupedFirst: ungroupedFirst, firstUnpinnedGroup: firstUnpinnedGroup, nodeCount: nodeCount, groupNode: groupNode),
                     as: Index.self)?.index
+    }
+
+    /// Where Move Space Left/Right, to Start/End and to Position (`position` 1-based) insert the space at
+    /// `from` of `count`; nil: at that edge, or the FFI does not answer.
+    public func roomMove(_ verb: String, from: Int, count: Int, position: Int?) -> Int? {
+        struct Request: Encodable { var verb: String, from: Int, count: Int, position: Int? }
+        return call("handlers_verbs_room_move", Request(verb: verb, from: from, count: count, position: position), as: Index.self)?.index
     }
 }

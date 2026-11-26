@@ -151,13 +151,10 @@ enum RoomHandlers {
         context.setTargetReason("space.delete", deleteReason)
         // Without an explicit target, the palette acts on the active window’s Space.
         ActionTargetTitles.setPaletteReason("space.delete", in: registry) { deleteReason(ActionInvocation()) }
-        bind("space.moveLeft") { try move($0, context) { from, _ in from - 1 } }
-        bind("space.moveRight") { try move($0, context) { from, _ in from + 1 } }
-        bind("space.moveToStart") { try move($0, context) { _, _ in 0 } }
-        bind("space.moveToEnd") { try move($0, context) { _, count in count - 1 } }
+        for verb: ActionID in ["space.moveLeft", "space.moveRight", "space.moveToStart", "space.moveToEnd"] { bind(verb) { try move(verb.rawValue, $0, context) } }
         bind("space.move") { invocation in
             guard let position = invocation["index"]?.intValue else { throw ActionFailure.invalidTarget(RoomStrings.roomArgumentRequired) }
-            try move(invocation, context, allowsStay: true) { _, count in min(max(position - 1, 0), count - 1) }
+            try move("space.move", invocation, context, position: position)
         }
         bind("space.next") { _ in try step(1, context) }
         bind("space.previous") { _ in try step(-1, context) }
@@ -262,12 +259,10 @@ enum RoomHandlers {
         try? create(invocation: invocation, context, action: "newWindow", inNewWindow: true) // create only throws for a bad argument; New Window passes none it reads
     }
 
-    /// Move Left/Right, to Start/End and to Position: `target` maps (position, count) to the new position.
-    private static func move(_ invocation: ActionInvocation, _ context: AppActionContext, allowsStay: Bool = false,
-                             to target: (Int, Int) -> Int) throws {
+    /// Move Left/Right, to Start/End and to Position: the insertion index is Rust's (`handlers_verbs::room_move`).
+    private static func move(_ verb: String, _ invocation: ActionInvocation, _ context: AppActionContext, position: Int? = nil) throws {
         let room = try context.room(invocation), order = context.services.machines.local.store.profileIDs
-        guard let from = order.firstIndex(of: room.id),
-              let insertion = ProfileBarLogic.moveInsertion(from: from, to: target(from, order.count), count: order.count, allowsStay: allowsStay)
+        guard let from = order.firstIndex(of: room.id), let insertion = WindowRules().roomMove(verb, from: from, count: order.count, position: position)
         else { throw ActionFailure.invalidTarget(RoomStrings.roomAtEdge) }
         let id = room.id
         context.services.machines.local.send("move-profile") { try await $0.moveProfile(id, to: insertion) }
