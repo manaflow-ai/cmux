@@ -4,13 +4,12 @@ import { SignInButton } from "../../../ui/SignInButton";
 import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
 import { useSettingsState, useStore } from "../context";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
-import { terminalSignIn, useSettingsSignIn } from "./useSettingsSignIn";
+import { terminalSignIn, type SettingsSignIn } from "./useSettingsSignIn";
 
 /** The host owns GitHub App authentication; this card never receives a credential. */
-export function GitHubAccountsCard() {
+export function GitHubAccountsCard({ signIn }: { signIn: SettingsSignIn }) {
   const github = useSettingsState().accounts?.github;
   const store = useStore();
-  const cliSignIn = useSettingsSignIn();
   const [confirming, setConfirming] = useState<string | null>(null);
   // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
   const fade = useLoadFade(Boolean(github));
@@ -57,22 +56,21 @@ export function GitHubAccountsCard() {
                 className="button"
                 variant="ghost"
                 data-github-action="cli-sign-in"
-                disabled={github.busy || Boolean(cliSignIn.running)}
-                onClick={() =>
-                  cliSignIn.begin("github", null, () => void store.runHarnesses(terminalSignIn("github", null)))
-                }
+                disabled={github.busy || Boolean(signIn.running)}
+                onClick={() => {
+                  if (!signIn.inPlace) {
+                    void store.runHarnesses(terminalSignIn("github", null));
+                    return;
+                  }
+                  signIn.begin("github", null, () => void store.runHarnesses(terminalSignIn("github", null)));
+                }}
               >
                 {cliLabel}
               </Button>
             </div>
-            {cliSignIn.running && (
+            {signIn.running?.family === "github" && signIn.running.account === null && (
               <div className="accounts-body">
-                <DeviceSignInCard
-                  family={cliSignIn.running.family}
-                  view={cliSignIn.running.view}
-                  look="inline"
-                  {...cliSignIn.card}
-                />
+                <DeviceSignInCard family="github" view={signIn.running.view} look="inline" {...signIn.card} />
               </div>
             )}
           </div>

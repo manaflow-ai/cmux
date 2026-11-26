@@ -54,6 +54,7 @@ test("signed out, the GitHub card offers Sign In instead of Connect GitHub", asy
 });
 
 test("the App connection leads and the personal CLI login stays an explicit option", async () => {
+  let release!: () => void;
   const page = await renderPage({
     path: "/settings/accounts",
     setup: (provider) => {
@@ -62,6 +63,7 @@ test("the App connection leads and the personal CLI login stays an explicit opti
         github: { ...github, signIn: null, canConnect: true, cliSignIn: "Use GitHub CLI" },
         signInAccounts: [...ACCOUNT_LISTS.oneEach],
       };
+      provider.signInHold = new Promise<void>((resolve) => (release = resolve));
     },
   });
   const appCard = page.container.querySelector<HTMLElement>('[data-card="github-connection"]')!;
@@ -73,7 +75,26 @@ test("the App connection leads and the personal CLI login stays an explicit opti
   await act(async () => cli.click());
   await settle();
   expect(page.provider.accountRuns.at(-1)).toMatchObject({ action: "signInFinish" });
-  expect(appCard.querySelector(".signin")).not.toBeNull();
+  expect(page.container.querySelectorAll(".signin").length).toBe(1);
+  expect(appCard.querySelector(".signin")).toBeNull();
+  expect(page.container.querySelector('[data-sign-in-account="github-2"] .signin')).not.toBeNull();
+  release();
+  await settle();
+  page.unmount();
+});
+
+test("the personal CLI login falls back to a terminal on an older host", async () => {
+  const page = await renderPage({
+    path: "/settings/accounts",
+    setup: (provider) => {
+      provider.accounts = { ...provider.accounts, github: { ...github, signIn: null, canConnect: true } };
+    },
+  });
+  const appCard = page.container.querySelector<HTMLElement>('[data-card="github-connection"]')!;
+  await act(async () => appCard.querySelector<HTMLButtonElement>('[data-github-action="cli-sign-in"]')!.click());
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountAdd", family: "github", way: "new" });
+  expect(page.container.querySelector(".signin")).toBeNull();
   page.unmount();
 });
 
