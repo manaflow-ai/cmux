@@ -23,6 +23,9 @@ pub const SEED_REMOTE: &str = "cmux-seed";
 const SEED_REFS: &str = "refs/cmux-seed/";
 /// The machine's repository, in the projection's state folder.
 pub const LOCAL_DIR: &str = "git-local";
+/// Present only after a carried repository has been fully copied and is safe to read as the
+/// machine's complete Git state during Bring Back.
+pub const SWAP_MARKER: &str = "cmux-carry.complete";
 /// The swap's owned repository, only while the upper `.git` link names it. Ordinary
 /// user symlinks remain links in Bring Back; they never cause a directory traversal.
 pub(crate) fn swapped_repository(state: &Path) -> std::io::Result<Option<PathBuf>> {
@@ -272,7 +275,10 @@ pub fn prepare_carry(
     for _ in 0..ATTEMPTS {
         copy_mac_state(projected, local, None)?;
         match fingerprint(projected)? {
-            Some(after) if after == fingerprint_now => return Ok(after),
+            Some(after) if after == fingerprint_now => {
+                write_atomic(&local.join(SWAP_MARKER), b"v1\n")?;
+                return Ok(after);
+            }
             Some(after) => fingerprint_now = after,
             None => {}
         }
@@ -383,21 +389,7 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
     // including every conflict stage; a gitlink belongs to a separate repository.
     let mut staged = git(projected);
     staged.args(["ls-files", "--stage", "-z"]);
-    let staged: std::collections::BTreeSet<String> = text(staged)?
-        .split('\0')
-        .filter_map(|entry| {
-            let (metadata, _) = entry.split_once('\t')?;
-            let mut fields = metadata.split_whitespace();
-            let mode = fields.next()?;
-            let object = fields.next()?;
-            // A gitlink belongs to the submodule's object store, not this repository.
-            (mode != "160000"
-                && valid_object_name(object)
-                && object.bytes().any(|b| b != b'0')
-                && !committed.contains(object))
-            .then(|| object.to_owned())
-        })
-        .collect();
+    let staged: std::collections::BTreeSet<String> = staged_objects(&output(staged)?, &committed);
     if !staged.is_empty() {
         let mut fetch = git(local);
         fetch.args(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head", "--stdin"]);
@@ -463,6 +455,34 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
     }
     write_atomic(&local.join("HEAD"), &std::fs::read(projected.join("HEAD"))?)?;
     Ok(())
+}
+
+/// Extracts staged object IDs from Git's NUL-delimited index listing without interpreting the
+/// path bytes. Git permits arbitrary bytes in a filename, so converting the whole listing to
+/// UTF-8 would make a carry fail for an otherwise valid repository.
+fn staged_objects(
+    listing: &[u8],
+    committed: &std::collections::HashSet<String>,
+) -> std::collections::BTreeSet<String> {
+    listing
+        .split(|byte| *byte == 0)
+        .filter_map(|entry| {
+            let tab = entry.iter().position(|byte| *byte == b'\t')?;
+            let mut fields = entry[..tab].split(|byte| byte.is_ascii_whitespace());
+            let mode = fields.next()?;
+            let object = fields.next()?;
+            // A gitlink belongs to the submodule's object store, not this repository.
+            if mode == b"160000"
+                || !matches!(object.len(), 40 | 64)
+                || !object.iter().all(u8::is_ascii_hexdigit)
+                || object.iter().all(|byte| *byte == b'0')
+            {
+                return None;
+            }
+            let object = std::str::from_utf8(object).ok()?;
+            (!committed.contains(object)).then(|| object.to_owned())
+        })
+        .collect()
 }
 
 fn write_atomic(file: &Path, bytes: &[u8]) -> anyhow::Result<()> {

@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::io::Write as _;
+use std::os::unix::ffi::{OsStrExt as _, OsStringExt as _};
 use std::os::unix::fs::{FileExt as _, MetadataExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -372,6 +373,28 @@ fn carry_preserves_public_private_and_local_repositories() {
         let config = std::fs::read_to_string(local.join("config")).unwrap();
         assert!(!config.contains(SEED_REMOTE), "carry must not add a promisor: {kind}");
     }
+}
+
+#[test]
+fn carry_accepts_a_non_utf8_staged_path() {
+    let repo = repo(3, 64);
+    let name = std::ffi::OsString::from_vec(b"staged-\xff.txt".to_vec());
+    let path = repo.mac.join(&name);
+    std::fs::write(&path, b"staged bytes").unwrap();
+    let mut add = git(&repo.mac.join(".git"));
+    add.current_dir(&repo.mac).args(["add", "--"]).arg(&name);
+    output(add).unwrap();
+
+    let projected = repo.mac.join(".git");
+    let base = sh(&repo.mac, &["rev-parse", "HEAD"]).trim().to_owned();
+    let state = tempfile::tempdir().unwrap();
+    let local = state.path().join(LOCAL_DIR);
+    prepare_carry(&projected, &local, &projected.join(CARRY_PACK), &base).unwrap();
+
+    let mut staged = git(&local);
+    staged.args(["ls-files", "--stage", "-z"]);
+    let listing = output(staged).unwrap();
+    assert!(listing.windows(name.as_bytes().len()).any(|window| window == name.as_bytes()));
 }
 
 /// Git can read the loose directory before the rename and packed-refs after it (or
