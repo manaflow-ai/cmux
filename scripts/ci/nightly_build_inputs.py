@@ -3,7 +3,7 @@
 
 `detect_ci_change_areas` already answers "can this path change Release app
 bytes" for pull requests, including the carve-outs that are easy to get wrong:
-the app bundles `skills/cmux-cua` as a folder resource, so skill Markdown
+the app bundles `skills/cmux-computer-use` as a folder resource, so skill Markdown
 outside that folder is neutral while everything inside it is a build input.
 Reusing that classifier keeps one definition of an app build input.
 
@@ -78,7 +78,7 @@ def bundled_paths(root: Path) -> frozenset[str]:
     Read from the Xcode project, because the pull-request router excuses some
     of these: it asks whether a Release compile is needed, and a script copied
     into the bundle compiles nothing. Covers the resource and copy-files
-    phases, which is where `skills/cmux-cua`, `Resources/bin/*` and
+    phases, which is where `skills/cmux-computer-use`, `Resources/bin/*` and
     `scripts/setup-pam-tid.sh` enter the app.
     """
     project = (root / detect.MACOS_XCODE_PROJECT_PATH).read_text(encoding="utf-8")
@@ -103,9 +103,15 @@ def bundled_paths(root: Path) -> frozenset[str]:
         if phase is None:
             continue
         for build_file_id in detect._pbx_list_ids(phase, "files"):
-            reference_id = detect._pbx_reference_id(
-                detect._pbx_field(build_files[build_file_id], "fileRef")
-            )
+            file_ref = detect._pbx_field(build_files[build_file_id], "fileRef", required=False)
+            if file_ref is None:
+                # A Swift package product (productRef, e.g. the embedded
+                # CmuxNextApp.framework, 81b17999): built from package sources,
+                # which always rebuild, so it bundles no neutral file.
+                if detect._pbx_field(build_files[build_file_id], "productRef", required=False) is None:
+                    raise ValueError(f"build file {build_file_id} has neither fileRef nor productRef")
+                continue
+            reference_id = detect._pbx_reference_id(file_ref)
             reference = references.get(reference_id)
             if reference is None:
                 # A reference from a group or a synchronized folder, which is

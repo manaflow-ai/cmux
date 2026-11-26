@@ -150,11 +150,12 @@ import Testing
         #expect(nightlyURL.absoluteString.hasSuffix("/releases/download/nightly/cmux-nightly-macos-arm64.dmg"))
         #expect(!nightlyURL.absoluteString.contains("latest/download"))
 
-        // A cmux-next NIGHTLY recovers to its own track's DMG, never main's NIGHTLY DMG.
+        // A cmux-next NIGHTLY recovers to its own track's DMG, never main's NIGHTLY DMG: the
+        // cmux.com route that resolves the update feed's newest DMG. The rolling release asset
+        // can trail the feed, and installing the build before the offered one repeats the failure.
         let nextURL = try #require(recovery.url(for: didNotStart,
                                                 feedURLString: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml"))
-        #expect(nextURL.absoluteString
-            == "https://github.com/manaflow-ai/cmux/releases/download/nightly-next/cmux-nightly-next-macos-arm64.dmg")
+        #expect(nextURL.absoluteString == "https://cmux.com/api/download/next")
 
         let stableURL = try #require(recovery.url(for: didNotStart, feedURLString: "https://cmux.com/appcast.xml"))
         #expect(stableURL.absoluteString.contains("latest/download"))

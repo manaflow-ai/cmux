@@ -74,13 +74,20 @@ fn plan_index(plan_max: Option<&str>) -> Option<usize> {
     plan_max.and_then(|plan_max| LADDER.iter().position(|(name, _)| *name == plan_max))
 }
 
+/// The size name at ladder index `index`; None off the ladder.
+fn size_name(index: usize) -> Option<&'static str> {
+    LADDER.get(index).map(|(name, _)| *name)
+}
+
 /// The largest disk a plan whose largest size is ladder index `plan` gives: `lg` (cmux NEXT Pro and the classic plans
 /// below Max) 128 GiB, `2xl` (Max) [`LARGEST_DISK`], another size its own disk.
 fn plan_disk(plan: usize) -> u64 {
-    match LADDER[plan].0 {
-        "lg" => 128 * GIB,
-        "2xl" => LARGEST_DISK,
-        _ => LADDER[plan].1,
+    match LADDER.get(plan) {
+        Some(("lg", _)) => 128 * GIB,
+        Some(("2xl", _)) => LARGEST_DISK,
+        Some((_, own)) => *own,
+        // `plan` comes from `plan_index`, so it is always on the ladder.
+        None => 0,
     }
 }
 
@@ -105,18 +112,18 @@ pub(super) fn needed_size(bytes: u64) -> Option<&'static str> {
 /// [`LARGEST_DISK`]. The App's `CloudChatSize.planned(bytes:planMax:)`.
 pub(super) fn planned_size(bytes: u64, plan_max: Option<&str>) -> Option<&'static str> {
     let fit = floor_index(bytes);
-    let Some(plan) = plan_index(plan_max) else { return fit.map(|index| LADDER[index].0) };
+    let Some(plan) = plan_index(plan_max) else { return fit.and_then(size_name) };
     if let Some(index) = fit.filter(|index| *index <= plan) {
-        return Some(LADDER[index].0);
+        return size_name(index);
     }
     let floor = floor_disk(bytes);
     if floor > LARGEST_DISK {
         return None;
     }
     if floor <= plan_disk(plan) {
-        return Some(LADDER[plan].0);
+        return size_name(plan);
     }
-    Some(fit.map_or("2xl", |index| LADDER[index].0))
+    Some(fit.and_then(size_name).unwrap_or("2xl"))
 }
 
 /// The disk in GiB a start asks beyond `size`'s own (the ensure body's `disk_gib`) under a plan known by its largest
@@ -153,7 +160,7 @@ pub(super) fn outgrown_plan(
     machine: &Machine<'_>,
 ) -> Option<Value> {
     let plan = plan_index(plan_max)?;
-    let (largest, _) = LADDER[plan];
+    let largest = size_name(plan)?;
     if size != Some(largest) {
         return None;
     }
@@ -166,7 +173,7 @@ pub(super) fn outgrown_plan(
         return None;
     }
     let needed = floor_index(bytes).or_else(|| (plan + 1 < LADDER.len()).then_some(plan + 1))?;
-    let (needed, _) = LADDER[needed];
+    let needed = size_name(needed)?;
     let mut line = super::refused(
         SIZE_LOCKED,
         format!(

@@ -280,8 +280,8 @@ export async function startRealAcpmux(options: RealAcpmuxOptions): Promise<RealA
       (socket as any).sendFirst = (frame: Frame) => {
         stage = "init";
         frame.params = frame.params ?? {};
-        frame.params._meta = { ...(frame.params._meta ?? {}) };
-        frame.params._meta.acpmux = { ...(frame.params._meta.acpmux ?? {}), localAppToken };
+        frame.params._meta = { ...frame.params._meta };
+        frame.params._meta.acpmux = { ...frame.params._meta.acpmux, localAppToken };
         socket.send(JSON.stringify(frame));
       };
     });

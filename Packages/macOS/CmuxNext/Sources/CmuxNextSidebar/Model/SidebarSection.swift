@@ -114,6 +114,26 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     /// does not name "Connecting…" on its workspace rows yet, so a launch or a quick reconnect shows none.
     public var holdsStatusLabel = false
 
+    /// The header's screen control, one rule for its hover button and its right-click rows: Share on
+    /// This Mac; View screen on Cloud machines and authenticated Mac devices. SSH and server rows need
+    /// the daemon's screen identity before offering View screen (a joined Linux machine's is its cmux-rd
+    /// host's device, `remote_host/linux_screen.rs`).
+    public var screenAction: SidebarIntent? {
+        switch kind {
+        case .local: .shareScreen(id)
+        case .cloud: .viewScreen(id)
+        case .ssh, .server: screenDeviceID == nil ? nil : .viewScreen(id)
+        }
+    }
+
+    /// Whether ``screenAction`` can run now: a known Mac's View screen waits for its screen device to be online.
+    public var screenActionEnabled: Bool {
+        switch kind {
+        case .local, .cloud: true
+        case .ssh, .server: screenAvailable
+        }
+    }
+
     public init(id: MachineID, name: String, kind: Kind, status: Status = .connected, detail: String? = nil,
                 icon: WorkspaceIcon? = nil, cost: Cost? = nil) {
         self.id = id

@@ -1,4 +1,8 @@
+public import CMUXAuthCore
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Create Team through the cmux service (`POST /v1/teams`, PROTOCOL.md).
 /// Stack refuses team creation from the client (`client_team_creation_enabled`
@@ -15,18 +19,23 @@ public struct ServiceTeamCreation: Sendable {
     }
 
     public let apiBase: URL
+    /// The build's cloud data space (a dev build's `X-Cmux-Build-Space`); a misconfigured dev build's
+    /// request throws ``CMUXBuildSpaceError``.
+    public let buildSpace: CMUXBuildSpaceState
 
-    public init(apiBase: URL) {
+    public init(apiBase: URL, buildSpace: CMUXBuildSpaceState) {
         self.apiBase = apiBase
+        self.buildSpace = buildSpace
     }
 
     /// `POST /v1/teams {name}`.
-    public func request(accessToken: String, name: String) -> URLRequest {
+    public func request(accessToken: String, name: String) throws -> URLRequest {
         var request = URLRequest(url: apiBase.appending(path: "v1/teams"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["name": name])
+        try buildSpace.apply(to: &request)
         return request
     }
 

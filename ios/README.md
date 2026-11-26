@@ -1,4 +1,7 @@
-# cmux iOS
+# cmux iOS (retired)
+
+> **Retired.** This classic iPhone app is no longer developed or installed. The iPhone app is
+> [`cmux-next-ios/`](../cmux-next-ios/CLAUDE.md). This README is kept only as history.
 
 The rewritten iOS/iPadOS app (plans/cmux-next/ios-rewrite.md). The app target in
 `cmux-ios.xcodeproj` (scheme `cmux-ios`, product `cmux.app`) links one package,

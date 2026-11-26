@@ -1,7 +1,7 @@
 // The Task Manager page: one row per cmux process with CPU and memory, sortable by any column (a
 // header click; again flips it), one selected row, and Kill Process on it from the footer button or
 // the row's menu. The app formats the numbers and decides what may be ended; the page only shows it.
-import { useSyncExternalStore, type KeyboardEvent } from "react";
+import { memo, useSyncExternalStore, type KeyboardEvent } from "react";
 import { Button } from "../../ui/Button";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import type { Strings } from "../shared/i18n";
@@ -77,7 +77,7 @@ export function TaskManagerPage({ store, state, strings }: TaskManagerPageProps)
           </thead>
           <tbody>
             {state.rows.map((row) => (
-              <Row key={row.id} row={row} selected={row.id === state.selected} onSelect={() => store.select(row.id)} />
+              <Row key={row.id} row={row} selected={row.id === state.selected} store={store} />
             ))}
           </tbody>
         </table>
@@ -131,29 +131,35 @@ function HeaderCell({
   );
 }
 
-function Row({ row, selected, onSelect }: { row: TaskManagerRow; selected: boolean; onSelect: () => void }) {
+// Its own boundary with stable props: a sample redraws only the rows whose numbers changed (the
+// store keeps an unchanged row's object), and a click only the two rows whose selection flipped.
+const Row = memo(function Row({
+  row,
+  selected,
+  store,
+}: {
+  row: TaskManagerRow;
+  selected: boolean;
+  store: TaskManagerStore;
+}) {
   return (
     <tr
       className="tm-row"
       aria-selected={selected}
       data-row-id={row.id}
       data-refused={row.refusal === null ? undefined : ""}
-      onMouseDown={onSelect}
+      onMouseDown={() => store.select(row.id)}
     >
-      <td title={row.task}>{row.task}</td>
-      <td title={row.name}>{row.name}</td>
+      <td>{row.task}</td>
+      <td>{row.name}</td>
       <td className="tm-numeric" title={pidText(row)}>
         <PidCell row={row} />
       </td>
-      <td className="tm-numeric" title={row.cpuText}>
-        {row.cpuText}
-      </td>
-      <td className="tm-numeric" title={row.memoryText}>
-        {row.memoryText}
-      </td>
+      <td className="tm-numeric">{row.cpuText}</td>
+      <td className="tm-numeric">{row.memoryText}</td>
     </tr>
   );
-}
+});
 
 /** The PID cell: the pid here; another machine's `host:pid` with only the host ellipsized. */
 function PidCell({ row }: { row: TaskManagerRow }) {

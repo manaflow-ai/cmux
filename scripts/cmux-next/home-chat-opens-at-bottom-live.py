@@ -14,6 +14,8 @@ Exit: 0 every open rested at the newest message (or the snapshots are the eviden
 Usage: home-chat-opens-at-bottom-live.py --tag TAG --app APP [--out DIR] [--messages N]
 """
 import argparse, json, os, random, shutil, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--tag", default=os.environ.get("NX_APP_TAG"))
@@ -104,8 +106,10 @@ def open_and_check(conv_id, step):
     rpc("action.run", {"id": "home.openConversation", "args": {"conversation": conv_id}, "focus": True})
     shown = wait(lambda: (home().get("page") or {}).get("shown") == conv_id or geometry(), 30)
     # Pictures, statuses and the first page settle; the transcript must rest at the bottom after it.
-    time.sleep(3)  # test harness: let the open settle before the snapshot
-    g = geometry()
+    # Wait until the transcript geometry holds still (pictures, statuses and the first page laid out); the result
+    # check below says whether it rested at the bottom.
+    g = wait_stable(geometry, "the transcript geometry after the open", timeout=20, interval=0.25, reads=6,
+                    raise_on_timeout=False) or geometry()
     shot(step)
     rest = None
     if "scrollOffset" in g and "scrollBottom" in g:

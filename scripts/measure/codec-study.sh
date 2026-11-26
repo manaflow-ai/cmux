@@ -111,25 +111,25 @@ while IFS= read -r file; do natives+=("$file"); done < <(ls "$work/corpus/native
 (( ${#natives[@]} > 0 )) || { echo "CODEC-STUDY-ERROR no corpus images"; exit 4; }
 (( images > 0 && ${#natives[@]} > images )) && natives=("${natives[@]:0:$images}")
 corpus=()
-[[ ",$sizes," == *,native,* ]] && corpus+=("${natives[@]}")
+[[ ",$sizes," == *,native,* ]] && corpus+=(${natives[@]+"${natives[@]}"})
 if [[ ",$sizes," == *,1366,* ]]; then
-  for file in "${natives[@]}"; do
+  for file in ${natives[@]+"${natives[@]}"}; do
     small="$work/corpus/1366/$(basename "$file")"
     prepare "$file" "$small" 1366 && corpus+=("$small")
   done
 fi
 (( ${#corpus[@]} > 0 )) || { echo "CODEC-STUDY-ERROR no corpus images"; exit 4; }
-echo "CODEC-STUDY-CORPUS ${#corpus[@]} images: $(for f in "${corpus[@]}"; do printf '%s ' "${f#"$work/corpus/"}"; done)"
+echo "CODEC-STUDY-CORPUS ${#corpus[@]} images: $(for f in ${corpus[@]+"${corpus[@]}"}; do printf '%s ' "${f#"$work/corpus/"}"; done)"
 
 # Encode and decode: the library codecs, then ImageIO's (Mac), then every encoded file's ImageIO decode.
 stage encode library
-CODEC_STUDY_ONLY="$only" "$py" -I "$here/study.py" encode "$runs" "$work/encoded" "${corpus[@]}" >"$out/library.jsonl" ||
+CODEC_STUDY_ONLY="$only" "$py" -I "$here/study.py" encode "$runs" "$work/encoded" ${corpus[@]+"${corpus[@]}"} >"$out/library.jsonl" ||
   echo "CODEC-STUDY-ERROR the library encode ended early (exit $?)"
 if [[ $mac == 1 ]]; then
   stage encode imageio
   CODEC_STUDY_ONLY="$only" "$work/bin/codec-study-imageio" types >"$out/imageio-types.json"
   echo "CODEC-STUDY-IMAGEIO $("$py" -I -c 'import json,sys; print(json.load(sys.stdin)["settings"])' <"$out/imageio-types.json")"
-  CODEC_STUDY_ONLY="$only" "$work/bin/codec-study-imageio" encode "$runs" "$work/encoded" "${corpus[@]}" >"$out/imageio.jsonl" ||
+  CODEC_STUDY_ONLY="$only" "$work/bin/codec-study-imageio" encode "$runs" "$work/encoded" ${corpus[@]+"${corpus[@]}"} >"$out/imageio.jsonl" ||
     echo "CODEC-STUDY-ERROR the ImageIO encode ended early (exit $?)"
   stage decode imageio
   encoded=()

@@ -15,6 +15,8 @@ pub struct Roots {
     pub settings_file: PathBuf,
     /// The person's own views app (`local/customize`).
     pub customize_dir: PathBuf,
+    /// The automations store the runner reads (cmux-automations `Store::default_root`).
+    pub automations_dir: PathBuf,
     /// Generations, the draft and the lock. Never inside what it snapshots.
     pub state_dir: PathBuf,
 }
@@ -37,11 +39,19 @@ impl Roots {
         // The same order the daemon reads its customize folder in
         // (cmux-tui-core `apps::catalog::customize_dir`); the test below
         // holds this side of it.
+        let shared = home.as_ref().map(|home| home.join(".config/cmux"));
         let customize_dir = env("CMUX_CUSTOMIZE_DIR")
             .map(PathBuf::from)
             .or_else(|| env("XDG_CONFIG_HOME").map(|xdg| PathBuf::from(xdg).join("cmux/customize")))
-            .or_else(|| home.as_ref().map(|home| home.join(".config/cmux/customize")))
+            .or_else(|| shared.as_ref().map(|dir| dir.join("customize")))
             .unwrap_or_else(|| config_dir.join("customize"));
+        // The runner's order (cmux-automations `Store::default_root`): a
+        // preview, a generation and a rollback cover the folder it reads.
+        let automations_dir = env("CMUX_AUTOMATIONS_DIR")
+            .filter(|dir| !dir.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| shared.as_ref().map(|dir| dir.join("automations")))
+            .unwrap_or_else(|| config_dir.join("automations"));
         let state_dir = if let Some(dir) = env(STATE_OVERRIDE) {
             PathBuf::from(dir)
         } else if overridden {
@@ -51,7 +61,7 @@ impl Roots {
         } else {
             default_state_dir(&env, home.as_deref()?)
         };
-        Some(Roots { config_dir, settings_file, customize_dir, state_dir })
+        Some(Roots { config_dir, settings_file, customize_dir, automations_dir, state_dir })
     }
 
     /// Roots under one folder, for tests and benches: `<root>/config` and
@@ -61,9 +71,18 @@ impl Roots {
         Roots {
             settings_file: config_dir.join("cmux-next.json"),
             customize_dir: config_dir.join("customize"),
+            automations_dir: config_dir.join("automations"),
             state_dir: root.join("state"),
             config_dir,
         }
+    }
+
+    /// Installed setups' own views layers (`setup::layers`): `setups/` next
+    /// to the customize folder (`~/.config/cmux/setups`), so a setup never
+    /// writes into the person's own views. The daemon reads the same folder
+    /// (cmux-tui-core `apps::catalog::setups_dir`).
+    pub fn setups_dir(&self) -> PathBuf {
+        self.customize_dir.with_file_name("setups")
     }
 
     /// Saved profiles: `<config dir>/profiles/NAME.json`.
@@ -123,5 +142,25 @@ mod tests {
         assert_eq!(roots.customize_dir, PathBuf::from("/mine"));
         let roots = Roots::from(env(&[("HOME", "/home/pat"), ("XDG_CONFIG_HOME", "/x")])).unwrap();
         assert_eq!(roots.customize_dir, PathBuf::from("/x/cmux/customize"));
+    }
+
+    #[test]
+    fn the_automations_folder_is_the_runners() {
+        let roots = Roots::from(env(&[
+            ("HOME", "/home/pat"),
+            ("CMUX_NEXT_CONFIG_FILE", "/tmp/tagged/cmux-next.json"),
+        ]))
+        .unwrap();
+        // Not the tagged settings file's folder: the runner's own default,
+        // next to the customize folder under HOME.
+        assert_eq!(roots.automations_dir, roots.customize_dir.with_file_name("automations"));
+        assert!(roots.automations_dir.starts_with("/home/pat"));
+        let roots = Roots::from(env(&[
+            ("HOME", "/home/pat"),
+            ("CMUX_NEXT_CONFIG_FILE", "/tmp/tagged/cmux-next.json"),
+            ("CMUX_AUTOMATIONS_DIR", "/tmp/tagged/automations"),
+        ]))
+        .unwrap();
+        assert_eq!(roots.automations_dir, PathBuf::from("/tmp/tagged/automations"));
     }
 }

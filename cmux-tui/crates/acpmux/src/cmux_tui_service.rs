@@ -8,7 +8,8 @@
 //!   dials M's carrier circuit naming the [`CircuitService::CmuxTui`] service
 //!   (`HubCarrier::dial_service`), answers one JSON-RPC line, and from then on the socket
 //!   carries the circuit's bytes both ways. The CLI speaks the remote protocol over it
-//!   (WebSocket upgrade, Noise, device enrollment), as over TCP.
+//!   (WebSocket upgrade, Noise, device enrollment), as over TCP. `{machine, service:
+//!   "lane-gh-broker"}` reaches M's lane-gh broker instead (`hub_carrier_broker.rs`).
 //! - Serving side: [`ConfiguredGate`] lets a circuit through only to the loopback address the
 //!   owner named (`remoteDaemon`, `acpmux config --set remote_daemon=127.0.0.1:PORT`), only for
 //!   that port, and on a joined machine only while its "control" consent is granted
@@ -99,17 +100,25 @@ pub fn admit(
 
 /// The machine a pipe dials: its hub `daemonId` (its node key, standard base64), given as
 /// `daemonId`, or by `machine`: a peer whose config names its WireGuard key, a route the carrier
-/// was given, or a key itself.
+/// was given, a key itself, or the name the hub lists the machine by (`acpmux machine ls`, the
+/// address book's host). This machine's own key is refused: the hub carries only between two of
+/// the person's machines, and its daemon is on loopback here.
+/// A pipe to the far machine's lane-gh broker (`service: "lane-gh-broker"`) names no port: its
+/// port is 0 here.
 async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcError> {
     let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
-    let port = params
-        .get("port")
-        .and_then(Value::as_u64)
-        .and_then(|p| u16::try_from(p).ok())
-        .filter(|p| *p != 0)
-        .ok_or_else(|| {
-            RpcError::invalid_params("port is required (the remote daemon's loopback port)")
-        })?;
+    let port = if is_broker_pipe(params) {
+        0
+    } else {
+        params
+            .get("port")
+            .and_then(Value::as_u64)
+            .and_then(|p| u16::try_from(p).ok())
+            .filter(|p| *p != 0)
+            .ok_or_else(|| {
+                RpcError::invalid_params("port is required (the remote daemon's loopback port)")
+            })?
+    };
     let carrier = hub.hub_carrier.get();
     let daemon = match (text("daemonId"), text("machine")) {
         (Some(key), _) => Some(key.to_owned()),
@@ -124,6 +133,10 @@ async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcErro
             configured
                 .or_else(|| carrier.as_ref().and_then(|c| c.route(machine)))
                 .or_else(|| is_key(machine).then(|| machine.to_owned()))
+                .or_else(|| book_key(&hub.mesh_book_machines(), machine))
+                // A hub-connected machine by the name `acpmux machine ls` shows: the address
+                // book's `(daemonId, host)` rows of this person's other machines.
+                .or_else(|| book_machine(&hub.mesh_book_machines(), machine))
         }
         (None, None) => {
             return Err(RpcError::invalid_params("machine is required"));
@@ -132,11 +145,46 @@ async fn pipe_target(hub: &Hub, params: &Value) -> Result<(String, u16), RpcErro
     let daemon = daemon.ok_or_else(|| {
         RpcError::invalid_params(
             "no hub route to that machine: name a peer whose config names its WireGuard key, or \
-             the machine's node key (`acpmux machine status --json` there, `wgPublicKey`)",
+             the machine's node key (`acpmux machine status --json` there, `wgPublicKey`), or \
+             a machine name `acpmux machine ls` shows with via hub",
         )
         .with_data(json!({"reason": "machine.unknown"}))
     })?;
+    if carrier.as_ref().is_some_and(|c| c.public_key() == daemon) {
+        return Err(RpcError::invalid_params(format!(
+            "that is this machine: the hub carries only between two of your machines; reach this \
+             machine's daemon at ws://127.0.0.1:{port} without --via-machine"
+        ))
+        .with_data(json!({"reason": "machine.self"})));
+    }
     Ok((daemon, port))
+}
+
+/// Whether a `remote.pipe` asks for the far machine's lane-gh broker (RFD 0127 cut 2,
+/// `hub_carrier_broker.rs`) rather than its cmux-tui remote daemon.
+fn is_broker_pipe(params: &Value) -> bool {
+    params.get("service").and_then(Value::as_str)
+        == Some(crate::hub_carrier::LANE_GH_BROKER_SERVICE)
+}
+
+/// The `daemonId` of the one machine the hub's address book lists as `name` (its host, any
+/// case), among `machines` (`(daemonId, host)`). None when no machine or more than one has it.
+fn book_key(machines: &[(String, String)], name: &str) -> Option<String> {
+    let mut found = machines.iter().filter(|(_, host)| host.eq_ignore_ascii_case(name));
+    let (key, _) = found.next()?;
+    found.next().is_none().then(|| key.clone())
+}
+
+/// The hub `daemonId` of the machine the address book lists as `name` (its host name, matched
+/// exactly, else without case). None when no machine has that name, or two machines do and the
+/// name cannot say which: the caller then names the key.
+pub(crate) fn book_machine(machines: &[(String, String)], name: &str) -> Option<String> {
+    let named = |same: &dyn Fn(&str) -> bool| {
+        let mut found = machines.iter().filter(|(_, host)| same(host)).map(|(key, _)| key);
+        let first = found.next()?;
+        found.all(|key| key == first).then(|| first.clone())
+    };
+    named(&|host| host == name).or_else(|| named(&|host| host.eq_ignore_ascii_case(name)))
 }
 
 fn is_key(text: &str) -> bool {
@@ -161,13 +209,24 @@ pub(crate) async fn serve_pipe<R, W>(
         let carrier = hub.hub_carrier.get().ok_or_else(|| {
             RpcError::new(
                 -32000,
-                "this machine's hub carrier is off (not joined, or the cmux link holds its node key)",
+                "this machine's hub carrier is off (not joined to a Cloud account, or its node key is missing \
+                 or was replaced): `acpmux machine join`, then `acpmux daemon restart`",
             )
             .with_data(json!({"reason": "carrier.off"}))
         })?;
         // The far machine's refusal keeps its own reason (`consent_required`, ...): the CLI
         // ends on one no redial cures and redials the rest (`machine.unreachable`).
-        carrier.dial_service(&daemon, CircuitService::CmuxTui { port }).await.map_err(|e| {
+        // `service: "lane-gh-broker"`: the far machine's lane-gh broker (RFD 0127 cut 2).
+        // `resume`: the far acpmux holds the pipe across this one's end (RFD 0127 cut 4,
+        // `hub_carrier_resume.rs`); the client resumes it on its next pipe.
+        let service = if is_broker_pipe(&params) {
+            CircuitService::LaneGhBroker
+        } else if params.get("resume").and_then(Value::as_bool) == Some(true) {
+            CircuitService::CmuxTuiResume { port }
+        } else {
+            CircuitService::CmuxTui { port }
+        };
+        carrier.dial_service_reported(&daemon, service).await.map_err(|e| {
             let refusal = crate::machine_routes::refusal_of(&e);
             let message =
                 refusal.get("error").and_then(serde_json::Value::as_str).unwrap_or(&e).to_owned();
@@ -175,7 +234,7 @@ pub(crate) async fn serve_pipe<R, W>(
         })
     }
     .await;
-    let mut circuit = match dialed {
+    let (mut circuit, report) = match dialed {
         Ok(circuit) => circuit,
         Err(error) => {
             let _ = writer.write_all(Message::err(id, error).to_line().as_bytes()).await;
@@ -183,7 +242,10 @@ pub(crate) async fn serve_pipe<R, W>(
             return;
         }
     };
-    let reply = Message::ok(id, json!({"via": "hub"}));
+    // `dial` says where the open's time went (a stream on the kept circuit, or a new circuit's
+    // ticket, relay, join, Noise and answer), so a caller such as NOW's weft probe splits its
+    // first byte by step instead of inferring it.
+    let reply = Message::ok(id, json!({"via": report.via.name(), "dial": report.to_json()}));
     if writer.write_all(reply.to_line().as_bytes()).await.is_err() {
         return;
     }
@@ -197,6 +259,21 @@ mod tests {
 
     fn consent(required: bool, control: &str) -> Value {
         json!({"consentRequired": required, "consent": {"screen": "none", "control": control}})
+    }
+
+    #[test]
+    fn a_machine_the_hub_lists_is_named_by_its_host() {
+        let machines = vec![
+            ("a".repeat(44), "gcp-lane-2".to_owned()),
+            ("b".repeat(44), "air".to_owned()),
+            ("c".repeat(44), "twice".to_owned()),
+            ("d".repeat(44), "Twice".to_owned()),
+        ];
+        assert_eq!(book_key(&machines, "gcp-lane-2"), Some("a".repeat(44)));
+        assert_eq!(book_key(&machines, "AIR"), Some("b".repeat(44)));
+        // Two machines listed under one name: neither is picked.
+        assert_eq!(book_key(&machines, "twice"), None);
+        assert_eq!(book_key(&machines, "nowhere"), None);
     }
 
     #[test]
