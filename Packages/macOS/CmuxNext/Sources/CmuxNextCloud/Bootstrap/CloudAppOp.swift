@@ -12,15 +12,19 @@ public nonisolated struct CloudAppOpFailure: LocalizedError, Equatable, Sendable
     public var code: String
     public var message: String
     public var details: JSONValue?
+    /// The server's `retryable`: the same op may answer when asked again (a backend blip,
+    /// `owner.unreachable`, a busy relay). Reads use it to ask again quietly.
+    public var retryable: Bool
 
     public static let approvalPending = "cmux.cloud.approval_pending"
     /// The op needs a paid plan (`cloud.plan.required`).
     public static let planRequired = "cmux.cloud.plan_required"
 
-    public init(code: String, message: String, details: JSONValue? = nil) {
+    public init(code: String, message: String, details: JSONValue? = nil, retryable: Bool = false) {
         self.code = code
         self.message = message
         self.details = details
+        self.retryable = retryable
     }
 
     /// The approval request id (`apr_…`) of an approval code.

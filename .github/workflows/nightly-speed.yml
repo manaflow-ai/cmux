@@ -30,7 +30,7 @@ env:
 jobs:
   speed:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       actions: read
@@ -47,6 +47,7 @@ jobs:
             tests/git_fixture_env.py
             tests/fleet_test_host.py
             tests/fixtures/nightly-speed
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Fetch feat-cmux-next's recent history
