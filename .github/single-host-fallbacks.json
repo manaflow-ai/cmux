@@ -606,8 +606,9 @@
         "cmux-mac",
         "xcode-27.0"
       ],
-      "constrained_by": "ios-internal-nightly.yml's picker emits the fallback only when no idle dedicated mini is available; the fallback is the configured Blacksmith macOS 26 route.",
-      "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.0] when a live Xcode 27 runner exists."
+      "array_pin": "glaeda-runner-",
+      "constrained_by": "scripts/ci/ios_internal_runner.py main(): when no dedicated mini is picked, prints the JSON runs-on array [FALLBACK_MAC] (the workflow's `vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26'`) when fleet_fallback() finds no online runner carrying xcode-27.0, else FLEET_XCODE [\"cmux-mac\", \"xcode-27.0\"]. The archive reads it with fromJSON. It never adds a glaeda-runner- pin; xcode-27.0 only narrows cmux-mac to Macs with Xcode 27 and adds no host cmux-mac does not name.",
+      "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.0] when a live Xcode 27 runner exists, else [FALLBACK_MAC]; the archive's runs-on reads vars.CI_OVERFLOW_MAC before this output."
     },
     "nightly.yml:route-visual-gate-nightly.runs_on": {
       "labels": [
