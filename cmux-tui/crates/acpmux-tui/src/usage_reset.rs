@@ -20,7 +20,7 @@ pub(crate) fn resets_at(message: &str) -> Option<i64> {
 fn epoch_after_limit(message: &str) -> Option<i64> {
     let lower = message.to_ascii_lowercase();
     let at = lower.find("limit reached|")? + "limit reached|".len();
-    ten_digits(&message[at..])
+    ten_digits(message.get(at..)?)
 }
 
 /// `"resets_at": "2026-11-27T07:00:00Z"` or `"resetsAt": 1764000000` (also `reset_at`, `resetAt`).
@@ -31,11 +31,11 @@ fn reset_field(message: &str) -> Option<i64> {
         return None;
     }
     ["\"resets_at\"", "\"resetsAt\"", "\"reset_at\"", "\"resetAt\""].iter().find_map(|key| {
-        let rest = message[message.find(key)? + key.len()..].trim_start();
+        let rest = message.split_once(key)?.1.trim_start();
         let rest = rest.strip_prefix(':')?.trim_start();
         match rest.strip_prefix('"') {
             Some(quoted) => {
-                let value = &quoted[..quoted.find('"')?];
+                let (value, _) = quoted.split_once('"')?;
                 DateTime::parse_from_rfc3339(value).ok().map(|t| t.timestamp())
             }
             None => ten_digits(rest),
@@ -45,7 +45,10 @@ fn reset_field(message: &str) -> Option<i64> {
 
 fn ten_digits(s: &str) -> Option<i64> {
     let digits = s.bytes().take_while(u8::is_ascii_digit).count();
-    (digits == 10).then(|| s[..10].parse().ok()).flatten()
+    if digits != 10 {
+        return None;
+    }
+    s.get(..digits)?.parse().ok()
 }
 
 /// The card's lead sentence for `message` in `tz`, or None when it names no reset.
@@ -90,6 +93,7 @@ mod tests {
         // A reset field outside a limit refusal is not a limit's reset.
         assert_eq!(resets_at(r#"{"resetsAt":1764000000}"#), None);
         assert_eq!(resets_at(""), None);
+        assert_eq!(resets_at("使用量 limit reached|176400000🕐"), None);
     }
 
     #[test]
