@@ -5,6 +5,7 @@ import CmuxNextCloud
 import CmuxNextCloudPlace
 import CmuxNextCloudUI
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import Foundation
 
@@ -190,24 +191,18 @@ extension CloudPlaceRefusal {
     }
 }
 
-/// What a chat carries into a move, read from the app's own state for the reducer's `Cargo`. A person's move from the page
-/// takes its `queued` and `hasDraft` from the page's claims (``CloudPlaceClaims``) when it sent them; otherwise `queued` is
-/// acpmux's count from the chat's summary when it names prompts waiting (a 0 there may be an older acpmux's silence: left out).
+/// What a chat carries into a move: the app reads its turn, branch, draft, acpmux's queued count and the page's claims
+/// (``CloudPlaceClaims``); Rust's `cloud_move_host_cargo` (cmux-cloud-start-core `moves::host::cargo`) makes the reducer's `Cargo`.
 extension CloudPlaceFlows.Cargo {
     @MainActor static func read(tab: TabModel, session: String, services: AppServices, invocation: ActionInvocation? = nil) -> CloudPlaceFlows.Cargo {
-        var cargo = Self()
-        if let ref = tab.agentSession { cargo.turnRunning = AgentTurnStateStore.shared.state(for: ref) == .working }
-        // Both moves run the agent move with a FrozenSync, which carries a running turn to where it lands; no turn, no carry.
-        cargo.continuesTurn = cargo.turnRunning
-        cargo.branch = tab.gitBranch
         let tabs = services.agentTabs
-        cargo.hasDraft = tabs.unsentDrafts.hasDraft(tabs.resolve(tab.id), machine: tabs.daemonListing(tab)?.machineID)
-        if let ref = tab.agentSession, let queued = AgentTurnStateStore.shared.detail(for: ref)?.queued, queued > 0 { cargo.queued = queued }
-        if let invocation {
-            let claims = CloudPlaceClaims(invocation)
-            cargo.queued = claims.queued ?? cargo.queued
-            cargo.hasDraft = claims.hasDraft ?? cargo.hasDraft
-        }
+        let claims = invocation.map { CloudPlaceClaims($0) }.map { ["queued": $0.queued as Any?, "hasDraft": $0.hasDraft as Any?].compactMapValues { $0 } }
+        let facts: [String: Any?] = ["turnRunning": AppServices.turnRunning(tab.agentSession), "branch": tab.gitBranch, "claims": claims,
+                                     "queued": tab.agentSession.flatMap { AgentTurnStateStore.shared.detail(for: $0)?.queued },
+                                     "hasDraft": tabs.unsentDrafts.hasDraft(tabs.resolve(tab.id), machine: tabs.daemonListing(tab)?.machineID)]
+        let reply = AppServices.placeRules("cargo", facts.compactMapValues { $0 })
+        var cargo = Self(); (cargo.queued, cargo.branch) = (reply["queued"] as? Int, reply["branch"] as? String)
+        (cargo.turnRunning, cargo.continuesTurn, cargo.hasDraft) = (reply["turnRunning"] as? Bool ?? false, reply["continuesTurn"] as? Bool ?? false, reply["hasDraft"] as? Bool ?? false)
         return cargo
     }
 }
@@ -222,32 +217,31 @@ extension AppServices: CloudPlaceHost {
     static let placeEvacuateCancel: ActionID = "cloudEvacuate.cancel"
     static let placeBringBackAll: ActionID = "cloudBringBackAll"
 
+    /// The app's agent tabs, in window order, as `cloud_move_host_chats` reads them; Rust picks the eligible ones, once per session.
     func placeChats() -> [CloudPlaceChat] {
-        var found: [CloudPlaceChat] = [], seen = Set<String>()
+        var tabs: [[String: Any]] = []
         for daemon in machines.daemons {
-            for workspace in daemon.store.workspaces {
-                for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) {
-                    guard let record = tab.agentSession, let session = record.session ?? agentTabs.sessions[agentTabs.tabKey(of: tab)] else { continue }
-                    let onCloud = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
-                    // Eligible first, then once per session: a tab that may not move never hides a later one of the same chat that may.
-                    guard placeEligible(record, session: session, on: daemon), seen.insert(session).inserted else { continue }
-                    found.append(CloudPlaceChat(id: tab.id, session: session, title: tab.titleText, onCloud: onCloud, turnRunning: CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: self).turnRunning,
-                                                turnStartedAtMs: AgentTurnStateStore.shared.detail(for: record)?.turnStartedAtMs.map(Double.init),
-                                                moving: cloud.place.isMoving(session) || cloud.movingBack.contains(tab.id),
-                                                queued: AgentTurnStateStore.shared.detail(for: record)?.queued ?? 0))
-                }
+            for tab in daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs) {
+                guard let record = tab.agentSession else { continue }
+                let detail = AgentTurnStateStore.shared.detail(for: record), session = record.session ?? agentTabs.sessions[agentTabs.tabKey(of: tab)]
+                let row: [String: Any?] = ["id": tab.id, "host": record.host, "session": session, "local": daemon.isLocal, "title": tab.titleText,
+                                           "turnRunning": Self.turnRunning(record), "turnStartedAtMs": detail?.turnStartedAtMs.map(Double.init),
+                                           "moving": session.map { cloud.place.isMoving($0) } == true || cloud.movingBack.contains(tab.id), "queued": detail?.queued ?? 0]
+                tabs.append(row.compactMapValues { $0 })
             }
         }
-        return found
+        let chats = Self.placeRules("chats", ["moved": placeLedger, "tabs": tabs])["chats"] as? [[String: Any]] ?? []
+        return chats.map {
+            CloudPlaceChat(id: $0["id"] as? String ?? "", session: $0["session"] as? String ?? "", title: $0["title"] as? String ?? "",
+                           onCloud: $0["onCloud"] as? Bool ?? false, turnRunning: $0["turnRunning"] as? Bool ?? false,
+                           turnStartedAtMs: ($0["turnStartedAtMs"] as? NSNumber)?.doubleValue, moving: $0["moving"] as? Bool ?? false, queued: $0["queued"] as? Int ?? 0)
+        }
     }
 
-    /// Whether the place actions can move this chat: one on this Mac's own acpmux (not an SSH machine's, not the Chief's), or
-    /// a Cloud chat a move took there (its ledger entry is what Bring Back reads). The header's `place` and ``placeChats()``
+    /// Whether the place actions can move this chat (`cloud_move_host_eligible`). The header's `place` and ``placeChats()``
     /// both ask this, so the composer and Runs On offer a control only where a pick does something.
     func placeEligible(_ record: AgentSessionRef, session: String, on daemon: DaemonService) -> Bool {
-        let onCloud = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
-        if onCloud { return cloud.movedChats.entry(host: record.host, session: session) != nil }
-        return daemon.isLocal && !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix)
+        Self.placeRules("eligible", ["moved": placeLedger, "host": record.host, "session": session, "local": daemon.isLocal])["eligible"] as? Bool ?? false
     }
 
     func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) -> CloudPlaceRun {
@@ -257,23 +251,23 @@ extension AppServices: CloudPlaceHost {
         var ran = false, work: [ActionWork] = []
         // The move's own checks refuse before it starts (no chat there, no first message, no folder): that refusal is the run's answer.
         let refusal = registry.reportingRefusal { work = registry.capturingWork { ran = registry.perform(action, invocation: invocation) } }
-        if work.isEmpty, let reason = refusal ?? (ran ? nil : registry.unavailableReason(for: action) ?? CloudMoveStrings.moveFailed("")) {
-            return .refused(reason.trimmingCharacters(in: .whitespaces))
+        if work.isEmpty {
+            let facts: [String: Any?] = ["refusal": refusal, "ran": ran, "unavailable": ran ? nil : registry.unavailableReason(for: action), "failed": CloudMoveStrings.moveFailed("")]
+            if let reason = Self.placeRules("run_refusal", facts.compactMapValues { $0 })["refusal"] as? String { return .refused(reason) }
         }
         let started = work
         return .started { for work in started { _ = await work.value } }
     }
 
-    func placeCloudSessions() -> [String] { cloud.movedChats.all().filter { $0.broughtBack == nil }.map(\.session) }
+    func placeCloudSessions() -> [String] { Self.placeRules("sessions", ["moved": placeLedger])["sessions"] as? [String] ?? [] }
 
     func placeOwnFacts(_ session: String) -> (before: String?, machines: [CloudPlaceOwnMachine]) {
-        let ledger = cloud.movedChats.all()
-        // The ledger's entry while the chat is on Cloud or coming back; after a Bring Back ended it, the machine it ran on.
-        return (ledger.first { $0.session == session || $0.broughtBack?.session == session }?.machineID ?? cloud.place.lastMachine(of: session),
-                machines.cloud.map { machine in
-                    CloudPlaceOwnMachine(id: machine.machineID, sessions: ledger.filter { $0.machineID == machine.machineID && $0.broughtBack == nil }.map(\.session),
-                                         gone: [.deleting, .destroyed].contains(machine.machine.status))
-                })
+        let request: [String: Any?] = ["moved": placeLedger, "session": session, "lastMachine": cloud.place.lastMachine(of: session),
+                                       "machines": machines.cloud.map { ["id": $0.machineID, "status": $0.machine.status.rawValue] }]
+        let reply = Self.placeRules("own_facts", request.compactMapValues { $0 })
+        return (reply["before"] as? String, (reply["machines"] as? [[String: Any]] ?? []).map {
+            CloudPlaceOwnMachine(id: $0["id"] as? String ?? "", sessions: $0["sessions"] as? [String] ?? [], gone: $0["gone"] as? Bool ?? false)
+        })
     }
 
     func placeOnTurnEnded(_ handler: @escaping @MainActor (String) -> Void) {
@@ -288,4 +282,15 @@ extension AppServices: CloudPlaceHost {
     }
 
     func placeIdentityChangedReason() -> String { CloudMoveStrings.identityChanged }
+
+    /// One `cloud_move_host_*` op's answer (cmux-cloud-start-core `moves::host`); empty when the FFI does not answer.
+    static func placeRules(_ operation: String, _ request: [String: Any]) -> [String: Any] {
+        CloudHandlerRules().ask("cloud_move_host_" + operation, request) ?? [:]
+    }
+
+    /// The moved-chat ledger's entries, as the host ops read them.
+    var placeLedger: Any { CloudHandlerRules.any(cloud.movedChats.all()) }
+
+    /// The agent's turn state is `working`.
+    static func turnRunning(_ record: AgentSessionRef?) -> Bool { record.map { AgentTurnStateStore.shared.state(for: $0) == .working } ?? false }
 }
