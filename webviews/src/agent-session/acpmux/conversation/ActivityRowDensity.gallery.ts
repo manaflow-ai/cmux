@@ -243,10 +243,7 @@ export default agentPaneEntry({
   widths: { narrow: 520, normal: 760, wide: 900 },
   covers: ["agent-session/acpmux/rowMetric.ts", "agent-session/acpmux/conversation/conversation.css"],
   variants: {
-    expanded: variant(
-      "The coordinator chat with its Worked for sections open and tool runs folded.",
-      openWorked,
-    ),
+    expanded: variant("The coordinator chat with its Worked for sections open and tool runs folded.", openWorked),
     folded: variant("The same chat with the Worked for lines folded."),
     "runs-open": variant(
       "The same chat with its Worked for sections and tool runs open, showing the received messages, script and sent message.",

@@ -156,8 +156,7 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
     ]);
     expect(worked).toHaveLength(headers.length);
     for (const height of worked) expect(height).toBeCloseTo(metric.height + metric.ruleAbove, 1);
-    for (const row of headers)
-      expect(row.height).toBeCloseTo(metric.height + metric.ruleAbove + metric.ruleBelow, 1);
+    for (const row of headers) expect(row.height).toBeCloseTo(metric.height + metric.ruleAbove + metric.ruleBelow, 1);
   };
 
   for (const variant of MEASURED) {
