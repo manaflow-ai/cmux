@@ -2292,11 +2292,14 @@ impl ChildAgent {
     /// Its session's start is over: its harness goes to its run class, once (`cpu_class.rs`).
     /// True when this call lowered it. A harness with no class set (another daemon started it)
     /// takes the agent tier; one that ended is left alone.
-    pub async fn enter_run_class(&self) -> bool {
+    /// `placed`: AutoCloud placed its chat here for another machine's person
+    /// (`SessionMeta::placed_by`), so it runs at [`crate::cpu_class::CpuClass::Background`]
+    /// whatever its profile says: the owner's own work comes first.
+    pub async fn enter_run_class(&self, placed: bool) -> bool {
         // A harness adopted from another daemon has no class here: one whose start that daemon
         // did not see end (a restart mid-start) would keep the start's priority for good, so it
         // takes the agent tier ([`CpuClass::Normal`]), which only lowers.
-        let class = self.run_class();
+        let class = if placed { crate::cpu_class::CpuClass::Background } else { self.run_class() };
         if self.run_class_entered.swap(true, Ordering::SeqCst) {
             return false;
         }
@@ -2363,6 +2366,17 @@ impl ChildAgent {
             Some(None) => HarnessSeen::Unread,
             Some(Some(state)) => HarnessSeen::Running(state),
         }
+    }
+
+    /// Sends `signal` to its harness's process group (the harness leads it): SIGSTOP pauses the
+    /// agent and every tool it runs, SIGCONT continues them (`hub/owner_return.rs`). False when
+    /// no live harness, or the signal failed.
+    #[cfg(unix)]
+    pub(crate) async fn signal_harness_group(&self, signal: i32) -> bool {
+        let sent = self.with_live_harness(|pid| {
+            i32::try_from(pid).is_ok_and(|pgid| crate::session_disk::signal_group(pgid, signal))
+        });
+        sent.await.unwrap_or(false)
     }
 
     /// `f` of its harness's pid while that pid is still its harness: a direct child not reaped
