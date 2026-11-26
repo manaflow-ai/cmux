@@ -1784,6 +1784,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_toolchain_r2.sh
 
+      - name: Validate the Bun and Node restore on the nightly Macs
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ci_toolchain_r2_darwin.py
+
       - name: Validate curl-seeded Ghostty Zig package archives
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_seed_zig_package_archives.sh

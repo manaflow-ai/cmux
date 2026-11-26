@@ -986,6 +986,10 @@ path = "tests/test_ci_tip_test_compile.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_toolchain_r2_darwin.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_tooling_steps.py"
 lane = "linux-guard"
 
