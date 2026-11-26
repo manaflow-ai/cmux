@@ -190,10 +190,14 @@ github_git_auth_env() {
   export GIT_CONFIG_COUNT=$((n + 1))
 }
 
+# shellcheck source=scripts/ci/github-egress-direct.sh
+source "$(dirname "${BASH_SOURCE[0]}")/github-egress-direct.sh"
+
 swiftpm_resolve_package() {
   local pkgdir="$1" log delays tries try=1 delay code
   shift
   github_git_auth_env
+  github_egress_probe
   swiftpm_seed_binary_artifacts "$pkgdir" "$@"
   read -r -a delays <<< "${CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS-5 20}"
   tries=$((${#delays[@]} + 1))
@@ -207,6 +211,10 @@ swiftpm_resolve_package() {
     fi
     echo "ci-phase swift package resolve failed in $pkgdir (try $try of $tries, exit $code); its last lines:"
     tail -n 20 "$log" | sed 's/^/  | /' || true
+    # A dead or half-dead github.com proxy: once more at once, direct (github-egress-direct.sh).
+    if github_egress_retry_direct "$log"; then
+      continue
+    fi
     if ! swiftpm__network_fetch_failure "$log" && ! swiftpm__github_refused "$log"; then
       rm -f "$log"
       return 1
@@ -279,6 +287,7 @@ xcode_binary_module_guard() {
   resolve_log="$(mktemp)"
   xcode_binary_module_guard_offline=0
   github_git_auth_env
+  github_egress_probe
   # Kept packages first, with no fetch: a plain resolve asks github.com for
   # updates of every cached package repository, anonymously, from the fleet's
   # shared address. On 2026-11-26 00:00-08:00Z GitHub answered those with 403
@@ -306,6 +315,9 @@ xcode_binary_module_guard() {
       (cd "$root" && xcodebuild "$@" -derivedDataPath "$derived" \
         -resolvePackageDependencies < /dev/null >"$resolve_log" 2>&1) || resolved=1
       [ "$resolved" -ne 0 ] || break
+      if github_egress_retry_direct "$resolve_log"; then
+        continue
+      fi
       if ! swiftpm__network_fetch_failure "$resolve_log" && ! swiftpm__github_refused "$resolve_log"; then
         break
       fi
