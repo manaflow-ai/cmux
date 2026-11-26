@@ -274,7 +274,11 @@ From an extension folder, run `cmux ext dev --once --json`. The `scene` field sh
 rendered. The `design` findings flag raw hex colors and spacing or type sizes outside the
 folder’s design scale. These warnings let the view render while you compare it with the gallery.
 
-For a local view, start with the [focus timer example](../../../skills/cmux-customization/references/local-app-views.md#template-a-focus-timer).
+For a local view, `cmux customize status` reports literal hex colors passed directly to scene
+modifiers such as `.foregroundColor("#666")`. Use a theme color such as `"secondary"` to
+follow the active appearance. A draft with a literal color can still be applied.
+
+Start with the [focus timer example](../../../skills/cmux-customization/references/local-app-views.md#template-a-focus-timer).
 Use the gallery above as a visual reference. A prompt for an agent:
 
 > Build a sidebar focus timer from the scene globals in the focus timer example. Start at 20 minutes
