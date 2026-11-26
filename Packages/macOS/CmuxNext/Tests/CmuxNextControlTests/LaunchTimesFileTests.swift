@@ -90,9 +90,10 @@ import Testing
         #expect(text == line + "\n", "one line per launch")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(Set(json.keys) == ["started_at", "version", "build", "commit", "pre_main_ms", "main_ms", "first_window_frame_ms",
-                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "first_launch_of_build", "phases"])
+                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "first_launch_of_build", "phases", "stages", "launch_kind"])
         var expected = Self.record(prewarmed: true)
         expected.firstLaunchOfBuild = true
+        expected.launchKind = "warm" // append() derives it: a prewarmed launch is warm
         #expect(file.records() == [expected])
     }
 
