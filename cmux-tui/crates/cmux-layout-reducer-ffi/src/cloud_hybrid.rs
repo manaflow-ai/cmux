@@ -11,10 +11,13 @@
 //! `cloud_computer_status_live` builds those facts from what the header already holds (`place`'s
 //! `at`, `move` and `start`, and the chat's cloud machine as the server lists it), reading the
 //! driver's newest Show itself when the app names the sessions folder and sends no `start`.
+//! `cloud_autosize_rows` adds one AutoSize notice (the Cloud wire's `cloud.machine.autosize`
+//! frame) to the chat's AutoSize rows (cmux-cloud-start-core `autosize_row`, RFD 0080 piece 4).
 
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+use cmux_cloud_start_core::autosize_row::{self, Row};
 use cmux_cloud_start_core::balance;
 use cmux_cloud_start_core::computer_status::{self, Facts, HybridFacts};
 use cmux_cloud_start_core::hybrid::{self, Account, Event, State};
@@ -29,7 +32,10 @@ use crate::ERR_INVALID;
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
     operation.starts_with(b"cloud_hybrid_")
-        || matches!(operation, b"cloud_computer_status" | b"cloud_computer_status_live")
+        || matches!(
+            operation,
+            b"cloud_computer_status" | b"cloud_computer_status_live" | b"cloud_autosize_rows"
+        )
 }
 
 fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
@@ -42,6 +48,16 @@ struct CallKey {
     chat_id: String,
     turn_id: String,
     call_seq: u64,
+}
+
+/// `cloud_autosize_rows`' ask: the rows the chat shows, the frame's `data`, and who looks.
+#[derive(Deserialize)]
+struct RowsAsk {
+    #[serde(default)]
+    rows: Vec<Row>,
+    event: autosize_row::Event,
+    #[serde(default)]
+    viewer: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -145,6 +161,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             }
             let facts = computer_status::live::facts(&live);
             serde_json::to_value(computer_status::status(&facts)).map_err(|_| ERR_INVALID)?
+        }
+        // One AutoSize notice added to the chat's rows: `{rows, added}`; `added` is false for a
+        // wire version this build does not draw (the rows come back as they were).
+        b"cloud_autosize_rows" => {
+            let ask: RowsAsk = read(request)?;
+            match autosize_row::row(&ask.event, ask.viewer.as_deref()) {
+                Some(next) => json!({ "rows": autosize_row::push(ask.rows, next), "added": true }),
+                None => json!({ "rows": ask.rows, "added": false }),
+            }
         }
         // The keep-running switch's count (RFD 0135): `{plan?, kept, on, hoursUsed?}` answers the
         // plan's slots and hours, how many are kept, and what flipping this chat's switch does.
