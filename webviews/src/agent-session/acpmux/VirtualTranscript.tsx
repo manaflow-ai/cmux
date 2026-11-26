@@ -49,7 +49,6 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
-  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -282,6 +281,7 @@ import { indexOfRow, mountedIndexOf } from "./transcript/rowIndex";
 import { type TranscriptReferences, LIST_PROPS, sameList } from "./transcript/references";
 import { type LastEstimate, estimateFrom, nearView } from "./transcript/liveEstimate";
 import { SNAPSHOT_HOST_TAG } from "./chatSnapshot/shared";
+import { useStreamAppendDeclaration } from "./devMotionAudit";
 export { RowContent } from "./transcript/RowFrame";
 export { broughtSentPrompt } from "./transcript/arrivals";
 export { heldReaderPlace } from "./transcript/scrollAnchors";
@@ -712,6 +712,9 @@ export function VirtualTranscript(props: VirtualTranscriptProps) {
   const source = (stable.sourceRows ?? stable.rows) as readonly AcpmuxRow[];
   delete stable.sourceRows;
   const references = useTranscriptReferences(source);
+  // A working turn grows the transcript at its end: a declared layout move wherever a transcript runs
+  // one (the chat, its pane, every gallery that plays a turn), not only where App.tsx declares it.
+  useStreamAppendDeclaration(props.working === true);
   return <TranscriptViewMemo {...(stable as VirtualTranscriptProps)} references={references} />;
 }
 
