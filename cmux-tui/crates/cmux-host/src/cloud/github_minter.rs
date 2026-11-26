@@ -239,7 +239,7 @@ pub fn answer<H: Http>(
     reply
 }
 
-/// Catalog discovery shares the bounded worker, never the agent poll loop.
+/// Vendor tokens share the bounded worker, never the agent poll loop.
 pub fn answer_integration<H: Http>(
     client: Option<&mut CloudClient<H>>,
     ask: Result<super::integration::TokenAsk, String>,
