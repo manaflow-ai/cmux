@@ -48,7 +48,7 @@
 //!   the row hears it too.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
 //!   is the provider's whatever account asks, so the session waits where it is. After
-//!   `capacityFallbackAfter` capacity failures of one prompt (default 1), its attempts run on a
+//!   `capacityFallbackAfter` capacity failures of one prompt (default 0: never), its attempts run on a
 //!   smaller model of the same harness until a turn there ends well ([`capacity_failover`]).
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
