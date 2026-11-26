@@ -374,6 +374,7 @@ impl Mux {
             agent_roster: Mutex::new(agent_roster),
             agent_roster_worker: Default::default(),
             agent_message_pump: Default::default(),
+            terminal_warm_compact: Default::default(),
             #[cfg(unix)]
             agent_chat_notices: Default::default(),
             #[cfg(unix)]
