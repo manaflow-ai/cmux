@@ -24,7 +24,7 @@ import { ConnectCard } from "../../../agent-session/acpmux/ConnectCard";
 import { CONNECT_IDLE } from "../../../agent-session/acpmux/claudeConnect";
 import "../paneStrings";
 import { ConnectPill } from "../../shared/connect/ConnectPill";
-import { expiryText } from "../../shared/connect/connectStatus";
+import { CONNECT_STATUS_KEY, expiryText } from "../../shared/connect/connectStatus";
 import { useConnectStrings } from "../../shared/connect/strings";
 import { AllConnections, tileStatus } from "./AllConnections";
 
@@ -181,12 +181,12 @@ function Tile({
   const pill = (
     <ConnectPill
       status={status}
-      label={
-        entry.state === "unavailable"
+      text={
+        (entry.state === "unavailable"
           ? t("settingsWindow.connections.unavailable")
           : lapsing || pending || entry.state === "connect"
             ? null
-            : entry.statusLabel
+            : entry.statusLabel) || connectStrings.t(CONNECT_STATUS_KEY[status])
       }
       hint={lapsing ? expiryText(lapsing, navigator.language) : undefined}
       dataPrefix="connections"

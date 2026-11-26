@@ -11,7 +11,7 @@
 import { Button } from "../../../ui/Button";
 import { ConnectPill } from "../../shared/connect/ConnectPill";
 import { focusRoute } from "../../../ui/focusRoute";
-import { expiryStatus, type ConnectStatus } from "../../shared/connect/connectStatus";
+import { CONNECT_STATUS_KEY, expiryStatus, type ConnectStatus } from "../../shared/connect/connectStatus";
 import { useConnectStrings } from "../../shared/connect/strings";
 import { useSignInStrings } from "../../shared/signIn/strings";
 import { useSettingsRouter, useSettingsState } from "../context";
@@ -197,7 +197,11 @@ export function AllConnections({
                 {[strings.t(`connect.all.kind.${row.kind}`), row.detail].filter(Boolean).join(" · ")}
               </span>
             </span>
-            <ConnectPill status={row.status} label={row.label} dataPrefix="all-connections" />
+            <ConnectPill
+              status={row.status}
+              text={row.label || strings.t(CONNECT_STATUS_KEY[row.status])}
+              dataPrefix="all-connections"
+            />
             {row.action && (
               <Button
                 variant={row.action.name === "manage" ? "ghost" : "solid"}

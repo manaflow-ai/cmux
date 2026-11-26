@@ -81,6 +81,9 @@ async function load() {
   const { ConnectCard } = await import("../../../agent-session/acpmux/ConnectCard");
   const { CONNECT_IDLE } = await import("../../../agent-session/acpmux/claudeConnect");
   const { ConnectPill } = await import("./ConnectPill");
+  const { CONNECT_STATUS_KEY } = await import("./connectStatus");
+  const { connectStrings } = await import("./strings");
+  const strings = connectStrings();
   await import("../../settings/paneStrings");
   return function AppConnectCards({ look }: Props) {
     return (
@@ -108,7 +111,12 @@ async function load() {
                     button: sample.primary ?? "",
                   }}
                   onBegin={sample.primary ? () => {} : undefined}
-                  pill={<ConnectPill status={sample.status} label={sample.label} />}
+                  pill={
+                    <ConnectPill
+                      status={sample.status}
+                      text={sample.label || strings.t(CONNECT_STATUS_KEY[sample.status])}
+                    />
+                  }
                   details={sample.detail ? <div className="row-help">{sample.detail}</div> : undefined}
                   extra={
                     sample.disconnect ? (
