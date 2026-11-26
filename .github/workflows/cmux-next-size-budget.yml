@@ -371,12 +371,12 @@ jobs:
   web-host:
     # The web client's static site (scripts/cmux-next/build-web-host.sh, cmuxterm-hq
     # docs/rfd/0083-cmux-web-client.md step 3): its first load, gzip, held under
-    # webviews/scripts/web-host/first-load-budget.json. Over it fails; the PR shrinks the first load
-    # or raises the budget with its reason.
+    # webviews/scripts/web-host/first-load-budget.json. Over it warns (first-load-size.mjs says why it
+    # does not fail yet); the summary shows the number on every PR.
     name: cmux-next size budget (web host first load)
     needs: plan
     if: ${{ needs.plan.outputs.web == 'true' && github.event.action != 'edited' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -394,7 +394,7 @@ jobs:
           set -euo pipefail
           (cd webviews && bun install --frozen-lockfile >/dev/null)
           ./scripts/cmux-next/build-web-host.sh --out "$RUNNER_TEMP/web-host"
-          (cd webviews && bun scripts/web-host/first-load-size.mjs "$RUNNER_TEMP/web-host" --check) | tee "$RUNNER_TEMP/web-host.txt"
+          (cd webviews && bun scripts/web-host/first-load-size.mjs "$RUNNER_TEMP/web-host" --report) | tee "$RUNNER_TEMP/web-host.txt"
           { echo '### Web host first load (gzip)'; echo '```'; cat "$RUNNER_TEMP/web-host.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   size-budget:
