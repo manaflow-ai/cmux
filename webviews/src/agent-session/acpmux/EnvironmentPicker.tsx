@@ -1294,14 +1294,19 @@ export function EnvironmentPicker({
           renderItem={row}
           autoHighlight
           inline
-          // Past a menu's worth of machines only the rows in view mount. Continue on's first row
-          // carries its hairline and heading in its top margin: its size is keyed by that, and every
-          // row's by its value, so a row that moves up as one above it leaves (rowPresence.ts) keeps
-          // its own size, never the one that left.
-          virtualRows={{
-            estimate: 28,
-            sizeKey: (value) => (card && value === continueOn[0]?.value ? "continue-on" : ""),
-          }}
+          // Past a menu's worth of machines only the rows in view mount (`virtualRows` windows at any
+          // length, so it is set only for a `windowed` list). Continue on's first row carries its
+          // hairline and heading in its top margin: its size is keyed by that, and every row's by its
+          // value, so a row that moves up as one above it leaves (rowPresence.ts) keeps its own size,
+          // never the one that left.
+          virtualRows={
+            windowed
+              ? {
+                  estimate: 28,
+                  sizeKey: (value) => (card && value === continueOn[0]?.value ? "continue-on" : ""),
+                }
+              : undefined
+          }
         />
         {machineList &&
           query.trim() !== "" &&
