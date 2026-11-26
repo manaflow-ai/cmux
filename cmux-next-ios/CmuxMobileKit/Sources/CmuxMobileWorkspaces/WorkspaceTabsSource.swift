@@ -1205,6 +1205,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         WorkspaceTabAccessory(source: self, tabID: kit.id, context: context)
     }
 
+    /// A terminal's top bar band is its page's ground (its Mac's theme and wallpaper), never the
+    /// kit's black: the page continues up to the screen's top edge under the bar.
+    public func topBarGround(for kit: TabsKitTab) -> AnyView? {
+        guard kit.kind == .terminal else { return nil }
+        return AnyView(TerminalPageGround(macID: workspace?.macID))
+    }
+
     func remember(_ insets: EdgeInsets, pageSize: CGSize) {
         if insets != lastInsets { lastInsets = insets }
         rememberPageSize(pageSize)
