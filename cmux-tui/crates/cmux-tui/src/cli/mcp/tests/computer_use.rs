@@ -264,8 +264,12 @@ fn docs_for_cu_answer_the_family_with_example_scripts() {
     let answer = &docs["structuredContent"];
     let names: Vec<&str> =
         answer["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names.len(), acpmux::computer_use::tools::TOOLS.len(), "{answer}");
-    assert!(names.iter().all(|name| name.starts_with("cu_")), "{names:?}");
+    let expected: Vec<_> = acpmux::computer_use::tools::TOOLS
+        .iter()
+        .filter(|tool| tool.listed())
+        .map(|tool| format!("cu_{}", tool.name))
+        .collect();
+    assert_eq!(names, expected, "{answer}");
     for tool in answer["tools"].as_array().unwrap() {
         let text = tool["description"].as_str().unwrap();
         assert!(!text.contains(acpmux::computer_use::tools::INSTRUCTIONS), "rules once: {text}");
