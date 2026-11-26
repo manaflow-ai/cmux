@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "subagents.fork.modeFixedTip" : {
+      "comment" : "Agent pane: hover on a Codex subagent composer's read-only permission mode chip; the mode was copied from its chat when it started; {chat} is the chat",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Set from {chat} when this subagent started. Fork it to run in another mode."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عُيّن من {chat} عند بدء هذا الوكيل الفرعي. افرّعه لتشغيله بوضع آخر."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Postavljeno iz {chat} kad je ovaj podagent pokrenut. Granaj ga da radi u drugom načinu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sat fra {chat} da denne underagent startede. Forgren den for at køre i en anden tilstand."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Beim Start dieses Subagenten von {chat} übernommen. Zweige ihn ab, um einen anderen Modus zu nutzen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tomado de {chat} al iniciarse este subagente. Bifúrcalo para usar otro modo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Repris de {chat} au démarrage de ce sous-agent. Dérivez-le pour utiliser un autre mode."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Preso da {chat} all'avvio di questo subagente. Derivalo per usare un'altra modalità."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このサブエージェントの開始時に {chat} から設定。別のモードで動かすにはフォークしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កំណត់ពី {chat} នៅពេលភ្នាក់ងាររងនេះចាប់ផ្តើម។ បំបែកវាដើម្បីដំណើរការក្នុងរបៀបផ្សេង។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 하위 에이전트가 시작될 때 {chat}에서 설정됨. 다른 모드로 실행하려면 분기하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Satt fra {chat} da denne underagenten startet. Forgren den for å kjøre i en annen modus."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ustawiony z {chat} przy starcie tego podagenta. Rozgałęź go, by użyć innego trybu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Definido a partir de {chat} quando este subagente começou. Bifurque-o para usar outro modo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Взято из {chat} при запуске этого субагента. Ответвите его, чтобы запустить в другом режиме."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตั้งจาก {chat} ตอนที่ซับเอเจนต์นี้เริ่ม แยกออกเพื่อใช้โหมดอื่น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu alt ajan başladığında {chat} sohbetinden alındı. Başka bir modda çalıştırmak için çatallayın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Взято з {chat} під час запуску цього субагента. Відгалузьте його, щоб запустити в іншому режимі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Được đặt từ {chat} khi tác tử phụ này bắt đầu. Tách nó ra để chạy ở chế độ khác."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此子代理启动时从 {chat} 设定。分叉后可使用其他模式。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此子代理啟動時從 {chat} 設定。分叉後可使用其他模式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
