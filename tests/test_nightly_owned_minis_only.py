@@ -83,6 +83,9 @@ HOSTED_TAIL_JOBS = {
                           "openssl pkeyutl -rawin, which macOS's LibreSSL lacks",
     "publish-release-notes": "up to 130 min of publish-lease and API rate-limit waits",
     "publish-nightly-reel": "an ffmpeg render of up to 90 min",
+    # Leo, 2026-11-25: "freeing up the Mac's from doing things that don't need Mac's asap". No secret, but a
+    # pull-requests: write token, so the one-job JIT VM rather than the shared persistent cmux-linux pool.
+    "published-in": "up to 300 min of paced PR comments through the API (7.5 s a write); compiles nothing",
 }
 # Leo's override (2026-11-08, "no. if this is still a good idea, we can still do it."): a loop-run job on an ephemeral
 # VM (GitHub-hosted Ubuntu then, JIT_LABEL now). job -> why. Its whole-Mac hold on cmux15 (289-406 s a build, after 79-412 s queued behind keep-published-dsyms:
@@ -257,7 +260,10 @@ class EveryJobOnOurMinis(unittest.TestCase):
                 self.assertEqual(JOBS[name].get("permissions"), {"issues": "write"})
         for name in (*HOSTED_TAIL_JOBS, *HOSTED_LOOP_JOBS):
             with self.subTest(job=name):
-                self.assertTrue(workflow_jobs.secret_names(JOBS[name]), "a JIT job without a secret moves to the light runners")
+                permissions = JOBS[name].get("permissions")
+                writes = isinstance(permissions, dict) and "write" in permissions.values()
+                self.assertTrue(workflow_jobs.secret_names(JOBS[name]) or writes,
+                                "a JIT job without a secret or a write token moves to the light runners")
 
     def test_the_hosted_loop_upload_never_reaches_a_mini(self) -> None:
         # Leo's override covers this one job only, and only on an ephemeral VM: no variable, pick or one-mini mode may
