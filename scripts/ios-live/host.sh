@@ -13,11 +13,12 @@
 #          in the simulator's keychain, which survives a reinstall.
 #
 # IOS_LIVE_ROOT (default ~/ios-live) holds:
-#   src/          blobless clone of manaflow-ai/cmux, at the live base plus the current patch
+#   src/          clone of manaflow-ai/cmux at the live base plus the current patch: on a fleet Mac it
+#                 borrows the fleet's git mirror (no GitHub transfer), elsewhere a blobless GitHub clone
 #   live/         the live code build (ios-sim.sh build OUT): dd/, xcodebuild.log, live/ (patch folder)
 #   dd/           plain DerivedData, used when the checkout has no ios-sim.sh
 #   sims/         simctl device set with one iPhone named cmux-ios-live
-#   tools/        pinned xcodegen
+#   tools/        pinned xcodegen (IOS_LIVE_TOOLS moves it, so scratch roots share one download)
 #   launch.env    KEY=VALUE lines passed to the app as its launch environment (its sign-in target)
 #   lease/        the driver lease: one driver at a time
 #   state.json    base, patch, app, timings of the last up/swap/swift
@@ -36,6 +37,8 @@ slot="${IOS_LIVE_SLOT:-}"
 slot_count="${IOS_LIVE_SLOTS_PER_HOST:-3}"
 root="$base_root"
 repo_url="https://github.com/manaflow-ai/cmux.git"
+# A fleet Mac's full git mirror, which its build steps already borrow (scripts/ci/ios-sim-fetch-commit.sh).
+mirror="${CMUX_CI_STEP_GLAEDA_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
 branch="feat-cmux-next"
 device_name="cmux-ios-live"
 if [[ -n "$slot" ]]; then
@@ -49,7 +52,8 @@ xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 jobs="${IOS_LIVE_JOBS:-4}"
 src="$root/src"
 sims="$root/sims"
-mkdir -p "$root/logs" "$base_root/tools" "$sims" "$root/lease"
+tools_root="${IOS_LIVE_TOOLS:-$base_root/tools}"
+mkdir -p "$root/logs" "$tools_root" "$sims" "$root/lease"
 
 die() { echo "ios-live: $*" >&2; exit 1; }
 now_ms() { python3 -c 'import time; print(int(time.time()*1000))'; }
@@ -145,22 +149,36 @@ pick_xcode() {
 }
 
 ensure_xcodegen() {
-  local d="$base_root/tools/xcodegen-$xcodegen_version"
+  local d="$tools_root/xcodegen-$xcodegen_version"
   xcodegen="$d/xcodegen/bin/xcodegen"
   [[ -x "$xcodegen" ]] && return 0
-  rm -rf "$d"; mkdir -p "$d"
-  curl -fsSL --retry 3 -o "$d/xcodegen.zip" \
-    "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip"
-  [[ "$(shasum -a 256 "$d/xcodegen.zip" | awk '{print $1}')" == "$xcodegen_sha256" ]] || die "xcodegen checksum mismatch"
-  unzip -q "$d/xcodegen.zip" -d "$d"
+  # Unzipped beside the final folder and renamed in, so a failed or concurrent download leaves no half tree.
+  local tmp; tmp="$(mktemp -d "$tools_root/.xcodegen.XXXXXX")"
+  curl -fsSL --retry 3 --retry-all-errors -o "$tmp/xcodegen.zip" \
+    "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip" \
+    || { rm -rf "$tmp"; die "could not download xcodegen $xcodegen_version from GitHub releases"; }
+  [[ "$(shasum -a 256 "$tmp/xcodegen.zip" | awk '{print $1}')" == "$xcodegen_sha256" ]] || { rm -rf "$tmp"; die "xcodegen checksum mismatch"; }
+  unzip -q "$tmp/xcodegen.zip" -d "$tmp"
+  mv "$tmp" "$d" 2>/dev/null || rm -rf "$tmp"
+  [[ -x "$xcodegen" ]] || die "no xcodegen binary at $xcodegen"
 }
 
 # checkout BASE [PATCH]: src at BASE (fetched when absent) plus PATCH; prints the full base sha.
 checkout() {
   local ref="$1" patch="${2:-}" sha
-  [[ -d "$src/.git" ]] || git clone -q --filter=blob:none --no-checkout "$repo_url" "$src"
+  if [[ ! -d "$src/.git" ]]; then
+    if [[ -d "$mirror" ]]; then
+      git clone -q --shared --no-checkout "$mirror" "$src"  # objects/info/alternates: no copy, no GitHub
+    else
+      git clone -q --filter=blob:none --no-checkout "$repo_url" "$src"
+    fi
+  fi
   if ! sha="$(git -C "$src" rev-parse -q --verify "$ref^{commit}" 2>/dev/null)"; then
-    git -C "$src" fetch -q origin "$branch" "$ref" 2>/dev/null || git -C "$src" fetch -q origin "$branch"
+    git -C "$src" fetch -q origin "$branch" "$ref" 2>/dev/null || git -C "$src" fetch -q origin "$branch" || true
+    # A head the mirror has not fetched yet (a fresh push) comes from GitHub by URL.
+    git -C "$src" rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 \
+      || [[ "$(git -C "$src" remote get-url origin)" == "$repo_url" ]] \
+      || git -C "$src" -c protocol.version=2 fetch -q --no-tags "$repo_url" "$ref" 2>/dev/null || true
     sha="$(git -C "$src" rev-parse -q --verify "$ref^{commit}")" || die "no commit $ref on origin (push it, or use a feat-cmux-next ancestor)"
   fi
   git -C "$src" checkout -q --detach -f "$sha"
