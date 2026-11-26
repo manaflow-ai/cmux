@@ -56,6 +56,24 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
     public var instance: AppInstance?
     /// The web panes the daemon lets this client host (`web_pages`, `render: web`).
     public var webPages: [AppWebPage] = []
+    /// The app's `contributes.keybindings` (`keybindings`), in keybindings.json form: the daemon
+    /// already turned an own op into `app.command.run` `{app, command}`.
+    public var keybindings: [Keybinding] = []
+
+    /// One contributed binding: `keys` are the strokes (`["ctrl+k", "s"]`).
+    public struct Keybinding: Sendable, Hashable {
+        public var keys: [String]
+        public var command: String
+        public var when: String?
+        public var args: [String: AppJSON]
+
+        public init(keys: [String], command: String, when: String? = nil, args: [String: AppJSON] = [:]) {
+            self.keys = keys
+            self.command = command
+            self.when = when
+            self.args = args
+        }
+    }
 
     /// One palette command of an app: a catalog op of its own family.
     public struct Command: Sendable, Hashable, Identifiable {
@@ -168,6 +186,11 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         revision = json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) }
         instance = AppInstance(json: json["instance"])
         webPages = json["web_pages"]?.arrayValue?.compactMap(AppWebPage.init(json:)) ?? []
+        keybindings = (json["keybindings"]?.arrayValue ?? []).compactMap { entry in
+            guard let key = entry["key"]?.stringValue, let command = entry["command"]?.stringValue else { return nil }
+            return Keybinding(keys: key.split(separator: " ").map(String.init), command: command,
+                              when: entry["when"]?.stringValue, args: entry["args"]?.objectValue ?? [:])
+        }
         commands = (json["commands"]?.arrayValue ?? []).compactMap { entry in
             guard let op = entry["op"]?.stringValue else { return nil }
             let keys = (entry["keys"]?.arrayValue ?? []).compactMap { key in
@@ -194,6 +217,10 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
                  "keys": .array(command.keys.map { ["key": .string($0.key), "when": $0.when.map(AppJSON.string) ?? .null] }),
                  "page_keys": .array(command.pageKeys.map(AppJSON.string)),
                  "page_key_when": .object(command.pageKeyWhen.mapValues(AppJSON.string))]
+            }),
+            "keybindings": .array(keybindings.map { binding in
+                ["key": .string(binding.keys.joined(separator: " ")), "command": .string(binding.command),
+                 "when": binding.when.map(AppJSON.string) ?? .null, "args": .object(binding.args)]
             }),
         ]
     }
