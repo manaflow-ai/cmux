@@ -358,6 +358,14 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     if let authTests = package.targets.first(where: { $0.name == "CmuxMobileAuthTests" }) {
         authTests.dependencies = ["CmuxMobileAuth", "CmuxMobileModel"]
     }
+    // The main-thread hang watchdog (Hangs/: Darwin thread suspension, os_unfair_lock, MetricKit) is the
+    // app's alone; nothing else in the model uses it, so Linux leaves it and its suite out.
+    if let model = package.targets.first(where: { $0.name == "CmuxMobileModel" }) {
+        model.exclude += ["Hangs"]
+    }
+    if let modelTests = package.targets.first(where: { $0.name == "CmuxMobileModelTests" }) {
+        modelTests.exclude += ["MainThreadHangWatchdogTests.swift"]
+    }
     // Keep the production connection controller and launch state, without their UI clients.
     // Resolve paths from the manifest, independent of the caller's working directory.
     let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
