@@ -197,6 +197,8 @@ dependencies = [
  "cmux-sdk-ffi",
  "cmux-terminal-prediction",
  "cmux-wallpaper",
+ "libc",
+ "plist",
  "serde",
  "serde_json",
  "unicode-segmentation",
