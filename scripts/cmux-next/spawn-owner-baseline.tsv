@@ -1,22 +1,5 @@
 # path	lines that spawn a task or process with no owner (check-spawn-owner.py; rows only go down:
 # move a site to Scope::spawn or cmux_process::Child, then lower its row with --update)
-cmux-tui/crates/acpmux/src/agent_tools/cua_helper.rs	1
-cmux-tui/crates/acpmux/src/hub/list_guard.rs	1
-cmux-tui/crates/acpmux/src/hub/retention.rs	1
-cmux-tui/crates/acpmux/src/hub/worktree_care.rs	1
-cmux-tui/crates/acpmux/src/peer.rs	1
-cmux-tui/crates/acpmux/src/server/durable_gate.rs	1
-cmux-tui/crates/acpmux/src/server/outbound.rs	2
-cmux-tui/crates/acpmux/src/server/requests/cancel_refused.rs	1
-cmux-tui/crates/acpmux/src/server/update_cost_bench.rs	1
-cmux-tui/crates/acpmux/src/stress/reconnect.rs	2
-cmux-tui/crates/acpmux/src/test_exec.rs	1
-cmux-tui/crates/cmux-browser-host/src/bin/cmux-browser-host.rs	1
-cmux-tui/crates/cmux-tui-core/src/apps/host.rs	1
-cmux-tui/crates/cmux-tui-core/src/shell_integration/fork_watch.rs	3
-cmux-tui/crates/cmux-tui-core/src/shell_integration/test_pty.rs	1
-cmux-tui/crates/cmux-tui/src/test_exec.rs	1
-cmux-tui/crates/cmux-vnc/src/session_backpressure.rs	1
 cmux-tui/crates/acpmux-tui/src/actions.rs	3
 cmux-tui/crates/acpmux-tui/src/lib.rs	6
 cmux-tui/crates/acpmux-tui/src/links.rs	3

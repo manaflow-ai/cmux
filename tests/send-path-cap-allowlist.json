@@ -159,6 +159,7 @@
     "backend/apps/api/src/stack-webhook.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/team-sso-external.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/apps/api/src/team-vm-journal.ts": {"count": 3, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
+    "backend/packages/home-core/src/appkv/domain.ts": {"count": 2, "reason": "safe: per-app synced widget storage (storage:synced), not a message, prompt or attachment; the same 64 KiB value and 4 MiB app bounds as the local app.storage in cmux-tui-core/src/apps/storage.rs, so a sync never refuses what the device already holds"},
     "backend/packages/home-core/src/conversation/attachments.ts": {"count": 1, "reason": "safe: the Worker streaming threshold; a larger original goes by presigned upload, nothing is refused"},
     "backend/packages/home-core/src/conversation/import.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},
     "backend/packages/home-core/src/conversation/types.ts": {"count": 1, "reason": "debt: pre-existing, under audit (send-path limits audit 2026-11-02)"},

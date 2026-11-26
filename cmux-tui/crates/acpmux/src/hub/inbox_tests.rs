@@ -1601,15 +1601,20 @@ fn judged(mut item: Item, folds: &page_rule::Folds, session: bool) -> Item {
 
 #[test]
 fn the_coordinator_list_is_the_page_rule_config_by_name_or_host_slash_name() {
-    let mut cfg = crate::config::Config::default();
-    assert!(!page_rule::listed(&cfg, "claude-sr2-coord"), "unset: no chat is listed");
-    cfg.page_rule = Some(crate::config::PageRuleConfig {
-        sessions: vec!["cosmic-gray/claude-sr2-coord".into(), "interim-coord-2".into()],
-    });
-    assert!(page_rule::listed(&cfg, "claude-sr2-coord"));
-    assert!(page_rule::listed(&cfg, "interim-coord-2"));
-    assert!(!page_rule::listed(&cfg, "claude-sr2-coord-old"));
-    assert!(!page_rule::listed(&cfg, ""));
+    assert!(page_rule::session_names(None).is_empty());
+    let rule = crate::config::PageRuleConfig {
+        sessions: vec![
+            " cosmic-gray/claude-sr2-coord ".into(),
+            "interim-coord-2".into(),
+            " ".into(),
+        ],
+    };
+    let names = page_rule::session_names(Some(&rule));
+    assert!(names.contains("cosmic-gray/claude-sr2-coord"));
+    assert!(names.contains("claude-sr2-coord"));
+    assert!(names.contains("interim-coord-2"));
+    assert!(!names.contains("claude-sr2-coord-old"));
+    assert!(!names.contains(""));
 }
 
 #[test]
