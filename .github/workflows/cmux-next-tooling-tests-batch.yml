@@ -158,7 +158,7 @@ jobs:
                 --branch "$HEAD_REF" --run-id "$GITHUB_RUN_ID" --summary "$GITHUB_STEP_SUMMARY" \
               || echo "::warning title=tooling-tests reuse::tooling_reuse.py failed; every selected step runs."
           fi
-          # A pull request into feat-cmux-next runs every other tt- step as ci/steps.toml's tooling-tests-1..4
+          # A pull request into feat-cmux-next runs every other tt- step as ci/steps.toml's tooling-tests-1..5
           # (pr-pipeline.yml's linux job); here it keeps only the ones that job cannot run.
           if [ "${GITHUB_BASE_REF:-}" = feat-cmux-next ] && [ "$GITHUB_WORKFLOW" != "docs-only fallback" ]; then
             routed="$(sed -n 's/^tooling_steps=//p' "$RUNNER_TEMP/tooling.out")"
