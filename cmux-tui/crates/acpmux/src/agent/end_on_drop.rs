@@ -53,12 +53,18 @@ mod tests {
     use std::time::Duration;
     use tokio::sync::mpsc;
 
-    fn running(pid: i32) -> bool {
-        // A zombie has exited; only a live process still writes.
-        std::fs::read_to_string(format!("/proc/{pid}/stat"))
-            .ok()
-            .and_then(|s| s.rsplit_once(") ").map(|(_, rest)| !rest.starts_with('Z')))
-            .unwrap_or(false)
+    /// The process exists (a reaped leader is gone; `kill` reaps it).
+    fn exists(pid: i32) -> bool {
+        // SAFETY: signal 0 only checks that the pid exists.
+        unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    /// The helper still writes its heartbeat file.
+    async fn beating(file: &std::path::Path) -> bool {
+        let stamp = || std::fs::metadata(file).and_then(|m| m.modified()).ok();
+        let before = stamp();
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        before != stamp()
     }
 
     /// The model probe's shape: the caller's timeout drops its future while the agent (a
@@ -66,9 +72,10 @@ mod tests {
     /// reached its explicit kill. Both processes end.
     #[tokio::test]
     async fn a_dropped_owner_ends_its_agents_whole_group() {
-        let pid_file = std::env::temp_dir().join(format!("acpmux-eod-{}", std::process::id()));
-        let _ = std::fs::remove_file(&pid_file);
-        let script = format!("sleep 60 & echo $! > '{}'; exec sleep 60", pid_file.display());
+        let beat = std::env::temp_dir().join(format!("acpmux-eod-{}", std::process::id()));
+        let _ = std::fs::remove_file(&beat);
+        let script =
+            format!("(while :; do : > '{}'; sleep 0.05; done) & exec sleep 60", beat.display());
         let profile: HarnessProfile =
             serde_json::from_value(serde_json::json!({"argv": ["/bin/sh", "-c", script]})).unwrap();
         let (inbound, _rx) = mpsc::channel(16);
@@ -77,19 +84,7 @@ mod tests {
             .await
             .expect("the agent starts");
         let leader = agent.pid.expect("a pid") as i32;
-        let helper = async {
-            loop {
-                if let Some(p) = std::fs::read_to_string(&pid_file)
-                    .ok()
-                    .and_then(|p| p.trim().parse::<i32>().ok())
-                {
-                    return p;
-                }
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        };
-        let helper = tokio::time::timeout(Duration::from_secs(5), helper).await.expect("helper");
-        let _ = std::fs::remove_file(&pid_file);
+        assert!(beating(&beat).await, "the helper runs");
         let owned = EndOnDrop::new(agent);
         let cut = tokio::time::timeout(Duration::from_millis(50), async move {
             let _owned = owned;
@@ -97,22 +92,15 @@ mod tests {
         })
         .await;
         assert!(cut.is_err(), "the owner was cut by its timeout");
-        let mut left = true;
-        for _ in 0..100 {
-            left = running(leader) || running(helper);
-            if !left {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let helper_left = beating(&beat).await;
+        let leader_left = exists(leader);
+        if leader_left {
+            // SAFETY: the group this test started.
+            unsafe { libc::killpg(leader, libc::SIGKILL) };
         }
-        if left {
-            // SAFETY: the processes this test started.
-            unsafe {
-                libc::kill(helper, libc::SIGKILL);
-                libc::kill(leader, libc::SIGKILL);
-            }
-        }
-        assert!(!left, "a dropped owner left its agent's group running");
+        let _ = std::fs::remove_file(&beat);
+        assert!(!helper_left && !leader_left, "a dropped owner left its agent's group running");
     }
 
     /// `end` ends it once; the drop after it sends nothing more.
@@ -129,6 +117,6 @@ mod tests {
         let leader = agent.pid.expect("a pid") as i32;
         let owned = EndOnDrop::new(agent);
         owned.end().await;
-        assert!(!running(leader), "end left the agent running");
+        assert!(!exists(leader), "end left the agent running");
     }
 }
