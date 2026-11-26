@@ -203,8 +203,21 @@ def results(paths: list[str]) -> dict[str, bool]:
             continue
         if isinstance(found, dict):
             for name, ok in found.items():
+                if str(name).startswith("_cmux_"):
+                    continue  # the runner's notes (metrics, unreached files), not a test
                 merged[str(name)] = merged.get(str(name), True) and bool(ok)
     return merged
+
+
+def metric_files(path: str | Path) -> set[str]:
+    """The files the head results measured (`_cmux_metrics`, webviews_test_results.py). The history holds verdicts,
+    not values, so their reds replay on the base for guards_new_reds.py to compare the values."""
+    try:
+        found = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    listed = found.get("_cmux_metrics") if isinstance(found, dict) else None
+    return {str(file) for file in listed} if isinstance(listed, dict) else set()
 
 
 def record(history: list[dict], sha: str, time: float, found: dict[str, bool], key: str,
@@ -288,18 +301,23 @@ def flaky_name(runs: list[dict], name: str) -> bool:
     return name != file and any(not ok for _, ok in found) and returns(file_verdicts(runs, file))
 
 
-def known(runs: list[dict], key: str, head: dict[str, bool]) -> tuple[dict[str, bool], list[str]]:
+def known(runs: list[dict], key: str, head: dict[str, bool],
+          measured: set[str] | None = None) -> tuple[dict[str, bool], list[str]]:
     """(the base verdicts the history holds for HEAD's reds on inputs KEY, the files it holds none for).
 
     react-apps-base-check replays each head red file once on the merge parent. A push with the same
     inputs key ran the same webview tree, so its verdict answers the same question without the replay's
     install, bundle build and browsers (3 to 11 min a shard). A name takes the newest such push's
     verdict, a green one only from GREEN_SAMPLES pushes (flaky() still names a name those pushes flip on). A file with any
-    name the history cannot answer runs whole, as before, and its names keep the replay's verdicts."""
+    name the history cannot answer runs whole, as before, and its names keep the replay's verdicts. A MEASURED file
+    (metric_files) always replays: the history has no values to compare a red on both sides by."""
     at = [run for run in runs if run["inputs"] == key]
     base: dict[str, bool] = {}
     replay: set[str] = set()
     for name in sorted(name for name, ok in head.items() if not ok):
+        if name.split(" > ", 1)[0] in (measured or set()):
+            replay.add(name.split(" > ", 1)[0])
+            continue
         found = [ok for _, ok in verdicts(at, name)]
         # The newest such push: one old flake does not excuse a change for the whole window. A green from fewer than
         # GREEN_SAMPLES pushes is one sample: the file replays instead (and replays again while it passes there).
@@ -371,14 +389,14 @@ def early_files(reds: list[str], shard: int, count: int, durations: dict[str, fl
 
 
 def early_known(early: list[dict], base_sha: str, replay: list[str],
-                known: dict[str, bool]) -> tuple[dict[str, bool], list[str]]:
+                known: dict[str, bool], measured: set[str] | None = None) -> tuple[dict[str, bool], list[str]]:
     """(KNOWN with the early base runs' verdicts for REPLAY's files, the files still to replay).
 
     react-apps-base-early ran the base's recorded red files once each, alone, on this merge parent, with the head's
     runner, while the head shards ran: the run react-apps-base-check's replay would make after them (run 43384458711:
     up to 10 such files, 12.8 min, after the head shards' 17.9). A file takes those verdicts only when an early run on
     BASE_SHA listed it and wrote a result for it; anything else (no artifact, another sha, a file it did not reach)
-    replays as before."""
+    replays as before, and so does a MEASURED file (metric_files: the early run's values are not kept)."""
     results: dict[str, bool] = {}
     ran: set[str] = set()
     for item in early:
@@ -394,7 +412,7 @@ def early_known(early: list[dict], base_sha: str, replay: list[str],
         by_file.setdefault(name.split(" > ", 1)[0], {})[name] = ok
     out, left = dict(known), []
     for file in replay:
-        if file in ran and by_file.get(file):
+        if file in ran and by_file.get(file) and file not in (measured or set()):
             out.update(by_file[file])
         else:
             left.append(file)
@@ -455,9 +473,13 @@ def join_heads(shards: Path, count: "int | list[int]", out: Path) -> str | None:
         if not isinstance(found, dict):
             joined = None
         elif joined is not None:
-            joined.update(found)
+            metrics = found.get("_cmux_metrics")
+            joined.update({name: ok for name, ok in found.items() if name != "_cmux_metrics"})
+            if isinstance(metrics, dict):
+                joined.setdefault("_cmux_metrics", {}).update(metrics)
             for name in found:
-                where.setdefault(str(name).split(" > ", 1)[0], shard)
+                if not str(name).startswith("_cmux_"):
+                    where.setdefault(str(name).split(" > ", 1)[0], shard)
         if (here / "runner").is_dir() and not (out / "runner").is_dir():
             shutil.copytree(here / "runner", out / "runner")
         logs = here / "raw-logs"
@@ -834,6 +856,7 @@ def main(argv: list[str]) -> int:
     ek.add_argument("--sha", required=True)
     ek.add_argument("--replay", required=True)
     ek.add_argument("--known", required=True)
+    ek.add_argument("--names", help="the head results: their measured files replay (metric_files)")
     fo = sub.add_parser("flaky-only")
     fo.add_argument("flaky")
     fo.add_argument("--replay", required=True)
@@ -995,7 +1018,7 @@ def main(argv: list[str]) -> int:
         known_now = json.loads(known_path.read_text(encoding="utf-8"))
         if not isinstance(known_now, dict):
             return 1
-        merged, left = early_known(early, args.sha, replay, known_now)
+        merged, left = early_known(early, args.sha, replay, known_now, metric_files(args.names) if args.names else None)
         print(f"react-apps-base-early answers for {len(replay) - len(left)} of {len(replay)} files to replay")
         known_path.write_text(json.dumps(merged, sort_keys=True) + "\n", encoding="utf-8")
         replay_path.write_text("".join(f"{file}\n" for file in left), encoding="utf-8")
@@ -1010,7 +1033,7 @@ def main(argv: list[str]) -> int:
         replay_path.write_text("".join(f"{file}\n" for file in left), encoding="utf-8")
         return 0
     if args.command == "known":
-        base, replay = known(load(args.history), args.inputs, results([args.names]))
+        base, replay = known(load(args.history), args.inputs, results([args.names]), metric_files(args.names))
         Path(args.out).write_text(json.dumps(base, sort_keys=True) + "\n", encoding="utf-8")
         for file in replay:
             print(file)

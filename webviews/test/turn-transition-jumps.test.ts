@@ -112,6 +112,11 @@ await requireBrowserLane("turn-transition-jumps.test.ts", async () => {
         await Bun.write(`${process.env.CMUX_TURN_TRANSITION_DUMP}-${scenario}.json`, JSON.stringify(out));
       const report = transitionReport(out, STEPS[scenario]);
       for (const window of report) console.log(`turn-transition ${scenario} ${JSON.stringify(window)}`);
+      // Each window's worst move, for CI's compare while this test is red on the base: a change that makes a red window
+      // worse by over 3 px (and 10%) is the change's (scripts/ci/guards_new_reds.py; cmux#45415 took burst-thought's
+      // thought step from 12.7 px to 56.8 px and only warned).
+      for (const window of report)
+        console.log(`cmux-metric turn-transition/${scenario}/${window.step}.worstPx ${window.worstPx} 3`);
       expect(report.map((window) => window.step)).toEqual(STEPS[scenario]);
       for (const window of report) {
         // The reader's own steer lands at once (Leo, 2026-11-11: "that slow settle animation is just

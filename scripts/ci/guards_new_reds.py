@@ -62,6 +62,13 @@ noise (numbers, temp paths, shas) and Python warning lines (hq#11346: `sys:1: Re
 left out. When the head has that output and either side has none for the step, or the head's is only warnings, it
 cannot be told, and the step is the change's. Results without it (the webview tests) compare by name.
 
+A test red on both sides is still the change's when it got measurably worse: webviews_test_results.py records the
+`cmux-metric KEY VALUE [SLACK]` lines a red file printed (`_cmux_metrics`, {file: {key: [value, slack]}}; lower is
+better), and a key both sides measured whose head value is over the base's by more than its SLACK and 10% of the base
+value fails every red-on-both test of that file (kind `new`, with an error naming the key and both values). A key only
+one side measured compares nothing. cmux#45415 took turn-transition-jumps' burst-thought from 12.7 to 56.8 px in one
+frame while that test was already red on the base, and only warned (Leo, 2026-11-24: "i think theres' now more layout
+shifts because it didnt expect so much spacing after the thinking").
 --red-steps prints, one a line, each step red on the head (a red "<step> :: <check>" names its step), and exits 0.
 cmux-next-guards.yml re-runs only those steps on the base (run_ci_guards.py --step): a step green on the head is never
 charged to the change whatever the base says, so running it there too bought nothing. With release-notary in the
@@ -100,6 +107,42 @@ def result_complete(path: str) -> bool:
     except (OSError, ValueError):
         return False
     return bool(found.get("_cmux_complete", True)) if isinstance(found, dict) else False
+
+
+# A measured red may grow by its own slack or this share of the base value, whichever is larger, before it is worse.
+WORSE_SHARE = 0.10
+
+
+def load_metrics(path: str) -> dict[str, dict[str, tuple[float, float]]]:
+    """The `_cmux_metrics` a results file holds ({file: {key: (value, slack)}}); none when absent or unreadable."""
+    try:
+        found = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    listed = found.get("_cmux_metrics") if isinstance(found, dict) else None
+    out: dict[str, dict[str, tuple[float, float]]] = {}
+    for file, metrics in (listed.items() if isinstance(listed, dict) else ()):
+        if not isinstance(metrics, dict):
+            continue
+        for key, pair in metrics.items():
+            try:
+                value, slack = (float(pair[0]), float(pair[1])) if isinstance(pair, list) else (float(pair), 0.0)
+            except (TypeError, ValueError, IndexError):
+                continue
+            out.setdefault(str(file), {})[str(key)] = (value, slack)
+    return out
+
+
+def worse_metrics(head: dict[str, tuple[float, float]], base: dict[str, tuple[float, float]]) -> list[str]:
+    """`key base -> head` for each key both measured whose head value is over the base's by more than its slack and
+    WORSE_SHARE of the base value."""
+    out = []
+    for key in sorted(set(head) & set(base)):
+        now, slack = head[key]
+        was = base[key][0]
+        if now - was > max(slack, WORSE_SHARE * abs(was)):
+            out.append(f"{key} {was:g} -> {now:g}")
+    return out
 
 
 def unreached_files(path: str) -> set[str]:
@@ -345,6 +388,19 @@ def main(argv: list[str]) -> int:
                     named_new[step] = sorted(extra)
         old = [step for step in old if step not in named_new]
         new = sorted(new + list(named_new))
+    # A red on both sides that got measurably worse on the head is the change's (cmux#45415).
+    head_metrics, base_metrics = load_metrics(argv[0]), load_metrics(argv[1])
+    worse: dict[str, list[str]] = {}
+    for step in old:
+        if CHECK_SEPARATOR in step:
+            continue
+        file = test_file(step)
+        found = worse_metrics(head_metrics.get(file, {}), base_metrics.get(file, {}))
+        if found:
+            worse[step] = found
+    if worse:
+        old = [step for step in old if step not in worse]
+        new = sorted(new + list(worse))
     fixed = sorted(step for step, ok in head.items() if ok and base.get(step) is False)
     for step in old:
         print(f"::warning title={label} red on the base too::{step}")
@@ -356,7 +412,11 @@ def main(argv: list[str]) -> int:
                  else "flaky on the base")
         print(f"::warning title={label} {where}::{step}")
     for step in new:
-        print(f"::error title={label} red on this change::{step}")
+        if step in worse:
+            print(f"::error title={label} worse on this change::{step}: red on the base too, but worse here: "
+                  + "; ".join(worse[step][:10]))
+        else:
+            print(f"::error title={label} red on this change::{step}")
     for step, extra in named_new.items():
         print(f"{step}: red on the base too, but " + (
             "its head failure names what the base's does not: " + ", ".join(extra[:20])
