@@ -73,7 +73,8 @@ HELPERS = (
 # and this check itself. The key is these paths' object ids at the commit.
 HELPER_INPUTS = (
     "cmux-tui", "cmux-next-ios/rust", "Native/OptChat", "Native/DiffSidecar", ".cargo",
-    "scripts/ci/nightly_pr_build.py", WORKFLOW,
+    ".github/actions/setup-cmux-tui-rust", ".github/actions/runner-cargo-home", "scripts/ci/toolchain-r2.sh",
+    *(helper["script"] for helper in HELPERS), "scripts/ci/nightly_pr_build.py", WORKFLOW,
 )
 
 
@@ -85,7 +86,8 @@ SWIFT_INPUTS = (
     "Packages/*", "vendor/*", "ghostty", "ghostty-next", ".gitmodules", ".xcode-version", "Resources/*",
     "scripts/cmux-next/check-release-compile.sh", "scripts/cmux-next/lib/*", "scripts/ci/xcode-pins.txt",
     "scripts/select-ci-xcode.sh", "scripts/ci/nightly_pr_build.py", "scripts/ci/job_input_fingerprint.py",
-    WORKFLOW,
+    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/swiftpm-binary-module-guard.sh",
+    "scripts/ci/cmux_next_route.py", WORKFLOW,
 )
 
 
@@ -114,12 +116,7 @@ def git(*args: str, root: Path = ROOT) -> str:
 
 
 def helper_key(rev: str, root: Path = ROOT) -> str:
-    ids = {}
-    for path in HELPER_INPUTS:
-        try:
-            ids[path] = git("rev-parse", "--verify", "-q", f"{rev}:{path}", root=root)
-        except subprocess.CalledProcessError:
-            ids[path] = ""
+    ids = job_input_fingerprint.object_ids(str(root), rev, list(HELPER_INPUTS))
     raw = json.dumps({"job": "nightly-pr-build-helpers", "inputs": ids, "helpers": HELPERS}, sort_keys=True)
     return "nightly-pr-build-helpers-" + hashlib.sha256(raw.encode()).hexdigest()
 
