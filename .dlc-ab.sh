@@ -27,8 +27,8 @@ for u in sorted(json.loads(m.group(1)),key=lambda u:-u["duration"])[:6]:
 PY
 }
 for v in "$@"; do
-  name=${v%%=*}; cfgs=(); if [ "$v" != "$name" ]; then IFS=';' read -ra cs <<<"${v#*=}"; for c in "${cs[@]}"; do cfgs+=(--config "$c"); done; fi
-  echo "##### variant $name ${cfgs[*]:-}"
+  name=${v%%=*}; cfgs=(); if [ "$v" != "$name" ]; then IFS=';' read -ra cs <<<"${v#*=}"; for c in "${cs[@]}"; do case "$c" in ENV:*) export "${c#ENV:}";; *) cfgs+=(--config "$c");; esac; done; fi
+  echo "##### variant $name ${cfgs[*]:-} RUSTC_BOOTSTRAP=${RUSTC_BOOTSTRAP:-}"
   git checkout -q -- "$F"
   unset RUSTC_WRAPPER
   t0=$(date +%s); timeout 1500 cargo build --profile dev -p cmux-tui --bin cmux-tui -q "${cfgs[@]}" 2>&1 | grep -E '^error' | head -5; echo "warm_s=$(( $(date +%s)-t0 ))"
