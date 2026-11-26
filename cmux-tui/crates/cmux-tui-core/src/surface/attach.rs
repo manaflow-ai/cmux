@@ -149,6 +149,8 @@ impl Surface {
         let (tap, stream) =
             AttachTap::pair(lifecycle.clone(), ATTACH_STREAM_CAPACITY, ATTACH_STREAM_MAX_BYTES);
         taps.push(tap);
+        // The live tap starts after the missed bytes (a resume attach keeps JSON `output`).
+        let stream_offset = offset + missing.len() as u64;
         let attach = AttachStream {
             cols: term.cols(),
             rows: term.rows(),
@@ -159,6 +161,7 @@ impl Surface {
             pending_sequence: Arc::from([]),
             history_rows_omitted: None,
             history_rows_skipped: None,
+            stream_offset,
             stream,
             lifecycle,
             stamp,
