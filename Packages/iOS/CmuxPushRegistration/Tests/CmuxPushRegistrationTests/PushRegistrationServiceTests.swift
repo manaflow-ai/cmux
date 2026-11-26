@@ -3,7 +3,8 @@ import Foundation
 import FoundationNetworking
 #endif
 import Testing
-@testable import CmuxAuthRuntime
+import CmuxAuthRuntime
+@testable import CmuxPushRegistration
 
 /// Records every URLRequest the push service performs, returning 200.
 final class RecordingURLProtocol: URLProtocol, @unchecked Sendable {
