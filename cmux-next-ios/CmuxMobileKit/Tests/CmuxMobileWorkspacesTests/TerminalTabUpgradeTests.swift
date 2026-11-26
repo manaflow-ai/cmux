@@ -30,6 +30,14 @@ import Testing
         #expect(upgrade.upgradable { _ in true }.isEmpty)
     }
 
+    @Test func cardOnlyPlaceholdersWaitForThePage() {
+        var upgrade = TerminalTabUpgrade()
+        upgrade.built(tabID: "card", workspaceID: "w", live: false, upgradable: false)
+        #expect(upgrade.upgradable { _ in true }.isEmpty)
+        upgrade.built(tabID: "page", workspaceID: "w", live: false)
+        #expect(upgrade.upgradable { _ in true } == ["page"])
+    }
+
     @Test func keptRowsLiveBesideTheFramesAsText() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("frames-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: dir) }

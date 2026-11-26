@@ -51,7 +51,7 @@ const KINDS: Record<FileKind, StringKey> = {
   mocks: "prCard.kind.mocks",
   docs: "prCard.kind.docs",
   evals: "prCard.kind.evals",
-  generated: "prCard.kind.generated",
+  generated: "prCard.kind.generatedFiles",
 };
 
 /// An answer older than this is worth saying the age of; a fresh one needs no apology.
