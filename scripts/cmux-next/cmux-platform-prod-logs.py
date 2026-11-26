@@ -346,6 +346,73 @@ def idle_kept(j):
     return out
 
 
+# cloud.machine.start_overdue's never_bound probe (cmux-platform NeverBoundProbe.ts, #2170): the guest's own answer, one
+# `key=value` fact per line. Only these shapes leave it, each as a fixed token or a number; a nameserver, a route, a
+# DNS answer and a peer address are the guest's network and never print (only whether there was one).
+PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
+PROBE_HTTPS = re.compile(r"^https (\S+) (.*)$")
+PROBE_TIMES = (("connect_s", "connect_ms"), ("tls_s", "tls_ms"), ("total_s", "total_ms"))
+
+
+def bind_probe(p):
+    """The never_bound probe's typed projection: outcome, ms, exit, error code, and from the guest's lines its uptime,
+    whether the bind file is there, how many nameservers, whether a default route, whether the API and edge hosts
+    resolve, and each HTTPS request's status, curl error number and timings. The guest's free text never prints."""
+    out = {}
+    o = p.get("outcome")
+    out["probe"] = o if o in PROBE_OUTCOMES else "other"
+    for k in ("ms", "exit"):
+        v = base.typed(INT, p.get(k))
+        if v is not None:
+            out[f"probe_{k}"] = v
+    e = base.typed(TOKEN, p.get("error"))
+    if e is not None:
+        out["probe_error"] = e
+    text = p.get("out")
+    if not isinstance(text, str):
+        return out
+    dns = []
+    https = []
+    for raw in text.splitlines():
+        ln = raw.strip()
+        if ln.startswith("uptime_s="):
+            try:
+                out["probe_uptime_s"] = max(0, min(999_999, int(float(ln[len("uptime_s="):]))))
+            except ValueError:
+                pass
+        elif ln in ("bind_file=present", "bind_file=missing"):
+            out["probe_bind_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("nameservers="):
+            out["probe_nameservers"] = len([n for n in ln.split("=", 1)[1].split(",") if n.strip()])
+        elif ln.startswith("route="):
+            out["probe_route"] = bool(ln.split("=", 1)[1].strip())
+        elif ln.startswith("dns ") and "=" in ln:
+            dns.append("unresolved" if ln.rsplit("=", 1)[1].strip() in ("", "unresolved") else "resolved")
+        elif ln == "curl=absent":
+            out["probe_curl"] = "absent"
+        else:
+            m = PROBE_HTTPS.match(ln)
+            if m:
+                https.append(m.group(2))
+    # The probe asks the API origin's host first, then the coderouter edge's (neverBoundProbeCommand).
+    for name, answer in zip(("api", "edge"), dns):
+        out[f"probe_{name}_dns"] = answer
+    for name, rest in zip(("api", "edge"), https):
+        fields = dict(kv.split("=", 1) for kv in rest.split() if "=" in kv)
+        code = fields.get("http", "")
+        if code.isdigit() and len(code) == 3:
+            out[f"probe_{name}_http"] = int(code)
+        curl = re.search(r"curl: \((\d{1,3})\)", rest)
+        if curl:
+            out[f"probe_{name}_curl"] = int(curl.group(1))
+        for src, dst in PROBE_TIMES:
+            try:
+                out[f"probe_{name}_{dst}"] = max(0, min(999_999, round(float(fields[src]) * 1000)))
+            except (KeyError, ValueError):
+                pass
+    return out
+
+
 def public_log(j):
     """(fields, why): fields only for an allowlisted platform msg, else None and the drop reason."""
     if any(k in j for k in base.TENANT_KEYS):
@@ -367,6 +434,8 @@ def public_log(j):
     # A gateway mode the claim could not read is null on the line; kept as "null", told apart from no field.
     if msg == "cloud.spare.gateway_read" and "mode" in j and j["mode"] is None:
         out["mode"] = "null"
+    if msg == "cloud.machine.start_overdue" and isinstance(j.get("bind_probe"), dict):
+        out.update(bind_probe(j["bind_probe"]))
     if "error" in j:
         out["error"] = True
     return out, None

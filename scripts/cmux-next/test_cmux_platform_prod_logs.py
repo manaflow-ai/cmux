@@ -363,6 +363,40 @@ class ProjectionTests(unittest.TestCase):
                                               "mode": kept, "lacks": True, "shared": False})
                 self.assertNotIn(TEAM, json.dumps(row))
 
+    def test_a_never_bound_probe_keeps_its_facts_and_none_of_the_guests_network(self):
+        # cmux-platform#2170: the never_bound line's bind_probe was dropped, so production's never_bound machines
+        # (06:50Z, 07:05Z 2026-11-26, hq#28194) could not say which step of the guest's bind failed.
+        out = ("uptime_s=301.52\nbind_file=present\nnameservers=10.0.0.53,fd00::53,\n"
+               "route=default via 10.0.0.1 dev eth0\ndns api.example.dev=203.0.113.7\n"
+               "dns coderouter.cmux.internal=unresolved\n"
+               "https https://api.example.dev/v1/cloud/bind http=405 ip=203.0.113.7 connect_s=0.012 "
+               "tls_s=0.040 total_s=0.051\n"
+               "https https://coderouter.cmux.internal/ curl: (6) Could not resolve host: coderouter.cmux.internal "
+               "http=000 ip= connect_s=0.000 tls_s=0.000 total_s=2.004\n")
+        row = logs.line(event({"msg": "cloud.machine.start_overdue", "team": TEAM, "machine": VM,
+                               "code": "cloud.machine.never_bound", "ms": 305553, "create_running": False,
+                               "bind_probe": {"outcome": "ran", "ms": 2200, "exit": 0, "out": out}}))
+        self.assertEqual(row["log"], {
+            "msg": "cloud.machine.start_overdue", "team": logs.base.tag(TEAM), "machine": logs.base.tag(VM),
+            "code": "cloud.machine.never_bound", "ms": 305553, "probe": "ran", "probe_ms": 2200, "probe_exit": 0,
+            "probe_uptime_s": 301, "probe_bind_file": "present", "probe_nameservers": 2, "probe_route": True,
+            "probe_api_dns": "resolved", "probe_edge_dns": "unresolved", "probe_api_http": 405,
+            "probe_api_connect_ms": 12, "probe_api_tls_ms": 40, "probe_api_total_ms": 51, "probe_edge_http": 0,
+            "probe_edge_curl": 6, "probe_edge_connect_ms": 0, "probe_edge_tls_ms": 0, "probe_edge_total_ms": 2004})
+        text = json.dumps(row)
+        for leak in ("10.0.0", "203.0.113", "fd00", "eth0", "api.example.dev", "Could not resolve"):
+            self.assertNotIn(leak, text)
+
+    def test_a_probe_that_did_not_run_keeps_only_its_outcome_and_code(self):
+        row = logs.line(event({"msg": "cloud.machine.start_overdue", "machine": VM, "code": "cloud.machine.never_bound",
+                               "bind_probe": {"outcome": "failed", "ms": 15000, "error": "cloud.provider.unavailable"}}))
+        self.assertEqual(row["log"]["probe"], "failed")
+        self.assertEqual(row["log"]["probe_error"], "cloud.provider.unavailable")
+        row = logs.line(event({"msg": "cloud.machine.start_overdue", "machine": VM,
+                               "bind_probe": {"outcome": "weird text here", "out": 7}}))
+        self.assertEqual(row["log"]["probe"], "other")
+        self.assertNotIn("weird", json.dumps(row))
+
     def test_a_cut_off_submit_answer_keeps_its_op_and_wait(self):
         # cmux-platform retro r2b92b756: a start that ran out its 25 s answer wait was retried silently, so only this
         # line counts how often an op outlives its request.
