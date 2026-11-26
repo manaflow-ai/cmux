@@ -153,6 +153,8 @@ final class AppControl {
         // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
         // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
         service.router.register(perfProbes.methods())
+        // A browser tab's and its popups' pending prompts in Release too (BrowserPromptsControl), for login-flow checks on a NIGHTLY.
+        service.router.register(BrowserPromptsControl.methods(services))
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
