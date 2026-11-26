@@ -3662,13 +3662,16 @@ export type WarmHomeAnswer = { state: "ready" | "not_ready" | "unsupported"; rea
 /** Parse warm-home's optional JSON answer. Older guest images print nothing because the command is absent. */
 export function parseWarmHomeAnswer(stdout: string): WarmHomeAnswer {
   let answer: any;
-  for (const line of stdout.split(/\r?\n/).map((line) => line.trim()).reverse()) {
-    if (!line.startsWith("{")) continue;
+  // acpmux's --json prints pretty JSON (cli/output.rs print_json, to_string_pretty): the answer spans lines, from a
+  // line that opens with "{" to the end. Try each such start, the last first; a diagnostic line can come before it.
+  const lines = stdout.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].trim().startsWith("{")) continue;
     try {
-      answer = JSON.parse(line);
+      answer = JSON.parse(lines.slice(i).join("\n"));
       break;
     } catch {
-      // The command can include a non-JSON diagnostic before its answer.
+      // Not the answer's first line (an inner object, or a non-JSON diagnostic).
     }
   }
   if (!answer || typeof answer !== "object") {
