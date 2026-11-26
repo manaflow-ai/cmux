@@ -39,6 +39,16 @@ impl Lane {
         !matches!(self, Self::Tunnel)
     }
 
+    /// The Braid class this lane's frames belong to (RFD 0164 B5).
+    pub const fn braid_class(self) -> cmux_braid_class::Class {
+        use cmux_braid_class::Class;
+        match self {
+            Self::Interactive => Class::Input,
+            Self::Control | Self::Tunnel => Class::Ordered,
+            Self::Bulk => Class::Bulk,
+        }
+    }
+
     fn from_wire(value: u8) -> Result<Self, FrameDecodeError> {
         match value {
             0 => Ok(Self::Interactive),
