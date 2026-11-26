@@ -3,7 +3,8 @@
 //!
 //! The setting is a list of strings, each `action.id` or `action.id | Title | sf.symbol` (the title
 //! and the symbol are optional, either may be left empty). Rust owns the rules: each id must name a
-//! catalog action (a legacy id becomes its canonical one), debug-only and destructive actions are
+//! catalog action (a legacy id becomes its canonical one), debug-only and destructive actions, and
+//! any whose id quits, closes, clears, resets or removes, are
 //! refused (a look must not plant a one-click Quit or Close All), a duplicate keeps its first row,
 //! and titles and symbols are bounded. The native view maps the rows it gets and runs the action on
 //! a click; an empty list (the default) draws no block, exactly today's sidebar.
@@ -67,7 +68,7 @@ pub fn respond(request: &Request) -> Reply {
                 path,
                 &format!("ignored: the nav block holds at most {MAX_ROWS} rows"),
             ));
-            break;
+            continue;
         }
         match row(item) {
             Ok(row) if reply.rows.iter().any(|seen| seen.action == row.action) => {
@@ -78,6 +79,48 @@ pub fn respond(request: &Request) -> Reply {
         }
     }
     reply
+}
+
+/// The words of an action id that quit, close, end or remove something. Most such catalog actions
+/// (`quit`, `closeAllWindows`, `workspace.closeAll`, `palette.auth.signOut`, ...) are not marked
+/// `is_destructive`, so the id's own words are checked too: a look must not plant any of them as
+/// a one-click row.
+const ENDS_OR_REMOVES: &[&str] = &[
+    "quit",
+    "close",
+    "kill",
+    "delete",
+    "remove",
+    "clear",
+    "reset",
+    "uninstall",
+    "restart",
+    "terminate",
+    "discard",
+    "signout",
+    "logout",
+];
+
+/// Whether ID has one of [`ENDS_OR_REMOVES`] as a whole camelCase or dotted word (`reopenClosed`
+/// keeps `closed`, a different word), or `sign`/`log` followed by `out`.
+fn ends_or_removes(id: &str) -> bool {
+    let mut words: Vec<String> = Vec::new();
+    for segment in id.split(['.', '_', '-']) {
+        let mut word = String::new();
+        for c in segment.chars() {
+            if c.is_uppercase() && !word.is_empty() {
+                words.push(std::mem::take(&mut word));
+            }
+            word.extend(c.to_lowercase());
+        }
+        if !word.is_empty() {
+            words.push(word);
+        }
+    }
+    words.iter().any(|w| ENDS_OR_REMOVES.contains(&w.as_str()))
+        || words.windows(2).any(|pair| {
+            matches!(pair, [first, second] if (first == "sign" || first == "log") && second == "out")
+        })
 }
 
 fn problem(path: String, why: &str) -> Problem {
@@ -105,7 +148,7 @@ fn row(item: &Value) -> Result<Row, String> {
     if action.is_debug_only {
         return Err(format!("{id:?} is a debug action; the nav block runs only everyday actions"));
     }
-    if action.is_destructive {
+    if action.is_destructive || ends_or_removes(action.id) {
         return Err(format!("{id:?} is destructive; the nav block never runs it in one click"));
     }
     if let Some(title) = title
@@ -174,8 +217,9 @@ mod tests {
         let (old, new) = cmux_action_catalog::tables::LEGACY_ALIASES
             .iter()
             .find(|(_, new)| {
-                cmux_action_catalog::find(new)
-                    .is_some_and(|a| !a.is_debug_only && !a.is_destructive)
+                cmux_action_catalog::find(new).is_some_and(|a| {
+                    !a.is_debug_only && !a.is_destructive && !ends_or_removes(a.id)
+                })
             })
             .expect("a legacy alias to an everyday action");
         let got = reply(json!([old]));
@@ -221,14 +265,41 @@ mod tests {
     fn not_a_list_and_too_many_rows_are_bounded() {
         assert_eq!(reply(json!("home.show")).problems[0].path, "sidebar.nav");
         let everyday: Vec<_> = cmux_action_catalog::actions()
-            .filter(|a| !a.is_debug_only && !a.is_destructive)
+            .filter(|a| !a.is_debug_only && !a.is_destructive && !ends_or_removes(a.id))
             .take(MAX_ROWS + 3)
             .map(|a| a.id)
             .collect();
         let got = reply(json!(everyday));
         assert_eq!(got.rows.len(), MAX_ROWS);
-        assert_eq!(got.problems.len(), 1);
-        assert!(got.problems[0].why.contains("at most"));
+        // Each dropped entry gets its own diagnostic, not just the first past the limit.
+        let paths: Vec<_> = got.problems.iter().map(|p| p.path.clone()).collect();
+        assert_eq!(paths, ["sidebar.nav[12]", "sidebar.nav[13]", "sidebar.nav[14]"]);
+        assert!(got.problems.iter().all(|p| p.why.contains("at most")));
+    }
+
+    #[test]
+    fn actions_that_quit_close_or_remove_are_refused_even_when_not_marked_destructive() {
+        let got = reply(json!([
+            "quit",
+            "closeAllWindows",
+            "workspace.closeAll",
+            "palette.auth.signOut",
+            "quitEndSessions",
+            "home.show",
+        ]));
+        assert_eq!(got.rows.len(), 1, "{:?}", got.problems);
+        assert_eq!(got.rows[0].action, "home.show");
+        assert_eq!(got.problems.len(), 5);
+        assert!(got.problems.iter().all(|p| p.why.contains("destructive")));
+    }
+
+    #[test]
+    fn the_word_test_reads_whole_words() {
+        assert!(ends_or_removes("closeAllWindows"));
+        assert!(ends_or_removes("palette.auth.signOut"));
+        assert!(!ends_or_removes("reopenClosedWorkspace"));
+        assert!(!ends_or_removes("palette.newAgentChat"));
+        assert!(!ends_or_removes("appearance.customize"));
     }
 
     #[test]

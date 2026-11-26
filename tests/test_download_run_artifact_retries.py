@@ -190,7 +190,8 @@ class WorkflowTests(unittest.TestCase):
         jobs = yaml.safe_load((ROOT / ".github/workflows/nightly.yml").read_text())["jobs"]
         steps = [(job, step) for job, spec in jobs.items() for step in spec.get("steps") or []
                  if "download-run-artifact.py" in str(step.get("run", ""))]
-        self.assertGreaterEqual(len(steps), 6)
+        # Five since #51894 deleted the nightly-next sign stage's download.
+        self.assertGreaterEqual(len(steps), 5)
         unbounded = [f"{job}: {step.get('name')}" for job, step in steps
                      if step.get("continue-on-error") and not step.get("timeout-minutes")]
         self.assertEqual(unbounded, [])

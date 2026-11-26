@@ -2,9 +2,10 @@ name: cmux-next post-merge batch
 
 # The base's deferred checks run here on the clock, not once per merge (RFD 0023 in cmuxterm-hq;
 # Leo 2026-11-21: "everything else runs once post-merge, batched"). main's
-# cmux-next-post-merge-dispatch.yml ticks every 30 min and starts a batch run on the newest
-# feat-cmux-next tip once a window (vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) has passed
-# since the last one and the tip is untested. A batch run calls every suite in
+# cmux-next-post-merge-dispatch.yml ticks every 30 min, and each batch run's judge ticks once more as
+# it ends; a tick starts a batch run on the newest feat-cmux-next tip when it is untested and either
+# 10 or more merges past the last batch run (vars.NEXT_POST_MERGE_EVERY_MERGES, default 10; 0 turns the
+# count off) or a window (vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) has passed since it. A batch run calls every suite in
 # .github/post-merge-batch.json whose paths the commits since the last batch run touched. A job red
 # here and green on the last batch run where it ran starts a bisect: probe runs of that job alone,
 # each dispatched by the one before, end on the first red commit, and the last probe opens its
@@ -201,6 +202,11 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+    # R2 write secrets: the batch saves the base's webview test history there for pull requests.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID }}
     # actions: read: the base's webview test history and duration manifest are artifacts (ci-web.yml).
     permissions:
       contents: read
@@ -217,6 +223,47 @@ jobs:
       actions: write
       contents: read
       issues: write
+
+  # The fast tier's full run (note-559): a pull request runs only the entries its change reaches.
+  fast-tier:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' fast-tier ')
+    uses: ./.github/workflows/cmux-next-fast-tier-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  # tooling-tests' full run: a pull request runs only the steps its changed files reach by name.
+  tooling-tests:
+    needs: plan
+    if: contains(needs.plan.outputs.suites, ' tooling-tests ')
+    uses: ./.github/workflows/cmux-next-tooling-tests-batch.yml
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      only: ${{ needs.plan.outputs.only }}
+    permissions:
+      contents: read
+
+  # A web type check red with no machine fix (fixit-compile, ci-web.yml's fixit_nofix) on a batch run of the base:
+  # fixit-handoff.yml names the culprit and pushes its revert when clear, else opens the revert's own pull request,
+  # without waiting for this run's bisect. A job of its own that only dispatches; the suites stay read-only.
+  fixit-handoff:
+    needs: [plan, web]
+    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && github.ref_name == 'feat-cmux-next' && inputs.mode != 'probe' && needs.web.outputs.fixit_nofix == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch fixit-handoff on feat-cmux-next
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          CHECK: ${{ needs.web.outputs.fixit_check }}
+          ORIGIN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: gh workflow run fixit-handoff.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f sha="$SHA" -f check="$CHECK" -f origin="$ORIGIN"
 
   gallery-health:
     needs: plan
@@ -245,11 +292,16 @@ jobs:
     with:
       sha: ${{ needs.plan.outputs.sha }}
       only: ${{ needs.plan.outputs.only }}
+    # R2 write secrets: the batch saves the base's acpmux test log there for pull requests.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ secrets.CI_CACHE_R2_ACCOUNT_ID }}
     permissions:
       contents: read
 
   judge:
-    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, gallery-health, cmux-tui-sdks, cmux-tui-spec]
+    needs: [plan, drill, cmux-tui-windows-check, acpmux-sim-sweep, swift-acpmux-protocol, rust-workspaces, web, tip-test-compile, fast-tier, tooling-tests, gallery-health, cmux-tui-sdks, cmux-tui-spec]
     # A probe's judge also runs when its plan job died (a lost runner: drill-8 probe run 44980687386): it then
     # sees no verdict and dispatches the same probe again, so the bisect goes on instead of stopping.
     if: ${{ !cancelled() && (needs.plan.result == 'success' || inputs.mode == 'probe') }}
@@ -324,6 +376,20 @@ jobs:
           python3 scripts/ci/post_merge_batch.py judge --branch "$BRANCH" --mode "$MODE" --sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" --suite "$SUITE" --job "$JOB" --only "$ONLY" --probe-sha "$PROBE_SHA" \
             --good "$GOOD" --bad "$BAD" --origin "$ORIGIN" --tries "$TRIES" --pieces "$PIECES"
+      # The next batch starts as this one ends when the base has piled up NEXT_POST_MERGE_EVERY_MERGES merges since
+      # this run's commit, so batches follow merges, not the 30-minute cron alone. It runs after a successful
+      # judge only, and never fails it: a red here would make this batch read as untested.
+      - name: Start the next batch when merges have piled up
+        if: ${{ inputs.mode != 'probe' && github.ref_name == 'feat-cmux-next' }}
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          NEXT_POST_MERGE_WINDOW_MINUTES: ${{ vars.NEXT_POST_MERGE_WINDOW_MINUTES }}
+          NEXT_POST_MERGE_EVERY_MERGES: ${{ vars.NEXT_POST_MERGE_EVERY_MERGES }}
+        run: |
+          python3 scripts/ci/post_merge_batch.py tick --branch "$GITHUB_REF_NAME" --self-run-id "$GITHUB_RUN_ID"
 
   revert:
     needs: judge

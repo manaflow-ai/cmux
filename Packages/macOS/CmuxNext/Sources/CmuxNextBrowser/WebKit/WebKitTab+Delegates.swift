@@ -39,10 +39,13 @@ extension WebKitTab: WKNavigationDelegate {
 
         if !Self.isWebScheme(url) {
             decisionHandler(.cancel, preferences)
-            // The shared opener prompts for every non-gesture navigation,
-            // including sign-in returns, before handing it to another app.
+            // The shared opener prompts for every non-gesture navigation
+            // before handing it to another app; a return to this app (its
+            // own scheme) goes to the app itself, and the flow's tab closes.
             if navigationAction.targetFrame?.isMainFrame ?? true {
-                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, ask: enqueuePrompt)
+                let history = webView.backForwardList, first = (history.backList.first ?? history.currentItem)?.initialURL
+                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, firstPage: first,
+                                                close: { [weak self] in self?.emit(.close) }, ask: enqueuePrompt)
             }
             return
         }
@@ -201,7 +204,9 @@ extension WebKitTab: WKNavigationDelegate {
         // A page the system ended for memory reloads by itself once, now when on screen, else
         // when next shown (`BrowserExitRecovery`); any other end shows the sad tab and waits.
         let pressure = memoryPressure()
-        let owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        var owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        // Exit page on a hung page (`answerUnresponsivePage`) is the person's end: the sad tab waits for their Reload.
+        if endedByPerson { endedByPerson = false; exitRecovery.cancel(); owed = false }
         let tabID = id.rawValue
         processLogger.error("web content process ended tab=\(tabID, privacy: .public) reason=\(exit.reason.rawValue, privacy: .public) pressure=\(pressure.rawValue, privacy: .public) \(owed ? "reloads once by itself (memory)" : "no automatic reload", privacy: .public)")
         apply(.processExited(exit))

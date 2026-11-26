@@ -4,7 +4,7 @@
 // on the middle strip it's weird and bad"). The header's own button (the chevron, or the line's
 // toggle) stays the keyboard and screen reader control; this is the pointer's wider target.
 //
-// A click on a real control inside the header (View changes, Undo, a sender chip, Reply, a menu)
+// A click on a real control inside the header (Undo, a sender chip, Reply, a menu)
 // is that control's own, and a press that ended a text selection in the header selects, so neither
 // toggles. The header carries `data-header-toggle` so the transcript holds it in place while its
 // body folds (foldAnchor.ts), as it does for a toggle button.

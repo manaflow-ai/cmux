@@ -25,8 +25,10 @@
     {"id": "chiefPet"},
     {"id": "density", "note": "The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md)."},
     {"id": "textSize", "note": "General's first card (David Beyer, 2026-11-20: Settings was overwhelming and had no sidebar font size he could find): one Text Size for the sidebar, tabs, menus and chat (appearance.metrics.chromeFontSize) and the density beside it (appearance.density), in the picker the Set Up cmux card draws too (webviews ui/TextSizePicker)."},
+    {"id": "replayIntro", "note": "Settings > General, right under Text Size: Replay the Intro reopens the Make cmux Yours step on the current settings (the palette's home.makeItYours, run through cmux.app.action.run); the first-run flag is untouched (decision d-eedbe6969c, ask-b9fd9d4f9c)."},
     {"id": "importSuggestions", "note": "What this Mac has that cmux can bring over (CmuxNextImportCards), every card found."},
     {"id": "channels", "note": "Every release channel's recent builds, with the one this Mac runs (Settings > Updates)."},
+    {"id": "customizeProgress", "note": "Settings > General's first card, on by default for everyone (Leo 2026-11-22: \"a customizations checklist. actually, this needs to be SOMEWHERE as a default. not just for me.\"): the steps for making cmux your own (theme, look, shortcuts, notifications, agents and models, MCP, GitHub, sidebar, chat, New Tab, ...), n of m done, each linking to where it is done, with a check-off and Dismiss (customize.checklist.enabled). Steps and progress are cmux-customize checklist.rs (`cmux customize checklist`), through `cmux.settings.customize.checklist`."},
     {"id": "appUpdate", "note": "The app update's status: a check, a download's progress and Cancel, Restart to Update, a failure's Try Again (Settings > Updates; the sidebar shows only the staged update)."},
     {"id": "webUpdates", "note": "The web UI served now, its last check and Roll Back (plans/cmux-next/web-ota.md); NIGHTLY only."},
     {"id": "voiceInput", "note": "Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists."},
@@ -36,7 +38,9 @@
     {"id": "cloudEnvironments", "note": "Settings > Cloud > Cloud Environments: the team's environments, Build, Delete and Add (plans/cmux-next/cloud-environments-DESIGN.md); `cmux.settings.environments.*`."},
     {"id": "tailnet", "note": "Settings > Server > This Mac on Your Tailnet: sign this Mac's own tailnet node in or out (acpmux's embedded node, `_acpmux/tailnet/*`, relayed by the app on its person connection); `cmux.settings.tailnet.*`. Shown only where acpmux answers."},
     {"id": "sharedLinks", "note": "Settings > Privacy and Security > Shared Links: every chat this Mac shared by link or invite, with Revoke and Revoke All (design chat-multiplayer.md 2); `cmux.settings.shares.*`. Deep link: #/settings/privacy?focus=card.sharedLinks."},
+    {"id": "archivedWorkspaces", "note": "Settings > Sidebar > Archived Workspaces (cmux#51635): the sidebar draws no archived workspace or link; this card lists them in sidebar order with Open, Restore and Delete, like ChatGPT's Settings > Data controls > Archived chats; `cmux.settings.archived.*`. Deep link: #/settings/sidebar?focus=card.archivedWorkspaces."},
     {"id": "customizeLibrary", "note": "Appearance > Customization Library: everything the person applied (an ask, a profile, a kept try-on, an import), kept as entries that turn on and off and stack top first, the higher winning (cmux-customize library.rs); the bundled CLI's `cmux customize library`, `cmux.settings.customize.library`."},
+    {"id": "looksGallery", "note": "Settings > Appearance > Looks: a gallery of look repos (setup repos, docs/cmux-next/setup-repos.md) from the reviewed catalog, each previewed on the golden sample, installed in one click after its consent card, then stacked top first with on/off, order and uninstall; the bundled CLI's `cmux setup gallery|preview|install|remove|on|off|order`, `cmux.settings.looks`. The gallery itself changes nothing about the default look."},
     {"id": "keys", "note": "Settings > Keys: the keys agents keep on this Mac (`cmux keys ls`, never a value) with Revoke, and the key requests waiting for the person (`cmux keys request`, answered with Store or Decline; design/settings-keys.md); `cmux.settings.keys.*`. Deep link: #/settings/keys."},
     {"id": "agentCustomization", "note": "Settings > Agents > Claude Code & Codex (labs.agentCustomization, off by default: the card draws nothing): each agent's effective settings with the scope each comes from, the curated keys to edit and Open file per config file (`cmux.settings.agentConfig`, the bundled `cmux --json agent-config settings`), and every Claude Code and Codex hook (Claude settings files, ~/.codex/hooks.json) by agent and event, with its matcher and command, Turn Off / Turn On and Remove on the person's own hooks (`cmux.settings.agentHooks.*`, the bundled `cmux --json agent-config hooks`)."},
     {"id": "mcpServers", "note": "Settings > MCP Servers: the services the person connected for their agents (a connect card in a chat, or a Chief), from the Mac's one store of connections (docs/chief-mcp-hub.md), with Sign In and Remove; `cmux.settings.mcp.*`, which the app runs through the bundled `optchat-chief integrations --json`. Deep link: #/settings/mcpServers."},
@@ -44,6 +48,7 @@
     {"id": "cloudModels", "note": "Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey."},
     {"id": "customizeChecklist", "note": "Settings > Customize: every customization one click away (Leo 2026-11-22: \"it should just be as easy as a click toggle\"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize."},
     {"id": "integrationsHub", "note": "Settings > Integrations: the integrations hub (cmux platform /v1/hub): linked Stripe and GitHub accounts with Remove, Link Stripe (a pasted restricted key) and Link GitHub, the approvals waiting for the person with Allow, Deny and Don't ask again, the rules with Add and Remove, the pause switch and recent audit rows; `cmux.settings.hub.*`, from the bundled `cmux hub overview --json` (cmux-tui cli/hub.rs shapes every string). An approval is answered only here, never by the CLI. Deep link: #/settings/integrations."},
+    {"id": "automationsCloud", "note": "Settings > Automations: cloud automations (cmux platform /v1/automations): the list with each trigger, last run and on/off switch, the form (a GitHub event on a repository, a webhook whose URL and secret show once, or a schedule; condition rows; the agent's repository, branch template, harness and prompt template with a preview against a sample event; limits), the run log and the template gallery; `cmux.settings.autocloud.*`, from the bundled `cmux autocloud overview --json` (cmux-tui cli/autocloud.rs shapes every string and checks every spec). Deep link: #/settings/automations."},
     {"id": "models", "note": "Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`."},
     {"id": "extensions", "note": "Settings > Extensions: each installed extension's own settings from its manifest's `settings` schema, one group per extension; `cmux.settings.extensions.list` and `.set` (ExtensionSettingsPageRoute) send the daemon's `apps.settings.list` and `apps.settings.set` on the app's own connection."}
   ],
@@ -56,8 +61,8 @@
     "home": ["diagnostics.viewHangReport"],
     "keyboard": ["keybindings.open", "palette.searchShortcuts"],
     "notifications": ["toasts.showHidden"],
-    "accounts": ["accounts.refresh", "palette.mobileConnect"],
-    "rooms": ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme"],
+    "accounts": ["accounts.refresh"],
+    "rooms": ["space.new", "space.switch", "space.rename", "space.setTheme", "space.clearTheme", "palette.openCmuxSettingsFile"],
     "machines": ["device.add", "remote.connect", "newCloudMachine", "palette.auth.signIn"],
     "advanced": ["reloadConfiguration", "liveSwift.start", "liveSwift.stop"],
     "development": []
@@ -82,9 +87,10 @@
             {"group": "settings.group.storage", "note": "Machine cleanup: agent worktrees and build caches on this Mac (acpmux hub/worktree_care.rs)."},
             {"group": "settings.group.picker"},
             {"group": "settings.group.tasks"},
-            {"group": "settings.group.announcements"}
+            {"group": "settings.group.announcements"},
+            {"group": "settings.group.customizeChecklist"}
           ],
-          "lead": ["textSize"],
+          "lead": ["customizeProgress", "textSize", "replayIntro"],
           "actions": ["general"],
           "aliases": ["general"]
         },
@@ -147,7 +153,7 @@
             ]},
             {"group": "settings.group.appTheme", "note": "The theme studio draws every row of it (it is the theme's one home); last, so the cards above keep their keys (appearance.1, .7, .8)."}
           ],
-          "lead": ["themeStudio", "backdrops", "density"],
+          "lead": ["looksGallery", "themeStudio", "backdrops", "density"],
           "trail": ["customizeLibrary"],
           "actions": ["appearance"],
           "aliases": ["appearance"],
@@ -166,7 +172,7 @@
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
               "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished",
-              "sidebar.showAutomaticSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
+              "sidebar.showAutomaticSessions", "sidebar.showAgentSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarSections", "text": "Sidebar Sections"}, "note": "Which sidebar sections show and which come first (customization matrix row sidebar-sections); their own card so the Sidebar card stays under max_rows_per_card.", "keys": [
@@ -174,8 +180,9 @@
             ]},
             {"group": "settings.group.workspaceRows"},
             {"title": {"key": "settings.pageGroup.sidebarExtras", "text": "Sidebar Buttons and Spaces"}, "keys": [
-              "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
-              "sidebar.showSearchButton", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
+              "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "appearance.metrics.spaceButtonSpacing",
+              "sidebar.showProfileControl",
+              "sidebar.showSearchButton", "sidebar.showLiveToggle", "presence.live", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
               "home.channelsEnabled"
             ]},
             {"title": {"key": "settings.pageGroup.workspaceCards", "text": "Workspace Hover Cards"}, "keys": [
@@ -192,7 +199,7 @@
               "sidebar.hoverCards.groups.sections.ports"
             ]}
           ],
-          "trail": ["spaces"],
+          "trail": ["spaces", "archivedWorkspaces"],
           "actions": ["rooms"],
           "aliases": ["rooms"]
         },
@@ -214,7 +221,7 @@
               "layout.dockColumnEdge", "layout.dockColumnMode", "layout.frameOrientation"
             ]},
             {"title": {"key": "settings.pageGroup.scrollFocus", "text": "Scrolling and Focus"}, "keys": [
-              "layout.focusFollowsMouse", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
+              "layout.focusFollowsMouse", "layout.fadeInactivePanes", "layout.scrollAreas", "layout.scrollModifier", "layout.pagesHandleCommandScroll"
             ]},
             {"group": "settings.group.panes"},
             {"group": "settings.group.focusRing"}
@@ -237,7 +244,7 @@
               "terminal.linkOpener.default", "terminal.linkOpener.rules"
             ]},
             {"title": {"key": "settings.pageGroup.terminalBehavior", "text": "Behavior"}, "keys": [
-              "newTerminal.opensWorkspace", "app.warnBeforeClosingTab"
+              "newTerminal.opensWorkspace", "app.warnBeforeClosingTab", "terminal.predictiveLocalEcho"
             ]}
           ],
           "lead": ["terminalInfo"],
@@ -302,20 +309,25 @@
           "note": "How the agent chat looks and reads. Agents keeps what the agents may do.",
           "groups": [
             {"title": {"key": "settings.pageGroup.transcript", "text": "Transcript"}, "keys": [
-              "agentPane.display.transcriptView", "agentPane.display.presentation",
+              "agentPane.display.transcriptView", "agentPane.display.presentation", "agentPane.display.sendPop", "agentPane.display.compactShortTurns",
               "agentPane.display.statusVerbs.mode", "agentPane.display.statusVerbs.custom",
               "agentPane.display.thinking.shimmer", "agentPane.display.thinking.shimmerPeriod", "agentPane.display.thinking.shimmerBand",
-              "agentPane.display.thinking.jumpButton",
+              "agentPane.display.thinking.jumpButton", "agentPane.display.thinking.glyphSize",
               "agentPane.needsYou.enabled", "agentPane.display.finishSound", "agentPane.showMachineLoadWarnings"
             ]},
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-              "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
+              "agentPane.display.vscodeMinimap", "agentPane.display.chatListStatusPills", "agentPane.display.trayTucked",
+              "agentPane.display.trayHandle", "agentPane.display.headerBreadcrumb", "agentPane.display.subagentOf",
               "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control",
               "agentPane.display.sessionInfo.placement",
-              "agentPane.display.environment.placement"
+              "agentPane.display.environment.placement",
+              "agentPane.display.layout.messages",
+              "agentPane.display.layout.composer",
+              "agentPane.display.layout.header",
+               "agentPane.display.environmentCard", "agentPane.display.changesPill"
             ]},
             {"title": {"key": "settings.pageGroup.chatText", "text": "Chat Text"}, "keys": [
               "agentPane.display.font.ui", "agentPane.display.font.uiFamily", "agentPane.display.font.preset", "agentPane.display.font.proseFamily",
@@ -324,8 +336,9 @@
             ]},
             {"title": {"key": "settings.pageGroup.messageBox", "text": "Message Box"}, "keys": [
               "agentPane.showContextUsage", "agentPane.composerRing", "agentPane.showDictation", "agentPane.dictationSource", "agentPane.dictationShortcut", "agentPane.spellChecking",
+              "agentPane.composerVimKeys",
               "agentPane.composerLook", "agentPane.emptyChatComposerPosition",
-              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement",
+              "agentPane.attachmentView", "agentPane.scrollToBottomOnSend", "agentPane.followUpMode", "agentPane.display.harnessPlacement", "agentPane.display.modelChipIcon", "agentPane.display.queueing",
               "agentPane.display.promptCoach"
             ]},
             {"title": {"key": "settings.pageGroup.filesLinks", "text": "Files and Links"}, "keys": [
@@ -379,6 +392,14 @@
           "note": "Which subscription or key each Cloud thread runs on: the person's own connections in order, the organization's after them, and what members may do (cmux-tui/docs/model-connections.md). cmux://settings/models/add opens it with Add a Connection (focus=models.add).",
           "groups": [],
           "lead": ["models"]
+        },
+        {
+          "id": "automations",
+          "title": {"key": "settings.category.automations", "text": "Automations"},
+          "symbol": "bolt",
+          "note": "Cloud automations (Leo 2026-11-24: \"having people be able to set up their own conditions for when autocloud will go off\"): a GitHub event, a webhook or a schedule, conditions over the event, and the agent it starts; the run log and the template gallery.",
+          "groups": [],
+          "lead": ["automationsCloud"]
         }
       ]
     },
@@ -408,6 +429,7 @@
           "title": {"section": "keyboard"},
           "symbol": "keyboard",
           "groups": [
+            {"group": "settings.group.keyStyle"},
             {"group": "settings.shortcuts.hintsGroup"},
             {"title": {"key": "settings.pageGroup.sidebarKeys", "text": "Sidebar Navigation"}, "keys": [
               "tabs.commandDigits", "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps"
@@ -454,7 +476,8 @@
           "symbol": "laptopcomputer",
           "note": "Devices holds what the Server page showed; its old links open it (legacy_ids). It sits under Accounts and Devices, where the join prompt's \"Settings > Devices\" points (Leo 2026-11-22: \"i also couldnt find settings devices control\").",
           "groups": [
-            {"group": "settings.group.screenSharing", "note": "Whether an agent or the CLI may start viewing the person's own devices without their click."}
+            {"group": "settings.group.screenSharing", "note": "Whether an agent or the CLI may start viewing the person's own devices without their click."},
+            {"group": "settings.group.tailnet", "note": "Preferences for adding Cloud machines to the person's Tailscale or Headscale tailnet."}
           ],
           "lead": ["devices"],
           "trail": ["server", "tailnet"],
@@ -473,7 +496,7 @@
           "symbol": "plus.square",
           "groups": [
             {"title": {"key": "settings.pageGroup.newTabPage", "text": "New Tab Page"}, "keys": [
-              "tabs.newTabTemplate", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
+              "tabs.newTabTemplate", "tabs.newTabClock.show", "tabs.newTabClock.font", "tabs.newTabClock.weight", "tabs.newTabClock.color", "tabs.newTabClock.date", "tabs.newTabApp", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"
             ]}
           ]
         },
@@ -559,6 +582,7 @@
             {"title": {"key": "settings.pageGroup.network", "text": "Network Requests"}, "keys": [
               "browser.omnibar.remoteSuggestions", "announcements.fetch"
             ]},
+            {"group": "settings.group.anonymousTelemetry", "note": "Opt-in crash reports and product analytics (`sendAnonymousTelemetry`)."},
             {"group": "settings.group.hangReports"},
             {"group": "settings.group.usagePatterns", "note": "Opt-in local usage patterns (cmux-usage-patterns); `cmux usage-patterns` reads them."},
             {"group": "settings.group.sshLinks", "note": "The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate)."}
@@ -583,7 +607,7 @@
           "title": {"key": "settings.category.experimental", "text": "Experimental"},
           "symbol": "flask",
           "groups": [
-            {"group": "settings.group.labs", "keys": ["appearance.experimentalControls"]},
+            {"group": "settings.group.labs", "keys": ["appearance.experimentalControls", "appearance.glassControls", "appearance.settingsBetaChips"]},
             {"group": "settings.group.experiments", "note": "Taste prototypes, each behind its own switch, all off by default."},
             {"group": "settings.group.appearanceTuning"}
           ]

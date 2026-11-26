@@ -94,6 +94,17 @@ public final class SidebarView: NSView {
     /// The footer's Search button, after the profile avatar (plans/cmux-next/sidebar-search.md):
     /// a press runs ``onSearch`` (the centered Search palette). `sidebar.showSearchButton` hides it.
     let searchButton = SidebarIconButton(icon: .search, pointSize: { Metrics.iconSize }, label: Strings.searchButton)
+    /// The footer's Live button, right after the profile avatar (Leo 2026-11-24: "an icon maybe toggle somewhere
+    /// omnipresent... say the bottom left of the sidebar area"): a click runs ``onLiveToggle``, a right-click lists who
+    /// is live (SidebarView+Live). `sidebar.showLiveToggle` hides it.
+    let liveButton = SidebarIconButton(symbol: "dot.radiowaves.left.and.right", pointSize: { Metrics.iconSize }, label: Strings.live)
+    let liveMenuTarget = SidebarLiveMenuTarget()
+    /// What the Live button shows and its menu lists; the App sets it from `presence.live` and the team.
+    public var live = SidebarLiveState() { didSet { if live != oldValue { applyLive() } } }
+    /// The Live button was pressed (or its menu's Turn Live On/Off): the App flips `presence.live`.
+    public var onLiveToggle: (() -> Void)?
+    /// A teammate was picked in the Live menu: the App opens their direct message.
+    public var onLiveOpenPerson: ((String) -> Void)?
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
     let priorityPanelView = SidebarPriorityPanelView(), priorityButton = SidebarIconButton(icon: .notification, label: Strings.priorityTitle)
     /// The quiet Update Available button (``showUpdateAvailable(_:)``).
@@ -108,9 +119,16 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// The Restoring sessions card's Details (app health's popover). The sidebar draws no health line (Leo,
-    /// 2026-11-11: "slow indicator on the bottom left is uselsss"; 2026-11-22, ask-eacfb2ec1f: "we dont need it. ever.").
-    public var onHealthDetails: (() -> Void)?
+    /// The "Experiment on · #N" mark (CmuxNextPages `CustomizeExperimentsMarkView`), floating over the sidebar
+    /// just above the footer row (``SidebarFooterBand/placeExperimentsMark(above:)``); it shows and hides itself and asks for a layout.
+    /// It never fades with the footer.
+    public var experimentsMark: NSView? {
+        didSet {
+            oldValue?.removeFromSuperview()
+            experimentsMark.map { addSubview($0) }
+            needsLayout = true
+        }
+    }
     let priorityBellDot = CALayer()
     var priority: SidebarPriorityPanel?
     /// Pointer over the sidebar (or a tab drag over it): titlebar buttons show.
@@ -149,6 +167,8 @@ public final class SidebarView: NSView {
     var observation: Task<Void, Never>?
     private var clipObservers: [any NSObjectProtocol] = []
     var lastState: RenderState?
+    /// The pull request badges the rows drew at the last render that saw them change (`RenderState.pullRequests`).
+    var drawnPullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     var selectionTreeReveal = SidebarSelectionTreeReveal()
     /// A `renderInFrame` draw is queued for this turn's frame.
     var renderQueued = false
@@ -180,6 +200,7 @@ public final class SidebarView: NSView {
         newWorkspaceOptionsButton.setAccessibilityIdentifier("cmux.sidebar.newWorkspace.options")
         list.reload(animated: false)
         observe()
+        startLaunchFilmIfAsked()
         // The chrome reveal follows the pointer and the sidebar's frame (cx-3wu5).
         chromeHover = PointerHover(self) { [weak self] hovering in self?.setChromeRevealed(hovering) }
     }
@@ -322,7 +343,7 @@ public final class SidebarView: NSView {
         scrollView.hasVerticalScroller = true
         // The shared thin scroller (the chat's): a 3 pt knob on no track, an
         // overlay that never narrows the list.
-        SystemScrollers.followThin(scrollView)
+        SystemScrollers.followThin(scrollView, scrollOnly: true)
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.drawsBackground = false
         scrollView.documentView = list
@@ -350,6 +371,12 @@ public final class SidebarView: NSView {
             self.onSearch?(self.searchButton)
         }
         addSubview(searchButton)
+        liveButton.setAccessibilityIdentifier("cmux.sidebar.live")
+        liveButton.showsLabelToolTip = false
+        liveButton.onPress = { [weak self] in self?.onLiveToggle?() }
+        liveButton.menuProvider = { [weak self] in self?.liveMenu() }
+        addSubview(liveButton)
+        applyLive()
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
         buildPriority()
@@ -446,6 +473,7 @@ public final class SidebarView: NSView {
         SidebarHiddenState.apply(!showsProfiles, to: profileBar)
         SidebarHiddenState.apply(noFade, to: footerRegion)
         SidebarHiddenState.apply(noFade, to: searchButton)
+        SidebarHiddenState.apply(noFade || !design.sidebarSections.showLiveToggle, to: liveButton)
         if let liveModeBadge { SidebarHiddenState.apply(noFade, to: liveModeBadge) }
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
@@ -494,6 +522,9 @@ public final class SidebarView: NSView {
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
         footerBand.layoutFooter(visibleSlots)
         footerBand.placeSpaces(top: y, height: spacesHeight, modelChanged: spacesChanged)
+        // The experiments mark over the sidebar, above the footer row and its cards: placed after the row,
+        // from nothing in it.
+        footerBand.placeExperimentsMark(above: footer.frame.minY - updateHeight - cardsHeight)
         edgeFade.frame = listFrame
         clipBandsUnderTrafficLights()
         layoutEditBar(over: listFrame)

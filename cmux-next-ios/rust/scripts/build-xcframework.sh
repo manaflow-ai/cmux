@@ -9,7 +9,8 @@
 # Package.swift wiring:
 #   .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
 #   .target(name: "CmuxMobileLinkFFI", dependencies: ["CmuxMobileLinkFFIFFI"], path: "Sources/CmuxMobileLinkFFI",
-#           linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration")]),
+#           linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration"),
+#                            .linkedFramework("CFNetwork")]),
 #
 # Environment: JOBS (default 6), IPHONEOS_DEPLOYMENT_TARGET (default 17.0),
 # DEVELOPER_DIR (default /Applications/Xcode.app/Contents/Developer; the
@@ -160,7 +161,7 @@ if [[ "${SKIP_VERIFY:-0}" != 1 ]]; then
 print("cmux-mobile-link-ffi \(cmuxMobileVersion())")
 SWIFT
   xcrun --sdk iphonesimulator swiftc -target "arm64-apple-ios${IPHONEOS_DEPLOYMENT_TARGET}-simulator" \
-    -F "$xcf/ios-arm64-simulator" -framework "$name" -framework Security -framework SystemConfiguration \
+    -F "$xcf/ios-arm64-simulator" -framework "$name" -framework Security -framework SystemConfiguration -framework CFNetwork \
     -module-name CmuxMobileLinkFFICheck "$sources/CmuxMobileLinkFFI.swift" "$check/main.swift" -o "$check/cmux-mobile-link-ffi-check"
   echo "verified: bindings typecheck and link for the iOS simulator"
 fi
