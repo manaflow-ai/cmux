@@ -1,3 +1,5 @@
+@import "./fixed-spacing.css";
+
 /* DESKTOP-FEEL (R139): the first layer of every first-party page. A page is app chrome, not a
    document: nothing selects, drags or zooms unless the page marks it as content. Every page entry
    imports this file (and desktop.ts) before anything else; desktopLayer.test.ts fails otherwise.
