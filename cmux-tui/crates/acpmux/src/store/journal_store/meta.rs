@@ -313,14 +313,40 @@ impl LastImage {
     }
 }
 
-/// The interned name list of `fields`, sorted, and their value hashes in that order.
-fn shape(fields: &[(String, &serde_json::value::RawValue)]) -> (Arc<[Arc<str>]>, Box<[u64]>) {
+/// The interned name list of `fields`, sorted, and their value hashes (`hashes`, in `fields`'
+/// order) in that order. A chat's save keeps the fields of its previous image (`last`), nearly
+/// always: their list is reused, with no sort and no lookup of a name.
+fn shape(
+    fields: &[(Name<'_>, &serde_json::value::RawValue)],
+    hashes: &[u64],
+    last: Option<&LastImage>,
+) -> (Arc<[Arc<str>]>, Box<[u64]>) {
+    if let Some(last) = last
+        && last.names.len() == fields.len()
+    {
+        let mut ordered = vec![0u64; fields.len()];
+        let mut placed = vec![false; fields.len()];
+        let same = fields.iter().zip(hashes).all(|((name, _), hash)| {
+            match last.names.binary_search_by(|have| (**have).cmp(name)) {
+                Ok(at) if !placed[at] => {
+                    placed[at] = true;
+                    ordered[at] = *hash;
+                    true
+                }
+                _ => false,
+            }
+        });
+        if same {
+            return (Arc::clone(&last.names), ordered.into());
+        }
+    }
     static SHAPES: std::sync::LazyLock<Mutex<std::collections::HashSet<Arc<[Arc<str>]>>>> =
         std::sync::LazyLock::new(Default::default);
-    let mut sorted: Vec<&(String, &serde_json::value::RawValue)> = fields.iter().collect();
-    sorted.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let mut sorted: Vec<(&str, u64)> =
+        fields.iter().zip(hashes).map(|((name, _), hash)| (&**name, *hash)).collect();
+    sorted.sort_unstable_by(|a, b| a.0.cmp(b.0));
     let names: Vec<Arc<str>> = sorted.iter().map(|(name, _)| intern(name)).collect();
-    let hashes = sorted.iter().map(|(_, value)| fnv(value.get().as_bytes())).collect();
+    let hashes = sorted.iter().map(|(_, hash)| *hash).collect();
     let mut shapes = SHAPES.lock_or_recover();
     if let Some(known) = shapes.get(names.as_slice()) {
         return (Arc::clone(known), hashes);
@@ -350,9 +376,31 @@ fn fnv(bytes: &[u8]) -> u64 {
     })
 }
 
+/// A top-level field's name, borrowed from the image unless it holds an escape.
+type Name<'a> = std::borrow::Cow<'a, str>;
+
 /// The top-level fields of a compact image, each with its raw JSON value.
-fn raw_fields(image: &[u8]) -> Result<Vec<(String, &serde_json::value::RawValue)>> {
-    struct Fields<'a>(Vec<(String, &'a serde_json::value::RawValue)>);
+fn raw_fields(image: &[u8]) -> Result<Vec<(Name<'_>, &serde_json::value::RawValue)>> {
+    struct Key<'a>(Name<'a>);
+    impl<'de> Deserialize<'de> for Key<'de> {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+            struct Visit;
+            impl<'de> serde::de::Visitor<'de> for Visit {
+                type Value = Key<'de>;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("a field name")
+                }
+                fn visit_borrowed_str<E>(self, name: &'de str) -> std::result::Result<Key<'de>, E> {
+                    Ok(Key(Name::Borrowed(name)))
+                }
+                fn visit_str<E>(self, name: &str) -> std::result::Result<Key<'de>, E> {
+                    Ok(Key(Name::Owned(name.to_owned())))
+                }
+            }
+            d.deserialize_str(Visit)
+        }
+    }
+    struct Fields<'a>(Vec<(Name<'a>, &'a serde_json::value::RawValue)>);
     impl<'de> Deserialize<'de> for Fields<'de> {
         fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
             struct Visit;
@@ -365,9 +413,9 @@ fn raw_fields(image: &[u8]) -> Result<Vec<(String, &serde_json::value::RawValue)
                     self,
                     mut map: A,
                 ) -> std::result::Result<Self::Value, A::Error> {
-                    let mut out = Vec::new();
-                    while let Some(entry) = map.next_entry()? {
-                        out.push(entry);
+                    let mut out = Vec::with_capacity(map.size_hint().unwrap_or(64));
+                    while let Some((Key(name), value)) = map.next_entry()? {
+                        out.push((name, value));
                     }
                     Ok(Fields(out))
                 }
@@ -378,30 +426,41 @@ fn raw_fields(image: &[u8]) -> Result<Vec<(String, &serde_json::value::RawValue)
     Ok(serde_json::from_slice::<Fields<'_>>(image)?.0)
 }
 
+/// Each field's value hash, in `fields`' order: hashed once per save, for its patch and its shape.
+fn field_hashes(fields: &[(Name<'_>, &serde_json::value::RawValue)]) -> Vec<u64> {
+    fields.iter().map(|(_, value)| fnv(value.get().as_bytes())).collect()
+}
+
 /// The patch body of `fields` (a new image's) over `last` (sorted by name): `None` when no
 /// field changed.
 fn patch_body(
-    fields: &[(String, &serde_json::value::RawValue)],
+    fields: &[(Name<'_>, &serde_json::value::RawValue)],
+    hashes: &[u64],
     last: &LastImage,
 ) -> Result<Option<Vec<u8>>> {
-    let was = |name: &str| {
-        last.names
-            .binary_search_by(|have| (**have).cmp(name))
-            .ok()
-            .and_then(|at| last.hashes.get(at))
-    };
     let mut set = Vec::new();
-    for (name, value) in fields {
-        if was(name).copied() != Some(fnv(value.get().as_bytes())) {
-            set.push((name, value));
+    let mut kept = 0usize;
+    for ((name, value), hash) in fields.iter().zip(hashes) {
+        match last.names.binary_search_by(|have| (**have).cmp(name)) {
+            Ok(at) => {
+                kept += 1;
+                if last.hashes.get(at) != Some(hash) {
+                    set.push((name, value));
+                }
+            }
+            Err(_) => set.push((name, value)),
         }
     }
-    let unset: Vec<&str> = last
-        .names
-        .iter()
-        .map(|name| &**name)
-        .filter(|name| !fields.iter().any(|(have, _)| have == name))
-        .collect();
+    // Names are unique: when every old one is still here, none was removed.
+    let unset: Vec<&str> = if kept == last.names.len() {
+        Vec::new()
+    } else {
+        last.names
+            .iter()
+            .map(|name| &**name)
+            .filter(|name| !fields.iter().any(|(have, _)| have == name))
+            .collect()
+    };
     if set.is_empty() && unset.is_empty() {
         return Ok(None);
     }
@@ -675,6 +734,7 @@ impl Inner {
         // compares such a file's `journalLsn`, never its stamp).
         let saw = saw_file(&dir);
         let fields = raw_fields(&image)?;
+        let hashes = field_hashes(&fields);
         let mut order = self.order.lock_or_recover();
         drop(self.local.writable()?);
         // Reserved before the folder is made: a refused save makes nothing, and the record is
@@ -697,7 +757,7 @@ impl Inner {
         // Only the fields that changed since this chat's previous record ([module docs](self)).
         let base = order.images.get(&meta.id).filter(|last| last.base_for(folder, saw));
         let patch = match base {
-            Some(last) => patch_body(&fields, last)?.map(|body| (last.lsn, body)),
+            Some(last) => patch_body(&fields, &hashes, last)?.map(|body| (last.lsn, body)),
             None => None,
         };
         if let Some(last) = base
@@ -742,7 +802,7 @@ impl Inner {
         order.applied = order.applied.max(lsn);
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         order.metas.insert(meta.id.clone(), Pending { lsn, meta: meta.clone(), folder });
-        let (names, hashes) = shape(&fields);
+        let (names, hashes) = shape(&fields, &hashes, order.images.get(&meta.id));
         order.images.insert(
             meta.id.clone(),
             LastImage { lsn, folder, names, hashes, saw, whole_next: false },
@@ -1035,3 +1095,7 @@ impl Inner {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "meta_shape_tests.rs"]
+mod shape_tests;
