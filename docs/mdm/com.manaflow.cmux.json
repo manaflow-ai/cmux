@@ -91,6 +91,12 @@
       "title" : "Command Labels",
       "type" : "string"
     },
+    "agentPane.display.compactShortTurns" : {
+      "default" : false,
+      "description" : "A short turn shows a one-line summary of what it did, instead of folding under Worked for.",
+      "title" : "Compact Summary for Short Turns",
+      "type" : "boolean"
+    },
     "agentPane.display.environment.placement" : {
       "default" : "left",
       "description" : "Where the chip sits: under the tabs (Left) or in the header (Right).",
@@ -256,11 +262,16 @@
       "title" : "Model Logo in Composer",
       "type" : "boolean"
     },
-    "agentPane.display.pinnedPlan" : {
-      "default" : false,
-      "description" : "Keeps the agent's task list under the latest message, not over the composer.",
-      "title" : "Pin Task List in Chat",
-      "type" : "boolean"
+    "agentPane.display.modelPickerOrder" : {
+      "default" : [
+
+      ],
+      "description" : "The order of the harnesses in the model picker. Drag a harness in the picker to move it.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Model Picker Harness Order",
+      "type" : "array"
     },
     "agentPane.display.presentation" : {
       "default" : "transcript",
@@ -4320,6 +4331,12 @@
       "title" : "Composer Refresh",
       "type" : "boolean"
     },
+    "experiments.expandedEditsEstimate" : {
+      "default" : false,
+      "description" : "Agent chat places the rows under an expanded Edited files group at its real height, so no gap opens under it.",
+      "title" : "Expanded Edits Estimate",
+      "type" : "boolean"
+    },
     "experiments.foldSummaryCounts" : {
       "default" : false,
       "description" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
@@ -4330,6 +4347,12 @@
       "default" : false,
       "description" : "Read and answer your team's forum in the app: threads from people and their agents, with search and a reply box.",
       "title" : "Forum",
+      "type" : "boolean"
+    },
+    "experiments.forumCallCard" : {
+      "default" : false,
+      "description" : "Agent forum searches, reads and posts show as forum rows with links to their threads.",
+      "title" : "Forum Tool Calls",
       "type" : "boolean"
     },
     "experiments.glassToolbarGroups" : {
@@ -4390,6 +4413,12 @@
       "default" : false,
       "description" : "The conversation stays visible behind the notices and the Needs your input row above the composer.",
       "title" : "See-Through Dock",
+      "type" : "boolean"
+    },
+    "experiments.startedTaskTitleChip" : {
+      "default" : false,
+      "description" : "In Suggested Tasks, a started task opens its chat and highlights from its title only, not the whole row.",
+      "title" : "Started Tasks: Title Opens Chat",
       "type" : "boolean"
     },
     "experiments.terminalAgentMark" : {
@@ -4875,6 +4904,12 @@
       ],
       "title" : "Dock Column Mode",
       "type" : "string"
+    },
+    "layout.fadeInactivePanes" : {
+      "default" : false,
+      "description" : "Panes without the focus fade, and come back when you focus them.",
+      "title" : "Fade Inactive Panes",
+      "type" : "boolean"
     },
     "layout.focusFollowsMouse" : {
       "default" : false,

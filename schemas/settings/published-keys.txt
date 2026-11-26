@@ -313,6 +313,7 @@ browser.omnibar.glassTintStrength
 browser.omnibar.height
 browser.omnibar.inlineAutocomplete
 browser.omnibar.maxRows
+browser.omnibar.quietIcons
 browser.omnibar.remoteSuggestions
 browser.omnibar.shadow
 browser.omnibar.showFullURLs
@@ -461,8 +462,10 @@ experiments.composerButtonsVisible
 experiments.composerCustomizer
 experiments.composerHatGroups
 experiments.composerV2
+experiments.expandedEditsEstimate
 experiments.foldSummaryCounts
 experiments.forum
+experiments.forumCallCard
 experiments.glassToolbarGroups
 experiments.hoverLook
 experiments.introWalk
@@ -472,6 +475,7 @@ experiments.palettePreview
 experiments.paletteV2
 experiments.quietConnect
 experiments.seeThroughDock
+experiments.startedTaskTitleChip
 experiments.terminalAgentMark
 experiments.terminalHistory
 experiments.terminalHistoryFind
@@ -540,6 +544,7 @@ layout.cornerPadding
 layout.defaultColumnWidth
 layout.dockColumnEdge
 layout.dockColumnMode
+layout.fadeInactivePanes
 layout.focusFollowsMouse
 layout.frameOrientation
 layout.linkPlacement
