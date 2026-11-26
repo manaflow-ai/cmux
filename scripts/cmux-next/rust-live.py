@@ -833,6 +833,18 @@ class Swapper:
 # ---------------------------------------------------------------- the loop
 
 
+def live_build_done(surface: str, tree) -> None:
+    """Tells acpmux a swap landed, so the running turn's frames show it (RFD 0152, live_build_beacon.py)."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("live_build_beacon", Path(__file__).resolve().with_name("live_build_beacon.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.built(surface, tree)
+    except Exception:  # a frame is a nicety; the swap already happened
+        pass
+
+
 @dataclass
 class Loop:
     tree: Path
@@ -878,6 +890,8 @@ class Loop:
         (self.state / "last.json").write_text(json.dumps(entry, indent=2) + "\n")
         with open(self.state / "history.jsonl", "a") as history:
             history.write(json.dumps(entry) + "\n")
+        if entry.get("outcome") == "swapped":
+            live_build_done("rust", self.tree)
         if self.on_swap:
             self.on_swap(entry)
 
