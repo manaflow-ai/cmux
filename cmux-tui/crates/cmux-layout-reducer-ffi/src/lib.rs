@@ -15,6 +15,8 @@
 //! chats fold behind Settled, and what Archive Settled Chats archives),
 //! the sidebar's automatic sessions (`sidebar_automatic_plan`: which rows no
 //! person started and no chat spawned fold behind Automatic),
+//! the layout geometry rules (`layout_geometry_*`: drop zones and targets, the dock strip's
+//! placement, divider bands, pane chrome rects),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
@@ -92,6 +94,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod layout_geometry;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -613,6 +616,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
+            }
+            operation if layout_geometry::handles(operation) => {
+                layout_geometry::respond(operation, request)?
             }
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
