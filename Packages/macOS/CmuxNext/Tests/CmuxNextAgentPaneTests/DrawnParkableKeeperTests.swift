@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 import CmuxNextTestSupport
 import Testing
 @testable import CmuxNextAgentPane
