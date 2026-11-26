@@ -5,7 +5,7 @@
 use super::offer::{Customize, OfferInputs, Quality, customize, lacks_display, make_offer, wish};
 use super::session::{Event, Session, failure_cause_of_ended, host_end, path_label};
 use super::stage::Stage;
-use cmux_rd_proto::rd_doc::{RdDocument, is_relayed, servers};
+use cmux_rd_proto::rd_doc::{RdDocument, is_relayed, servers, udp_only};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -146,8 +146,9 @@ impl MacScreen {
                 Ok(json!({ "lacks": lacks_display(&doc, r.id) }))
             }
             "mac_screen_servers" => {
+                // The Mac's link speaks UDP TURN; the TCP and TLS relays stay out.
                 let (stun, turn) = servers(&request);
-                Ok(json!({ "stun": stun, "turn": encode(turn)? }))
+                Ok(json!({ "stun": stun, "turn": encode(udp_only(&turn))? }))
             }
             "mac_screen_failure_cause" => {
                 let Text { text } = parse(request)?;
