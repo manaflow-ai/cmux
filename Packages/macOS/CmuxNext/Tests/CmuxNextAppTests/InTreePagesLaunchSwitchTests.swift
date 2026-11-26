@@ -66,6 +66,7 @@ struct InTreePagesLaunchSwitchTests {
     /// a bench launch, and another cmux's go; a Release build tagged `osr…` latches off-screen pages with no environment.
     @Test func theOffscreenSwitchesSurviveTheLaunchStrip() {
         #expect(LaunchIdentity.offscreenPageKeys.contains(InTreePages.offscreenEnvironmentKey))
+        #expect(LaunchIdentity.offscreenPageKeys.contains("CMUX_OSR_TRACE"), "the shim's stage marks switch")
         for key in LaunchIdentity.offscreenPageKeys {
             let launch = [key: "1"]
             #expect(!LaunchIdentity.inheritedKeys(processEnvironment: launch, bundledEnvironment: [:]).contains(key),

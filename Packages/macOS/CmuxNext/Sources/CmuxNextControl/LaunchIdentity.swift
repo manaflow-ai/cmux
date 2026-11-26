@@ -219,9 +219,11 @@ public struct LaunchIdentity: Sendable, Equatable {
     public static let resizeFenceSwitchKey = "CMUX_CEF_RESIZE_FENCE"
 
     /// The off-screen pages prototype's switches (`InTreePages.offscreenEnvironmentKey` and the `CEFOffscreenPages`
-    /// knobs): a bench launch names them for an arm. Kept through the strip like ``inTreePagesKey``; another cmux's go.
+    /// knobs, and the shim's `CMUX_OSR_TRACE` stage marks): a bench launch names them for an arm. Kept through the strip
+    /// like ``inTreePagesKey``; another cmux's go. Before `CMUX_OSR_TRACE` was here the strip took it, so a traced run
+    /// had no stage marks (other-Mac run osr-tr-base-1: app.log "ignored inherited CMUX_DEV_BACKEND_MODE CMUX_OSR_TRACE").
     public static let offscreenPageKeys: Set<String> = [
-        "CMUX_OFFSCREEN_PAGES", "CMUX_OSR_RESIZE_WAIT_MS", "CMUX_OSR_BEGIN_FRAMES", "CMUX_OSR_FRAME_RATE",
+        "CMUX_OFFSCREEN_PAGES", "CMUX_OSR_RESIZE_WAIT_MS", "CMUX_OSR_BEGIN_FRAMES", "CMUX_OSR_FRAME_RATE", "CMUX_OSR_TRACE",
     ]
 
     /// Whether this launch ignores every layer: the argument, the variable set to anything but
