@@ -311,6 +311,8 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
         let walk: [String: JSONValue]
         /// `experiments.introWalk`: the four screens; false: today's one screen.
         let introWalk: Bool
+        /// `experiments.setupShelf`: the setups shelf (Try, Keep, Revert); false: no shelf.
+        var setupShelf = false
         let loaded: Bool
 
         func encode(to encoder: any Encoder) throws {
@@ -327,11 +329,12 @@ nonisolated struct OnboardingPageState: Encodable, Equatable {
             try c.encode(chatsRunIn, forKey: .chatsRunIn)
             try c.encode(walk, forKey: .walk)
             try c.encode(introWalk, forKey: .introWalk)
+            try c.encode(setupShelf, forKey: .setupShelf)
             try c.encode(loaded, forKey: .loaded)
         }
 
         private enum Keys: String, CodingKey {
-            case workStyle, density, densities, background, backgrounds, opacity, opacitySet, material, materials, chatsRunIn, walk, introWalk, loaded
+            case workStyle, density, densities, background, backgrounds, opacity, opacitySet, material, materials, chatsRunIn, walk, introWalk, setupShelf, loaded
         }
     }
 
@@ -391,7 +394,7 @@ extension OnboardingPageState {
                            opacity: model.shownOpacity.map { ($0 * 100).rounded() / 100 }, opacitySet: choices.opacity != nil,
                            material: choices.material?.rawValue, materials: FirstRunMaterial.allCases.map(\.rawValue),
                            chatsRunIn: choices.chatsRunIn.rawValue,
-                           walk: model.walk, introWalk: model.introWalk, loaded: model.loaded)
+                           walk: model.walk, introWalk: model.introWalk, setupShelf: model.setupShelf, loaded: model.loaded)
     }
 
     /// The footer's quiet button: Skip Importing over the Keychain explainer.
