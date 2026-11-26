@@ -133,12 +133,16 @@ fn has_explicit_port(host_pattern: &str) -> bool {
 fn wildcard_match(pattern: &[u8], text: &[u8]) -> bool {
     match pattern {
         [] => text.is_empty(),
-        [b'*', b'*', rest @ ..] => (0..=text.len()).any(|skip| wildcard_match(rest, &text[skip..])),
+        [b'*', b'*', rest @ ..] => (0..=text.len())
+            .any(|skip| text.get(skip..).is_some_and(|tail| wildcard_match(rest, tail))),
         [b'*', rest @ ..] => {
             let run = text.iter().take_while(|byte| **byte != b'.').count();
-            (0..=run).any(|skip| wildcard_match(rest, &text[skip..]))
+            (0..=run).any(|skip| text.get(skip..).is_some_and(|tail| wildcard_match(rest, tail)))
         }
-        [first, rest @ ..] => text.first() == Some(first) && wildcard_match(rest, &text[1..]),
+        [first, rest @ ..] => match text {
+            [head, tail @ ..] => head == first && wildcard_match(rest, tail),
+            [] => false,
+        },
     }
 }
 
