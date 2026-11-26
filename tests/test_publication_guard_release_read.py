@@ -25,14 +25,14 @@ def guard_script() -> str:
 
 
 class PublicationGuardTests(unittest.TestCase):
-    def run_guard(self, behaviour: str):
+    def run_guard(self, behaviour: str, timeout: int = 240):
         with tempfile.TemporaryDirectory() as tmp:
             gh = Path(tmp, "gh")
             gh.write_text(f"#!/bin/sh\n{behaviour}\n")
             gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
             counter = Path(tmp, "n")
             env = {**os.environ, "PATH": f"{tmp}:{os.environ['PATH']}", "COUNTER": str(counter)}
-            script = guard_script().replace("time.sleep(10 * (attempt + 1))", "pass")
+            script = guard_script().replace("time.sleep(10 * (attempt + 1))", "pass").replace("timeout=240", f"timeout={timeout}")
             result = subprocess.run([sys.executable, "-I", "-c", script, "o/r", "nightly", SHA, "5"],
                                     capture_output=True, text=True, env=env)
             return result
@@ -51,6 +51,13 @@ class PublicationGuardTests(unittest.TestCase):
                            f"echo '{body}'")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("already_published=true", r.stdout)
+
+    def test_a_gh_timeout_is_retried_not_raised(self):
+        body = '{"body": ""}'
+        r = self.run_guard('n=$(cat "$COUNTER" 2>/dev/null || echo 0); echo $((n+1)) > "$COUNTER"; '
+                           'if [ "$n" = 0 ]; then sleep 5; fi; '
+                           f"echo '{body}'", timeout=1)
+        self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_persistent_403_fails_with_the_reason(self):
         r = self.run_guard('echo "gh: API rate limit exceeded (HTTP 403)" >&2; exit 1')
