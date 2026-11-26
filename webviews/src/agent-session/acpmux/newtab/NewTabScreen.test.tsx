@@ -1414,7 +1414,9 @@ test("a chosen document uses the New Tab upload path and becomes sendable", asyn
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   expect(uploaded).toEqual([[file]]);
-  expect(container.querySelector(".acpmux-md-inline-chip")).not.toBeNull();
+  // The tray is the default view (#55723): the document shows once, in the tray, not in the text.
+  expect(container.querySelectorAll(".acpmux-attachments .acpmux-attachment").length).toBe(1);
+  expect(container.querySelector(".acpmux-md-inline-chip")).toBeNull();
   const send = container.querySelector<HTMLButtonElement>(".nt-send")!;
   expect(send.disabled).toBe(false);
   await act(async () => send.click());
@@ -1997,7 +1999,9 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => root!.render(<main />));
   expect(left).toHaveLength(1);
   const attachment = (left[0]![1] as ComposerAttachment[])[0]!;
-  expect(left).toEqual([[inlineToken(attachment.id), [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+  // In the default tray view (#55723) the text holds no mark; the attachment goes with the draft.
+  expect(attachment.id).toBeTruthy();
+  expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
 });
 
 async function clickProjectOption(label: string) {
