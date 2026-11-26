@@ -192,7 +192,8 @@ nonisolated final class MacScreenRdHost: Sendable {
                                    turn: session.servers.turn,
                                    display: offer.display.map(String.init) ?? "main", maxFps: offer.maxFps.map { min($0, 120) },
                                    maxWidth: offer.maxWidth, maxKbps: offer.maxKbps, cursor: offer.cursor,
-                                   encodeProfile: offer.encodeProfile))
+                                   encodeProfile: offer.encodeProfile, name: session.name,
+                                   grantee: MacScreenShareHost.grantHolderName))
                 watchExclusions()
                 for candidate in offer.candidates { process.send(Later(candidate: candidate)) }
             case let .candidate(candidate) where candidate.sdpMid == "cmux-rd":
@@ -235,6 +236,10 @@ nonisolated final class MacScreenRdHost: Sendable {
             case .waiting, .roomLost: break
             }
         }
+        // The viewer reads why this Mac cannot share (cmux-rd share-status) instead of a black picture.
+        let probe = MacScreenShareStatusProbe(host: session.name, grantee: MacScreenShareHost.grantHolderName)
+        let scope = session.viewOnly ? "view" : "control"
+        host.shareStatus = { frame in await probe.read(scope: scope, frame: frame) }
         webRTC.withLock { $0 = host }
         logger.info("serving a WebRTC viewer")
         defer { webRTCExclusions.withLock { $0 }?.cancel() }
@@ -346,9 +351,13 @@ nonisolated final class MacScreenRdHost: Sendable {
         var cursor: Bool?
         /// `encode_profile`: the viewer's `a=cmux-rd-encode-profile:` (`ultra`); omitted when nil, the standard profile.
         var encodeProfile: String?
+        /// This Mac's name and the app its grants are listed under, for the reason a viewer reads.
+        var name: String
+        var grantee: String
 
         enum CodingKeys: String, CodingKey {
-            case session, viewer, scope, stun, turn, display, cursor
+            case session, viewer, scope, stun, turn, display, cursor, name, grantee
+
             case peerKey = "peer_key"
             case maxFps = "max_fps"
             case maxWidth = "max_width"

@@ -12,9 +12,9 @@ use serde::Serialize;
 use std::io::Write;
 
 #[derive(Serialize)]
-struct Permissions {
-    screen_recording: bool,
-    accessibility: bool,
+pub(crate) struct Permissions {
+    pub(crate) screen_recording: bool,
+    pub(crate) accessibility: bool,
 }
 
 pub(crate) fn run() -> Res<()> {
@@ -146,7 +146,7 @@ fn write_snapshot(output: &mut impl Write, result: Res<Permissions>) -> Res<()> 
 }
 
 #[cfg(target_os = "macos")]
-fn read() -> Res<Permissions> {
+pub(crate) fn read() -> Res<Permissions> {
     platform::cg::available()?;
     platform::ax::available()?;
     // SAFETY: both no-argument queries are resolved above and return plain C values.
@@ -160,7 +160,7 @@ fn read() -> Res<Permissions> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn read() -> Res<Permissions> {
+pub(crate) fn read() -> Res<Permissions> {
     Err("permission probing is supported only on macOS".into())
 }
 

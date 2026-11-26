@@ -161,6 +161,44 @@ impl PixelBuffer {
         }
     }
 
+    /// Luma of about `cols * rows` evenly spread pixels (video range: black is 16), for
+    /// `share-status` to tell a black picture from a real one. None when the buffer cannot be read.
+    pub fn luma_grid(&self, cols: usize, rows: usize) -> Option<Vec<u8>> {
+        let buffer = self.0.as_ptr().cast_mut();
+        // SAFETY: the retained ScreenCaptureKit NV12 image stays locked while its luma is read;
+        // every read is bounds-checked against the plane's stride times height.
+        unsafe {
+            if cv::CVPixelBufferLockBaseAddress(buffer, 1) != 0 {
+                return None;
+            }
+            let base = cv::CVPixelBufferGetBaseAddressOfPlane(buffer, 0);
+            let stride = cv::CVPixelBufferGetBytesPerRowOfPlane(buffer, 0);
+            let height = cv::CVPixelBufferGetHeightOfPlane(buffer, 0);
+            let width = cv::CVPixelBufferGetWidthOfPlane(buffer, 0);
+            let result = match stride.checked_mul(height) {
+                Some(length)
+                    if !base.is_null() && length <= isize::MAX as usize && cols > 0 && rows > 0 =>
+                {
+                    let plane = std::slice::from_raw_parts(base, length);
+                    let mut out = Vec::with_capacity(cols * rows);
+                    for r in 0..rows {
+                        let y = (r * 2 + 1) * height / (rows * 2);
+                        for c in 0..cols {
+                            let x = (c * 2 + 1) * width / (cols * 2);
+                            if let Some(&v) = plane.get(y * stride + x) {
+                                out.push(v);
+                            }
+                        }
+                    }
+                    Some(out)
+                }
+                _ => None,
+            };
+            cv::CVPixelBufferUnlockBaseAddress(buffer, 1);
+            result
+        }
+    }
+
     /// The buffer's IOSurface (owned by the buffer).
     pub fn io_surface(&self) -> Option<*mut c_void> {
         // SAFETY: a live CVPixelBuffer.

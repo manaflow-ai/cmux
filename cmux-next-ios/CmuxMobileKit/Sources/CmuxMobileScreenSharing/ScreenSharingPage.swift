@@ -291,9 +291,12 @@ struct ScreenSharingViewerScreen: View {
     var body: some View {
         Group {
             if let screen = viewer.screen {
-                ScreenSessionView(session: screen, features: Self.features, close: close)
+                // Retry on the no-picture card reattaches the same session (no new approval).
+                ScreenSessionView(session: screen, features: Self.features, close: close,
+                                  retry: { if !viewer.retryStream() { retry() } })
             } else if let model = viewer.rdScreen {
                 MacScreenRdView(model: model, title: viewer.hostName, control: viewer.rdControl, close: close)
+
             } else {
                 card.background(theme.colors.bg.color.ignoresSafeArea())
             }
@@ -330,6 +333,11 @@ struct ScreenSharingViewerScreen: View {
             EmptyState(symbol: "exclamationmark.triangle", title: refusal.title(viewer.hostName), message: refusal.message,
                        primaryTitle: refusal.isOther || refusal == .hostOffline ? "Try Again" : nil, primary: retry,
                        secondaryTitle: "Close", secondary: close)
+        case .ended where viewer.cannotShare:
+            // The Mac's own reason wins over the hub's end reason ("failed" would say the connection dropped).
+            EmptyState(symbol: "rectangle.slash", title: "\(viewer.hostName) can't share its screen",
+                       message: ScreenSharingEndCopy.shareStatusMessage(viewer.shareStatus, host: viewer.hostName),
+                       primaryTitle: "Try Again", primary: retry, secondaryTitle: "Close", secondary: close)
         case let .ended(reason):
             EmptyState(symbol: "rectangle.on.rectangle.slash", title: "Sharing ended",
                        message: LocalizedStringKey(ScreenSharingEndCopy.message(reason, host: viewer.hostName)),
@@ -377,6 +385,13 @@ enum ScreenSharingEndCopy {
         case "failed": String(localized: "The connection to \(host) dropped.")
         default: String(localized: "The session with \(host) is over.")
         }
+    }
+
+    /// What the can't-share card says: the Mac's own sentence, as it sent it (never
+    /// looked up as a localization key).
+    static func shareStatusMessage(_ status: ScreenShareStatus?, host: String) -> LocalizedStringKey {
+        guard let message = status?.message, !message.isEmpty else { return "\(host) didn't say why." }
+        return "\(message)"
     }
 }
 #endif

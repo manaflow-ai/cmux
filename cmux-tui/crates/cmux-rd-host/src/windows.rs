@@ -245,6 +245,22 @@ impl Drop for GdiCapture {
     }
 }
 
+/// One look at the desktop for `share-status`: the luma of a grid of its pixels (a locked or
+/// secure desktop reads back black through GDI).
+pub fn probe_frame() -> Res<Vec<u8>> {
+    let mut capture = GdiCapture::new(None)?;
+    let (width, height) = capture.size();
+    let pixels = capture.capture()?;
+    Ok(crate::share_status::bgrx_luma_grid(
+        pixels,
+        width as usize,
+        height as usize,
+        width as usize * 4,
+        32,
+        18,
+    ))
+}
+
 /// Sends a key through the active console session.  The session agent is
 /// deliberately the caller, so UIPI applies and elevated windows are only
 /// controlled when the agent has a matching integrity level.

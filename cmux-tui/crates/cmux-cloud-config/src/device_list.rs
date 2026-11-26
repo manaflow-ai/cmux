@@ -87,15 +87,32 @@ pub struct Listing {
 }
 
 /// The key that makes records one device: the platform and the name's letters and digits,
-/// lowercased. A name with neither keys by the record's id (never merged).
+/// lowercased, without macOS's name-conflict suffix. A name with neither keys by the record's id
+/// (never merged).
 pub fn key(id: &str, name: &str, platform: Option<&str>) -> String {
-    let folded: String =
-        name.chars().filter(|c| c.is_alphanumeric()).flat_map(char::to_lowercase).collect();
+    let folded: String = without_conflict_suffix(name)
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect();
     let platform = platform.filter(|p| !p.is_empty()).unwrap_or("macos");
     if folded.is_empty() {
         format!("{platform}\u{0}#{id}")
     } else {
         format!("{platform}\u{0}{folded}")
+    }
+}
+
+/// `name` without the " (2)" macOS adds to a Computer Name another device on the network already
+/// uses ("lawrence's MacBook Pro (2)" listed beside the same Mac's older record, 2026-11-16): the
+/// Mac the OS renamed is still one device.
+fn without_conflict_suffix(name: &str) -> &str {
+    let Some(inner) = name.trim_end().strip_suffix(')') else { return name };
+    let Some((base, digits)) = inner.rsplit_once(" (") else { return name };
+    if !base.is_empty() && !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()) {
+        base
+    } else {
+        name
     }
 }
 

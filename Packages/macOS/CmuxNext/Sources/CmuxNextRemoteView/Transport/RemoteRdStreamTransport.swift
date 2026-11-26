@@ -326,6 +326,14 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
                     logHostStats(stats)
                     _ = state.withLock { $0.hostStats?.yield(stats) }
                 }
+                // The host's own words for a refusal or end (a share-status sentence such as
+                // "<Mac> can't share its screen yet: …"): the viewer can show them instead of a code.
+                switch control {
+                case let .refused(reason), let .ended(reason):
+                    if !engine.handshake.isEnded, !reason.isEmpty { engine.endReason = reason }
+                default:
+                    break
+                }
                 if case let .cursorShape(message) = control, let shape = message.cursorShape {
                     state.withLock { state in
                         if let cursor = state.cursorFeed.receive(shape: shape) { state.cursors?.yield(cursor) }

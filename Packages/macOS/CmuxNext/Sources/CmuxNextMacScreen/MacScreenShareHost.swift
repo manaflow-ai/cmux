@@ -206,6 +206,13 @@ public final class MacScreenShareHost {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.openInBackground(url) }
     }
 
+    /// The app System Settings lists this Mac's Screen Recording and Accessibility grants under
+    /// (the app's own name, "cmux NIGHTLY"), for the sentence a viewer reads.
+    public nonisolated static var grantHolderName: String {
+        let info = Bundle.main.infoDictionary
+        return (info?["CFBundleDisplayName"] as? String) ?? (info?["CFBundleName"] as? String) ?? "cmux"
+    }
+
     /// The Mac's name from Sharing settings (fast; no DNS).
     public static var computerName: String {
         MacName.captureOverride ?? (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "Mac"

@@ -221,6 +221,13 @@ final class MacScreenCardView: MacScreenThemedView {
         stack.addArrangedSubview(spinner)
     }
 
+    private func glyph(_ symbol: String, ink: KeyPath<MacScreenColors, NSColor>) {
+        let font = MacScreenType.glyph
+        let glyph = MacScreenGlyph(symbol, font: font, ink: ink)
+        glyph.heightAnchor.constraint(equalToConstant: ceil(font.ascender - font.descender)).isActive = true
+        stack.addArrangedSubview(glyph)
+    }
+
     private func buttons(_ buttons: [NSView]) {
         stack.addArrangedSubview(MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, buttons))
     }
@@ -264,6 +271,13 @@ final class MacScreenCardView: MacScreenThemedView {
         case .waitingForPicture:
             spinner()
             title(L.t("macScreen.card.waiting", "Waiting for the screen…"))
+        case let .cantShare(sentence):
+            // The other Mac's own sentence, as it sent it (it names the Mac and the fix).
+            glyph("rectangle.slash", ink: \.attention)
+            title(String(format: L.t("macScreen.card.cantShareTitle", "%@ can’t share its screen"), name))
+            detail(sentence ?? String(format: L.t("macScreen.card.noPictureBody", "No picture has come from %@ yet."), name))
+            buttons([closeTab(id: "macScreen.card.cantShare.closeTab"),
+                     primary(L.t("macScreen.card.retry", "Try Again"), hint: .return, id: "macScreen.card.cantShare.retry") { $0.connect() }])
         case .failed:
             // The session's free-form message can quote the signaling URL (with the room id): never
             // shown. Only a cause a side named (the host's reason, the link's) is, in failedDetail.

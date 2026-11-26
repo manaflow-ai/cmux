@@ -88,6 +88,12 @@ struct Setup {
     /// Linux: `x11` or `portal` (else `--capture`, else the session type decides).
     #[serde(default)]
     capture: Option<String>,
+    /// The computer's name and the app its grants are listed under, for the reason a viewer
+    /// reads when this host cannot capture (`share_status`).
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    grantee: Option<String>,
     /// The person sharing turned clipboard text sync on for this session (default off).
     #[serde(default)]
     clipboard: bool,
@@ -655,6 +661,24 @@ fn serve_session(
         class: PrincipalClass::User,
         interactive: true,
     };
+    // A host that cannot capture refuses with the reason the person reads (share_status), never
+    // a stream of black frames or a bare timeout.
+    if let Some(status) = crate::share_status::blocking_session(
+        &setup.scope,
+        setup.name.as_deref(),
+        setup.grantee.as_deref(),
+    ) {
+        say(AppLine {
+            status: Some(cmux_rd_proto::app_line::LineStatus {
+                state: status.state_word().into(),
+                message: status.message.clone(),
+            }),
+            ..AppLine::default()
+        });
+        carrier.send_control(&Control::Refused { reason: status.message.clone() })?;
+        // The sentence itself is the session's end reason: the viewer shows it as it is.
+        return Ok(status.message);
+    }
     let sink = crate::upstream::session_sink(None, 0);
     let mut host_caps = crate::upstream::offered_caps(&*sink);
     // The cursor as metadata where this desktop reports it: the viewer draws one cursor.

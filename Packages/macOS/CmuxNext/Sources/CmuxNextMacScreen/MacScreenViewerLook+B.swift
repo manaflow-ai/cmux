@@ -97,6 +97,13 @@ struct MacScreenStripState: Equatable {
                 mark: .loading, actions: [cancel])
         case .waitingForPicture:
             return MacScreenStripState(title: L.t("macScreen.card.waiting", "Waiting for the screen…"), mark: .loading, actions: [cancel])
+        case let .cantShare(sentence):
+            return MacScreenStripState(
+                title: String(format: L.t("macScreen.card.cantShareTitle", "%@ can’t share its screen"), name), ink: \.attention,
+                mark: .glyph("rectangle.slash", \.attention),
+                caption: sentence ?? String(format: L.t("macScreen.card.noPictureBody", "No picture has come from %@ yet."), name),
+                actions: [closeTab, Action(title: L.t("macScreen.card.retry", "Try Again"), run: .connect, primary: true,
+                                           returnKey: true, id: "macScreen.card.cantShare.retry")])
         case .failed:
             return MacScreenStripState(
                 title: L.t("macScreen.card.failedTitle", "Couldn’t connect"), ink: \.danger, mark: .glyph("exclamationmark.triangle", \.attention),

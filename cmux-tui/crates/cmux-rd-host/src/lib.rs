@@ -112,6 +112,7 @@ mod selftest;
 mod serve;
 #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
 mod serve_wish;
+mod share_status;
 #[cfg(target_os = "linux")]
 mod shm;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -214,7 +215,7 @@ pub unsafe fn prepare_process_env(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-const USAGE: &str = "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]";
+const USAGE: &str = "usage: cmux-rd host|bench|observe|observe-cpu|testapp|serve|connect|view|permissions|request-permission|share-status|linux-host|windows-host|encode-selftest|openh264-install [--key value ...]";
 
 /// Commands the usage line names that a build may leave out (by feature or platform).
 const KNOWN_COMMANDS: &[&str] = &[
@@ -369,6 +370,7 @@ pub fn run_cli(args: &[String]) -> i32 {
         #[cfg(all(feature = "link", any(target_os = "linux", target_os = "macos")))]
         "connect" | "connect-v2" => connect::run(),
         "permissions" => permissions::run(),
+        "share-status" => share_status::run(&opts),
         #[cfg(any(target_os = "linux", target_os = "macos"))]
         "encode-selftest" => selftest::run(&opts),
         #[cfg(feature = "openh264")]

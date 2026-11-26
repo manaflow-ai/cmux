@@ -79,6 +79,8 @@ public struct ScreenSessionView: View {
     let shortcuts: [MacShortcutsBar.Shortcut]
     let sourceNotice: ScreenSourceNoticePlacement
     let close: () -> Void
+    /// Retry on the can't-share card; nil runs `session.connect()`.
+    let retry: (() -> Void)?
     @State private var keyboardVisible = false
     @State private var chromeVisible = true
     @State private var signInUser = ""
@@ -112,12 +114,14 @@ public struct ScreenSessionView: View {
 
     public init(session: ScreenSession, features: ScreenFeatures = .all,
                 shortcuts: [MacShortcutsBar.Shortcut] = MacShortcutsBar.standard,
-                sourceNotice: ScreenSourceNoticePlacement = .banner, close: @escaping () -> Void) {
+                sourceNotice: ScreenSourceNoticePlacement = .banner, close: @escaping () -> Void,
+                retry: (() -> Void)? = nil) {
         self.session = session
         self.features = features
         self.shortcuts = shortcuts
         self.sourceNotice = sourceNotice
         self.close = close
+        self.retry = retry
     }
 
     public var body: some View {
@@ -151,8 +155,9 @@ public struct ScreenSessionView: View {
                 }
             }
             stateCard
-            sourceNoticeOverlay
-            if hasTrackpadOverlay, session.keepsLiveLayout { trackpadDrawer }
+            if cantShareMessage == nil, let note = session.viewOnlyNote { viewOnlyBanner(note) }
+            if cantShareMessage == nil { sourceNoticeOverlay }
+            if hasTrackpadOverlay, session.keepsLiveLayout, cantShareMessage == nil { trackpadDrawer }
             if features.contains(.pasteImage) { pasteBanner }
         }
         .background(.black)
@@ -185,6 +190,8 @@ public struct ScreenSessionView: View {
                    displayPaging: features.contains(.displayPaging), keyboardVisible: $keyboardVisible,
                    inputMode: session.preferences.inputMode, trackpadLink: trackpadLink,
                    trackpadPadActive: trackpadShown)
+            // The can't-share card takes the picture's place: never a black screen under it.
+            .opacity(cantShareMessage == nil ? 1 : 0)
     }
 
     /// The toolbar and, once connected, the Mac shortcuts under it.
@@ -213,12 +220,13 @@ public struct ScreenSessionView: View {
             .accessibilityIdentifier("screen.close")
             VStack(alignment: .leading, spacing: 1) {
                 Text(session.title).font(.subheadline.weight(.semibold)).lineLimit(1)
-                if sourceNotice == .toolbar, let state = shownSourceState {
+                if sourceNotice == .toolbar, cantShareMessage == nil, let state = shownSourceState {
                     Label(state.notice, systemImage: state.symbol)
                         .font(.caption2.weight(.semibold))
                         .lineLimit(1)
                         .accessibilityIdentifier("screen.sourceNotice")
-                } else if features.contains(.stats), session.preferences.showStats, case .connected = session.phase { stats }
+                } else if features.contains(.stats), session.preferences.showStats, cantShareMessage == nil,
+                          case .connected = session.phase { stats }
             }
             Spacer(minLength: 8)
             if let camera = session.camera, camera.isAvailable, case .connected = session.phase { ScreenFollowButton(camera: camera) }
@@ -494,7 +502,68 @@ public struct ScreenSessionView: View {
             .accessibilityIdentifier("screen.stats")
     }
 
+    /// Why there is no picture, when there is none to show: the host's sentence (it can't
+    /// share), or, connected with no frame for `ScreenSession.noPictureDelay`, that none came.
+    /// Nil while the picture (or another state's card) shows.
+    private var cantShareMessage: String? {
+        if session.cannotShare, let status = session.shareStatus {
+            return status.message.isEmpty ? "\(session.title) didn't say why." : status.message
+        }
+        if session.noPicture, case .connected = session.phase { return "No picture has come from \(session.title) yet." }
+        return nil
+    }
+
     @ViewBuilder private var stateCard: some View {
+        if let message = cantShareMessage {
+            cantShareCard(message)
+        } else {
+            phaseCard
+        }
+    }
+
+    /// The host can't share its screen (or no picture came): its sentence, Retry and Close.
+    private func cantShareCard(_ message: String) -> some View {
+        card {
+            Image(systemName: session.cannotShare ? "rectangle.slash" : "rectangle.dashed").font(.largeTitle)
+            Text("\(session.title) can't share its screen").font(.headline).multilineTextAlignment(.center)
+            Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            HStack {
+                Button("Close") {
+                    session.close()
+                    close()
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("screen.cantShare.close")
+                Button("Try Again") {
+                    if let retry { retry() } else { session.connect() }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("screen.cantShare.retry")
+            }
+        }
+        .accessibilityIdentifier("screen.cantShare")
+    }
+
+    /// The host shares view only (no Accessibility grant there): the picture stays, with its sentence.
+    private func viewOnlyBanner(_ note: String) -> some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 8) {
+                Image(systemName: "eye")
+                Text(note).lineLimit(3)
+            }
+            .font(.footnote)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 16)
+            .padding(.bottom, pasteBannerInset)
+            .accessibilityIdentifier("screen.viewOnlyNote")
+        }
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder private var phaseCard: some View {
         switch session.phase {
         case .connecting:
             // A reconnect keeps the last frame and says nothing until it has run

@@ -3,6 +3,7 @@ import CmuxDeviceHub
 import CmuxScreenKit
 import CryptoKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import CmuxMobileScreenSharing
 
@@ -472,6 +473,49 @@ import Testing
         #expect(reloaded.screen(for: "another-mac").showStats == false)
         #expect(reloaded.screen(for: "another-mac").inputMode == .trackpad)
         #expect(reloaded.defaultScope == .view)
+    }
+
+    /// Lawrence 2026-11-16 ("screen sharing is also black and not working"): a Mac that can't
+    /// share says why, the viewer stops (no reattach to more black) and the Mac's sentence stays on
+    /// the card when the hub's `failed` end comes after it.
+    @Test func aMacThatCantShareKeepsItsReasonOverTheHubsLaterEnd() async throws {
+        let (service, ends) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s20", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s20", scope: .full)))
+        #expect(viewer.screen != nil)
+        let sentence = "Studio can't share its screen yet: Screen Recording isn't allowed. On that Mac, open System Settings › Privacy & Security › Screen Recording and turn on cmux."
+        let status = ScreenShareStatus(state: "needs_screen_recording", message: sentence)
+        viewer.hostCannotShare(status, sessionID: "s20")
+        #expect(viewer.phase == .ended(reason: "failed"))
+        #expect(viewer.screen == nil, "no stream left showing black")
+        #expect(viewer.shareStatus == status)
+        await ends.wait(for: 1)
+        #expect(ends.calls == [Ends.Call(session: "s20", reason: "failed")])
+
+        // The host ends the session ~300 ms later: the hub's reason never replaces the Mac's.
+        viewer.ended(reason: "failed")
+        viewer.droppedReason("host_stopped")
+        #expect(viewer.shareStatus == status)
+        #expect(viewer.shareStatus?.message == sentence, "the card shows the Mac's own sentence, word for word")
+
+        // Retry asks again, with no stale reason.
+        viewer.request(.full)
+        #expect(viewer.shareStatus == nil)
+    }
+
+    /// A Mac that shares view only keeps the stream: its note is no reason to stop.
+    @Test func aViewOnlyStatusKeepsTheStream() throws {
+        let (service, _) = makeService()
+        let viewer = try #require(service.connect(to: mac(), scope: .full))
+        viewer.requestAnswered(.success(HubSession(id: "s21", state: .approved, scope: .full)), scope: .full)
+        service.route(.sessionTicket(ticket("s21", scope: .full)))
+        #expect(ScreenShareStatus(state: "needs_accessibility", message: "Studio shares its screen view only: …").canView)
+        #expect(viewer.phase == .streaming(sessionID: "s21", scope: .full))
+        viewer.reattachSession = { _, _ in throw CancellationError() }
+        #expect(viewer.retryStream(), "Retry on the no-picture card reattaches the same session")
+        #expect(viewer.phase == .reconnecting(sessionID: "s21", scope: .full))
+        viewer.close(reason: .viewerDisconnected)
     }
 
     // MARK: Fixtures

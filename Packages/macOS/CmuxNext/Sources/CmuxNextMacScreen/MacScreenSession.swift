@@ -76,6 +76,15 @@ public final class MacScreenSession {
     @ObservationIgnored public private(set) var transportCarrier: String?
     /// A frame stopped arriving while connected (the picture is frozen).
     public private(set) var isStalled = false
+    /// The other Mac's own sentence for why it can't share its screen (the share status it
+    /// refused or ended the session with: no Screen Recording grant, capture failed). The card
+    /// shows it as sent; whatever ends the session after it never replaces it. Cleared on connect.
+    public private(set) var hostCantShare: String?
+
+    /// A new request (Try Again, Connect): the last session's can't-share sentence is the past.
+    func forgetHostCantShare() {
+        if hostCantShare != nil { hostCantShare = nil }
+    }
     /// This approach never reconnects on its own: Try Again asks the hub again.
     public var isReconnecting: Bool { false }
     public var preferences: ScreenPreferences
@@ -156,6 +165,7 @@ public final class MacScreenSession {
             return
         }
         phase = .connecting
+        hostCantShare = nil
         failureCause = nil
         linkConnected = false
         timedOutStage = nil
@@ -334,7 +344,12 @@ public final class MacScreenSession {
                 if let kind = path.kind { try? await signaling.send(.path(relay: Self.isRelayed(kind))) }
             }
             if let reason = line.ended {
-                linkEnded(reason)
+                if let sentence = Self.shareStatusSentence(reason) {
+                    hostCantShare = sentence
+                    end(sentence)
+                } else {
+                    linkEnded(reason)
+                }
                 return
             }
         }
@@ -410,11 +425,18 @@ public final class MacScreenSession {
                         timings.sampleRtt(Double(rtt))
                     }
                 case let .ended(why):
-                    switch why {
-                    case .connectionLost: fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
-                    case let .hostFailed(reason): hostFailed(reason)
-                    case .hostStoppedSharing: end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
-                    default: end(String(describing: why))
+                    // The host refused or ended with its share status (`Control::Refused { reason }`):
+                    // its sentence goes on the card, never "connection lost" or a code.
+                    if let sentence = Self.shareStatusSentence(status.endReason) {
+                        hostCantShare = sentence
+                        end(sentence)
+                    } else {
+                        switch why {
+                        case .connectionLost: fail(L.t("macScreen.rd.lost", "The connection to the other Mac was lost."))
+                        case let .hostFailed(reason): hostFailed(reason)
+                        case .hostStoppedSharing: end(L.t("macScreen.rd.hostEnded", "The other Mac ended the session."))
+                        default: end(String(describing: why))
+                        }
                     }
                     return
                 case .connecting, .waitingForConsent:
@@ -448,9 +470,16 @@ public final class MacScreenSession {
         phase = .failed(message: message, needsSignIn: false)
     }
 
-    /// `cmux rd connect`'s `ended` line: the session ends, a failure naming who failed
-    /// (``failureCause(ofEnded:)``), so the failed card says why ("link failed: the secure
-    /// handshake timed out" reads "The connection to <name> failed: the secure handshake timed out").
+    /// The host's share-status sentence in a refusal or end reason (the `cmux-rd share-status`
+    /// contract: "<host> can't share its screen yet: …" or "<host> shares its screen view only: …"),
+    /// trimmed; nil for any other reason (a code, a link error).
+    nonisolated static func shareStatusSentence(_ reason: String?) -> String? {
+        guard let text = reason?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
+        let markers = [" can't share its screen yet: ", " can’t share its screen yet: ", " shares its screen view only: "]
+        return markers.contains { text.contains($0) } ? text : nil
+    }
+
+    /// `cmux rd connect`'s `ended` line: the session ends, a failure naming who failed.
     func linkEnded(_ reason: String) {
         switch Self.failureCause(ofEnded: reason) {
         case let .host(why)?: hostFailed(why)
@@ -461,18 +490,12 @@ public final class MacScreenSession {
         }
     }
 
-    /// The host said it could not serve the session: a failure even after the picture started
-    /// (the host stopped, and why), never a plain Disconnected.
     private func hostFailed(_ reason: String) {
         logger.info("session ended: the host failed: \(reason, privacy: .public)")
         fail(reason)
         failureCause = .host(reason)
     }
 
-    /// What `cmux rd connect`'s `ended` line says about who failed (cmux-rd-host `connect.rs`):
-    /// `host: failed: <reason>` is the host's own failure, `link failed: <why>` this Mac's
-    /// link, `failed: <error>` the link bridge's own error. Nil for every other end (the host
-    /// stopped, the viewer stopped, the pane closed), which needs no explanation.
     nonisolated static func failureCause(ofEnded reason: String) -> FailureCause? {
         if reason.hasPrefix("host: ") {
             guard case let .hostFailed(why) = RemoteRdHandshake.hostEnd(String(reason.dropFirst("host: ".count))) else { return nil }
@@ -484,7 +507,6 @@ public final class MacScreenSession {
         return nil
     }
 
-    /// The connect got past a stage (never back: a late answer does not undo a link).
     func reach(_ stage: MacScreenConnectStage) {
         guard stage > connectStage else { return }
         connectStage = stage
@@ -492,7 +514,6 @@ public final class MacScreenSession {
         if stage == .shown { connectDeadline.cancel() }
     }
 
-    /// The connect deadline passed before a picture showed: fail naming the stage it was in.
     func connectTimedOut() {
         let stage = connectStage
         guard let detail = stage.timeoutDetail(name: title) else { return }

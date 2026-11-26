@@ -72,6 +72,9 @@ enum MacScreenCard: Equatable {
     case unsupported
     case connecting(reconnecting: Bool)
     case waitingForPicture
+    /// The other Mac can't share its screen: its own sentence (`hostCantShare`), or nil when it
+    /// said nothing and no picture came for ``MacScreenPaneModel/noPictureDelay``. Never a black picture.
+    case cantShare(String?)
     case failed
     case ended
     /// A device hub tab before a session: Connect with View Only or Full Control.
@@ -166,11 +169,12 @@ extension MacScreenPaneModel {
         case .unsupported: return .unsupported
         case .open: break
         }
+        if let card = Self.cantShareCard(hostCantShare: session?.hostCantShare, hubPhase: hub?.phase) { return card }
         if let hub, let card = Self.hubCard(hub.phase, access: hub.accessToHost) { return card }
         guard let session else { return .unsupported }
         switch session.phase {
         case .connecting: return Self.connectingCard(isReconnecting: session.isReconnecting, everConnected: everConnected)
-        case .connected: return Self.connectedCard(hasFrame: hasFrame, stalled: session.isStalled)
+        case .connected: return Self.connectedCard(hasFrame: hasFrame, stalled: session.isStalled, noPictureDue: noPictureDue)
         case .failed: return .failed
         case .ended: return .ended
         }
@@ -270,9 +274,25 @@ extension MacScreenPaneModel {
     /// A connected session's card: none while the picture flows, Reconnecting
     /// once the connection stalls (shown past its hold, ``MacScreenCardQuiet``), Waiting
     /// until the first picture.
-    static func connectedCard(hasFrame: Bool, stalled: Bool) -> MacScreenCard? {
+    /// Past ``noPictureDelay`` with no picture (`noPictureDue`), the waiting card says so instead.
+    static func connectedCard(hasFrame: Bool, stalled: Bool, noPictureDue: Bool = false) -> MacScreenCard? {
         if stalled { return .connecting(reconnecting: true) }
-        return hasFrame ? nil : .waitingForPicture
+        if hasFrame { return nil }
+        return noPictureDue ? .cantShare(nil) : .waitingForPicture
+    }
+
+    /// How long a connected session may show no picture before its card says none came.
+    static let noPictureDelay: Duration = .seconds(2)
+
+    /// The other Mac's can't-share sentence wins over every end that follows it (the hub's
+    /// `failed` or another reason, "the host ended the session"). A new request (Try Again
+    /// clears the sentence too), an idle tab, a denial or a refusal show their own card.
+    static func cantShareCard(hostCantShare: String?, hubPhase: MacScreenHubPhase?) -> MacScreenCard? {
+        guard let hostCantShare else { return nil }
+        switch hubPhase {
+        case nil, .streaming?, .streamFailed?, .ended?, .revoked?: return .cantShare(hostCantShare)
+        case .idle?, .requesting?, .waitingForApproval?, .approved?, .declined?, .refused?: return nil
+        }
     }
 
     /// Every connect retries, so the reconnecting flag is set on a first

@@ -214,7 +214,8 @@ final class MacScreenToolbarView: MacScreenThemedView {
         setThemedTip(startedBy, on: name)
         let session = model.session
         let live = model.isLive
-        statsSlot = session != nil && live
+        // Stats only over a picture: never "fps · KB/s" over a black screen.
+        statsSlot = session != nil && live && model.hasFrame
         statsLines = nil
         if statsSlot, let session {
             // A pill keeps to the latency, and says a brief outage there quietly (the picture stays up); the full
