@@ -22,6 +22,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { chromium } from "playwright";
 import { preview } from "vite";
+import { waitForFrame } from "./frameReady.mjs";
 
 const spec = JSON.parse(fs.readFileSync(path.resolve(process.argv[2]), "utf8"));
 const out = path.resolve(process.argv[3] ?? process.env.FAST_CHECKS_OUT ?? "gallery-state-captures");
@@ -84,9 +85,7 @@ try {
         const file = path.join(dir, `${arm}-${scheme}-${background}.png`);
         try {
           await page.goto(`${baseUrl}/frame.html?${query}`, { waitUntil: "domcontentloaded" });
-          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
-            timeout: 90_000,
-          });
+          await waitForFrame(page, shot.entry);
           if (css) await page.addStyleTag({ content: css });
           if (shot.setup) await page.evaluate(shot.setup);
           if (shot.hover) await page.locator(shot.hover).first().hover({ timeout: 10_000 });
@@ -113,7 +112,9 @@ try {
         } catch (error) {
           failures += 1;
           row.push(null);
-          console.log(JSON.stringify({ shot: shot.name, arm, scheme, background, error: String(error).slice(0, 300) }));
+          console.log(
+            JSON.stringify({ shot: shot.name, arm, scheme, background, error: String(error).slice(0, 1200) }),
+          );
         }
         await context.close();
       }
