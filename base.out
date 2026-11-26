@@ -1,0 +1,3 @@
+cmux-ci test: --ref 11e62c096f510cc5648862fdd971c870b27e424c names this checkout's HEAD, which is what a snapshot of this tree carries anyway; running as if it were not given
+cmux-ci test: the command after -- is one argument with shell syntax: it runs as bash -c 'python3 -m unittest tests.test_web_lint_prepush.WebLintPrePushTests.test_a_dry_run_lists_exactly_what_a_run_spawns tests.test_web_lint_prepush.WebLintPrePushTests.test_timings_name_each_step_before_it_spawns_so_a_stalled_one_is_the_last_named 2>&1 | tail -60'
+cmux-ci test: receipt=/home/leo/Projects/.wt-mirrors/manaflow-ai/cmux.git/cmux-fast-checks/5d5480c476ce458cbcaac8e556ce7099.json

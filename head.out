@@ -1,0 +1,2 @@
+cmux-ci test: the command after -- is one argument with shell syntax: it runs as bash -c 'python3 -m unittest tests.test_web_lint_prepush.WebLintPrePushTests.test_a_dry_run_lists_exactly_what_a_run_spawns tests.test_web_lint_prepush.WebLintPrePushTests.test_timings_name_each_step_before_it_spawns_so_a_stalled_one_is_the_last_named 2>&1 | tail -60'
+cmux-ci test: receipt=/home/leo/Projects/.wt-mirrors/manaflow-ai/cmux.git/cmux-fast-checks/d2ded06045414ed38ab5e84814e6b7b1.json
