@@ -95,7 +95,7 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
 }
 
 /// Review 3 (8, 9): the scope runs only on the verified minors (26.6+,
-/// 27.0.1+; earlier versions and other majors run with it off), and any off
+/// 27.0+; earlier versions and other majors run with it off), and any off
 /// switch that says 0 turns it off, whichever source says it.
 #[test]
 fn the_key_in_app_scope_is_gated() {
@@ -105,10 +105,10 @@ fn the_key_in_app_scope_is_gated() {
     assert!(gate("27.2", &[]));
     assert!(gate("27.3.1", &[]));
     assert!(!gate("26.5.1", &[]), "before the verified 26 minor");
-    // 27.0.1 verified live (the person's macOS): on from 27.0.1, not 27.0.
+    // 27.0 and 27.0.1 verified live: on for every 27.
+    assert!(gate("27.0", &[]), "27.0 verified live (TextEdit, a fleet Mac)");
     assert!(gate("27.0.1", &[]));
     assert!(gate("27.0.2", &[]));
-    assert!(!gate("27.0", &[]), "27.0 itself was not verified");
     assert!(!gate("28.0", &[]));
     assert!(!gate("15.7", &[]));
     assert!(!gate("", &[]));
@@ -3280,13 +3280,42 @@ fn background_web_keys_go_only_where_the_page_has_the_keyboard() {
 
 #[test]
 fn chromium_shows_its_pages_once_asked_like_a_screen_reader() {
-    use roles::{web_accessibility_attribute, web_engine};
+    use roles::web_accessibility_attribute;
     assert_eq!(
-        web_accessibility_attribute(web_engine(Some("com.google.Chrome"))),
+        web_accessibility_attribute(Some("com.google.Chrome")),
         Some("AXEnhancedUserInterface")
     );
-    assert_eq!(web_accessibility_attribute(web_engine(Some("com.apple.Safari"))), None);
-    assert_eq!(web_accessibility_attribute(web_engine(None)), None);
+    assert_eq!(web_accessibility_attribute(Some("com.apple.Safari")), None);
+    assert_eq!(web_accessibility_attribute(None), None);
+}
+
+/// Snag 3: cmux's agent chat is a Chromium (CEF) page that builds its
+/// accessibility tree only once a client sets `AXManualAccessibility` or
+/// `AXEnhancedUserInterface` on the app. cmux's bundle read as WebKit, so
+/// get_ui_tree never asked and the chat (messages, composer) was missing.
+#[test]
+fn cmux_is_asked_for_its_chromium_chat_pages_before_a_tree_walk() {
+    use roles::{WebEngine, embeds_chromium, web_accessibility_attribute, web_engine};
+    for id in [
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.next",
+        "com.cmuxterm.app.nightly",
+        "com.cmuxterm.app.nightly.cmux-next",
+        "com.cmuxterm.app.debug.my-tag",
+        "COM.CMUXTERM.APP.Debug",
+    ] {
+        assert!(embeds_chromium(Some(id)), "{id}");
+        assert_eq!(web_accessibility_attribute(Some(id)), Some("AXManualAccessibility"), "{id}");
+        // Focus and caret rules stay WebKit's: cmux's internal pages are WKWebViews.
+        assert_eq!(web_engine(Some(id)), WebEngine::Other, "{id}");
+    }
+    for id in
+        ["com.cmuxterm.appx", "com.cmuxterm.remote", "com.cmuxterm.remote.dev", "com.apple.Safari"]
+    {
+        assert!(!embeds_chromium(Some(id)), "{id}");
+        assert_eq!(web_accessibility_attribute(Some(id)), None, "{id}");
+    }
+    assert!(!embeds_chromium(None));
 }
 
 #[test]
