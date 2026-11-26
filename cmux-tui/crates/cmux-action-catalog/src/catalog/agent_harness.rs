@@ -44,6 +44,21 @@ pub static ACTIONS: &[Action] = &[
         cli_name: "agent remove-harness",
         ..Action::DEFAULT
     },
+    // Disable Folder Agent: forgets this folder's confirmation of a folder harness profile
+    // (`.cmux/harnesses/<id>.toml`), as `cmux harness disable` (the daemon's
+    // `_acpmux/harness_disable`). The folder is the workspace's; the app asks again on next use.
+    Action {
+        id: "agent.harness.disableFolder",
+        group: GROUP,
+        title: t("ActionCatalog", "action.agent.harness.disableFolder", "Disable Folder Agent…"),
+        keywords: &["agent", "harness", "acp", "folder", "project", "disable", "forget", "revoke", "untrust", "profile"],
+        category: "agents",
+        symbol: "xmark.shield",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::ID.optional()],
+        cli_name: "harness disable",
+        ..Action::DEFAULT
+    },
     Action {
         id: "agent.harness.restore",
         group: GROUP,
