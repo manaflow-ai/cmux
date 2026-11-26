@@ -42,6 +42,9 @@ class FakeSmoke:
     def own_pids(self, *_):
         return []
 
+    def forget_apps(self, *_):
+        pass
+
 
 class UpdateArm(unittest.TestCase):
     def setUp(self):
