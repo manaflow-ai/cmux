@@ -224,18 +224,20 @@ import Testing
         }
     }
 
-    /// The rule itself, for a page view that shows partly: a pane half past the content's edge in a spring still joins.
-    @Test func aPagePartlyInsideTheContentShows() {
-        let window = Self.makeWindow()
-        defer { window.close() }
-        let page = NSView(frame: NSRect(x: 300, y: 0, width: 400, height: 300))
-        window.contentView?.addSubview(page)
-        #expect(CEFResizeFences.shows(page, in: window))
-        page.frame.origin.x = 400
-        #expect(!CEFResizeFences.shows(page, in: window))
-        let other = Self.makeWindow()
-        defer { other.close() }
-        page.frame.origin.x = 0
-        #expect(!CEFResizeFences.shows(page, in: other), "a page shows only in its own window")
+    /// A pane partly past the content's edge (a pane spring) still shows: its window resize joins the fence. A pane
+    /// wholly past it (before the resize and after) joins none.
+    @Test func aPagePartlyInsideTheContentJoinsAndOneWhollyOutsideDoesNot() {
+        withInTreeOn {
+            let window = Self.makeWindow()
+            defer { window.close() }
+            let fences = CEFResizeFences(makePort: Self.makePort, members: .shown)
+            let (partly, partlyFork) = inTreePage(.shown, in: window, fences: fences)
+            let (outside, outsideFork) = inTreePage(.shown, in: window, fences: fences)
+            partly.view?.superview?.frame.origin.x = 300  // 100 of its 400 pt inside the 400 pt content, 220 of 520 after
+            outside.view?.superview?.frame.origin.x = 600  // past the content's right edge at 400 pt and at 520 pt
+            resizeWindow(window, [partly, outside])
+            #expect(partlyFork.fences == 2, "a pane partly inside the content no longer holds the window's commit")
+            #expect(outsideFork.fences == 0, "a window resize waited on a pane wholly outside the content: \(outsideFork.fences) fences")
+        }
     }
 }
