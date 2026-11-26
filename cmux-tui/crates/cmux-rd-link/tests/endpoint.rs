@@ -409,3 +409,74 @@ fn a_candidate_trickled_after_the_first_handshake_is_tried_without_waiting_for_a
     let viewer_again = viewer.poll_transmit(at + 10_000).unwrap();
     assert!(viewer_again.iter().all(|t| t.packet.first() != sent[0].packet.first()));
 }
+
+#[test]
+fn a_viewer_with_no_route_yet_sleeps_between_retries_instead_of_spinning() {
+    let viewer_key = KeyPair::generate().unwrap();
+    let host_key = KeyPair::generate().unwrap();
+    let mut viewer =
+        Endpoint::new(Role::Initiator, b"idle", &viewer_key, host_key.public, 0).unwrap();
+    // A caller that polls at each deadline, with no candidate for one second.
+    let mut now = 0;
+    let mut polls = 0;
+    while now < 1_000_000 && polls < 10_000 {
+        assert!(viewer.poll_transmit(now).unwrap().is_empty(), "there is no route yet");
+        polls += 1;
+        let next = viewer.next_deadline_us().expect("a handshake retry is due");
+        assert!(next > now, "deadline {next} is not after now {now}: the caller would spin");
+        now = next;
+    }
+    println!("NO-ROUTE-POLLS one_second={polls}");
+    // 50 ms doubling to the 250 ms cap: 0, 50, 150, 350, 600, 850 ms.
+    assert!(polls <= 8, "{polls} polls in one second with no route");
+}
+
+/// The route that finished the handshake carries the session from that moment
+/// (RFD 0164 B10): no round trip waiting for a probe with every datagram on
+/// every path, relay included.
+#[test]
+fn the_route_that_finished_the_handshake_carries_the_session_at_once() {
+    let mut pair = Pair::new();
+    let world = World { lan_works: false, wan_works: true, relay_works: true };
+    while !(pair.viewer.link().is_established() && pair.host.link().is_established()) {
+        assert!(pair.now < 2_000_000, "the link never came up");
+        pair.run(&world, 10);
+    }
+    let chosen = |events: &[EndpointEvent]| {
+        events.iter().any(|e| matches!(e, EndpointEvent::PathChanged { route: Some(_), .. }))
+    };
+    assert!(chosen(&pair.viewer_events), "viewer: no path at Established");
+    assert!(chosen(&pair.host_events), "host: no path at Established");
+    assert_eq!(pair.host.send_datagram(b"frame").unwrap().len(), 1, "host sprays media");
+    assert_eq!(pair.viewer.send_datagram(b"input").unwrap().len(), 1, "viewer sprays input");
+    // Probes still rank the paths: the direct path holds against the relay.
+    pair.run(&world, 3_000);
+    assert_eq!(pair.viewer_path(), Some(PathKind::DirectWan));
+}
+
+/// The handshake's route becomes current before any probe measured it, so its
+/// first answered probe reports the RTT on the same path: callers that size by
+/// path RTT (cmux-rd-host's frames in flight, the iPhone's Mac screen) learn it
+/// without waiting for a path switch that never comes.
+#[test]
+fn the_handshake_route_reports_its_first_measured_rtt() {
+    let mut pair = Pair::new();
+    let world = World { lan_works: false, wan_works: true, relay_works: false };
+    while !(pair.viewer.link().is_established() && pair.host.link().is_established()) {
+        assert!(pair.now < 2_000_000, "the link never came up");
+        pair.run(&world, 10);
+    }
+    pair.run(&world, 1_000);
+    let last_rtt = |events: &[EndpointEvent]| {
+        events.iter().rev().find_map(|e| match e {
+            EndpointEvent::PathChanged { route: Some(_), rtt_us, .. } => Some(*rtt_us),
+            _ => None,
+        })
+    };
+    assert!(
+        matches!(last_rtt(&pair.viewer_events), Some(Some(_))),
+        "viewer: {:?}",
+        pair.viewer_events
+    );
+    assert!(matches!(last_rtt(&pair.host_events), Some(Some(_))), "host: {:?}", pair.host_events);
+}

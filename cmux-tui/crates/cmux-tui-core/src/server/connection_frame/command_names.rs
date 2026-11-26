@@ -71,6 +71,7 @@ impl Command {
             Self::ListWorkspaces { .. } => "list-workspaces",
             Self::GetFrontendProjection { .. } => "get-frontend-projection",
             Self::PutFrontendProjection { .. } => "put-frontend-projection",
+            Self::FlushLaunchSnapshot => "flush-launch-snapshot",
             Self::JournalFrontendEvent { .. } => "journal-frontend-event",
             Self::ExportLayout { .. } => "export-layout",
             Self::ApplyLayout { .. } => "apply-layout",

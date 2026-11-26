@@ -27,6 +27,8 @@ import Testing
         let session = try #require(live.sessions["m1"])
         let link = session.link
         link.send(.linkDropped(generation: link.dialGeneration, reason: "dropped"))
+        // The first failure retries silently at once (`LinkMachine.silentRetries`); the second backs off.
+        link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
         link.send(.dialFailed(generation: link.dialGeneration, reason: "timeout"))
         live.phaseChanged(session)
         return session
@@ -43,7 +45,6 @@ import Testing
         live.bannerHold.show(.reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
         #expect(live.banner == .reconnecting(to: "Aziz's MacBook Pro", identity: "m1"))
         live.phaseChanged(session)
-        #expect(live.banner != .connected, "a connected report posts no \"Connected\"")
         #expect(live.banner == nil, "back: no banner, got \(String(describing: live.banner))")
     }
 
@@ -54,11 +55,17 @@ import Testing
         let dialer = PerMacDialer()
         let live = await connected(store, dialer)
         defer { live.stop() }
+        // Offline, no dial reaches the Mac. Without this the redial right after the drop
+        // connected at once, so the network's return found a live link with nothing to
+        // redial (this test, from #46665, never ran on base: the macOS pass was red first).
+        dialer.setUnreachable("m1", true)
         _ = try drop(live)
         live.networkPathChanged(.lost)
+        await rig.settle { if case .waiting = live.sessions["m1"]?.link.phase { true } else { false } }
         #expect(store.isOffline)
         #expect(!ConnectionBannerState.offline.offersRetry, "no Retry while this iPhone has no network")
         let dials = dialer.dialCount("m1")
+        dialer.setUnreachable("m1", false)
         live.networkPathChanged(.changed("wifi"))
         #expect(!store.isOffline)
         await rig.settle { store.macConnection["m1"] == .connected }

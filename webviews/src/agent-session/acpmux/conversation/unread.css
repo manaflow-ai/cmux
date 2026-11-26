@@ -24,6 +24,13 @@
   position: relative;
   display: grid;
 }
+/* Its row keeps layout containment alone. Every transcript row clips its paint to its own box
+   (styles.css .acpmux-row, 34 px), and the mark lies past that box, over the gap and on the next
+   row's Worked for line: clipped, "New" never painted there, only the lit divider (which is the
+   next row's) showed. A tool card's row does the same for its card (conversation.css). */
+.acpmux-row.acpmux-sinceDivider {
+  contain: layout;
+}
 .cv-since__menu {
   position: absolute;
   inset-inline: 0;
@@ -44,8 +51,14 @@
   gap: var(--ds-space-2);
   height: 100%;
   margin: 0;
-  font-size: var(--text-caption);
-  letter-spacing: var(--text-caption--letter-spacing);
+  /* The transcript's own metadata type, as the Worked for line beside it draws it (conversation.css
+     .cv-worked): its family, size, tracking and regular weight. Leo, 2026-11-25, of a bold caption
+     "2 new messages": "honestly the font is wack it's different from the rest of the app", "size
+     and bolding". */
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  font-weight: var(--weight-regular);
+  letter-spacing: var(--cv-tracking, var(--instrument-type-chat-tracking, normal));
   white-space: nowrap;
   opacity: 0;
 }
@@ -61,13 +74,63 @@
   border-top: var(--cmux-hairline-ring) solid var(--unread-accent);
   transform-origin: right center;
 }
-/* Dissipating, the rule narrows toward its end as it fades (compositor only: transform, opacity). */
-.cv-since:not([data-shown]) .cv-since__rule {
-  scale: 0.6 1;
-}
+/* The line comes and goes in place, by opacity alone (Leo, 2026-11-25: "the animation it does when
+   it falls from the top of the screen down is wack"): no scale, no slide. */
+/* Muted as the Worked for words are (--cv-activity-text); the accent rule says where the new part
+   starts. */
 .cv-since__tag {
-  color: var(--unread-accent-text);
-  font-weight: var(--weight-emphasis);
+  color: var(--cv-activity-text);
+}
+/* The tag keeps to its one row at every width (Leo, 2026-11-22: "the new and whatever line should
+   be on the same line like always, and at ultra tightness the new can shrink well and fade i
+   suppose"). Its two forms, "157 new messages" and "New", stack in one cell at the line's end, so
+   the tag's place never moves and a width change cross-fades between them instead of swapping
+   text, wrapping it or pushing it over the Worked for words. The mark's box is the row's width, a
+   size container, and the steps below read it:
+   - roomy: the count's words;
+   - tight (the words would reach the Worked for line's own words): "New";
+   - ultra tight: "New" shrinks toward the line's end and fades, then is gone, the lit rule alone
+     still saying where the new part starts. */
+.cv-since__menu {
+  container: cv-since / inline-size;
+}
+.cv-since:not([data-look="pill"]) .cv-since__tag {
+  display: inline-grid;
+  justify-items: end;
+  align-items: center;
+  flex: none;
+  transform-origin: right center;
+}
+.cv-since__tag-words,
+.cv-since__tag-new {
+  grid-area: 1 / 1;
+  transform-origin: right center;
+}
+.cv-since__tag[data-words] .cv-since__tag-new {
+  opacity: 0;
+  scale: 0.9;
+}
+@container cv-since (max-width: 360px) {
+  .cv-since__tag[data-words] .cv-since__tag-words {
+    opacity: 0;
+    scale: 0.9;
+  }
+  .cv-since__tag[data-words] .cv-since__tag-new {
+    opacity: 1;
+    scale: 1;
+  }
+}
+@container cv-since (max-width: 220px) {
+  .cv-since__tag {
+    opacity: 0.6;
+    scale: 0.85;
+  }
+}
+@container cv-since (max-width: 150px) {
+  .cv-since__tag {
+    opacity: 0;
+    scale: 0.7;
+  }
 }
 /* The count ("157 new messages"; Leo, 2026-11-15, of the terminal chat's rule: "we needto properly do
    somthing like this in the gui somehow"): muted caption words in tabular figures, so a count that
@@ -78,7 +141,7 @@
 }
 .cv-since__words {
   flex: none;
-  color: var(--agent-muted);
+  color: var(--cv-activity-text);
 }
 /* A: a thin accent hairline across the middle of the gap. With a count, the words sit at its center,
    the rule on both sides, each narrowing toward the words as it dissipates. */
@@ -138,6 +201,41 @@
 .acpmux-row:has(.cv-since[data-look="worked"][data-shown]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider::after {
   background: var(--cmux-app-accent, var(--agent-text));
 }
+/* The line keeps "New"'s room at its end, so the two share the row and never overlap: the line's own
+   words give way first behind an ellipsis (the dim token count, then the label), and "New" keeps its
+   place. Only "New"'s room is kept: the count's words ("157 new messages") show only where the
+   line is roomy (above), and at ultra tightness, where "New" fades out, the room goes with it. */
+.acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) {
+  container: cv-since-line / inline-size;
+}
+.acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider {
+  padding-inline-end: calc(3ch + var(--grid-gap));
+}
+.acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider :is(.cv-worked__label, .cv-worked__count:has(> .cv-worked__tokens)) {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The count gives way whole before the label starts to: the label barely shrinks (its weight is
+   tiny) until the count is down to nothing. The count is a flex row ("·" and the tokens), so its
+   ellipsis is the tokens' own. The doubled class outranks the shared rule above, whose :is()
+   takes its :has() argument's weight. */
+.acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider .cv-worked__label.cv-worked__label {
+  flex-shrink: 0.001;
+}
+.acpmux-row:has(.cv-since[data-look="worked"]:not([data-recap])) + :is(.acpmux-worked, .acpmux-working) .cv-worked.has-divider .cv-worked__tokens {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@container cv-since-line (max-width: 150px) {
+  .cv-worked.has-divider {
+    padding-inline-end: 0;
+  }
+}
 /* C: a small New pill at the end of the gap, no rule. */
 .cv-since[data-look="pill"] .cv-since__tag {
   padding: 0 var(--ds-space-1);
@@ -146,10 +244,15 @@
   color: var(--unread-on-accent);
 }
 @media (prefers-reduced-motion: no-preference) {
-  /* In on the calm step, so a line placed at a return comes in quietly; out (dissipating) on the
-     same step, the rule narrowing with it. */
-  .cv-since__line,
-  .cv-since__rule {
+  /* In and out on the calm step, a fade in place. */
+  .cv-since__line {
+    transition: opacity var(--agent-motion-calm) var(--agent-ease-out);
+  }
+  /* The tag and its two forms ride the same step: a resize across a width step cross-fades the
+     words and "New" in place, and ultra tight "New" shrinks and fades instead of popping. */
+  .cv-since__tag,
+  .cv-since__tag-words,
+  .cv-since__tag-new {
     transition:
       opacity var(--agent-motion-calm) var(--agent-ease-out),
       scale var(--agent-motion-calm) var(--agent-ease-out);
@@ -160,7 +263,8 @@
   }
 }
 /* The app's motion gate: with motion off or reduced the line comes and goes in one step. */
-:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"]) :is(.cv-since__line, .cv-since__rule) {
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
+  :is(.cv-since__line, .cv-since__rule, .cv-since__tag, .cv-since__tag-words, .cv-since__tag-new) {
   transition: none;
 }
 :root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"])
@@ -206,6 +310,9 @@
   --glass-edge: color-mix(in srgb, var(--agent-text) 18%, transparent);
   --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
+  /* The overlay chrome's type, as Jump to latest beside it (jumpPair.css): the UI family at regular
+     weight, never the page's inherited face. */
+  font-family: var(--font-ui);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
   white-space: nowrap;
@@ -250,7 +357,7 @@
   transform: rotate(180deg);
 }
 .acpmux-since-jump__count {
-  font-weight: var(--weight-emphasis);
+  font-weight: var(--weight-regular);
 }
 .acpmux-since-jump__when {
   color: var(--agent-muted);

@@ -29,11 +29,17 @@
 //! status indicator's snapshot (cmux-health-core, include/cmux_health.h).
 //! `launch_image` is each window's last committed frame for the launch's first
 //! frame (cmux-launch-image, include/cmux_launch_image.h).
+//! `pane_pictures` is when a pane's live thumbnail is captured again (cmux-pane-pictures,
+//! include/cmux_pane_pictures.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
 //! on another machine (cmux-terminal-prediction, include/cmux_terminal_prediction.h).
+//! `url_input` is the typed address-bar policy: what the omnibox, the New Tab
+//! field and newTab.submit load or search (cmux-url-input, include/cmux_url_input.h).
 
+//! `keymap` is the keymap layer of app.keyStyle and app.shortcutLayout: list keys
+//! per style and shortcut matching per layout (cmux-keymap, include/cmux_keymap.h).
 //! `wallpaper` is cmux-wallpaper's C ABI: live wallpapers (the program check and
 //! its Metal translation, the scheduler, the Frame packer; include/cmux_wallpaper_ffi.h).
 //! `files_lister` is the client of cmux-tui's `__files-lister` child, the DEV
@@ -42,6 +48,8 @@
 //! answer (include/cmux_system_calendar.h); EventKit stays in the app.
 //! `settings` is cmux-next.json's reads (cmux-config's app_ops: the parse,
 //! the validation and the defaults; include/cmux_settings.h).
+//! `interactivity` is priority by interactivity (cmux-interactivity, include/cmux_interactivity.h): note what the
+//! person touches, read the QoS of a class of work.
 //! `layout_cache` is every window's last computed layout kept across restarts, so a launch
 //! draws it already placed (cmux-layout-cache, include/cmux_layout_cache.h).
 //! `background_ready` owns the background ready copy's decisions (app.backgroundReady;
@@ -53,6 +61,8 @@
 pub mod files_lister;
 pub mod goo;
 pub mod hover;
+/// cbindgen:ignore
+pub mod interactivity;
 pub mod motion;
 /// cbindgen:ignore
 pub mod settings;
@@ -72,12 +82,15 @@ pub use cmux_cookie_sync::ffi as cookie_sync;
 pub use cmux_daemon_conn_core::ffi as daemon_conn;
 pub use cmux_daemon_launch_core::ffi as daemon_launch;
 pub use cmux_health_core::ffi as health;
+pub use cmux_keymap::ffi as keymap;
 pub use cmux_launch_image::ffi as launch_image;
 pub use cmux_launch_record;
 pub use cmux_launch_shell::ffi as launch_shell;
 pub use cmux_layout_cache::ffi as layout_cache;
 pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
+pub use cmux_pane_pictures::ffi as pane_pictures;
 pub use cmux_rd_ffi as rd;
 pub use cmux_sdk_ffi as sdk;
 pub use cmux_terminal_prediction::ffi as terminal_prediction;
+pub use cmux_url_input::ffi as url_input;
