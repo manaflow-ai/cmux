@@ -739,9 +739,11 @@ pair key and never verifies the BLAKE3 keyed hash. It checks only the lowercase 
 the size bound, so the two devices remain the source of truth.
 
 - **Pair admission:** every request carries `sessionId` and `deviceId` as query parameters or
-  `X-Cmux-Chunk-Session` and `X-Cmux-Chunk-Device` headers. The Worker authenticates the Stack token,
-  asks the caller's `TeamHub` for that session's other device, and names a cache by the owner key,
-  build space and sorted device ids. A device cannot name another pair's namespace.
+  `X-Cmux-Chunk-Session` and `X-Cmux-Chunk-Device` headers, plus that device's own
+  `x-cmux-relay-ticket` (the one the hub stamped on its signals, as for the WebSocket relay). The Worker
+  authenticates the Stack token, asks the caller's `TeamHub` for that session's other device with the
+  ticket, and names a cache by the owner key, build space and sorted device ids. A missing or wrong
+  ticket, or another device's, gets `403 not_in_session`. A device cannot name another pair's namespace.
 - **Put/get:** `PUT /v1/chunks/<64 lowercase hex>` stores an opaque body up to 256 KiB plus 64 bytes.
   A new chunk returns `201`, and an existing id returns `200` without writing. `GET` returns the bytes
   or `404`. `LINK_RELAY_MODE=off` returns `503 relay_off` for these routes too.

@@ -472,8 +472,11 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const sessionId = (url.searchParams.get("sessionId") ?? req.headers.get("x-cmux-chunk-session") ?? "").toLowerCase()
     const deviceId = (url.searchParams.get("deviceId") ?? req.headers.get("x-cmux-chunk-device") ?? "").toLowerCase()
     if (!UUID.test(sessionId) || !UUID.test(deviceId)) throw new HttpError(400, "bad_request", "sessionId and deviceId must be UUIDs")
-    const peer = await t.span("hub", userHub(env, caller).relayPeer(who, sessionId, deviceId))
-    if (!peer) throw new HttpError(403, "not_in_session", "this device is not a party of that link session")
+    // The device's own relay ticket, as for the relay: another device of the same user cannot pass this one's id.
+    const ticket = req.headers.get(RELAY_TICKET_HEADER)
+    const bound = await t.span("hub", userHub(env, caller).relayPeer(who, sessionId, deviceId, ticket))
+    if (!bound) throw new HttpError(403, "not_in_session", "this device is not a party of that link session")
+    const peer = bound.peer
     if (chunk[1] !== "have" && chunk[1] !== "get" && (!CHUNK_ID.test(chunk[1]!) || chunk[1] !== chunk[1]!.toLowerCase())) throw new HttpError(400, "bad_request", "chunk id must be 64 lowercase hexadecimal characters")
     const cache = env.CHUNK_CACHE.get(env.CHUNK_CACHE.idFromName(chunkPairName(me, space, deviceId, peer)), caller.hint ? { locationHint: caller.hint } : undefined)
     const target = chunk[1] === "have" ? "/have" : chunk[1] === "get" ? "/get" : `/${chunk[1]!.toLowerCase()}`

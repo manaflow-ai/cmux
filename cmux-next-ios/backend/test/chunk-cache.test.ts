@@ -17,12 +17,18 @@ const pair = async (user = "chunk-user") => {
   const sessionId = crypto.randomUUID()
   p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
   await m.until((s) => s.frames.some((f) => f.type === "signal" && f.sessionId === sessionId))
-  return { tok, phone, mac, sessionId, sockets: [p, m] as Sock[] }
+  // The Mac answers; the phone learns its own relay ticket from that wg-resp, as a real phone does.
+  m.send({ type: "signal", to: phone, from: mac, sessionId, payload: { kind: "wg-resp", publicKey: "k", endpoints: [], overlayIP: "10.77.0.1" } })
+  await p.until((s) => s.frames.some((f) => f.type === "signal" && f.sessionId === sessionId && f.payload?.kind === "wg-resp"))
+  const ticket = p.frames.filter((f) => f.type === "signal" && f.sessionId === sessionId).at(-1)?.relayTicket as string
+  expect(typeof ticket).toBe("string")
+  return { tok, phone, mac, sessionId, ticket, sockets: [p, m] as Sock[] }
 }
 
-const request = async (p: Awaited<ReturnType<typeof pair>>, method: string, path: string, body?: BodyInit, useHeaders = false) => {
+const request = async (p: Awaited<ReturnType<typeof pair>>, method: string, path: string, body?: BodyInit, useHeaders = false, ticket: string | null = p.ticket) => {
   const query = useHeaders ? "" : `?sessionId=${p.sessionId}&deviceId=${p.phone}`
   const headers: Record<string, string> = { authorization: `Bearer ${p.tok}` }
+  if (ticket !== null) headers["x-cmux-relay-ticket"] = ticket
   if (useHeaders) {
     headers["x-cmux-chunk-session"] = p.sessionId
     headers["x-cmux-chunk-device"] = p.phone
@@ -70,6 +76,11 @@ describe("sealed chunk cache", () => {
     expect(otherSession).not.toBe(p.sessionId)
     const cross = await worker.fetch(`https://api.test/v1/chunks/${id(5)}?sessionId=${other.sessionId}&deviceId=${p.phone}`, { headers: { authorization: `Bearer ${p.tok}` } })
     expect(cross.status).toBe(403)
+    // The phone's id needs the phone's own relay ticket: none, a wrong one, or another session's is refused.
+    for (const ticket of [null, "", "not-a-ticket", other.ticket]) {
+      expect((await request(p, "GET", `/v1/chunks/${id(5)}`, undefined, false, ticket)).status, `ticket ${ticket}`).toBe(403)
+    }
+    expect((await request(p, "GET", `/v1/chunks/${id(5)}`)).status).toBe(200)
     p.sockets.concat(other.sockets).forEach((s) => s.ws.close())
   })
 
