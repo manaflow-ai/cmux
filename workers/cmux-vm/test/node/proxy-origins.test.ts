@@ -39,3 +39,13 @@ it("lets production's machines keep the production API and carrier relay, and on
   ]));
   expect(origins.filter((o) => /development|staging/u.test(o))).toEqual([]);
 });
+
+// Each platform's CLOUD_INFERENCE_GATEWAY_HOST (cmux-platform wrangler.jsonc), the coderouter.cmux.internal target of a
+// gateway-mode team (cmux-platform CoderouterEdge.ts): this Worker refuses a create whose proxy target it does not list.
+it("lists every platform's inference gateway host in the deployment that serves it", () => {
+  expect(originsOf("staging")).toEqual(expect.arrayContaining([
+    "https://cmux-platform-development.debussy.workers.dev",
+    "https://cmux-inference-edge-staging.debussy.workers.dev",
+  ]));
+  expect(originsOf("production")).toContain("https://cmux-platform-production.debussy.workers.dev");
+});
