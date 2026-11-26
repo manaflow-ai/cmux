@@ -41,6 +41,68 @@ fn export_reads_an_installed_theme_by_name() {
 }
 
 #[test]
+fn resolve_slots_keeps_shipped_variants_and_names_the_rest() {
+    let text = r#"{
+  "appearance.accent": "not-a-color-name",
+  "slots": { "chat.thinkingIndicator": "pulse", "chat.jumpToBottom": "spin", "chat.x": "default" }
+}"#;
+    let out = resolve_slots(&fields(json!({ "text": text, "name": "pack" }))).unwrap();
+    assert_eq!(out["slots"], json!({ "chat.thinkingIndicator": "pulse" }));
+    let diagnostics = out["diagnostics"].as_array().unwrap();
+    // Only the slots' problems: the accent is the settings reader's business.
+    assert_eq!(diagnostics.len(), 2, "{out}");
+    assert_eq!(diagnostics[0]["path"], "slots.chat.jumpToBottom");
+    assert_eq!(diagnostics[0]["kind"], "invalid_value");
+    assert!(diagnostics[0]["message"].as_str().unwrap().starts_with("themes/pack.json:3: "));
+    assert_eq!(diagnostics[1]["path"], "slots.chat.x");
+
+    let none = resolve_slots(&fields(json!({ "text": "{}" }))).unwrap();
+    assert_eq!(
+        none,
+        json!({
+            "slots": {},
+            "motion": { "presets": {}, "springs": {}, "fades": {} },
+            "diagnostics": [],
+        })
+    );
+    let broken = resolve_slots(&fields(json!({ "text": "{ \"slots\": " }))).unwrap();
+    assert_eq!(broken["slots"], json!({}));
+    assert_eq!(broken["diagnostics"][0]["kind"], "unreadable_file");
+    let garbage = resolve_slots(&fields(json!({ "text": "{ \"slots\": [1, 2] }" }))).unwrap();
+    assert_eq!(garbage["slots"], json!({}));
+    assert_eq!(garbage["diagnostics"][0]["path"], "slots");
+    assert!(resolve_slots(&fields(json!({}))).is_err());
+}
+
+#[test]
+fn resolve_slots_answers_the_looks_motion_and_its_problems() {
+    let text = r#"{
+  "motion": {
+    "presets": { "drawer": { "duration": 0.32, "bounce": 0.1 } },
+    "springs": { "move": { "duration": 99 }, "wobble": { "duration": 0.2 } },
+    "fades": { "fadeIn": 0.16 }
+  }
+}"#;
+    let out = resolve_slots(&fields(json!({ "text": text }))).unwrap();
+    let motion = &out["motion"];
+    assert_eq!(motion["presets"]["drawer"]["response"], json!(0.32));
+    assert_eq!(motion["presets"]["drawer"]["dampingFraction"], json!(0.9));
+    assert_eq!(motion["springs"]["move"]["duration"], json!(10.0), "clamped to cmux.motion/1");
+    assert!(motion["springs"].get("wobble").is_none());
+    assert_eq!(motion["fades"]["fadeIn"], json!(0.16));
+    let paths: Vec<&str> =
+        out["diagnostics"].as_array().unwrap().iter().filter_map(|d| d["path"].as_str()).collect();
+    assert_eq!(paths, ["motion.springs.wobble"]);
+    // A reload is a new read of the new text: the edited block replaces the old one.
+    let edited = resolve_slots(&fields(
+        json!({ "text": r#"{ "motion": { "fades": { "fadeIn": 0.3 } } }"# }),
+    ))
+    .unwrap();
+    assert_eq!(edited["motion"]["presets"], json!({}));
+    assert_eq!(edited["motion"]["fades"]["fadeIn"], json!(0.3));
+}
+
+#[test]
 fn from_image_gives_a_readable_scheme() {
     let mut data = Vec::new();
     for i in 0..64u32 {
