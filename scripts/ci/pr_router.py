@@ -224,8 +224,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
-            steps = table_steps(config, files, full=tier == "full" or FULL_CI in labels,
-                                full_ci=FULL_CI in labels or added == FULL_CI)
+            # A head the full-tier cap holds on the cheap tier routes as a cheap head, its sticky full-ci aside.
+            full_label = FULL_CI in labels and not head_tier.capped((tier, tier_reason))
+            steps = table_steps(config, files, full=tier == "full" or full_label,
+                                full_ci=full_label or added == FULL_CI)
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
                 continue
@@ -314,15 +316,23 @@ def land_status(event: dict, decided: tuple[str, str]) -> str:
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
-                  table: list[str] | None = None, status: str = "") -> None:
+                  table: list[str] | None = None, status: str = "", count: int | None = None,
+                  decided: tuple[str, str] | None = None) -> None:
+    """COUNT: the full-tier heads pr-router.yml writes on `cmux/land-tier` (head_tier.full_count), for the full-tier
+    cap; DECIDED: head_tier's (tier, reason), logged so every head says which rule chose its tier."""
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"land_status={status}\n")
+        out.write(f"full_count={'' if count is None else count}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
-             f"changed files: {len(files) if files is not None else 'unknown'}", "",
-             "| workflow | starts | why |", "|---|---|---|"]
+             f"changed files: {len(files) if files is not None else 'unknown'}", ""]
+    if decided:
+        lines += [f"head tier: {decided[0]} ({decided[1]})", ""]
+    if count is not None:
+        lines += [f"full-tier heads on this pull request: {count}", ""]
+    lines += ["| workflow | starts | why |", "|---|---|---|"]
     lines += [f"| `{name}` | {'yes' if name in start else 'no'} | {reason} |" for name, reason in sorted(why.items())]
     text = "\n".join(lines) + "\n"
     print(text)
@@ -340,11 +350,14 @@ def main(argv: list[str]) -> int:
         decided = head_tier.decide("pull_request", event)
         start, why = route(event, callees, files, decided=decided, land_update=land_update_head(event, callees))
         labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
-        full = decided[0] == "full" or FULL_CI in labels
+        # A head the full-tier cap holds on the cheap tier routes as a cheap head, its sticky full-ci aside.
+        full_label = FULL_CI in labels and not head_tier.capped(decided)
+        full = decided[0] == "full" or full_label
         added = str((event.get("label") or {}).get("name") or "") if event.get("action") == "labeled" else ""
+        status = land_status(event, decided)
         write_outputs(start, why, files, table_jobs_routed(callees, files, full=full,
-                                                           full_ci=FULL_CI in labels or added == FULL_CI),
-                      land_status(event, decided))
+                                                           full_ci=full_label or added == FULL_CI),
+                      status, head_tier.full_count(event, decided) if status else None, decided)
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)
