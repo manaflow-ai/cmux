@@ -19,6 +19,7 @@ public final class Events {
     public static final EventMetadata AGENT_INVENTORY_WATCH_ENDED = new EventMetadata("agent-inventory-watch-ended", 12, "agent-inventory-watch-v1", List.of("control"), true);
     public static final EventMetadata AGENT_PRESENCE_CHANGED = new EventMetadata("agent-presence-changed", 12, "agent-presence-v1", List.of("subscribe"), true);
     public static final EventMetadata AGENT_SESSION_SHARE_CHANGED = new EventMetadata("agent-session-share-changed", 12, "agent-session-share-events-v1", List.of("subscribe"), true);
+    public static final EventMetadata APPS_CLOUD_MACHINE = new EventMetadata("apps-cloud-machine", 12, "apps-v1", List.of("control"), true);
     public static final EventMetadata BELL = new EventMetadata("bell", 5, null, List.of("subscribe"), true);
     public static final EventMetadata BOOKMARKS_CHANGED = new EventMetadata("bookmarks-changed", 12, "bookmarks-v1", List.of("subscribe"), true);
     public static final EventMetadata BROWSER_STATE = new EventMetadata("browser-state", 6, null, List.of("attach-browser"), true);
@@ -122,6 +123,7 @@ public final class Events {
         values.put("agent-inventory-watch-ended", AGENT_INVENTORY_WATCH_ENDED);
         values.put("agent-presence-changed", AGENT_PRESENCE_CHANGED);
         values.put("agent-session-share-changed", AGENT_SESSION_SHARE_CHANGED);
+        values.put("apps-cloud-machine", APPS_CLOUD_MACHINE);
         values.put("bell", BELL);
         values.put("bookmarks-changed", BOOKMARKS_CHANGED);
         values.put("browser-state", BROWSER_STATE);
