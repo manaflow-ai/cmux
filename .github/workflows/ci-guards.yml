@@ -982,6 +982,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate the Team-signed tree's on-branch check spends no REST call
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_team_signed_on_branch_check.py
+
       - name: Validate every build-fleet client call checks the client is installed
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cmux_ci_client_guarded.py
