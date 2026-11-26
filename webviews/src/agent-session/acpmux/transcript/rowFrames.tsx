@@ -99,6 +99,9 @@ type RowFramesView = {
   rows: readonly AcpmuxRow[];
   mountedRanges: readonly { first: number; last: number }[];
   geometry: { topAt(index: number): number; gapAt(index: number): number; heightAt(index: number): number };
+  /// The room held above the loaded rows for older history (ConversationLayout.origin): the thread
+  /// stands under it, so each row's `top` counts from the loaded rows, not from the room.
+  roomAbove: number;
   /// The content in view, in the geometry's offsets: rows mounted far from it skip their contents
   /// (conversation/offscreenRows.ts). `viewHeight` 0 skips none.
   viewTop: number;
@@ -199,7 +202,7 @@ export function drawRowFrames(
       const frameId = rowFrameKey(row);
       const inputs = cache.scratch;
       inputs.index = absoluteIndex;
-      inputs.top = geometry.topAt(absoluteIndex);
+      inputs.top = geometry.topAt(absoluteIndex) - view.roomAbove;
       inputs.gapBelow = absoluteIndex + 1 < rows.length ? geometry.gapAt(absoluteIndex + 1) : 0;
       inputs.expanded = isExpanded;
       inputs.active = view.activeRowId === row.id;
@@ -275,7 +278,14 @@ export function drawRowFrames(
           // for them, and a kept frame's values are the ones it mounted with.
           offscreen={
             skips &&
-            mountsOffscreen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight, windowHeight)
+            mountsOffscreen(
+              // The view counts in the geometry's offsets, room included; `inputs.top` counts from the loaded rows.
+              geometry.topAt(absoluteIndex),
+              geometry.heightAt(absoluteIndex),
+              view.viewTop,
+              view.viewHeight,
+              windowHeight,
+            )
           }
           placedHeight={geometry.heightAt(absoluteIndex)}
           // An arrival out of view draws in place (read on the first mount only, like `offscreen`).
