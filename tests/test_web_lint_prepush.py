@@ -189,6 +189,7 @@ class WebLintPrePushTests(unittest.TestCase):
             "scripts/ci/test_execution_registry.py",
             "scripts/ci/workload_entrypoints.py",
             "scripts/ci/workflow_job_bounds.py",
+            "scripts/ci/check_reusable_workflow_permissions.py",
             "scripts/normalize-pbxproj.py",
             "scripts/webviews_bun_version.py",
             "scripts/lint_swift_namespaces.py",
