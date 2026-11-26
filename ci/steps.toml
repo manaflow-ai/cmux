@@ -2106,14 +2106,18 @@ run = '''
 python3 -I scripts/cmux-next/check-connection-notices.py --root "$PWD"
 '''
 
-[step.ios-kit]
+[step.ios-kit-macos]
 job = "ios"
-# Takes the Mac's cores and its one simulator; the phone cells follow it.
+# The kit's macOS swift test, which ios-kit ran before its simulator leg: pr-pipeline.yml's `ios macos` job runs it
+# (`--only ios-kit-macos`) beside the `ios` job, which runs every other ios step, so neither leg waits on the other.
+# ios-kit reads this job's verdict (scripts/ci/ios_macos_leg.py): a red macOS leg still skips the simulator and turns
+# `ios` red, as when both ran in one step.
 alone = true
-# 60 min, plus up to 20 for the fleet pool's verdict before a Mac fallback (vars.CMUX_IOS_SIM_LINUX=on).
-timeout = 4800
-title = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
-about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), runs the kit's swift test on macOS, then its tests on an iOS 26 iPhone simulator"
+# The xcframework (a Mac build when the fleet has none, up to 25 min) and the two swift test runs (8 min on a warm
+# Mac, 20 on a cold one).
+timeout = 2700
+title = "CmuxMobileKit tests (macOS swift test)"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), then runs the kit's swift test on macOS"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
 # its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
 # simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
@@ -2179,6 +2183,85 @@ status=0
 # in one process they measured their neighbours). The Instant list bench stays in the kit workflow's push runs.
 swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests || status=1
 swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests || status=1
+exit $status
+'''
+
+[step.ios-kit]
+job = "ios"
+# Takes the Mac's cores and its one simulator; the phone cells follow it.
+alone = true
+# 60 min, plus up to 20 for the fleet pool's verdict before a Mac fallback (vars.CMUX_IOS_SIM_LINUX=on).
+timeout = 4800
+title = "CmuxMobileKit tests (iOS simulator)"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), then runs the kit's tests on an iOS 26 iPhone simulator; the macOS swift test is ios-kit-macos, in the `ios macos` job beside it"
+# The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
+# its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
+# simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
+# so it still routes (the workflow's re-include, kept).
+inputs = [
+  "cmux-next-ios/**",
+  "Packages/Shared/CMUXAuthCore/**",
+  "Packages/Shared/CMUXMobileCore/**",
+  "Packages/Shared/CmuxAgentBrands/**",
+  "Packages/Shared/CmuxAgentQuestion/**",
+  "Packages/Shared/CmuxAuthRuntime/**",
+  "Packages/Shared/CmuxChiefList/**",
+  "Packages/Shared/CmuxChiefVoiceCore/**",
+  "Packages/Shared/CmuxConnectivityTelemetry/**",
+  "Packages/Shared/CmuxDeviceHub/**",
+  "Packages/Shared/CmuxEgress/**",
+  "Packages/Shared/CmuxGhosttyKit/**",
+  "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxScreenKit/**",
+  "Packages/Shared/CmuxSpinner/**",
+  "Packages/Shared/CmuxTheme/**",
+  "Packages/Shared/CmuxVNC/**",
+  "Packages/Shared/CmuxVNCWebRTC/**",
+  "Packages/iOS/CmuxConversation/**",
+  "Packages/iOS/CmuxMobileBilling/**",
+  "Packages/iOS/CmuxMobileSupport/**",
+  "Packages/iOS/CmuxTabsKit/**",
+  "vendor/stack-auth-swift-sdk-prerelease/**",
+  "scripts/select-ci-xcode.sh",
+  "scripts/ci/xcode-pins.txt",
+  ".xcode-version",
+  "scripts/ci/ios_app_package_paths.py",
+  "scripts/ci/ios_link_ffi_key.py",
+  "scripts/ci/ios_link_ffi.sh",
+  "scripts/ci/ios_macos_leg.py",
+  "scripts/ci/ios_sim_udid.py",
+  "scripts/ci/ios-sim-pool.sh",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/runner-cargo-home/**",
+  "cmux-tui/rust-toolchain.toml",
+]
+# Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker build nothing in the iPhone app
+# (#53223, scripts/cmux-next/build_select.py reads the kit workflow's filter); the scripts the kit or the app build
+# reads stay in. The fixtures the kit's own tests read (cmux-next-ios/verify/agent-cli-hybrid/) stay in too (#54725).
+ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli-hybrid/**",
+          "cmux-next-ios/scripts/**", "cmux-next-ios/backend/**",
+          "!cmux-next-ios/scripts/instant_perf_table.py", "!cmux-next-ios/scripts/generate-launch-mark.swift",
+          "!cmux-next-ios/scripts/check-notification-extension.sh", "!cmux-next-ios/scripts/check-production-binary.sh",
+          "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
+          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
+needs = ["rust"]
+run = '''
+(cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
+# The build fleet's copy of the head when it has one for these inputs, else this Mac builds it (a logged Mac fallback).
+bash scripts/ci/ios_link_ffi.sh 8
+# The xcframework and target/ are gitignored; a Mac build rewrites the bindings and restores Cargo.lock, so any
+# tracked change is drift (the fleet's build passes only when its bindings match the checked-in ones).
+if ! git diff --exit-code -- cmux-next-ios/; then
+  echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); run it and commit the result"
+  exit 1
+fi
+status=0
+# The macOS swift test is ios-kit-macos, in pr-pipeline.yml's `ios macos` job beside this one. Its verdict so far
+# (scripts/ci/ios_macos_leg.py: failure, success, pending or unknown; an unread one runs the simulator leg) keeps
+# the rule both legs had in one step: a red macOS leg skips the simulator leg and fails this step.
+macos="$(python3 -I scripts/ci/ios_macos_leg.py state)"
+echo "ios macos leg: $macos"
+[[ "$macos" == failure ]] && status=1
 # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so their tests run only on the simulator.
 # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit. arm64 only: the xcframework has no x86_64
 # simulator slice.
@@ -2197,7 +2280,7 @@ fi
 # A red macOS kit run already fails the step: the simulator leg (the kit's tests again, 40-45 min on a Mac, up to 20
 # of them waiting on the pool) would only spend the machine. The re-run that fixes the red runs it.
 if (( status )); then
-  echo "::notice title=ios-kit::the macOS kit tests failed above; the iOS simulator tests are skipped this run"
+  echo "::notice title=ios-kit::the macOS kit tests failed (the ios macos job); the iOS simulator tests are skipped this run"
   pool="skipped"
 fi
 case "${pool%% *}" in
@@ -2245,6 +2328,17 @@ if [[ "$mode" == shadow && -f "$pool_dir/submitted" ]]; then
 fi
 ;;
 esac
+# The macOS leg usually ends first (8 min against the simulator's 15 or more): a red one fails this step too, so the
+# phone cells after it are skipped and `ios` is red, as before the split. One read, no wait: a leg still running is
+# its own `ios macos` check.
+if (( ! status )); then
+  macos="$(python3 -I scripts/ci/ios_macos_leg.py state)"
+  echo "ios macos leg after the simulator: $macos"
+  if [[ "$macos" == failure ]]; then
+    echo "::error title=ios-kit::the macOS kit tests failed in the ios macos job"
+    status=1
+  fi
+fi
 exit $(( status || sim ))
 '''
 
