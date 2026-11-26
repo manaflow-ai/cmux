@@ -126,7 +126,6 @@ OWNED_SECRET_JOBS = {
     'keep-published-dsyms': "release credentials, short; the signer's label",
     'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
     'nightly-next-pkg': "signs, notarizes and uploads the pre-warming .pkg (release-next); the signer's label",
-    'visual-gate-nightly': "reads the GhosttyKit R2 cache keys only; on the visual gate mini route-visual-gate-nightly picks",
     'wake-nightly-next-tick': 'App keys for the dispatch; our reserved Linux label, then cmux-linux (NIGHTLY_LINUX_CONTROLS)',
     'dispatch-published-in': 'App keys for the dispatch; our reserved Linux label, then cmux-linux (NIGHTLY_LINUX_CONTROLS)',
 }
