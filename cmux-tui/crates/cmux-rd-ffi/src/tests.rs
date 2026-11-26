@@ -543,3 +543,36 @@ fn a_frame_is_ready_in_the_push_that_completes_it() {
         assert!(r.pop_frame().is_some());
     }
 }
+
+/// Review F3 on #47487: a decode report acknowledges the LTR token of the frame
+/// that decoded. Frames A and B are popped before A's decode is reported, and B
+/// is dropped (never decoded): the feedback names A's token, never B's.
+#[test]
+fn a_decode_acknowledges_the_decoded_frames_ltr_token_only() {
+    const A_TOKEN: u64 = 0xA0A0;
+    const B_TOKEN: u64 = 0xB0B0;
+    let r = receiver(CMUX_RD_CARRIER_DATAGRAM);
+    let mut p = Packetizer::new(0, MAX_DATAGRAM_VPC);
+    for (frame, token) in [(1, None), (2, Some(A_TOKEN)), (3, Some(B_TOKEN))] {
+        let mut b = body(frame, 400, frame == 1);
+        b.ltr_token = token;
+        let flags = if frame == 1 { flags::KEYFRAME } else { 0 };
+        for d in p.packetize(frame, flags, &b, 0).expect("packetize").datagrams {
+            push(&r, &d, 1_000);
+        }
+    }
+    let popped = pop_all(&r);
+    assert_eq!(popped.iter().map(|f| f.0).collect::<Vec<_>>(), [1, 2, 3]);
+    // The keyframe and A decoded; B was popped but its decode never reported.
+    note_decode(&r, 1, 900);
+    note_decode(&r, 2, 1_100);
+    let fb = decode_feedback(&feedback(&r, 50_000).expect("due"));
+    assert_eq!(fb.acked_ltr_tokens, [A_TOKEN], "only the decoded frame's token");
+}
+
+/// Reports frame `frame`'s decode. Before the F3 fix the C call took no frame,
+/// so the report went to whichever frame was popped last.
+fn note_decode(r: &Owned, _frame: u32, decode_us: u32) {
+    // SAFETY: live receiver.
+    assert_eq!(unsafe { cmux_rd_receiver_note_decode(r.0, decode_us) }, CMUX_RD_OK);
+}
