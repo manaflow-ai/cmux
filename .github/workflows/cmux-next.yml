@@ -228,6 +228,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-agent-pane-policy-swift.py
+      - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
@@ -242,6 +244,7 @@ on:
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
+      - scripts/ci/github-egress-direct.sh
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
@@ -610,6 +613,8 @@ on:
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
+      - scripts/cmux-next/gen-agent-pane-policy-swift.py
+      - cmux-tui/crates/cmux-agent-pane-policy/policy.json
       - scripts/cmux-next/gen-phone-lane-fields.py
       - cmux-tui/spec/sdk-schema.json
       - scripts/ci/cargo-test-selected.sh
@@ -624,6 +629,7 @@ on:
       - plans/cmux-next/daemon-capabilities.json
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
+      - scripts/ci/github-egress-direct.sh
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
@@ -2799,7 +2805,7 @@ jobs:
   app-compile-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     needs: [path_route, push-head-preflight, fast-tier-cargo]
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.app_compile_pr != 'false' && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false') && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next app compile placement
     runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Why: note-179
@@ -2882,7 +2888,7 @@ jobs:
   app-compile-fleet:
     needs: [path_route, push-head-preflight, app-compile-placement]
     # Why: note-371
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.app_compile_pr != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next app compile (build fleet)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || format('cmux-next-pr-{0}-app-compile-fleet', github.event.pull_request.number) }}
@@ -3266,7 +3272,7 @@ jobs:
           REF: ${{ github.sha }}
           # Why: note-193
           HOME_RENDER_SUITES: MotionTokenTests,IntentMappingTests
-          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,HandlerCoverageTests,AcpmuxClientTests
+          CMUX_NEXT_SUITES: ModelMatrixTests,PaneZoomMotionTests,CEFProfileStorageLogTests,HandlerCoverageTests,AcpmuxClientTests,AcpmuxPaneInitializeParamsContractTests,AcpmuxPaneInitializeFailSafeTests
           FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
         run: |
           set -uo pipefail
@@ -3692,9 +3698,20 @@ jobs:
           CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
 
+      # Why: owned_spm_scratch.py SEED_KEPT_MARKER (a kept build of this prefix skips the seed download)
+      - name: Build on the seed root's kept seed
+        id: seed-kept
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && (steps.spm-root.outputs.seed == '1' && steps.fast-cache-key.outputs.swift-prefix != '' && steps.reuse.outputs.hit != 'true') }}
+        continue-on-error: true
+        env:
+          CMUX_FAST_TIER_SEED_KEEP_MINUTES: ${{ vars.CI_FAST_TIER_SEED_KEEP_MINUTES }}
+          PREFIX: ${{ steps.fast-cache-key.outputs.swift-prefix }}
+          ROOT: ${{ steps.spm-root.outputs.root }}
+        run: python3 scripts/ci/owned_spm_scratch.py seed-kept "$ROOT" "$PREFIX"
+
       - name: Restore the CmuxNext build
         id: fast-cache-restore
-        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1') && steps.reuse.outputs.hit != 'true') }}
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((!contains(runner.name, '-glaeda') || steps.spm-root.outputs.seed == '1') && steps.seed-kept.outputs.kept != '1' && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -3714,9 +3731,10 @@ jobs:
           MATCHED: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
           PREFIX: ${{ steps.fast-cache-key.outputs.swift-prefix }}
           SEED_ROOT: ${{ steps.spm-root.outputs.seed }}
+          ROOT: ${{ steps.spm-root.outputs.root }}
         run: |
           echo "commit=${MATCHED#"$PREFIX"}" >> "$GITHUB_OUTPUT"
-          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded; fi
+          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded "$ROOT" "$MATCHED"; fi
 
       - name: Restore the CmuxHomeRender build of that seed
         if: ${{ (steps.fast-cache-seed.outputs.commit != '') && steps.reuse.outputs.hit != 'true' }}
@@ -3747,7 +3765,7 @@ jobs:
         env:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
-          CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
+          CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key || steps.seed-kept.outputs.key }}
           FFI_REPIN: ${{ needs.path_route.outputs.ffi_repin }}
         run: |
           selected=()
@@ -4019,7 +4037,7 @@ jobs:
 
       - name: Restore the cargo build from R2
         id: r2-cargo-target
-        if: ${{ steps.r2-cargo-key.outputs.target-key != '' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.r2-cargo-key.outputs.target-key != '' }}
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -4033,7 +4051,7 @@ jobs:
 
       - name: Restore the cargo registry from R2
         id: r2-cargo-registry
-        if: ${{ steps.r2-cargo-key.outputs.registry-key != '' }}
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.r2-cargo-key.outputs.registry-key != '' }}
         timeout-minutes: 4
         continue-on-error: true
         uses: ./.github/actions/cache-restore
@@ -4065,7 +4083,7 @@ jobs:
       # Why: 2026-11-24-fast-tier-cargo-9.md
       - name: Strip the workspace's own output before the R2 save
         id: r2-cargo-strip
-        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
         continue-on-error: true
         env:
           REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
@@ -4079,7 +4097,7 @@ jobs:
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the cargo build to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -4094,7 +4112,7 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
 
       - name: Save the cargo registry to R2
-        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -5285,8 +5303,10 @@ jobs:
       - name: Install checkout tools
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
       - name: Checkout
+        id: checkout
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
+        with: &generated-files-linux-checkout
           persist-credentials: false
           submodules: false
           fetch-depth: 2
@@ -5303,6 +5323,14 @@ jobs:
             /.github/actions/setup-cmux-tui-rust/
             /.github/actions/runner-cargo-home/
             /.gitmodules
+      # Why: 2026-11-26-checkout-blob-retry.md
+      - name: Discard the workspace repository after a failed checkout
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+      - name: Retry checkout after transient network failure
+        if: steps.checkout.outcome == 'failure'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: *generated-files-linux-checkout
       - name: Trust workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Set up pinned cmux-tui Rust
@@ -5546,9 +5574,20 @@ jobs:
           CMUX_FAST_CACHE_WORKSPACE: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/fast-tier-cache-key.sh "$CMUX_FAST_CACHE_WORKSPACE" >> "$GITHUB_OUTPUT"
 
+      # Why: owned_spm_scratch.py SEED_KEPT_MARKER (a kept build of this prefix skips the seed download)
+      - name: Build on the seed root's kept seed
+        id: seed-kept
+        if: ${{ steps.spm-root.outputs.seed == '1' && steps.seed-key.outputs.swift-prefix != '' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        env:
+          CMUX_FAST_TIER_SEED_KEEP_MINUTES: ${{ vars.CI_FAST_TIER_SEED_KEEP_MINUTES }}
+          PREFIX: ${{ steps.seed-key.outputs.swift-prefix }}
+          ROOT: ${{ steps.spm-root.outputs.root }}
+        run: python3 scripts/ci/owned_spm_scratch.py seed-kept "$ROOT" "$PREFIX"
+
       - name: Restore the CmuxNext build the base seeded
         id: seed-restore
-        if: ${{ steps.seed-key.outputs.swift-prefix != '' && steps.reuse.outputs.hit != 'true' }}
+        if: ${{ steps.seed-key.outputs.swift-prefix != '' && steps.seed-kept.outputs.kept != '1' && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -5567,10 +5606,11 @@ jobs:
         env:
           ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
           SEED_ROOT: ${{ steps.spm-root.outputs.seed }}
+          MATCHED: ${{ steps.seed-restore.outputs.cache-matched-key }}
         run: |
           python3 scripts/ci/owned_spm_scratch.py drop-bundles "$ROOT/Packages/macOS/CmuxNext/.build"
           python3 -I scripts/ci/e2e_warm_derived_data.py replay "$ROOT" "$ROOT/Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json"
-          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded; fi
+          if [[ "$SEED_ROOT" == 1 ]]; then python3 scripts/ci/owned_spm_scratch.py seeded "$ROOT" "$MATCHED"; fi
 
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
@@ -6444,7 +6484,7 @@ jobs:
   # Why: note-scheme-fleet
   cmux-scheme-compile-fleet:
     needs: [path_route, push-head-preflight, dev-daily-tree-wait]
-    if: ${{ github.repository_owner == 'manaflow-ai' && inputs.dev_daily != true && vars.CI_SCHEME_COMPILE_FLEET != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && ((github.event_name != 'pull_request' || contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(needs.path_route.outputs.labels, ',dev-build,')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ github.repository_owner == 'manaflow-ai' && inputs.dev_daily != true && (vars.CI_SCHEME_COMPILE_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && ((github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name == github.repository && (github.event.pull_request.author_association == 'MEMBER' || github.event.pull_request.author_association == 'OWNER') && contains(needs.path_route.outputs.labels, ',dev-build,')) && (!cancelled() && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux app scheme compile (build fleet)
     concurrency:
       group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-cmux-scheme-compile-fleet', github.ref) || format('cmux-next-run-{0}-cmux-scheme-compile-fleet', github.run_id) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
@@ -6567,7 +6607,7 @@ jobs:
           FLEET_RESULT: ${{ needs.cmux-scheme-compile-fleet.result }}
           FLEET_VERDICT: ${{ needs.cmux-scheme-compile-fleet.outputs.verdict }}
           FLEET_JOB_NAME: "cmux app scheme compile (build fleet)"
-          FLEET_GATE_0: "CI_SCHEME_COMPILE_FLEET is not 0=${{ vars.CI_SCHEME_COMPILE_FLEET != '0' }}"
+          FLEET_GATE_0: "CI_SCHEME_COMPILE_FLEET is not 0=${{ (vars.CI_SCHEME_COMPILE_FLEET || '1') != '0' }}"
           FLEET_GATE_1: "manaflow-ai repository=${{ github.repository_owner == 'manaflow-ai' }}"
           FLEET_GATE_2: "same-repository pull request=${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"
         run: >-
