@@ -289,6 +289,18 @@ describe("after sign-in native handoff", () => {
     expect(afterSignInTarget.searchParams.has("after_auth_return_to")).toBe(false);
   });
 
+  test("the manual return page is the styled connected page and never opens the token link by itself", async () => {
+    handoffCookie = "different-nonce";
+    const response = await GET(signInRequest("cmux://auth-callback?cmux_auth_state=state-123", "handoff-nonce"));
+    const html = await response.text();
+    expect(html).toContain('data-app="cmux"');
+    expect(html).toContain('data-variant="card"');
+    expect(html).toContain('<meta name="color-scheme" content="light dark">');
+    expect(html).toContain("prefers-color-scheme:dark");
+    expect(html).not.toContain("<script");
+    expect(html).not.toMatch(/@import|fonts\.googleapis/);
+  });
+
   test("preserves the embedded pricing return path when switching accounts", async () => {
     handoffCookie = "different-nonce";
     const nativeReturnTo = "cmux://auth-callback";

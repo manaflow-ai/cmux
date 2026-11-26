@@ -302,6 +302,7 @@ jobs:
             scripts/ci/pr_perf_section_check.py
             scripts/ci/pr_cloud_backend_check.py
             .github/cloud-backend-paths.json
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The paths the description lints read, from the event's merge commit and its first parent (the base),
