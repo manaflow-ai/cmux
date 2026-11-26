@@ -275,15 +275,18 @@ pub(super) fn parse(args: &[String]) -> Option<Result<Command, UsageError>> {
     Some(parse_verb(verb, rest))
 }
 
-/// Switches `machine add` and `machine vault` own that take no value, so a `--json` after one is
-/// the global output mode, not its value (`machine add HOST --bootstrap --json`). Scoped to these
-/// verbs: `cloud new-machine --bootstrap NAME` takes a value, so they are not in the global
-/// `BOOLEAN_FLAGS`.
+/// Switches `machine add|revoke|rotate|vault` own that take no value, so a `--json` after one is
+/// the global output mode, not its value (`machine add HOST --bootstrap --json`,
+/// `machine revoke NAME --yes --cloud-token-stdin --json`). Every verb `parse_verb` serves is
+/// listed: a verb left out lets `--cloud-token-stdin` swallow `--json`, and the parse fails with
+/// the whole usage text. Scoped to these verbs: `cloud new-machine --bootstrap NAME` takes a
+/// value, so they are not in the global `BOOLEAN_FLAGS`.
 #[cfg(unix)]
 pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
+    let machine_verb = |verb: &str| matches!(verb, "add" | "revoke" | "rotate" | "vault");
     let ours = matches!(
         command.get(..2),
-        Some([scope, verb]) if scope == "machine" && matches!(verb.as_str(), "add" | "vault")
+        Some([scope, verb]) if scope == "machine" && machine_verb(verb.as_str())
     );
     ours && matches!(
         flag,
