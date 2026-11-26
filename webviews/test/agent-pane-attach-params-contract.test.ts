@@ -19,15 +19,34 @@ const listed = (name: string) => contract.attach.find((frame) => frame.name === 
 // The page's attaches by the name the contract gives them (direct.ts `sendAttach`).
 // Typed params are interfaces, so they need no index signature here (`object`, not `Record`).
 const sent: Record<string, object | undefined> = {
-  "plain, local": plainAttach("s", { settled: false, visible: true, local: true, maxBytes: 128 * 1024 }),
-  "plain, peer": plainAttach("s", { settled: false, visible: false, local: false, maxBytes: 128 * 1024 }),
-  "settled, local": plainAttach("s", { settled: true, visible: true, local: true, maxBytes: 128 * 1024 }),
+  "plain, local": plainAttach("s", {
+    settled: false,
+    visible: true,
+    attending: true,
+    local: true,
+    maxBytes: 128 * 1024,
+  }),
+  "plain, peer": plainAttach("s", {
+    settled: false,
+    visible: false,
+    attending: true,
+    local: false,
+    maxBytes: 128 * 1024,
+  }),
+  "settled, local": plainAttach("s", {
+    settled: true,
+    visible: true,
+    attending: true,
+    local: true,
+    maxBytes: 128 * 1024,
+  }),
   // A reconnect that holds the chat's rows (direct.ts `ForwardAttach`, #47119): the relay refused its
   // `afterSeq`, and every such reconnect said "cmux blocked opening this chat" over the composer (Leo,
   // 2026-11-22). A forward attach asks no settled view.
   "forward, local": plainAttach("s", {
     settled: true,
     visible: true,
+    attending: true,
     local: true,
     maxBytes: 128 * 1024,
     afterSeq: 120,

@@ -508,11 +508,21 @@ if [[ -z "$from_archive" && -n "${CMUX_MOBILE_SIMULATOR_APP:-}" ]]; then
 fi
 
 # --- Checks on any app bundle ------------------------------------------------
+# The binary and review-rule checkers are the built commit's, not this script's: the
+# INTERNAL builder runs this script from rc/cnx-ios-builder, which moves only when an
+# admin fast-forwards it, so its own copies fall behind the code they judge. From
+# 2026-11-24 every nightly failed signing because the builder's copy still forbade the
+# App Review demo's MockTerminalSession, which #47190 ships and #53308 allowed.
+built_checker() {  # <path in the repo> -> a copy from $sha (this checkout's when $sha lacks it)
+  local rel=$1 dst="$work/checkers/$1"
+  mkdir -p "$(dirname "$dst")"
+  if git -C "$repo" show "$sha:$rel" > "$dst" 2>/dev/null; then echo "$dst"; else echo "$repo/$rel"; fi
+}
 check_app() {  # <CmuxMobileApp.app>
   local app=$1 info="$1/Info.plist" bad=()
-  bash "$script_dir/check-production-binary.sh" "$app" "$bundle_id" "$binary_mode"
+  bash "$(built_checker cmux-next-ios/scripts/check-production-binary.sh)" "$app" "$bundle_id" "$binary_mode"
   # What App Store Connect rejects only after the upload (ITMS-90626, 90683, ...).
-  python3 -I "$repo/scripts/cmux-next/check-app-store-rules.py" --app "$app" || die "$app breaks an App Store review rule"
+  python3 -I "$(built_checker scripts/cmux-next/check-app-store-rules.py)" --app "$app" || die "$app breaks an App Store review rule"
   [[ "$(plutil -extract CmuxMobileStackEnvironment raw "$info" 2>/dev/null)" == "$stack_env" ]] || bad+=("CmuxMobileStackEnvironment (want '$stack_env')")
   [[ "$(plutil -extract CFBundleShortVersionString raw "$info")" == "$marketing" ]] || bad+=("CFBundleShortVersionString")
   [[ "$(plutil -extract CFBundleVersion raw "$info")" == "$build_number" ]] || bad+=("CFBundleVersion")

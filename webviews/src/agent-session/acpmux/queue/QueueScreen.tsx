@@ -21,7 +21,7 @@ import React, {
 import { age } from "../homeListsModel";
 import { useT, type Translate } from "../i18n";
 import { Keycap } from "../Keycap";
-import { AgentMark } from "../NewTabPage";
+import { AgentMark } from "../tabMarks";
 import type { NeedsYouAnswer } from "../needsYou/model";
 import { formatCost } from "../ledger/ledgerModel";
 import { SHORTCUT_ACTIONS, useShortcut } from "../shortcuts";

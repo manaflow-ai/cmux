@@ -8,6 +8,7 @@ mod app_id;
 mod backdrop;
 mod build_defaults;
 mod chat_roots;
+mod file_keys;
 mod json_schema;
 mod retired;
 pub mod shape;
@@ -32,6 +33,7 @@ pub use backdrop::{
 };
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
+pub use file_keys::{FileKey, file_key, file_keys};
 pub use retired::{
     Replaced, Retired, replaced_by_row, replaced_keys, retired_entries, retired_keys,
     retired_reason,
@@ -40,6 +42,10 @@ pub use sidebar_rows::problems as sidebar_row_problems;
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
+
+/// File settings read directly by acpmux outside the editable Settings catalog.
+pub const DESKTOP_BRIDGE_ENABLED: &str = "agents.desktopBridge.enabled";
+pub const DESKTOP_BRIDGE_ENTRYPOINTS: &str = "agents.desktopBridge.entrypoints";
 
 /// Compiled in compressed (cmux-embed): 2.4 MB of JSON, about 85 KB packed. Inflated once
 /// into the one text whose bytes the embedded rows borrow (`EMBEDDED.get()`).
@@ -153,6 +159,10 @@ pub enum Validation {
 pub enum DomainKind {
     Theme,
     FontFamily,
+    /// `appearance.appFont`: any installed font family, proportional ones too
+    /// (the terminal rows' `font_family` domain is the fixed-pitch families);
+    /// the app does not publish this list, so the owner checks the shape only.
+    UiFontFamily,
     Sound,
     /// `appearance.background`: a listed choice or `system:<absolute path>`
     /// (Swift `BackdropSelectionSetting.accepts`; each Mac has its own
@@ -190,6 +200,9 @@ pub enum DomainKind {
     /// `agentPane.display.commandLabels`: a list of preset names and command
     /// label rules (Swift `CommandLabelsSetting.accepts`).
     CommandLabels,
+    /// `agentPane.display.thinking.glyph`: a `cmux.particles/1` document, checked by the one
+    /// validator (cmux-app-host `particles::validate`) that also checks scene `choreography` props.
+    ParticlesDocument,
     /// `agentPane.display.transcriptTokens`: an object of transcript look
     /// tokens, each in its range (`crate::transcript_look`; Swift
     /// `TranscriptTokensSetting.accepts` checks the shape only).
@@ -431,6 +444,50 @@ impl Schema {
     pub fn rows_in<'a>(&'a self, section: Option<&'a str>) -> impl Iterator<Item = &'a Row> + 'a {
         self.rows.iter().filter(move |row| section.is_none_or(|id| row.section == id))
     }
+
+    /// Rows `settings.reset_group` resets for `name`: a section id
+    /// (`appearance`, the Settings page's left column) takes every row of
+    /// the section; `<section>.<group>` (`appearance.sidebar`, a heading on
+    /// that page, [`Row::group_id`]) takes the rows of that group. Empty for
+    /// an unknown name.
+    pub fn rows_in_group(&self, name: &str) -> Vec<&Row> {
+        self.rows.iter().filter(|row| row.section == name || row.group_id() == name).collect()
+    }
+
+    /// Every name [`Schema::rows_in_group`] knows, in schema order: each
+    /// section with rows, then its groups.
+    pub fn group_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for row in &self.rows {
+            for name in [row.section.clone(), row.group_id()] {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    }
+}
+
+impl Row {
+    /// The row's group as `settings.reset_group` names it: its section and
+    /// the last part of the group's localization key
+    /// (`settings.group.sidebar` in section `appearance` is
+    /// `appearance.sidebar`), or the group's title in lowercase letters and
+    /// digits when it has no key.
+    pub fn group_id(&self) -> String {
+        let slug = match &self.group.key {
+            Some(key) => key.rsplit('.').next().unwrap_or(key).to_string(),
+            None => self
+                .group
+                .text
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .map(|c| c.to_ascii_lowercase())
+                .collect(),
+        };
+        format!("{}.{slug}", self.section)
+    }
 }
 
 fn row(raw: Value, text: RowText) -> Result<Row, String> {
@@ -475,6 +532,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "portable" => Validation::Portable,
         "domain:theme" => Validation::Domain(DomainKind::Theme),
         "domain:font_family" => Validation::Domain(DomainKind::FontFamily),
+        "domain:ui_font_family" => Validation::Domain(DomainKind::UiFontFamily),
         "domain:sound" => Validation::Domain(DomainKind::Sound),
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
@@ -488,6 +546,7 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
         "domain:app_id" => Validation::Domain(DomainKind::AppId),
+        "domain:particles_document" => Validation::Domain(DomainKind::ParticlesDocument),
         "domain:sidebar_row_lines" => Validation::Domain(DomainKind::SidebarRowLines),
         "domain:sidebar_row_lines_by_kind" => Validation::Domain(DomainKind::SidebarRowLinesByKind),
         "domain:sidebar_row_lines_by_agent" => {

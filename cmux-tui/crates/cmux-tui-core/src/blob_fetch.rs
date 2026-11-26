@@ -24,7 +24,7 @@
 //! receiver-driven transfer (the side that writes asks for what it lacks).
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -48,8 +48,12 @@ pub const BLOB_FETCH_COMMANDS: [&str; 4] =
 const MAX_PLAN_BYTES: u64 = 64 * 1024 * 1024;
 /// The largest blob (one file or one chunk of a file) a job reads.
 const MAX_BLOB_BYTES: u64 = 64 * 1024 * 1024;
-/// Files fetched at once.
+/// Files fetched at once by one job, and by all jobs together: each holds up to
+/// [`MAX_BLOB_BYTES`] while it is checked and written, so fetches in flight
+/// hold at most 16 x 64 MiB however many jobs run (see [`BlobFetchService::fetches`]).
 const PARALLEL_FILES: usize = 16;
+/// Worker threads of the one runtime every job runs on.
+const RUNTIME_THREADS: usize = 4;
 /// Tries per blob before the job fails (network errors and 5xx).
 const TRIES: u32 = 4;
 /// Longest one blob request may take.
@@ -57,10 +61,6 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 /// Finished jobs that wrote nothing kept for `blob.fetch.status`; one that
 /// wrote stays until it is forgotten.
 const KEPT_FINISHED: usize = 32;
-/// At most this many fetch workers live at once, a cancelled one counting
-/// until its thread ends; a start past it is refused (`blob.busy`) and the
-/// Mac copies over the link instead.
-const MAX_RUNNING: usize = 4;
 /// Paths named in a status answer's `failed` list (the rest are counted).
 const LISTED_FAILURES: usize = 200;
 
@@ -286,6 +286,9 @@ struct Job {
     status: Mutex<JobStatus>,
     /// Each file this job committed and its revision, in commit order.
     written: Mutex<Vec<(String, String)>>,
+    /// The job's task, aborted on cancel so a job stuck on the store gives
+    /// back its fetch places at once.
+    task: Mutex<Option<tokio::task::AbortHandle>>,
 }
 
 /// At most this many `written` entries in one status answer.
@@ -336,32 +339,20 @@ impl Job {
     }
 }
 
-/// One live fetch thread in [`BlobFetchService::alive`], for as long as it
-/// is held (dropped when the thread ends, or with it when it never starts).
-struct Alive(Arc<AtomicUsize>);
-
-impl Alive {
-    fn enter(count: &Arc<AtomicUsize>) -> Self {
-        count.fetch_add(1, Ordering::SeqCst);
-        Self(count.clone())
-    }
-}
-
-impl Drop for Alive {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
-    }
-}
-
-/// The jobs of this daemon.
+/// The jobs of this daemon. No count of jobs is refused: each is a task on
+/// one shared runtime ([`RUNTIME_THREADS`] threads) with its own HTTP client,
+/// and all of them share [`PARALLEL_FILES`] fetch places, so what a job costs
+/// does not grow with how many run.
 pub struct BlobFetchService {
     roots: Roots,
     jobs: Mutex<Jobs>,
     /// Held across a job's cancelled check and its commit, so a cancel that
     /// takes it once knows no cancelled job commits after it.
     commits: Arc<Mutex<()>>,
-    /// Fetch threads not yet ended, cancelled ones included.
-    alive: Arc<AtomicUsize>,
+    /// The runtime every job runs on, built at the first start.
+    runtime: OnceLock<Result<tokio::runtime::Runtime, String>>,
+    /// Blob fetches in flight across every job (the plan's included).
+    fetches: Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Default)]
@@ -378,7 +369,8 @@ impl BlobFetchService {
             roots,
             jobs: Mutex::new(Jobs::default()),
             commits: Arc::new(Mutex::new(())),
-            alive: Arc::new(AtomicUsize::new(0)),
+            runtime: OnceLock::new(),
+            fetches: Arc::new(tokio::sync::Semaphore::new(PARALLEL_FILES)),
         }
     }
 
@@ -401,12 +393,6 @@ impl BlobFetchService {
         // An earlier job under the same folder may still write: it stops
         // before this one starts, whatever its plan.
         self.cancel_overlapping(&jobs, &target);
-        if self.alive.load(Ordering::SeqCst) >= MAX_RUNNING {
-            return Err(Refusal {
-                code: "blob.busy",
-                message: format!("{MAX_RUNNING} store fetches are running already"),
-            });
-        }
         jobs.next += 1;
         let id = format!("fetch_{}_{}", std::process::id(), jobs.next);
         let job = Arc::new(Job {
@@ -415,6 +401,7 @@ impl BlobFetchService {
             cancelled: AtomicBool::new(false),
             counters: Counters::default(),
             written: Mutex::new(Vec::new()),
+            task: Mutex::new(None),
             status: Mutex::new(JobStatus {
                 state: State::Running,
                 files_total: 0,
@@ -424,33 +411,37 @@ impl BlobFetchService {
             }),
         });
         jobs.by_id.insert(id, job.clone());
-        // Counted under the jobs lock, as the cap was checked: two starts
-        // at once cannot both take the last place.
-        let alive = Alive::enter(&self.alive);
-        drop(jobs);
         let roots = self.roots.clone();
         let commits = self.commits.clone();
+        let fetches = self.fetches.clone();
         let (plan, plan_size) = (params.plan, params.plan_size);
         let running = job.clone();
-        let spawned = std::thread::Builder::new().name("blob-fetch".into()).spawn(move || {
-            let _alive = alive;
-            let result = run(&roots, &store, &plan, plan_size, &running, &commits);
-            // A cancelled job already reads as failed (`blob.superseded`).
-            running.update(|status| match result {
-                _ if status.state != State::Running => {}
-                Ok(()) => status.state = State::Done,
-                Err((code, message)) => {
-                    status.state = State::Failed;
-                    status.error = Some((code, message));
-                }
-            });
-        });
-        if spawned.is_err() {
-            job.update(|status| {
+        match self.runtime() {
+            Ok(runtime) => {
+                let task = runtime.spawn(async move {
+                    let result =
+                        run(&roots, &store, &plan, plan_size, &running, &commits, &fetches).await;
+                    // A cancelled job already reads as failed (`blob.superseded`).
+                    running.update(|status| match result {
+                        _ if status.state != State::Running => {}
+                        Ok(()) => status.state = State::Done,
+                        Err((code, message)) => {
+                            status.state = State::Failed;
+                            status.error = Some((code, message));
+                        }
+                    });
+                });
+                // Set under the jobs lock, so a cancel that finds the job finds its task.
+                *job.task.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(task.abort_handle());
+            }
+            Err(error) => job.update(|status| {
                 status.state = State::Failed;
-                status.error = Some(("blob.failure", "could not start the fetch".into()));
-            });
+                status.error =
+                    Some(("blob.failure", format!("could not start the fetch: {error}")));
+            }),
         }
+        drop(jobs);
         let answer = job.answer();
         self.retire_finished();
         Ok(answer)
@@ -508,6 +499,13 @@ impl BlobFetchService {
                 State::Done | State::Failed => {}
                 State::Running => {
                     job.cancelled.store(true, Ordering::SeqCst);
+                    // Its commit runs under `commits` with no await in it, so the
+                    // abort lands before or after a commit, never inside one.
+                    if let Some(task) =
+                        job.task.lock().unwrap_or_else(PoisonError::into_inner).take()
+                    {
+                        task.abort();
+                    }
                     status.state = State::Failed;
                     status.error =
                         Some(("blob.superseded", "a newer push to this folder took over".into()));
@@ -584,30 +582,55 @@ impl BlobFetchService {
     }
 }
 
+impl Drop for BlobFetchService {
+    /// A job may wait on a store that never answers: its runtime is let go
+    /// without waiting for it.
+    fn drop(&mut self) {
+        if let Some(Ok(runtime)) = self.runtime.take() {
+            runtime.shutdown_background();
+        }
+    }
+}
+
+impl BlobFetchService {
+    fn runtime(&self) -> Result<&tokio::runtime::Runtime, &str> {
+        self.runtime
+            .get_or_init(|| {
+                let _ = rustls::crypto::ring::default_provider().install_default();
+                tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(RUNTIME_THREADS)
+                    .thread_name("blob-fetch")
+                    .enable_all()
+                    .build()
+                    .map_err(|error| error.to_string())
+            })
+            .as_ref()
+            .map_err(String::as_str)
+    }
+}
+
 type Failure = (&'static str, String);
 
-fn run(
+async fn run(
     roots: &Roots,
     store: &Store,
     plan: &str,
     plan_size: u64,
     job: &Job,
     commits: &Mutex<()>,
+    fetches: &tokio::sync::Semaphore,
 ) -> Result<(), Failure> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(4)
-        .enable_all()
-        .build()
-        .map_err(|error| ("blob.failure", error.to_string()))?;
-    runtime.block_on(async {
-        let client = reqwest::Client::builder()
+    {
+        let client = cmux_egress::client_builder("cmux_tui_core::blob_fetch")
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .timeout(REQUEST_TIMEOUT)
             .build()
             .map_err(|error| ("blob.failure", error.to_string()))?;
-        let bytes = fetch_blob(&client, store, plan, plan_size).await?;
+        let bytes = {
+            let _place = fetch_place(fetches).await?;
+            fetch_blob(&client, store, plan, plan_size).await?
+        };
         let plan: Plan = serde_json::from_slice(&bytes)
             .map_err(|error| ("blob.bad_plan", format!("the plan is not readable: {error}")))?;
         if plan.version != 1 {
@@ -619,18 +642,20 @@ fn run(
             status.bytes_total = plan.files.iter().map(|file| file.size).sum();
         });
         use futures_util::stream::{self, StreamExt as _};
-        let outcomes: Vec<Result<(), (String, Failure)>> = stream::iter(plan.files.iter())
-            .map(|file| {
-                let client = &client;
-                async move {
-                    let written = write_file(client, store, roots, file, job, commits).await;
-                    job.counters.files_done.fetch_add(1, Ordering::Relaxed);
-                    written.map_err(|failure| (file.path.clone(), failure))
-                }
+        // The futures are made up front, so no closure over `&PlanFile` is held across an await:
+        // such a closure is not `Send` for every lifetime, and the job runs on a spawned task.
+        let client = &client;
+        let writes: Vec<_> = plan
+            .files
+            .iter()
+            .map(|file| async move {
+                let written = write_file(client, store, roots, file, job, commits, fetches).await;
+                job.counters.files_done.fetch_add(1, Ordering::Relaxed);
+                written.map_err(|failure| (file.path.clone(), failure))
             })
-            .buffer_unordered(PARALLEL_FILES)
-            .collect()
-            .await;
+            .collect();
+        let outcomes: Vec<Result<(), (String, Failure)>> =
+            stream::iter(writes).buffer_unordered(PARALLEL_FILES).collect().await;
         // A file the sandbox refused (a folder in the way, say) is named for the
         // Mac to write itself; a store or disk failure fails the job.
         let mut fatal = None;
@@ -644,7 +669,15 @@ fn run(
             }
         }
         fatal.map_or(Ok(()), Err)
-    })
+    }
+}
+
+/// One of the daemon's [`PARALLEL_FILES`] fetch places, held while a blob's
+/// bytes are in memory.
+async fn fetch_place(
+    fetches: &tokio::sync::Semaphore,
+) -> Result<tokio::sync::SemaphorePermit<'_>, Failure> {
+    fetches.acquire().await.map_err(|_| ("blob.failure", "the fetch places closed".to_string()))
 }
 
 /// Every file is under `target`, every hash is a SHA-256, every size within
@@ -678,6 +711,7 @@ async fn write_file(
     file: &PlanFile,
     job: &Job,
     commits: &Mutex<()>,
+    fetches: &tokio::sync::Semaphore,
 ) -> Result<(), Failure> {
     let fs = |error: FsError| (error.code(), error.message());
     let superseded = || ("blob.superseded", "a newer push to this folder took over".to_string());
@@ -693,6 +727,8 @@ async fn write_file(
             .map_err(fs)?;
     pending.set_permissions(file.permissions).map_err(fs)?;
     let mut whole = Sha256::new();
+    // Held for the whole file, so a file's chunks never wait behind another job's.
+    let _place = fetch_place(fetches).await?;
     for chunk in file.blobs() {
         if job.cancelled.load(Ordering::SeqCst) {
             return Err(superseded());

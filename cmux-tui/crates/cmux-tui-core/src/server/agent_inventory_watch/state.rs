@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, Weak};
 
-const MAX_WATCHES: usize = 8;
+// Watches are not capped by count: a client holds at most one, and each holds one acpmux link
+// (a unix socket) and, while it starts, one inventory read slot (`agent_inventory::reserve`).
 
 #[derive(Default)]
 pub(in crate::server) struct Watches(Mutex<HashMap<u64, Arc<Watch>>>);
@@ -43,7 +44,7 @@ impl Watches {
     }
     pub(super) fn insert(&self, watch: Arc<Watch>) -> Result<(), Failure> {
         let mut live = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if live.len() >= MAX_WATCHES || live.contains_key(&watch.client) {
+        if live.contains_key(&watch.client) {
             return Err(Failure::Busy);
         }
         live.insert(watch.client, watch);
@@ -279,5 +280,32 @@ impl Drop for Watch {
         if let Some(link) = self.state.get_mut().unwrap_or_else(|e| e.into_inner()).link.take() {
             link.close();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::bounded_outbound::{BoundedOutbound, QueuedSink};
+    use std::sync::Arc;
+
+    /// More clients than the 8 watches the daemon once took each hold a lease; a
+    /// second watch of one client is still refused.
+    #[test]
+    fn more_watches_than_the_old_cap_each_hold_a_lease() {
+        let mux = Mux::new_for_test("inventory-watch-many", crate::SurfaceOptions::default());
+        let watches = Watches::default();
+        let watch = |client: u64| {
+            let writer = MessageWriter::new(QueuedSink {
+                outbound: Arc::new(BoundedOutbound::default()),
+                control: None,
+            });
+            Watch::new(&mux, client, PathBuf::from("/nonexistent"), 0, writer).unwrap()
+        };
+        for client in 0..12 {
+            watches.insert(watch(client)).unwrap();
+        }
+        assert!((0..12).all(|client| watches.get(client).is_some()));
+        assert!(matches!(watches.insert(watch(3)), Err(Failure::Busy)));
     }
 }

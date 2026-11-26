@@ -9,8 +9,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
-import { useStore } from "../context";
+import { Dialog, DialogDescription, DialogTitle } from "../../../ui/Dialog";
+import { useSettingsState, useRowState, useStore } from "../context";
+import type { TailnetVMReply } from "../ops";
 import { TAILNET_KEY, tailnetQuery } from "../sectionQueries";
+import "../tailnetJoin.css";
 import { t } from "../strings";
 import { TAILNET_SETTLE_WAITS_MS, tailnetSettling, tailnetView, tailnetWaits, type TailnetView } from "../tailnet";
 import { ActionRow } from "./ActionRow";
@@ -132,6 +135,8 @@ export function TailnetRows({
 
 export function TailnetCard() {
   const store = useStore();
+  const settings = useSettingsState();
+  const enabled = useRowState("tailnet.join.enabled").value === true;
   const client = useQueryClient();
   const query = useQuery(tailnetQuery(store));
   const [busy, setBusy] = useState(false);
@@ -158,7 +163,7 @@ export function TailnetCard() {
       document.removeEventListener("visibilitychange", refresh);
     };
   }, [waits, client]);
-  if (!view) return null;
+  if (!view && !enabled) return null;
   const step = async (verb: TailnetVerb) => {
     setBusy(true);
     setFailed(false);
@@ -187,11 +192,238 @@ export function TailnetCard() {
     }
   };
   return (
-    <section className="group" data-card="tailnet" data-tailnet-state={view.kind}>
-      <h3 className="group-title">{t("settingsPage.tailnet.title")}</h3>
+    <>
+      {view && (
+        <section className="group" data-card="tailnet" data-tailnet-state={view.kind}>
+          <h3 className="group-title">{t("settingsPage.tailnet.title")}</h3>
+          <div className="rows">
+            <TailnetRows view={view} busy={busy} failed={failed} onStep={(verb) => void step(verb)} />
+          </div>
+        </section>
+      )}
+      {enabled && <TailnetVMCard machines={settings.host?.machines ?? []} />}
+    </>
+  );
+}
+
+function TailnetVMCard({ machines }: { machines: Array<{ id: string; title: string }> }) {
+  const store = useStore();
+  const loginServer = String(useRowState("tailnet.join.loginServer").value ?? "");
+  const hostname = String(useRowState("tailnet.join.hostname").value ?? "");
+  const tags =
+    (useRowState("tailnet.join.tags").value as unknown[] | undefined)?.filter(
+      (v): v is string => typeof v === "string",
+    ) ?? [];
+  const ssh = useRowState("tailnet.join.ssh").value === true;
+  const ephemeral = useRowState("tailnet.join.ephemeral").value === true;
+  const servePorts =
+    (useRowState("tailnet.join.servePorts").value as unknown[] | undefined)?.filter(
+      (v): v is string => typeof v === "string",
+    ) ?? [];
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState<TailnetVMReply | null>(null);
+  const [vm, setVM] = useState("");
+  const leave = async () => {
+    if (!selected?.vm) return;
+    const reply = await store.leaveTailnetVM(selected.vm);
+    if (reply.ok) setSelected(null);
+  };
+  return (
+    <section className="group" data-card="tailnet-cloud">
+      <h3 className="group-title">{t("settingsPage.tailnet.cloudTitle")}</h3>
       <div className="rows">
-        <TailnetRows view={view} busy={busy} failed={failed} onStep={(verb) => void step(verb)} />
+        <div className="row">
+          <div className="row-label">
+            <div className="row-title">{selected?.node?.dnsName ?? t("settingsPage.tailnet.cloudTitle")}</div>
+            <div className="row-help">{selected ? tailnetFacts(selected) : t("settingsPage.tailnet.cloudHelp")}</div>
+          </div>
+          <div className="accounts-buttons">
+            {selected ? (
+              <Button className="button" data-tailnet-vm-leave="" onClick={() => void leave()}>
+                {t("settingsPage.tailnet.leave")}
+              </Button>
+            ) : (
+              <Button className="button" data-tailnet-vm-join="" onClick={() => setOpen(true)}>
+                {t("settingsPage.tailnet.join")}
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
+      {open && (
+        <TailnetJoinDialog
+          machines={machines}
+          vm={vm}
+          setVM={setVM}
+          options={{ loginServer, hostname, tags, ssh, ephemeral, servePorts }}
+          onClose={() => setOpen(false)}
+          onJoined={(reply) => {
+            setSelected(reply);
+            setOpen(false);
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+function tailnetFacts(reply: TailnetVMReply): string {
+  const node = reply.node;
+  if (!node) return reply.error ?? "";
+  const facts = [
+    node.online === false ? t("settingsPage.tailnet.offline") : t("settingsPage.tailnet.online"),
+    node.ips?.length ? `${t("settingsPage.tailnet.ips")}: ${node.ips.join(", ")}` : "",
+    node.tags?.length ? `${t("settingsPage.tailnet.tags")}: ${node.tags.join(", ")}` : "",
+  ].filter(Boolean);
+  return facts.join(" · ");
+}
+
+/** Tailscale OAuth client secrets and API keys outlive one join; a single-use auth key does not. */
+function tailnetKeyLooksReusable(key: string, oauth: boolean): boolean {
+  const text = key.trim();
+  return oauth || text.startsWith("tskey-client-") || text.startsWith("tskey-api-");
+}
+
+function TailnetJoinDialog({
+  machines,
+  vm,
+  setVM,
+  options,
+  onClose,
+  onJoined,
+}: {
+  machines: Array<{ id: string; title: string }>;
+  vm: string;
+  setVM: (value: string) => void;
+  options: {
+    loginServer: string;
+    hostname: string;
+    tags: string[];
+    ssh: boolean;
+    ephemeral: boolean;
+    servePorts: string[];
+  };
+  onClose: () => void;
+  onJoined: (reply: TailnetVMReply) => void;
+}) {
+  const store = useStore();
+  const [key, setKey] = useState("");
+  const [oauth, setOAuth] = useState(false);
+  const [switchTailnet, setSwitchTailnet] = useState(false);
+  const [allowHttp, setAllowHttp] = useState(false);
+  const loginServer = options.loginServer.trim();
+  // A plain-http login server sends the key unencrypted: the CLI refuses it without --allow-http,
+  // so the person ticks it for this server, in this sheet, every time.
+  const plainHttp = /^http:\/\//i.test(loginServer);
+  const reusable = tailnetKeyLooksReusable(key, oauth);
+  const ready = vm.trim() !== "" && key !== "" && (!plainHttp || allowHttp);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError(null);
+    const reply = await store.joinTailnetVM({
+      vm: vm.trim(),
+      key,
+      oauth,
+      ...options,
+      allowHttp: plainHttp && allowHttp,
+      switch: switchTailnet,
+    });
+    setBusy(false);
+    if (reply.ok) {
+      setKey("");
+      onJoined(reply);
+    } else {
+      const detail =
+        reply.errorCode === "missing_vm"
+          ? t("settingsPage.tailnet.missingMachine")
+          : reply.errorCode === "missing_key"
+            ? t("settingsPage.tailnet.missingCredential")
+            : (reply.error ?? t("settingsPage.tailnet.unknownError"));
+      setError(detail);
+    }
+  };
+  return (
+    <Dialog
+      open
+      onOpenChange={(next) => !next && onClose()}
+      label={t("settingsPage.tailnet.join")}
+      className="tailnet-join-sheet"
+    >
+      <form
+        className="tailnet-join-content"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void submit();
+        }}
+      >
+        <DialogTitle>{t("settingsPage.tailnet.join")}</DialogTitle>
+        <DialogDescription>{t("settingsPage.tailnet.cloudHelp")}</DialogDescription>
+        <label className="tailnet-join-field">
+          {t("settingsPage.tailnet.machine")}
+          <input
+            list="tailnet-machines"
+            data-tailnet-join-vm=""
+            value={vm}
+            onChange={(event) => setVM(event.target.value)}
+            autoComplete="off"
+          />
+          <datalist id="tailnet-machines">
+            {machines.map((machine) => (
+              <option key={machine.id} value={machine.id}>
+                {machine.title}
+              </option>
+            ))}
+          </datalist>
+        </label>
+        <label className="tailnet-join-field">
+          {t("settingsPage.tailnet.credential")}
+          <input
+            type="password"
+            data-tailnet-join-key=""
+            value={key}
+            onChange={(event) => setKey(event.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        <p>{t("settingsPage.tailnet.keyHelp")}</p>
+        {reusable && (
+          <p className="tailnet-join-warning" role="alert" data-tailnet-key-reusable="">
+            {t("settingsPage.tailnet.reusableWarning")}
+          </p>
+        )}
+        {plainHttp && (
+          <label className="tailnet-join-check" data-tailnet-allow-http="">
+            <input type="checkbox" checked={allowHttp} onChange={(event) => setAllowHttp(event.target.checked)} />
+            <span>{t("settingsPage.tailnet.allowHttp", loginServer)}</span>
+          </label>
+        )}
+        <label className="tailnet-join-check">
+          <input type="checkbox" checked={oauth} onChange={(event) => setOAuth(event.target.checked)} />
+          <span>{t("settingsPage.tailnet.oauthMode")}</span>
+        </label>
+        <label className="tailnet-join-check">
+          <input type="checkbox" checked={switchTailnet} onChange={(event) => setSwitchTailnet(event.target.checked)} />
+          <span>{t("settingsPage.tailnet.switch")}</span>
+        </label>
+        {error && (
+          <p className="tailnet-join-error" role="alert">
+            {t("settingsPage.tailnet.joinError", error)}
+          </p>
+        )}
+        {error?.includes("another tailnet") && <p>{t("settingsPage.tailnet.switchHelp")}</p>}
+        <div className="accounts-buttons">
+          <Button type="button" className="button" onClick={onClose}>
+            {t("settingsPage.cancel")}
+          </Button>
+          <Button type="submit" className="button" data-tailnet-join-submit="" disabled={busy || !ready}>
+            {busy ? t("settingsPage.tailnet.joining") : t("settingsPage.tailnet.join")}
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
