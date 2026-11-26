@@ -4,11 +4,11 @@ Every export of `webviews/src/ui` and `webviews/src/kit` has one of three status
 promise to the pages, panes and customizations that import it. The scheme follows GitHub's Primer
 (experimental, ready, deprecated) and IBM's Carbon (status in the code, so a call site shows it).
 
-| Status         | How it is marked                           | What we promise                                                                                                                                              |
-| -------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ready`        | The default, except for components covered only by experimental gallery entries.              | A breaking change comes with a migration note in the PR and a codemod or lint autofix that moves every caller in the repo, in the same PR.                   |
-| `experimental` | `@status experimental` in the export's doc | Nothing. It may change shape or go away in any PR. Experiment definitions (`*.experiment.ts`) and the props only an experiment's arm draws are experimental. |
-| `deprecated`   | `@deprecated Use X` in the export's doc    | It names its replacement, which already exists, and it keeps working until its last caller has moved. Runtime warnings are development-only.  |
+| Status         | How it is marked                                                                 | What we promise                                                                                                                                              |
+| -------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ready`        | The default, except for components covered only by experimental gallery entries. | A breaking change comes with a migration note in the PR and a codemod or lint autofix that moves every caller in the repo, in the same PR.                   |
+| `experimental` | `@status experimental` in the export's doc                                       | Nothing. It may change shape or go away in any PR. Experiment definitions (`*.experiment.ts`) and the props only an experiment's arm draws are experimental. |
+| `deprecated`   | `@deprecated Use X` in the export's doc                                          | It names its replacement, which already exists, and it keeps working until its last caller has moved. Runtime warnings are development-only.                 |
 
 ## Ready
 
