@@ -28,9 +28,9 @@
 // The judged number is the marginal ratio: (cost(top) - cost(mid)) / (top - mid) over (cost(mid) - cost(low)) / (mid -
 // low), per axis and metric, with a per-item noise floor (FLOOR) under both: flat is 1.0, a per-item cost that grows
 // with the count reads above it. Frame p95 is no sum of items, so its ratio is p95(top) / max(p95(mid), 16.7 ms).
-// The two CPU metrics carry each rung's standard error (its windows' spread over sqrt(n)), and their ratio counts only
-// what clears it (ladderRatio.ts marginalRatio): growth under 2 standard errors reads at most 1.0, and its bound prints
-// as sim_ladder.AXIS.METRIC.resolution (ms/s per item).
+// The two CPU metrics carry each rung's standard error (its windows' spread over sqrt(n)). Their ratio is the same
+// formula; beside it the bench prints FLOOR, each marginal +- 2 standard errors and the interval the ratio lies in
+// (ladderRatio.ts ratioInterval), and a row sim_ladder.AXIS.METRIC.ratio_ci (p50 its low end, p95 its high end).
 // sim_ladder.ratio_max is the worst; cmuxterm-hq's NOW reads it as benches.rows[key=sim_ladder_marginal_ratio_max].
 //   bun bench/sim-ladder.bench.ts [--axes chats,tabs] [--rungs 10,50,100] [--sessions 3000] [--rows 120]
 //     [--window 5000] [--settle 20000] [--rate 20] [--freeze] [--json out.json]
@@ -48,7 +48,7 @@ import path from "node:path";
 import type { Browser, CDPSession, Page } from "playwright";
 import { chromium } from "./browsers";
 import { servePane } from "./composer-arms";
-import { FLOOR, marginalRatio, type Metric, type Sample, marginals, SIGMAS } from "./ladderRatio";
+import { FLOOR, marginalRatio, type Metric, type Sample, SIGMAS, ratioInterval } from "./ladderRatio";
 import { perfRow } from "./perfRow";
 
 const argv = process.argv.slice(2);
@@ -825,18 +825,24 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     // The CPU readings carry their standard error (a rung's windows); the rest are one reading after a collection.
     const cpu = metric === "cpu_ms_per_s" || metric === "cpu_window_ms_per_s";
     const se = cpu && CPU_WINDOWS > 3 ? RUNGS.map((rung) => cpuSe[rung] ?? 0) : undefined;
-    const ratio = Math.round(marginalRatio(metric, RUNGS, values, se) * 100) / 100;
+    const ratio = Math.round(marginalRatio(metric, RUNGS, values) * 100) / 100;
     ratios[`${axis}.${metric}`] = ratio;
-    const { low, high, growthSe } = marginals(RUNGS, values, se);
-    const resolution = Math.round(SIGMAS * growthSe * 100) / 100;
+    const low = (values[1]! - values[0]!) / (RUNGS[1]! - RUNGS[0]!);
+    const high = (values[2]! - values[1]!) / (RUNGS[2]! - RUNGS[1]!);
+    const ci = se && metric !== "frame_p95_ms" ? ratioInterval(metric, RUNGS, values, se) : undefined;
+    const r2 = (n: number) => Math.round(n * 100) / 100;
     console.log(
-      `SIM-LADDER ${axis} ${metric} ${values.join(" / ")} | per item ${low.toFixed(2)} then ${high.toFixed(2)}${se ? ` | growth resolved past ${resolution} per item (${SIGMAS} se)` : ""} | ratio ${ratio}`,
+      `SIM-LADDER ${axis} ${metric} ${values.join(" / ")} | per item ${low.toFixed(2)} then ${high.toFixed(2)} | ratio ${ratio}` +
+        (ci
+          ? ` | per item +-${SIGMAS} se ${ci.low.toFixed(2)} +- ${(SIGMAS * ci.lowSe).toFixed(2)} then ${ci.high.toFixed(2)} +- ${(SIGMAS * ci.highSe).toFixed(2)}, floor ${ci.floor}, ratio in ${r2(ci.lo)} .. ${r2(ci.hi)}`
+          : ""),
     );
-    if (se)
+    if (ci)
       perfRow({
-        name: `sim_ladder.${axis}.${metric}.resolution`,
-        p95: resolution,
-        unit: "ms/s per item",
+        name: `sim_ladder.${axis}.${metric}.ratio_ci`,
+        p50: r2(ci.lo),
+        p95: r2(ci.hi),
+        unit: "x",
         version: VERSION,
       });
     perfRow({
