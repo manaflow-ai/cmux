@@ -242,6 +242,10 @@ pub(crate) struct MirrorGuard<'a> {
 impl Deref for MirrorGuard<'_> {
     type Target = Box<Terminal>;
 
+    #[allow(
+        clippy::expect_used,
+        reason = "every MirrorGuard is built with Some: `unparked` fills the slot first, `lock_unparked` checks it"
+    )]
     fn deref(&self) -> &Box<Terminal> {
         // crash-allow: every MirrorGuard is built with Some (`unparked` fills the slot first, `lock_unparked` checks it).
         self.guard.as_ref().expect("a mirror guard holds an unparked terminal")
@@ -249,6 +253,10 @@ impl Deref for MirrorGuard<'_> {
 }
 
 impl DerefMut for MirrorGuard<'_> {
+    #[allow(
+        clippy::expect_used,
+        reason = "every MirrorGuard is built with Some: `unparked` fills the slot first, `lock_unparked` checks it"
+    )]
     fn deref_mut(&mut self) -> &mut Box<Terminal> {
         // crash-allow: every MirrorGuard is built with Some (`unparked` fills the slot first, `lock_unparked` checks it).
         self.guard.as_mut().expect("a mirror guard holds an unparked terminal")
@@ -267,6 +275,10 @@ fn replay_pays(replay: &VtReplay, resident: Option<u64>) -> bool {
 /// What a lock gets when a rebuild fails: an empty terminal at the size it
 /// had, or one cell when even that fails, so no reader ever finds no
 /// terminal.
+#[allow(
+    clippy::expect_used,
+    reason = "a one-cell, no-scrollback terminal fails only when allocation fails, which aborts anyway"
+)]
 fn blank_terminal(size: Option<(PtyGeometry, usize)>) -> Terminal {
     size.and_then(|(geometry, scrollback)| {
         Terminal::new(geometry.cols, geometry.rows, scrollback, Callbacks::default()).ok()
