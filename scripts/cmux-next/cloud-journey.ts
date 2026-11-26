@@ -3536,6 +3536,20 @@ export const CREDENTIAL_PROCESSES_PROGRAM =
   `n=$((n + 1)); [ "$n" -ge 8 ] && break; done; true`;
 
 /**
+ * A stub chat that a real model answered: whether the image's model route file exists, and for each Claude process the
+ * provider names its env sets and the host of its ANTHROPIC_BASE_URL (a host, never a key), plus settings.json's.
+ */
+export const STUB_BYPASS_PROGRAM =
+  `[ -e /etc/cmux/model-plane.env ] && echo "model-plane.env present" || echo "model-plane.env absent"; ` +
+  `echo "settings.json base URL host: $(grep -oE '"ANTHROPIC_BASE_URL": *"[a-z]+://[^/"]+' /home/cmux/.claude/settings.json 2>/dev/null | sed -E 's#.*://##')"; ` +
+  `n=0; for d in /proc/[0-9]*; do [ -O "$d" ] || continue; ` +
+  `c=$(tr '\\0\\n' '  ' < "$d/cmdline" 2>/dev/null | cut -c1-60); ` +
+  `printf '%s\\n' "$c" | grep -qE '(^|/)claude( |$)|claude-(agent|code)' || continue; ` +
+  `e=$(tr '\\0' '\\n' < "$d/environ" 2>/dev/null); ` +
+  `echo "pid \${d#/proc/}: $c :: $(printf '%s\\n' "$e" | grep -oE '^(ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_CONFIG_DIR)=' | tr -d = | tr '\\n' ' ')base host $(printf '%s\\n' "$e" | sed -nE 's#^ANTHROPIC_BASE_URL=[a-z]+://([^/]+).*#\\1#p')"; ` +
+  `n=$((n + 1)); [ "$n" -ge 6 ] && break; done; true`;
+
+/**
  * Whether the journey's Claude login goes with the agent's start as its launch credential (cmux#40159), never onto the
  * machine: the way the app sends a person's Cloud model connection, on the stub and on the real model alike. Staging
  * and production machines have no model route of their own (acpmux cloud_model_plane.rs where_resolves), so a copied
@@ -5745,6 +5759,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return r.stdout.split("\n").filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } })
         .filter((x: any) => x && x.method === "POST" && x.stream && !x.side);
     };
+    // Why a stub chat's reply came from somewhere else: how many turns the stub logged, whether the image's model route
+    // file is there (acpmux cloud_model_plane.rs fills its base URL into every spawn), and each Claude process's
+    // provider names and base URL host (names and hosts only, never a key).
+    const stubBypassFacts = async (): Promise<string> => {
+      const n = await stubTurns().then((t) => t.length, () => null);
+      const r = await exec(STUB_BYPASS_PROGRAM).catch(() => null);
+      return `the stub logged ${n ?? "unread"} turn requests; ${r?.stdout.trim().replace(/\n/g, "; ").slice(0, 900) || "machine facts unread"}`;
+    };
     // A later turn in the same session. With the stub, a request's step is the number of tool results already in the
     // conversation: the first request of this turn at step >= 1 proves the session still holds turn 1 (its tool
     // result), where a fresh conversation would start at step 0.
@@ -5868,7 +5890,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           await J.step("reply", async () => {
             const last = await awaitReply();
             if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
-              throw new Error(`the reply does not carry the stub's read of ${nonce}-tool: ${last.slice(-200)}`);
+              throw new Error(`the reply does not carry the stub's read of ${nonce}-tool: ${last.slice(-200)}; ${await stubBypassFacts()}`);
             }
             return { value: last, detail: last.slice(0, 280) };
           });
