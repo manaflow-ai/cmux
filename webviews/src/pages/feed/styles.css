@@ -565,7 +565,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--ds-space-fixed-2);
-  padding-inline-start: 24px;
+  padding-inline-start: var(--ds-space-fixed-5);
 }
 
 /* MARK: - List (the right sidebar) */
@@ -1296,7 +1296,7 @@
 
 .feed-needs-answers {
   flex: none;
-  padding-inline-end: 4px;
+  padding-inline-end: var(--ds-space-fixed-1);
 }
 
 /* An integrations hub approval (HubApprovalCard.tsx) is a request row (.feed-needs-row) with no

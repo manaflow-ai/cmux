@@ -537,7 +537,7 @@ html[data-cmux-page="github"],
   cursor: default;
 }
 .gh-ready-list .gh-ready-blocker { width: 100%; padding: var(--ds-space-1) var(--ds-space-2); border-radius: 6px; }
-.gh-ready-list span.gh-ready-blocker { padding-inline-start: calc(var(--ds-space-2) + 12px + var(--ds-space-1)); }
+.gh-ready-list span.gh-ready-blocker { padding-inline-start: calc(var(--ds-space-2) + var(--ds-space-fixed-3) + var(--ds-space-1)); }
 .gh-ready-list button.gh-ready-blocker:hover { background: var(--page-hover); }
 .gh-ready-chips,
 .gh-ready-inline { display: flex; flex-wrap: wrap; gap: var(--ds-space-1); }
