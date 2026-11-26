@@ -168,6 +168,75 @@ for id in marked("removal"):
         print(f"{markers}/removal/{id}")
 PY
   )
+  # A fields/<id> marker lists JSON pointers into <id>'s action-catalog.json row that the crate changed and the
+  # pinned FFI did not have yet: the committed export keeps the old value until the re-pin. A pointer whose value
+  # the regenerated export changed from the committed one (HEAD) is settled, which swift_parity reports as "the re-pin
+  # landed, so take /x out". The re-pin rarely takes them out (117 had piled up by 11-26, the exports unregenerated
+  # since 11-24), so a marker loses its settled lines here and goes once none are left. A /surfacePlan/ pointer is also
+  # checked against action-surfaces.json, which this does not read, so it stays for a person.
+  while IFS=$'\t' read -r kind stale pointer; do
+    [[ -n "$stale" ]] || continue
+    if frozen "$stale"; then echo "skipped (frozen): $stale"; continue; fi
+    if [[ "$kind" == rm ]]; then
+      rm -f "$repo/$stale"
+      echo "fixed: deleted $stale (the regenerated exports carry the re-pin)"
+    else
+      python3 -I -c '
+import sys
+path, pointer = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    lines = f.readlines()
+with open(path, "w") as f:
+    f.writelines(line for line in lines if line.split("#", 1)[0].strip() != pointer)
+' "$repo/$stale" "$pointer"
+      echo "fixed: took $pointer out of $stale (the regenerated exports carry it)"
+    fi
+  done < <(python3 -I - "$repo" "$markers" <<'FIELDS'
+import json, os, subprocess, sys
+repo, markers = sys.argv[1], sys.argv[2]
+export = "plans/cmux-next/action-catalog.json"
+def rows(text):
+    try:
+        actions = json.loads(text)["actions"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return {r["id"]: r for r in actions if isinstance(r, dict) and isinstance(r.get("id"), str)}
+try:
+    with open(os.path.join(repo, export)) as f:
+        new = rows(f.read())
+    old = rows(subprocess.run(["git", "-C", repo, "show", f"HEAD:{export}"], capture_output=True, text=True,
+                              check=True).stdout)
+except (OSError, subprocess.CalledProcessError):
+    sys.exit(0)  # no committed export to compare with: settle nothing
+if not new or not old:
+    sys.exit(0)
+MISSING = object()
+def at(row, pointer):
+    value = row
+    for part in pointer.lstrip("/").split("/"):
+        part = part.replace("~1", "/").replace("~0", "~")
+        if isinstance(value, dict) and part in value:
+            value = value[part]
+        elif isinstance(value, list) and part.isdigit() and int(part) < len(value):
+            value = value[int(part)]
+        else:
+            return MISSING
+    return value
+d = os.path.join(repo, markers, "fields")
+for id in sorted(n for n in os.listdir(d) if not n.startswith(".")) if os.path.isdir(d) else []:
+    rel = f"{markers}/fields/{id}"
+    with open(os.path.join(repo, rel)) as f:
+        pointers = [p for p in (line.split("#", 1)[0].strip() for line in f) if p]
+    if id not in new or id not in old or not pointers:
+        continue  # a gone row or an empty marker is swift_parity's to name
+    settled = [p for p in pointers if not p.startswith("/surfacePlan/") and at(new[id], p) != at(old[id], p)]
+    if settled and len(settled) == len(pointers):
+        print(f"rm\t{rel}\t")
+    else:
+        for p in settled:
+            print(f"edit\t{rel}\t{p}")
+FIELDS
+  )
 fi
 
 # 1b. The CI target graph, from the checkout's own generator.
