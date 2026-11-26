@@ -16,6 +16,8 @@ pub mod approval;
 pub mod draft;
 #[path = "tabs_group_drop.rs"]
 pub mod group_drop;
+#[path = "tabs_hover_card.rs"]
+pub mod hover_card;
 #[path = "tabs_page_closes.rs"]
 pub mod page_closes;
 #[path = "tabs_panes.rs"]
@@ -24,6 +26,8 @@ pub mod panes;
 pub mod place;
 #[path = "tabs_plus_menu.rs"]
 pub mod plus_menu;
+#[path = "tabs_strip_state.rs"]
+pub mod strip_state;
 #[path = "tabs_type_ahead.rs"]
 pub mod type_ahead;
 
