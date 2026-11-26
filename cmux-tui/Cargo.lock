@@ -2823,6 +2823,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-carrier",
  "cmux-braid-path",
  "cmux-braid-session",
  "cmux-build-identity",
@@ -3020,6 +3021,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-shotdiff"
+version = "1.0.0"
+dependencies = [
+ "png",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
