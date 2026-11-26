@@ -86,6 +86,28 @@ held (a swap in progress):
   `ios-live status` shows the last few and the device's RSS (its `launchd_sim` tree). Memory per
   device is bounded by the slimmed device.
 
+## Linux phones
+
+`IOS_LIVE_LINUX=HOST` (or `local`) points ios-live at an agent-sim iPhone on a Linux host instead
+of a Mac slot. The host side is `linux.sh`; the phone stays booted, so a swap costs install +
+relaunch + first frame, with no boot and no Mac queue.
+
+```bash
+export IOS_LIVE_LINUX=local            # or a Linux host reach can drive
+ios-live lease take                    # hold a booted phone (agent-sim pool take)
+ios-live swap path/to/CmuxMobileApp.app   # or ios-sim-build.tar.gz; IOS_LIVE_APP sets the default
+ios-live shot out.png; ios-live tree; ios-live tap X Y; ios-live relaunch; ios-live status
+ios-live lease release
+```
+
+- The host's `~/ios-live-linux/launch.env` (KEY=VALUE lines) is the app's launch environment.
+- `swap` returns once the app is in front with its own elements (`IOS_LIVE_VISIBLE_S`, default
+  90 s) and records `unpack_ms`, `install_ms`, `launch_ms`, `first_frame_ms`, `total_ms` in the
+  host's `state.json`.
+- The build itself still comes from a Mac (an ios-live Mac slot or the `ios-sim-linux-build`
+  workflow's `ios-sim-build` artifact): Linux does not compile the iOS app yet. Live code patches
+  (`swift`) are not on Linux phones yet.
+
 ## Which command
 
 | Change | Command | Edit to visible |

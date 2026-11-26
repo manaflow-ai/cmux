@@ -1493,6 +1493,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: bash tests/test_ios_live_person_slot.sh
 
+      - name: Validate ios-live on Linux phones
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ios_live_linux.sh
+
       - name: Validate the R2 cache census
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_r2_cache_census.py
