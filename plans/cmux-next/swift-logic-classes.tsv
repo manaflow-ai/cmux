@@ -7719,6 +7719,7 @@ CmuxNextHistory	struct	VaultPullRequests	0	LOGIC	100	0	Packages/macOS/CmuxNext/S
 CmuxNextHistory	struct	VaultResumeCommand	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultResumeCommand.swift	resume command line per agent session
 CmuxNextHistory	struct	VaultRow	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultRow.swift	immutable vault row snapshot
 CmuxNextHistory	protocol	VaultSessionSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Vault/VaultSessionSource.swift	from protocol VaultSessionSource:6: vault session source seam
+CmuxNextHistory	enum	AppHistoryRules	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHistory/AppHistoryRules.swift	thin calls into the Rust rules (cmux-app-history) through the app FFI JSON channel (app_history_*): encode the facts, call, decode the answer; no rule in Swift
 CmuxNextHomeModel	class	HomeChatColorStore	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/ChatColors/HomeChatColorStore.swift	from class HomeChatColorStore:9: per-chat bubble colors persisted in UserDefaults
 CmuxNextHomeModel	extension	HomeBubbleColors	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeModel/ChatColors/HomeChatColorStore.swift	from class HomeChatColorStore:9: per-chat bubble colors persisted in UserDefaults
 CmuxNextHome	class	HomeChatColorsPanel	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextHome/ChatColors/HomeChatColorsPanel.swift	from class HomeChatColorsPanel:8: AppKit/SwiftUI view or platform code
