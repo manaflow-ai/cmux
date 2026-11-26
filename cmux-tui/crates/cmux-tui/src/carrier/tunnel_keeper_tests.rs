@@ -358,6 +358,25 @@ async fn nothing_starts_until_the_device_is_joined_and_someone_is_signed_in() {
 }
 
 #[tokio::test]
+async fn a_refused_sign_in_is_written_once_with_its_team_and_reason() {
+    let mut world = world(true, false).await;
+    let why = |e: &KeeperEvent| matches!(e, KeeperEvent::Unstarted(w) if w.contains("team_1") && w.contains("not_signed_in"));
+    world.until(why).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(world.asks.load(Ordering::SeqCst) > 1, "the keeper keeps asking");
+    while let Ok(event) = world.events.try_recv() {
+        world.seen.push(event);
+    }
+    assert_eq!(world.seen.iter().filter(|e| why(*e)).count(), 1, "{:?}", world.seen);
+
+    world.other_team.store(true, Ordering::SeqCst);
+    world.until(|e| matches!(e, KeeperEvent::Unstarted(w) if w.contains("team_2"))).await;
+
+    world.signed_in.store(true, Ordering::SeqCst);
+    world.until(|e| *e == KeeperEvent::Ready).await;
+}
+
+#[tokio::test]
 async fn a_killed_hub_is_started_again() {
     let mut world = world(true, true).await;
     world.until(|e| *e == KeeperEvent::Ready).await;

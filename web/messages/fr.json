@@ -5536,5 +5536,15 @@
     "unavailableTitle": "Impossible de confirmer votre connexion",
     "unavailableBody": "Notre service de connexion est saturé. Patientez quelques secondes, puis rouvrez l'invitation. Vous n'avez pas besoin de vous reconnecter.",
     "retry": "Réessayer"
+  },
+  "connected": {
+    "title": "Vous êtes connecté à {app}",
+    "titleGeneric": "Vous êtes connecté",
+    "errorTitle": "Connexion à {app} impossible",
+    "errorTitleGeneric": "La connexion n'a pas abouti",
+    "body": "Revenez à cmux pour continuer.",
+    "errorBody": "Revenez à cmux et réessayez.",
+    "button": "Retour à cmux",
+    "closeHint": "Vous pouvez fermer cet onglet."
   }
 }

@@ -26,7 +26,8 @@ use cmux_git::sync_barrier::Sync;
 use cmux_process::{Command, Stdio};
 
 const USAGE: &str = "usage: cmux repo hold DIR -- CMD [ARG...] | cmux repo wait DIR SECONDS \
-                     | cmux repo mcp-lazy DIR -- CMD [ARG...]";
+                     | cmux repo mcp-lazy DIR -- CMD [ARG...] | cmux repo read|ls|run|commit|tier \
+                     (no checkout: `cmux repo tier --help`)";
 /// The child's one stdout line once it holds the barrier.
 const HELD: &str = "held";
 
@@ -50,6 +51,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
             Some((dir, cmd)) => hold_run(&dir, cmd, || println!("{HELD}")),
             None => usage(),
         },
+        Some((verb, rest)) if super::repo_remote::handles(verb) => {
+            super::repo_remote::run(verb, rest)
+        }
         Some((verb, _)) if verb == "--help" || verb == "help" => help(),
         _ => usage(),
     }
