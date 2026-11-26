@@ -896,6 +896,10 @@ pub struct ChildAgent {
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
+    /// Unix: for an agent in the unattended folder, the watchdog that ends its process group
+    /// when this daemon dies by any means (`Spawned::child`).
+    #[cfg(unix)]
+    _tether: Option<cmux_process::GroupTether>,
     /// The simulation's in-process agent (`sim_agent.rs`): true while it runs, in place of a
     /// child's `try_wait`.
     #[cfg(feature = "sim")]
@@ -931,6 +935,8 @@ struct Spawned {
     plugin_hook_home: Option<std::path::PathBuf>,
     #[cfg(windows)]
     job: Option<crate::job::Job>,
+    #[cfg(unix)]
+    tether: Option<cmux_process::GroupTether>,
     #[cfg(feature = "sim")]
     sim_alive: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
@@ -994,6 +1000,32 @@ impl Spawned {
             }
         };
         let pid = child.id();
+        // An agent no person works with (a model probe, model list or titler, `unattended_cwd`)
+        // ends with this daemon, however it ends: a restart under systemd's `KillMode=process`,
+        // a crash, the stop watchdog's exit. Its daemon ends it only while it runs, and an ACP
+        // harness such as `cursor-agent acp` waits on its stdin forever (image roll 45732114266:
+        // two cursor-agent probes outlived the bake's restart of acpmux by minutes). A person's
+        // agent is left alone: its harness's work outlives a daemon restart on purpose. The
+        // agent keeps leading its own group (every kill here signals it by its pid).
+        #[cfg(unix)]
+        let tether = match pid {
+            Some(pid) if cwd.starts_with(crate::protected_folders::unattended_cwd()) => {
+                match i32::try_from(pid)
+                    .map_err(std::io::Error::other)
+                    .and_then(cmux_process::GroupTether::join)
+                {
+                    Ok(tether) => Some(tether),
+                    Err(e) => {
+                        tracing::warn!(
+                            agent = name,
+                            "unattended agent: no watchdog for its group: {e}"
+                        );
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
         let exit = pid.and_then(leader_exit::LeaderExit::open);
         let stdin = child.stdin.take().context("agent stdin")?;
         let stdout = child.stdout.take().context("agent stdout")?;
@@ -1012,6 +1044,8 @@ impl Spawned {
             plugin_hook_home,
             #[cfg(windows)]
             job,
+            #[cfg(unix)]
+            tether,
             #[cfg(feature = "sim")]
             sim_alive: None,
         })
@@ -1034,6 +1068,8 @@ impl Spawned {
             plugin_hook_home: None,
             #[cfg(windows)]
             job: None,
+            #[cfg(unix)]
+            tether: None,
             sim_alive: Some(pipes.alive),
         }
     }
@@ -1126,6 +1162,8 @@ impl ChildAgent {
             plugin_hook_home,
             #[cfg(windows)]
             job,
+            #[cfg(unix)]
+            tether,
             #[cfg(feature = "sim")]
             sim_alive,
         } = spawned;
@@ -1167,6 +1205,8 @@ impl ChildAgent {
             input_seam: InputSeam::default(),
             #[cfg(windows)]
             job,
+            #[cfg(unix)]
+            _tether: tether,
             #[cfg(feature = "sim")]
             sim_alive,
         });
@@ -2252,11 +2292,14 @@ impl ChildAgent {
     /// Its session's start is over: its harness goes to its run class, once (`cpu_class.rs`).
     /// True when this call lowered it. A harness with no class set (another daemon started it)
     /// takes the agent tier; one that ended is left alone.
-    pub async fn enter_run_class(&self) -> bool {
+    /// `placed`: AutoCloud placed its chat here for another machine's person
+    /// (`SessionMeta::placed_by`), so it runs at [`crate::cpu_class::CpuClass::Background`]
+    /// whatever its profile says: the owner's own work comes first.
+    pub async fn enter_run_class(&self, placed: bool) -> bool {
         // A harness adopted from another daemon has no class here: one whose start that daemon
         // did not see end (a restart mid-start) would keep the start's priority for good, so it
         // takes the agent tier ([`CpuClass::Normal`]), which only lowers.
-        let class = self.run_class();
+        let class = if placed { crate::cpu_class::CpuClass::Background } else { self.run_class() };
         if self.run_class_entered.swap(true, Ordering::SeqCst) {
             return false;
         }
@@ -2323,6 +2366,17 @@ impl ChildAgent {
             Some(None) => HarnessSeen::Unread,
             Some(Some(state)) => HarnessSeen::Running(state),
         }
+    }
+
+    /// Sends `signal` to its harness's process group (the harness leads it): SIGSTOP pauses the
+    /// agent and every tool it runs, SIGCONT continues them (`hub/owner_return.rs`). False when
+    /// no live harness, or the signal failed.
+    #[cfg(unix)]
+    pub(crate) async fn signal_harness_group(&self, signal: i32) -> bool {
+        let sent = self.with_live_harness(|pid| {
+            i32::try_from(pid).is_ok_and(|pgid| crate::session_disk::signal_group(pgid, signal))
+        });
+        sent.await.unwrap_or(false)
     }
 
     /// `f` of its harness's pid while that pid is still its harness: a direct child not reaped
@@ -2690,6 +2744,8 @@ impl ChildAgent {
             input_seam: InputSeam::default(),
             #[cfg(windows)]
             job: None,
+            #[cfg(unix)]
+            _tether: None,
             #[cfg(feature = "sim")]
             sim_alive: None,
         });
