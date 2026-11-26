@@ -308,6 +308,7 @@ jobs:
             /scripts/ci/nightly-publication-marker.py
             /scripts/ci/app_input_digest.py
             /scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh
+            /scripts/ci/timeout.sh
             /.gitmodules
           sparse-checkout-cone-mode: false
 
