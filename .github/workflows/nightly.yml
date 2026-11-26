@@ -2238,11 +2238,19 @@ jobs:
             fi
           }
           started=$SECONDS
-          if git cat-file -e "$BUILD_SHA^{commit}" 2>/dev/null; then
-            echo "have $BUILD_SHA already (kept clone or borrowed mirror): no fetch"
+          # The fleet mirror is a whole, verified clone (glaeda-verified, not shallow), so a commit it
+          # holds brings every object it needs through the alternate. Asking github.com for it anyway
+          # is what failed run 45744507889 (429 x4, then 403, at 03:09Z on 11-26): fetch only what the
+          # mirror lacks.
+          if grep -qxF "$mirror/objects" .git/objects/info/alternates 2>/dev/null \
+              && git --git-dir="$mirror" cat-file -e "$BUILD_SHA^{commit}" 2>/dev/null; then
+            echo "$BUILD_SHA is in the fleet mirror $mirror: no fetch from origin"
+          elif git cat-file -e "$BUILD_SHA^{commit}" 2>/dev/null; then
+            echo "have $BUILD_SHA already in the kept clone: no fetch"
           else
-            # The header goes in GIT_CONFIG_* entries, scoped to this repository's URL, so it is in no
-            # command line git_fetch_retry.py logs, and is not sent to the submodules' hosts.
+            # The job's token goes in GIT_CONFIG_* entries, scoped to this repository's URL, so it is in
+            # no command line git_fetch_retry.py logs and is not sent to the submodules' hosts: the
+            # anonymous fetch is what GitHub answered 403 in runs 45744507889 and 45756842046.
             if [ -n "${FETCH_TOKEN:-}" ]; then
               header=$(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')
               echo "::add-mask::$header"
