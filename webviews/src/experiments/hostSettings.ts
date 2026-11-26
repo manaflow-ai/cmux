@@ -9,7 +9,7 @@
 //
 // A switch that picks an arm: its row in schemas/settings/source/experiments.json and one entry in
 // SETTING_ARMS.
-import { experimentSwitchOn, setExperimentSwitches, experimentSwitchOff } from "./switches";
+import { experimentSwitchOff, experimentSwitchOn, setExperimentSwitches } from "./switches";
 
 type SettingArm = { experiment: string; arm: string };
 type SettingArmEntry = SettingArm | readonly SettingArm[];
@@ -19,7 +19,7 @@ export const SETTING_ARMS: Readonly<Record<string, SettingArmEntry>> = {
   menuStyleV2: { experiment: "menu-style-v2", arm: "v2" },
   menuRowStates: { experiment: "menu-row-states", arm: "on" },
   toastGlass: { experiment: "toast-glass", arm: "host" },
-  composerHatGroups: { experiment: "subagent-tray-fold-head", arm: "groups" },
+  composerHatGroups: { experiment: "subagent-tray-fold-head", arm: "line" },
   forumCallCard: { experiment: "forum-call-card", arm: "card" },
 };
 

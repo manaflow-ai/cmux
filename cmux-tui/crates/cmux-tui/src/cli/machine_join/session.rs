@@ -3,7 +3,7 @@
 
 use std::io::BufRead;
 
-use super::{Auth, Command, Failure, SIGN_IN, TOKEN_ENV, Verb};
+use super::{Auth, Command, Failure, SIGN_IN, Verb};
 
 /// A signed-in app that could not hand over its session (none answers, or it is signed out).
 const APP_SIGN_IN: &str = "sign in to the cmux app (cmux login), or pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN)";
@@ -87,7 +87,8 @@ pub(crate) fn read_credential(
         std::fs::read_to_string(path)
             .map_err(|e| format!("the --cloud-token-file could not be read ({:?})", e.kind()))?
     } else {
-        return Ok(env(TOKEN_ENV).map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()));
+        // `CMUX_CLOUD_ACCESS_TOKEN`, else an API token in `CMUX_TOKEN` (api_tokens.rs).
+        return Ok(crate::cli::api_tokens::env_credential(env));
     };
     let credential = raw.trim().to_owned();
     if credential.is_empty() {
