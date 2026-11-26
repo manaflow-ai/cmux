@@ -38,13 +38,13 @@ pub(crate) const MAX_FACT: usize = 200;
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": "Finish with a recap below your answer. When a decision is needed, clicking an answer button sends the person's next message; a {label, run} answer runs cmux customize try, keep or revert instead.",
+        "description": "Finish with a recap below your answer. When a decision is needed, clicking an answer button sends the person's next message; a {label, run} answer runs cmux customize try, keep, revert or go instead.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "recap": {"type": "string", "description": format!("Two or three sentences on changes, verification and unfinished work, at most {MAX_RECAP} characters. Trimmed above {RECAP_CEILING}.")},
                 "ask": {"type": "string", "description": format!("Ask only for a decision the person needs to make, at most {MAX_ASK} characters. Never ask them to click or switch tabs: focus or capture it yourself. An unanswered question still waits, so do not ask it again.")},
-                "actions": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object", "properties": {"label": {"type": "string"}, "run": {"type": "object", "properties": {"customize": {"type": "string", "enum": ["try", "keep", "revert"]}, "target": {"type": "string", "description": "With try: pr:N, branch:B, sha:S, dir:PATH or a profile name."}, "minutes": {"type": "integer", "description": "With try: how long it stays on, 1 to 240."}}, "required": ["customize"]}}, "required": ["run"]}]}, "description": format!("With ask, up to {MAX_ACTIONS} answer buttons of at most {MAX_ACTION} characters each, preferred first. Defaults to Yes and Not now. After a customization, an answer may be {{label, run}}: run {{customize: \"try\", target: \"pr:123\", minutes: 15}} tries it on (the card then offers Keep and Revert), or {{customize: \"keep\"}} / {{customize: \"revert\"}}.")},
+                "actions": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object", "properties": {"label": {"type": "string"}, "run": {"type": "object", "properties": {"customize": {"type": "string", "enum": ["try", "keep", "revert", "go"]}, "target": {"type": "string", "description": "With try: pr:N, branch:B, sha:S, dir:PATH or a profile name. With go: the pr:N tried on."}, "minutes": {"type": "integer", "description": "With try: how long it stays on, 1 to 240."}}, "required": ["customize"]}}, "required": ["run"]}]}, "description": format!("With ask, up to {MAX_ACTIONS} answer buttons of at most {MAX_ACTION} characters each, preferred first. Defaults to Yes and Not now. After a customization, an answer may be {{label, run}}: run {{customize: \"try\", target: \"pr:123\", minutes: 15}} tries it on (the card then offers Keep and Revert), or {{customize: \"keep\"}} / {{customize: \"revert\"}}. For a visible-UI PR, {{customize: \"try\", target: \"pr:N\"}}: once tried, the card offers Go ({{customize: \"go\", target: \"pr:N\"}}), which marks the PR merge-ready at the head the person saw.")},
                 "learned": {"type": "array", "items": {"type": "string"}, "description": format!("After a correction or a failed then successful command, offer up to {MAX_LEARNED} one-line project facts for the person to accept (at most {MAX_FACT} characters each).")}
             },
             "required": ["recap"]
@@ -214,6 +214,7 @@ pub(super) fn check(args: &Value) -> Result<(Value, Vec<String>), String> {
             let verb = |run: &Value| match run["customize"].as_str() {
                 Some("try") => "Try it on",
                 Some("keep") => "Keep",
+                Some("go") => "Go",
                 _ => "Revert",
             };
             let label = object
@@ -513,7 +514,7 @@ mod tests {
         assert_eq!(items[0]["type"], "string");
         assert_eq!(
             items[1]["properties"]["run"]["properties"]["customize"]["enum"],
-            json!(["try", "keep", "revert"])
+            json!(["try", "keep", "revert", "go"])
         );
         assert!(
             tool["inputSchema"]["properties"]["actions"]["description"]

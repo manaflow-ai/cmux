@@ -48,3 +48,26 @@ test("runner hook", async () => {
   expect(hasCustomizeRunner()).toBe(true);
   expect(await runCustomize({ customize: "keep" })).toEqual({ ok: true, output: "hi" });
 });
+
+test("Go: only a PR, offered after that PR's try-on, and it ends the card", () => {
+  expect(readRun({ customize: "go", target: "pr:57001" })).toEqual({ customize: "go", target: "pr:57001" });
+  expect(readRun({ customize: "go", target: "branch:x" })).toBeUndefined();
+  expect(readRun({ customize: "go", target: "darker" })).toBeUndefined();
+  expect(readRun({ customize: "go" })).toBeUndefined();
+  const tried = (target: string) =>
+    runReducer(runReducer(idleRun, { type: "start" }), { type: "done", run: { customize: "try", target }, ok: true });
+  expect(tried("pr:57001")).toMatchObject({ phase: "tried", pr: "pr:57001" });
+  expect(tried("darker").pr).toBeUndefined();
+  const went = runReducer(runReducer(tried("pr:57001"), { type: "start" }), {
+    type: "done",
+    run: { customize: "go", target: "pr:57001" },
+    ok: true,
+  });
+  expect(went.phase).toBe("went");
+  const failed = runReducer(runReducer(tried("pr:57001"), { type: "start" }), {
+    type: "done",
+    run: { customize: "go", target: "pr:57001" },
+    ok: false,
+  });
+  expect(failed).toMatchObject({ phase: "tried", failed: true, pr: "pr:57001" });
+});

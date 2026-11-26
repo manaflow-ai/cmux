@@ -200,11 +200,13 @@ export const NextStepCard = memo(function NextStepCard({
     dispatchRun({ type: "start" });
     void runCustomize(action).then((result) => dispatchRun({ type: "done", run: action, ok: result.ok }));
   };
-  // After a try-on the card offers Keep and Revert; once either ran, the typed answers are done.
+  // After a try-on the card offers Keep and Revert, and Go first when a PR was tried (it marks the
+  // PR merge-ready at the head seen); once one ran, the typed answers are done.
   const tried = run.phase === "tried";
-  const done = run.phase === "kept" || run.phase === "reverted";
+  const done = run.phase === "kept" || run.phase === "reverted" || run.phase === "went";
   const shownOptions: NextStepOption[] = tried
     ? [
+        ...(run.pr ? [{ label: t("liveCustomize.go"), run: { customize: "go", target: run.pr } as const }] : []),
         { label: t("liveCustomize.keep"), run: { customize: "keep" } },
         { label: t("liveCustomize.revert"), run: { customize: "revert" } },
       ]
@@ -243,7 +245,13 @@ export const NextStepCard = memo(function NextStepCard({
             ? t("liveCustomize.running")
             : run.failed
               ? t("liveCustomize.failed")
-              : t(run.phase === "kept" ? "liveCustomize.kept" : "liveCustomize.reverted")}
+              : t(
+                  run.phase === "kept"
+                    ? "liveCustomize.kept"
+                    : run.phase === "went"
+                      ? "liveCustomize.went"
+                      : "liveCustomize.reverted",
+                )}
         </output>
       )}
       {onAnswer ? (

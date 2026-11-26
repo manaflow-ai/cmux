@@ -16,6 +16,7 @@ mod ask;
 mod dir;
 mod doctor;
 mod expire;
+mod go;
 mod library;
 pub(super) mod pr;
 mod rebuild;
@@ -46,6 +47,8 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize try [NAME|FILE] [--minutes N] Try it on: applied now, back by itself in N minutes (10)
   cmux customize keep                         Keep what you are trying on
   cmux customize revert                       Stop trying it on: put back what was there before
+  cmux customize go pr:N                      Go: the PR you tried on is merge-ready at the head you saw;
+                                              it lands once CI is green (a push after it waits for another Go)
   cmux customize use CODE                     Try code not in your build: on top of your library, live
     pr:N                                      a pull request (CI publishes its web layer)
     branch:NAME | sha:SHA                     a branch's tip or a commit of manaflow-ai/cmux, pushed, no PR
@@ -117,6 +120,7 @@ const VERBS: &[&str] = &[
     "try",
     "keep",
     "revert",
+    "go",
     "library",
     "checklist",
     "doctor",
@@ -180,6 +184,10 @@ pub(super) enum Request {
     },
     Keep,
     Revert,
+    /// `go pr:N`: the PR tried on here is merge-ready at the head tried (go.rs).
+    Go {
+        pr: u64,
+    },
     /// Settles a try-on whose time is up; with `wait`, waits for it first
     /// (the child `try` leaves running, and the app's start).
     Settle {
@@ -252,6 +260,12 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "keep" => none(Request::Keep),
         "revert" => none(Request::Revert),
+        "go" => match rest {
+            [source] => pr::pr_number(source).map(|pr| Request::Go { pr }).ok_or_else(|| {
+                format!("customize go takes the PR you tried on, like pr:57001, got {source:?}")
+            }),
+            _ => Err("customize go takes one PR you tried on: cmux customize go pr:N".to_owned()),
+        },
         "settle" => match rest {
             [] => Ok(Request::Settle { wait: false }),
             [flag] if flag == "--wait" => Ok(Request::Settle { wait: true }),
@@ -781,6 +795,7 @@ pub(super) fn execute(
             settled.into_iter().chain(customize.revert_try_on(origin, now_ms)?).collect(),
             "revert",
         ),
+        Request::Go { pr } => go::go(customize, pr)?,
         Request::Settle { .. } => Answer::Settled(settled, "settle"),
         Request::Profiles => Answer::Profiles(customize.profiles()?),
         Request::Recipes { open } => recipes(customize, open, chat)?,
