@@ -158,3 +158,33 @@ fn bounded_detached_request_id_rejects_an_oversized_line() {
         format!("detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes")
     );
 }
+
+/// Repro (Leo, 2026-11-25: "why isn't it registered?"): a Claude Code coordinator in a cmux
+/// terminal had no acpmux name, so `cmux agent send` / `acpmux send` could not reach it. cmux's
+/// own hook now runs acpmux's first registration step at each prompt, under a stable name, and
+/// starts nothing once acpmux marked the process reached.
+#[test]
+fn a_claude_prompt_in_a_cmux_terminal_registers_the_chat_with_acpmux() {
+    assert!(acpmux_register::applies("claude", "UserPromptSubmit"));
+    assert!(!acpmux_register::applies("claude", "SessionStart"), "never wakes a fresh session");
+    assert!(!acpmux_register::applies("codex", "UserPromptSubmit"), "a Codex chat cannot register");
+    let home = tempfile::tempdir().unwrap();
+    let vars = [
+        ("CMUX_TUI_CLI", "/Applications/cmux NEXT.app/Contents/Resources/bin/cmux"),
+        ("CLAUDE_CODE_MESSAGING_SOCKET", "/tmp/cc-socks/77.sock"),
+        ("CLAUDE_CODE_MESSAGING_TOKEN", "tok"),
+    ];
+    let getenv = |key: &str| vars.iter().find(|(k, _)| *k == key).map(|(_, v)| (*v).to_owned());
+    let session = Some("9f3a61c2-0b7e-4c55-8d2e-3a1f00c0ffee");
+    let (cli, args) =
+        acpmux_register::command(getenv, session, "cosmic-gray", home.path()).expect("a command");
+    assert_eq!(cli, PathBuf::from(vars[0].1));
+    assert_eq!(args, ["acp", "register", "--auto", "claude-cosmic-gray-9f3a61c2", "--json"]);
+    let no_cli = |key: &str| if key == "CMUX_TUI_CLI" { None } else { getenv(key) };
+    assert!(acpmux_register::command(no_cli, session, "cosmic-gray", home.path()).is_none());
+    // Reached with this process (acpmux's CLI leaves the mark): nothing runs again.
+    let mark = acpmux::cli::hook_register::mark_path(home.path(), vars[1].1, vars[2].1);
+    std::fs::create_dir_all(mark.parent().unwrap()).unwrap();
+    std::fs::write(&mark, b"").unwrap();
+    assert!(acpmux_register::command(getenv, session, "cosmic-gray", home.path()).is_none());
+}
