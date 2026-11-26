@@ -262,7 +262,7 @@ await requireBrowserLane("session-info-expand-cost.test.ts", async () => {
     }
   });
 
-  for (const list of ["tasks", "subagents", "outputs", "sources", "changes", "usage", "alsoHere"]) {
+  for (const list of ["tasks", "subagents", "outputs", "sources", "changes", "usage", "started"]) {
     test(`${list}: opening the list draws only the rows that can show, at any length`, async () => {
       const { port } = vite!.httpServer!.address() as { port: number };
       const page = await browser!.newPage({ viewport: { width: 900, height: HEIGHT } });

@@ -323,8 +323,10 @@ private struct FeedRowBuilder {
         let threadHeight: CGFloat = outgoing ? 0 : 12 - 4
         let total = captionSize.height + 3 + bubbleHeight + (outgoing ? 10 : 6) + threadHeight - 4
         let top = place(total)
-        let captionX = outgoing ? columnX + columnWidth - 12 - captionSize.width : columnX + 12
         let bubbleX = outgoing ? columnX + columnWidth - bubbleWidth : columnX
+        // The caption sits on the bubble's edge, as "You replied" does over its bubbles: "Asked you" starts
+        // where the bubble starts, "You" ends where the bubble ends.
+        let captionX = outgoing ? bubbleX + bubbleWidth - captionSize.width : bubbleX
         let bubbleY = top + captionSize.height + 3
         let bubble = CGRect(x: bubbleX, y: bubbleY, width: bubbleWidth, height: bubbleHeight)
         return FeedRowLayout.Quote(
