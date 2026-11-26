@@ -4,7 +4,8 @@ name: PR red checks comment
 # web and size checks (scripts/ci/pr_red_checks_comment.py, scripts/ci/pr_status.py), and its `ran`
 # line says which workflows the diff started and why (scripts/ci/pr_ran_line.py). The checks
 # stay advisory (chief 2026-10-12); this makes a red one impossible to miss. Each workflow that runs tracked checks calls this after them; every
-# call recomputes from all check runs of the head commit, and the per-PR group orders the calls.
+# call recomputes from all check runs of the head commit, and the per-PR group orders the calls. ci.yml's call is the
+# head's writer (input `writer`): the others start a runner only when their own checks are red or on a rerun.
 # The script comes from the base commit, never the pull request's code.
 on:
   workflow_call:
@@ -12,6 +13,16 @@ on:
       own_checks_green:
         # Whether the caller's tracked jobs all passed (or were skipped). Then a status line that
         # names no red has nothing for this call to change, and the script reads no check runs.
+        type: boolean
+        default: false
+      writer:
+        # The one call per head that always runs (ci.yml's, which starts on every pull request that changes more
+        # than prose). Every other call starts no runner while its own checks are green on a first attempt: a
+        # green call can only clear a red line, and the writer's call clears any red its head no longer has
+        # (the script recomputes from every check run of the head when the line names a red). A red call, and
+        # any call on a rerun (the red it fixes was written after the event), still runs.
+        # 2026-11-25 13Z..23Z: about 7,800 calls, 10.7k runner-min, 0 real catches (cmuxterm-hq
+        # docs/findings/2026-11-25-ci-value.md).
         type: boolean
         default: false
 
@@ -23,7 +34,7 @@ env:
 
 jobs:
   comment:
-    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (inputs.writer || !inputs.own_checks_green || github.run_attempt != '1') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     continue-on-error: true
