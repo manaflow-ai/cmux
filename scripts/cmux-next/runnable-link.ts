@@ -206,13 +206,35 @@ const whyNot = (e: unknown) => String((e as Error)?.message ?? e).replace(/\s+/g
 
 // Snapshots this script left behind (a run killed before its finally) count against the team's snapshot quota; run
 // 45703015793 had both the link mint and the plain snapshot refused with cloud.quota.exceeded. Sweep them like machines.
-async function sweepSnapshots(api: any, tag: string, keepId: string | null, cleanup: string[]) {
+const snapshotRows = (list: any): any[] => (Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? []);
+
+// Returns the ids it deleted. A delete that returns has not yet freed its slot: run 45756094330 swept both stray link
+// snapshots before the mint, and the list read after the refused mint still showed them live (5/5, quota exceeded).
+async function sweepSnapshots(api: any, tag: string, keepId: string | null, cleanup: string[]): Promise<string[]> {
   const list = await api.read("cloud.snapshot.list", {}).catch(() => null);
-  if (!list) return cleanup.push("snapshot sweep: list failed");
-  const rows: any[] = Array.isArray(list) ? list : list?.snapshots ?? list?.items ?? [];
-  for (const id of strays(rows, tag, Date.now(), new Set(keepId ? [keepId] : []))) {
-    await api.op("cloud.snapshot.delete", { snapshot: id }, `${tag}-snap-del-stray-${id}`).then(() => cleanup.push(`stray snapshot ${id} deleted`), (e) => cleanup.push(`stray snapshot ${id} NOT deleted: ${whyNot(e)}`));
+  if (!list) return (cleanup.push("snapshot sweep: list failed"), []);
+  const gone: string[] = [];
+  for (const id of strays(snapshotRows(list), tag, Date.now(), new Set(keepId ? [keepId] : []))) {
+    await api.op("cloud.snapshot.delete", { snapshot: id }, `${tag}-snap-del-stray-${id}`).then(() => (gone.push(id), cleanup.push(`stray snapshot ${id} deleted`)), (e) => cleanup.push(`stray snapshot ${id} NOT deleted: ${whyNot(e)}`));
   }
+  return gone;
+}
+
+// Ids of `ids` the list still holds live; the mint waits on this reaching empty so the swept slots are free.
+export function stillLive(rows: any[], ids: string[]): string[] {
+  const want = new Set(ids);
+  return rows.filter((r) => want.has(String(r?.id ?? "")) && r?.status !== "deleted" && r?.status !== "deleting").map((r) => String(r.id));
+}
+
+async function settleSweep(api: any, ids: string[], boundMs: number): Promise<{ ms: number; left: string[] }> {
+  const t0 = Date.now();
+  let left = ids;
+  while (left.length && Date.now() - t0 < boundMs) {
+    const list = await api.read("cloud.snapshot.list", {}).catch(() => null);
+    if (list) left = stillLive(snapshotRows(list), ids);
+    if (left.length) await sleep(5_000);
+  }
+  return { ms: Date.now() - t0, left };
 }
 
 /** Who fills the team's snapshot slots (the provider limit refuses both the link and the plain snapshot, run
@@ -330,7 +352,13 @@ async function main(): Promise<number> {
 
     // Mint.
     stage = "mint";
-    if (!keep) await sweepSnapshots(api, tag, null, cleanup);
+    if (!keep) {
+      const swept = await sweepSnapshots(api, tag, null, cleanup);
+      if (swept.length) {
+        const settled = await settleSweep(api, swept, 180_000);
+        meta.sweep_settle = { swept: swept.length, ms: settled.ms, still_live: settled.left.length };
+      }
+    }
     const m0 = Date.now();
     const mint = () => http("POST", `${platform}/v1/runnable-links`, {
       machine: parent, clientKey: `${tag}-mint`, ttlSeconds: 3600, note: "hq#23807 experiment",

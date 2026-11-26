@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { canaryCountCommand, facts, projectSetupCommand, SCRUB_COMMAND, usable, usableCommand, verdict, withRoom, strays, runTag, snapshotCensus, type OpenRow } from "./runnable-link.ts";
+import { canaryCountCommand, facts, projectSetupCommand, SCRUB_COMMAND, usable, usableCommand, verdict, withRoom, strays, runTag, snapshotCensus, stillLive, type OpenRow } from "./runnable-link.ts";
 
 const row = (over: Partial<OpenRow>): OpenRow => ({ run: 1, via: "link", copy: "m", resolve_ms: 1, fork_call_ms: 1, running_ms: 1, first_exec_ms: 1, scrub_ms: 1, usable_ms: 1, click_to_usable_ms: 20_000, canary_before_scrub: 1, canary_after_scrub: 0, facts: null, error: null, ...over });
 
@@ -85,5 +85,16 @@ describe("runnable link", () => {
       { name: "gone", status: "deleted" },
     ], now);
     expect(c).toEqual({ total: 3, live: 2, oldest_h: 10, by_shape: { "headless rl-#": 2 } });
+  });
+
+  test("the mint waits for swept snapshots to leave the live list, not just for the delete to return", () => {
+    const rows = [
+      { id: "a", status: "ready" },
+      { id: "b", status: "deleting" },
+      { id: "c", status: "deleted" },
+      { id: "d", status: "ready" },
+    ];
+    expect(stillLive(rows, ["a", "b", "c", "z"])).toEqual(["a"]);
+    expect(stillLive([], ["a"])).toEqual([]);
   });
 });
