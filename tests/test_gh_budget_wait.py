@@ -522,7 +522,16 @@ SHARED_TOKEN_ONLY = {
     ("build-nightly-app", "Stop when the run can no longer publish (before the compile)"),
     ("build-nightly-app", "Bundle the cmux-tui client"),
     ("build-nightly-app", "Stop when the run can no longer publish (before the upload)"),
+    # Git fetches with the job token as an http extraheader, not gh or REST: anonymous fetches got 403s and 429s
+    # from the fleet's shared address (#57611 tail 45725593921; #57931 nightlies 45744507889..45763487534).
+    # Neither wrapper sees git, and the release App token has no reason to replace the job's read here.
+    ("published-in", "Fetch the published span"),
+    ("build-nightly-app", "Checkout build ref (warm nightly-next builder)"),
 }
+
+# Steps that send github.token only to git (an http extraheader), which neither gh wrapper wraps, so they may run
+# before the wrappers are installed (#57824, #57931: the warm checkout is the job's first step on a kept slot).
+GIT_ONLY_TOKEN_STEPS = {"Checkout build ref (warm nightly-next builder)"}
 
 
 def shared_token_only_steps(jobs: dict, names=PUBLISH_PATH) -> list[tuple[str, str]]:
@@ -565,7 +574,9 @@ class WorkflowTests(unittest.TestCase):
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
                 # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
-                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
+                git_only = steps[i].get("name") in GIT_ONLY_TOKEN_STEPS
+                self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token or git_only,
+                                (name, steps[i].get("name")))
 
     def test_no_new_publish_path_step_reads_github_on_the_shared_token_alone(self) -> None:
         new = [pair for pair in shared_token_only_steps(self.jobs) if pair not in SHARED_TOKEN_ONLY]

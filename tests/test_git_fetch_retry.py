@@ -423,10 +423,12 @@ class Workflow(unittest.TestCase):
             body = ("set -euo pipefail\ncurl() { return 7; }\n" + script[start:end]
                     + 'retry git status --short\necho done\n')
             env = {**os.environ, "RUNNER_TEMP": str(runner_temp), "GITHUB_WORKSPACE": str(workspace),
-                   "GITHUB_REPOSITORY": "o/r", "WORKFLOW_SHA": "0" * 40}
+                   "GITHUB_REPOSITORY": "o/r", "WORKFLOW_SHA": "0" * 40,
+                   # The step's env always sets it (#57931: every read goes out with the job's token).
+                   "FETCH_TOKEN": "test-token"}
             result = subprocess.run(["bash", "-c", body], cwd=workspace, env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn("unavailable; running git once with the low-speed abort", result.stdout)
+            self.assertIn("unavailable; running git up to 3 times with the low-speed abort", result.stdout)
             self.assertTrue(result.stdout.strip().endswith("done"))
             # With the helper in the workflow commit's objects, it is used.
             (workspace / "scripts/ci").mkdir(parents=True)
