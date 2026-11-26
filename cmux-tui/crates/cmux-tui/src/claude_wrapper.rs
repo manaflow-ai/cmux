@@ -169,7 +169,7 @@ fn apply_autocompact(
 
 /// The environment this launch adds for Claude (`acpmux::harness_limits::terminal_claude_env`),
 /// read from this process's env and folder.
-fn terminal_env(args: &[OsString]) -> Vec<(&'static str, &'static str)> {
+fn terminal_env(args: &[OsString]) -> Vec<(&'static str, String)> {
     let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
     let cwd = std::env::current_dir().unwrap_or_default();
     acpmux::harness_limits::terminal_claude_env(&args, &cwd, |name| std::env::var(name).ok())
