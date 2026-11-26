@@ -38,7 +38,9 @@ pub fn left_alive() -> (usize, usize) {
         let strong: Vec<usize> = hubs.iter().map(|w| w.strong_count()).collect();
         if std::env::var_os("SIM_LEAK_TRACE").is_some() {
             eprintln!(
-                "leak strong {strong:?} sentinels spawned {} dropped {}",
+                "leak strong {strong:?} daemon futures {} dropped {}; sentinels spawned {} dropped {}",
+                LOCAL_MADE.load(std::sync::atomic::Ordering::SeqCst),
+                LOCAL_DROPPED.load(std::sync::atomic::Ordering::SeqCst),
                 SENT_MADE.load(std::sync::atomic::Ordering::SeqCst),
                 SENT_DROPPED.load(std::sync::atomic::Ordering::SeqCst)
             );
@@ -95,6 +97,14 @@ pub fn probe() {
 }
 static SENT_MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 static SENT_DROPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static LOCAL_MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static LOCAL_DROPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+struct LocalSentinel;
+impl Drop for LocalSentinel {
+    fn drop(&mut self) {
+        LOCAL_DROPPED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
 struct Sentinel;
 impl Drop for Sentinel {
     fn drop(&mut self) {
@@ -231,6 +241,8 @@ fn config() -> Config {
 /// The daemon: a hub over the disk, its restore in the background, and every connection the
 /// app opens served by the real protocol handler.
 async fn daemon(disk: Arc<Disk>, agents: Arc<Agents>, incarnation: u64) -> turmoil::Result {
+    LOCAL_MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let _local = LocalSentinel;
     acpmux::sim_agent::install(agents.factory(incarnation));
     let hub = Hub::new(config(), Box::new(SimStore(disk)));
     HUBS.with(|h| h.borrow_mut().push(Arc::downgrade(&hub)));
