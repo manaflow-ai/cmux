@@ -102,5 +102,56 @@ class RetryExhausted(unittest.TestCase):
         self.assertIn("issues: write", job)
 
 
+def retry_calls(next_head: str, tip: str | None, tick_ok: bool = True) -> tuple[list[str], str]:
+    """retry-ask-push-group.sh after a failed first run of SHA (RETRY empty), with nightly-next at `next_head` and
+    feat-cmux-next at `tip` (None: the read fails); the gh calls it made, and its output."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tip_answer = "exit 1" if tip is None else f"echo {tip}"
+        tick = "exit 0" if tick_ok else "exit 1"
+        (Path(tmp) / "gh").write_text(
+            f'#!/bin/sh\necho "$*" >> {tmp}/calls\n'
+            f'case "$*" in *heads/nightly-next*) echo {next_head};; *heads/feat-cmux-next*) {tip_answer};;\n'
+            f'  *nightly-next-tick.yml*) {tick};; esac\n')
+        (Path(tmp) / "gh").chmod(0o755)
+        env = dict(os.environ, PATH=f"{tmp}:{os.environ['PATH']}", RETRY="", SHA=SHA, RUN_ID="7", RUN_ATTEMPT="1",
+                   GITHUB_REPOSITORY="o/r")
+        proc = subprocess.run(["bash", str(RETRY)], env=env, check=True, capture_output=True, text=True, timeout=60)
+        calls = Path(tmp) / "calls"
+        return (calls.read_text().splitlines() if calls.exists() else []), proc.stdout
+
+
+class RetryBuildsTheTip(unittest.TestCase):
+    """Leo, 2026-11-25: "why so long that they didnt publish either tho cuz it's been 5h". Run 45589863477 retried
+    92c8d92d9 (its Cargo.toml broken, the tip already fixed) while 6c8931ce2 waited: a failed commit that
+    feat-cmux-next moved past is not retried; main's tick is asked to promote the newest buildable commit."""
+
+    NEWER = "6c8931ce22be5d14b26f4b103b652d764f7ab4cc"
+
+    def dispatched_retry(self, calls):
+        return [c for c in calls if "nightly_next_loop_retry=" in c]
+
+    def test_moved_tip_asks_the_tick_and_does_not_retry_the_failed_commit(self):
+        calls, out = retry_calls(SHA, self.NEWER)
+        self.assertEqual(self.dispatched_retry(calls), [])
+        self.assertTrue(any("nightly-next-tick.yml" in c and "--ref main" in c for c in calls), calls)
+        self.assertIn(self.NEWER, out)
+
+    def test_failed_commit_still_the_tip_is_retried_as_itself(self):
+        calls, _ = retry_calls(SHA, SHA)
+        self.assertEqual(len(self.dispatched_retry(calls)), 1, calls)
+        self.assertIn("nightly_next_loop_retry=1", self.dispatched_retry(calls)[0])
+        self.assertFalse(any("nightly-next-tick.yml" in c for c in calls), calls)
+
+    def test_unread_tip_or_refused_tick_retries_as_before(self):
+        for tip, tick_ok in ((None, True), (self.NEWER, False)):
+            calls, _ = retry_calls(SHA, tip, tick_ok)
+            self.assertEqual(len(self.dispatched_retry(calls)), 1, (tip, tick_ok, calls))
+
+    def test_moved_nightly_next_still_leaves_to_its_push_run(self):
+        calls, _ = retry_calls(self.NEWER, self.NEWER)
+        self.assertEqual(self.dispatched_retry(calls), [])
+        self.assertFalse(any("nightly-next-tick.yml" in c for c in calls), calls)
+
+
 if __name__ == "__main__":
     unittest.main()
