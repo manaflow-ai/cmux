@@ -38,8 +38,6 @@ ALLOWED: dict[str, str] = {
     "cmux-next.yml: Dispatch with GITHUB_TOKEN, waiting through a rate limit":
         "the DEV handoff's fallback dispatch (#25458), only when the App token cannot: at most three "
         "tries, each sleeping only after a rate-limit refusal (the /rate_limit read costs nothing)",
-    "coderouter-release.yml: Publish immutable GitHub release":
-        "a release: up to five reads of the assets' visibility, then one publish",
     "ios-testflight.yml: Decide whether a TestFlight upload is needed":
         "orders uploads: waits only while an earlier TestFlight run is active, listing runs and jobs "
         "each pass; a candidate for a concurrency group",

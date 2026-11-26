@@ -20,11 +20,23 @@ export const SidebarChatsOps = {
   ready: "cmux.sidebarChats.ready",
   /** Stream, host to page: {revision, top, height} in CSS px, the part of this block's page the sidebar shows
    * (`height` 0: scrolled out). At most one per frame, after each `ready` and each block push, and at once on
-   * subscribe. The page then mounts only the rows near it (`sliceRange`); before the first it draws every row. */
+   * subscribe. The page then mounts only the rows near it (`sliceRange`); before the first it draws every row.
+   * The old wire: a host that streams `visibleSlice` sends none. Accepted until that host ships, then it goes. */
   slice: "cmux.sidebarChats.slice",
+  /** Stream, host to page, subscribed with `{surface}` (`sliceSurface`): {surface, revision, top, height}, the same
+   * slice as `slice` on the page's generic visible-slice stream. Once one arrives for a surface, `slice` events for
+   * it are ignored. */
+  visibleSlice: "cmux.page.visibleSlice",
 } as const;
 
 export type SidebarChatsPart = "pinned" | "earlier";
+
+export const SIDEBAR_CHATS_PARTS: readonly SidebarChatsPart[] = ["pinned", "earlier"];
+
+/** A block's surface on `cmux.page.visibleSlice` (the host's `SidebarChatHistoryHost.surface`). */
+export function sliceSurface(part: SidebarChatsPart): string {
+  return `sidebar-chats:${part}`;
+}
 
 /** One chat row. `meta` is its age ("12m"), formatted by the host; `markColor` is set for a harness no
  * mark knows, whose generic mark takes that stable colour. */
@@ -138,6 +150,14 @@ export function parseSlice(data: unknown): SidebarChatsSlice | null {
   const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
   if (!finite(revision) || !finite(top) || !finite(height) || height < 0) return null;
   return { revision, top, height };
+}
+
+/** A `cmux.page.visibleSlice` event, checked: its surface (one of the blocks') and the slice; else null. */
+export function parseVisibleSlice(data: unknown): { surface: string; slice: SidebarChatsSlice } | null {
+  const slice = parseSlice(data);
+  const surface = (data as Record<string, unknown> | null)?.surface;
+  if (!slice || !SIDEBAR_CHATS_PARTS.some((part) => sliceSurface(part) === surface)) return null;
+  return { surface: surface as string, slice };
 }
 
 /** A block event from the host, checked: anything that is not one is dropped. */
