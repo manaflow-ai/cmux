@@ -216,6 +216,11 @@ REACT_EXACT = {
     # The generated agent pane page, its build and regenerate scripts, and
     # the merge driver that keeps it mergeable: react-apps-check verifies
     # the page and runs the driver's test.
+    # The relay's params rule and its Rust mirror: webviews/test/agent-pane-relay-params-contract.test.ts
+    # checks every key the page sends against both, so a relay-only PR runs it too (cmux#46563).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods.swift",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift",
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/pane.js",
     "scripts/cmux-next/build-agent-pane-web.sh",
@@ -375,6 +380,18 @@ def web_bundle_input_matcher(root: str):
     except (Exception, SystemExit) as error:  # noqa: BLE001  (fall back, never fail the router)
         print(f"web bundle inputs not derived ({error}); using the key's declared inputs", file=sys.stderr)
         return key.pathspec_matcher(key.INPUTS)
+
+
+def is_react_input(path: str, repo_root: Path) -> bool:
+    """True when a change to `path` runs react-apps-check: the one test classify_paths applies, so a content-addressed
+    key over these paths (react_shard_receipt.py) names exactly the files whose change the router already runs the
+    check for."""
+    if path in ALL_SUBAREA_INPUTS or path in REACT_EXACT or path.startswith(REACT_PREFIXES):
+        return True
+    matcher = web_bundle_input_matcher(str(repo_root.resolve()))
+    if matcher is None:
+        raise RuntimeError("web bundle inputs unavailable")
+    return bool(matcher(path))
 
 
 def classify_paths(paths: list[str], repo_root: Path | None = None) -> WebSubareas:
