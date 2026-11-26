@@ -32,6 +32,7 @@ on:
       - "scripts/ci/affected-jobs.json"
       - "scripts/ci/affected_jobs.py"
       - "scripts/ci/affected_jobs_replay.py"
+      - "scripts/ci/tooling_only.py"
       - "scripts/ci/tree_result.py"
       - ".github/actions/tree-result/**"
       - ".github/actions/cache-restore/**"
