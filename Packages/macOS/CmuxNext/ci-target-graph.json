@@ -254,6 +254,7 @@
         "schemas/agent-pane/initialize-params.json",
         "schemas/agent-pane/methods.json",
         "schemas/agent-pane/session-new-params.json",
+        "scripts/cmux-next/pack-markdown-libraries.py",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "webviews/src/agent-session/acpmux/flickerLog.ts",
         "webviews/test/fixtures/chat-sim/replay-lane-session.ndjson",
@@ -1100,7 +1101,10 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUsePreview",
       "targets": [
         "CmuxNextAgentPane",
+        "CmuxNextCompat",
         "CmuxNextDaemon",
+        "CmuxNextDesign",
+        "CmuxNextSettings",
         "CmuxNextTerminal"
       ],
       "packages": []
