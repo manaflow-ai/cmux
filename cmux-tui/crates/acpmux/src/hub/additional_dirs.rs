@@ -54,6 +54,29 @@ pub(crate) async fn requested(params: &Value) -> Result<Vec<PathBuf>, RpcError> 
     Ok(out)
 }
 
+/// The compare-and-set token comes from the persisted session info. Validate its shape without
+/// requiring paths to still exist, so a deleted source folder can still be removed.
+fn expected_directories(value: &Value, cwd: &Path) -> Result<Vec<PathBuf>, RpcError> {
+    let list =
+        value.as_array().ok_or_else(|| refused("must be a list of absolute folder paths"))?;
+    if list.len() > MAX_DIRS {
+        return Err(refused(&format!("at most {MAX_DIRS} folders")));
+    }
+    let own = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
+    let mut out = Vec::with_capacity(list.len());
+    for item in list {
+        let path = item.as_str().ok_or_else(|| refused("each entry must be a path string"))?;
+        let path = PathBuf::from(path);
+        if !path.is_absolute() {
+            return Err(refused("expected folders must be absolute paths"));
+        }
+        if path != own && path != cwd && !out.contains(&path) {
+            out.push(path);
+        }
+    }
+    Ok(out)
+}
+
 /// `dirs` without the chat's own folder `cwd` (compared canonical when it can be read).
 pub(crate) fn without_cwd(dirs: Vec<PathBuf>, cwd: &Path) -> Vec<PathBuf> {
     if dirs.is_empty() {
@@ -99,8 +122,18 @@ impl Hub {
             return Err(refused("is required (an empty list clears them)"));
         }
         let dirs = without_cwd(requested(params).await?, &session.meta().cwd);
+        let expected = match params.get("expectedAdditionalDirectories") {
+            Some(value) => Some(expected_directories(value, &session.meta().cwd)?),
+            None => None,
+        };
         let changed = {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if expected.as_ref().is_some_and(|expected| expected != &m.additional_directories) {
+                return Err(
+                    RpcError::invalid_params("additionalDirectories changed")
+                        .with_data(json!({"reason": "additionalDirectories.changed", FIELD: m.additional_directories})),
+                );
+            }
             let changed = m.additional_directories != dirs;
             m.additional_directories = dirs.clone();
             changed
