@@ -6,7 +6,7 @@ use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
 mod resolve;
-pub(super) use resolve::{names_remote, remote_closed, remote_segment};
+pub(super) use resolve::{RemoteName, names_remote, remote_closed, remote_match, remote_segment};
 #[cfg(test)]
 mod test_hooks;
 #[cfg(test)]
@@ -17,6 +17,7 @@ pub(super) fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
         crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded => {
             OriginState::Connected
         }
+        crate::peer_link::PeerState::Idle => OriginState::Stale,
         _ if peer.outage_ended.load(std::sync::atomic::Ordering::Acquire)
             || peer.link().down_since.is_some_and(|at| {
                 crate::store::now_ms().saturating_sub(at)
@@ -212,6 +213,11 @@ impl Hub {
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
         peer.set_mirror(self.link_v2.clone());
+        // A quiet link an open chat or a pending delivery still needs stays (`peer_idle.rs`).
+        let hub = self.hub_ref.get().cloned();
+        peer.set_keeper(Box::new(move |peer| {
+            hub.as_ref().and_then(std::sync::Weak::upgrade).is_some_and(|hub| hub.keeps_peer(peer))
+        }));
         let settled = peer.settled();
         // Register under the peer lock and the rows writer lock (lock order: `peers`, then
         // `remote_sessions`): a purge or notice of the instance this replaces, checked current
@@ -904,6 +910,7 @@ impl Hub {
                     self.peer_snapshots.flush(Some(&peer));
                     tracing::info!(peer = %peer, "peer restarting");
                 }
+                PeerNotice::Idle => self.peer_went_idle(&peer, generation),
                 PeerNotice::Disconnected(e) => {
                     // Channels that rode the link end for their local side.
                     crate::server::channels::link_lost(self, &peer, generation);
