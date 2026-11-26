@@ -919,6 +919,10 @@ public struct AgentChatBottomStack: View {
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
                         }
+                        // The layout-shift count: the drawn composer must not move or resize in
+                        // its dock on its own (the offline-send stall flipped it between one and
+                        // two rows every frame). Before the entrance, which is render only.
+                        .layoutShiftTracked(inHost: "composer")
                         // The space between the composer and a raised keyboard is darkened from the
                         // card's middle down, as the ChatGPT and Claude iOS apps draw it (Leo,
                         // 2026-11-23: "they properly darken the ... space between the ios composer
