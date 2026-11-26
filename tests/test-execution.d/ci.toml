@@ -348,6 +348,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_hourly_full_tier.py"
 
 [[test]]
+path = "tests/test_ci_ios_base_bisect.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_ios_base_bisect.py"
+
+[[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
 
