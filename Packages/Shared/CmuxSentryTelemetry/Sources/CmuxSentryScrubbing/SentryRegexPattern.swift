@@ -10,6 +10,9 @@ public import Foundation
 public struct SentryRegexPattern: Sendable {
     /// The compiled expression. `NSRegularExpression` is documented thread-safe for matching.
     private let regex: NSRegularExpression
+    /// The literal gate: every group holds literals of which any match must contain at least one
+    /// (``SentryLiteralProbe``). Empty: the regex always runs.
+    private let required: [[[UInt8]]]
 
     /// Creates a pattern from a regex literal.
     ///
@@ -20,32 +23,67 @@ public struct SentryRegexPattern: Sendable {
     /// - Parameters:
     ///   - pattern: The ICU regular expression source.
     ///   - options: Matching options. Defaults to `.caseInsensitive`.
-    public init(_ pattern: String, options: NSRegularExpression.Options = [.caseInsensitive]) {
+    ///   - requires: Groups of lowercase ASCII literals: every match contains at least one literal of
+    ///     each group, ignoring ASCII case. A text without them skips the regex
+    ///     (``replace(in:probe:with:)``). A literal no match must contain would skip a real match, so
+    ///     list only literals the pattern spells out; `SentryLiteralGateTests` checks the gate against
+    ///     the ungated rules.
+    public init(_ pattern: String, options: NSRegularExpression.Options = [.caseInsensitive], requires: [[String]] = []) {
         // swiftlint:disable:next force_try
         self.regex = try! NSRegularExpression(pattern: pattern, options: options)
+        // A literal the probe cannot match (empty, non-ASCII or uppercase) would skip real matches.
+        // Tests trap on it; a release build drops the whole gate, so the regex always runs.
+        let valid = requires.allSatisfy { group in
+            group.allSatisfy { literal in
+                !literal.isEmpty && literal.utf8.allSatisfy { $0 < 0x80 && !($0 >= 0x41 && $0 <= 0x5A) }
+            }
+        }
+        assert(valid, "SentryRegexPattern: a required literal is empty, non-ASCII or uppercase: \(requires)")
+        self.required = valid ? requires.map { group in group.map { Array($0.utf8) } } : []
+    }
+
+    /// Whether the text `probe` was made from may hold a match: false only when a group of the
+    /// pattern's required literals is wholly absent from it.
+    func mayMatch(_ probe: SentryLiteralProbe) -> Bool {
+        required.allSatisfy { group in group.contains { probe.mayContain($0) } }
+    }
+
+    /// ``replace(in:with:)`` behind the literal gate: nil, with no regex run, when `probe` (made from
+    /// `text`) rules every match out, or when nothing matched; else the rewritten text.
+    func replace(in text: String, probe: SentryLiteralProbe, with replacement: (SentryRegexMatch) -> String) -> String? {
+        guard mayMatch(probe) else { return nil }
+        return replaceMatches(in: text, with: replacement)
     }
 
     /// Replaces every match with the string returned by `replacement`.
     ///
     /// Matches are rewritten from the end backwards so earlier ranges stay valid
-    /// while later matches are spliced out.
+    /// while later matches are spliced out. The splice works on UTF-16 offsets
+    /// (`NSMutableString`), so each match costs its own length: turning every
+    /// `NSRange` into a `String.Index` walked the string from the start, which
+    /// made a long string with many matches quadratic (cosmic-gray sample,
+    /// 2026-11-21: `Substring.index(_:offsetBy:)` under the event scrubber).
     ///
     /// - Parameters:
     ///   - text: The string to scan.
     ///   - replacement: A closure returning the replacement for each ``SentryRegexMatch``.
     /// - Returns: The rewritten string, or `text` unchanged when nothing matched.
     public func replace(in text: String, with replacement: (SentryRegexMatch) -> String) -> String {
+        replaceMatches(in: text, with: replacement) ?? text
+    }
+
+    /// The rewritten text, or nil when nothing matched.
+    private func replaceMatches(in text: String, with replacement: (SentryRegexMatch) -> String) -> String? {
         let source = text as NSString
         let fullRange = NSRange(location: 0, length: source.length)
         let matches = regex.matches(in: text, range: fullRange)
-        guard !matches.isEmpty else { return text }
+        guard !matches.isEmpty else { return nil }
 
-        var result = text
+        let result = NSMutableString(string: source)
         for checkingResult in matches.reversed() {
             let match = SentryRegexMatch(source: source, result: checkingResult)
-            guard let swiftRange = Range(checkingResult.range, in: result) else { continue }
-            result.replaceSubrange(swiftRange, with: replacement(match))
+            result.replaceCharacters(in: checkingResult.range, with: replacement(match))
         }
-        return result
+        return result as String
     }
 }
