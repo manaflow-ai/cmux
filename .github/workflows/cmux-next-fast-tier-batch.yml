@@ -65,8 +65,9 @@ jobs:
   swift-fleet:
     name: fast tier (Swift entries, build fleet)
     if: ${{ (inputs.only == '' || inputs.only == 'swift') && github.repository == 'manaflow-ai/cmux' && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
-    # The gateway only runs the fleet client; the suites build and run on a fleet Mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_COMPILE_CHECK_GATEWAY (cmux#54437)
+    # The gateway only runs the fleet client; the suites build and run on a fleet Mac, so the gateway is Linux
+    # (tests/test_ci_gateway_jobs_on_linux.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
     # The client's queue wait (20 min) and run limit (25 min), and the report.
@@ -82,8 +83,13 @@ jobs:
           fetch-depth: 1
           sparse-checkout: |
             scripts/cmux-next/fast-tier.json
+            .github/actions/fleet-client
             .gitmodules
           sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
 
       - name: Run every Swift entry on the build fleet
         env:
