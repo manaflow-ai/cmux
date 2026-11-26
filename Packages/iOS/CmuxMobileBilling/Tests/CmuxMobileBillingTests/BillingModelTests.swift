@@ -17,7 +17,10 @@ struct BillingRig {
         await store.configure(products: [
             BillingFixtures.product(.max, price: "$299.99"),
             BillingFixtures.product(.pro, price: "$74.99"),
-            BillingFixtures.product(.go, price: "$14.99"),
+            BillingFixtures.product(.go, price: "$21.99"),
+            BillingFixtures.product(.nextMax, price: "$299.99"),
+            BillingFixtures.product(.nextPro, price: "$74.99"),
+            BillingFixtures.product(.nextPlus, price: "$29.99"),
         ])
         model = BillingModel(api: api, store: store, analytics: analytics)
     }
@@ -271,6 +274,14 @@ struct BillingRig {
 
         #expect(rig.model.offers.map(\.planID) == [.pro, .max])
         #expect(rig.model.offers.map(\.product.displayPrice) == ["$74.99", "$299.99"])
+    }
+
+    @Test func nextOffersFollowServerProductsInPlanOrder() async throws {
+        let rig = await BillingRig(account: BillingFixtures.account(products: [.nextMax, .nextPlus, .nextPro]))
+        await rig.model.refresh()
+
+        #expect(rig.model.offers.map(\.planID) == [.nextPlus, .nextPro, .nextMax])
+        #expect(rig.model.offers.map(\.product.displayPrice) == ["$29.99", "$74.99", "$299.99"])
     }
 
     @Test func missingStoreProductsReportUnavailable() async throws {
