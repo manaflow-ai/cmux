@@ -1020,14 +1020,17 @@ impl Translator {
     /// Before the first system/init names the skills (a chat with no turn
     /// yet, such as the New Tab's deferred one), a command that Claude Code's
     /// `initialize` answer does not mark `builtin` is a skill: the person's,
-    /// a project's or a plugin's. Its bundled skills are `builtin`, so they
-    /// are tagged once the init names them.
+    /// a project's or a plugin's, when the answer marks any command at all
+    /// (an older Claude Code marks none, and gets no tags until its init).
+    /// Its bundled skills are `builtin`, so they are tagged once the init
+    /// names them.
     async fn commands_update(&self, always: bool) -> Option<Value> {
         let skills = self.skills.lock().await.clone();
-        let list: Vec<Value> = self
-            .slash_commands
-            .lock()
-            .await
+        let commands = self.slash_commands.lock().await;
+        // Only a Claude Code that marks its own commands `builtin` says which are skills before its
+        // init: an older one marks none, and then nothing is tagged until the init names the skills.
+        let marks_builtins = commands.iter().any(|c| c.get("builtin").is_some());
+        let list: Vec<Value> = commands
             .iter()
             .map(|c| {
                 let mut entry = json!({"name": c.get("name"), "description": c.get("description")});
@@ -1037,7 +1040,9 @@ impl Translator {
                     Some(skills) => {
                         skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
                     }
-                    None => c.get("builtin").and_then(Value::as_bool) != Some(true),
+                    None => {
+                        marks_builtins && c.get("builtin").and_then(Value::as_bool) != Some(true)
+                    }
                 };
                 if !name.is_empty() && skill {
                     entry.set("_meta", json!({"kind": "skill"}));
@@ -1045,6 +1050,7 @@ impl Translator {
                 entry
             })
             .collect();
+        drop(commands);
         let mut sent = self.sent_commands.lock().await;
         let unchanged = match sent.as_ref() {
             Some(before) => *before == list,
