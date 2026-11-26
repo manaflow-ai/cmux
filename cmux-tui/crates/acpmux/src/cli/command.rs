@@ -1162,6 +1162,8 @@ pub enum Command {
     #[command(hide = true)]
     HistoryOffload(HistoryOffloadArgs),
     #[command(hide = true)]
+    TranscriptOffload(TranscriptOffloadArgs),
+    #[command(hide = true)]
     Status {
         #[arg(long)]
         show_token: bool,
@@ -1489,6 +1491,9 @@ pub enum DaemonCmd {
     /// Move old cold-archived chats to cloud history (`agents.chats.cloudOffload`), keeping a stub
     /// that fetches them back on open. --dry-run lists them.
     HistoryOffload(HistoryOffloadArgs),
+    /// Copy Claude's and Codex's transcripts to cloud history, read-only (setting
+    /// `agents.chats.transcriptOffload`, off by default).
+    TranscriptOffload(TranscriptOffloadArgs),
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
     /// Every model id each harness declares or reports (`provider/model` for OpenCode and pi).
@@ -1497,6 +1502,20 @@ pub enum DaemonCmd {
         #[arg(long)]
         refresh: bool,
     },
+}
+
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct TranscriptOffloadArgs {
+    /// List the transcripts and bytes that would be copied and removed locally; upload nothing,
+    /// change nothing. Runs here, with no daemon and no cloud needed.
+    #[arg(long, conflicts_with = "restore_all")]
+    pub dry_run: bool,
+    /// Transcripts unchanged for longer than this many days, instead of the setting.
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
+    /// Bring back every transcript a pass removed (undo).
+    #[arg(long)]
+    pub restore_all: bool,
 }
 
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
@@ -1719,6 +1738,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Retention(args) => Command::Retention(args),
             DaemonCmd::HistoryDelete(args) => Command::HistoryDelete(args),
             DaemonCmd::HistoryOffload(args) => Command::HistoryOffload(args),
+            DaemonCmd::TranscriptOffload(args) => Command::TranscriptOffload(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },

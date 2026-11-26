@@ -27,6 +27,8 @@ use std::path::{Path, PathBuf};
 
 /// The ledger, in the state folder next to `session-cloud.json`.
 pub const LEDGER_FILE: &str = "session-cloud-transcripts.json";
+/// Taken by [`lock`].
+pub const LOCK_FILE: &str = "session-cloud-transcripts.lock";
 /// How many files a report lists by name; the totals count every one.
 pub const REPORT_FILES: usize = 200;
 
@@ -90,6 +92,22 @@ impl Ledger {
         Ok(())
     }
 
+    /// Writes `changes` over the ledger on the disk, under the lock: entries a restore changed
+    /// meanwhile and not in `changes` stay as it left them.
+    fn merge(
+        state: &Path,
+        changes: &BTreeMap<String, Entry>,
+        _lock: &std::fs::File,
+    ) -> anyhow::Result<Self> {
+        let mut ledger = Self::load(state)?;
+        ledger.v = 1;
+        if !changes.is_empty() {
+            ledger.files.extend(changes.iter().map(|(k, v)| (k.clone(), v.clone())));
+            ledger.save(state)?;
+        }
+        Ok(ledger)
+    }
+
     /// Every blob the ledger names, for the GC root.
     pub fn blobs(&self) -> Vec<String> {
         let mut blobs: Vec<String> = self.files.values().map(|e| e.stub.blob.clone()).collect();
@@ -108,6 +126,19 @@ pub struct Found {
     pub path: PathBuf,
     pub size: u64,
     pub mtime_ms: u64,
+}
+
+/// Held while a file is removed and while one is restored, so a chat opened mid-pass never
+/// misses a file that is going.
+fn lock(state: &Path) -> anyhow::Result<std::fs::File> {
+    std::fs::create_dir_all(state)?;
+    let file = std::fs::File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(state.join(LOCK_FILE))?;
+    file.lock()?;
+    Ok(file)
 }
 
 /// Every transcript under `home`, sorted by path. Symlinks are not followed.
@@ -284,7 +315,8 @@ pub fn pass(
         (None, true) => None,
         (None, false) => bail!("cloud history is off: no session-cloud.json"),
     };
-    let mut ledger = Ledger::load(state)?;
+    let ledger = Ledger::load(state)?;
+    let mut changes = BTreeMap::new();
     let mut report = Report {
         dry_run,
         delete_local: policy.delete_local,
@@ -292,7 +324,6 @@ pub fn pass(
         ..Report::default()
     };
     let cutoff = policy.now_ms.saturating_sub(policy.older_than_ms);
-    let mut dirty = false;
     for found in scan(home) {
         report.files += 1;
         report.bytes += found.size;
@@ -356,8 +387,7 @@ pub fn pass(
                     report.copied_bytes += entry.stub.plain_bytes;
                     report.stored_bytes += entry.stub.stored_bytes;
                     report.list(&found.rel, found.size, "copied");
-                    ledger.files.insert(found.rel.clone(), entry.clone());
-                    dirty = true;
+                    changes.insert(found.rel.clone(), entry.clone());
                     entry
                 }
                 Err(e) if e.to_string().contains("64 MiB") => {
@@ -383,16 +413,26 @@ pub fn pass(
             report.skip("read-back failed");
             continue;
         }
-        // `commit` removes the file only while it still holds the bytes copied.
+        // `commit` removes the file only while it still holds the bytes copied; the stub it
+        // leaves and the ledger row are on the disk before the lock goes.
+        let held = match lock(state) {
+            Ok(held) => held,
+            Err(e) => {
+                report.error(&found.rel, "lock", &e);
+                report.skip("remove failed");
+                continue;
+            }
+        };
         match crate::offload::commit(&found.path, &entry.stub) {
             Ok(Some(bytes)) => {
                 report.removed += 1;
                 report.removed_bytes += bytes;
                 report.list(&found.rel, bytes, "removed");
-                if let Some(e) = ledger.files.get_mut(&found.rel) {
-                    e.removed_at_ms = Some(policy.now_ms);
-                }
-                dirty = true;
+                changes.insert(
+                    found.rel.clone(),
+                    Entry { removed_at_ms: Some(policy.now_ms), ..entry },
+                );
+                Ledger::merge(state, &changes, &held)?;
             }
             Ok(None) => report.skip("changed"),
             Err(e) => {
@@ -401,6 +441,10 @@ pub fn pass(
             }
         }
     }
+    if dry_run {
+        return Ok(report);
+    }
+    let ledger = Ledger::merge(state, &changes, &lock(state)?)?;
     if let Some(cloud) = cloud
         && !ledger.files.is_empty()
     {
@@ -408,10 +452,6 @@ pub fn pass(
         let blobs = ledger.blobs();
         cloud.store.set_root(&root_pair(cloud), &blobs)?;
         report.root_blobs = Some(blobs.len());
-    }
-    if dirty {
-        ledger.v = 1;
-        ledger.save(state)?;
     }
     Ok(report)
 }
@@ -427,13 +467,22 @@ pub fn restore_all(home: &Path, state: &Path, cloud: &Cloud) -> anyhow::Result<u
     restore_where(home, state, cloud, |_| true)
 }
 
-/// Whether any removed transcript of `sid` waits in the cloud: a ledger read, no store call.
+/// Whether any removed transcript of `sid` waits in the cloud: one `stat` when transcripts were
+/// never offloaded here, else a ledger read; no store call.
 pub fn needs_restore(home: &Path, state: &Path, sid: &str) -> bool {
+    if !state.join(LEDGER_FILE).exists() {
+        return false;
+    }
     Ledger::load(state).is_ok_and(|ledger| {
-        ledger.files.iter().any(|(rel, e)| {
-            e.removed_at_ms.is_some() && belongs_to(rel, sid) && !home.join(rel).exists()
-        })
+        ledger.files.iter().any(|(rel, e)| belongs_to(rel, sid) && removed(home, rel, e))
     })
+}
+
+/// Gone from the disk with its copy in the cloud: the ledger says so, or its stub does (a pass
+/// that stopped between the two).
+fn removed(home: &Path, rel: &str, entry: &Entry) -> bool {
+    let file = home.join(rel);
+    !file.exists() && (entry.removed_at_ms.is_some() || stub::stub_path(&file).exists())
 }
 
 fn restore_where(
@@ -442,11 +491,12 @@ fn restore_where(
     cloud: &Cloud,
     want: impl Fn(&str) -> bool,
 ) -> anyhow::Result<usize> {
+    let _held = lock(state)?;
     let mut ledger = Ledger::load(state)?;
     let mut back = 0;
     let mut first_error = None;
     for (rel, entry) in ledger.files.iter_mut() {
-        if entry.removed_at_ms.is_none() || !want(rel) {
+        if !want(rel) || (entry.removed_at_ms.is_none() && !removed(home, rel, entry)) {
             continue;
         }
         let file = home.join(rel);

@@ -94,6 +94,27 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
     match cmd {
         Command::ClearPeerSnapshots => crate::daemon::clear_peer_snapshots().await,
         Command::Session(control) => crate::cli::mesh_control::run(control, json_out).await,
+        Command::TranscriptOffload(args) => {
+            let v = if args.dry_run {
+                transcript_dry_run(args.older_than_days)?
+            } else {
+                let client = connect(true).await?;
+                client
+                    .request(
+                        method::MUX_TRANSCRIPT_OFFLOAD,
+                        json!({"olderThanDays": args.older_than_days, "restoreAll": args.restore_all}),
+                    )
+                    .await?
+            };
+            if json_out {
+                print_json(&v);
+            } else if let Some(n) = v.get("restored") {
+                println!("{n} transcript(s) back from cloud history");
+            } else {
+                print_transcript_report(&v);
+            }
+            Ok(())
+        }
         Command::Retention(args) => {
             let client = connect(true).await?;
             let archive = args.archive.map(std::path::absolute).transpose()?;
@@ -2147,5 +2168,54 @@ fn print_history_report(v: &Value, verb: &str, key: &str) {
     println!("skipped: {}", v["skipped"]);
     if let Some(to) = v.get("export").and_then(Value::as_str) {
         println!("exported to {to}");
+    }
+}
+
+/// `daemon transcript-offload --dry-run`: the pass's report with nothing uploaded or changed,
+/// in this process, as if local removal were on (what would go). The daemon's pass also keeps
+/// pinned and busy chats' files, which this cannot see.
+fn transcript_dry_run(older_than_days: Option<u32>) -> Result<Value> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("no home folder"))?;
+    let days = u64::from(older_than_days.unwrap_or(14));
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    let policy = cmux_session_cloud::transcripts::Policy {
+        older_than_ms: days.saturating_mul(86_400_000),
+        delete_local: true,
+        keep: Default::default(),
+        now_ms,
+    };
+    let report = cmux_session_cloud::transcripts::pass(
+        &home,
+        &crate::config::home(),
+        None,
+        &policy,
+        true,
+        &|| false,
+    )?;
+    Ok(serde_json::to_value(report)?)
+}
+
+fn print_transcript_report(v: &Value) {
+    let mb = |key: &str| v[key].as_u64().unwrap_or(0) as f64 / 1_048_576.0;
+    let dry = v["dryRun"].as_bool().unwrap_or(false);
+    println!("{} transcripts, {:.1} MB, by agent {}", v["files"], mb("bytes"), v["byAgent"]);
+    println!(
+        "{} {} ({:.1} MB), {} already copied",
+        v["copied"],
+        if dry { "would be copied" } else { "copied" },
+        mb("copiedBytes"),
+        v["unchanged"]
+    );
+    println!(
+        "{} {} locally ({:.1} MB)",
+        v["removed"],
+        if dry { "would be removed" } else { "removed" },
+        mb("removedBytes")
+    );
+    println!("skipped: {}", v["skipped"]);
+    for e in v["errors"].as_array().into_iter().flatten() {
+        println!("error: {}", e.as_str().unwrap_or("?"));
     }
 }
