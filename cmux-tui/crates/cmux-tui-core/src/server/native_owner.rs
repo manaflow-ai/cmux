@@ -177,6 +177,7 @@ const CAPABILITIES: &[&str] = &[
     agent_transfer::AGENT_TRANSFER_CREDENTIALS_CAPABILITY,
     agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[0],
     agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[1],
+    agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES[2],
     agent_inventory::CAPABILITY,
     agent_inventory::OWNER_CAPABILITY,
     agent_inventory::REFRESH_CAPABILITY,

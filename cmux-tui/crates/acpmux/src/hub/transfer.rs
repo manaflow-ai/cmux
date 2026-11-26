@@ -137,6 +137,14 @@ impl Hub {
         };
         super::prompt_images::bundle_images(&images, &dir)?;
         crate::home_fs::write(dir.join(super::composers::BUNDLE_FILE), composers.to_string())?;
+        // The agent's hooks' memory of the session (`hook_state.rs`): what they already put in its
+        // context is not sent again on the target.
+        if let Some(cache) = super::hook_state::cache_dir() {
+            let sid = meta.agent_session_id.as_deref();
+            if let Err(e) = super::hook_state::bundle(&cache, sid, &dir) {
+                tracing::warn!(session = %meta.id, "hook state not bundled: {e:#}");
+            }
+        }
         // The agent's own files (`transfer_agent_files.rs`), which an Auto snapshot carries too.
         let files = self.export_agent_files(&meta, &dir, dest, grown)?;
         let mut manifest = json!({
@@ -408,6 +416,15 @@ impl Hub {
             }
         };
         steps.step("native");
+        // Its hooks' state (`hook_state.rs`), for a chat of this user only: a guarded one's
+        // bundle may hold it, and it stays there.
+        if guarded.is_none()
+            && let Some(cache) = super::hook_state::cache_dir()
+            && let Err(e) =
+                super::hook_state::restore(bundle, &cache, meta.agent_session_id.as_deref())
+        {
+            tracing::warn!(session = %meta.id, "moved hook state not kept: {e:#}");
+        }
         // Its images: a chat that shows none is no move (`prompt_images.rs`). One that cannot be
         // kept leaves the chat showing that image as missing, as a pruned one does.
         if let Err(e) = super::prompt_images::restore_images(bundle) {

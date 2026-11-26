@@ -148,6 +148,8 @@ pub mod here;
 pub(crate) mod history_delete;
 pub(crate) mod history_search;
 mod history_timing;
+// A hook's per-session state (notes-first's), carried with a moved chat.
+mod hook_state;
 mod host_level;
 #[cfg(test)]
 mod host_notice_tests;

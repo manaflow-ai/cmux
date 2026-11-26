@@ -89,6 +89,10 @@ pub const TRANSFER_COMPOSERS: &str = "transfer-composers-v1";
 /// (`hub/prompt_images.rs`), a guarded one too.
 pub const TRANSFER_IMAGES: &str = "transfer-images-v1";
 
+/// A move's receive here takes `hook-state/<tool>/<agent-session-id>.json`, the agent's hooks'
+/// memory of the session (`hub/hook_state.rs`), a guarded one too (which does not place it).
+pub const TRANSFER_HOOK_STATE: &str = "transfer-hook-state-v1";
+
 /// The bundle files a chat runs without: each a capability and the first path component of the
 /// files it covers. A source makes them whatever its target is (it cannot know); the move's
 /// client, which reads the target's capabilities, leaves out each one the target does not list
@@ -96,8 +100,11 @@ pub const TRANSFER_IMAGES: &str = "transfer-images-v1";
 /// (2026-11-24, a Move to Cloud onto an older machine image: `transfer.path: "composers.json" is
 /// not a file a guarded move takes`). A new optional bundle file gets its row here and its id in
 /// [`CAPABILITIES`] in the change that adds it; every other file stays required.
-pub const OPTIONAL_BUNDLE_FILES: &[(&str, &str)] =
-    &[(TRANSFER_COMPOSERS, "composers.json"), (TRANSFER_IMAGES, "attachments")];
+pub const OPTIONAL_BUNDLE_FILES: &[(&str, &str)] = &[
+    (TRANSFER_COMPOSERS, "composers.json"),
+    (TRANSFER_IMAGES, "attachments"),
+    (TRANSFER_HOOK_STATE, "hook-state"),
+];
 
 /// The capability a target lists when it takes the bundle file `path`, for an optional one
 /// ([`OPTIONAL_BUNDLE_FILES`]); `None` for a file every move carries.
@@ -140,6 +147,7 @@ pub fn left_out_line(left: &[String]) -> Option<String> {
         .map(|(c, _)| match *c {
             TRANSFER_COMPOSERS => "unsent composer text",
             TRANSFER_IMAGES => "prompt images",
+            TRANSFER_HOOK_STATE => "hook state",
             other => other,
         })
         .collect();
@@ -609,6 +617,10 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     Capability {
         id: TRANSFER_IMAGES,
+        wire: &["_acpmux/transfer_receive", "_acpmux/transfer_write"],
+    },
+    Capability {
+        id: TRANSFER_HOOK_STATE,
         wire: &["_acpmux/transfer_receive", "_acpmux/transfer_write"],
     },
     // An agent CLI's own sign-in on this machine, for a chat's sign-in card (`agent_login.rs`).
