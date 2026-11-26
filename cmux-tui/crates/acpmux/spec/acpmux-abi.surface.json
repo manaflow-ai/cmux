@@ -12640,6 +12640,18 @@
         "nullable": true
       }
     },
+    "request:_acpmux/history_delete": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/history_offload": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/host_health": {
       "/*untyped*": {
         "ty": "json",
@@ -33252,6 +33264,18 @@
       }
     },
     "response:_acpmux/history": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history_delete": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/history_offload": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
