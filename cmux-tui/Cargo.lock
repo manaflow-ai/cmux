@@ -1569,6 +1569,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-build-identity"
 version = "0.1.0"
 dependencies = [
@@ -1604,9 +1612,12 @@ dependencies = [
  "base64",
  "blake3",
  "cmux-signed-envelope",
+ "flate2",
  "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
  "zstd",
 ]
@@ -2822,6 +2833,14 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "cmux-screenshots"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]
