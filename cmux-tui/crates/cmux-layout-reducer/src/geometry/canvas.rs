@@ -343,12 +343,21 @@ fn tidied(panes: &[Pane], gap: f64) -> BTreeMap<String, Rect> {
     let mut rows: Vec<Vec<Pane>> = vec![];
     let mut row_bottom = f64::NEG_INFINITY;
     for pane in sorted {
-        if rows.is_empty() || pane.1.mid_y() >= row_bottom {
-            row_bottom = pane.1.max_y();
-            rows.push(vec![pane]);
-        } else {
-            row_bottom = swift_max(row_bottom, pane.1.max_y());
-            rows.last_mut().expect("a row").push(pane);
+        match rows.last_mut() {
+            // NaN parity with Swift: `midY >= rowBottom` fails on a NaN, so the pane joins the row.
+            Some(row)
+                if !matches!(
+                    pane.1.mid_y().partial_cmp(&row_bottom),
+                    Some(Ordering::Greater | Ordering::Equal)
+                ) =>
+            {
+                row_bottom = swift_max(row_bottom, pane.1.max_y());
+                row.push(pane);
+            }
+            _ => {
+                row_bottom = pane.1.max_y();
+                rows.push(vec![pane]);
+            }
         }
     }
     let mut result = BTreeMap::new();
