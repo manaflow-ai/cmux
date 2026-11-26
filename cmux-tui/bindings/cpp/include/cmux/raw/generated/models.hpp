@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "9c6b5069bad16f8c454589491f996f886b7c73f2eaf820e22960354808414b1e";
+inline constexpr std::string_view kProtocolIrSha256 = "6ca9835c2b5e897aea083c0a9ef5399cfceec848d825d37fd4bc0d69db6cfd89";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -174,6 +174,7 @@ struct ServerStatsCommandRow;
 struct ServerStatsCommands;
 struct ServerStatsConnections;
 struct ServerStatsDisk;
+struct ServerStatsDiskCheckpoints;
 struct ServerStatsDiskFile;
 struct ServerStatsDiskJournal;
 struct ServerStatsDiskJournalKind;
@@ -5385,6 +5386,15 @@ struct ServerStatsConnections {
     friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
 };
 
+struct ServerStatsDiskCheckpoints {
+    std::uint64_t budget_bytes{};
+    std::uint64_t bytes{};
+    std::uint64_t checkpoints{};
+    std::uint64_t largest_bytes{};
+    bool over_budget{};
+    friend bool operator==(const ServerStatsDiskCheckpoints&, const ServerStatsDiskCheckpoints&) = default;
+};
+
 struct ServerStatsDiskFile {
     std::uint64_t bytes{};
     std::uint64_t files{};
@@ -5440,6 +5450,7 @@ struct ServerStatsDiskSegments {
 };
 
 struct ServerStatsDisk {
+    Field<ServerStatsDiskCheckpoints> checkpoints{};
     std::optional<std::string> error{};
     std::vector<ServerStatsDiskFile> files{};
     bool files_truncated{};
@@ -7812,6 +7823,12 @@ template <>
 struct Codec<ServerStatsDisk> {
     static Result<Json> encode(const ServerStatsDisk& value);
     static Result<ServerStatsDisk> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsDiskCheckpoints> {
+    static Result<Json> encode(const ServerStatsDiskCheckpoints& value);
+    static Result<ServerStatsDiskCheckpoints> decode(const Json& value);
 };
 
 template <>
