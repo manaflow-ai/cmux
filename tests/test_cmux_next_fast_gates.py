@@ -733,7 +733,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertLessEqual(int(node["timeout-minutes"]), 3)
 
     def test_a_warm_runner_skips_unpacking_the_bun_cache_archive(self):
-        # note-561 (2026-11-23): on a runner whose own Bun cache is already filled (a persistent pool runner), the
+        # docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (2026-11-23): on a runner whose own Bun cache is already filled (a persistent pool runner), the
         # archive restore spent 400-1,096 s in 12 of 14 jobs cut at their limit. The check runs first, the restore only
         # when it is not warm, and CI_BUN_CACHE_RESTORE_WARM=1 restores everywhere again.
         steps = job(workflow())["steps"]
