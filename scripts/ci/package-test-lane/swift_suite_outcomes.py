@@ -45,7 +45,7 @@ def fingerprint(arguments, environment):
     if platform.system() == 'Darwin':
         toolchain.extend((probe(['xcodebuild', '-version']), probe(['xcrun', '--show-sdk-build-version'])))
     helpers = {}
-    for path in (Path(__file__), Path(arguments.lane_script), Path(__file__).with_name('require_swift_test_execution.py')):
+    for path in (Path(__file__), Path(arguments.lane_script), Path(arguments.lane_script).with_name('require_swift_test_execution.py')):
         helpers[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
     inputs = dict(version=1, context=context, ref=ref, package=arguments.package,
                   filters=arguments.filter, configuration=arguments.configuration,

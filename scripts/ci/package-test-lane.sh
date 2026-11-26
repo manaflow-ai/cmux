@@ -948,7 +948,7 @@ record_suite_outcome() {
   local phase="$1" status="$2" log="${3:-}" arguments=()
   [ -n "${suite_outcome_state:-}" ] || return 0
   [ -z "$log" ] || arguments+=(--log "$log")
-  python3 scripts/ci/swift_suite_outcomes.py record --state "$suite_outcome_state" \
+  python3 scripts/ci/package-test-lane/swift_suite_outcomes.py record --state "$suite_outcome_state" \
     --phase "$phase" --status "$status" ${arguments[@]+"${arguments[@]}"} || true
 }
 
@@ -1003,7 +1003,7 @@ run_suite() {
   for outcome_configuration in "${configuration[@]}"; do
     outcome_args+=("--configuration=$outcome_configuration")
   done
-  python3 scripts/ci/run_with_timeout.py --timeout-seconds 15 -- python3 scripts/ci/swift_suite_outcomes.py check --state "$suite_outcome_state" --package "$suite_package" \
+  python3 scripts/ci/run_with_timeout.py --timeout-seconds 15 -- python3 scripts/ci/package-test-lane/swift_suite_outcomes.py check --state "$suite_outcome_state" --package "$suite_package" \
     --lane-script "$lane_script" "${outcome_args[@]}" || outcome_status=$?
   if { [ "$outcome_status" -eq 1 ] || [ "$outcome_status" -eq 2 ]; } && [ -s "${CMUX_CI_SUITE_FAILURE_FILE:-/dev/null}" ]; then
     exit "$outcome_status"

@@ -14,7 +14,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-OUTCOMES = ROOT / 'scripts/ci/swift_suite_outcomes.py'
+OUTCOMES = ROOT / 'scripts/ci/package-test-lane/swift_suite_outcomes.py'
 
 
 class SuiteOutcomeSignalTests(unittest.TestCase):

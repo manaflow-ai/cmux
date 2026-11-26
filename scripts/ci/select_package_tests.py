@@ -38,6 +38,7 @@ GLOBAL_INPUTS = (
     "scripts/ci/package_input_key.py",
     "scripts/ci/package_interface_fingerprint.py",
     "scripts/ci/package-test-lane.sh",
+    "scripts/ci/package-test-lane/swift_suite_outcomes.py",
     "scripts/ci/reuse_package_results.py",
     "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/run-swift-testing-suites.sh",
