@@ -26,6 +26,8 @@ pub mod place;
 pub mod plus_menu;
 #[path = "tabs_type_ahead.rs"]
 pub mod type_ahead;
+#[path = "tabs_strip.rs"]
+pub mod strip;
 
 // MARK: New tab kind
 
