@@ -415,7 +415,7 @@ impl Schema {
             // An empty box does not allocate; the slice replaces it below.
             RowText::Owned(Box::default())
         })?;
-        let kept: &'static str = kept.into_boxed_str().leak();
+        let kept: &'static str = Box::leak(kept.into_boxed_str());
         for (row, span) in schema.rows.iter_mut().zip(spans) {
             row.raw = RowText::Embedded(&kept[span]);
         }
