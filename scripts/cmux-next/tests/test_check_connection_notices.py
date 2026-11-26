@@ -332,6 +332,48 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 1, out)
 
+    # cmux#56238's status pill: a component drawing only a label table's words (`CONNECT_STATUS_KEY[status]`), set
+    # on a card whose one action is Connect. The words are the card's; the card is judged, not the pill alone.
+    PILL = """\
+    import { L } from "./strings";
+    export function StatusPill({ state }: { state: keyof typeof L }) {
+      return <span className="pill"><span className="dot" />{t(L[state])}</span>;
+    }
+"""
+
+    def test_a_pill_drawn_on_cards_that_carry_an_action_passes(self):
+        tree = Tree(self)
+        tree.write(f"{PAGE}/strings.ts", PAGE_STRINGS)
+        tree.write(f"{PAGE}/StatusPill.tsx", self.PILL)
+        tree.write(f"{PAGE}/ConnectRow.tsx", """\
+    import { StatusPill } from "./StatusPill";
+    export function ConnectRow({ onConnect }: Props) {
+      return <li><StatusPill state="disconnected" /><button type="button" onClick={onConnect}>Connect</button></li>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_pill_one_host_draws_bare_keeps_its_finding(self):
+        tree = Tree(self)
+        tree.write(f"{PAGE}/strings.ts", PAGE_STRINGS)
+        tree.write(f"{PAGE}/StatusPill.tsx", self.PILL)
+        tree.write(f"{PAGE}/ConnectRow.tsx", """\
+    import { StatusPill } from "./StatusPill";
+    export function ConnectRow({ onConnect }: Props) {
+      return <li><StatusPill state="disconnected" /><button type="button" onClick={onConnect}>Connect</button></li>;
+    }
+""")
+        tree.write(f"{PAGE}/Banner.tsx", """\
+    import { StatusPill } from "./StatusPill";
+    export function Banner() {
+      return <header><StatusPill state="disconnected" /></header>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"{PAGE}/StatusPill.tsx:3: StatusPill shows a connection state ('L: page.disconnected')", out)
+
     def test_a_literal_grace_under_the_bound_is_no_bound(self):
         tree = Tree(self)
         tree.write("schemas/notice-timing/notice-timing.json", json.dumps({"connectionQuietMs": 10000}))
