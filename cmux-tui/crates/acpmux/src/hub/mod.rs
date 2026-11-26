@@ -258,6 +258,7 @@ mod peer_flap_soak;
 mod peer_grace;
 #[cfg(test)]
 mod peer_grace_tests;
+mod peer_idle;
 mod peer_lease;
 #[cfg(test)]
 mod peer_notice_cost_tests;
@@ -1187,6 +1188,7 @@ pub struct Hub {
     /// The peers' rows, published as a snapshot (`remote_table.rs`): a reader loads it with no
     /// lock and never holds up a writer; writers (peer notices, purges) take turns.
     pub(super) remote_sessions: remote_table::RemoteTable,
+    pending_peer_routes: StdMutex<peer_idle::PendingRoutes>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
@@ -1806,6 +1808,7 @@ impl Hub {
             started_at: now_ms(),
             peers: Default::default(),
             remote_sessions: Default::default(),
+            pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
