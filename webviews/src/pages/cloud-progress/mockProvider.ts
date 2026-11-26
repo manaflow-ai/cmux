@@ -1,6 +1,6 @@
 // l10n-allow-file: mock host data (a sample machine name and failure), not shipped UI.
 // An in-memory Cloud creation for the browser dev loop (`/cloud-progress/?mock`) and the gallery: it
-// answers `state`, and with `walk` moves through the stages two seconds apart. Retry starts it over;
+// answers `state`, and with `walk` moves through the stages two seconds apart. Retry (retry-prompt-ok) starts it over;
 // Dismiss and Copy Error do nothing here.
 import { pageError, type PageClient, type PageHandler } from "../shared/pageClient";
 import { CloudProgressOps, type CloudProgressAsk, type CloudProgressState, type CloudStage } from "./types";
