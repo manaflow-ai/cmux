@@ -59,6 +59,7 @@ on:
       - "webviews/src/pages/shared/pageDensity.css"
       - "scripts/gallery-matrix/**"
       - ".github/workflows/gallery-advisory.yml"
+      - "!**/*.md"
   workflow_dispatch:
 
 permissions:
