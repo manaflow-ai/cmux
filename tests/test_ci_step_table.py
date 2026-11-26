@@ -53,7 +53,7 @@ def table(steps: str, jobs: str = 'linux = "l"\nadvisory = "a"') -> ci_steps.Tab
 # of ci time, period."): tests/test_head_tier.py land_tier_condition and the label guard of
 # tests/test_ci_label_events_skip_full_ci.py, exactly as #54886 put them on every gated workflow. The router (a
 # workflow_call caller) passes its pull_request event through, so the same expression reads the same head.
-PIPELINE_LAND_TIER_JOBS = ("linux", "web-browser")
+PIPELINE_LAND_TIER_JOBS = ("linux", "web-browser", "ios", "mac")
 PIPELINE_LAND_TIER = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
 PIPELINE_LABEL_GUARD = '!(github.event_name == \'pull_request\' && github.event.pull_request.base.ref == \'feat-cmux-next\' && (github.event.action == \'labeled\' || github.event.action == \'unlabeled\') && !contains(fromJSON(\'["full-ci","ready-to-land"]\'), github.event.label.name))'
 
@@ -956,7 +956,9 @@ class PipelineTest(unittest.TestCase):
                 continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
             if name in pickers:
                 with self.subTest(picker=name):
-                    self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}') }}}}")
+                    routed = f"inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}')"
+                    # The picker runs exactly when its job does: the land tier too.
+                    self.assertEqual(job["if"], f"${{{{ ({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
                     self.assertFalse([s for s in job["steps"] if "ci/run" in s.get("run", "")])
                     self.assertIn(name, wf["jobs"][pickers[name]]["needs"])
                 continue
