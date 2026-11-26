@@ -70,7 +70,8 @@ def rebuild(base_ref: str, remote: str) -> dict[str, str]:
         raise Skip(f"the merge is already on the tip of {base_ref} ({tip[:12]})")
     if git("status", "--porcelain", "--untracked-files=no"):
         raise Skip("the checkout has tracked changes")
-    git("fetch", "-q", "--no-tags", "--depth=1", remote, tip, timeout=FETCH_TIMEOUT_S)
+    shallow = git("rev-parse", "--is-shallow-repository").strip() == "true"
+    git("fetch", "-q", "--no-tags", *(["--depth=1"] if shallow else []), remote, tip, timeout=FETCH_TIMEOUT_S)
     patch = subprocess.run(["git", "diff", "--binary", "--full-index", "--no-renames", old_base, merge],
                            capture_output=True, timeout=GIT_TIMEOUT_S, check=True).stdout
     with tempfile.TemporaryDirectory() as scratch:

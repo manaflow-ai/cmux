@@ -1,3 +1,4 @@
+import CmuxMobileDesignCore
 import Foundation
 import Observation
 
@@ -177,7 +178,7 @@ public final class SettingsStore {
     /// Settings → Terminal → Terminal and Chat Toggle (off by default). Read by the workspace tabs
     /// (`CmuxMobilePreferences.terminalChatToggle`) through the same key.
     public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
-    /// Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default). Read by the terminal
+    /// Settings → Terminal → Plain Scroll in Full-Screen Apps (on by default). Read by the terminal
     /// (`CmuxMobilePreferences.terminalPlainScroll`) at each drag through the same key.
     public var terminalPlainScroll: Bool { didSet { save(terminalPlainScroll, "terminalPlainScroll") } }
     /// Settings → Terminal → Zoom Full-Screen Apps (off by default). Read by the terminal
@@ -185,7 +186,7 @@ public final class SettingsStore {
     public var terminalZoomFullScreenApps: Bool {
         didSet { save(terminalZoomFullScreenApps, "terminalZoomFullScreenApps") }
     }
-    /// Settings → Terminal → Find in Whole History (off by default). Read by the terminal
+    /// Settings → Terminal → Find in Whole History (on by default). Read by the terminal
     /// (`CmuxMobilePreferences.terminalHistoryFind`) at each search.
     public var terminalHistoryFind: Bool { didSet { save(terminalHistoryFind, "terminalHistoryFind") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
@@ -272,9 +273,9 @@ public final class SettingsStore {
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
         terminalPlainScroll = defaults.object(forKey: "cmuxMobile.settings.terminalPlainScroll") == nil
-            ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalPlainScroll")
+            ? TerminalScrollDefault.plainScroll : defaults.bool(forKey: "cmuxMobile.settings.terminalPlainScroll")
         terminalZoomFullScreenApps = bool("terminalZoomFullScreenApps", false)
-        terminalHistoryFind = bool("terminalHistoryFind", false)
+        terminalHistoryFind = bool("terminalHistoryFind", true)
         predictiveEcho = bool("predictiveEcho", true)
         predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")

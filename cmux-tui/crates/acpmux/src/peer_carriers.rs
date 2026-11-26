@@ -481,7 +481,7 @@ impl Peer {
     /// tokens, never before the race: a dial with its tokens configured or kept starts at once.
     pub(super) async fn open_first(self: &Arc<Self>) -> Result<(Via, Opened), String> {
         use futures_util::FutureExt;
-        // Opt-in tailnet path: read from the cached snapshot (a first read waits briefly).
+        // Opt-in tailnet path: read from memory only, never awaited (a first read runs behind).
         self.refresh_tailnet(None).await;
         let started = crate::store::now_ms();
         let (order, together) = self.with_paths(|paths| {
