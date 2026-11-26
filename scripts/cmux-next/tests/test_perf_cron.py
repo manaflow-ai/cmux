@@ -2529,6 +2529,23 @@ class ControllerRouteTests(unittest.TestCase):
         cron.record_part(cur, "build", failed_build, "r")
         self.assertEqual(cur["parts_todo"], ["diff-viewer"], "a failed build ends the Mac parts")
 
+    def test_a_step_that_never_started_is_a_yield_not_a_build_failure(self):
+        # Tip c2b1760e on 2026-11-26: GitHub refused cmux20-bench's checkout fetch (HTTP 403), and the build part's
+        # failure ended every Mac part, tabs among them, as build_failed.
+        error = ("step checkout: GitHub refused the fetch (HTTP 403) (exit status 128) "
+                 "(source download failed 3 times, before the job started)")
+        refused = cron.result_files(json.loads(self.result(part="build", state="failed", error=error)))
+        self.assertEqual(refused["state"], "yielded")
+        self.assertFalse(refused["build_failed"], "no build ran")
+        cur = cron.new_measurement(self.SHA, "tip", ["build", "motion", "diff-viewer"], T0)
+        entry = cron.record_part(cur, "build", refused, "r")
+        self.assertEqual((entry["state"], entry["yields"]), ("yielded", 1))
+        self.assertEqual(cur["parts_todo"], ["build", "motion", "diff-viewer"], "every part still to do")
+        for _ in range(cron.MAX_YIELDS - 1):
+            entry = cron.record_part(cur, "build", refused, "r")
+        self.assertEqual(entry["state"], "yielded_out", "bounded: a fleet that keeps refusing ends it")
+        self.assertIn("motion", cur["parts_todo"], "a yielded-out build is no build failure: the next part builds")
+
     def test_fetch_result_reads_the_signed_artifact(self):
         out = tempfile.mkdtemp()
 

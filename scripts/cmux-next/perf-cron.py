@@ -5200,10 +5200,21 @@ def result_plan(o, state, t):
     write_outputs(o.output, out)
 
 
+# The controller's error for a step that never started: its source download (the checkout's fetch) failed every
+# try (build-fleet ci_step.go). On 2026-11-26 GitHub refused cmux20-bench's fetch with HTTP 403 and tip c2b1760e's
+# build part failed so; result_files called it a build failure, which ended all 25 Mac parts (tabs among them) as
+# build_failed though no build ran.
+NOT_STARTED_RE = re.compile(r"source download failed \d+ times?, before the job started")
+
+
 def result_files(value):
     """result.json for record_part from the controller's result (pure): a failed build part ends the other Mac
-    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded."""
+    parts (build_failed), a step past its cap is timed out, a pre-empted or unstarted one yielded. A step that
+    failed before it started (NOT_STARTED_RE: the fleet could not fetch the source) ran nothing of the commit: it is
+    a yield, so the part runs again (MAX_YIELDS bounds it), and a build part's is no build failure."""
     tail = [line for line in (value.get("error"),) if line]
+    if value["state"] == "failed" and NOT_STARTED_RE.search(str(value.get("error") or "")):
+        value = {**value, "state": "yielded"}
     return {"state": value["state"], "step_id": value.get("step_id"), "seconds": value.get("seconds"),
             "exit": value.get("exit_code"), "yielded_to": value.get("preempted_by"),
             "worker": LINUX_FLEET_CLASS if is_linux_part(value.get("part")) else value.get("worker"),
