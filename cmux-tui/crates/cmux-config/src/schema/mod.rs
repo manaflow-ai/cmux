@@ -405,25 +405,41 @@ impl Schema {
 
     /// Parses the embedded document, keeping every row's compact JSON in one
     /// text that lives as long as the process (the embedded schema is a
-    /// process-wide `OnceLock`); `text` is dropped once parsed.
+    /// process-wide `OnceLock`). The compact rows are written over the front
+    /// of `text`'s own buffer, which is then cut to them: a second buffer
+    /// beside the inflated text raised the parse peak (7.7 to 10 MB).
     fn parse_embedded(text: String) -> Result<Schema, String> {
-        // The compact rows are about half the pretty document (1.7 of 3.2 MB):
-        // reserve 3/5 so the buffer never doubles while `text` is still alive
-        // (that took the parse peak from 7.7 to 10 MB), and give back the
-        // slack only after `text` is gone.
-        let mut kept = String::with_capacity(text.len() / 5 * 3);
+        let base = text.as_ptr() as usize;
         let mut spans = Vec::new();
-        let parsed = Schema::parse_keeping(&text, |_, compact| {
-            spans.push(kept.len()..kept.len() + compact.len());
-            kept.push_str(&compact);
+        let mut schema = Schema::parse_keeping(&text, |raw, _| {
+            let start = raw.as_ptr() as usize - base;
+            spans.push(start..start + raw.len());
             // An empty box does not allocate; the slice replaces it below.
             RowText::Owned(Box::default())
-        });
-        drop(text);
-        let mut schema = parsed?;
-        let kept: &'static str = Box::leak(kept.into_boxed_str());
+        })?;
+        let mut bytes = text.into_bytes();
+        let mut kept = Vec::with_capacity(spans.len());
+        let mut end = 0;
         for (row, span) in schema.rows.iter_mut().zip(spans) {
-            row.raw = RowText::Embedded(&kept[span]);
+            let raw = std::str::from_utf8(&bytes[span.clone()]).map_err(|e| e.to_string())?;
+            let value: Value = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+            let compact = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+            // Rows come in document order, and compact JSON is no longer than
+            // its source but for a float written short (`1e2`, kept `100.0`):
+            // such a row keeps its own box.
+            if end + compact.len() > span.end {
+                row.raw = RowText::Owned(compact.into_boxed_str());
+                continue;
+            }
+            bytes[end..end + compact.len()].copy_from_slice(compact.as_bytes());
+            kept.push((row, end..end + compact.len()));
+            end += compact.len();
+        }
+        bytes.truncate(end);
+        let text = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+        let text: &'static str = Box::leak(text.into_boxed_str());
+        for (row, span) in kept {
+            row.raw = RowText::Embedded(&text[span]);
         }
         Ok(schema)
     }
