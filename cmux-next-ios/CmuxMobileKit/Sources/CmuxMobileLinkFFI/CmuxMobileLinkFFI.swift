@@ -21406,6 +21406,17 @@ public func cloudWakeVersion() -> UInt32  {
 })
 }
 /**
+ * The link `url` names, or none when it is not a cmux link (another scheme
+ * or host, the sign-in callback, a malformed id).
+ */
+public func cmuxLinkParse(url: String) -> ParsedCmuxLink?  {
+    return try!  FfiConverterOptionTypeParsedCmuxLink.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cmux_link_parse(
+        FfiConverterString.lower(url),$0
+    )
+})
+}
+/**
  * The edit that moves `movers` (an ask that was answered leaves the pinned
  * group for its place in time, one that opened again goes back), with
  * inserts and removals beside them; none when any other row changes place
@@ -22279,6 +22290,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_version() != 59133) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cmux_link_parse() != 54420) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_move_edit() != 55354) {
