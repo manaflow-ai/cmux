@@ -196,6 +196,9 @@ export type MachineResult = {
   turns: { turn: number; gap_s: number; resumed: boolean; resume_ms: number | null; reply_ms: number | null; error?: string; kept?: string | null; listeners?: string | null; report?: string | null }[];
   /** The host's idle decision after the tail (idleHeldBy), read without touching the guest. */
   tail_kept: string | null;
+  /** GUEST_RESOLVER_FACTS on the first exec that answered after a failed one, and at the end. */
+  resolver_recovered?: string | null;
+  resolver_end?: string | null;
   samples: Sample[];
   awake_s: number | null;
   paused_s: number | null;
@@ -314,6 +317,22 @@ const GUEST_UPDATE = `${GUEST_CMUX}out=$(sudo -n "$cx" host update status --json
 /** The guest's TCP listeners with their owners (comm, pid), for a gap the machine did not pause in: the workload rule
  * (cmux-host cloud/workload.rs) counts a LISTEN socket a non-system process owns, so this names which one held it. */
 export const GUEST_LISTENERS = `{ sudo -n ss -ltnpH 2>/dev/null || ss -ltnpH; } | awk '{print $4, $6}' | head -n 20`;
+
+/** The guest's resolver state and the journal of the units that rewrite it after a resume (cmux-dns-scope, #58163, and
+ * systemd-resolved), DNS addresses and unit lines only, never a secret. Run 45836648280: on guest 011235083394 every
+ * exec after a `starting` resume failed `cloud.provider.unavailable` for minutes (the provider powered it on in 710 ms;
+ * hq#29284), where 67d01201 resumed 8/8. The provider's guest agent rewrites 61-freestyle-tls.conf and resolv.conf
+ * after it resumes, and cmux-dns-scope.path reacts to both, so the drill reads them on the first exec that answers
+ * after a failed one, and once more at the end. */
+export const GUEST_RESOLVER_FACTS = [
+  `echo "@@boot $(uptime -s 2>/dev/null)"`,
+  `echo "@@edge"; ls -l --time-style=+%FT%T /etc/systemd/resolved.conf.d/ 2>&1 | tail -n +2; grep -h '^DNS' /etc/systemd/resolved.conf.d/61-freestyle-tls.conf 2>&1`,
+  `echo "@@ours"; grep -h '^DNS' /run/systemd/resolved.conf.d/62-cmux-dns-scope.conf 2>&1`,
+  `echo "@@resolv $(readlink /etc/resolv.conf || echo plain)"; grep -h '^nameserver' /etc/resolv.conf 2>&1 | head -n 3`,
+  `echo "@@runs scope=$(sudo -n journalctl -b -q -u cmux-dns-scope.service 2>/dev/null | grep -c 'Started\\|Finished\\|Deactivated') resolved_starts=$(sudo -n journalctl -b -q -u systemd-resolved.service 2>/dev/null | grep -c 'Starting')"`,
+  `echo "@@failed"; systemctl --failed --no-legend --plain 2>&1 | head -n 5`,
+  `echo "@@journal"; sudo -n journalctl -b -q -o short-iso -u cmux-dns-scope.service -u cmux-dns-scope.path -u systemd-resolved.service 2>&1 | tail -n 40`,
+].join("; ").replace(/^/, "{ ") + "; } 2>&1 | head -c 6000";
 
 /** What the guest's cmux-host last reported (cmux-host cloud/role.rs write_state: `/run/cmux-vm-agent/state.json`, 0644,
  * never a secret) and the acpmux processes whose `acp_activity` lines it counts. Run 45821066460 read "activity-turn-end
@@ -541,6 +560,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     };
     // The port of the model stub stopped for the last gap (stubStop), started again with the next message.
     let stubPort = 0;
+    // An exec that failed (vm_unavailable) earlier in the run: the next one that answers reads GUEST_RESOLVER_FACTS.
+    let sawExecFail = false;
     for (let i = 0; i < turnCount; i++) {
       const turn: MachineResult["turns"][number] = { turn: i + 1, gap_s: gaps[i], resumed: false, resume_ms: null, reply_ms: null };
       r.turns.push(turn);
@@ -563,8 +584,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         turn.error = String((e as Error)?.message ?? e).slice(0, 300);
       }
       // What the guest reported once the turn ended (the report Pause.ts reads), before the gap starts.
-      const rs = parseReportState((await exec(GUEST_REPORT_STATE, 30_000).catch((e: Error) => ({ stdout: `read failed: ${e.message.slice(0, 120)}` }))).stdout);
+      let reportFailed = false;
+      const rs = parseReportState((await exec(GUEST_REPORT_STATE, 30_000).catch((e: Error) => { reportFailed = true; return { stdout: `read failed: ${e.message.slice(0, 120)}` }; })).stdout);
       turn.report = reportLine(rs);
+      const execFailed = reportFailed || /vm_unavailable/.test(turn.error ?? "");
+      if (execFailed) sawExecFail = true;
+      else if (sawExecFail && r.resolver_recovered === undefined) {
+        r.resolver_recovered = `after turn ${i + 1}: ${(await exec(GUEST_RESOLVER_FACTS, 30_000).catch((e: Error) => ({ stdout: `read failed: ${e.message.slice(0, 120)}` }))).stdout.trim()}`;
+      }
       if (i === 0) {
         const info = await api.read("cloud.machine.connect_info", { machine: id }).catch(() => null);
         if (info?.daemon) r.bind_capabilities = Array.isArray(info.daemon.capabilities) ? info.daemon.capabilities : null;
@@ -742,6 +769,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         r.turn_end_advertised = r.capabilities!.includes(TURN_END_CAPABILITY);
       }
     }));
+    await J.step("guest resolver (end)", async () => {
+      await Promise.all(results.map(async (r) => {
+        r.resolver_end = (await directExec(api, r.id!, J)(GUEST_RESOLVER_FACTS, 30_000).catch((e: Error) => ({ stdout: `read failed: ${e.message.slice(0, 120)}` }))).stdout.trim();
+      }));
+      return { value: null, detail: results.map((r) => `${r.name}: ${r.resolver_recovered ? `[recovered ${r.resolver_recovered}] ` : ""}[end ${r.resolver_end}]`).join(" || ") };
+    }).catch(() => undefined);
     await J.step("guest update status (end)", async () => {
       await Promise.all(results.map(async (r) => { r.guest_update_end = await readGuestUpdate(directExec(api, r.id!, J)); }));
       return { value: null, detail: results.map((r) => guestLine(r.name, r.guest_update_end)).join(" | ") };
