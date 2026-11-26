@@ -427,4 +427,19 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Let acpmux pick", "acpmux session place coord --on auto --reason \"laptop asleep\""),
         ],
     ),
+    (
+        "session place-set",
+        &[
+            (
+                "Move coord to the machine cmux16",
+                "acpmux session place-set coord --mode machine --machine cmux16",
+            ),
+            (
+                "Run coord on a fresh cloud machine",
+                "acpmux session place-set coord --mode cloud --yes",
+            ),
+            ("Say where coord is pinned", "acpmux session place-set coord --status"),
+            ("Move coord back", "acpmux session place-set coord --undo"),
+        ],
+    ),
 ];
