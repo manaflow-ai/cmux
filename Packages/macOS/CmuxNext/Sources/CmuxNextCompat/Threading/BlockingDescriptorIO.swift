@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 public import Darwin
+#else
+public import Glibc
+#endif
 
 /// Reads from a file descriptor, like `Darwin.read`, as a checked blocking call
 /// (``assertBlockingAllowed(_:fileID:line:)``): a socket or pipe read waits for the peer.
@@ -13,7 +17,7 @@ public import Darwin
 @inlinable
 public func blockingRead(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?, _ count: Int, fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     assertBlockingAllowed(.socketRead, fileID: fileID, line: line)
-    return Darwin.read(descriptor, buffer, count)
+    return read(descriptor, buffer, count)
 }
 
 /// Receives from a socket, like `Darwin.recv`, as a checked blocking call
@@ -30,7 +34,7 @@ public func blockingRead(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?
 @inlinable
 public func blockingRecv(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?, _ count: Int, _ flags: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     assertBlockingAllowed(.socketRead, fileID: fileID, line: line)
-    return Darwin.recv(descriptor, buffer, count, flags)
+    return recv(descriptor, buffer, count, flags)
 }
 
 /// Writes to a file descriptor, like `Darwin.write`, as a checked blocking call
@@ -48,7 +52,7 @@ public func blockingRecv(_ descriptor: Int32, _ buffer: UnsafeMutableRawPointer?
 public func blockingWrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ count: Int,
                           fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     assertBlockingAllowed(.socketWrite, fileID: fileID, line: line)
-    return Darwin.write(descriptor, buffer, count)
+    return write(descriptor, buffer, count)
 }
 
 /// Sends on a socket, like `Darwin.send`, as a checked blocking call
@@ -66,5 +70,5 @@ public func blockingWrite(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ co
 public func blockingSend(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ count: Int, _ flags: Int32,
                          fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     assertBlockingAllowed(.socketWrite, fileID: fileID, line: line)
-    return Darwin.send(descriptor, buffer, count, flags)
+    return send(descriptor, buffer, count, flags)
 }
