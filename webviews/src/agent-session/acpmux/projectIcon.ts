@@ -52,16 +52,21 @@ export type ProjectGlyphName = (typeof PROJECT_GLYPHS)[number];
 export type ProjectIcon = { src?: string; glyph?: ProjectGlyphName };
 
 const icons = new Map<string, ProjectIcon>();
+/// The newest answer for any folder of a repository, by its main checkout's folder (`repo.root`):
+/// a folder of a repository whose other checkout answered already draws that icon in its first frame
+/// while its own answer loads, so a row whose lead folder moves to another worktree keeps its icon.
+const repoIcons = new Map<string, ProjectIcon>();
 const pending = new Map<string, Promise<ProjectIcon>>();
 
 /// Tests replace the host; replacing it forgets every answer.
 export function setProjectIconHost(next: Call | undefined): void {
   call = next ?? postNative;
   icons.clear();
+  repoIcons.clear();
   pending.clear();
 }
 
-function load(cwd: string): Promise<ProjectIcon> {
+function load(cwd: string, root: string | undefined): Promise<ProjectIcon> {
   const started = pending.get(cwd);
   if (started) return started;
   const request = Promise.resolve()
@@ -73,7 +78,10 @@ function load(cwd: string): Promise<ProjectIcon> {
           ...(typeof src === "string" && src.startsWith("data:image/") ? { src } : {}),
           ...(PROJECT_GLYPHS.includes(glyph as ProjectGlyphName) ? { glyph: glyph as ProjectGlyphName } : {}),
         };
-        if (Object.keys(icon).length > 0) icons.set(cwd, icon);
+        if (Object.keys(icon).length > 0) {
+          icons.set(cwd, icon);
+          if (root) repoIcons.set(root, icon);
+        }
         return icon;
       },
       (): ProjectIcon => ({}),
@@ -84,8 +92,9 @@ function load(cwd: string): Promise<ProjectIcon> {
 }
 
 /// The icon of the local project at `cwd`, once the host answers; empty for none, and for `cwd`
-/// undefined (a remote or home project, which the badge never asks about).
-export function useProjectIcon(cwd: string | undefined): ProjectIcon {
+/// undefined (a remote or home project, which the badge never asks about). `root`, the folder's
+/// repository's main checkout: until `cwd` answers, the icon another folder of it answered.
+export function useProjectIcon(cwd: string | undefined, root?: string): ProjectIcon {
   // The answer with the folder it is for: a badge that moves to another folder never shows the
   // previous folder's icon while the new one loads.
   const [state, setState] = useState<{ cwd: string; icon: ProjectIcon } | undefined>(() =>
@@ -94,15 +103,18 @@ export function useProjectIcon(cwd: string | undefined): ProjectIcon {
   useEffect(() => {
     if (!cwd || icons.has(cwd)) return;
     let live = true;
-    void load(cwd).then((icon) => {
+    void load(cwd, root).then((icon) => {
       if (live) setState({ cwd, icon });
     });
     return () => {
       live = false;
     };
-  }, [cwd]);
+  }, [cwd, root]);
   if (!cwd) return NO_ICON;
   if (icons.has(cwd)) return icons.get(cwd)!;
+  // Every non-empty answer is in `icons`: here `cwd`'s own is still out or came back empty.
+  const shared = root ? repoIcons.get(root) : undefined;
+  if (shared) return shared;
   return state?.cwd === cwd ? state.icon : NO_ICON;
 }
 

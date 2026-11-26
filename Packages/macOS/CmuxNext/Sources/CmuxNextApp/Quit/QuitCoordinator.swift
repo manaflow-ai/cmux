@@ -48,7 +48,7 @@ final class QuitCoordinator {
     /// Chromium's close, the quit's last engine step (tests replace it). An app quit closes every page
     /// without its beforeunload (`cmux_shim_close_all` answers any question with Leave), then `engineWillStop`.
     lazy var closeEngines: @MainActor () async -> Void = { [weak self] in
-        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, beforeEngineStop: { await self?.engineWillStop() })
+        await self?.services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait, stopsEngine: self?.services.updater.relaunchingForUpdate != true, beforeEngineStop: { await self?.engineWillStop() }) // an update's relaunch skips CefShutdown (ask-ad4a68e740)
     }
 
     /// Right before CefShutdown, which never returned before the 4 s deadline in the quit hang files (cmuxterm-hq#8608, #11994): the windows
@@ -77,7 +77,8 @@ final class QuitCoordinator {
     /// asks "Quit cmux?" in the active window (Quit, Cancel, "Don't ask again").
     func holdsShortcutQuit(_ invocation: ActionInvocation) -> Bool {
         let enabled = !isQuitting && (services.settings?.snapshot.warnBeforeQuitShortcut ?? CmuxConfigSnapshot.warnBeforeQuitShortcutDefault)
-        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled) { [weak self] in self?.askShortcutQuit($0) ?? false }
+        return shortcutGuard.holds(invocation, event: services.inputDispatch.event, enabled: enabled,
+                                    qwerty: services.registry.matchesQwertyPositions) { [weak self] in self?.askShortcutQuit($0) ?? false }
     }
 
     /// The question; its "Don't ask again" with Quit turns `app.warnBeforeQuitShortcut` off.
@@ -147,6 +148,7 @@ final class QuitCoordinator {
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
+            services.windows.recordSaver.layoutCache.flushNow() // the layout as seen, before anything leaves the screen
             let choice = QuitPolicy.decide(origin, behavior: behavior)
             // Unsaved documents (R96 quit hook) are the only question a quit can ask.
             guard await resolveUnsaved(origin) else {
@@ -178,14 +180,13 @@ final class QuitCoordinator {
         logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
         let services = services
-        await services.updater.afterimage?.untilShown(limit: .milliseconds(600)) // a relaunch's pictures are up before any step takes a window off screen (RelaunchAfterimage)
+        // Sparkle installs a staged update as the app exits unless `updates.installOnQuit` is off
+        // (then it is cancelled now), once the keep for rollback its staging started ends (bounded).
+        await services.updater.prepareForQuitAfterKeep()
         // A keep quit ends within `keepQuitLimit` from here, whatever any step
         // below does (slow quit, 2026-10-20). An End quit arms its deadline
         // once its sessions ended (the end steps show their failures).
         if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) }
-        // Sparkle installs a staged update as the app exits unless
-        // `updates.installOnQuit` is off (then its installer is cancelled now).
-        services.updater.prepareForQuit()
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.
@@ -207,10 +208,11 @@ final class QuitCoordinator {
                 await QuitSaveSteps(
                     remoteSnapshots: { await services.remoteTerminals.saveSnapshots() },
                     agentComposers: { await services.agentTabs.relaunchWake.save(AgentQuitFiles.composers(services.agentTabs, isIncognito: { AgentQuitFiles.contains(incognito, $0) })) },
-                    agentImages: { services.launchImages.pictures?.stop(); await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.contains(incognito, $0) } },
+                    agentImages: { services.launchImages.pictures?.stop(); if let saved = services.updater.savedForRelaunch { await saved.value } else { await AgentQuitFiles.saveImages(services.agentTabs) { AgentQuitFiles.contains(incognito, $0) } } }, // a relaunch saved them while its windows were on screen (UpdateWindowHandoff.savesBeforeLeaving)
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
+                        if services.updater.savedForRelaunch == nil { await services.cache.savePageFramesForQuit() } // and browser pages' (`BrowserPageFrames`); a relaunch saved them on screen
                     },
                     browserRecords: { await services.cache.browserTabs.flushRecords() },
                     windows: {
@@ -218,7 +220,7 @@ final class QuitCoordinator {
                         // the step waits for them: every quit, Keep included, waits for a step past its limit.
                         services.incognitoChats.closingForQuit(services)
                         await services.windows.prepareForTermination()
-                        await services.incognitoChats.drain()
+                        await services.incognitoChats.drain(); await services.daemon.connection?.flushLaunchSnapshot()
                     },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
@@ -251,6 +253,7 @@ final class QuitCoordinator {
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
                 await services.windows.recordSaver.launchRecord.flush()
+                await services.windows.recordSaver.layoutCache.flush()
                 guard let self else { return }
                 // CefShutdown runs on the main thread and can block it for good: from here the quit ends by a deadline whatever it
                 // does (a keep quit's deadline is armed already and stays), and a debug build reports that hang, never asserts it.

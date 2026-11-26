@@ -12,17 +12,39 @@ public import Foundation
 /// follows takes it. A machine whose daemon does not serve it, a prewarm that fails, or a start that ends up different
 /// (another agent or model picked) starts cold, as before: the prewarm decides nothing and nothing waits for it.
 public struct CloudAgentPrewarm: Sendable, Equatable {
-    public let cwd: String
+    /// The start's folder; nil for a start with no folder, which the machine runs in the chat's own `~/chats/<id>`: the
+    /// prewarm then makes that folder and warms the agent there (``AgentSessionAttachClient/prewarmChatFolderCapability``).
+    public let cwd: String?
     public let harness: String?
     public let model: String?
     public let mode: String?
 
-    /// What the chat's page's first send will start: the seed's agent, model and mode in the copied folder `cwd`. Nil when
-    /// there is nothing to warm: no absolute folder there (the start makes its own `~/chats/<id>`), or a daemon that does
-    /// not serve the verb (`served`, ``AgentSessionAttachClient/prewarmCapability``).
-    public init?(cwd: String?, harness: String?, model: String?, mode: String?, served: Bool) {
-        guard served, let cwd, cwd.hasPrefix("/") else { return nil }
+    /// What the chat's first start will run: the seed's agent, model and mode in the folder `cwd`. Nil when there is
+    /// nothing to warm: a daemon that does not serve the verb (`served`, ``AgentSessionAttachClient/prewarmCapability``),
+    /// a folder that is not absolute, or no folder on a daemon that cannot warm the chat's own `~/chats/<id>`
+    /// (`servesChatFolder`, ``AgentSessionAttachClient/prewarmChatFolderCapability``).
+    public init?(cwd: String?, harness: String?, model: String?, mode: String?, served: Bool, servesChatFolder: Bool = false) {
+        guard served else { return nil }
+        if let cwd {
+            guard cwd.hasPrefix("/") else { return nil }
+        } else if !servesChatFolder {
+            return nil
+        }
         (self.cwd, self.harness, self.model, self.mode) = (cwd, harness, model, mode)
+    }
+
+    /// The prewarm of a start of `cwd`, `harness`, `model` and `mode` on a daemon that serves what `supports` answers, begun
+    /// with nothing waiting for it (``begin(surface:endpoint:ownerLink:permissionMode:credentials:done:)``); nothing when
+    /// there is nothing to warm there. `done` gets the outcome and its time, for the log.
+    public static func begin(cwd: String?, harness: String?, model: String?, mode: String?, supports: (String) -> Bool, surface: UInt64,
+                             endpoint: @escaping AgentSessionAttachClient.EndpointProvider, ownerLink: @escaping AgentSessionAttachClient.OwnerLink, permissionMode: String?,
+                             credentials: @escaping @MainActor @Sendable () async -> [String: String]?, done: @escaping @Sendable (String) -> Void) {
+        guard let prewarm = CloudAgentPrewarm(cwd: cwd, harness: harness, model: model, mode: mode, served: supports(AgentSessionAttachClient.prewarmCapability),
+                                              servesChatFolder: supports(AgentSessionAttachClient.prewarmChatFolderCapability)) else { return }
+        let began = ContinuousClock.now
+        prewarm.begin(surface: surface, endpoint: endpoint, ownerLink: ownerLink, permissionMode: permissionMode, credentials: credentials) { outcome in
+            done("\(outcome) in \(CloudStartSteps.milliseconds(began.duration(to: .now))) ms")
+        }
     }
 
     /// ``send(surface:endpoint:ownerLink:permissionMode:credentials:)`` with nothing waiting for it: `credentials` reads the chat's

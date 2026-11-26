@@ -1,12 +1,12 @@
-"""One Mac per computer, whatever its name (PROTOCOL.md "Devices", machine id).
+"""Every cmux build is its own Mac, whatever its name (PROTOCOL.md "Devices", machine id).
 
 Rigs (rig.py folders) on cmux minis, all signed in to the same dev account and
 all given ONE name (MULTIMAC_DEVICE_NAME, a Debug build's open --env setting):
 two rigs on one mini run two different cmux builds (two bundle ids, two device
 ids, one computer), and a rig on another mini is another computer. The phone
-(headless simulator, real link) must list one Mac per computer: on the
-Workspaces filter, exactly one of the shared mini's builds plus the other
-mini's rig. Settings > Devices lists every build and marks the other build.
+(headless simulator, real link) must list every build as its own Mac (2026-11-12:
+builds on one computer are separate instances, never grouped): on the Workspaces
+filter, every rig. Settings > Devices lists every build and marks none as another's.
 
     python3 multimac_machine_id.py --app PATH --udid UDID --name NAME
         --rig HOST:DIR --rig HOST:DIR --rig HOST:DIR [--keep-install] [--out DIR]
@@ -73,7 +73,7 @@ def main():
         j.s_choose_space()
     log("signed in")
 
-    # Workspaces filter: one row per computer.
+    # Workspaces filter: one row per build.
     j.back_to_list()
     rows = []
     deadline = time.time() + 90
@@ -82,11 +82,11 @@ def main():
         sim.tap_q(ident="workspaces.filter", timeout=60)
         sim.wait(ident="workspaces.filter.all", timeout=10)
         rows = [e for e in sim.find(ident="workspaces.filter.*") if e.ident and e.ident[len("workspaces.filter."):] in mine]
-        if len({r.ident for r in rows}) >= len(computers) or time.time() > deadline:
+        if len({r.ident for r in rows}) >= len(rigs) or time.time() > deadline:
             break
         sim.tap_q(ident="workspaces.filter", timeout=10)
         time.sleep(3)
-    sim.shot("01-filter-one-row-per-computer")
+    sim.shot("01-filter-one-row-per-build")
     listed = sorted({r.ident[len("workspaces.filter."):] for r in rows})
     labels = sorted({r.label for r in rows})
     log(f"filter lists {len(listed)} of my rigs: {[d[:8] for d in listed]} labels {labels}")
@@ -94,10 +94,10 @@ def main():
     results["checks"]["filter_rows"] = len(listed)
     results["checks"]["filter_labels"] = labels
     results["checks"]["per_computer"] = {h: [d[:8] for d in ds] for h, ds in per_computer.items()}
-    ok_filter = len(listed) == len(computers) and all(len(ds) == 1 for ds in per_computer.values())
+    ok_filter = len(listed) == len(rigs) and all(len(ds) == len(computers[h]) for h, ds in per_computer.items())
     sim.tap_q(label="All Macs", timeout=10)
 
-    # Settings > Devices: every build listed; the other build on the shared mini marked.
+    # Settings > Devices: every build listed, none marked as another build.
     j.tab("Settings")
     sim.tap_q(contains="Devices", timeout=20)
     devices = []
@@ -112,9 +112,7 @@ def main():
     log(f"settings lists {len(devices)} of my rigs; marked as another build: {[d[:8] for d in marked]}")
     results["checks"]["settings_rows"] = len(devices)
     results["checks"]["settings_marked_other_build"] = [d[:8] for d in marked]
-    shared = [ds for ds in computers.values() if len(ds) > 1]
-    ok_settings = len(devices) == len(rigs) and len(marked) == sum(len(ds) - 1 for ds in shared) \
-        and all(m not in listed for m in marked)
+    ok_settings = len(devices) == len(rigs) and not marked
     results["pass"] = ok_filter and ok_settings
     json.dump(results, open(os.path.join(a.out, "results.json"), "w"), indent=2)
     log(("PASS" if results["pass"] else "FAIL") + f": filter {ok_filter}, settings {ok_settings}")

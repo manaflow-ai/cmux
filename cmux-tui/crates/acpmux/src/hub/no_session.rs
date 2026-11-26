@@ -75,7 +75,8 @@ impl Hub {
         let lower = name.to_ascii_lowercase();
         let found = if local {
             let homes = self.harness_homes();
-            crate::claude_peers::live(&homes.claude)
+            // A folder walk: off the runtime's workers (RFD 0124 R6).
+            crate::qos::off_worker(|| crate::claude_peers::live(&homes.claude))
                 .into_iter()
                 .find(|p| p.session_id.to_ascii_lowercase().starts_with(&lower))
         } else {
@@ -104,7 +105,7 @@ impl Hub {
         }
         // Messages waiting for a name this list has go now, not after the rest of their retry
         // delay (`server/outbox.rs` `deliver`).
-        self.outbox.peer_ready.notify_waiters();
+        self.outbox.note_peer_ready(peer);
     }
 
     /// Peer `peer`'s link is ready (`PeerNotice::Connected`). Most links' list came before it;

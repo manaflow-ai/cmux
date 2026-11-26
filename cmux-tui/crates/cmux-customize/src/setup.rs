@@ -148,16 +148,21 @@ impl Setup {
 
 pub mod check;
 mod export;
+mod history;
 pub mod layers;
+pub mod looks;
 mod reference;
 mod secrets;
+mod variant;
 pub use check::{
     CheckOptions, Deprecated, Finding, NoHistory, Report, RetiredKeys, SettingsHistory, Severity,
     check_dir, codes,
 };
 pub use export::readme_text;
+pub use history::{SetupState, SetupStep, SetupSteps};
 pub use reference::Reference;
 use reference::plain;
+pub use variant::THEME_FILE_KEY;
 
 /// The id rule every repo listing follows: `OWNER/NAME`, lowercase, starting
 /// with the repo's owner; `cmux/` and `manaflow-ai/` only from manaflow-ai.
@@ -249,6 +254,8 @@ pub(crate) fn read_parts(dir: &Path, findings: &mut Vec<Finding>) -> Result<Setu
         .key("cmuxSetup")
         .into());
     }
+    let mut manifest = manifest;
+    inline_files(&mut manifest.settings, dir).map_err(|error| unreadable(refusal_text(error)))?;
     let mut files = manifest.files.clone();
     for (path, text) in repo_files(dir, findings) {
         if files.insert(path.clone(), text).is_some() {
@@ -325,6 +332,53 @@ fn refusal_text(error: Error) -> String {
     }
 }
 
+/// The most bytes a setting's `{"$file": ...}` may read.
+pub const MAX_SETTING_FILE_BYTES: u64 = 64 * 1024;
+
+/// Puts in place each setting whose value is `{"$file": "PATH"}`: the JSON (or JSONC) of the file
+/// at PATH in `dir`, the look's folder. A look keeps a long value, such as the `cmux.particles/1`
+/// document of `agentPane.display.thinking.glyph`, as a file beside its `cmux-setup.json`
+/// (`"agentPane.display.thinking.glyph": {"$file": "thinking-glyph.json"}`); the settings file
+/// then holds the document itself, checked like any value. PATH stays inside `dir`: relative,
+/// no `.` or `..`, no link, a file under [`MAX_SETTING_FILE_BYTES`].
+pub fn inline_files(settings: &mut BTreeMap<String, Value>, dir: &Path) -> Result<(), Error> {
+    for (key, value) in settings.iter_mut() {
+        let Some(members) = value.as_object() else { continue };
+        let Some(reference) = members.get("$file") else { continue };
+        let bad = |why: &str| Error::Setup(format!("{key}: {why}"));
+        let (Some(path), 1) = (reference.as_str(), members.len()) else {
+            return Err(bad("{\"$file\": PATH} names one file of the look's folder"));
+        };
+        let relative = Path::new(path);
+        let inside = !path.is_empty()
+            && relative.components().all(|part| matches!(part, std::path::Component::Normal(_)));
+        if !inside {
+            return Err(bad(&format!("{path:?} is not a path inside the look's folder")));
+        }
+        let mut walked = dir.to_path_buf();
+        for part in relative.components() {
+            walked.push(part);
+            let metadata = std::fs::symlink_metadata(&walked)
+                .map_err(|_| bad(&format!("{path} is not in the look's folder")))?;
+            if metadata.file_type().is_symlink() {
+                return Err(bad(&format!("{path} is a link; a look holds plain files")));
+            }
+        }
+        let metadata = std::fs::metadata(&walked)?;
+        if !metadata.is_file() || metadata.len() > MAX_SETTING_FILE_BYTES {
+            return Err(bad(&format!(
+                "{path} is not a file under {} KB",
+                MAX_SETTING_FILE_BYTES / 1024
+            )));
+        }
+        let text =
+            std::fs::read_to_string(&walked).map_err(|_| bad(&format!("{path} is not text")))?;
+        *value =
+            jsonc::parse(&text).map_err(|error| bad(&format!("{path} is not JSON: {error}")))?;
+    }
+    Ok(())
+}
+
 /// The serde message without the value it quotes.
 fn strip_value(error: &serde_json::Error) -> String {
     let message = error.to_string();
@@ -336,7 +390,7 @@ fn strip_value(error: &serde_json::Error) -> String {
 }
 
 /// `setup-OWNER-NAME`, as a profile (and so a library entry) name.
-fn profile_name(id: &str) -> String {
+pub(crate) fn profile_name(id: &str) -> String {
     let mut name: String = format!("setup-{id}")
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
@@ -856,8 +910,8 @@ impl Customize {
 
     fn put_receipt_locked(&self, receipt: Receipt) -> Result<(), Error> {
         let mut file = self.read_setup_receipts()?;
-        match file.setups.iter().position(|old| old.id == receipt.id) {
-            Some(at) => file.setups[at] = receipt,
+        match file.setups.iter_mut().find(|old| old.id == receipt.id) {
+            Some(old) => *old = receipt,
             None => file.setups.insert(0, receipt),
         }
         self.write_setup_receipts(&file)
@@ -931,9 +985,12 @@ impl Customize {
             .map(|bytes| jsonc::parse(&String::from_utf8_lossy(&bytes)).unwrap_or(Value::Null))
             .unwrap_or(Value::Null);
         let schema = Schema::embedded();
-        let settings = settled
-            .profile
-            .settings
+        // As they install: a pick of the repo's own views app names the setup's layer.
+        let mut planned = settled.profile.settings.clone();
+        if installed_layer_name(setup).is_some() {
+            layers::point_at_layer(&mut planned, &manifest.id);
+        }
+        let settings = planned
             .iter()
             .map(|(key, value)| {
                 let row = schema.row(key);
@@ -1197,7 +1254,10 @@ impl Customize {
                 other.id
             )));
         }
-        let (profile, views) = layers::split_views(profile);
+        let (mut profile, views) = layers::split_views(profile);
+        if !views.is_empty() {
+            layers::point_at_layer(&mut profile.settings, id);
+        }
         let had = self.library_names()?;
         // The fonts first, so a theme file never points at fonts that are not
         // there; until `keep`, a failed step puts the earlier ones back.
@@ -1280,6 +1340,12 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Removed, Error> {
+        // The files its layer held: a theme file among them that the
+        // settings still name once it is gone is cleared below.
+        let layer_files = match &receipt.library {
+            Some(name) => self.library_entry_files(name)?.unwrap_or_default(),
+            None => Vec::new(),
+        };
         let library = match &receipt.library {
             Some(name) if self.library_names()?.contains(name) => {
                 self.library_take_off_locked(name, receipt.library_created, origin, now_ms)?;
@@ -1292,10 +1358,10 @@ impl Customize {
         let mut actions = Vec::new();
         let mut kept_actions = Vec::new();
         let mut shared_actions = Vec::new();
+        let mut changed = false;
         if !receipt.actions.is_empty() {
             let mut text = settings_text(self)?;
             let settings = jsonc::parse(&text).unwrap_or(Value::Null);
-            let mut changed = false;
             for (name, value) in &receipt.actions {
                 let path = action_path(name);
                 let current = cmux_config::value::value_at(&settings, &path);
@@ -1327,9 +1393,13 @@ impl Customize {
             }
             if changed {
                 tree::write(self.roots(), SETTINGS, text.as_bytes(), false)?;
-                let label = format!("setup {}: removed", receipt.id);
-                self.apply_locked(Some(&label), origin, now_ms)?;
             }
+        }
+        // A theme file its layer took away that the settings still name.
+        let cleared_theme = self.clear_removed_theme_file(&layer_files)?;
+        if changed || cleared_theme {
+            let label = format!("setup {}: removed", receipt.id);
+            self.apply_locked(Some(&label), origin, now_ms)?;
         }
         self.write_setup_receipts(&file)?;
         if let Some(layer) = &receipt.layer {

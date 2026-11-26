@@ -205,7 +205,6 @@ _NON_RUNNING_FILES = frozenset({
     ".github/cloud-machine-count-probe/request",
     ".github/cloud-surge-proof/request",
     ".github/cold-tier/cmux-lawrence-cold-recipient.crt",
-    ".github/defaults-call-owners.json",
     ".github/design-surfaces.json",
     ".github/gateway-e2e/request",
     ".github/github-token-budget.json",

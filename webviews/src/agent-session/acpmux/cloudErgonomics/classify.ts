@@ -106,6 +106,18 @@ export function etaIn(regions: readonly Element[]): string | undefined {
   return undefined;
 }
 
+/// A wait's live clock: the time it has run so far ("12s", "1:05"), in a `time`, `.cv-worked__time` or
+/// `[data-wait-clock]` element. A clock tells the person how long, as an ETA does (Austin, 2026-11-24:
+/// "show the seconds, dont need to show usually under a minute that stuff").
+export function clockIn(regions: readonly Element[]): string | undefined {
+  for (const region of regions)
+    for (const node of region.querySelectorAll("time, .cv-worked__time, [data-wait-clock]")) {
+      const text = visibleText(node);
+      if (text) return text;
+    }
+  return undefined;
+}
+
 /// The words a wait shows besides its clock, tokens and ETA. Bare Thinking (any of its verbs) is no reason.
 const CLOCK = /(?:\d+(?:[.,]\d+)?\s*(?:ms|s|m|h|min|sec)\b\s*)+/gi;
 export function waitWords(regions: readonly Element[]): string {

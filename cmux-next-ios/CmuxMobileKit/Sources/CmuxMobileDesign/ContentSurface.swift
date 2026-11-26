@@ -13,8 +13,7 @@ import UIKit
 /// - what floats over the page (toasts, the composer, its bars): glass tinted with the theme's
 ///   surface at the shared transient veil (``TransientMaterial``, the toast role's veil in
 ///   schemas/surface-roles/surface-roles.json).
-/// `scripts/cmux-next/check-ios-surface-colors.py` fails a new literal color or opaque stock surface in
-/// the app's views; draw these instead.
+/// The app's views draw these instead of a literal color or an opaque stock surface.
 public enum CmuxMobileContentSurface {
     /// The page's ink: the Mac theme's text color while the chat follows the Mac and the theme's
     /// light or dark matches `traits`, else the system label. Resolved each time a trait collection

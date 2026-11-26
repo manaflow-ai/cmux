@@ -18,7 +18,6 @@ struct AgentChatFindBar: View {
             TextField("Find in chat", text: $find.query)
                 .focused($focused)
                 .submitLabel(.search)
-                .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
                 .onSubmit {
                     find.next()

@@ -69,6 +69,6 @@ struct AgentSenderIcon: View {
 
     static func toneColor(_ tone: Int) -> Color {
         let (r, g, b) = toneRGB[tone % toneRGB.count]
-        return Color(red: r / 255, green: g / 255, blue: b / 255) // color-literal-allow: the sender's identity color
+        return Color(red: r / 255, green: g / 255, blue: b / 255)
     }
 }

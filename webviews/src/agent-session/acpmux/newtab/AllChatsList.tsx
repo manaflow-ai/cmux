@@ -10,6 +10,9 @@
 // Projects (cx-ncc.66, Claude parity) shows the same chats grouped under their project folder.
 // Filter (cx-htpk0, Claude desktop parity) narrows the list to the live chats that are working or
 // wait on the user, or to the finished ones: live chats at rest, then every indexed chat.
+// When (ask-b75ea23533, Leo 2026-11-18: "recency is usually what's desired") reaches back a day,
+// a week or a month by writing `since:` into the search, which also takes acpmux's other
+// operators (`harness:`, `in:`, `title:`, `before:`, `-word`, `"a phrase"`; chatQueryTerms.ts).
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { ContextMenu } from "../../../ui/ContextMenu";
@@ -17,12 +20,14 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import { VirtualList } from "../../../ui/VirtualList";
 import { useT } from "../i18n";
 
-import { AgentMark } from "../NewTabPage";
+import { AgentMark } from "../tabMarks";
 import type { HarnessIconSpec } from "../../shared/harnessIcons";
 import { ageLabel, nextAgeLabel } from "../newTabModel";
 import { useNt } from "./strings";
 import { useLabelClock } from "../clock";
 import { ChatFilterMenu, type ChatStatusFilter } from "./ChatFilterMenu";
+import { ChatRecencyMenu } from "./ChatRecencyMenu";
+import { liveMatches, withRecency } from "./chatQueryTerms";
 import { AllChatsLoading } from "./AllChatsLoading";
 import { useLasting } from "../../../ui/lasting";
 import {
@@ -36,6 +41,7 @@ import {
   watchable,
 } from "./allChatsListModel";
 import { pressToOpen } from "../../../ui/pressToOpen";
+import { useChatListStatusPills } from "../chatDisplay";
 import { WithFacts } from "../chips/FactsHoverCard";
 /// A chat that is running or waits on the user (acpmux's own sessions): it leads the list with
 /// its state where the age would be.
@@ -278,6 +284,38 @@ const ProjectRow = memo(function ProjectRow({
   );
 });
 
+/// A live chat's status as a small pill (Taste Board #19, `agentPane.display.chatListStatusPills`):
+/// Running, Needs you, Done or Failed, from the state the row already has. An idle chat shows none.
+function ChatStatusPill({ state }: { state: ActiveChat["state"] }) {
+  const t = useT();
+  const nt = useNt();
+  const tone = PILL_TONE[state];
+  if (!tone) return null;
+  const word =
+    tone === "running"
+      ? nt("card.running")
+      : tone === "input"
+        ? t("needsYou.title")
+        : tone === "done"
+          ? nt("filter.done")
+          : t("header.failed");
+  return (
+    <span className="nt-all-pill" data-tone={tone}>
+      {word}
+    </span>
+  );
+}
+
+/// The pill each state shows: a broken turn or a lost agent reads Failed; idle draws no pill.
+const PILL_TONE: Record<ActiveChat["state"], "running" | "input" | "done" | "failed" | undefined> = {
+  running: "running",
+  input: "input",
+  unread: "done",
+  failed: "failed",
+  error: "failed",
+  idle: undefined,
+};
+
 /// A live chat's row, a leader's too: its right-click menu is Open, as its click (cx-2lm4). It takes
 /// the chat's values, not the chat: the page builds new chat objects on each of its renders.
 const LiveChatRow = memo(function LiveChatRow({
@@ -287,6 +325,8 @@ const LiveChatRow = memo(function LiveChatRow({
   icon,
   state,
   label,
+  pill,
+  labelIsState,
   onOpen,
 }: {
   id: string;
@@ -295,8 +335,14 @@ const LiveChatRow = memo(function LiveChatRow({
   icon?: HarnessIconSpec | undefined;
   state: ActiveChat["state"];
   label: string;
+  /// Status Pills in All Chats is on: the row ends with its state's pill (ChatStatusPill).
+  pill: boolean;
+  /// The label says the state (a live chat's); the pill then stands in its place. A leader's
+  /// label ("13 reporting") stays, with the pill after it.
+  labelIsState: boolean;
   onOpen(id: string): void;
 }) {
+  const pillShown = pill && PILL_TONE[state] !== undefined;
   const nt = useNt();
   return (
     <li>
@@ -312,7 +358,8 @@ const LiveChatRow = memo(function LiveChatRow({
             <AgentMark harness={harness} icon={icon} />
           </span>
           <span className="nt-all-title">{title}</span>
-          <span className="nt-all-state">{label}</span>
+          {pillShown && labelIsState ? null : <span className="nt-all-state">{label}</span>}
+          {pillShown && <ChatStatusPill state={state} />}
         </button>
       </ContextMenu>
     </li>
@@ -365,24 +412,24 @@ export function AllChatsList({
   const [filter, setFilter] = useState<ChatStatusFilter>("all");
   // Working and Needs input are live chats only; the indexed rows are finished chats.
   const indexed = filter === "all" || filter === "done";
-  const query = state.query.trim().toLowerCase();
-  // A search hides live chats under All, as before; a live-only filter searches their titles.
+  // A search hides live chats under All, as before; a live-only filter searches their titles. When
+  // alone hides none: a live chat is in use now, so within any `since:`.
+  const searched = withRecency(state.query.trim(), "any") !== "";
   const activeShown =
     filter === "all"
-      ? state.query
+      ? searched
         ? []
         : active
       : active.filter(
-          (chat) =>
-            FILTER_STATES[filter].has(chat.state) &&
-            (indexed ? !state.query : chat.title.toLowerCase().includes(query)),
+          (chat) => FILTER_STATES[filter].has(chat.state) && (indexed ? !searched : liveMatches(chat, state.query)),
         );
   // The leaders show under All with no search; a filter or a search is about the chats.
-  const leadsShown = filter === "all" && !state.query ? leads : [];
+  const leadsShown = filter === "all" && !searched ? leads : [];
   // The callbacks rows take keep their identity and read this render's values when called.
   const latest = useRef({ openFeedback, onOpenActive, onBring, selection: NO_KEYS as string[] });
   const openActive = useCallback((id: string) => latest.current.onOpenActive?.(id), []);
-  const liveRow = (chat: ActiveChat) => (
+  const pills = useChatListStatusPills();
+  const liveRow = (chat: ActiveChat, lead: boolean) => (
     <LiveChatRow
       key={chat.id}
       id={chat.id}
@@ -391,6 +438,8 @@ export function AllChatsList({
       icon={chat.icon}
       state={chat.state}
       label={chat.label}
+      pill={pills}
+      labelIsState={!lead}
       onOpen={openActive}
     />
   );
@@ -592,7 +641,14 @@ export function AllChatsList({
             setFilter(next);
           }}
         />
-        <label className="nt-all-search">
+        <ChatRecencyMenu
+          query={state.query}
+          onRecency={(recency) => {
+            selection.clear();
+            search(withRecency(state.query, recency));
+          }}
+        />
+        <label className="nt-all-search" title={nt("searchHelp")}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
             <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" />
             <path d="m10.5 10.5 3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
@@ -629,12 +685,12 @@ export function AllChatsList({
             <span className="nt-all-group-name">{nt("leads")}</span>
             <span className="nt-all-group-count">{leadsShown.length}</span>
           </li>
-          {leadsShown.map(liveRow)}
+          {leadsShown.map((chat) => liveRow(chat, true))}
         </ul>
       )}
       {activeShown.length > 0 && (
         <ul className="nt-all-active" aria-label={t("sidebar.active")}>
-          {activeShown.map(liveRow)}
+          {activeShown.map((chat) => liveRow(chat, false))}
         </ul>
       )}
       {!indexed ? (

@@ -41,6 +41,23 @@ fn race() -> Race {
 }
 
 #[test]
+fn a_candidate_hint_leads_its_own_prompt_and_never_reaches_the_reviewer() {
+    let mut race = race();
+    race.candidates[0].target.hint = Some("Write the failing test first.".into());
+    let hinted = candidate_prompt(&race, &race.candidates[0].target);
+    assert!(hinted.starts_with("Write the failing test first.\n\nfix it\n\nWork only"), "{hinted}");
+    let cold = candidate_prompt(&race, &race.candidates[1].target);
+    assert!(cold.starts_with("fix it\n\nWork only"), "{cold}");
+    race.candidates[1].target.hint = Some("  ".into());
+    assert_eq!(candidate_prompt(&race, &race.candidates[1].target), cold);
+    race.candidates[1].state = "completed".into();
+    assert!(!review_prompt(&race).contains("failing test first"));
+    // Older records have no hint and newer ones keep theirs across a save.
+    let saved: Race = serde_json::from_value(json!(race)).unwrap();
+    assert_eq!(saved.candidates[0].target.hint.as_deref(), Some("Write the failing test first."));
+}
+
+#[test]
 fn reviewer_must_choose_an_existing_completed_candidate_with_evidence() {
     let race = race();
     assert_eq!(verdict(&race, r#"{"winnerId":"c1","reason":"tests passed"}"#).unwrap().0, "c1");
@@ -279,11 +296,21 @@ async fn a_guarded_import_never_resumes_a_race_or_keeps_its_authority() {
         "races": [race("running-race", "running"), race("cancelled-race", "cancelled")],
     });
     std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
-    let guard = Guard { control: Control::Peer, roots: vec![work] };
+    let guard = Guard { control: Control::Peer, roots: vec![work], owner: false };
     hub.guard_session(&bundle, &guard, None, &json!({}), None).await.unwrap();
     let guarded = GuardedImport { guard: &guard, replace_native: false };
-    let session =
-        hub.import_into(&bundle, None, false, Some(guarded), false, false, None).await.unwrap();
+    let session = hub
+        .import_into(
+            &bundle,
+            None,
+            crate::hub::transfer::Live::No,
+            Some(guarded),
+            false,
+            false,
+            None,
+        )
+        .await
+        .unwrap();
     let settled = |races: &[Race]| {
         assert_eq!(races.len(), 2);
         assert!(races.iter().all(|r| !r.owner_authorized && !r.local && !race_needs_resume(r)));
@@ -332,7 +359,7 @@ async fn a_race_without_a_slot_for_its_reviewer_is_refused_up_front() {
     let mut meta = test_meta("narrow", "idle", None);
     meta.subsession_limits.max_children = Some(2);
     let parent = hub.insert_test_session(meta);
-    let codex = || Target { harness: "codex".into(), model: None, effort: None };
+    let codex = || Target { harness: "codex".into(), model: None, effort: None, hint: None };
     let refused = hub
         .race_start(&parent, "fix".into(), vec![codex(), codex()], codex(), true, true)
         .await

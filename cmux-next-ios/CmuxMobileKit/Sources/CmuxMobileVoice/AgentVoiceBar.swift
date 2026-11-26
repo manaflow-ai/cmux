@@ -123,7 +123,7 @@ public struct AgentVoiceBar: View {
         } label: {
             Image(systemName: "xmark")
                 .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white)  // color-literal-allow: white ink on a filled status disc, as Phone's call buttons
+                .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
                 .cmuxMobilePressBackground(CmuxMobileTheme.standard.colors.danger.color, in: .circle)
         }

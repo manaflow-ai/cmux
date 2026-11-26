@@ -193,11 +193,7 @@ public struct LiveCallScreen: View {
                 .font(.headline)
                 .foregroundStyle(.white)
                 .multilineTextAlignment(.center)
-            Text(failure.detail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .textSelection(.enabled)
+            InPlaceSelectionLabel(failure.detail, textStyle: .callout, color: .secondaryLabel, alignment: .center)
                 .accessibilityIdentifier("chief.call.failure")
             Spacer()
         }
@@ -221,7 +217,7 @@ public struct LiveCallScreen: View {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.title)
                     .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, draft.isEmpty ? Color.gray.opacity(0.5) : CmuxMobileTheme.standard.colors.success.color) // color-literal-allow: the call screen's fixed night backdrop (LiveCallBackdrop)
+                    .foregroundStyle(.white, draft.isEmpty ? Color.gray.opacity(0.5) : CmuxMobileTheme.standard.colors.success.color)
             }
             .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityLabel(LiveCallText.send)
@@ -393,7 +389,7 @@ private struct LiveCallControl: View {
                     .background(Circle().fill(tint ?? (on ? .white : .white.opacity(0.16))))
                 Text(title)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.8)) // color-literal-allow: the call screen's fixed night backdrop (LiveCallBackdrop)
+                    .foregroundStyle(.white.opacity(0.8))
             }
             .frame(maxWidth: .infinity)
             .contentShape(.rect)
@@ -440,7 +436,7 @@ public struct LiveCallPill: View {
                 }
             }
             .font(.subheadline)
-            .foregroundStyle(.white)  // color-literal-allow: white ink on a filled status disc, as Phone's call buttons
+            .foregroundStyle(.white)
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
             .cmuxMobilePressBackground(CmuxMobileTheme.standard.colors.success.color, in: .capsule)

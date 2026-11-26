@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixture requests and paths, not shipped UI.
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
-import { permissionFromMessage } from "../direct";
+import { permissionFromMessage } from "../permissionMessage";
 import { PermissionCard } from "../PermissionCard";
 import { PermissionPanel } from "./Panel";
 

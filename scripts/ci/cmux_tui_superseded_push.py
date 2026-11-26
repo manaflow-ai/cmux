@@ -18,7 +18,7 @@ Superseded means, for a push event only:
   - a lane branch (any ref but main, feat-cmux-next, next-batch/* and
     cmux-tui-pin-*) whose head is no longer SHA;
   - a cmux-tui-pin-* ref at GitHub's merge commit for a pull request
-    ("Merge <head> into <base>", made by cmux-next-pr-merge-tree.yml) whose
+    ("Merge <head> into <base>", made by the retired PR merge-tree publisher) whose
     pull request is open with a different head now, and no pull request has
     that head any more;
   - such a pin whose pull request merged into feat-cmux-next at that head, and
@@ -69,7 +69,7 @@ non-trunk branch the head is read first, so a moved branch is superseded
 without the pull request and dispatch lookups.
 
 Usage: cmux_tui_superseded_push.py --event E --ref REF --sha SHA [--key KEY --run-id ID]
-Environment: GH_TOKEN (contents, pull-requests and actions read),
+Environment: GH_TOKEN (contents, pull-requests and actions read), GH_TOKEN_SPARES (tried in order on 403 or 429),
 GITHUB_REPOSITORY, GITHUB_API_URL (default https://api.github.com).
 Prints the reason and writes stale=true|false to $GITHUB_OUTPUT. Exits 0.
 """
@@ -109,22 +109,35 @@ class ApiError(Exception):
 
 
 def api(path: str) -> tuple[int, object]:
+    """GET PATH with GH_TOKEN, then each of GH_TOKEN_SPARES while the answer is 403 or 429.
+
+    A rate-limited github.token answered 403 to the cmux-next dispatch lookup on most branch pushes
+    (2026-11-24 23Z..11-25 01Z): "could not tell" kept the run, and an on-request head nobody asked
+    for built its three targets (about 100 runner-min) anyway. tree-preflight mints CI pool tokens
+    (scripts/ci/ci_pool_tokens.py) and lists github.token last among the spares."""
     base = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
     repo = os.environ["GITHUB_REPOSITORY"]
-    request = urllib.request.Request(
-        f"{base}/repos/{repo}/{path}",
-        headers={
-            "Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}",
-            "Accept": "application/vnd.github+json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return response.status, json.loads(response.read().decode() or "null")
-    except urllib.error.HTTPError as error:
-        return error.code, None
-    except (urllib.error.URLError, OSError, ValueError) as error:
-        raise ApiError(f"GET {path}: {error}") from error
+    tokens = list(dict.fromkeys(t for t in [os.environ.get("GH_TOKEN", ""),
+                                            *os.environ.get("GH_TOKEN_SPARES", "").split()] if t)) or [""]
+    status = 0
+    for token in tokens:
+        request = urllib.request.Request(
+            f"{base}/repos/{repo}/{path}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                return response.status, json.loads(response.read().decode() or "null")
+        except urllib.error.HTTPError as error:
+            status = error.code
+            if status not in (403, 429):
+                return status, None
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            raise ApiError(f"GET {path}: {error}") from error
+    return status, None
 
 
 def ls_remote(remote: str, *patterns: str) -> str:
@@ -195,10 +208,15 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
     """Superseded when no open pull request of this repository has SHA at its head; None asks lane_verdict."""
     if asks_for_daemon_tests(sha):
         return None
-    has_pull = has_pull_request_head(sha)
+    # Build on request (ci-min-per-pr-30): an open pull request's head used to be enough. It was 343 runs and
+    # 29.8k runner-min a day (11-22 21Z..11-23 21Z, 25.8 per merged PR), three ~28-min target builds per head,
+    # for trees only the hot verify rust look reads. That look now dispatches the build itself, so a head
+    # no dispatch asked for is not built. CMUX_TUI_BRANCH_ON_REQUEST=0 keeps the old open-PR-head rule.
+    on_request = os.environ.get("CMUX_TUI_BRANCH_ON_REQUEST", "1") != "0"
+    has_pull = None if on_request else has_pull_request_head(sha)
     if has_pull:
         return None
-    if has_pull is None:
+    if has_pull is None and not on_request:
         status, data = api(f"commits/{sha}/pulls?per_page=100")
         if status != 200 or not isinstance(data, list):
             raise ApiError(f"GET commits/{sha}/pulls: HTTP {status}")
@@ -214,6 +232,12 @@ def unreviewed_verdict(ref: str, sha: str) -> tuple[bool, str] | None:
     if data.get("total_count") or data.get("workflow_runs"):
         return None
     branch = ref.removeprefix("refs/heads/")
+    if on_request:
+        return True, (f"{sha[:12]} ({branch}) is built on request only: nobody asked for its tree. "
+                      "A pull request's same-tree checks use its merge tree or the base tree, and a hot verify "
+                      "rust look dispatches this workflow on the branch itself. To publish this tree anyway, add "
+                      "the trailer Cmux-Daemon-Tests: run, dispatch cmux-tui-artifacts.yml on the branch, "
+                      "or dispatch cmux-next.yml before pushing")
     return True, (f"no open pull request has {sha[:12]} ({branch}) at its head and no cmux-next dispatch "
                   "asked for it; a pull request's same-tree checks use its merge tree or the base tree. "
                   "To publish this tree anyway, add the trailer Cmux-Daemon-Tests: run, dispatch "

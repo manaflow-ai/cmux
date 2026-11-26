@@ -275,7 +275,7 @@ struct SubagentTranscriptScreen: View {
             }
             .defaultScrollAnchor(.top)
             .background { CmuxMobileChatBackdrop() }
-            .cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
+            .cmuxMobileChatLookStyle(CmuxMobileChatLook.current)
             .chatDemoReceiver(store: store, surface: surface)
             .navigationTitle(agent.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -318,8 +318,6 @@ struct SubagentRowView: View {
                     await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
                 }
             }
-        case .plan(_, let entries):
-            PlanCard(entries: entries)
         case .subagents(_, let ids):
             SubagentGroupCard(ids: ids, store: store, open: open)
         case .steer(let message):
@@ -406,7 +404,7 @@ struct CheckpointsScreen: View {
         .navigationTitle("Checkpoints")
         .navigationBarTitleDisplayMode(.inline)
         .cmuxMobileToast($toast)
-        .sensoryFeedback(.success, trigger: restoredTrigger)
+        .cmuxMobileSensoryFeedback(.success, trigger: restoredTrigger)
         .confirmationDialog("Restore this checkpoint?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { checkpoint in
             Button("Restore Files", role: .destructive) { restore(checkpoint) }
@@ -630,7 +628,7 @@ struct HandoffReviewScreen: View {
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Review continuation")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.success, trigger: receipt)
+        .cmuxMobileSensoryFeedback(.success, trigger: receipt)
         .task { await prepare() }
         .onChange(of: surface.demoHandoffFill) { _, value in
             guard let value else { return }

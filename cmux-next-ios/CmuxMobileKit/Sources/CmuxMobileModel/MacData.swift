@@ -48,7 +48,7 @@ public struct MacDataMachine: Equatable, Sendable {
     public enum Phase: Equatable, Sendable {
         /// Dialing with nothing to show yet: skeleton rows.
         case loading
-        /// Last-known workspaces, dimmed, while `link` says why they are not live.
+        /// Last-known workspaces, drawn as live ones (never dimmed, Leo 2026-11-24), while `link` says why they are not live.
         case cached(Link)
         /// The Mac's own list, with at least one workspace.
         case live
@@ -170,7 +170,8 @@ public struct MacStatusLine: Equatable, Sendable {
         let reach = MacReachability.resolve(mac: mac, connection: connection, failure: failure, live: live)
         switch reach {
         case .connected: return MacStatusLine(dot: .connected, text: "Online")
-        case .connecting: return MacStatusLine(dot: .connecting, text: "Online · Connecting…")
+        // A link dialing or redialing on its own says nothing more than the presence.
+        case .connecting: return MacStatusLine(dot: .connecting, text: "Online")
         case .notConnected: return MacStatusLine(dot: .connecting, text: "Online · Not connected")
         case .offline: return MacStatusLine(dot: .offline, text: presence)
         default: return MacStatusLine(dot: .failed, text: reach.statusText(now: now))

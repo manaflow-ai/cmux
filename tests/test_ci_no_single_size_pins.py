@@ -60,10 +60,6 @@ EXCEPTIONS: dict[re.Pattern[str], str] = {
 }
 # Whole selections that keep their literal on purpose -> why.
 SELECTIONS_KEPT_LITERAL = {
-    ("cmux-next-guards.yml", "jobs.signing-runner-variables.runs-on"): (
-        "the job checks the runner variables themselves, so its own route must not read them: with a bad value it "
-        "would queue on that value instead of going red"
-    ),
 }
 # A job that holds signing or release material keeps its route under its own trust rules
 # (tests/test_ci_release_sdk_lane.sh, tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py).
@@ -75,7 +71,7 @@ VARS_READ = re.compile(r"\bvars\.")
 # The one Linux label's fork operand (scripts/ci/one_linux_label.py, Leo 2026-11-20: "you shouldn't have to think
 # about sizing your CI"): an operator's fork-only variable that ends in GitHub-hosted Ubuntu. A fork run that cannot
 # read the variable still gets the quoted hosted label, so it reads as that label.
-FORK_HOSTED_DEFAULT = "(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')"
+FORK_HOSTED_DEFAULT = "'ubuntu-24.04'"
 
 
 def without_fork_hosted_default(value: str) -> str:
@@ -226,7 +222,7 @@ class NoSingleSizePins(unittest.TestCase):
         self.assertFalse(FORK_READS_POOLS.search(value))
         self.assertFalse(any(VARS_READ.search(value[s.start:s.stop]) for s in fork_operands(value)))
         self.assertEqual(pins_in(value), [])
-        other = one.replace("vars.CI_FORK_LINUX_RUNNER", "vars.LINUX_RUNNER")
+        other = one.replace("github.repository && 'ubuntu-24.04'", "github.repository && (vars.LINUX_RUNNER || 'ubuntu-24.04')")
         self.assertTrue(any(VARS_READ.search(other[s.start:s.stop]) for s in fork_operands(other)))
 
     def test_a_fork_branch_that_reads_a_variable_is_flagged(self) -> None:

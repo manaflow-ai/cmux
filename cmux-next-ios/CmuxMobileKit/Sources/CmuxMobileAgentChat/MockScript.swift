@@ -48,16 +48,9 @@ struct MockScript {
     cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/Screens.swift:241:  Picker(selection: .constant(0))
     """
 
-    static let planIntro = """
-    The frame layer already hides the transport, so the switch only needs to live in the dialer and in Settings. Here's the plan:
+    static let intro = """
+    The frame layer already hides the transport, so the switch only needs to live in the dialer and in Settings.
     """
-
-    static let plan = [
-        ACPPlanEntry(content: "Add `TransportKind` with WebRTC and WireGuard cases", priority: "high"),
-        ACPPlanEntry(content: "Route `LinkDialer.dial` through the selected transport", priority: "high"),
-        ACPPlanEntry(content: "Run the Swift and Rust link tests", priority: "medium"),
-        ACPPlanEntry(content: "Wire the Settings → Connection picker", priority: "medium"),
-    ]
 
     static let kindPath = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/TransportKind.swift"
     static let kindNew = """
@@ -313,7 +306,7 @@ struct MockScript {
         let image = UIGraphicsImageRenderer(size: size).image { context in
             UIColor.systemIndigo.setFill()
             context.fill(CGRect(origin: .zero, size: size))
-            UIColor.white.withAlphaComponent(0.9).setFill() // color-literal-allow: mock image content
+            UIColor.white.withAlphaComponent(0.9).setFill()
             for row in 0..<3 {
                 UIBezierPath(roundedRect: CGRect(x: 16, y: 24 + CGFloat(row) * 40, width: 208, height: 28), cornerRadius: 8).fill()
             }

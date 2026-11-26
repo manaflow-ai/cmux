@@ -88,7 +88,7 @@ fn request(command: SessionCmd) -> Result<Value> {
         SessionCmd::Resume { session, mesh, .. } if mesh.mesh => {
             ("resume", target(&session, mesh.id), Value::Null, mesh.idempotency_key)
         }
-        SessionCmd::Stop { session, purge, mesh, condition } if mesh.mesh => {
+        SessionCmd::Stop { session, purge, mesh, condition, close } if mesh.mesh => {
             if purge {
                 bail!("mesh stop keeps the stored session; --purge is unsupported");
             }
@@ -99,7 +99,15 @@ fn request(command: SessionCmd) -> Result<Value> {
                      the session's host"
                 );
             }
-            ("stop", target(&session, mesh.id), Value::Null, mesh.idempotency_key)
+            let mut why = serde_json::Map::new();
+            if let Some(reason) = close.reason {
+                why.insert("reason".into(), json!(reason));
+            }
+            if let Some(outcome) = close.outcome {
+                why.insert("outcome".into(), json!(outcome));
+            }
+            let params = if why.is_empty() { Value::Null } else { Value::Object(why) };
+            ("stop", target(&session, mesh.id), params, mesh.idempotency_key)
         }
         SessionCmd::Receipt { message_id } => return Ok(json!({"receipt": message_id})),
         _ => bail!("not a mesh lifecycle command"),
@@ -204,7 +212,7 @@ mod tests {
             &["acpmux", "session", "kill", "--id", id, "--purge"][..],
         ] {
             match local(argv) {
-                Command::Kill { session, purge, condition } => {
+                Command::Kill { session, purge, condition, .. } => {
                     assert_eq!(session, id, "{argv:?}");
                     assert_eq!(purge, argv.contains(&"--purge"), "{argv:?}");
                     // Without --if-idle the stop is the plain one, as before.
@@ -225,6 +233,30 @@ mod tests {
         // With --mesh, --id still names the exact id.
         let stop = parse(&["acpmux", "session", "stop", "stable-id", "--mesh", "--id"]);
         assert_eq!(stop["to"], json!({"sessionId": "stable-id"}));
+    }
+
+    /// `session stop|close NAME --outcome done|dropped --reason TEXT` carries both to the local
+    /// stop and to a mesh stop (`close_why.rs`); another outcome is refused by clap.
+    #[test]
+    fn stop_and_close_carry_the_reason_and_outcome() {
+        let local = |args: &[&str]| flatten(Cli::try_parse_from(args).unwrap().command.unwrap());
+        for verb in ["stop", "close"] {
+            let argv =
+                ["acpmux", "session", verb, "lane", "--outcome", "done", "--reason", "merged"];
+            match local(&argv) {
+                Command::Kill { session, close, .. } => {
+                    assert_eq!(session, "lane");
+                    assert_eq!(close.outcome.as_deref(), Some("done"));
+                    assert_eq!(close.reason.as_deref(), Some("merged"));
+                }
+                _ => panic!("{verb} did not run the local stop"),
+            }
+        }
+        let argv = ["acpmux", "session", "stop", "lane", "--outcome", "unfinished"];
+        assert!(Cli::try_parse_from(argv).is_err(), "unfinished is the daemon's to record");
+        let stop =
+            parse(&["acpmux", "session", "stop", "w/lane", "--mesh", "--outcome", "dropped"]);
+        assert_eq!(stop["params"], json!({"outcome": "dropped"}));
     }
 
     /// `session stop --if-idle [--expect-revision REV]` runs the local stop with its condition;

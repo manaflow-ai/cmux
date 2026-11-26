@@ -3,6 +3,7 @@
  * verifier, with in-memory stores, a local JWKS, a fake team directory and a
  * fake upstream provider behind the real upstream client.
  */
+import type { ApiVersionTable } from "../../src/api-version.ts";
 import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { makeWebHandler } from "../../src/app.ts";
@@ -35,6 +36,8 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  /** The dated-version compat table the API serves (`Cmux-Api-Version`); default the Worker's own. */
+  readonly apiVersions?: ApiVersionTable;
   readonly limits?: Layer.Layer<TenantLimits>;
   /** The CMUX_VM_SERVICE_KEY_SCOPE_GRANTS var, applied to every service key as the Worker does. */
   readonly serviceScopeGrants?: string;
@@ -122,13 +125,16 @@ export async function makeHarness(options: HarnessOptions = {}) {
   const upstream = makeFakeUpstream(UPSTREAM_KEY);
   /** Client sessions (migration 0016), as cmux_vm.vm_client_sessions holds them. */
   const clientSessions: ClientSessionRow[] = [];
-  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 });
+  // The Worker names its provider resources with the same environment its policy runs in.
+  const upstreamClient = makeUpstreamClient({ baseUrl: UPSTREAM_URL, apiKey: Redacted.make(UPSTREAM_KEY), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 });
   const upstreamRequests = upstream.calls;
   const audit: AuditRow[] = [];
   /** Tenants whose plan allows creating VMs. */
   const billed = new Set<string>(["team_alpha", "team_bravo"]);
   /** Public ids marked deleted; their rows stay in `resources` for inspection. */
   const deleted = new Set<string>();
+  /** When each deleted row was marked deleted, for spend estimates over deleted VMs. */
+  const deletedAt = new Map<string, Date>();
   const live = (row: OwnedResource) => !deleted.has(row.cmuxId);
   /** Strictly increasing creation times, so "newest first" is deterministic within a millisecond. */
   let lastCreatedMs = 0;
@@ -210,9 +216,23 @@ export async function makeHarness(options: HarnessOptions = {}) {
           .slice(0, page.limit),
       ),
     countLive: (tenantId, kind) => Effect.sync(() => resources.filter((row) => row.tenantId === tenantId && row.kind === kind && live(row) && row.committed !== false).length),
-    markDeleted: (tenantId, kind, cmuxId) =>
+    deletedVmSecondsSince: (tenantId, labels, since) =>
+      Effect.sync(() =>
+        resources
+          .filter((row) => row.tenantId === tenantId && row.kind === "vm" && deleted.has(row.cmuxId))
+          .filter((row) => Object.entries(labels).every(([key, value]) => row.labels[key] === value))
+          .reduce((sum, row) => {
+            const at = deletedAt.get(row.cmuxId);
+            if (at === undefined || at.getTime() <= since.getTime()) return sum;
+            return sum + Math.max(0, at.getTime() - Math.max(row.createdAt.getTime(), since.getTime())) / 1000;
+          }, 0),
+      ),
+    markDeleted: (tenantId, kind, cmuxId, at) =>
       Effect.sync(() => {
-        if (resources.some((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)) deleted.add(cmuxId);
+        if (resources.some((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId)) {
+          if (!deleted.has(cmuxId)) deletedAt.set(cmuxId, at);
+          deleted.add(cmuxId);
+        }
       }),
     findDeleted: (tenantId, kind, cmuxId) =>
       Effect.sync(() =>
@@ -413,7 +433,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
 
   const { handler, dispose, reap } = makeWebHandler(
     services,
-    options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) },
+    {
+      ...(options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) }),
+      ...(options.apiVersions === undefined ? {} : { apiVersions: options.apiVersions }),
+    },
   );
 
   return {
@@ -425,7 +448,7 @@ export async function makeHarness(options: HarnessOptions = {}) {
     recordFault,
     meshRecordFault,
     setProviderConfig(baseUrl = UPSTREAM_URL, apiKey = UPSTREAM_KEY) {
-      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 }));
+      Object.assign(upstreamClient, makeUpstreamClient({ baseUrl, apiKey: Redacted.make(apiKey), environment: options.environment ?? "local", fetch: (request) => upstream.fetch(request), backgroundPollMs: 1 }));
     },
     /** One agent reaper run, as the Worker's cron does. */
     reap,

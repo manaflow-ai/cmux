@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 681,
+  "count": 739,
   "sections": [
     {
       "id": "general",
@@ -119,6 +119,18 @@
           ]
         },
         {
+          "key": "agentPane.followUpMode",
+          "title": "Follow-Up Messages",
+          "help": "What Return does with a message sent while the agent is working. Command-Return does the other.",
+          "kind": "choice",
+          "default": "steer",
+          "group": "Agent Chat",
+          "values": [
+            "steer",
+            "queue"
+          ]
+        },
+        {
           "key": "agentPane.images.remote",
           "title": "Web Images in Replies",
           "help": "A web image loads from its site, which then sees that you read the reply.",
@@ -171,6 +183,14 @@
             "local",
             "cloud"
           ]
+        },
+        {
+          "key": "agentPane.savedPrompts",
+          "title": "Saved Prompts",
+          "help": "Prompts every chat's / menu offers: a name and its text. Typing /name writes the text into the composer, with {{date}}, {{time}}, {{folder}} and {{branch}} filled in.",
+          "kind": "string_map",
+          "default": {},
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.scrollToBottomOnSend",
@@ -237,6 +257,18 @@
             "max": 2,
             "unit": "fraction"
           }
+        },
+        {
+          "key": "agents.appControl",
+          "title": "Agents Can Change cmux",
+          "help": "Read Only: agents in cmux’s terminals and agent chats can read cmux but not change it: no new workspaces, tabs or panes, no typing into other terminals, no settings changes.",
+          "kind": "choice",
+          "default": "change",
+          "group": "cmux Tools",
+          "values": [
+            "change",
+            "read"
+          ]
         },
         {
           "key": "agents.autoRetry.attempts",
@@ -330,6 +362,40 @@
           }
         },
         {
+          "key": "agents.chats.coldSegments",
+          "title": "Compress Long Chats",
+          "help": "Compresses the older parts of long chats. Run cmux chats warm to undo.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.chats.coldSegmentsLevel",
+          "title": "Long Chat Compression Level",
+          "help": "Higher levels use less disk and take longer to compress.",
+          "kind": "number",
+          "default": 3,
+          "group": "Chats",
+          "range": {
+            "min": 1,
+            "max": 19,
+            "unit": "count"
+          }
+        },
+        {
+          "key": "agents.chats.deleteHistoryAfterDays",
+          "title": "Delete Chat History After",
+          "help": "Permanently deletes closed chats unused for this many days. 0 never deletes.",
+          "kind": "number",
+          "default": 0,
+          "group": "Chats",
+          "range": {
+            "min": 0,
+            "max": 3650,
+            "unit": "days"
+          }
+        },
+        {
           "key": "agents.chats.discovery",
           "title": "Discover Chat Folders",
           "help": "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -362,17 +428,48 @@
           "group": "Chats"
         },
         {
+          "key": "agents.chats.terminalChatWritable",
+          "title": "Write to a Chat a Terminal Runs",
+          "help": "When Toggle Terminal and Chat moves a Claude Code or Codex chat to a terminal, keep the chat's composer: what you send goes into that terminal's session, and Stop stops its turn. Off, the chat is View Only while the terminal runs it.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Chats"
+        },
+        {
+          "key": "agents.claudeCodeInboxRelay",
+          "title": "Add Message Relay to Claude Code",
+          "help": "Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agents.cmuxMcp",
-          "title": "cmux Tools for Agents in cmux",
-          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. Until you choose, they get nothing. cmux never changes your agents’ own settings.",
+          "title": "Give Agents cmux’s Tools",
+          "help": "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
           "kind": "choice",
-          "default": "ask",
+          "default": "on",
           "group": "cmux Tools",
           "values": [
-            "ask",
             "on",
             "off"
           ]
+        },
+        {
+          "key": "agents.cmuxMcpClaude",
+          "title": "Use in Claude Code",
+          "help": "Off: Claude Code you start in cmux never gets cmux’s tools, even when they are on.",
+          "kind": "toggle",
+          "default": true,
+          "group": "cmux Tools"
+        },
+        {
+          "key": "agents.cmuxMcpCodex",
+          "title": "Use in Codex",
+          "help": "Off: Codex you start in cmux never gets cmux’s tools, even when they are on.",
+          "kind": "toggle",
+          "default": true,
+          "group": "cmux Tools"
         },
         {
           "key": "agents.defaultPermissionMode",
@@ -818,23 +915,7 @@
             "org.keepassxc.KeePassXC",
             "1password",
             "bitwarden",
-            "com.apple.systempreferences",
-            "com.apple.Terminal",
-            "com.googlecode.iterm2",
-            "com.mitchellh.ghostty",
-            "net.kovidgoyal.kitty",
-            "com.github.wez.wezterm",
-            "org.alacritty",
-            "dev.warp.*",
-            "windowsterminal.exe",
-            "cmd.exe",
-            "powershell.exe",
-            "pwsh.exe",
-            "org.gnome.Terminal",
-            "org.gnome.Ptyxis",
-            "org.kde.konsole",
-            "com.cmuxterm.app",
-            "com.cmuxterm.app.*"
+            "com.apple.systempreferences"
           ],
           "group": "Computer Use"
         },
@@ -886,7 +967,7 @@
           "title": "After Each Action",
           "help": "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
           "kind": "choice",
-          "default": "adaptive",
+          "default": "openai",
           "group": "Computer Use",
           "values": [
             "adaptive",
@@ -903,9 +984,44 @@
           "group": "Computer Use"
         },
         {
+          "key": "computerUse.whileLocked",
+          "title": "Keep Working While Locked",
+          "help": "Agents keep seeing and using app windows while this Mac is locked. Anything that needs the desktop or the pointer waits for you to unlock.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Computer Use"
+        },
+        {
+          "key": "editor.default",
+          "title": "Open in Editor",
+          "help": "The app Open in Editor opens a folder or file in; Text Editor, when set, opens files and picks it here. One not installed uses the first editor found.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "Files",
+          "values": [
+            "auto",
+            "vscode",
+            "cursor",
+            "zed",
+            "xcode",
+            "sublime",
+            "intellij",
+            "webstorm",
+            "pycharm",
+            "goland",
+            "rustrover",
+            "clion",
+            "phpstorm",
+            "rubymine",
+            "rider",
+            "fleet",
+            "nova"
+          ]
+        },
+        {
           "key": "files.textEditor",
           "title": "Text Editor",
-          "help": "An app name, bundle ID or app path. Empty uses your source code app.",
+          "help": "An app name, bundle ID or app path. Empty uses Open in Editor's app, else your source code app.",
           "kind": "text",
           "default": "",
           "group": "Files"
@@ -1417,6 +1533,19 @@
           "group": "Folder Picker"
         },
         {
+          "key": "remote.agentShareIdleMinutes",
+          "title": "Agent Sharing Turns Off After",
+          "help": "When one of your agents turns sharing on for this Mac, it turns off again after this many minutes with no device viewing or controlling it.",
+          "kind": "number",
+          "default": 15,
+          "group": "cmux Remote",
+          "range": {
+            "min": 1,
+            "max": 240,
+            "unit": "minutes"
+          }
+        },
+        {
           "key": "remote.endSharingOnQuit",
           "title": "End Sharing When cmux Quits",
           "help": "Off: this Mac stays available to your devices while cmux is quit.",
@@ -1447,6 +1576,36 @@
             "off",
             "auto",
             "always"
+          ]
+        },
+        {
+          "key": "remoteDesktop.maxBitrateMbps",
+          "title": "Screen Sharing Bitrate Limit",
+          "help": "The most megabits per second a new Screen Sharing session may use. Auto lets the host decide.",
+          "kind": "choice_or_number",
+          "default": "auto",
+          "group": "cmux Remote"
+        },
+        {
+          "key": "remoteDesktop.maxFps",
+          "title": "Screen Sharing Frame Rate Limit",
+          "help": "The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate.",
+          "kind": "choice_or_number",
+          "default": "auto",
+          "group": "cmux Remote"
+        },
+        {
+          "key": "remoteDesktop.quality",
+          "title": "Screen Sharing Quality",
+          "help": "The quality a new Screen Sharing session starts at. The session's toolbar can still change it.",
+          "kind": "choice",
+          "default": "auto",
+          "group": "cmux Remote",
+          "values": [
+            "auto",
+            "sharpText",
+            "smoothMotion",
+            "lowBandwidth"
           ]
         },
         {
@@ -1569,7 +1728,7 @@
         {
           "key": "tabs.newTabApp",
           "title": "New Tab App",
-          "help": "An extension id that draws New Tab, such as \"local/showcase-newtab\". Unset: cmux's own.",
+          "help": "An extension that draws over the New Tab composer, by its id, such as \"local/showcase-newtab\". The composer always stays. Not used by the native New Tab page.",
           "kind": "text",
           "default": null,
           "group": "Tabs"
@@ -1585,6 +1744,65 @@
             "afterCurrent",
             "end",
             "start"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.color",
+          "title": "Clock Color",
+          "help": "",
+          "kind": "choice",
+          "default": "text",
+          "group": "Tabs",
+          "values": [
+            "text",
+            "accent",
+            "muted",
+            "glass"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.date",
+          "title": "Date over Clock",
+          "help": "",
+          "kind": "toggle",
+          "default": true,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabClock.font",
+          "title": "Clock Font",
+          "help": "",
+          "kind": "choice",
+          "default": "rounded",
+          "group": "Tabs",
+          "values": [
+            "rounded",
+            "system",
+            "serif",
+            "mono",
+            "condensed"
+          ]
+        },
+        {
+          "key": "tabs.newTabClock.show",
+          "title": "Clock on New Tab",
+          "help": "A large clock over the New Tab composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Tabs"
+        },
+        {
+          "key": "tabs.newTabClock.weight",
+          "title": "Clock Weight",
+          "help": "",
+          "kind": "choice",
+          "default": "bold",
+          "group": "Tabs",
+          "values": [
+            "thin",
+            "regular",
+            "bold",
+            "heavy"
           ]
         },
         {
@@ -1695,6 +1913,19 @@
           ]
         },
         {
+          "key": "transport.tailnetCarrier",
+          "title": "Tailscale Carrier",
+          "help": "Race a peer's direct Tailscale address with the other transports when tailscaled reports one.",
+          "kind": "choice",
+          "default": "off",
+          "group": "cmux Remote",
+          "values": [
+            "off",
+            "direct-only",
+            "on"
+          ]
+        },
+        {
           "key": "updates.channel",
           "title": "Update Channel",
           "help": "Stable gets builds that ran a week without problems; Canary and Dev get them first.",
@@ -1730,11 +1961,23 @@
           }
         },
         {
+          "key": "updates.daemon",
+          "title": "Live Background Updates",
+          "help": "Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Updates",
+          "values": [
+            "off",
+            "every-merge"
+          ]
+        },
+        {
           "key": "updates.downloadAutomatically",
           "title": "Download Updates Automatically",
           "help": "Off: cmux asks before downloading. It always asks before restarting.",
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "group": "Updates"
         },
         {
@@ -1774,7 +2017,7 @@
         {
           "key": "updates.installWhenIdle",
           "title": "Update When Idle",
-          "help": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
+          "help": "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.",
           "kind": "toggle",
           "default": false,
           "group": "Updates"
@@ -2054,6 +2297,14 @@
       "title": "Appearance",
       "rows": [
         {
+          "key": "agentPane.display.changesPill",
+          "title": "Changes Pill",
+          "help": "A pill over the composer with how many files the chat changed.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.code.family",
           "title": "Chat Code Font",
           "help": "Empty uses the Markdown viewer's code font.",
@@ -2086,6 +2337,14 @@
             "right",
             "off"
           ]
+        },
+        {
+          "key": "agentPane.display.environmentCard",
+          "title": "Environment Card",
+          "help": "A card at the chat's top right with its changes, branch, commit and pull request.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.finishSound",
@@ -2169,6 +2428,9 @@
             "source-sans",
             "geist",
             "cmux-sans",
+            "cmux-sans-squat",
+            "cmux-sans-candy",
+            "cmux-sans-open",
             "hanken",
             "atkinson"
           ]
@@ -2204,6 +2466,44 @@
           ]
         },
         {
+          "key": "agentPane.display.layout.composer",
+          "title": "Message Box Shape",
+          "help": "The message box's outline: rounded, a pill, or square and docked.",
+          "kind": "choice",
+          "default": "rounded",
+          "group": "Agent Chat",
+          "values": [
+            "rounded",
+            "pill",
+            "square"
+          ]
+        },
+        {
+          "key": "agentPane.display.layout.header",
+          "title": "Chat Header",
+          "help": "Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header.",
+          "kind": "choice",
+          "default": "full",
+          "group": "Agent Chat",
+          "values": [
+            "full",
+            "quiet"
+          ]
+        },
+        {
+          "key": "agentPane.display.layout.messages",
+          "title": "Message Layout",
+          "help": "How your messages sit in the chat: a bubble on the right, a flat row on the left with an accent rule, or a card on the left.",
+          "kind": "choice",
+          "default": "bubbles",
+          "group": "Agent Chat",
+          "values": [
+            "bubbles",
+            "flat",
+            "card"
+          ]
+        },
+        {
           "key": "agentPane.display.minimap",
           "title": "Chat Minimap",
           "help": "What runs down the chat's edge.",
@@ -2215,6 +2515,14 @@
             "full",
             "off"
           ]
+        },
+        {
+          "key": "agentPane.display.modelChipIcon",
+          "title": "Model Logo in Composer",
+          "help": "Shows the provider's logo next to the model's name in the message box. Right-click the model to turn it off or on.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.pinnedPlan",
@@ -2240,6 +2548,14 @@
           "key": "agentPane.display.promptCoach",
           "title": "Prompt Coach",
           "help": "After a chat with many corrections, shows a better first prompt.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.display.queueing",
+          "title": "Queue Prompts During a Turn",
+          "help": "On, Send and ⌘Return queue a prompt sent while a turn runs, and Return steers it into the turn. Off, every send steers, so nothing waits.",
           "kind": "toggle",
           "default": true,
           "group": "Agent Chat"
@@ -2321,6 +2637,14 @@
             "family",
             "session"
           ]
+        },
+        {
+          "key": "agentPane.display.sendPop",
+          "title": "Pop In Sent Prompts",
+          "help": "A prompt you send pops in and settles where it lands, instead of appearing at once.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
         },
         {
           "key": "agentPane.display.sessionInfo.placement",
@@ -3205,6 +3529,19 @@
           }
         },
         {
+          "key": "appearance.metrics.spaceButtonSpacing",
+          "title": "Space Button Spacing",
+          "help": "Distance between the centers of neighboring Space buttons. The density default fits them to the sidebar.",
+          "kind": "number",
+          "default": null,
+          "group": "Sidebar",
+          "range": {
+            "min": 18,
+            "max": 48,
+            "unit": "points"
+          }
+        },
+        {
           "key": "appearance.metrics.titlebarHeight",
           "title": "Titlebar Height",
           "help": "",
@@ -3314,6 +3651,28 @@
           "kind": "toggle",
           "default": true,
           "group": "Loading Indicator"
+        },
+        {
+          "key": "appearance.statusIndicator.iconSet",
+          "title": "Status Icons",
+          "help": "The marks for agent working, blocked, done and error on sidebar rows, tabs and badges.",
+          "kind": "choice",
+          "default": "codex",
+          "group": "Loading Indicator",
+          "values": [
+            "codex",
+            "current",
+            "still",
+            "symbols",
+            "symbolsOutline",
+            "pips",
+            "rings",
+            "badges",
+            "signs",
+            "shapes",
+            "bars",
+            "letters"
+          ]
         },
         {
           "key": "appearance.statusIndicator.showAgentWorkingOnTabs",
@@ -3667,6 +4026,32 @@
           }
         },
         {
+          "key": "appearance.tabShape",
+          "title": "Tab Shape",
+          "help": "The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules.",
+          "kind": "choice",
+          "default": "block",
+          "group": "Panes",
+          "values": [
+            "block",
+            "rounded"
+          ]
+        },
+        {
+          "key": "appearance.terminalCellBackgrounds",
+          "title": "Terminal Cell Backgrounds",
+          "help": "How program-painted cell backgrounds (a TUI's message band, status line) draw over a translucent window or wallpaper: opaque (default), at the window's opacity (window), fading near-background greys to a tint (tint), or both (tintWindow).",
+          "kind": "choice",
+          "default": "opaque",
+          "group": "Window Background",
+          "values": [
+            "opaque",
+            "window",
+            "tint",
+            "tintWindow"
+          ]
+        },
+        {
           "key": "appearance.theme",
           "title": "Theme",
           "help": "Colors for terminals. A space, workspace or terminal theme overrides it.",
@@ -3742,6 +4127,14 @@
           "kind": "toggle",
           "default": true,
           "group": "Window Background"
+        },
+        {
+          "key": "customize.doctorNotice",
+          "title": "Customization notices",
+          "help": "",
+          "kind": "toggle",
+          "default": false,
+          "group": "App Theme"
         },
         {
           "key": "diff.colors",
@@ -4227,6 +4620,14 @@
           "group": "Sidebar"
         },
         {
+          "key": "sidebar.drawnMenus",
+          "title": "Styled Sidebar Menus",
+          "help": "Right-click and more-button menus in the sidebar follow the menu look instead of the system menu.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.floatOnHover",
           "title": "Float Hidden Sidebar on Hover",
           "help": "With the sidebar hidden, point at the window's edge to show it over your work.",
@@ -4266,14 +4667,17 @@
           "title": "Group Background",
           "help": "How a group draws. Folders shows plain folders; Sections shows plain headings.",
           "kind": "choice",
-          "default": "folder",
+          "default": "auto",
           "group": "Sidebar",
           "values": [
             "folder",
             "auto",
             "glass",
             "solid",
-            "sections"
+            "sections",
+            "chip",
+            "tree",
+            "card"
           ]
         },
         {
@@ -4605,6 +5009,22 @@
           ]
         },
         {
+          "key": "sidebar.sections.hidden",
+          "title": "Hidden Sections",
+          "help": "Sidebar sections to hide, by id. The section of the selected workspace always shows.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Sidebar"
+        },
+        {
+          "key": "sidebar.sections.order",
+          "title": "Section Order",
+          "help": "Sidebar sections to show first in their part of the sidebar, in this order, by id.",
+          "kind": "string_list",
+          "default": [],
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.sessionTree",
           "title": "Session Tree",
           "help": "Lists workspaces an agent started under the workspace that started them.",
@@ -4843,6 +5263,30 @@
           "group": "Workspace Rows"
         },
         {
+          "key": "sidebar.workspaceRow.lines",
+          "title": "Row Layout",
+          "help": "The lines each workspace row shows, as lists of items, such as [[\"icon\", \"name\", \"branch\"], [\"agentStatus\"]]. Up to 3 lines of 6 items; the name always leads the first line.",
+          "kind": "json",
+          "default": null,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.linesByAgent",
+          "title": "Row Layout by Agent",
+          "help": "A row layout for each agent, by agent id such as claude or codex. It wins over the other row layouts.",
+          "kind": "json",
+          "default": null,
+          "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.linesByKind",
+          "title": "Row Layout by Kind",
+          "help": "A row layout for each kind of workspace: terminal, agent, browser or mixed. It wins over Row Layout.",
+          "kind": "json",
+          "default": null,
+          "group": "Workspace Rows"
+        },
+        {
           "key": "sidebar.workspaceRow.log",
           "title": "Log",
           "help": "The newest line agents and scripts log: cmux workspace log append <text>.",
@@ -4905,6 +5349,18 @@
             "lastActivity"
           ],
           "group": "Workspace Rows"
+        },
+        {
+          "key": "sidebar.workspaceRow.statusPlacement",
+          "title": "Status Position",
+          "help": "Where the row's status mark draws: at the row's end, or before the name in the icon's place.",
+          "kind": "choice",
+          "default": "trailing",
+          "group": "Workspace Rows",
+          "values": [
+            "trailing",
+            "leading"
+          ]
         },
         {
           "key": "sidebar.workspaceRow.tabCount",
@@ -5177,6 +5633,14 @@
           "kind": "string_list",
           "default": [],
           "group": "Opening Links"
+        },
+        {
+          "key": "terminal.predictiveLocalEcho",
+          "title": "Predictive Local Echo",
+          "help": "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Typing"
         },
         {
           "key": "terminal.term",
@@ -6425,6 +6889,14 @@
           "group": "Hang Reports"
         },
         {
+          "key": "diagnostics.shareInstallCounts",
+          "title": "Share Package Installs to Improve cmux",
+          "help": "Sends cmux the names of packages agents install and of tools you add to your Cloud machines, so new Cloud machines come with the common ones already downloaded. Names and counts only, never prompts, commands, file or project names, or anything that identifies you. Turning it off deletes your tool list.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Usage Patterns"
+        },
+        {
           "key": "diagnostics.usagePatterns",
           "title": "Record Usage Patterns",
           "help": "Counts how you use cmux on this Mac. Nothing you type is recorded; nothing is sent.",
@@ -6586,6 +7058,14 @@
             "orb-spark",
             "orb-hood"
           ]
+        },
+        {
+          "key": "home.clipboardHistory",
+          "title": "Clipboard History in the + Menu",
+          "help": "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Attachments"
         },
         {
           "key": "home.feedInChief",
@@ -6864,6 +7344,19 @@
             "max": 8,
             "unit": "points"
           }
+        },
+        {
+          "key": "notifications.delivery.blocked",
+          "title": "Agent Blocked",
+          "help": "When an agent's status turns Blocked without its own approval or question alert, as screen detection and plugins report it.",
+          "kind": "choice",
+          "default": "off",
+          "group": "Delivery by Event",
+          "values": [
+            "off",
+            "badge",
+            "banner"
+          ]
         },
         {
           "key": "notifications.delivery.permissionRequest",
@@ -7166,7 +7659,15 @@
         {
           "key": "mobile.allowIPhoneConnections",
           "title": "Allow iPhone Connections",
-          "help": "The cmux app on your iPhone can open this Mac's workspaces, on the same account.",
+          "help": "The cmux app on your iPhone, signed in to the same account, can open this Mac's workspaces. You allow each new phone once.",
+          "kind": "toggle",
+          "default": true,
+          "group": "iPhone"
+        },
+        {
+          "key": "mobile.autoApprovePhones",
+          "title": "Approve Phone Requests Automatically",
+          "help": "A new phone signed in to your account connects without asking you first, and so do phones already waiting. Other accounts never connect.",
           "kind": "toggle",
           "default": false,
           "group": "iPhone"
@@ -7198,6 +7699,14 @@
           "kind": "string_map",
           "default": {},
           "group": "Machine Colors"
+        },
+        {
+          "key": "cloud.agentMemory.follow",
+          "title": "Carry Your Agent Memory to Cloud Machines",
+          "help": "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Cloud Workspaces"
         },
         {
           "key": "cloud.agentsStartWithoutAsking",
@@ -7319,9 +7828,25 @@
           "group": "Experiments"
         },
         {
+          "key": "experiments.attachmentTypeIcons",
+          "title": "Attachment Type Icons",
+          "help": "While an attachment loads, its chip shows a file or image icon instead of the loading mark.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
           "key": "experiments.chatWidgets",
           "title": "Extension Chat Widgets",
           "help": "Installed extensions can show a card under a finished tool call in agent chat.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.composerButtonsVisible",
+          "title": "Always Show Composer Buttons",
+          "help": "Keep Send, attachment removal, and queued message actions visible in agent chats.",
           "kind": "toggle",
           "default": false,
           "group": "Experiments"
@@ -7343,6 +7868,38 @@
           "group": "Experiments"
         },
         {
+          "key": "experiments.hoverLook",
+          "title": "Tooltip Refresh",
+          "help": "Tooltips and hover cards get a crisper glass, a sharper edge and a softer shadow.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.menuRowStates",
+          "title": "Menu Row States",
+          "help": "Menu rows that are unavailable say why, and rows that start work show their progress.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.menuStyleV2",
+          "title": "Menu Style v2",
+          "help": "Restyled menus.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
+          "key": "experiments.seeThroughDock",
+          "title": "See-Through Dock",
+          "help": "The conversation stays visible behind the notices and the Needs your input row above the composer.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Experiments"
+        },
+        {
           "key": "experiments.toastsV2",
           "title": "Toasts v2",
           "help": "Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat.",
@@ -7354,6 +7911,30 @@
           "key": "labs.agentCustomization",
           "title": "Claude Code and Codex Customization",
           "help": "Show and edit the MCP servers, skills and commands Claude Code and Codex use, in their own config files.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.appStore",
+          "title": "Show App Store",
+          "help": "Browse, install and update apps for cmux. Still being shaped.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.bundledCodexAppServer",
+          "title": "Use Bundled Codex App Server",
+          "help": "New Codex chats use the app server bundled with cmux when it checks out, else your installed Codex.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Labs"
+        },
+        {
+          "key": "labs.hostsSidebar",
+          "title": "Hosts Sidebar",
+          "help": "Shows your machines in the sidebar with Add Host and per-host terminal actions.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"
@@ -7393,7 +7974,7 @@
         {
           "key": "labs.previewFeatures",
           "title": "Show Preview Features",
-          "help": "Unfinished surfaces, such as the App Store and the agent session's coverage label and Pull requests view.",
+          "help": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
           "kind": "toggle",
           "default": false,
           "group": "Labs"

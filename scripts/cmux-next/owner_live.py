@@ -8,7 +8,7 @@ whoever holds it now, read from the live sessions at push time, in this order:
 1. a live session tagged `owns=` with the row's workstream (`acpmux session tag SESSION owns=PL-acpmux`; a comma list holds
    several): a holder takes a workstream by tagging itself, and gives it up by ending;
 2. a live lane the row's role names: `lanes tabs-refine,tab-strip-*` (fnmatch globs on the session's short name, commas
-   between them; `|` would split the OWNERS.md table cell), the most recently active one. A role outlives every session that fills it, so a row written
+   between them; `|` would split the OWNERS.md table cell), the most recently active one (never a PR finisher, `finish-REPO-N-...`, which holds one PR). A role outlives every session that fills it, so a row written
    `lanes ...` does not go dead when one lane ends (2026-11-23: seven rows named ended sessions, cmux-b6, cmux-4f,
    a590, and their pushes went to the coordinator);
 3. the session the cell names (`session cmux-4f`), if it is live;
@@ -24,7 +24,7 @@ The pre-push hook prints the holder on the owner line and sends it one `acpmux s
 and pushed head (a stand-in, the Performance Lead or the coordinator, one per area a UTC day, asking for a holder) (deduplicated in ~/.cache/cmux/owner-notices.json), so a push into an area reaches a live session
 without the pusher looking anyone up. Never on CI (`CI` set), never when acpmux is missing, never longer than
 LIST_TIMEOUT_S plus SEND_TIMEOUT_S, and never a refusal: a failed listing or send is one line in the report.
-`CMUX_OWNER_NOTIFY=0` prints the holder and sends nothing.
+`CMUX_OWNER_NOTIFY=0` prints the holder and sends nothing, as does a push outside an acpmux session (no sender).
 """
 from __future__ import annotations
 
@@ -46,6 +46,10 @@ DEAD = {"closed", "stopped", "failed", "dead", "disconnected", "retired"}
 WORKSTREAM = re.compile(r"\bPL-[A-Za-z0-9][\w-]*")
 SESSION = re.compile(r"\bsessions? ([A-Za-z0-9][\w./-]*[A-Za-z0-9])")
 LANES = re.compile(r"\blanes ([A-Za-z0-9*?\[\]][\w*?\[\]./,-]*)")
+# A PR finisher the stall dispatcher starts (`finish-cmux-52161-sidebar`) holds one pull request, not an area: its
+# name carries the PR's area word, so a role glob like `*sidebar*` matched it and every sidebar push went to it
+# (2026-11-23: ~25 notices to finish-cmux-52161-sidebar). Role globs skip it; an `owns=` tag still counts.
+FINISHER = re.compile(r"^finish-[\w.-]*?-\d+(?:-|$)")
 LEAD = "PL-lead"
 COORDINATOR = "coordinator"
 
@@ -139,7 +143,8 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None) -> tuple
             return _name(tagged[0]), f"holds owns={w}"
     globs = cell_lanes(cell)
     if globs:
-        lanes = sorted((r for r in live if any(fnmatch.fnmatchcase(_short(_name(r)), g) for g in globs)),
+        lanes = sorted((r for r in live if not FINISHER.match(_short(_name(r)))
+                        and any(fnmatch.fnmatchcase(_short(_name(r)), g) for g in globs)),
                        key=lambda r: -(r.get("updatedAt") or 0))
         if lanes:
             return _name(lanes[0]), f"a lane of {','.join(globs)}"
@@ -225,10 +230,58 @@ def _notices_path() -> Path:
     return Path(os.environ.get("CMUX_OWNER_NOTICES") or Path.home() / ".cache/cmux/owner-notices.json")
 
 
+# A notice goes out as the pushing session or not at all. On 2026-11-25 a push run outside any acpmux session sent
+# one from the bare host (thread from:gcp-agent-lane-8, no Sent-by, "no live or closed session named
+# 'gcp-agent-lane-8'"), so its reader could neither answer nor tell who pushed. acpmux names the sender from
+# ACPMUX_SESSION_ID (or a session token); with neither set the push prints the holder and sends nothing.
+SENDER_ENV = ("ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN")
+NO_SENDER = "no acpmux session to send as (ACPMUX_SESSION_ID unset); tell the holder yourself"
+
+
+def sender() -> str | None:
+    """The pushing session's id or token, or None outside an acpmux session."""
+    return next((os.environ[name] for name in SENDER_ENV if os.environ.get(name, "").strip()), None)
+
+
+# A notice names its pusher as HOST/NAME, the address `lane-gh send` and inbox_reply take. On 2026-11-26 three notices
+# reached a coordinator labelled with a bare host ("gcp-agent-lane-5", "fs-agent-lane-7", "gcp-codex-lane-12") and
+# inbox_reply failed with "no live or closed session named 'gcp-agent-lane-5' on any machine": the holder could not
+# answer the pusher. The notice now carries the address it was sent from, and a session acpmux cannot name sends none.
+NO_SENDER_NAME = "the pushing session has no HOST/NAME acpmux can resolve; tell the holder yourself"
+
+
+def sender_name(timeout: float = LIST_TIMEOUT_S) -> str | None:
+    """The pushing session as HOST/NAME (from `acpmux session info`), or None when acpmux cannot name it."""
+    ident = (os.environ.get("ACPMUX_SESSION_ID") or os.environ.get("ACPMUX_SESSION_NAME") or "").strip()
+    if not ident:
+        return None
+    try:
+        out = subprocess.run(["acpmux", "session", "info", ident, "--fields", "machine,name"],
+                             capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    fields = dict(line.split("\t", 1) for line in out.stdout.splitlines() if "\t" in line)
+    host, name = fields.get("machine", "").strip(), _short(fields.get("name", "").strip())
+    return f"{host}/{name}" if host and name else None
+
+
+def signed(text: str, me: str) -> str:
+    """TEXT with a line naming the pusher, so the holder can answer it."""
+    return f"{text}\n\nFrom {me}; answer with `lane-gh send {me} -` or `acpmux send {me} -`."
+
+
 def notify(to: str, area: str, head: str, text: str) -> str | None:
     """Send TEXT to TO once per (TO, AREA, HEAD); None when sent or already sent, else why it was not."""
     if os.environ.get("CMUX_OWNER_NOTIFY") == "0":
         return "CMUX_OWNER_NOTIFY=0"
+    if not sender():
+        return NO_SENDER
+    me = sender_name()
+    if not me:
+        return NO_SENDER_NAME
+    text = signed(text, me)
     key = hashlib.sha1(f"{to}\n{area}\n{head}".encode()).hexdigest()[:16]
     path = _notices_path()
     try:

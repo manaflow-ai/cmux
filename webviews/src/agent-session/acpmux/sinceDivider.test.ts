@@ -126,6 +126,51 @@ test("a reply the person left mid-stream goes under the divider, so the rest of 
   expect(done.sorted().map((row) => row.id)).toEqual(["row-1", "row-2", "reply", SINCE_DIVIDER, "row-6"]);
 });
 
+// The divider reads the daemon's persisted seen cursor (`readThrough`), so the client derives new
+// turns from rows written after that cursor rather than from the session list's transient count.
+const summary = (seq: number): AcpmuxRow => ({ id: `turn-${seq}`, version: 1, at: seq, kind: "turnSummary" });
+
+test("nothing after the cursor is no new turn", () => {
+  const rows = eventRows([1, 2, 5]);
+  rows.current = 6;
+  rows.set("turn-6", summary(6));
+  rows.current = undefined;
+  expect(rows.turnsAfter(6)).toBe(0);
+  expect(rows.turnsAfter(99)).toBe(0);
+});
+
+test("completed and streaming turns after the cursor count once each", () => {
+  const rows = eventRows([1, 2]);
+  rows.current = 3;
+  rows.set("turn-3", summary(3));
+  for (const seq of [4, 6]) {
+    rows.current = seq;
+    rows.set(`row-${seq}`, reply(seq));
+  }
+  rows.current = 7;
+  rows.set("turn-7", summary(7));
+  rows.current = 8;
+  rows.set("row-8", reply(8));
+  rows.current = undefined;
+  expect(rows.turnsAfter(3)).toBe(1);
+  expect(rows.turnsAfter(2)).toBe(2);
+  expect(rows.turnsAfter(7)).toBe(1);
+});
+
+test("seqOf uses the newest event write and excludes local rows and the divider", () => {
+  const rows = eventRows([1, 2]);
+  rows.current = 4;
+  rows.set("row-2", { ...reply(2), text: "r2 more" });
+  rows.current = undefined;
+  rows.set("local", { ...reply(0), id: "local" });
+  rows.setAt(rows.placeAfter(1), divider(1, 1));
+  expect(rows.seqOf("row-1")).toBe(1);
+  expect(rows.seqOf("row-2")).toBe(4);
+  expect(rows.seqOf("local")).toBeUndefined();
+  expect(rows.seqOf(SINCE_DIVIDER)).toBeUndefined();
+  expect(rows.seqOf("missing")).toBeUndefined();
+});
+
 // Leo, 2026-11-22, on the line over a subagent's "started working" and nothing else: "this is a bad
 // new. it shouldnt just do this like this when there's nothing".
 const started = (id: string): AcpmuxRow => ({ id, version: 1, at: 0, kind: SUBAGENT_STARTED, subagents: [] });

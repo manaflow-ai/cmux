@@ -196,7 +196,17 @@ fn run(
     }
     match route.owner {
         "apps.store" => {
-            Ok(Answer::Now(apps_store(mux, client, operation, Value::Object(params), origin)))
+            let params = Value::Object(params);
+            // A git install or its consent card fetches from the network:
+            // answered off this connection's thread.
+            #[cfg(unix)]
+            if crate::apps::store_op_fetches(operation, &params) {
+                let (mux, operation) = (mux.clone(), operation.to_owned());
+                return Ok(Answer::Later(Box::new(move || {
+                    apps_store(&mux, client, &operation, params, origin)
+                })));
+            }
+            Ok(Answer::Now(apps_store(mux, client, operation, params, origin)))
         }
         super::bookmarks_routed::OWNER => {
             Ok(Answer::Now(super::bookmarks_routed::routed(mux, client, operation, params)))
@@ -207,6 +217,10 @@ fn run(
             mux, client, operation, params,
         ))),
         "feed" => Ok(super::feed_client_ops::routed(mux, client, operation, Value::Object(params))),
+        #[cfg(unix)]
+        super::forum_routed::OWNER => {
+            Ok(super::forum_routed::routed(mux, client, operation, Value::Object(params)))
+        }
         owner => Err(ResourceError::operation_failed(
             operation,
             "this daemon has no owner for the routed namespace",

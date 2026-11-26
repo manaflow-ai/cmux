@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxNextRemoteView
 public import CmuxScreenKit
 import CmuxNextCompat
@@ -86,6 +87,9 @@ public final class MacScreenSession {
     /// Settings > cmux Remote > Screen Sharing Profile (`remote.screenSharingProfile`): `ultra`
     /// asks the host for its ultra encode profile in the next offer; nil (Balanced) asks for nothing.
     @ObservationIgnored public var encodeProfile: String?
+    /// Settings > cmux Remote > Screen Sharing Frame Rate Limit (`remoteDesktop.maxFps`): the next offer asks
+    /// for at most this many frames per second; nil asks for the quality's rate.
+    @ObservationIgnored public var maxFpsCap: Int?
     @ObservationIgnored public var reconnectLimit = 0
     /// Relay errors for the failed card (relays are a link carrier, not reported apart).
     public var relayErrors: [ICECandidateError] { [] }
@@ -114,6 +118,10 @@ public final class MacScreenSession {
     @ObservationIgnored var timings = MacScreenConnectTimings()
     /// The current transport's frame counter (the pane's decoder sets it), for its frame timings.
     @ObservationIgnored var frameCounter: MacScreenFrameCounter?
+    /// Whether this session offers clipboard text sync (cap `clipboard.text`): the setting and the
+    /// own-device rule, decided where the pane is made (`RemoteClipboardPolicy`). The host still
+    /// lists the cap only when its person turned clipboard sync on.
+    @ObservationIgnored public var offersClipboard = false
     /// The pane attaches its decoder to each new transport.
     @ObservationIgnored public var onTransport: ((RemoteRdStreamTransport) -> Void)?
     /// The host's displays (pixel sizes) and the one streamed, from its answer.
@@ -293,7 +301,8 @@ public final class MacScreenSession {
             if let key = line.key, !offered {
                 offered = true
                 var offer = MacScreenRdDocument(key: key)
-                let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60, paneWidth: paneWidthPixels)
+                let wish = MacScreenRdDocument.wish(preferences.quality, refresh: displayMaximumFrameRate ?? 60, paneWidth: paneWidthPixels,
+                                                    maxFps: maxFpsCap)
                 offer.maxWidth = wish.maxWidth
                 offer.maxFps = wish.maxFps
                 offer.display = wantedDisplay
@@ -369,10 +378,12 @@ public final class MacScreenSession {
         // `cursor`: the host leaves its cursor out of the pictures and the pane draws one cursor.
         // `video.scaled`: the pane draws a smaller picture into the stream's rect and its input
         // stays in stream pixels (`streamSize`), so the host may shrink it on a slow link.
+        // `clock` and `ledger`: every frame's stage times, on the host's clock.
         let hello = RemoteRdHello(user: "viewer", install: "mac-screen", maxDatagram: 1126, token: nil,
-                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap])
+                                  caps: [RemoteRdHello.cursorCap, RemoteRdHello.videoScaledCap,
+                                         RemoteRdHello.clockCap, RemoteRdHello.ledgerCap])
         guard let transport = RemoteRdStreamTransport(carrier: carrier, hello: hello, startKey: UUID().uuidString,
-                                                      control: true) else {
+                                                      control: true, clipboard: offersClipboard) else {
             fail(L.t("macScreen.rd.viewerStopped", "The screen viewer stopped."))
             return
         }
@@ -582,7 +593,7 @@ public final class MacScreenSession {
 /// The link bridge's Unix socket as the remote view transport's byte stream.
 nonisolated enum MacScreenUnixStream {
     static func open(path: String) async throws -> RemoteRdByteStream {
-        let connection = NWConnection(to: .unix(path: path), using: .tcp)
+        let connection = CmuxEgress.connection(to: .unix(path: path), using: .tcp, site: "CmuxNextMacScreen.MacScreenSession")
         // The stream's bytes: the next decoded frame waits for them.
         let queue = DispatchQueue(label: "com.cmuxterm.mac-screen.rd-socket", qos: .userInitiated)
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in

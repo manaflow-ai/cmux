@@ -41,9 +41,20 @@ export default componentEntry({
   pane: true,
   height: 520,
   widths: { narrow: 320, normal: 420 },
-  covers: ["agent-session/acpmux/session-info/WorkflowTasks.tsx"],
+  covers: ["agent-session/acpmux/session-info/WorkflowTasks.tsx", "agent-session/acpmux/summary/LiveCount.tsx"],
   load: async () => WorkflowLifecycle,
   variants: {
+    running: {
+      note: "While it runs, the head counts the agents that run as the subagents' mark and the number, no word (Leo, 2026-11-23: \"running\" doesn't need text; summary/LiveCount.tsx), then queued and done in words; the hover says how many run.",
+      props: {},
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task__meta"));
+        const meta = ctx.document.querySelector(".acpmux-workflow-task__meta");
+        if (!meta?.querySelector(".acpmux-live-count")) throw new Error("no live count in the workflow's head");
+        if (/running/i.test(meta.textContent ?? ""))
+          throw new Error(`the head still says running: ${meta.textContent}`);
+      },
+    },
     completed: {
       note: "The running Critique phase stays open when the workflow completes, exposing its final agent results without another click.",
       props: {},

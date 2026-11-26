@@ -16,6 +16,8 @@ use std::path::PathBuf;
 const MAX_DISPLAY_NAME: usize = 256;
 const MAX_DISPLAY_MIME: usize = 128;
 const MAX_DISPLAY_RANGE: u64 = 4 * 1024 * 1024;
+/// The largest picture side a video's display part keeps (`width`, `height`): 16K and then some.
+const MAX_DISPLAY_SIDE: u64 = 32_768;
 const MAX_SOURCE_NAME: usize = 64;
 
 fn dir() -> PathBuf {
@@ -23,7 +25,7 @@ fn dir() -> PathBuf {
 }
 
 /// The records that name a prompt's images.
-const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
+pub(super) const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
@@ -97,7 +99,7 @@ fn iso_media_type(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// A kept image's name: 64 lowercase hex digits, never a path.
-fn valid_id(id: &str) -> bool {
+pub(super) fn valid_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
@@ -113,6 +115,95 @@ pub(crate) fn image_bytes(blocks: &[Value]) -> Vec<(String, Vec<u8>)> {
 /// Where image `id`'s bytes are kept on this machine; None for an id `decode` never makes.
 pub(crate) fn image_path(id: &str) -> Option<PathBuf> {
     valid_id(id).then(|| dir().join(id))
+}
+
+/// The bundle folder a moved chat's images go in (`transfer.rs` export and import).
+pub(super) const BUNDLE_DIR: &str = "attachments";
+
+/// The ids of the images a log record names, when it is a record that names them.
+pub(super) fn ids_named_by(kind: &str, msg: &Value) -> Vec<String> {
+    if !NAMING_KINDS.contains(&kind) {
+        return Vec::new();
+    }
+    named_ids(msg).filter(|id| valid_id(id)).map(str::to_owned).collect()
+}
+
+/// The images a pre-copied prefix's prompts name (records through seq `through`), read through
+/// the log's kind index: a move with a prefix bundles only the records past it, and the images
+/// its earlier prompts sent go along all the same.
+pub(super) fn prefix_ids(
+    store: &dyn crate::store::Store,
+    chat: &str,
+    through: u64,
+    into: &mut std::collections::BTreeSet<String>,
+) -> anyhow::Result<()> {
+    store.scan_kinds(chat, &NAMING_KINDS, &mut |e| {
+        if e.seq > through {
+            return false;
+        }
+        into.extend(ids_named_by(&e.kind, &e.msg));
+        true
+    })
+}
+
+/// A moved chat takes its images along (Leo, 2026-11-22: "moving sessions back and forth, the
+/// histories the pausing the images"): each kept image `ids` names goes into the bundle's
+/// `attachments/`, so the target shows the chat's images, not a hole. An id this machine no
+/// longer holds is left out: the chat shows it as missing here too. Answers how many went.
+pub(super) fn bundle_images<'a>(
+    ids: impl IntoIterator<Item = &'a String>,
+    bundle: &std::path::Path,
+) -> std::io::Result<usize> {
+    let to = bundle.join(BUNDLE_DIR);
+    let mut copied = 0;
+    for id in ids {
+        let Some(from) = image_path(id).filter(|p| p.is_file()) else { continue };
+        if copied == 0 {
+            crate::home_fs::create_dirs(&to)?;
+        }
+        std::fs::copy(&from, to.join(id))?;
+        copied += 1;
+    }
+    Ok(copied)
+}
+
+/// A moved chat's images, kept on this machine as its own prompts' are. Each is kept under the
+/// SHA-256 of its bytes and only when the bytes have that hash, so a bundle cannot replace
+/// another chat's image. Answers how many were kept.
+pub(super) fn restore_images(bundle: &std::path::Path) -> std::io::Result<usize> {
+    use sha2::Digest;
+    let from = bundle.join(BUNDLE_DIR);
+    let Ok(entries) = std::fs::read_dir(&from) else { return Ok(0) };
+    let mut kept = 0;
+    for entry in entries {
+        let entry = entry?;
+        let Some(id) = entry.file_name().to_str().map(str::to_owned) else { continue };
+        let Some(dest) = image_path(&id) else { continue };
+        if dest.is_file() {
+            kept += 1;
+            continue;
+        }
+        let bytes = std::fs::read(entry.path())?;
+        let hash: String =
+            sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        if hash != id {
+            tracing::warn!(id, "a moved image whose bytes are not its id: not kept");
+            continue;
+        }
+        crate::home_fs::create_dirs(dir())?;
+        // Written aside under a name of its own and renamed, as `keep_indexed` does: two moves
+        // arriving with one image never write the same partial file, and the rename goes
+        // through the folder this daemon holds (`home_fs`).
+        let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
+        let written = write_owner_only(&partial, &bytes)
+            .and_then(|()| crate::home_fs::rename(&partial, &dest));
+        if let Err(e) = written {
+            let _ = crate::home_fs::remove_file(&partial);
+            return Err(e);
+        }
+        kept += 1;
+    }
+    Ok(kept)
 }
 
 /// The ids of the images a record's `msg` names (`images: [{id, ..}]`).
@@ -134,14 +225,15 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     let id: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
     let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
     let mut named = json!({"id": id, "mimeType": mime});
-    if let Some(name) = block.get("name").and_then(Value::as_str) {
-        named.set("name", json!(name));
-    }
-    // Its pixel size from the header, so the chat reserves the image's exact box before the bytes
-    // load and a decoded image never moves a row (agent-transcript-clean-slate.md, step 2).
-    if let Some((width, height)) = acpmux_book::image_dims::image_dims(&bytes) {
+    // Its pixel size from the header, as a browser draws it (EXIF orientation applied), so every
+    // view reserves the image's own box before it reads the bytes and a decoded image never moves
+    // a row (`image_size.rs`; agent-transcript-clean-slate.md, step 2).
+    if let Some((width, height)) = super::image_size::pixel_size(&bytes) {
         named.set("width", json!(width));
         named.set("height", json!(height));
+    }
+    if let Some(name) = block.get("name").and_then(Value::as_str) {
+        named.set("name", json!(name));
     }
     Some((bytes, named))
 }
@@ -462,6 +554,21 @@ pub(crate) fn validated_display_parts(
                 out.insert(key.into(), Value::Number(value.into()));
             }
         }
+        // A video link's picture size, which the app reads before it sends: its sent tile takes
+        // its box from it on the first frame after a reload. Both or neither, each a real side.
+        let side = |key: &str| {
+            object
+                .get(key)
+                .and_then(Value::as_u64)
+                .filter(|value| (1..=MAX_DISPLAY_SIDE).contains(value))
+        };
+        if kind == "file"
+            && block_type == "resource_link"
+            && let (Some(width), Some(height)) = (side("width"), side("height"))
+        {
+            out.insert("width".into(), json!(width));
+            out.insert("height".into(), json!(height));
+        }
         // The app's composer put this attachment in the prompt's text: the web transcript draws
         // a prompt in its recorded order only when it was placed. Only `true` is kept; a prompt
         // without it (the old unplaced shape, or one from an older app) never gains it.
@@ -495,9 +602,19 @@ pub(crate) fn validated_display_parts(
 
 fn copy_display_fields(part: &mut Value, display: &Value) {
     let Some(object) = display.as_object() else { return };
-    for key in
-        ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf", "placed", "source"]
-    {
+    for key in [
+        "name",
+        "mimeType",
+        "size",
+        "pageCount",
+        "start",
+        "end",
+        "companionOf",
+        "placed",
+        "source",
+        "width",
+        "height",
+    ] {
         if let Some(value) = object.get(key) {
             part[key] = value.clone();
         }
@@ -578,16 +695,18 @@ impl Hub {
         set_inline_parts(&mut msg, ordered);
         super::session::mark_pasted(&mut msg, blocks);
         // The immutable cmux snapshot is saved in metadata and can be appended again
-        // by turns.rs. Only unrecorded client context prevents Retry/restart replay.
+        // by turns.rs. Only unrecorded client context prevents Retry/restart replay; the tools
+        // note follows from the words, and a rebuild adds it again (`tool_mentions.rs`).
         let mut saved_context = Vec::new();
         crate::context_inventory::append_snapshot(
             session.meta().cmux_context.as_deref(),
             &mut saved_context,
         );
-        if blocks
-            .iter()
-            .any(|block| crate::prompt_context::is_context(block) && !saved_context.contains(block))
-        {
+        if blocks.iter().any(|block| {
+            crate::prompt_context::is_context(block)
+                && !saved_context.contains(block)
+                && !crate::tool_mentions::is_own_note(block, blocks)
+        }) {
             msg.set("hiddenContext", Value::Bool(true));
         }
         // Purged once its creator is done: the log keeps no long body (`ephemeral.rs`).
@@ -918,6 +1037,32 @@ mod tests {
                     .iter()
                     .all(|part| part.get("placed").is_none())
             );
+        }
+    }
+
+    #[test]
+    fn inline_parts_keep_a_video_links_picture_size() {
+        let blocks = vec![
+            json!({"type": "text", "text": "look"}),
+            json!({"type": "resource_link", "name": "rec.mov", "uri": "file:///tmp/rec.mov"}),
+        ];
+        let display = json!([{"kind": "file", "blockIndex": 1, "width": 1406, "height": 434}]);
+        let parts = inline_parts(&blocks, &[], Some(&display));
+        assert_eq!(
+            (parts[1]["width"].clone(), parts[1]["height"].clone()),
+            (json!(1406), json!(434))
+        );
+        // Both or neither, each a real side.
+        for invalid in [
+            json!({"width": 1406}),
+            json!({"width": 0, "height": 434}),
+            json!({"width": 1406, "height": 99_999}),
+            json!({"width": "1406", "height": 434}),
+        ] {
+            let mut part = json!({"kind": "file", "blockIndex": 1});
+            part.as_object_mut().unwrap().extend(invalid.as_object().unwrap().clone());
+            let parts = inline_parts(&blocks, &[], Some(&json!([part])));
+            assert!(parts[1].get("width").is_none() && parts[1].get("height").is_none());
         }
     }
 

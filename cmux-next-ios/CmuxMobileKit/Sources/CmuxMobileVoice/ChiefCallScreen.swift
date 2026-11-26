@@ -77,7 +77,7 @@ public struct ChiefCallScreen: View {
                 } label: {
                     Image(systemName: "phone.down.fill")
                         .font(.title)
-                        .foregroundStyle(.white)  // color-literal-allow: white ink on a filled status disc, as Phone's call buttons
+                        .foregroundStyle(.white)
                         .frame(width: 76, height: 76)
                         .background(Circle().fill(CmuxMobileTheme.standard.colors.danger.color))
                 }
