@@ -405,7 +405,7 @@ pub unsafe extern "C" fn cmux_screenshots_listing_upsert(
     // SAFETY: caller contract.
     let (path, source) = unsafe { (text(path, path_len), text(source, source_len)) };
     guard((), || {
-        listing.inner.upsert(Item::new(path, kind_or_other(kind), size, modified, source))
+        listing.inner.upsert(Item::new(path, kind_or_other(kind), size, modified, source));
     });
 }
 
@@ -672,7 +672,7 @@ impl Environment for CallerEnvironment<'_> {
         let f = self.env.preference?;
         // SAFETY: the caller's callback, given readable strings and a live reply.
         self.ask(|ctx, reply| unsafe {
-            f(ctx, domain.as_ptr(), domain.len(), key.as_ptr(), key.len(), reply)
+            f(ctx, domain.as_ptr(), domain.len(), key.as_ptr(), key.len(), reply);
         })
     }
 
@@ -881,7 +881,13 @@ mod tests {
             .collect();
         // SAFETY: live listing, valid items.
         unsafe {
-            cmux_screenshots_listing_replace(listing, b"a".as_ptr(), 1, items.as_ptr(), items.len())
+            cmux_screenshots_listing_replace(
+                listing,
+                b"a".as_ptr(),
+                1,
+                items.as_ptr(),
+                items.len(),
+            );
         };
         // SAFETY: live listing, valid bytes.
         unsafe {
@@ -894,7 +900,7 @@ mod tests {
                 9.0,
                 b"b".as_ptr(),
                 1,
-            )
+            );
         };
         // SAFETY: live listing.
         assert_eq!(unsafe { cmux_screenshots_listing_count(listing) }, 3);
