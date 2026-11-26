@@ -190,6 +190,8 @@ pub async fn serve(
         "tabs" => {
             let tabs = &*crate::tab_snapshots::TABS;
             let socket = Some(config.daemon_socket());
+            // Agent tabs' last turns come from this acpmux (`tab_agent_screen`).
+            tabs.set_acpmux(Some(config.acpmux.clone()));
             crate::tab_snapshots::serve(tabs, socket, peer.session_exposure.clone(), &sender, receiver).await
         }
         _ => Err(Refusal::new("unknown_service", format!("no service {service}"))),
@@ -1722,7 +1724,11 @@ async fn current_mode(
 
 /// Resolve aliases over a fresh trusted side socket. A fresh request id and
 /// socket prevent a timed-out info reply from authorizing another target.
-async fn trusted_session_query(target: &AcpmuxTarget, method: &str, params: Value) -> Option<Value> {
+pub(crate) async fn trusted_session_query(
+    target: &AcpmuxTarget,
+    method: &str,
+    params: Value,
+) -> Option<Value> {
     let query = async {
         let mut socket = connect_acpmux(target).await.ok()?;
         let id = uuid::Uuid::new_v4().to_string();

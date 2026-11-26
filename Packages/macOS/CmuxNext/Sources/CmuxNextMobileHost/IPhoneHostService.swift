@@ -128,6 +128,7 @@ public final class IPhoneHostService {
         launch.macDisplays = dependencies.surfaceHosts?.streamsMacDisplays ?? false
         launch.chiefSession = chief?.session
         launch.chiefSocket = chief?.socket
+        launch.acpmuxHome = dependencies.acpmuxEnvironment?.home.path
         launch.buildSpace = dependencies.buildSpace.space
         return launch
     }

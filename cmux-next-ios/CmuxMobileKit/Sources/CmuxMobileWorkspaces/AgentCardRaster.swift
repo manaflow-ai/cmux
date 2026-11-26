@@ -340,6 +340,9 @@ struct AgentTabCard: View {
     let bottomInset: CGFloat
     /// The tab's last-known picture (`TabCardSnapshots`), from an earlier launch too.
     var snapshot: TabSnapshotEntry?
+    /// The chat's last turns as the Mac laid them out in text (its `tabs` service,
+    /// `MacCardEntry.screen`): what a card shows for a chat this phone has no turns of.
+    var macScreen: String?
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
     @Environment(\.dynamicTypeSize) private var textSize
@@ -357,6 +360,8 @@ struct AgentTabCard: View {
         case lastKnown
         /// The live preview: a page of transcript laid out in the card.
         case live
+        /// The chat's last turns as text from the Mac (`macScreen`).
+        case macScreen
     }
 
     /// A card is a still whenever one exists. Its own picture when that may
@@ -366,9 +371,14 @@ struct AgentTabCard: View {
     /// scroll frame otherwise, which is what moved in the grid: Leo,
     /// 2026-11-22, "why are they moving???"). The live preview is left for a
     /// card with no picture at all, and for one whose image is still loading,
-    /// which only a live row loads.
-    nonisolated static func face(awaitingHistory: Bool, mayShowPicture: Bool, drawable: Bool, hasLastKnown: Bool) -> Face {
+    /// which only a live row loads. A chat this phone has no turns of (never
+    /// opened here, or its session hibernated) shows the Mac's text of its last
+    /// turns, not an empty page (Leo, 2026-11-25, "there are too many empty
+    /// previews in the safari grid").
+    nonisolated static func face(awaitingHistory: Bool, mayShowPicture: Bool, drawable: Bool, hasLastKnown: Bool,
+                                 hasTurns: Bool = true, hasMacScreen: Bool = false) -> Face {
         if awaitingHistory, hasLastKnown { return .lastKnown }
+        if !hasTurns, hasMacScreen { return .macScreen }
         if mayShowPicture { return .picture }
         if drawable, hasLastKnown { return .lastKnown }
         return .live
@@ -385,7 +395,8 @@ struct AgentTabCard: View {
         let lastKnown = snapshot?.image
         let face = Self.face(awaitingHistory: feed.awaitingHistory,
                              mayShowPicture: feed.raster.map { key.mayShow($0.key) } ?? false,
-                             drawable: key.isDrawable, hasLastKnown: lastKnown != nil)
+                             drawable: key.isDrawable, hasLastKnown: lastKnown != nil,
+                             hasTurns: !feed.turns.isEmpty, hasMacScreen: !(macScreen ?? "").isEmpty)
         Group {
             // The picture, also while a newer one waits for the grid to rest:
             // building a card never lays out a page of transcript then.
@@ -405,6 +416,14 @@ struct AgentTabCard: View {
             case .live:
                 AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset,
                                  cardSlice: key.visibleHeight)
+            case .macScreen:
+                Text(verbatim: macScreen ?? "")
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(Color.primary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.top, topInset + 48).padding(.horizontal, 16)
+                    .clipped()
+                    .background(Color.cmuxMobileBackground)
             }
         }
         .onAppear { rasterizer.setShown(feed, true) }

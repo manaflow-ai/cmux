@@ -3067,7 +3067,7 @@ struct WorkspaceTabCard: View {
                 AgentTabCard(feed: source.cardFeed(tab, workspace), rasterizer: source.rasterizer, cardScale: source.cardScale,
                              page: CGSize(width: source.pageWidth, height: source.pageHeight), topInset: insets.top + 8,
                              bottomInset: WorkspaceTabPage.bottomInset(surface: surface),
-                             snapshot: source.snapshotEntry(tab.id))
+                             snapshot: source.snapshotEntry(tab.id), macScreen: source.macCardEntry(tab.id)?.screen)
             case .terminal:
                 source.terminal.card(for: tab, in: workspace)
             case .browser:

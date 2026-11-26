@@ -413,6 +413,29 @@ import UIKit
         #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false) == .live)
         #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: false) == .live)
     }
+
+    /// A chat this phone has no turns of (never opened here, or hibernated) shows the Mac's text
+    /// of its last turns, never an empty page; turns of its own, or a last-known picture while
+    /// history loads, still win.
+    @Test func aChatWithNoTurnsHereShowsTheMacsText() {
+        typealias Card = AgentTabCard
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: true) == .macScreen)
+        #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: true) == .macScreen)
+        // A picture drawn of no turns is an empty page: the Mac's text instead.
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: true, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: true) == .macScreen)
+        #expect(Card.face(awaitingHistory: true, mayShowPicture: false, drawable: true, hasLastKnown: true,
+                          hasTurns: false, hasMacScreen: true) == .lastKnown)
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: true, drawable: true, hasLastKnown: false,
+                          hasTurns: true, hasMacScreen: true) == .picture)
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: true, hasMacScreen: true) == .live)
+        // No text from the Mac: as before.
+        #expect(Card.face(awaitingHistory: false, mayShowPicture: false, drawable: true, hasLastKnown: false,
+                          hasTurns: false, hasMacScreen: false) == .live)
+    }
     // MARK: What the Mac pushes (`MacTabCards`)
 
     static func hash(_ data: Data) -> String { TabSnapshotStore.hash(data) }
