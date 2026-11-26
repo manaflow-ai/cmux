@@ -119,7 +119,9 @@ It does, in order, and exits non-zero if any phone fails a check or none is conn
    signed in again from its own session, with screenshots and a recording. Rerunning resumes the saved jobs.
 2. Installs the tagged Mac app at the tag's path and starts it in the background (`open -g`,
    never frontmost), signed in to the `personal` account.
-3. On every connected, paired iPhone (new phones are registered): signs a copy with this Mac's
+3. On every connected, paired iPhone of this Mac's person (a new phone plugged in by USB is
+   registered; a phone this Mac does not know that it reaches only over Wi-Fi, such as a
+   teammate's test phone, is skipped and reported; `--device-id` names one): signs a copy with this Mac's
    Apple Development identity and a development profile that names the phone, installs it through
    the sanctioned install, and launches it signed in with the `personal` profile and the
    tagged Mac named to focus (`CMUX_MOBILE_FOCUS_MAC`, a device id). The tagged Mac's dev auto-approve
