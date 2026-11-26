@@ -1200,6 +1200,7 @@ impl Hub {
     /// disk walk, held status, and every pane said "Waiting for the agent service" at once
     /// (Leo, 2026-11-12, ask-64cfa32e34).
     pub async fn status(&self) -> Value {
+        let d = crate::diag_timing::Span::new("status.cfg1");
         let loading = !self.store_loaded() || !self.startup_complete();
         let low = self
             .config
@@ -1210,8 +1211,12 @@ impl Hub {
         // Only the sessions that are not closed: a close ends a session's agent and its turn
         // before its status (`Hub::live_session_handles`), so the closed ones hold no agent and
         // none is stuck. Status costs the same beside 11k closed chats as beside none.
+        d.end_wall(0);
+        let d = crate::diag_timing::Span::new("status.sessions");
         let sessions = self.indexed_live_sessions();
         let (all, live_ids) = self.session_counts();
+        d.end(sessions.len() as u64);
+        let d = crate::diag_timing::Span::new("status.join");
         let (host_pressure, disk, agents) = tokio::join!(
             within_status_budget(async {
                 if loading { Value::Null } else { self.host_pressure_status().await }
@@ -1228,6 +1233,8 @@ impl Hub {
             }),
             within_status_budget(live_agents(&sessions)),
         );
+        d.end_wall(0);
+        let d = crate::diag_timing::Span::new("status.stuck");
         let (host_pressure, disk) =
             (host_pressure.unwrap_or(Value::Null), disk.unwrap_or(Value::Null));
         // Counts that missed the budget are null, never 0: readers take a missing count as busy
@@ -1246,8 +1253,11 @@ impl Hub {
                 "stuckSince": since, "stuckError": error}))
             })
             .collect();
+        d.end(0);
+        let d = crate::diag_timing::Span::new("status.cfg2");
         // Read after every wait above and held through no other.
         let cfg = self.config.read().await;
+        d.end_wall(0);
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         let closed = self.closed_listed(all.saturating_sub(live_ids));
         let (now, evictions, rehydrations) = self.eviction_counts();
