@@ -7,10 +7,8 @@
 
 use std::io::{Read, Write};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
-
-use std::sync::Arc;
 
 use cmux_mobile_host::config::{AcpmuxTarget, ServiceConfig};
 use cmux_mobile_host::host::{AnswerContext, IceSource, serve_signaling};
@@ -97,6 +95,12 @@ async fn connect(base_url: &str, mac_id: &str, transport: Transport) -> Arc<Link
 }
 
 const MIB: u64 = 1 << 20;
+
+static LARGE_UPLOAD_LOCK: OnceLock<Arc<tokio::sync::Mutex<()>>> = OnceLock::new();
+
+async fn large_upload_guard() -> tokio::sync::OwnedMutexGuard<()> {
+    LARGE_UPLOAD_LOCK.get_or_init(|| Arc::new(tokio::sync::Mutex::new(()))).clone().lock_owned().await
+}
 
 /// A file of `size` bytes with a position-dependent pattern, so any lost, shifted or repeated
 /// chunk changes the hash.
@@ -205,6 +209,7 @@ async fn a_20_mb_file_uploads_whole_with_monotone_progress() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancel_mid_upload_returns_at_once_and_wakes_the_waiter() {
+    let _large_upload = large_upload_guard().await;
     let rig = upload_rig(Transport::WireGuard).await;
     let phone = tempfile::tempdir().unwrap();
     let source = phone.path().join("big.bin");
@@ -237,6 +242,7 @@ async fn cancel_mid_upload_returns_at_once_and_wakes_the_waiter() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_replaced_link_resumes_the_upload() {
+    let _large_upload = large_upload_guard().await;
     let rig = upload_rig(Transport::WireGuard).await;
     let phone = tempfile::tempdir().unwrap();
     let source = phone.path().join("resume.bin");
