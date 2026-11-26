@@ -60,7 +60,7 @@ for name, p in sorted(pin[sys.argv[3]].items()):
   done <<< "$packs"
 
   while read -r name sha size url; do
-    curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$check" "$url"
+    curl -fsSL --max-time 300 --retry 5 --retry-all-errors --retry-delay 5 -o "$check" "$url"
     got_sha="$(sha256_of "$check")"
     got_size="$(wc -c < "$check" | tr -d ' ')"
     if [[ "$got_sha" != "$sha" || "$got_size" != "$size" ]]; then

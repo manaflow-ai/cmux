@@ -24,26 +24,6 @@ pub(super) fn shown_prompts(hub: &Arc<Hub>, fork: &str) -> Vec<String> {
     panic!("fork {fork} has no forked record");
 }
 
-/// The reply text a fork's rows show for the chat's last turn before its `forked` record.
-pub(super) fn shown_last_reply(hub: &Arc<Hub>, fork: &str) -> String {
-    let mut reply = String::new();
-    for e in hub.events(fork, 0, 100_000).unwrap() {
-        match e.kind.as_str() {
-            "forked" => break,
-            "user_message" => reply.clear(),
-            "agent_message_chunk" => {
-                if let Some(t) =
-                    e.msg.pointer("/params/update/content/text").and_then(Value::as_str)
-                {
-                    reply.push_str(t);
-                }
-            }
-            _ => {}
-        }
-    }
-    reply
-}
-
 fn flat(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }

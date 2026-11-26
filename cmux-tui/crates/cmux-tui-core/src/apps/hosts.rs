@@ -126,9 +126,11 @@ impl Supervisor {
             let replacing = inner.mounts.contains_key(&key);
             // A Reload keeps the pane's open (`pane_flow.rs`): it binds again below.
             inner.pane_opens.detach(&key);
+            let mut context = context;
+            // A Reload keeps the view's kept state (`view_state.rs`).
+            super::view_state::carry(inner.mounts.get(&key), app, &export, &mut context);
             let mut outs = self.unmount_locked(&mut inner, &key);
             let host_key = HostKey { app: app.to_string(), preview };
-            let mut context = context;
             self.pane_mount_bind_locked(&mut inner, &key, &host_key, interface, &mut context);
             if !preview {
                 self.note_launch_mount_locked(&mut inner, app);
