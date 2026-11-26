@@ -82,10 +82,14 @@ describe("signaling relay", () => {
     expect(await v.next((f) => f.type === "answer")).toEqual({ type: "answer", sdp: "v=0 answer", fpSig: "c2ln" });
     v.send({ type: "candidate", candidate: "candidate:1 1 udp 1 1.2.3.4 5 typ host", sdpMid: "0" });
     expect(await h.next((f) => f.type === "candidate")).toMatchObject({ candidate: "candidate:1 1 udp 1 1.2.3.4 5 typ host", sdpMid: "0" });
-    // Other message types are dropped.
+    // The host's transport frame reaches the viewer (an rd/1-only host answering a WebRTC
+    // offer); a viewer's is dropped, like other message types.
+    h.send({ type: "transport", transport: "cmux.rd/1" });
+    expect(await v.next((f) => f.type === "transport")).toEqual({ type: "transport", transport: "cmux.rd/1" });
+    v.send({ type: "transport", transport: "cmux.rd/1" });
     v.send({ type: "input", key: "a" });
     v.send("not json");
-    expect(await h.none((f) => f.type === "input")).toBe(true);
+    expect(await h.none((f) => f.type === "input" || f.type === "transport")).toBe(true);
 
     h.send({ type: "bye" });
     expect(await v.next((f) => f.type === "bye")).toEqual({ type: "bye" });

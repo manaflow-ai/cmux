@@ -405,7 +405,20 @@ impl SleepWatch {
 /// stale post-sleep transport; ordinary busy-peer traffic stays on the link.
 // timeout: a socket that survived sleep but cannot answer this probe is a dead transport, so
 // redialing is safer than holding every queued write indefinitely.
+//
+// The long bound: only for a peer that proved slow (`SilenceBudget::may_probe` is false, also
+// with a fixed `ACPMUX_PEER_PING_SECS`). Every other link gets `wake_probe` (the network probe's
+// 2 s): opening the lid on the same network used to freeze a remote chat up to 30 s.
 pub const WAKE_PROBE: Duration = Duration::from_secs(30);
+
+/// How long a link has after a wake to answer its ping: the 2 s network probe
+/// (`peer_network::NETWORK_PROBE`) for a peer that may be probed, else `WAKE_PROBE`. A peer whose
+/// short wake probe dropped a link that then reopened proves slow (`SilenceBudget::probe_dropped`
+/// then `opened`), so it gets the long bound from then on: a slow link pays one extra handshake,
+/// not one per wake, and a wake never starts a redial loop.
+pub fn wake_probe(may_probe: bool, network_probe: Duration) -> Duration {
+    if may_probe { network_probe.min(WAKE_PROBE) } else { WAKE_PROBE }
+}
 
 /// When a write that starts at `now` gives up: after the send `budget`, or at a running wake
 /// probe's deadline when that comes first, so a write to a link that died while the computer
@@ -455,6 +468,9 @@ pub struct Heard {
     /// on `send` of silence since the last byte went out, not `send` after it started
     /// (`write_within`).
     wrote: cmux_deadline::Progress,
+    /// Bytes the transport read, counted as they arrive (also inside a frame not yet whole):
+    /// a read through the link waits on this, not on a fixed time (`server::peer_forward`).
+    read: cmux_deadline::Progress,
 }
 
 impl Default for Heard {
@@ -464,6 +480,7 @@ impl Default for Heard {
             at_ms: Default::default(),
             gap_ms: Default::default(),
             wrote: cmux_deadline::Progress::new(),
+            read: cmux_deadline::Progress::new(),
         }
     }
 }
@@ -490,6 +507,11 @@ impl Heard {
     /// The transport's write progress: each byte it took from a write.
     pub fn wrote(&self) -> &cmux_deadline::Progress {
         &self.wrote
+    }
+
+    /// The transport's read progress: each byte it read.
+    pub fn read(&self) -> &cmux_deadline::Progress {
+        &self.read
     }
 
     pub fn wrap<S>(&self, inner: S) -> HeardStream<S> {
@@ -653,6 +675,7 @@ impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for HeardStream<S> {
         let polled = std::pin::Pin::new(&mut self.inner).poll_read(cx, buf);
         if matches!(polled, std::task::Poll::Ready(Ok(()))) && buf.filled().len() > before {
             self.heard.mark();
+            self.heard.read.bump_by((buf.filled().len() - before) as u64);
         }
         polled
     }

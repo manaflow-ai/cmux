@@ -71,6 +71,8 @@ public final class InputLatencyTrace {
     private var hitches8 = 0
     private var iterations4 = 0
     private var maxIterationMs = 0.0
+    /// Keystroke-to-glyph intervals open per kind (`beginKey`), closed by that kind's `sample`.
+    private var keyIntervals: [String: OSSignpostIntervalState] = [:]
     /// The typing window: from a key typed in a composer until `typingTail`
     /// after the last one. Its own hitch counts are what typing feels
     /// (`ComposerLinkUITests`), apart from the scrolls and loads around it.
@@ -139,8 +141,18 @@ public final class InputLatencyTrace {
 
     // MARK: Samples the app reports
 
+    /// A keystroke left: opens a `key_to_glyph` signpost interval for `kind`, closed when
+    /// `kind`'s sample comes (the glyph drawn), so Instruments shows each keystroke to its glyph.
+    public func beginKey(_ kind: String) {
+        if let open = keyIntervals.removeValue(forKey: kind) { Self.signposter.endInterval("key_to_glyph", open, "superseded") }
+        keyIntervals[kind] = Self.signposter.beginInterval("key_to_glyph", id: Self.signposter.makeSignpostID(), "\(kind, privacy: .public)")
+    }
+
     /// A latency sample of `kind` (ms), e.g. `terminal_key_echo`, `chat_send_visible`.
     public func sample(_ kind: String, ms: Double) {
+        if let open = keyIntervals.removeValue(forKey: kind) {
+            Self.signposter.endInterval("key_to_glyph", open, "\(ms, format: .fixed(precision: 1))ms")
+        }
         var list = samples[kind, default: []]
         list.append(ms)
         if list.count > 512 { list.removeFirst(list.count - 512) }

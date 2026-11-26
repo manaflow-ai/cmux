@@ -632,9 +632,13 @@ fn symlinks_inside_come_back_and_ones_leaving_the_folder_stay() {
     // The Mac's inside link is there, as a link; the one leaving the folder is not projected.
     assert_eq!(fs::read_link(t.at("to-a")).unwrap(), Path::new("src/a.txt"));
     assert_eq!(read(&t.at("to-a")), "alpha\n");
-    t.on_machine("ln -s src/b.txt to-b && ln -s ../../../../outside out");
+    assert!(fs::symlink_metadata(t.at("leaves")).is_err());
+    t.on_machine("ln -s src/b.txt to-b && ln -s missing dangling && ln -s ../../../../outside out");
     let answer = t.brought_back();
     assert_eq!(fs::read_link(t.mac("to-b")).unwrap(), Path::new("src/b.txt"), "{answer}");
+    assert_eq!(fs::read_link(t.mac("dangling")).unwrap(), Path::new("missing"), "{answer}");
+    assert!(!t.mac("missing").exists());
+    assert_eq!(fs::read_link(t.mac("leaves")).unwrap(), Path::new("/etc/hostname"));
     assert!(fs::symlink_metadata(t.mac("out")).is_err(), "a link out of the folder came back");
     assert_eq!(fs::read_link(t.mac("to-a")).unwrap(), Path::new("src/a.txt"));
     let skipped = answer["skipped_files"].to_string();
@@ -740,6 +744,35 @@ fn a_new_name_that_folds_to_a_mac_name_is_a_conflict() {
     assert!(!t.mac("Readme.md").exists());
     assert!(!t.mac("SRC").exists());
     assert_eq!(read(&t.mac("README.md")), "# app\n");
+}
+
+#[test]
+fn a_case_only_rename_preserves_a_concurrent_mac_edit_and_names_the_conflict() {
+    let t = trip_or_skip!("case-rename", plain);
+    fs::rename(t.at("README.md"), t.at("Readme.md")).unwrap();
+    write(&t.at("Readme.md"), "machine version\n");
+    write(&t.mac("README.md"), "the Mac edited the original\n");
+    let output = t
+        .mac
+        .cmux()
+        .args(["link", "project", "back", "--socket"])
+        .arg(&t.machine.dial)
+        .arg("--at")
+        .arg(&t.folder)
+        .arg(&t.local)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let answer: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(answer["ok"], true, "{answer}");
+    assert!(
+        answer["conflicts"].as_array().unwrap().iter().any(|conflict| {
+            conflict["path"] == "Readme.md" && conflict["beside"] == "Readme.md.cmux-sync-conflict"
+        }),
+        "{answer}"
+    );
+    assert_eq!(read(&t.mac("README.md")), "the Mac edited the original\n");
+    assert_eq!(read(&t.mac("Readme.md.cmux-sync-conflict")), "machine version\n");
 }
 
 /// A file the Mac changed after the manifest and before the machine read it: the machine reads the

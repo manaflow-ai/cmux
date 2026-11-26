@@ -13,7 +13,8 @@
 //! accounts, then keys, then the rest. `spread` (default on) lets the gateway move a thread to
 //! the next connection that serves its model when one is out.
 //!
-//! Who may call: the list, also the local app; every change and every ChatGPT call, only the
+//! Who may call: the list, also the local app; every change, every ChatGPT call and every
+//! one-click Claude token call (`claude_token.*`, `crate::claude_token`), only the
 //! unix socket (the app's host calls them from a person's action; the gateway asks for tokens).
 //! Never Web or a peer. No secret is resolved here and no token is logged.
 
@@ -24,11 +25,13 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{Value, json};
+use zeroize::Zeroizing;
 
 use super::Origin;
 use super::accounts::{self, CLAUDE_LOGIN_ID};
 use crate::chatgpt;
 use crate::hub::Hub;
+use crate::key_check;
 use crate::routes::{self, Auth, Bindings, Route, RouteFile, RouteKind};
 use crate::rpc::{RpcError, method};
 
@@ -38,12 +41,17 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_SPREAD_SET,
     method::MUX_CONNECTIONS_REMOVE,
     method::MUX_CONNECTIONS_KEY_ADD,
+    method::MUX_CONNECTIONS_KEY_CHECK,
     method::MUX_CONNECTIONS_CHATGPT_BEGIN,
     method::MUX_CONNECTIONS_CHATGPT_WAIT,
     method::MUX_CONNECTIONS_CHATGPT_CANCEL,
     method::MUX_CONNECTIONS_CHATGPT_TOKEN,
     method::MUX_CONNECTIONS_CHATGPT_IMPORT,
     method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE,
+    method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL,
     method::MUX_CONNECTIONS_CREDENTIAL,
 ];
 
@@ -526,6 +534,18 @@ fn unreachable_kind(id: &str) -> Result<&'static str, RpcError> {
         .with_data(json!({"reason": "connections.not_cloud", "id": id})))
 }
 
+/// The value a connection of KIND sends: a Claude setup token with every whitespace character
+/// taken out, inner ones too (a terminal wraps `claude setup-token`'s long line and pads it, and a
+/// copy kept before the app stripped pastes still has it; a token has no whitespace of its own),
+/// so the launch's token check (`agent_credentials::token_shaped`) takes it. Others as stored.
+fn delivered(kind: &str, value: String) -> String {
+    if kind == "claude-token" && value.chars().any(char::is_whitespace) {
+        value.chars().filter(|c| !c.is_whitespace()).collect()
+    } else {
+        value
+    }
+}
+
 /// The secret a reference names; the error says why it did not resolve, never a value.
 fn resolve(id: &str, reference: &str) -> Result<String, RpcError> {
     routes::resolve_reference(reference).map_err(|why| {
@@ -535,12 +555,50 @@ fn resolve(id: &str, reference: &str) -> Result<String, RpcError> {
 }
 
 fn failure(f: chatgpt::Failure) -> RpcError {
+    failure_in("chatgpt", f)
+}
+
+/// A `claude_token` failure: reason `claude_token.CODE`.
+fn token_failure(f: chatgpt::Failure) -> RpcError {
+    failure_in("claude_token", f)
+}
+
+fn failure_in(scope: &str, f: chatgpt::Failure) -> RpcError {
     let error = if f.code == "not_found" || f.code == "unknown_attempt" {
         RpcError::not_found(f.message)
     } else {
         RpcError::new(-32000, f.message)
     };
-    error.with_data(json!({"reason": format!("chatgpt.{}", f.code), "code": f.code}))
+    error.with_data(json!({"reason": format!("{scope}.{}", f.code), "code": f.code}))
+}
+
+/// `claude_token.wait`'s answer for `status`: the connection once done (as listed), the code once
+/// failed. Never the token: the attempt holds only the connection's id.
+fn token_wait_reply(dir: Option<&Path>, home: &Path, status: &chatgpt::Status) -> Value {
+    let connection = match status {
+        chatgpt::Status::Done(id) => {
+            list(dir, home, &routes::bindings(home)).into_iter().find(|c| &c.id == id)
+        }
+        _ => None,
+    };
+    let error = match status {
+        chatgpt::Status::Failed(code) => Some(code.clone()),
+        _ => None,
+    };
+    json!({"status": status.as_str(), "connection": connection, "error": error})
+}
+
+/// What `claude_token.begin` adds the stored token as: a `claude-token` connection with
+/// `reference` (`keychain:cmux-model-key/claude-token-…`) and `label`; its id.
+fn add_token_reference(
+    dir: Option<&Path>,
+    home: &Path,
+    reference: &str,
+    label: Option<&str>,
+) -> Result<String, chatgpt::Failure> {
+    add_claude_token(dir, home, reference, label)
+        .map(|(id, _)| id)
+        .map_err(|e| chatgpt::Failure::new("add", e.message))
 }
 
 async fn blocking<T: Send + 'static>(
@@ -667,6 +725,26 @@ pub(super) async fn handle(
             announce_later(hub);
             Ok(state)
         }
+        method::MUX_CONNECTIONS_KEY_CHECK => {
+            let provider = need("provider")?;
+            let secret = need("secret")?;
+            // The keychain may ask: off the runtime's threads. The key stays in this arm.
+            let key = Zeroizing::new(blocking(move || resolve("the key", &secret)).await??);
+            let verdict = key_check::check(&provider, &key, None, key_check::CHECK_TIMEOUT).await;
+            let (status, detail) = match &verdict {
+                key_check::Verdict::BadKey(code) => (Some(*code), None),
+                key_check::Verdict::Unreachable(why) => (None, Some(why.clone())),
+                _ => (None, None),
+            };
+            Ok(json!({
+                "provider": provider,
+                "result": verdict.as_str(),
+                "save": !verdict.rejects(),
+                "http_status": status,
+                "detail": detail,
+                "message": verdict.sentence(&provider),
+            }))
+        }
         method::MUX_CONNECTIONS_REMOVE => {
             let id = need("id")?;
             let (d, h, i) = (dir.clone(), home.clone(), id.clone());
@@ -750,6 +828,42 @@ pub(super) async fn handle(
             announce_later(hub);
             Ok(state)
         }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN => {
+            let label = text("label").map(str::to_owned);
+            let announcer = hub.clone();
+            let begun = hub
+                .claude_token
+                .begin(
+                    move |reference| {
+                        add_token_reference(dir.as_deref(), &home, reference, label.as_deref())
+                    },
+                    move |status| {
+                        if matches!(status, chatgpt::Status::Done(_)) {
+                            announce_later(&announcer);
+                        }
+                    },
+                )
+                .await
+                .map_err(token_failure)?;
+            Ok(json!({"attempt": begun.attempt, "url": begun.url}))
+        }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT => {
+            let attempt = need("attempt")?;
+            let status =
+                hub.claude_token.wait(&attempt, WAIT_LIMIT).await.map_err(token_failure)?;
+            blocking(move || token_wait_reply(dir.as_deref(), &home, &status)).await
+        }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE => {
+            let attempt = need("attempt")?;
+            let code = params.get("code").and_then(Value::as_str).unwrap_or_default();
+            hub.claude_token.code(&attempt, code).await.map_err(token_failure)?;
+            Ok(json!({"attempt": attempt, "status": "pending"}))
+        }
+        method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL => {
+            let attempt = need("attempt")?;
+            let status = hub.claude_token.cancel(&attempt).await.map_err(token_failure)?;
+            Ok(json!({"attempt": attempt, "status": status.as_str()}))
+        }
         method::MUX_CONNECTIONS_CREDENTIAL => {
             let id = need("id")?;
             let (d, h, i) = (dir.clone(), home.clone(), id.clone());
@@ -765,7 +879,9 @@ pub(super) async fn handle(
                     (token, Some(expires_at))
                 }
                 // The keychain may ask: off the runtime's threads.
-                Some(reference) => (blocking(move || resolve(&id, &reference)).await??, None),
+                Some(reference) => {
+                    (delivered(kind, blocking(move || resolve(&id, &reference)).await??), None)
+                }
             };
             Ok(
                 json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),
@@ -1030,6 +1146,20 @@ mod tests {
     }
 
     #[test]
+    fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
+        let d = dirs();
+        let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab\n  cd\t\u{a0}ef \r");
+        add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
+        let (_, kind, _, secret) =
+            credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
+        let value = delivered(kind, resolve("claude-token", &secret.unwrap()).unwrap());
+        assert_eq!(value, "sk-ant-oat01-abcdef");
+        let env = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": value}});
+        assert!(crate::agent_credentials::AgentCredential::parse(&env).is_ok());
+        assert_eq!(delivered("api-key", "a b".into()), "a b", "only a Claude token is reshaped");
+    }
+
+    #[test]
     fn keys_are_delivered_in_their_providers_variable_and_logins_not_at_all() {
         let d = dirs();
         let anthropic = secret_file(&d, "a", "sk-ant-api-1");
@@ -1198,5 +1328,67 @@ mod tests {
             chatgpt::store::read(&d.home, "chatgpt").unwrap().unwrap().refresh_token,
             "rt-2"
         );
+    }
+
+    /// One-click Claude token end to end at the service: the fake `claude setup-token` prints a
+    /// link and a token; the connection holds the stored item's reference, and neither `begin`'s
+    /// nor `wait`'s answer nor the route file carries the token.
+    #[tokio::test(flavor = "multi_thread")]
+    #[cfg(unix)]
+    async fn claude_token_begin_and_wait_add_a_connection_by_reference_only() {
+        use crate::claude_token::{self, store};
+        const TOKEN: &str = "sk-ant-oat01-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdEfGhIjKlMnOp";
+        let d = dirs();
+        let fake = d._root.path().join("claude");
+        std::fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\nprintf 'https://claude.ai/oauth/authorize?abc\\n'\nsleep 0.2\nprintf '{TOKEN}\\n'\nsleep 30\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::os::unix::fs::PermissionsExt::from_mode(0o700))
+            .unwrap();
+        let secrets = d._root.path().join("secrets");
+        std::fs::create_dir_all(&secrets).unwrap();
+        let svc = Arc::new(claude_token::Service::new(
+            Arc::new(store::Files(secrets.clone())),
+            Some(fake),
+            Duration::from_secs(10),
+        ));
+        let (routes_dir, home) = (d.routes.clone(), d.home.clone());
+        let begun = svc
+            .begin(
+                move |reference| {
+                    add_token_reference(Some(&routes_dir), &home, reference, Some("Work Claude"))
+                },
+                |_| {},
+            )
+            .await
+            .unwrap();
+        assert_eq!(begun.url.as_deref(), Some("https://claude.ai/oauth/authorize?abc"));
+        let status = svc.wait(&begun.attempt, Duration::from_secs(10)).await.unwrap();
+        assert_eq!(status, chatgpt::Status::Done("claude-token".into()));
+        let reply = token_wait_reply(Some(&d.routes), &d.home, &status);
+        assert_eq!(reply["status"], "done");
+        assert_eq!(reply["connection"]["kind"], "claude-token");
+        assert_eq!(reply["connection"]["label"], "Work Claude");
+        let route = routes::find(Some(&d.routes), "claude-token").unwrap();
+        let secret = route.file.secret.unwrap();
+        assert!(secret.starts_with(&format!("file:{}", secrets.display())), "{secret}");
+        assert_eq!(routes::resolve_reference(&secret).unwrap(), TOKEN);
+        let route_text = std::fs::read_to_string(
+            std::fs::read_dir(&d.routes)
+                .unwrap()
+                .map(|e| e.unwrap().path())
+                .find(|p| p.to_string_lossy().contains("claude-token"))
+                .unwrap(),
+        )
+        .unwrap_or_default();
+        for text in [reply.to_string(), format!("{begun:?}"), route_text] {
+            assert!(!text.contains(TOKEN), "{text}");
+        }
+        let failed = token_wait_reply(None, &d.home, &chatgpt::Status::Failed("no_url".into()));
+        assert_eq!(failed, json!({"status": "failed", "connection": null, "error": "no_url"}));
     }
 }

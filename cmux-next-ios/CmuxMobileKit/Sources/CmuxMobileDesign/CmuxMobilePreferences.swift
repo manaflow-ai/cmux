@@ -44,10 +44,17 @@ public enum CmuxMobilePreferences {
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
         /// the app's keepalive timers (`KeepaliveBeat.defaultsKey`, the same key).
         public static let alignKeepalives = "cmuxMobile.settings.alignKeepalives"
+        /// Settings → Transport → Direct on Wi-Fi (on by default); read at each dial
+        /// (`FFIMacLinkDialer.applyLanDirectToCore`, the same key).
+        public static let lanDirect = "cmuxMobile.settings.lanDirect"
         /// Settings → Transport → Agent CLI Screen Changes (off by default): a Claude Code,
         /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
         public static let agentCLIHybrid = "cmuxMobile.settings.agentCLIHybrid"
+        /// Settings → Transport → Mac Screen over Link (off by default): Screen Sharing shows a
+        /// Mac that lists `mac-display-v1` as rd/1 on its cmux-wg link (`surface` tab `d~0`, view
+        /// only) instead of the device hub's WebRTC session. Read when a Mac is opened.
+        public static let macScreenOverLink = "cmuxMobile.settings.macScreenOverLink"
         /// Settings → Transport → Quiet Cloud Connections (off by default; Leo, 2026-11-24: "don't
         /// unilaterally MERGE ui stuff yet ... having people be able to easily toggle" it): on, a Cloud
         /// list or machine that answers within ``QuietStatusGate/threshold`` never shows its wait, and
@@ -84,11 +91,11 @@ public enum CmuxMobilePreferences {
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
     public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
-    /// Off until Leo picks it up (UI merges default-off).
-    public static let defaultTerminalPlainScroll = false
+    /// On (Leo asked twice, 2026-11-25): `TerminalScrollDefault` holds the value Settings reads too.
+    public static let defaultTerminalPlainScroll = TerminalScrollDefault.plainScroll
     public static let defaultQuietCloudConnect = false
     public static let defaultTerminalZoomFullScreenApps = false
-    public static let defaultTerminalHistoryFind = false
+    public static let defaultTerminalHistoryFind = true
     public static let defaultDismissKeyboardAfterSend = true
     public static let defaultTabCardMonograms = false
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to

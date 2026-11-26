@@ -8,7 +8,9 @@ the person's own settings.
 
 The check counts each pattern per tracked file under cmux-tui/ and Native/OptChat/ and
 compares with scripts/ci/team-hosts-baseline.json: a file over its count, or a new file with
-a match, fails. Tests, fixtures, docs (*.md) and measure/eval tooling are exempt. A count may
+a match, fails. Tests (a tests/ dir, *_test.rs, tests.rs), fixtures, docs (*.md), the generated egress
+host list (cmux-egress/hosts.txt, a copy of docs/privacy.md) and measure/eval tooling are exempt. A
+#[cfg(test)] module inside a source file is not exempt: its count goes in the baseline. A count may
 only go down: run with --update to write lower counts (it never raises one). The org name is
 not a pattern: it is in hundreds of repository URLs.
 """
@@ -25,7 +27,7 @@ BASELINE = ROOT / "scripts/ci/team-hosts-baseline.json"
 TREES = ("cmux-tui/", "Native/OptChat/")
 PATTERN = re.compile(r"cmux-lawrences-mac-mini|tail137216|100\.89\.225\.106")
 EXEMPT = re.compile(
-    r"(^|/)(tests?|fixtures?|testdata|evals?|measure|examples)/|_tests?\.(rs|py)$|(^|/)test_[^/]*\.py$|\.md$"
+    r"(^|/)(tests?|fixtures?|testdata|evals?|measure|examples)/|_tests?\.(rs|py)$|(^|/)tests\.rs$|^cmux-tui/crates/cmux-egress/hosts\.txt$|(^|/)test_[^/]*\.py$|\.md$"
 )
 
 

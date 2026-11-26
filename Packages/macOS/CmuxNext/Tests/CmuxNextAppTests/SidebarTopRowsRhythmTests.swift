@@ -120,19 +120,20 @@ import Testing
             #expect(abs(space(lastPin, a) - gap) <= Self.tolerance,
                     "\(c.testDescription): the first workspace row is \(space(lastPin, a)) pt under the last pin, the row gap is \(gap) pt")
 
-            // One optical column (wide Home ink fits by height and centers over the title's column), one glyph
-            // center line (the pin, narrower than the column, centers under Home's glyph, #42431) and one title column.
+            // One optical column (wide Home ink fits by height and starts on the title's column, so its left edge is the
+            // titles'), one glyph center line (the pin, narrower than the column, centers in Home's glyph square, #42431)
+            // and one title column.
             let homeInk = list.convert(try #require(home.glyphInkFrame, "Home drew no glyph"), from: home)
             let inks = try pins.map { list.convert(try #require($0.pinInkFrame, "a pinned row drew no pin"), from: $0) }
             let titleX = list.convert(rowA.title.alignmentRect(forFrame: rowA.title.frame), from: rowA).minX
             let target = SidebarStyle.rowGlyphOpticalSide
-            #expect(abs(homeInk.midX - (titleX + target / 2)) <= Self.tolerance,
-                    "\(c.testDescription): Home's ink centers on the title's optical column")
+            #expect(abs(homeInk.minX - titleX) <= Self.tolerance,
+                    "\(c.testDescription): Home's ink starts at \(homeInk.minX), the title's column at \(titleX)")
             #expect(abs(SidebarOpticalGlyph.fittedExtent(homeInk.size) - target) <= Self.tolerance,
                     "\(c.testDescription): Home's ink keeps the shared optical size")
             for ink in inks {
-                #expect(abs(ink.midX - homeInk.midX) <= Self.tolerance,
-                        "\(c.testDescription): a pin's center is at \(ink.midX), Home's glyph's at \(homeInk.midX)")
+                #expect(abs(ink.midX - (titleX + target / 2)) <= Self.tolerance,
+                        "\(c.testDescription): a pin's center is at \(ink.midX), Home's glyph square's at \(titleX + target / 2)")
                 #expect(ink.minX >= titleX - Self.tolerance && ink.maxX <= homeInk.maxX + Self.tolerance,
                         "\(c.testDescription): a pin's ink \(ink.minX)...\(ink.maxX) leaves Home's glyph column \(titleX)...\(homeInk.maxX)")
             }

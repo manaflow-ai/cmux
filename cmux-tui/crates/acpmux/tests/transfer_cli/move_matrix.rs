@@ -328,3 +328,340 @@ async fn a_hibernated_claude_style_chat_moves_and_resumes() {
     )
     .await;
 }
+
+// Rows 2 of RFD 0138 (cmuxterm-hq docs/rfd/0138-session-move.md, "Order of work"): the agent's
+// own store (Codex's rollout, Claude's transcript with its subagents), and the move as the app
+// drives it (`cmux link agent move` forwards `_acpmux/transfer_*`), not as `acpmux session move`.
+
+/// The HOME of the daemon tagged `tag`: where its agent keeps `~/.codex` and `~/.claude`.
+fn home_of(tag: &str) -> PathBuf {
+    daemon_env::home(&Daemon::place(tag).0)
+}
+
+/// Every regular file under `root`, however deep.
+fn files_under(root: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut todo = vec![root.to_owned()];
+    while let Some(dir) = todo.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                todo.push(path);
+            } else {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// `acpmux session move ID --machine target` as a person runs it.
+async fn cli_move(source: &Daemon, id: &str, destination: &Path) -> Value {
+    let mut command = daemon_env::tokio_command(&source.home, daemon_env::Agents::Deny);
+    command
+        .args(["--json", "session", "move", id, "--machine", "target", "--interrupt", "--cwd"])
+        .arg(destination)
+        .env(
+            "PATH",
+            format!("{}:{}", source.home.join("bin").display(), daemon_env::bare_path(&[])),
+        )
+        .env("ACPMUX_HOME", &source.home)
+        .env("ACPMUX_SOCKET", &source.socket)
+        .kill_on_drop(true);
+    let out = tokio::time::timeout(Duration::from_secs(45), command.output())
+        .await
+        .expect("session move completed")
+        .expect("run session move");
+    assert!(
+        out.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    serde_json::from_slice(&out.stdout).unwrap()
+}
+
+/// The move as `cmux link agent move` (the app's Move to Cloud and Bring Back pump) makes it,
+/// through each daemon's `agent-transfer-*` verbs, which forward these `_acpmux/transfer_*`
+/// calls to acpmux as a local client (`cmux-tui-core/src/server/agent_transfer.rs`): begin on
+/// the source (`interrupt`), a guarded receive on the target as Move to Cloud makes it
+/// (`agent_transfer.rs` `guard_for`: `control: peer`, root `~/work`, the folder under it; the
+/// `web` guard of Bring Back takes no Codex chat and no mode that does not ask), every bundle
+/// file read page by page from the source
+/// and written to the target, finish in the folder, commit on the source. `Err`: the step that
+/// refused and why.
+async fn gui_move(src: &mut Rpc, dst: &mut Rpc, id: &str, folder: &Path) -> Result<Value, String> {
+    let step = |name: &'static str| move |e: Value| format!("{name}: {e}");
+    let begun = src
+        .try_call("_acpmux/transfer_begin", json!({"sessionId": id, "interrupt": true}))
+        .await
+        .map_err(step("begin"))?;
+    let transfer_id = begun["transferId"].as_str().ok_or("begin named no transferId")?.to_owned();
+    let epoch = begun.get("epoch").and_then(Value::as_u64).filter(|e| *e != 0);
+    let with_epoch = |mut params: Value| {
+        if let Some(epoch) = epoch {
+            params["epoch"] = json!(epoch);
+        }
+        params
+    };
+    let moved = async {
+        let guard = json!({"control": "peer", "roots": [folder.parent().ok_or("a folder with no parent")?]});
+        let received = dst
+            .try_call("_acpmux/transfer_receive", json!({"manifest": begun, "guard": guard}))
+            .await
+            .map_err(step("receive"))?;
+        if received["guarded"] != true {
+            return Err(format!("receive: not guarded: {received}"));
+        }
+        let receive_id = received["receiveId"].as_str().ok_or("receive named no receiveId")?;
+        for file in begun["files"].as_array().into_iter().flatten() {
+            let path = file["path"].as_str().ok_or("a file without a path")?;
+            let mut offset = 0u64;
+            loop {
+                let read = with_epoch(
+                    json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": 1 << 20}),
+                );
+                let page = src.try_call("_acpmux/transfer_read", read).await.map_err(step("read"))?;
+                let write = with_epoch(
+                    json!({"receiveId": receive_id, "path": path, "offset": offset, "data": page["data"]}),
+                );
+                dst.try_call("_acpmux/transfer_write", write).await.map_err(step("write"))?;
+                offset = page["next"].as_u64().ok_or("a page without next")?;
+                if page["eof"] == true {
+                    break;
+                }
+            }
+        }
+        let finish = with_epoch(json!({"receiveId": receive_id, "cwd": folder}));
+        dst.try_call("_acpmux/transfer_finish", finish).await.map_err(step("finish"))
+    }
+    .await;
+    match moved {
+        Ok(landed) => {
+            let commit = with_epoch(
+                json!({"sessionId": id, "transferId": transfer_id, "to": {"machine": "target"}}),
+            );
+            src.try_call("_acpmux/transfer_commit", commit).await.map_err(step("commit"))?;
+            Ok(landed)
+        }
+        Err(why) => {
+            let abort = with_epoch(json!({"sessionId": id, "transferId": transfer_id}));
+            let _ = src.try_call("_acpmux/transfer_abort", abort).await;
+            Err(why)
+        }
+    }
+}
+
+/// How a Codex chat moves: through `acpmux session move` or as the app drives it.
+#[derive(Clone, Copy)]
+enum Way {
+    Cli,
+    Gui,
+}
+
+/// A Codex chat whose agent keeps Codex's own rollout store (`FAKE_CODEX_STORE`, one
+/// `CODEX_HOME` per daemon) moves; its rollout must be on the target, and the agent there,
+/// started from it, must hold the whole conversation (`history-probe` replies what the loaded
+/// rollout holds).
+async fn codex_store_moves(way: Way) {
+    let tag = match way {
+        Way::Cli => "mxcs",
+        Way::Gui => "mxcg",
+    };
+    let env = |side: &str| {
+        json!({"FAMILY": "codex", "FAKE_CODEX_STORE": "1",
+               "CODEX_HOME": home_of(&format!("{tag}-{side}")).join(".codex")})
+    };
+    let target = Daemon::with_env(&format!("{tag}-t"), None, env("t"), &[], "ask").await;
+    let source = Daemon::with_env(&format!("{tag}-s"), Some(&target), env("s"), &[], "ask").await;
+    let mut cells = Cells { harness: "codex-store", red: Vec::new() };
+    let cwd = source.home.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    let mut src = Rpc::connect(&source.socket).await;
+    let made = src.call("session/new", json!({"cwd": cwd, "mcpServers": []})).await;
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let id = id.as_str();
+    for (prompt_id, text) in [("p-one", "one"), ("p-two", "two")] {
+        src.call("session/prompt", prompt(id, prompt_id, text)).await;
+    }
+    let on_source = files_under(&home_of(&format!("{tag}-s")).join(".codex/sessions"));
+    assert_eq!(on_source.len(), 1, "the agent keeps one rollout: {on_source:?}");
+    // The turn's last records are written a moment after it answers.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let rollout = std::fs::read(&on_source[0]).unwrap();
+
+    // Under the target's `~/work`, where Move to Cloud's guarded receive takes a folder.
+    let destination = home_of(&format!("{tag}-t")).join("work/arrived");
+    std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+    let mut dst = Rpc::connect(&target.socket).await;
+    match way {
+        Way::Cli => {
+            let receipt = cli_move(&source, id, &destination).await;
+            cells.check("moved", receipt["moves"][0]["moved"] == true, &receipt);
+        }
+        Way::Gui => {
+            std::fs::create_dir_all(&destination).unwrap();
+            let moved = gui_move(&mut src, &mut dst, id, &destination).await;
+            cells.check("moved", moved.is_ok(), format!("{moved:?}"));
+        }
+    }
+
+    let on_target = files_under(&home_of(&format!("{tag}-t")).join(".codex/sessions"));
+    cells.check(
+        "native-store",
+        on_target.len() == 1 && std::fs::read(&on_target[0]).ok().as_deref() == Some(&rollout[..]),
+        format!("{on_target:?}"),
+    );
+    // Moved as the app moves it (a `peer`-controlled receive), the target respawns the agent as
+    // a remote launch, which takes a Codex chat only through the `codex app-server` bridge
+    // (`web_modes::remote_start`). The fake agent speaks ACP, so it is refused there
+    // (`remote.mode_not_asking`); the CLI row checks the resume from the moved store.
+    if matches!(way, Way::Gui) {
+        assert!(cells.red.is_empty(), "red cells for codex-store (gui): {:#?}", cells.red);
+        return;
+    }
+    let answer = dst.try_call("session/prompt", prompt(id, "p-probe", "history-probe")).await;
+    let probe = dst.texts(id, "agent_message_chunk").await.pop().unwrap_or_default();
+    let probe: Value = serde_json::from_str(&probe).unwrap_or(Value::Null);
+    cells.check(
+        "agent-resumes-from-store",
+        answer.is_ok() && probe["prompts"] == json!(["one", "two"]),
+        format!("{answer:?} {probe}"),
+    );
+    assert!(cells.red.is_empty(), "red cells for codex-store: {:#?}", cells.red);
+}
+
+#[tokio::test]
+async fn a_codex_native_store_travels_with_the_chat_and_its_agent_resumes_from_it() {
+    codex_store_moves(Way::Cli).await;
+}
+
+#[tokio::test]
+async fn a_codex_native_store_travels_with_a_move_driven_as_the_app_drives_it() {
+    codex_store_moves(Way::Gui).await;
+}
+
+/// A Claude chat that ran subagents (`Task` children) moves with its native transcript
+/// (`~/.claude/projects/<cwd>/<session>.jsonl`, the children's sidechain lines in it and their
+/// own files under `<session>/subagents/`): the subagent rows the transcript folds show on the
+/// target as they did, and the transcript is where Claude looks for it there.
+async fn claude_subagent_folds_move(way: Way) {
+    let tag = match way {
+        Way::Cli => "mxsc",
+        Way::Gui => "mxsg",
+    };
+    // A guarded receive (the app's move) takes only a plain agent session id of 8 or more
+    // characters (`transfer_guard.rs`), which `fake-1` is not.
+    let env = json!({"FAMILY": "claude", "FAKE_PICKER": "1", "FAKE_PICKER_MODES": "claude",
+                     "FAKE_SESSION_PREFIX": "fake-sess-"});
+    let target = Daemon::with_env(&format!("{tag}-t"), None, env.clone(), &[], "ask").await;
+    let source = Daemon::with_env(&format!("{tag}-s"), Some(&target), env, &[], "ask").await;
+    let mut cells = Cells { harness: "claude-subagents", red: Vec::new() };
+    let cwd = source.home.join("project");
+    std::fs::create_dir(&cwd).unwrap();
+    let mut src = Rpc::connect(&source.socket).await;
+    let made = src.call("session/new", json!({"cwd": cwd, "mcpServers": []})).await;
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let id = id.as_str();
+    // The subagent the chat's log folds (`subagents.rs`): spawned, then completed.
+    src.call("session/prompt", prompt(id, "p-seg", "reply-segments")).await;
+    let folds = |events: &Value| -> Vec<Value> {
+        events["events"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.pointer("/msg/params/_meta/acpmux/subagents").cloned())
+            .collect()
+    };
+    let log =
+        src.call("_acpmux/events", json!({"sessionId": id, "afterSeq": 0, "limit": 5000})).await;
+    let folds_before = folds(&log);
+    assert!(!folds_before.is_empty(), "the source logged no subagent: {log}");
+
+    // Claude's own transcript of it, with its `Task` child, under the source's ~/.claude.
+    let agent_id = "fake-sess-1";
+    let project = |folder: &Path| {
+        let dir: String = folder
+            .to_string_lossy()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        PathBuf::from(".claude/projects").join(dir)
+    };
+    let line = |value: Value| format!("{value}\n");
+    let transcript = [
+        json!({"type": "user", "uuid": "u1", "sessionId": agent_id, "cwd": cwd,
+               "message": {"role": "user", "content": "look around"}}),
+        json!({"type": "assistant", "uuid": "a1", "parentUuid": "u1", "sessionId": agent_id,
+               "message": {"role": "assistant", "content": [{"type": "tool_use",
+                   "id": "toolu_task1", "name": "Task",
+                   "input": {"description": "Look", "prompt": "look", "subagent_type": "general-purpose"}}]}}),
+        json!({"type": "user", "uuid": "s1", "parentUuid": "a1", "isSidechain": true,
+               "sessionId": agent_id, "message": {"role": "user", "content": "look"}}),
+        json!({"type": "assistant", "uuid": "s2", "parentUuid": "s1", "isSidechain": true,
+               "sessionId": agent_id, "message": {"role": "assistant",
+                   "content": [{"type": "text", "text": "found it"}]}}),
+        json!({"type": "user", "uuid": "u2", "parentUuid": "a1", "sessionId": agent_id,
+               "message": {"role": "user", "content": [{"type": "tool_result",
+                   "tool_use_id": "toolu_task1", "content": "found it"}]}}),
+    ]
+    .into_iter()
+    .map(line)
+    .collect::<String>();
+    let child = line(json!({"type": "user", "uuid": "c1", "isSidechain": true,
+                            "agentId": "a1", "message": {"role": "user", "content": "look"}}));
+    let source_home = home_of(&format!("{tag}-s"));
+    let folder = source_home.join(project(&cwd));
+    std::fs::create_dir_all(folder.join(agent_id).join("subagents")).unwrap();
+    std::fs::write(folder.join(format!("{agent_id}.jsonl")), &transcript).unwrap();
+    std::fs::write(folder.join(agent_id).join("subagents/agent-a1.jsonl"), &child).unwrap();
+
+    // Under the target's `~/work`, where Move to Cloud's guarded receive takes a folder.
+    let destination = home_of(&format!("{tag}-t")).join("work/arrived");
+    std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+    let mut dst = Rpc::connect(&target.socket).await;
+    match way {
+        Way::Cli => {
+            let receipt = cli_move(&source, id, &destination).await;
+            cells.check("moved", receipt["moves"][0]["moved"] == true, &receipt);
+        }
+        Way::Gui => {
+            std::fs::create_dir_all(&destination).unwrap();
+            let moved = gui_move(&mut src, &mut dst, id, &destination).await;
+            cells.check("moved", moved.is_ok(), format!("{moved:?}"));
+        }
+    }
+
+    let log =
+        dst.call("_acpmux/events", json!({"sessionId": id, "afterSeq": 0, "limit": 5000})).await;
+    cells.check(
+        "subagent-folds-in-log",
+        folds(&log).get(..folds_before.len()) == Some(&folds_before[..]),
+        format!("{folds_before:?} -> {:?}", folds(&log)),
+    );
+    let there = home_of(&format!("{tag}-t")).join(project(&destination));
+    let main = std::fs::read_to_string(there.join(format!("{agent_id}.jsonl"))).unwrap_or_default();
+    cells.check(
+        "native-transcript",
+        main == transcript,
+        format!("{} bytes of {} under {}", main.len(), transcript.len(), there.display()),
+    );
+    let children = std::fs::read_to_string(there.join(agent_id).join("subagents/agent-a1.jsonl"));
+    cells.check(
+        "native-subagent-transcripts",
+        children.as_deref().ok() == Some(&child[..]),
+        format!("{children:?}"),
+    );
+    assert!(cells.red.is_empty(), "red cells for claude-subagents: {:#?}", cells.red);
+}
+
+#[tokio::test]
+async fn a_claude_chat_with_subagents_moves_its_transcript_and_folds() {
+    claude_subagent_folds_move(Way::Cli).await;
+}
+
+#[tokio::test]
+async fn a_claude_chat_with_subagents_moves_as_the_app_drives_it() {
+    claude_subagent_folds_move(Way::Gui).await;
+}

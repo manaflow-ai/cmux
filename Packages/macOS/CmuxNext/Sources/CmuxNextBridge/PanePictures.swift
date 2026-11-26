@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import CoreGraphics
 public import Foundation
 
@@ -48,20 +49,31 @@ public final class PanePictures {
     private var order: [String] = []
     private let makeSchedule: @MainActor (Kind) -> (any PanePictureScheduling)?
     private let now: @MainActor () -> UInt64
-    private let sleep: @MainActor (UInt64) async -> Void
+    private let waitFor: (@MainActor (UInt64) async -> Void)?
 
     /// - Parameters:
     ///   - makeSchedule: a tab's new schedule; nil leaves it unscheduled (captured on every ask).
     ///   - now: monotonic milliseconds.
-    ///   - sleep: waits that many milliseconds.
+    ///   - wait: waits that many milliseconds (tests); nil waits on a ``DemandTimer`` deadline.
     public init(capacity: Int = 48,
                 makeSchedule: @escaping @MainActor (Kind) -> (any PanePictureScheduling)? = PanePictures.rustSchedule,
                 now: @escaping @MainActor () -> UInt64 = PanePictures.monotonicMs,
-                sleep: @escaping @MainActor (UInt64) async -> Void = { try? await Task.sleep(nanoseconds: $0 * 1_000_000) }) {
+                wait: (@MainActor (UInt64) async -> Void)? = nil) {
         self.capacity = capacity
         self.makeSchedule = makeSchedule
         self.now = now
-        self.sleep = sleep
+        self.waitFor = wait
+    }
+
+    /// Waits `ms` milliseconds for a picture's due time: a one-shot ``DemandTimer`` deadline (at most
+    /// ``waitForDueMs``, only while a card asks), so nothing wakes while no card is open.
+    private func waitUntilDue(_ ms: UInt64) async {
+        if let waitFor { return await waitFor(ms) }
+        let timer = DemandTimer(owner: "pane-pictures.due")
+        // hover-timing: the trailing capture's due time while a card waits for it, not a delay
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            timer.schedule(after: .milliseconds(Int(ms))) { done.resume() }
+        }
     }
 
     public static func rustSchedule(_ kind: Kind) -> (any PanePictureScheduling)? {
@@ -103,7 +115,7 @@ public final class PanePictures {
         if schedule.isCurrent, let picture = slot.picture { return picture }
         var generation = schedule.takeDue(now: asked)
         if generation == nil, let due = slot.due, due > asked, due - asked <= Self.waitForDueMs {
-            await sleep(due - asked)
+            await waitUntilDue(due - asked)
             generation = schedule.takeDue(now: now())
         }
         guard let generation else { return slot.picture }

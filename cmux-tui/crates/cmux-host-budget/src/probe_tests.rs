@@ -84,3 +84,21 @@ fn old_sample_json_still_reads() {
     let s: Sample = serde_json::from_str(r#"{"cpu_busy": 0.9, "lateness_p50_ms": 1.6}"#).unwrap();
     assert_eq!(s.cpu_busy, Some(0.9));
 }
+
+#[test]
+fn reclaim_counters_sum_their_zones_and_need_an_allocstall_line() {
+    let vmstat = "nr_free_pages 9\nworkingset_refault_anon 3\nworkingset_refault_file 40\n\
+                  allocstall_dma 0\nallocstall_dma32 2\nallocstall_normal 5\nallocstall_movable 1\n\
+                  pgscan_kswapd 77\npgscan_direct 1200\npgscan_direct_throttle 0\noom_kill 0\n";
+    assert_eq!(
+        parse_vmstat_reclaim(vmstat),
+        Some(Reclaim { alloc_stalls: 8, direct_scanned: 1200, refaults: 43 })
+    );
+    // Before 5.9 the refault counter was one line.
+    let old = "workingset_refault 11\nallocstall 4\npgscan_direct 9\n";
+    assert_eq!(
+        parse_vmstat_reclaim(old),
+        Some(Reclaim { alloc_stalls: 4, direct_scanned: 9, refaults: 11 })
+    );
+    assert_eq!(parse_vmstat_reclaim("oom_kill 0\n"), None);
+}

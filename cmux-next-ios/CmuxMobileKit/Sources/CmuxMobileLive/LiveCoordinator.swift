@@ -107,6 +107,8 @@ public final class LiveCoordinator {
     #if canImport(CmuxMobileLinkFFI)
     /// Other devices waiting for a linked Mac's Allow, answered from this phone (ask-45c37458ea).
     public let pairRequests = MacPairRequests()
+    /// Each Mac's one-request catch-up cursors (`LiveCoordinator+CatchUp.swift`, off by default).
+    @ObservationIgnored let catchUps = MacCatchUps()
     #endif
     /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
     /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
@@ -139,6 +141,8 @@ public final class LiveCoordinator {
     /// (`followForegroundNotification`): the scene's `.active` a frame or more later is a repeat.
     @ObservationIgnored private var foregroundedEarly = false
     @ObservationIgnored private var foregroundObserver: NSObjectProtocol?
+    /// Pre-wakes the focused Mac's link as the keyboard comes up (``followKeyboard()``).
+    @ObservationIgnored private var keyboardObserver: NSObjectProtocol?
     /// The Mac whose link a call (a Chief call, voice mode) uses (`setCallMac`).
     @ObservationIgnored var callMacID: String?
     /// The hold that keeps that link out of the park, and the link it is on.
@@ -523,6 +527,9 @@ public final class LiveCoordinator {
             guard let saved = snapshot.workspaces[mac.id] else { continue }
             workspaces += saved.workspaces
             total += saved.total
+            // Rows already in the Feed at launch whose tab closed before the app last saw the Mac
+            // go before it answers (the Mac's own tree then judges every row).
+            feedStore.setOpenTabs(FeedOpenTabs(workspaces: saved.workspaces, complete: false), macID: mac.id)
             store.handleMacData(.restored(count: saved.total, savedAt: saved.savedAt), macID: mac.id)
         }
         store.workspaces = workspaces
@@ -583,6 +590,7 @@ public final class LiveCoordinator {
             snapshot?.workspaces[macID] = list
             guard store.macData[macID]?.source == .cache(savedAt: list.savedAt) else { continue }
             store.replaceWorkspaces(macID: macID, with: list.workspaces)
+            feedStore.setOpenTabs(FeedOpenTabs(workspaces: list.workspaces, complete: false), macID: macID)
             if list.total != current.total { store.handleMacData(.restored(count: list.total, savedAt: list.savedAt), macID: macID) }
             added += list.workspaces.count - current.workspaces.count
         }
@@ -882,6 +890,7 @@ public final class LiveCoordinator {
         parkedTerminals[id] = nil
         // Its tab cards go too: a Mac added again under this id starts from a whole manifest.
         tabs.forget(macID: id)
+        feedStore.forgetOpenTabs(macID: id)
         // Its banner, pairing prompt and Chief go with it (retarget may focus another Mac).
         if focusedMacID == id { setFocus(nil) }
         lastShown[id] = nil
@@ -1302,6 +1311,30 @@ public final class LiveCoordinator {
         incidents.followApplicationState()
         LinkController.useApplicationBackgroundTasks()
         followForegroundNotification()
+        followKeyboard()
+    }
+
+    /// The keyboard coming up means a key follows in a few hundred ms: wake the one link it
+    /// goes to now (RFD 0142 T2, ``typingLink``). Only that one: every listed Mac is on
+    /// screen on the Workspaces list, and a rename sheet there is not typing to all of them.
+    func followKeyboard() {
+        #if canImport(UIKit)
+        guard keyboardObserver == nil else { return }
+        keyboardObserver = NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.typingLink.prewake() }
+        }
+        #endif
+    }
+
+    /// The link a key typed now goes to: the one Mac on screen (a workspace's terminal or
+    /// chat), else the focused Mac's.
+    var typingLink: LinkController {
+        if let shown = showingMacs, shown.count == 1, let id = shown.first, let session = sessions[id] {
+            return session.link
+        }
+        return focused.link
     }
 
     /// The return to the app starts the reconnect at UIKit's `willEnterForeground`, before
@@ -1373,6 +1406,7 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
         #if canImport(CmuxMobileLinkFFI)
         pairRequests.foreground()
+        catchUpOnForeground()
         #endif
     }
 
@@ -1416,7 +1450,7 @@ final class PendingAgentSource: AgentSessionSource {
     /// `AcpmuxSessionSource.heldPromptWindow`, so a send while the chat loads rides out a blip
     /// the way a send on a loaded chat does (Leo, 2026-11-14: "i also want all our connectivity
     /// stuff to shut the fuck up and load faster").
-    var holdWindow: Duration = .seconds(10) {
+    var holdWindow: Duration = AcpmuxSessionSource.defaultHeldPromptWindow {
         didSet {
             #if canImport(CmuxMobileLinkFFI)
             outbox.setHoldMs(holdMs: ChatPromptClock.milliseconds(holdWindow))
@@ -1429,7 +1463,7 @@ final class PendingAgentSource: AgentSessionSource {
     #if canImport(CmuxMobileLinkFFI)
     /// The prompts sent before the chat loaded (Rust, `cmux_composer_send::chat`, its link never
     /// up): their order, their hold, and the ones given back past it.
-    private let outbox = ChatPromptOutbox(holdMs: 10_000, seed: 0)
+    private let outbox = ChatPromptOutbox(holdMs: chatPromptDefaultHoldMs(), seed: 0)
     private var wake: Task<Void, Never>?
 
     /// Prompts sent before the chat loaded, oldest first, with when each was sent.

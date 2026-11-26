@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "source.url.destination" : {
+      "comment" : "New chat project source picker",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clones into ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يُستنسخ في ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klonira se u ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kloner til ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klont nach ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se clona en ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le clone sera dans ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clona in ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "~/cmux/repos/HOST/OWNER/NAME にクローンします"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ក្លូនទៅក្នុង ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "~/cmux/repos/HOST/OWNER/NAME에 복제합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kloner til ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klonuje do ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Clona em ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клонируется в ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "โคลนไปยัง ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "~/cmux/repos/HOST/OWNER/NAME konumuna klonlanır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Клонується в ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sao chép vào ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "克隆到 ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複製到 ~/cmux/repos/HOST/OWNER/NAME"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

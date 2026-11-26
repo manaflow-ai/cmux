@@ -128,8 +128,10 @@ export class SimBuilder {
     return this.record("mux", "turn_started", { turnId: this.turnId, promptId: this.promptId }, 0, "turn_started");
   }
 
-  /** The person's prompt, and the turn it starts. */
-  prompt(value: string, after = 1_000, extra: Record<string, unknown> = {}): this {
+  /** The person's prompt, and the turn it starts. `wake`: the chat's agent host had hibernated, so it
+   * starts and resumes between the prompt and its turn (`host_started`, `resumed`, `status: ready`), as a
+   * real chat records it. */
+  prompt(value: string, after = 1_000, extra: Record<string, unknown> = {}, { wake = false } = {}): this {
     this.newTurn();
     this.record(
       "mux",
@@ -145,6 +147,12 @@ export class SimBuilder {
       after,
       `prompt: ${value.slice(0, 40)}`,
     );
+    if (wake) {
+      this.record("mux", "host_started", { hostBuild: "sim", hostPid: 1, incarnation: "sim" }, 120, "host_started");
+      this.record("mux", "resumed", { level: "exact", wake: true }, 380, "resumed");
+      this.record("mux", "status", { status: "ready" }, 0, "status ready");
+      return this.started(6);
+    }
     return this.started(300);
   }
 
@@ -172,6 +180,69 @@ export class SimBuilder {
       { text: value, promptId: this.promptId, turnId: this.turnId, client: "acpmux-cli#1", _meta: { provenance } },
       after,
       `incoming ${kind}: ${value.slice(0, 40)}`,
+    );
+    return this.started(300);
+  }
+
+  /** Another agent's message steered into the running turn (acpmux `steer`): no turn of its own. */
+  steerIncoming(value: string, options: IncomingOptions = {}, after = 600): this {
+    const fromName = options.fromName ?? "other-lane";
+    const provenance = {
+      kind: options.kind ?? "agent_message",
+      from: `sim-host/${fromName}`,
+      fromName,
+      fromSessionId: "sim-0000-0000-0000-0000000000aa",
+      to: this.sessionId,
+    };
+    this.incomingSteers += 1;
+    return this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId: `steer-${this.turns}-${this.incomingSteers}`,
+        turnId: this.turnId,
+        steer: true,
+        client: "acpmux-cli#1",
+        _meta: { provenance },
+      },
+      after,
+      `steer ${provenance.kind}: ${value.slice(0, 40)}`,
+    );
+  }
+  private incomingSteers = 0;
+
+  /** A background task's end that acpmux sends the agent as a prompt (hub/bg_notify.rs: prompt id
+   *  `bg-done-<task>`, a notice naming the task), and the turn it starts. */
+  bgDone(task: string, description: string, { title, after = 1_000 }: { title?: string; after?: number } = {}): this {
+    this.newTurn();
+    this.promptId = `bg-done-${task}`;
+    const provenance = {
+      kind: "notice",
+      from: "acpmux",
+      fromName: "acpmux",
+      to: this.sessionId,
+      display: "line",
+      notice: {
+        sender: "acpmux",
+        severity: "info",
+        title: title ?? `Background task finished: ${description} (exit 0)`,
+      },
+      bgTaskId: task,
+      bgTaskDescription: description,
+    };
+    this.record(
+      "mux",
+      "user_message",
+      {
+        text: `Background task finished: ${description}`,
+        promptId: this.promptId,
+        turnId: this.turnId,
+        client: "acpmux",
+        _meta: { provenance },
+      },
+      after,
+      `bg done: ${description.slice(0, 40)}`,
     );
     return this.started(300);
   }
@@ -557,17 +628,6 @@ export class SimBuilder {
       "turn_result",
     );
     return this.record("mux", "status", { status: "ready" }, 10, "status ready");
-  }
-
-  /** The agent's checklist (ACP `plan`): each entry `[content, status]`; none clears it. */
-  plan(entries: [string, "pending" | "in_progress" | "completed"][], after = 300): this {
-    return this.record(
-      "in",
-      "plan",
-      update("plan", { entries: entries.map(([content, status]) => ({ content, status, priority: "medium" })) }),
-      after,
-      `plan: ${entries.filter(([, status]) => status === "completed").length}/${entries.length}`,
-    );
   }
 
   /** acpmux asks the person to allow call `id`, and `ms` later records the answer (`allow`, or `null`: still waiting). */

@@ -259,6 +259,9 @@ struct CloudBringBack {
         try place.advance(flow, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
         // To another machine the move's relay fills its folder, then hands the agent over, in one call.
         if let target { progress.enter(.copy, name: target.machine.title) } else { progress.enter(.agent, name: name) }
+        // The agent move call (below) freezes the chat, carries it with its frozen sync, then commits; it streams no phases,
+        // so `carry` is the call and `commit` its answer: every one of the reducer's steps is reported, in order.
+        place.step(flow, "carry")
         var moved = CloudMoveCLI.Answer(ok: false), landing = onto?.remotes.first
         do {
             // A running turn goes on where the chat lands with its last changes (to another machine: relayed; a refused work root, the next).
@@ -343,7 +346,11 @@ struct CloudBringBack {
         } catch {
             throw Failure(message: CloudBringBackStrings.tabFailed(CloudStrings.errorText(error)), retry: .show(shown))
         }
-        if let host = shown.host, let moved = shown.movedSession { services.cloud.movedChats.forget(host: host, session: moved) }
+        if let host = shown.host, let moved = shown.movedSession {
+            // The ledger entry goes; the machine it named stays the chat's own, so its next move to Cloud resumes it.
+            services.cloud.place.rememberMachine(shown.machineID, for: shown.session)
+            services.cloud.movedChats.forget(host: host, session: moved)
+        }
         services.cloud.place.step(flow, "release")
         // Reopen Closed never offers it.
         do {

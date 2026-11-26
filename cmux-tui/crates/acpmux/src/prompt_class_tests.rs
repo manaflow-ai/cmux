@@ -41,3 +41,15 @@ fn a_queued_record_from_before_classes_restores_an_agents_message_as_a_result() 
     assert_eq!(of_message(recorded(&old), true), Some(PromptClass::Result));
     assert_eq!(of_message(recorded(&old), false), None);
 }
+
+#[test]
+fn every_class_has_a_deadline_and_within_only_tightens_it() {
+    assert_eq!(due_at(PromptClass::Block, 1_000, None), 1_000);
+    assert_eq!(due_at(PromptClass::Question, 1_000, Some(60_000)), 1_000);
+    assert_eq!(due_at(PromptClass::Result, 0, None), 15 * 60 * 1000);
+    assert_eq!(due_at(PromptClass::Fyi, 0, None), 60 * 60 * 1000);
+    assert_eq!(due_at(PromptClass::Fyi, 0, Some(5 * 60 * 1000)), 5 * 60 * 1000);
+    assert_eq!(due_at(PromptClass::Result, 0, Some(2 * 60 * 60 * 1000)), 15 * 60 * 1000);
+    assert_eq!(within(&json!({"_meta": {"acpmux": {"within": 300_000}}})), Some(300_000));
+    assert_eq!(within(&json!({})), None);
+}
