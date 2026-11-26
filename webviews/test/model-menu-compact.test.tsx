@@ -3,7 +3,7 @@
 // 2026-11-03 a menu with a harness rail is columns (QuickModelColumns): the rail (Starred, then each
 // harness), the tab's models, then the shown model's settings (Effort levels, Fast as a switch). The
 // account is an avatar in the search row whose card lists the acpmux routes that serve the chat and
-// switches the chat's route. A started chat or a machine profile has no rail and keeps the list menu.
+// switches the chat's route. A machine profile has no rail and keeps the list menu; a started chat has the rail (cmux#55750).
 // The real composer, catalog and menu, in JSDOM.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -720,14 +720,16 @@ test("the search reads an effort word as the full picker does, and Enter lands t
   expect(sent).toContainEqual({ method: "effort", value: "high" });
 });
 
-// Review of #27303: a started chat's menu has no harness rail, so its empty search never says to
-// browse by harness.
+// Review of #27303: an empty search never says to browse by harness. A started chat's menu is the
+// shared columns picker now (cmux#55750), whose no-match note names no harness list.
 test("a started chat's empty search says what to do without naming a harness list", async () => {
   await mount({ routes: [] }, { turnCount: 1 });
   await open();
   await typeIn("zzzz");
   await settle();
-  expect(menu()!.querySelector(".acpmux-quick-note")?.textContent).toBe("No models match “zzzz”. Try part of a name.");
+  const note = cols()!.querySelector('[role="listbox"] .acpmux-cols-note')?.textContent;
+  expect(note).toBe("No matching models");
+  expect(cols()!.textContent).not.toContain("browse by harness");
 });
 
 test("a started chat's search field filters its own models in place, without opening the full picker", async () => {
@@ -907,25 +909,22 @@ test("a model picked in the full picker keeps the chat's level and Fast", async 
   expect(sent.slice(1)).toContainEqual({ method: "effort", value: "on" });
 });
 
-// Leo 2026-10-19: a started chat's menu drew a rail of its one harness, then offered Add harness….
-// Once a chat has a message its harness is fixed, as in Claude Code: the compact menu lists its
-// models with no rail, and More models opens the full picker, which has no rail either.
-test("a started chat's compact menu has no harness rail and no Add harness…", async () => {
+// cmux#55750: "it should be the same picker here so i can fork to a different agent as well". A
+// started chat's model button opens the same columns picker as a New Tab's (it replaced the compact
+// list menu with no rail, Leo 2026-10-19): the harness rail, every harness's tab, and Add harness….
+test("a started chat's menu is the shared picker, with the harness rail and Add harness…", async () => {
   const { added } = await mount({ routes: [] }, { turnCount: 1 });
   await open();
-  expect(cols()).toBeNull();
-  expect(menu()!.querySelector(".acpmux-quick-rail")).toBeNull();
-  expect(modelNames(menu()!).length).toBeGreaterThan(0);
-  const more = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-    item.textContent?.startsWith("More models"),
-  )!;
-  await act(async () => more.click());
-  await settle();
-  const full = doc().querySelector<HTMLElement>(".acpmux-mp")!;
-  expect(full).not.toBeNull();
-  expect(full.querySelector(".acpmux-mp-rail-scroll")).toBeNull();
-  expect(full.querySelector(".acpmux-mp-add-harness")).toBeNull();
-  expect(added).toEqual([]);
+  expect(cols()).not.toBeNull();
+  expect(doc().querySelector(".acpmux-quick-menu")).toBeNull();
+  const names = railTabs().map((tab) => tab.getAttribute("aria-label"));
+  expect(names).toContain("Claude Code");
+  expect(names.filter((name) => name !== "Starred" && name !== "Claude Code").length).toBeGreaterThan(0);
+  expect(modelNames(cols()!).length).toBeGreaterThan(0);
+  const add = cols()!.querySelector<HTMLElement>(".acpmux-cols-rail .acpmux-cols-tab-add")!;
+  expect(add.getAttribute("aria-label")).toBe("Add harness…");
+  await click(add);
+  expect(added).toEqual(["add"]);
 });
 
 // Tabs replace their visible rows while the rail itself stays in place.
@@ -985,7 +984,7 @@ test.each([{ turnCount: 0 }, { turnCount: 2 }, { folderProfile: true, currentFol
 // columns it ends the frame, below the three columns.
 test.each([
   ["a new chat (rail)", {}],
-  ["a started chat (no rail)", { turnCount: 1 }],
+  ["a started chat", { turnCount: 1 }],
   ["a machine profile", { folderProfile: true, currentFolder: true }],
 ] as const)("an agent update sits in a footer below the model list: %s", async (_name, options) => {
   let updated = 0;

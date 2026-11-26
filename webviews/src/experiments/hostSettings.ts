@@ -7,15 +7,36 @@
 // experimentArm reads the arms here after the host's own overrides (`cmuxExperiments`, the gallery)
 // and before the localStorage debug key, so a switch that is off changes nothing.
 //
-// A switch that picks an arm: its row in schemas/settings/source/experiments.json and one line in
+// A switch that picks an arm: its row in schemas/settings/source/experiments.json and one entry in
 // SETTING_ARMS.
-import { experimentSwitchOn, setExperimentSwitches } from "./switches";
+import { experimentSwitchOn, setExperimentSwitches, experimentSwitchOff } from "./switches";
 
-/** `experiments.<name>` switch name to the experiment id and the arm it runs while on. */
-export const SETTING_ARMS: Readonly<Record<string, { experiment: string; arm: string }>> = {
+type SettingArm = { experiment: string; arm: string };
+type SettingArmEntry = SettingArm | readonly SettingArm[];
+
+/** `experiments.<name>` switch name to the experiment arm(s) it runs while on. */
+export const SETTING_ARMS: Readonly<Record<string, SettingArmEntry>> = {
   menuStyleV2: { experiment: "menu-style-v2", arm: "v2" },
   menuRowStates: { experiment: "menu-row-states", arm: "on" },
+  toastGlass: { experiment: "toast-glass", arm: "host" },
+  composerHatGroups: { experiment: "subagent-tray-fold-head", arm: "groups" },
+  forumCallCard: { experiment: "forum-call-card", arm: "card" },
 };
+
+/**
+ * The arm(s) a switch that is on by default runs when the person turns it off. Its on arms are the
+ * experiments' defaults, so a page with no host (the gallery, tests) draws the shipped look.
+ * composerHatGroups: on by default since Leo, 2026-11-25 ("did u guys fix the composer hat yet :( let's
+ * go ahead on those"); off keeps the earlier tally header.
+ */
+export const SETTING_OFF_ARMS: Readonly<Record<string, SettingArmEntry>> = {
+  composerHatGroups: { experiment: "subagent-tray-fold-head", arm: "tally" },
+};
+
+function armsFor(entry: SettingArmEntry): readonly SettingArm[] {
+  // Array.isArray does not narrow a readonly array; "experiment" in entry does.
+  return "experiment" in entry ? [entry] : entry;
+}
 
 /** The page event the theme bootstrap dispatches when the switches change. */
 export const EXPERIMENT_SETTINGS_EVENT = "cmux-experiment-settings";
@@ -25,16 +46,27 @@ declare global {
   var cmuxExperimentSettings: Record<string, unknown> | undefined;
 }
 
-/** Experiment id to arm, from the switches that are on now. */
-export function settingArms(on: (name: string) => boolean = experimentSwitchOn): Record<string, string> {
+/** Experiment id to arm, from the switches that are on now, and those on by default turned off. */
+export function settingArms(
+  on: (name: string) => boolean = experimentSwitchOn,
+  off: (name: string) => boolean = experimentSwitchOff,
+): Record<string, string> {
   const arms: Record<string, string> = {};
-  for (const [name, entry] of Object.entries(SETTING_ARMS)) if (on(name)) arms[entry.experiment] = entry.arm;
+  for (const [name, entry] of Object.entries(SETTING_ARMS)) {
+    if (!on(name)) continue;
+    for (const arm of armsFor(entry)) arms[arm.experiment] = arm.arm;
+  }
+  for (const [name, entry] of Object.entries(SETTING_OFF_ARMS)) {
+    if (!off(name)) continue;
+    for (const arm of armsFor(entry)) arms[arm.experiment] = arm.arm;
+  }
   return arms;
 }
 
-/** The switch that picks an arm of `experimentId` (one per experiment), if any. */
+/** The switch that picks an arm of `experimentId`, if any. */
 export function switchFor(experimentId: string): string | undefined {
-  return Object.keys(SETTING_ARMS).find((name) => SETTING_ARMS[name].experiment === experimentId);
+  const all = { ...SETTING_ARMS, ...SETTING_OFF_ARMS };
+  return Object.keys(all).find((name) => armsFor(all[name]!).some((arm) => arm.experiment === experimentId));
 }
 
 // The theme route: what the bootstrap set before this module ran, then each change. A page with no

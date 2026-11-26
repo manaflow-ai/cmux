@@ -31,7 +31,7 @@ struct SidebarRevealInSidebarTests {
     }
 
     /// 30 rows, group Outer (collapsed: o1) with its subgroup Inner (collapsed: deep), 20 more rows, and the
-    /// archived row old, which the closed Archive at the bottom holds.
+    /// archived row old, which the sidebar does not draw (cmux#51635).
     static func sections() -> [CmuxNextSidebar.SidebarSection] {
         let above = (1...30).map { SidebarNode.workspace(ws("a\($0)")) }
         let below = (1...20).map { SidebarNode.workspace(ws("b\($0)")) }
@@ -96,21 +96,19 @@ struct SidebarRevealInSidebarTests {
         #expect(h.window.firstResponder === h.content, "keyboard focus stays in the workspace")
     }
 
-    @Test func revealFromTheRowMenuOpensTheArchiveForAnArchivedWorkspace() throws {
+    /// cmux#51635: an archived workspace has no row in the sidebar (Settings > Sidebar > Archived Workspaces lists
+    /// it), so Reveal in Sidebar draws none and opens no fold for it.
+    @Test func revealOfAnArchivedWorkspaceDrawsNoRow() throws {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let h = try Self.harness(active: "a1")
         defer { h.window.close() }
-        try #require(h.list.displayed.row(for: .workspace(WorkspaceID("old"))) == nil, "the closed Archive holds the row")
+        try #require(h.list.displayed.row(for: .workspace(WorkspaceID("old"))) == nil, "the sidebar draws no archived row")
 
-        #expect(h.sidebar.revealWorkspace(WorkspaceID("old")), "the row menu reveals the row it was opened on")
+        #expect(!h.sidebar.revealWorkspace(WorkspaceID("old")))
 
-        #expect(h.list.openDoneFolds.contains(.archive), "the Archive opens")
-        let clip = try #require(h.list.enclosingScrollView?.contentView)
-        let drawn = try #require(h.list.displayed.row(for: .workspace(WorkspaceID("old"))), "the archived row is drawn")
-        #expect(drawn.y >= clip.bounds.minY - 0.5 && drawn.y + drawn.height <= clip.bounds.maxY + 0.5, "and in view")
-        #expect(h.list.revealFlash?.key == .workspace(WorkspaceID("old")))
-        #expect(h.window.firstResponder === h.content)
+        #expect(h.list.displayed.row(for: .workspace(WorkspaceID("old"))) == nil, "still no row")
+        #expect(!h.list.displayed.rows.contains { if case .doneFold = $0.key { true } else { false } }, "no fold row for it")
     }
 
     @Test func theFlashBlinksWhenCmuxAnimates() throws {

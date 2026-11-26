@@ -40,6 +40,10 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// record) runs one with no sheet, as the palette does; page script alone still gets the sheet.
     /// RFD 0058: a confirm stays only before an action that can't be undone.
     public let clickRunsOps: Set<String>
+    /// Why each confirmed op a person's click still meets keeps its sheet (``PageConfirmation/Guard``):
+    /// irreversible, spends money, or exposes a machine. Only ops in ``confirmedOps`` and not in
+    /// ``clickRunsOps``; one with no guard is in ``guardlessConfirms``.
+    public let confirmGuards: [String: PageConfirmation.Guard]
     /// The page's Content Security Policy (``PageCSP``); strict unless a first-party page widens it, or
     /// another built-in page adds image sources.
     public let csp: PageCSP
@@ -78,7 +82,8 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
 
     public init(id: String, resource: String, namespaces: [String], nativeOps: Set<String> = [], denied: Set<String> = [],
                 actions: Set<String> = [], gestureActions: Set<String> = [], personBackedActions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
-                confirmedOps: [String: PageConfirmation.Kind] = [:], clickRunsOps: Set<String> = [], csp: PageCSP = .strict, entry: String = "index.html",
+                confirmedOps: [String: PageConfirmation.Kind] = [:], clickRunsOps: Set<String> = [],
+                confirmGuards: [String: PageConfirmation.Guard] = [:], csp: PageCSP = .strict, entry: String = "index.html",
                 dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
                 passiveFrames: Bool = false, followsChatZoom: Bool = false, servesHostOps: Bool = true) {
         self.id = id
@@ -92,6 +97,7 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.commands = commands
         self.confirmedOps = confirmedOps
         self.clickRunsOps = clickRunsOps.intersection(confirmedOps.keys)
+        self.confirmGuards = confirmGuards.filter { confirmedOps[$0.key] != nil && !clickRunsOps.contains($0.key) }
         // Only a first-party page may widen its policy (PageID). Another built-in (`cmux.`) page may
         // add image sources only (the GitHub page's image proxy), which loads pixels and runs nothing,
         // and keeps no daemon access, while its own narrowing (inline script off) stands (review
@@ -210,6 +216,12 @@ public extension PageDescriptor {
     func runsOnClick(_ op: String, _ context: PageCallContext) -> Bool {
         context.userGesture && clickRunsOps.contains(op)
     }
+
+    /// Confirmed ops whose sheet a person's own click still meets with no ``confirmGuards`` reason:
+    /// confirms that guard nothing irreversible (RFD 0132's goal is none).
+    var guardlessConfirms: Set<String> {
+        Set(confirmedOps.keys).subtracting(clickRunsOps).subtracting(confirmGuards.keys)
+    }
 }
 
 public extension PageCallContext {
@@ -239,7 +251,16 @@ public extension PageDescriptor {
             "cmux.cloud.auth.sign_out": .custom, "cmux.cloud.machine.connect": .custom,
         ],
         clickRunsOps: ["cmux.cloud.billing.open", "cmux.cloud.auth.sign_in", "cmux.cloud.auth.sign_out",
-                       "cmux.cloud.machine.connect"])
+                       "cmux.cloud.machine.connect"],
+        // RFD 0132: why each sheet a click still meets stays. cmux webviews' cloud-ergonomics probe reads this
+        // list from this file (cloudErgonomics/confirms.ts), so keep it a literal here.
+        confirmGuards: [
+            "cmux.cloud.machine.delete": .irreversible, "cmux.cloud.snapshot.delete": .irreversible,
+            "cmux.cloud.machine.archive_delete": .irreversible, "cmux.cloud.publication.delete": .irreversible,
+            "cmux.cloud.snapshot.restore": .spends,
+            "cmux.cloud.publication.create": .exposes, "cmux.cloud.firewall.create": .exposes,
+            "cmux.cloud.firewall.delete": .exposes,
+        ])
 
     /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
     /// preview and sound ops share the namespace; the page may run only its own actions and the
@@ -286,14 +307,6 @@ public extension PageDescriptor {
     static let apps = PageDescriptor(
         id: "cmux.apps", resource: "apps", namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
         actions: ["app.open", "openSettings"], gestureActions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
-
-    /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
-    /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
-    /// the page runs only three account actions. Connect adds a credential, so it is the host op
-    /// `cmux.coderouter.accounts.connect` behind the app's native sheet, never a plain action.
-    static let coderouter = PageDescriptor(
-        id: "cmux.coderouter", resource: "coderouter", namespaces: ["cmux.coderouter."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"])
 
     /// The buttons at the end of each Settings section (`SettingsSchema.actions(in:)`), which the
     /// page runs through cmux.app.action.run with origin page (the actions' own rules still apply).
@@ -378,6 +391,9 @@ public extension PageDescriptor {
         id: "cmux.feed", resource: "feed", namespaces: ["cmux.feed.", "cmux.settings.hub."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: ["feed.openItem", "feed.githubAction", "openSettings"])
+    /// The Forum page (`experiments.forum`, a top page): the daemon's forum threads through the
+    /// page relay (`cmux.forum.` -> `forum.*`, page-router `forum`).
+    static let forum = PageDescriptor(id: "cmux.forum", resource: "forum", namespaces: ["cmux.forum."])
     /// The Stashed Tabs page (`cmux://stashed`, a top page): the daemon's stashes (`stash-v1`). The
     /// command `open` with text `import` opens its OneTab paste box (Import from OneTab…).
     static let stash = PageDescriptor(

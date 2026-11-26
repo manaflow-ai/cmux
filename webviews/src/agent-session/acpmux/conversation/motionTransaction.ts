@@ -32,6 +32,7 @@ import { MOTION_MS } from "../../../motion/scale.generated";
 import { experimentArm } from "../../../experiments/experiment";
 import { compoundMotion } from "./compoundMotion.experiment";
 import { foldMotion, foldMs } from "./fold";
+import { setEffectKeyframes } from "./keyframeKinds";
 
 /// Under this share of the plan left, a move starts a new plan instead of scaling the rest (the scale
 /// 1 / r would grow without bound as the plan ends).
@@ -187,7 +188,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
       const from: Keyframe = {};
       for (const key of Object.keys(last))
         from[key] = drawnStyle.getPropertyValue(key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
-      effect.setKeyframes([from, last]);
+      setEffectKeyframes(effect, [from, last]);
       effect.updateTiming({ duration: ms, easing: foldMotion.easing(thread) });
       animation.currentTime = 0;
       animation.play();
@@ -329,7 +330,7 @@ function makeTransaction(thread: HTMLElement): ThreadTransaction {
       const frames = effect instanceof KeyframeEffect ? effect.getKeyframes() : [];
       if (!(effect instanceof KeyframeEffect) || frames.length < 2 || !(foldMs(thread) > 0)) return;
       // Its own curve and length go: from its first keyframe to its last, its time its share done.
-      effect.setKeyframes([keyframeStyle(frames[0]!), keyframeStyle(frames.at(-1)!)]);
+      setEffectKeyframes(effect, [keyframeStyle(frames[0]!), keyframeStyle(frames.at(-1)!)]);
       effect.updateTiming({ duration: RIDE_SPAN, easing: "linear", delay: 0, endDelay: 0, iterations: 1 });
       animation.pause();
       animation.currentTime = 0;

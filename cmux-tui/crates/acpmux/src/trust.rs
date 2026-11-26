@@ -107,10 +107,11 @@ impl Paths {
     }
 }
 
-/// `~/Library/Application Support/cmux/agent-home` on macOS (the app's `AgentHome.standard`):
-/// the app makes each workspace's agent-home folder there.
+/// `~/Library/Application Support/cmux-next/agent-home` on macOS (the app's
+/// `AgentHome.standard`; `<data dir>/cmux/agent-home` elsewhere): the app makes each workspace's
+/// agent-home folder there.
 pub fn agent_home_root() -> Option<PathBuf> {
-    dirs::data_dir().map(|data| data.join("cmux").join("agent-home"))
+    dirs::data_dir().map(|data| data.join(cmux_config::NEXT_DIR).join("agent-home"))
 }
 
 /// `~/.cmux/worktrees` (`cmux_git::worktree_root`), where cmux makes the worktrees for its chats
@@ -136,7 +137,8 @@ pub fn peer_scratch_root() -> PathBuf {
 }
 
 /// The file the app writes in each agent-home folder it makes (`AgentHome.ensure`), and acpmux
-/// in each peer scratch folder it makes (`peer_scratch_root`).
+/// in each peer scratch folder it makes (`peer_scratch_root`) and each Cloud peer chat folder
+/// (`~/chats/<name>`, which `hub/remote_cwd.rs` then takes as a remote session's scratch).
 pub const AGENT_HOME_MARKER: &str = ".cmux-agent-home";
 
 /// A folder path the record can key: absolute, without a trailing slash.
