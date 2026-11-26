@@ -64,6 +64,7 @@ dependencies = [
  "cmux-netwatch",
  "cmux-palette-ranker",
  "cmux-panic-log",
+ "cmux-pool-pod",
  "cmux-presence",
  "cmux-process",
  "cmux-relay",
@@ -93,6 +94,7 @@ dependencies = [
  "cmux-usage-patterns",
  "cmux-usage-share",
  "cmux-vault-egress",
+ "cmux-wallpaper",
  "cmux-wg",
  "cmux-worktree-care",
  "dhat",
@@ -2239,6 +2241,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-home-rules"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
@@ -2466,7 +2476,10 @@ name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
  "cmux-cloud-wire",
+ "cmux-relay-snapshot",
  "cmux-terminal-sizing",
+ "p256",
+ "rand_core 0.6.4",
  "serde_json",
 ]
 
@@ -2478,6 +2491,14 @@ dependencies = [
  "cmux-rd-screen",
  "serde_json",
  "uniffi",
+]
+
+[[package]]
+name = "cmux-mobile-host-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2639,6 +2660,7 @@ dependencies = [
  "sha1",
  "sha1collisiondetection",
  "sha2 0.10.9",
+ "tar",
  "tempfile",
  "tokio",
  "zstd",
@@ -2727,6 +2749,14 @@ dependencies = [
  "base64",
  "p256",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-rd-screen-ffi"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-screen",
  "serde_json",
 ]
 
@@ -3366,6 +3396,7 @@ dependencies = [
  "ghostty-vt",
  "ghostty-vt-sys",
  "glob",
+ "ignore",
  "libc",
  "notify",
  "parking_lot",
@@ -3422,6 +3453,7 @@ dependencies = [
  "base64",
  "cmux-cloud-environment",
  "cmux-cloud-wire",
+ "cmux-egress",
  "cmux-json",
  "serde",
  "serde_json",
@@ -3756,6 +3788,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-vmd"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64",
+ "chrono",
+ "cmux-process",
+ "cmux-scope",
+ "cmux-tui-machine-protocol",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "cmux-vnc"
 version = "0.1.0"
 dependencies = [
@@ -3770,6 +3824,8 @@ name = "cmux-wallpaper"
 version = "0.1.0"
 dependencies = [
  "naga",
+ "schemars 1.2.2",
+ "serde",
  "serde_json",
 ]
 
