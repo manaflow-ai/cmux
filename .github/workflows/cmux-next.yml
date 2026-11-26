@@ -920,22 +920,14 @@ jobs:
           fetch-depth: 2
           filter: blob:none
           sparse-checkout-cone-mode: false
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-558
           sparse-checkout: |
-            /.github/
-            /scripts/
-            /tests/
-            /cmux-tui/
-            /Packages/macOS/CmuxNext/
-            /Packages/*/*/Package.swift
-            /vendor/stack-auth-swift-sdk-prerelease/Package.swift
-            /cmux.xcodeproj/project.pbxproj
-            /AGENTS.md
-            /.gitmodules
-            /first-party-apps/cloud/
-            /workers/cmux-vm/cli/
-            !/Packages/macOS/CmuxNext/**/*.xcstrings
-            !/Packages/macOS/CmuxNext/**/*.avif
-            !/Packages/macOS/CmuxNext/**/*.png
+            /scripts/ci/prefetch-sparse-checkout.sh
+            /scripts/ci/path-route-sparse-checkout.txt
+      - name: Widen the sparse checkout with a parallel blob fetch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/prefetch-sparse-checkout.sh < scripts/ci/path-route-sparse-checkout.txt
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
         continue-on-error: true
         run: if [ -x scripts/ci/reset-stale-submodules.sh ]; then scripts/ci/reset-stale-submodules.sh; fi
