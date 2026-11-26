@@ -392,14 +392,35 @@ def _write_outputs(decision: Decision) -> None:
             fh.write(f"reason={decision.reason}\n")
 
 
+def _read_runs(runner, sleep) -> list[dict]:
+    """The builder's runs, YOLO-marked. A rate limit on GH_TOKEN retries once on GH_FALLBACK_TOKEN.
+
+    2026-11-25 21:35Z and 21:38Z: the repository's shared GITHUB_TOKEN quota was spent, so two decides in a
+    row skipped and nothing built (Leo: "Why are these iPhone builds still so slow and unverified?"). The
+    trigger now reads with its own App token (GH_TOKEN) and keeps the workflow token as GH_FALLBACK_TOKEN,
+    so one exhausted quota never skips a dispatch."""
+    try:
+        return mark_yolo(builder_runs(runner=runner, sleep=sleep), yolo_shas(runner=runner, sleep=sleep))
+    except GitHubUnavailable as error:
+        fallback = os.environ.get("GH_FALLBACK_TOKEN") or ""
+        if not fallback or fallback == os.environ.get("GH_TOKEN"):
+            raise
+        print(f"::warning::GH_TOKEN rate-limited or down ({error}); reading again with GH_FALLBACK_TOKEN")
+        os.environ["GH_TOKEN"] = fallback
+        return mark_yolo(builder_runs(runner=runner, sleep=sleep), yolo_shas(runner=runner, sleep=sleep))
+
+
 def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, force: bool = False) -> int:
     has_cmux_next_ios = _show(repo, head, PROJECT_YML) is not None
     try:
-        runs = mark_yolo(builder_runs(runner=runner, sleep=sleep), yolo_shas(runner=runner, sleep=sleep))
+        runs = _read_runs(runner, sleep)
     except GitHubUnavailable as error:
         # Without the run list the plan cannot tell a new head from one already uploaded, so it
-        # dispatches nothing; the next feat-cmux-next push plans again.
+        # dispatches nothing; the next feat-cmux-next push plans again. Both tokens failed, so it is
+        # an alarm (an error annotation on the decide run), not a quiet skip.
         print(f"::warning::GitHub API unavailable after retries: {error}")
+        print("::error title=cmux INTERNAL trigger blind::the builder's runs could not be read with either token "
+              "(GH_TOKEN, then GH_FALLBACK_TOKEN); no build dispatched. The next feat-cmux-next push plans again.")
         _write_outputs(Decision(False, "GitHub API rate-limited or down; the next push re-plans", None))
         return 0
     ready = builder_has_script(repo)
