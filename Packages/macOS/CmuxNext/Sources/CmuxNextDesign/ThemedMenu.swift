@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 extension NSMenu {
     /// Opens this menu, and its submenus, in the light or dark system look of `scope`, the view
@@ -68,26 +69,75 @@ extension NSMenu {
 
 extension NSImage {
     /// This image in the menu grid's square icon box (`MenuMetrics.iconSize`), its shape kept:
-    /// scaled down to fit when larger, centered when smaller. An image already the box's size is
-    /// returned as it is, so theming a menu twice changes nothing. A template stays a template
-    /// (the menu tints it like the title) and the description VoiceOver reads is kept.
+    /// scaled down to fit when larger, centered up and down, and the left edge of its ink on the
+    /// separators' line. Centered, a narrow glyph (the pin) started right of a wide one, and a
+    /// symbol's own side margin put every glyph 1 to 2 pt right of the separators and the menu
+    /// header (Lucas 2026-11-24: "make sure that everything is aligned and on that red line").
+    /// An image already fitted (a `MenuFittedImage`) is returned as it is, so theming a menu twice
+    /// changes nothing; one already the box's size still has its ink moved onto the line. A
+    /// template stays a template (the menu tints it like the title) and the description
+    /// VoiceOver reads is kept.
     public func fittedToMenuIconBox() -> NSImage {
         let side = MenuMetrics.iconSize
         let box = NSSize(width: side, height: side)
         let natural = size
-        guard natural != box, natural.width > 0, natural.height > 0 else { return self }
+        guard !(self is MenuFittedImage), natural.width > 0, natural.height > 0 else { return self }
+        let fit = min(1, side / natural.width, side / natural.height)
+        let drawn = NSSize(width: natural.width * fit, height: natural.height * fit)
         let source = self
-        let fitted = NSImage(size: box, flipped: false) { rect in
-            let fit = min(1, rect.width / natural.width, rect.height / natural.height)
-            let drawn = NSSize(width: natural.width * fit, height: natural.height * fit)
-            source.draw(in: NSRect(x: rect.midX - drawn.width / 2, y: rect.midY - drawn.height / 2,
-                                   width: drawn.width, height: drawn.height))
+        // The ink is read the first time the row draws, not as the menu is built: a submenu never
+        // opened reads none.
+        let lead = MenuIconLead()
+        let fitted = MenuFittedImage(size: box, flipped: false) { rect in
+            // Read and stored under the lock, measured outside it: a draw never waits on another's render.
+            let x: CGFloat
+            if let cached = lead.value.withLock({ $0 }) {
+                x = cached
+            } else {
+                x = Self.menuImageColumnLead - (source.inkMinX(drawn: drawn) ?? 0)
+                lead.value.withLock { $0 = x }
+            }
+            source.draw(in: NSRect(x: rect.minX + x, y: rect.midY - drawn.height / 2, width: drawn.width, height: drawn.height))
             return true
         }
         fitted.isTemplate = isTemplate
         fitted.accessibilityDescription = accessibilityDescription
         return fitted
     }
+
+    /// AppKit puts a native row's image 15.75 pt from the menu's edge and its separators at 16 pt
+    /// (measured, macOS 26): the ink starts this far into the box to land on the separators' line.
+    static let menuImageColumnLead: CGFloat = 0.25
+
+    /// Where this image's ink starts when drawn `drawn` wide: its first column with a visible pixel,
+    /// read at 4x on the row's first draw. Nil for an image with no ink.
+    private func inkMinX(drawn: NSSize) -> CGFloat? {
+        let scale: CGFloat = 4
+        let width = Int((drawn.width * scale).rounded(.up)), height = Int((drawn.height * scale).rounded(.up))
+        guard width > 0, height > 0,
+              let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8,
+                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                            bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        draw(in: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let data = bitmap.bitmapData else { return nil }
+        let stride = bitmap.bytesPerRow
+        for x in 0..<width {
+            for y in 0..<height where data[y * stride + x * 4 + 3] > 40 { return CGFloat(x) / scale }
+        }
+        return nil
+    }
+}
+
+/// A row icon already in the menu grid's box, its ink on the line: theming it again leaves it as it is.
+nonisolated final class MenuFittedImage: NSImage {}
+
+/// A fitted row icon's offset in its box, read once on its first draw (the lock makes it Sendable).
+private final class MenuIconLead: Sendable {
+    let value = Mutex<CGFloat?>(nil)
 }
 
 /// `afterThemedRowRuns`'s step: the run loop keeps its target until it runs.
