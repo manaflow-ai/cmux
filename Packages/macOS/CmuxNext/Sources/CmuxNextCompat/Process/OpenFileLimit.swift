@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 package import Darwin
+#else
+package import Glibc
+#endif
 import Foundation
 
 /// The app's open-file limit (RLIMIT_NOFILE).
@@ -26,20 +30,30 @@ package struct OpenFileLimit {
     /// Reads the soft and hard limit (getrlimit); a test passes its own.
     package var read: () -> (soft: rlim_t, hard: rlim_t)? = {
         var limit = rlimit()
-        return getrlimit(RLIMIT_NOFILE, &limit) == 0 ? (limit.rlim_cur, limit.rlim_max) : nil
+        return getrlimit(Self.nofile, &limit) == 0 ? (limit.rlim_cur, limit.rlim_max) : nil
     }
     /// Sets the soft limit under `hard` (setrlimit); true when it took.
     package var write: (_ soft: rlim_t, _ hard: rlim_t) -> Bool = { soft, hard in
         var limit = rlimit(rlim_cur: soft, rlim_max: hard)
-        return setrlimit(RLIMIT_NOFILE, &limit) == 0
+        return setrlimit(Self.nofile, &limit) == 0
     }
     /// `kern.maxfilesperproc`: setrlimit refuses a soft limit above it, even under an unlimited
     /// hard limit. `OPEN_MAX` (10240) when it cannot be read.
     package var perProcessCap: () -> rlim_t = {
+        #if canImport(Darwin)
         var value: Int32 = 0
         var size = MemoryLayout<Int32>.size
         return sysctlbyname("kern.maxfilesperproc", &value, &size, nil, 0) == 0 && value > 0 ? rlim_t(value) : 10_240
+        #else
+        return 10_240 // Linux (the package test jobs only): no kern.maxfilesperproc
+        #endif
     }
+
+    #if canImport(Darwin)
+    private static let nofile = RLIMIT_NOFILE
+    #else
+    private static let nofile = __rlimit_resource_t(RLIMIT_NOFILE.rawValue)
+    #endif
 
     package init() {}
 
