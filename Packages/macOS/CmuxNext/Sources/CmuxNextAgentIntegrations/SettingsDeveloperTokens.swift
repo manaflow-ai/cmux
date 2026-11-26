@@ -34,6 +34,7 @@ public final class SettingsDeveloperTokens: PageProvider {
     @ObservationIgnored private let cli: @MainActor () async -> URL?
     @ObservationIgnored private let runCLI: @Sendable (URL, [String], Data?) async throws -> (Int32, Data, Data)
     @ObservationIgnored private var generation = 0
+    private static let maximumSpendCapUsd = 1_000_000.0
 
     public init(cli: @escaping @MainActor () async -> URL?,
                 runCLI: @escaping @Sendable (URL, [String], Data?) async throws -> (Int32, Data, Data) = SettingsIntegrationsHub.run) {
@@ -84,7 +85,7 @@ public final class SettingsDeveloperTokens: PageProvider {
         var created: JSONValue = .null
         if let answer, answer["ok"]?.boolValue == true {
             lastError = nil
-            if action == "create", let token = answer["token"]?.stringValue, token.hasPrefix("cmux_pat_") {
+            if action == "create", let token = answer["token"]?.stringValue, !token.isEmpty {
                 created = ["token": .string(token), "tokenInfo": answer["tokenInfo"] ?? .null]
             }
         } else {
@@ -137,8 +138,10 @@ public final class SettingsDeveloperTokens: PageProvider {
             case nil: break
             }
             if let cap = params["spendCapUsd"]?.doubleValue {
-                guard cap > 0, cap.isFinite else { throw PageError.invalidParams("spendCapUsd is above 0") }
-                words.append("--spend-cap=\(cap)")
+                guard cap > 0, cap <= Self.maximumSpendCapUsd, cap.isFinite else {
+                    throw PageError.invalidParams("spendCapUsd is above 0 and at most 1000000")
+                }
+                words.append("--spend-cap=" + String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), cap))
             }
             let owner = params["owner"]?.stringValue ?? "me"
             guard owner == "me" || (owner == "team" && list["canManageTeamTokens"]?.boolValue == true) else {
@@ -173,7 +176,9 @@ public final class SettingsDeveloperTokens: PageProvider {
         generation += 1
         let mine = generation
         loading = true
-        guard let cli = await cli() else {
+        let locatedCLI = await cli()
+        guard mine == generation else { return }
+        guard let cli = locatedCLI else {
             list = .null
             githubRules = .null
             loading = false

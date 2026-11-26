@@ -2018,7 +2018,7 @@ export type DeveloperTokensRun =
   | ({ action: "allowRepository" } & GithubRuleFields);
 
 /** What `create` answers: the new token, once. The host keeps no copy, so the page holds it until Done. */
-export type CreatedToken = { token: string; tokenInfo: ApiToken };
+export type CreatedToken = { token: string; tokenInfo: Pick<ApiToken, "scopes"> | null };
 
 /** A label for one choice the automation form offers (the CLI's catalog). */
 export type AutocloudChoice = { value: string; label: string };
