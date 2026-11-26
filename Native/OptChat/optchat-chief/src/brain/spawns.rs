@@ -14,7 +14,7 @@
 use cmux_chief::acp::{AcpmuxEvent, SessionStatus, SessionSummary};
 use serde_json::{Value, json};
 
-use super::children::{ended_replies, report_of};
+use super::children::{NO_REPLY_TEXT, ended_replies, has_task_prompt, report_of};
 use super::{Brain, Queued, Source};
 use crate::daemon::OpError;
 use crate::fold::TurnFold;
@@ -1417,6 +1417,31 @@ impl Brain {
         self.start_queued();
     }
 
+    fn settle_without_report(&mut self, id: &str, floor: Option<u64>, reason: &str) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            if let Some(floor) = floor {
+                sub.floor = sub.floor.max(floor);
+            }
+            sub.status = if sub.report.is_some() {
+                SubStatus::Done
+            } else {
+                SubStatus::Reported
+            };
+            sub.reopened = false;
+            sub.closed_resumed = false;
+            sub.awaiting_task = false;
+            sub.resume_attempts = 0;
+            sub.auto_continues = 0;
+            sub.continued_ms = 0;
+        }
+        self.save();
+        (self.log)(&format!("subagent {id}: ignored {reason}"));
+        self.mark_workspace(id, true);
+        self.flush_inbox(id);
+        self.start_queued();
+        self.pause_own_vm(id);
+    }
+
     pub(super) fn sub_done(
         &mut self,
         id: &str,
@@ -1432,11 +1457,6 @@ impl Brain {
         else {
             return;
         };
-        // Every run end starts as no wait; `finish_sub` marks a wait after.
-        if let Some(sub) = self.state.sub_mut(id) {
-            sub.waiting_ms = 0;
-            sub.waiting_checked_ms = 0;
-        }
         // A cancelled subagent's sign-ins wait on nobody now (every stop path ends here).
         if self.state.sub(id).is_some_and(|(_, s)| s.cancelled) {
             self.sign_ins.abandoned(id);
@@ -1450,6 +1470,8 @@ impl Brain {
                     sub.floor = floor;
                 }
                 sub.status = SubStatus::Done;
+                sub.waiting_ms = 0;
+                sub.waiting_checked_ms = 0;
             }
             self.save();
             match self.tell(id, &message) {
@@ -1463,6 +1485,39 @@ impl Brain {
                     self.keep_tell(id, message, &e);
                 }
             }
+        }
+        if report.trim().is_empty() || report.trim() == NO_REPLY_TEXT {
+            self.settle_without_report(id, floor, "an empty report");
+            return;
+        }
+        let previously_told = self.state.sub(id).is_some_and(|(_, sub)| {
+            sub.reopened
+                && sub.waiting_ms == 0
+                && sub.reported_ms > 0
+                && sub.told_ms >= sub.reported_ms
+        });
+        let late_retry_error = !held
+            && !stopped
+            && previously_told
+            && !events.is_some_and(has_task_prompt)
+            && crate::auto_resume::error_line(&report).is_some_and(|line| report.trim() == line)
+            && matches!(
+                crate::auto_resume::classify(&report, false),
+                crate::auto_resume::StopKind::Transient(_)
+                    | crate::auto_resume::StopKind::Network(_)
+            );
+        if late_retry_error {
+            self.settle_without_report(
+                id,
+                floor,
+                "a late retryable error after its outcome was told",
+            );
+            return;
+        }
+        // Every run end starts as no wait; `finish_sub` marks a wait after.
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.waiting_ms = 0;
+            sub.waiting_checked_ms = 0;
         }
         // A run that stopped on an error: its report becomes "stopped: ..."
         // (quiet while an auto-resume is planned) and the continue is set up.
