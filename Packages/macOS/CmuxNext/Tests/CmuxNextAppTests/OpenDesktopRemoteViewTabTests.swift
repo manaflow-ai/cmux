@@ -33,10 +33,10 @@ struct OpenDesktopRemoteViewTabTests {
                 }
             }, services: services, daemon: services.machines.local)
 
-            func desktopTabs() -> [TabModel] {
+            @MainActor func desktopTabs() -> [TabModel] {
                 store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.url?.contains(host) == true }
             }
-            func report() -> String {
+            @MainActor func report() -> String {
                 let all = store.workspaces.map { ws in
                     "\(ws.title ?? "?"): " + ws.screens.flatMap(\.panes).flatMap(\.tabs).map { "\($0.id) \($0.kind) \($0.url ?? "nil")" }.joined(separator: ", ")
                 }
