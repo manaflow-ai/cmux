@@ -17,6 +17,8 @@ const MAX_HEIGHT: f32 = 1_000_000.0;
 
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct RowHeightKey {
+    /// The edition supplied by the chat window that owns this row.
+    pub edition: u32,
     pub id: u64,
     pub rev: u64,
     pub signature: String,
@@ -155,11 +157,11 @@ mod tests {
     use super::*;
 
     fn key(id: u64, rev: u64, width: u32) -> RowHeightKey {
-        RowHeightKey { id, rev, signature: "open".into(), width }
+        RowHeightKey { edition: 3, id, rev, signature: "open".into(), width }
     }
 
     #[test]
-    fn reads_exact_revision_signature_and_width() {
+    fn reads_exact_edition_revision_signature_and_width() {
         let mut cache = RowHeightCache::default();
         cache
             .write(WriteRequest {
@@ -170,12 +172,18 @@ mod tests {
         let response = cache
             .read(ReadRequest {
                 sid: "chat".into(),
-                rows: vec![key(7, 2, 800), key(7, 1, 800), key(7, 2, 801)],
+                rows: vec![
+                    key(7, 2, 800),
+                    key(7, 1, 800),
+                    key(7, 2, 801),
+                    RowHeightKey { edition: 4, ..key(7, 2, 800) },
+                ],
             })
             .unwrap();
         assert_eq!(response.rows[0].height, Some(42.5));
         assert_eq!(response.rows[1].height, None);
         assert_eq!(response.rows[2].height, None);
+        assert_eq!(response.rows[3].height, None);
     }
 
     #[test]

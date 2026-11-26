@@ -55,9 +55,13 @@ test("replacement rows keep their book edition through renderer copies", async (
     kind: "chatWindow",
     replaces: true,
     window: {
-      sid: "c", cursor: 10, edition: 2,
+      sid: "c",
+      cursor: 10,
+      edition: 2,
       rows: [row(7, { body: { text: "a\nb\nc" } })],
-      hasBefore: false, hasAfter: false, queue: { entries: [], count: 0 },
+      hasBefore: false,
+      hasAfter: false,
+      queue: { entries: [], count: 0 },
     },
   });
   const next = adapter.adapt(snapshot()).rows[0]!;
