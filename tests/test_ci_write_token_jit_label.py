@@ -23,6 +23,7 @@ SWITCHES = {
     "CI_REPAIR_SKIP_FLEET": "cmux-gcp-repair-jit-x64",
     "CI_PR_CONTROL_SKIP_FLEET": "cmux-gcp-pr-control-jit-x64",
     "CI_GATE_SKIP_FLEET": "cmux-gcp-gate-jit-x64",
+    "CI_SECRET_SKIP_FLEET": "cmux-gcp-secret-jit-x64",
 }
 LEAD = re.compile(
     r"(?:\([^()]*\) && )?vars\.(CI_[A-Z_]+_SKIP_FLEET) != '1' && '(cmux-gcp-[a-z-]+-jit-x64)' \|\| "

@@ -107,7 +107,7 @@ jobs:
           - agent: codex
             model: stub
             crons: ["7,22,37,52 * * * *"]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 75
     environment: cmux-next-cloud-journey
@@ -355,7 +355,7 @@ jobs:
   # (EMAIL_PASSWORD_MISMATCH), so the job stays out of it. It never targets the production API or checks out a PR head.
   preclaim:
     if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     environment: cmux-next-vm-image-dev
     permissions:

@@ -44,14 +44,11 @@ PINNED: dict[str, tuple[str, set[str]]] = {
     "auto-resume-nightly-notarization.yml": (
         SIGNING + "; verify-stapled: " + VERIFY,
         {"generate-deltas", "staple-outer", "staple-stapled", "verify-stapled", "wait-and-staple"}),
-    "billing-nightly.yml": (
-        SIGNING + "; alert: tests/test_ci_billing_nightly.py requires every secret job on a literal runner",
-        {"alert", "apple-api", "apple-delivery", "apple-post-release"}),
     "cmux-next-cua-helper-dev-sign.yml": (SIGNING, {"sign"}),
     "cmux-next-dev-daily.yml": (
         SIGNING + "; verify: " + VERIFY + "; tip-dmg-build: tests/test_cmux_next_dev_tip_feed.py and "
         "tests/test_ci_owned_pool_rescue.py read its exact fallback label",
-        {"publish", "sign", "tip-deltas", "tip-dmg", "tip-dmg-build", "verify"}),
+        {"tip-deltas", "tip-dmg-build", "verify"}),
     "coderouter-release.yml": (
         "its matrix legs hold the release environment and a Developer ID keychain (tests/"
         "test_ci_signing_keychain_is_deleted_before_bundle_code.py INLINE_DEVELOPER_ID_KEYCHAINS): rule 7 keeps a "
@@ -66,7 +63,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
         {"admit", "checks"}),
     "ios-app-review-readiness.yml": (SIGNING, {"app-store-connect", "store-declarations"}),
     "ios-app-store.yml": (SIGNING, {"upload-and-validate"}),
-    "ios-appstore-upload.yml": (SIGNING, {"assign-internal", "set-testflight-notes", "upload"}),
+    "ios-appstore-upload.yml": (SIGNING, {"upload"}),
     "ios-asc-ops.yml": (SIGNING, {"op"}),
     "ios-screenshots.yml": (SIGNING, {"app-store-upload"}),
     "ios-streamed-validate.yml": (
@@ -81,7 +78,7 @@ PINNED: dict[str, tuple[str, set[str]]] = {
         {"build-sign-notarize-nightly", "promote-nightly-next", "promote-nightly-next-acked", "publish-nightly",
          "verify-signed-nightly"}),
     "rcodesign-parity-proof.yml": (
-        SIGNING, {"notarize-app", "notarize-dmg", "prep", "sign-codesign", "sign-rcodesign", "sparkle"}),
+        SIGNING, {"sign-codesign", "sparkle"}),
     "release.yml": (SIGNING, {"build-sign-notarize"}),
     "repair-v0-64-25-helper-rpaths.yml": (SIGNING, {"repair"}),
     "resume-nightly-notarization.yml": (SIGNING + "; verify-stapled: " + VERIFY, {"resume", "verify-stapled"}),
