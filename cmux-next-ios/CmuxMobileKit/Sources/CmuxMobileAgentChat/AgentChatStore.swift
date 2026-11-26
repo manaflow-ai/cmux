@@ -135,6 +135,33 @@ public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
     }
 }
 
+/// A phone-authored message that has not yet been acknowledged by the Mac. A steer is kept
+/// separately from its recorded turn so a store replacement can resend it with the same intent.
+public struct WaitingMessage: Hashable, Sendable {
+    public var prompt: String
+    public var promptID: String
+    public var attachments: [AgentAttachment]
+    public var promptAt: Date
+    public var localSend: AgentTurn.LocalSend
+    public var steer: Bool
+
+    public init(prompt: String, promptID: String, attachments: [AgentAttachment] = [], promptAt: Date,
+                localSend: AgentTurn.LocalSend, steer: Bool = false) {
+        self.prompt = prompt
+        self.promptID = promptID
+        self.attachments = attachments
+        self.promptAt = promptAt
+        self.localSend = localSend
+        self.steer = steer
+    }
+
+    init(turn: AgentTurn, steer: Bool = false) {
+        self.init(prompt: turn.prompt, promptID: turn.promptID ?? turn.id,
+                  attachments: turn.attachments, promptAt: turn.promptAt,
+                  localSend: turn.localSend ?? .sending, steer: steer)
+    }
+}
+
 public enum TurnItem: Hashable, Sendable, Codable, Identifiable {
     case message(id: String, markdown: String)
     case thought(id: String, text: String)
@@ -556,20 +583,30 @@ public final class AgentChatStore {
 
     /// Messages drawn at once that the Mac has not recorded yet, oldest first: a store built in
     /// this one's place sends them (``AgentSessionDirectory``).
-    public var waitingMessages: [AgentTurn] {
-        var waiting: [AgentTurn] = []
-        for turn in turns.reversed() {
-            guard let local = turn.localSend else { break }
-            waiting.insert(turn, at: 0)
+    public var waitingMessages: [WaitingMessage] {
+        var waiting: [WaitingMessage] = []
+        for turn in turns {
+            if let local = turn.localSend, let promptID = turn.promptID {
+                waiting.append(WaitingMessage(prompt: turn.prompt, promptID: promptID,
+                                              attachments: turn.attachments, promptAt: turn.promptAt,
+                                              localSend: local))
+            }
+            for item in turn.items {
+                guard case .steer(let message) = item, !seenPromptIDs.contains(message.promptID) else { continue }
+                waiting.append(WaitingMessage(prompt: message.text, promptID: message.promptID,
+                                              attachments: message.attachments, promptAt: message.at,
+                                              localSend: .sending, steer: true))
+            }
         }
         return waiting
     }
 
     /// Draws and sends the messages a replaced store was still sending (``waitingMessages``), each
     /// under its own id as a resend, so the Mac runs one that did arrive only once.
-    public func adoptWaiting(_ waiting: [AgentTurn]) {
+    public func adoptWaiting(_ waiting: [WaitingMessage]) {
         for turn in waiting {
-            guard let promptID = turn.promptID, !seenPromptIDs.contains(promptID) else { continue }
+            let promptID = turn.promptID
+            guard !seenPromptIDs.contains(promptID) else { continue }
             if turn.localSend == .notSent {
                 // A message that already failed keeps its bubble and its retry; nothing sends it
                 // until the person taps (a late echo from the Mac still replaces it).
@@ -581,8 +618,8 @@ public final class AgentChatStore {
                 refreshDerived()
                 continue
             }
-            source.send(.prompt(text: turn.prompt, attachments: turn.attachments, steer: false, promptID: promptID, resend: true))
-            showSent(turn.prompt, attachments: turn.attachments, promptID: promptID, steer: false)
+            source.send(.prompt(text: turn.prompt, attachments: turn.attachments, steer: turn.steer, promptID: promptID, resend: true))
+            showSent(turn.prompt, attachments: turn.attachments, promptID: promptID, steer: turn.steer)
         }
     }
 

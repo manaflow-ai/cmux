@@ -89,7 +89,7 @@ public final class AgentSessionDirectory {
     }
 
     /// Messages a replaced store was still sending, by tab key, for the store built next.
-    @ObservationIgnored private var carried: [String: [AgentTurn]] = [:]
+    @ObservationIgnored private var carried: [String: [WaitingMessage]] = [:]
 
     /// Every chat loaded in this launch (notification previews save their last messages).
     public var loadedStores: [AgentChatStore] { Array(stores.values) }
