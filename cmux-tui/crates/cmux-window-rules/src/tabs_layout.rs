@@ -242,7 +242,7 @@ pub fn layout(
             fixed
         } else {
             let width = share.width(flexible_index);
-            flexible_index += 1;
+            flexible_index = flexible_index.saturating_add(1);
             width
         };
         slots.push(Slot {
@@ -319,7 +319,7 @@ pub fn resized(
         slot.x = x;
         if slot.flexible {
             slot.width = share.width(flexible_index);
-            flexible_index += 1;
+            flexible_index = flexible_index.saturating_add(1);
         }
         x += slot.width;
         previous_was_pinned = slot.pinned;
@@ -400,7 +400,26 @@ pub fn split(total: f64, count: usize) -> (f64, usize) {
     }
     let base = (total / count as f64).floor();
     let extra = (total - base * count as f64).floor();
-    (base, (extra.max(0.0) as usize).min(count))
+    (base, whole(extra).min(count))
+}
+
+/// `value` rounded down to a whole count the way an `as usize` cast (and Swift's `Int(_)` on a
+/// non-negative value) reads it: NaN and anything below one are 0, past `usize::MAX` saturates.
+pub(crate) fn whole(value: f64) -> usize {
+    if value.is_nan() || value < 1.0 {
+        return 0;
+    }
+    // The largest `low` that is still at most `value`.
+    let (mut low, mut high) = (0_usize, usize::MAX);
+    while low < high {
+        let mid = low.saturating_add(high.saturating_sub(low).div_ceil(2));
+        if mid as f64 <= value {
+            low = mid;
+        } else {
+            high = mid.saturating_sub(1);
+        }
+    }
+    low
 }
 
 /// `total` in `count` whole-point widths, the leftover points on the leading ones.
@@ -421,17 +440,20 @@ pub fn closing_mode_width(
     let Some(index) = result.slots.iter().position(|slot| slot.id == closing) else {
         return current;
     };
-    if count <= 1 || index >= count - 1 {
+    if count <= 1 || index.saturating_add(1) >= count {
         return current;
     }
-    let last = &result.slots[count - 1];
-    let closed = &result.slots[index];
+    let (Some(last), Some(closed)) = (result.slots.last(), result.slots.get(index)) else {
+        return current;
+    };
     let mut width = last.max_x() - closed.width;
     let pinned_count = result.slots.iter().filter(|slot| slot.pinned).count();
     let has_unpinned = result.slots.iter().any(|slot| !slot.pinned);
     if closed.pinned && pinned_count == 1 && has_unpinned {
         // The pinned group disappears, and its gap with it.
-        width -= result.slots[index + 1].x - closed.max_x();
+        if let Some(next) = result.slots.get(index.saturating_add(1)) {
+            width -= next.x - closed.max_x();
+        }
     }
     Some(current.map_or(width, |current| current.min(width)))
 }
@@ -449,13 +471,13 @@ pub fn insert_placeholder(items: &mut Vec<Item>, placeholder: Item, tab_index: u
             position = offset;
             break;
         }
-        seen += 1;
+        seen = seen.saturating_add(1);
     }
-    if position > 0
-        && items[position - 1].group_chip
-        && items[position - 1].group != placeholder.group
+    if let Some(before) = position.checked_sub(1).and_then(|before| items.get(before))
+        && before.group_chip
+        && before.group != placeholder.group
     {
-        position -= 1;
+        position = position.saturating_sub(1);
     }
     items.insert(position, placeholder);
 }
@@ -732,7 +754,8 @@ impl Visibility {
             .map(|width| width - m.content_leading_inset - m.content_trailing_inset)
             .collect();
         let available = |index: usize, close: bool| {
-            contents[index] - if close { m.close_button_size + m.title_close_spacing } else { 0.0 }
+            contents.get(index).copied().unwrap_or_default()
+                - if close { m.close_button_size + m.title_close_spacing } else { 0.0 }
         };
         let keeps_icon = start.shows_icon && end.shows_icon;
         // A width that springs past an end can leave a kept icon no room for the x: the x waits.
@@ -740,32 +763,37 @@ impl Visibility {
             .map(|index| !keeps_icon || available(index, true) >= m.icon_size)
             .collect();
         let wanted_close: Vec<bool> =
-            (0..rest.len()).map(|index| rest[index].shows_close && fits[index]).collect();
+            rest.iter().zip(&fits).map(|(want, &fits)| want.shows_close && fits).collect();
         let close: Vec<bool> = once(&wanted_close, start.shows_close)
             .iter()
             .zip(&fits)
             .map(|(a, b)| *a && *b)
             .collect();
-        let wanted_icon: Vec<bool> = (0..rest.len())
-            .map(|index| {
-                !rest[index].is_hidden()
-                    && (available(index, close[index]) >= m.icon_size || !close[index])
+        let wanted_icon: Vec<bool> = rest
+            .iter()
+            .zip(&close)
+            .enumerate()
+            .map(|(index, (want, &close))| {
+                !want.is_hidden() && (available(index, close) >= m.icon_size || !close)
             })
             .collect();
         let icon = once(&wanted_icon, start.shows_icon);
-        let wanted_title: Vec<bool> = (0..rest.len())
-            .map(|index| {
-                !rest[index].is_hidden()
-                    && icon[index]
-                    && available(index, close[index]) - m.icon_size - m.icon_title_spacing
+        let wanted_title: Vec<bool> = rest
+            .iter()
+            .zip(icon.iter().zip(&close))
+            .enumerate()
+            .map(|(index, (want, (&icon, &close)))| {
+                !want.is_hidden()
+                    && icon
+                    && available(index, close) - m.icon_size - m.icon_title_spacing
                         >= m.title_min_visible_width
             })
             .collect();
         let title = once(&wanted_title, start.shows_title);
-        (0..rest.len())
-            .map(|index| {
-                Self::new(icon[index], title[index], close[index], !title[index])
-                    .yielding_status(rest[index].close_replaces_status)
+        rest.iter()
+            .zip(icon.iter().zip(title.iter().zip(&close)))
+            .map(|(want, (&icon, (&title, &close)))| {
+                Self::new(icon, title, close, !title).yielding_status(want.close_replaces_status)
             })
             .collect()
     }
@@ -778,7 +806,8 @@ fn once(wanted: &[bool], start: bool) -> Vec<bool> {
     if start == end {
         return vec![end; wanted.len()];
     }
-    let first = wanted.iter().rposition(|&value| value != end).map_or(0, |index| index + 1);
+    let first =
+        wanted.iter().rposition(|&value| value != end).map_or(0, |index| index.saturating_add(1));
     (0..wanted.len()).map(|index| if index >= first { end } else { start }).collect()
 }
 

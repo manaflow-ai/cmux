@@ -204,8 +204,8 @@ impl List<'_> {
     }
 
     fn place_pinned(&self, out: &mut Layout, top: f64, has_more: bool) -> f64 {
-        let pinned: Vec<usize> =
-            (0..self.tabs.len()).filter(|&index| self.tabs[index].pinned).collect();
+        let pinned: Vec<(usize, &Tab)> =
+            self.tabs.iter().enumerate().filter(|(_, tab)| tab.pinned).collect();
         if pinned.is_empty() {
             return top;
         }
@@ -214,13 +214,17 @@ impl List<'_> {
             1
         } else {
             // `Int(_)` truncates toward zero.
-            (((self.row_width() + m.tile_spacing) / (m.tile_size + m.tile_spacing))
-                .trunc()
-                .max(1.0)) as usize
+            super::whole(
+                ((self.row_width() + m.tile_spacing) / (m.tile_size + m.tile_spacing))
+                    .trunc()
+                    .max(1.0),
+            )
         };
         out.pinned_columns = columns;
-        for (n, &index) in pinned.iter().enumerate() {
-            let (column, line) = (n % columns, n / columns);
+        for (n, &(index, tab)) in pinned.iter().enumerate() {
+            // `columns` is at least 1.
+            let (column, line) =
+                (n.checked_rem(columns).unwrap_or(0), n.checked_div(columns).unwrap_or(0));
             let x = if self.icons_only {
                 ((self.width - m.tile_size) / 2.0).round()
             } else {
@@ -233,7 +237,7 @@ impl List<'_> {
                 m.tile_size,
             );
             out.rows.push(Row {
-                kind: RowKind::Pinned(self.tabs[index].id.clone()),
+                kind: RowKind::Pinned(tab.id.clone()),
                 frame,
                 group: None,
                 index: Some(index),
@@ -428,14 +432,14 @@ impl List<'_> {
                     if let Some(group) = &row.group
                         && y <= f.max_y() + gap / 2.0
                     {
-                        let next = candidates.get(position + 1);
+                        let next = candidates.get(position.saturating_add(1));
                         let ends = next.is_none_or(|next| {
                             next.group.as_ref() != Some(group)
                                 || matches!(next.kind, RowKind::GroupHeader(_))
                         });
                         if ends {
                             return DropSlot {
-                                index: index + 1,
+                                index: index.saturating_add(1),
                                 group: Some(group.clone()),
                                 indicator: below(f),
                             };
