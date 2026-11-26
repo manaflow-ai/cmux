@@ -250,6 +250,11 @@ public final class AcpmuxHub {
             ConnectivityTelemetry.shared.record(.hub, "channel_closed", outcome: .failure,
                                                 fields: ["last_error": .text(self.lastError ?? "")])
             for source in self.liveSources { source.linkDown() }
+            if channel.closedBy?.code == "partial_message" {
+                // The transport retired only this channel to discard an unfinished JSON prefix.
+                // The link can still carry the queued prompt on a fresh channel.
+                await self.recover(from: connection, why: "partial_message", method: "write")
+            }
         }
         do {
             // `initialize` and the first page go out together: acpmux answers a connection's
@@ -1227,8 +1232,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         promptOutbox.unwritten().compactMap { promptPayloads[$0] }
     }
 
-    /// Hands a prompt (its attachments uploaded) to the outbox, which writes it now or after the
-    /// ones before it (the Mac gets them in order).
+    /// Preparation just completed. The outbox starts its hold here; the original tap still
+    /// orders it among the other prompts.
     private func sendPrompt(_ prompt: HeldPrompt) async {
         guard hub != nil else { return }
         let nowMs = ChatPromptClock.milliseconds(now())

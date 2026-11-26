@@ -831,7 +831,7 @@ impl ChannelWriteWatch {
     /// Whether this write queued bytes since the previous observation.
     pub fn take_progress(&self) -> bool {
         let accepted = self.accepted.load(Ordering::Relaxed);
-        self.last_observed.swap(accepted, Ordering::Relaxed) < accepted
+        self.last_observed.fetch_max(accepted, Ordering::Relaxed) < accepted
     }
 
     pub fn cancel(&self) {
@@ -879,6 +879,7 @@ mod channel_write_tests {
             watch.cancel();
             assert!(writing.await.unwrap().is_err());
             assert!(next.await.unwrap().is_err(), "another RPC cannot append to the partial one");
+            assert!(matches!(handle.recv().await, ChannelMessage::Closed { code, .. } if code == "partial_message"));
 
             let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
             let mut partial = mac.accept().await.unwrap().channel;
@@ -948,6 +949,7 @@ impl ChannelHandle {
     ) -> Result<(), CmuxMobileError> {
         let sender = Arc::clone(&self.sender);
         let lock = self.message_lock.clone();
+        let closed = Arc::clone(&self.closed);
         on_runtime(async move {
             let mut cancelled = watch.cancelled.subscribe();
             let _write = match &lock {
@@ -964,7 +966,9 @@ impl ChannelHandle {
                     // hostd has a prefix of this JSON message. Close this channel before the
                     // next writer can append to it; the hub opens a fresh channel on this link.
                     if lock.is_some() && watch.accepted.load(Ordering::Relaxed) != 0 {
-                        sender.close("cancelled", "partial message").await;
+                        *closed.lock().unwrap_or_else(PoisonError::into_inner) =
+                            Some(("partial_message".into(), "write was cancelled".into()));
+                        sender.close("partial_message", "write was cancelled").await;
                     }
                     Err(cmux_mobile_link::LinkError::ChannelClosed)
                 }
