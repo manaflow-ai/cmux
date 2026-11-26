@@ -1,6 +1,7 @@
 import { type ReactNode, useId, useState } from "react";
 import { Notice } from "../../ui/Notice";
 import { Clock } from "../../ui/Typography";
+import { CONNECTION_QUIET_MS } from "../../ui/lasting";
 import { type HostRestoring, hostRecoveryLine } from "./hostRetry";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
@@ -149,7 +150,7 @@ export function HostUnavailableLine({
 /// desktop's and the web's too. So the chip is drawn out of flow: HostLineSlot is a zero-height box in
 /// the dock, and the chip floats over the transcript's last pixels above the composer, so it appears
 /// and goes without moving one row (noLayoutShift.ts is the test). It shows only while the
-/// connection is down for real, as the transport says (hostRetry.ts `hostRecoveryLine`), never after a clock.
+/// host reports restoration past the shared connection quiet bound; a recovered link clears it at once.
 ///
 /// `variant` is for the gallery: `chip` (shipped) is a dot and one word beside the composer's top edge,
 /// `dot` only the dot (its words are the tooltip and the label), `corner` the chip in the pane's top
@@ -194,10 +195,9 @@ export function HostLineSlot({ children }: { children?: ReactNode }) {
 }
 
 /// The quiet line while the pane gets its chat back on its own (hostRetry.ts `hostRecoveryLine`):
-/// "Restoring sessions… m:ss" while the host says acpmux restores its chats, "Reconnecting…" while
-/// a lost connection comes back, as a ConnectionChip (out of flow). No button and no card: nothing
-/// waits on the person. Otherwise
-/// (`otherwise`) the host's other line, if any.
+/// "Restoring sessions… m:ss" only after restoration lasts CONNECTION_QUIET_MS. Ordinary reconnects
+/// stay silent. This out-of-flow chip never blocks the composer or displaces cached content;
+/// before the bound and after recovery, keep the host's other line (`otherwise`), if any.
 export function HostRecoveringLine({
   linkDown,
   restoring,
@@ -228,7 +228,7 @@ export function HostRecoveringLine({
   // prompt sent meanwhile goes once it is back (Leo, 2026-11-24: "let's just keep optimistically
   // connecting and reinforcing the connection"). Only a restore acpmux reports keeps its chip, and
   // the composer's status dot says even that once it is mounted.
-  if (!line || dotSays || line.kind !== "restoring") return otherwise;
+  if (!line || dotSays || line.kind !== "restoring" || line.waitedMs < CONNECTION_QUIET_MS) return otherwise;
   return (
     <ConnectionChip
       kind="restoring"

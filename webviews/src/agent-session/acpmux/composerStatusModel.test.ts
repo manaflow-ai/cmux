@@ -165,9 +165,9 @@ describe("items", () => {
       "status.agentService.reconnecting",
     ])
       expect(readStatusItem({ kind: "machineLink", level: "info", words, since: 1 })).toBeUndefined();
-    expect(readStatusItem({ kind: "machineLink", level: "attention", words: "status.machineLink.offline" })?.words).toBe(
-      "status.machineLink.offline",
-    );
+    expect(
+      readStatusItem({ kind: "machineLink", level: "attention", words: "status.machineLink.offline" })?.words,
+    ).toBe("status.machineLink.offline");
   });
 
   test("a peer link's status rides along with its link, absent from an older daemon", () => {
@@ -186,4 +186,20 @@ describe("items", () => {
     expect(restoring?.since).toBe(6_000);
     expect(hostRecoveryItem(undefined, 0)).toEqual({});
   });
+});
+
+test("restoring dot waits the host's quiet bound and cancels its wake on recovery", () => {
+  const host = { linkDown: true, restoring: { waitedMs: 4_000, at: 10_000 } };
+  const pending = hostRecoveryItem(host, 10_000).item!;
+  expect(statusDueAt(pending)).toBe(16_000);
+  expect(statusDueAt(hostRecoveryItem(host, 0).item!)).toBe(16_000);
+  expect(shown([pending], 15_999)).toEqual([]);
+  expect(shown([pending], 16_000)).toEqual([pending]);
+  expect(nextWake([statusDueAt(pending)], 10_000)).toBe(16_000);
+  const updated = hostRecoveryItem({ ...host, restoring: { waitedMs: 7_000, at: 13_000 } }, 13_000).item!;
+  expect(statusDueAt(updated)).toBe(16_000);
+  expect(hostRecoveryItem({ ...host, linkDown: false }, 14_000)).toEqual({});
+  const fresh = hostRecoveryItem({ linkDown: true, restoring: { waitedMs: 0, at: 20_000 } }, 20_000).item!;
+  expect(shown([fresh], 20_000)).toEqual([]);
+  expect(statusDueAt(fresh)).toBe(30_000);
 });
