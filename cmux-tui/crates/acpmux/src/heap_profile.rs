@@ -54,11 +54,13 @@ pub fn dump() -> serde_json::Value {
     }
     #[cfg(not(feature = "dhat-heap"))]
     {
-        let mut out = serde_json::json!({"available": false, "written": false});
+        let mut out = serde_json::Map::new();
+        out.insert("available".into(), false.into());
+        out.insert("written".into(), false.into());
         if let Some(malloc) = glibc_malloc() {
-            out["malloc"] = malloc;
+            out.insert("malloc".into(), malloc);
         }
-        out
+        serde_json::Value::Object(out)
     }
 }
 
