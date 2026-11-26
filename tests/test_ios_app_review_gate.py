@@ -1626,7 +1626,12 @@ class InternalSubmissionTests(unittest.TestCase):
         asc_keys = {"ASC_API_KEY_ID", "ASC_API_ISSUER_ID", "ASC_API_KEY_P8_BASE64"}
         self.assertEqual(gate_job["secrets"], {k: f"${{{{ secrets.{k} }}}}" for k in asc_keys})
         declared = self.triggers(self.workflow("ios-review-gate.yml"))["workflow_call"]["secrets"]
-        self.assertEqual(set(declared), asc_keys)
+        # The caller passes only the ASC key; the rest are declared for the gate's own
+        # push/PR runs (routing token, R2 cache save) and stay empty when called.
+        unpassed = {"GLAEDA_ROUTE_APP_KEY", "CI_CACHE_R2_ACCESS_KEY_ID",
+                    "CI_CACHE_R2_SECRET_ACCESS_KEY", "CI_CACHE_R2_ACCOUNT_ID"}
+        self.assertEqual(set(declared), asc_keys | unpassed)
+        self.assertFalse(set(gate_job["secrets"]) & unpassed)
         receipt_if = jobs["submission-receipt"]["if"]
         for need in ("needs.review-gate.result == 'success'", "needs.review-gate.outputs.blocking == '0'",
                      "needs.review-gate.outputs.sha == inputs.sha"):
