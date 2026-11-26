@@ -1713,6 +1713,32 @@ async fn a_send_right_after_a_start_through_the_hub_reaches_the_new_session() {
     b.shutdown_all().await;
 }
 
+/// A chat that lands here by a hub move is listed by a heartbeat then, not the timer's next: the
+/// hub routes `HOST/ID` only to a session a heartbeat listed, so a `last` right after a hub move
+/// answered `no_session` for up to 30 s (2026-11-26, the session-move-gcp probe's history step).
+#[tokio::test]
+async fn a_listing_heartbeat_names_a_chat_that_just_arrived_long_before_the_timer() {
+    let b = hub();
+    let fake = Arc::new(FakeHub::default());
+    let options = RelayOptions { heartbeat_every: Duration::from_secs(30), ..quick() };
+    let relay = MeshRelay::start(&b, fake.clone(), Arc::new(RefuseControl), options);
+    fake.until("B's first heartbeat", |s| !s.heartbeats.is_empty()).await;
+    let beats = fake.with(|s| s.heartbeats.len());
+    // The chat arrives after the first heartbeat, which listed nothing.
+    let session = Client::local(&b).new_session("moved-here").await;
+    relay.list_soon();
+    // Within the floor (2.5 s), far before the 30 s timer.
+    fake.until_within(Duration::from_secs(10), "a heartbeat listing the arrival", |s| {
+        s.heartbeats.len() > beats
+            && s.heartbeats
+                .last()
+                .is_some_and(|b| b.sessions.iter().any(|r| r.session_id == session))
+    })
+    .await;
+    relay.stop().await;
+    b.shutdown_all().await;
+}
+
 /// A relayed start runs under the owner's grant for its sender (`maxPolicy`): an entry without one
 /// holds an approve-all start to `ask` as a remote chain, and only an entry granting approve-all
 /// (what `host join` writes for the person's own machines) starts this machine's own chat in the

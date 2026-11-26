@@ -447,6 +447,12 @@ impl Hub {
         let finishing = std::time::Instant::now();
         let moved = self.transfer_finish(&finish).await?;
         let finish_ms = finishing.elapsed().as_millis() as u64;
+        // The landed chat goes into the hub's address book with a heartbeat now, not the timer's
+        // next (up to 30 s off): the hub routes `HOST/ID` only to a session a heartbeat listed,
+        // so a `last` or `send` right after a hub move answered `no_session` (2026-11-26, the
+        // session-move-gcp probe's history step on 9 of 10 passes). Not waited for: the chat
+        // is live here already, and the source's freeze ends with this answer.
+        self.list_on_mesh();
         let mut moved =
             json!({"sessionId": moved.get("sessionId").cloned().unwrap_or(json!(session_id))});
         moved.set("cwd", json!(cwd));
@@ -456,6 +462,16 @@ impl Hub {
                    "pagesMs": pages_ms, "finishMs": finish_ms, "via": via}),
         );
         Ok(answer(moved))
+    }
+
+    /// A heartbeat that lists this daemon's sessions, as soon as the relay's floor lets it, not
+    /// waited for; nothing without a running relay (or while an enroll swaps it).
+    fn list_on_mesh(&self) {
+        if let Ok(relay) = self.mesh_relay.try_lock()
+            && let Some(relay) = relay.as_ref()
+        {
+            relay.list_soon();
+        }
     }
 
     /// Every file `manifest` lists, read page by page from the source's `transfer_id` and

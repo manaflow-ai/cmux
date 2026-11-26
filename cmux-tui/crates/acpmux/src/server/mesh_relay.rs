@@ -91,6 +91,7 @@ impl Default for RelayOptions {
 pub struct MeshRelay {
     stop: Arc<watch::Sender<bool>>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
+    beat: Arc<Beat>,
 }
 
 impl MeshRelay {
@@ -135,10 +136,25 @@ impl MeshRelay {
                 }
             });
         };
-        let inbox =
-            inbox(Arc::downgrade(hub), client, control, options, own, beat, refusals, stopped);
+        let inbox = inbox(
+            Arc::downgrade(hub),
+            client,
+            control,
+            options,
+            own,
+            beat.clone(),
+            refusals,
+            stopped,
+        );
         let tasks = vec![tokio::spawn(beats), tokio::spawn(inbox)];
-        Self { stop, tasks }
+        Self { stop, tasks, beat }
+    }
+
+    /// A heartbeat that lists this daemon's sessions as soon as the floor lets it, not waited for.
+    /// A chat that just landed here by a hub move goes into the hub's address book with it
+    /// (`hub/transfer_pull.rs`), not with the timer's next heartbeat.
+    pub fn list_soon(&self) {
+        self.beat.ask();
     }
 
     /// Whether its loops have ended: stopped or the daemon stopping. A refusal from the mesh hub
@@ -314,10 +330,16 @@ impl Beat {
     /// A heartbeat now (no sooner than the floor after the last one), and its taking, waited
     /// for at most `within`.
     async fn now(&self, within: Duration) {
-        let want = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let mut listed = self.listed.subscribe();
-        self.nudge.notify_one();
+        let want = self.ask();
         let _ = tokio::time::timeout(within, listed.wait_for(|n| *n >= want)).await;
+    }
+
+    /// A heartbeat requested, not waited for; the request a heartbeat must cover.
+    fn ask(&self) -> u64 {
+        let want = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        self.nudge.notify_one();
+        want
     }
 
     /// The requests a heartbeat reading the sessions now covers.
