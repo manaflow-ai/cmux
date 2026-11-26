@@ -74,7 +74,8 @@ case "$cmd" in
     plutil -lint "$ents" >/dev/null || die "the nightly's entitlements are not a plist"
     want="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["ref"])' "$overlay/build.json")"
     have="$(plutil -extract CMUXCommit raw -o - "$app_out/Contents/Info.plist" 2>/dev/null || true)"
-    [[ "$want" == "$have" ]] || die "the overlay is of $want, the nightly of ${have:-no CMUXCommit}: not the same commit"
+    # nightly.yml stamps CMUXCommit with the short sha and build.json carries the full one: the same commit is a prefix.
+    [[ "$have" =~ ^[0-9a-f]{7,40}$ && "$want" == "$have"* ]] || die "the overlay is of $want, the nightly of ${have:-no CMUXCommit}: not the same commit"
     bash "$root/scripts/cmux-next/swap-binary.sh" place "$app_out" "$overlay" >&2
     # The Live mode mark (docs/cmux-next/live-code.md): a live code build's Info.plist says so.
     /usr/libexec/PlistBuddy -c 'Delete :CMUXLiveCodeBuild' "$app_out/Contents/Info.plist" 2>/dev/null || true

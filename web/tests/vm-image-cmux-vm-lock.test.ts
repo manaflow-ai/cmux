@@ -506,6 +506,39 @@ describe("cmux-browser-host 1.0.0-r1 in the browser role (release cmux-browser-h
   });
 });
 
+describe("codex ships codex-code-mode-host beside codex (2026-11-25: every Cloud Codex tool call failed to spawn the host)", () => {
+  const lock = readInputsLock();
+  const codexIndex = () => fresh().programs.findIndex((p: { name: string }) => p.name === "codex");
+  const HOST = "bin/codex-code-mode-host";
+
+  test("the lock lists the host beside the codex binary", () => {
+    const codex = lock.programs.find((p) => p.name === "codex")!;
+    expect(codex.companions).toEqual([HOST]);
+    expect(Object.values(codex.bin)[0]).toBe("bin/codex");
+  });
+
+  test("the install refuses an archive without the host before it moves into the store", () => {
+    const codex = lock.programs.find((p) => p.name === "codex")!;
+    const cmd = programInstallCommand(codex);
+    expect(cmd).toContain(`test -x /opt/cmux/store/${codex.sha256}.partial/${HOST}`);
+    expect(cmd.indexOf(`/${HOST}`)).toBeLessThan(cmd.indexOf("chmod -R a-w"));
+  });
+
+  test("a codex entry without the host is refused with the reason", () => {
+    const raw = fresh();
+    delete raw.programs[codexIndex()].companions;
+    expect(problemsOf(raw)).toContain(
+      `programs[${codexIndex()}].companions: codex spawns codex-code-mode-host from beside bin/codex; list ${HOST} (an archive without it breaks every tool call)`,
+    );
+  });
+
+  test("a companion must be a relative path inside the store entry", () => {
+    const raw = fresh();
+    raw.programs[codexIndex()].companions = ["../codex-code-mode-host"];
+    expect(problemsOf(raw)).toContain(`programs[${codexIndex()}].companions: must be a non-empty array of relative paths inside the store entry`);
+  });
+});
+
 describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> on manaflow-ai/cmux)", () => {
   const entry = (version = "0.1.0") => ({ ...cmuxRdReleaseShape(version), sha256: "cd".repeat(32), size: 4096 });
   const withRd = (patch: Record<string, unknown> = {}) => {
@@ -557,7 +590,7 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
       const program = { ...cmuxRdReleaseShape("0.1.0"), sha256, size: bytes.length, url: `file://${archive}`, checksumsUrl: undefined, checksumsName: undefined };
       const store = path.join(dir, "store");
       const command = programInstallCommand(program).replaceAll("/opt/cmux/store", store).replaceAll("/tmp/cmux-dl", path.join(dir, "dl"));
-      const r = await runChild("bash", ["-c", command], { timeout: 60_000 });
+      const r = await runChild("bash", ["-c", command], { timeout: 60_000, env: { ...process.env, CMUX_PINNED_MIRROR: "" } });
       expect(r.stderr).toBe("");
       expect(r.status).toBe(0);
       const entry = path.join(store, sha256);
@@ -632,5 +665,40 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     expect(problemsOf(withRd({ checksumsUrl: undefined, checksumsName: undefined })).some((p) => p.startsWith(`programs[${at}].checksumsUrl: must be`))).toBe(true);
     expect(problemsOf(withRd({ roles: ["cua"] }))).toContain(`programs[${at}].roles: cmux-rd is in the desktop role`);
     expect(problemsOf(withRd({ firstUse: true })).some((p) => p.includes("cmux-rd is baked"))).toBe(true);
+  });
+});
+
+describe("the Antigravity CLI (agy) in the store", () => {
+  // Leo 2026-11-25: "we'll want to set up antigravity/antigravity cli and opencode capable".
+  test("is baked as `agy` (acpmux runs `agy acp`) for both architectures, version-checked", () => {
+    const lock = parseInputsLock(lockText);
+    const agy = bakedPrograms(lock).find((p) => p.name === "agy");
+    expect(agy).toBeDefined();
+    expect(agy!.format).toBe("tar.gz");
+    expect(agy!.bin).toEqual({ agy: "antigravity" });
+    expect(agy!.versionArgs).toEqual(["--version"]);
+    expect(agy!.expect).toBe(agy!.version);
+    expect(agy!.url).toContain(`/antigravity-cli/${agy!.version}-`);
+    expect(agy!.otherArches?.aarch64?.url).toContain(`/antigravity-cli/${agy!.version}-`);
+    expect(programChecksCommand(lock)).toContain("agy --version");
+  });
+
+  test("its own updater is off in login shells and the systemd user manager", async () => {
+    const { agyProfileScript, agyUserEnvironment, AGY_PROFILE_PATH, AGY_USER_ENV_PATH } = await import("../scripts/cmux-vm-image/bake");
+    expect(AGY_PROFILE_PATH).toStartWith("/etc/profile.d/");
+    expect(AGY_USER_ENV_PATH).toStartWith("/etc/environment.d/");
+    expect(agyProfileScript()).toContain("\nexport AGY_CLI_DISABLE_AUTO_UPDATE=1\n");
+    expect(agyUserEnvironment()).toContain("\nAGY_CLI_DISABLE_AUTO_UPDATE=1\n");
+  });
+
+  test("acpmux.service finds the store CLIs without its login shell read (roll 45862819601)", async () => {
+    const { acpmuxStorePathDropIn, ACPMUX_STORE_PATH_DROPIN } = await import("../scripts/cmux-vm-image/bake");
+    const { ACPMUX_UNIT_PATH } = await import("../services/vms/drivers/cmuxTuiDaemon");
+    expect(ACPMUX_STORE_PATH_DROPIN).toBe("/etc/systemd/user/acpmux.service.d/10-cmux-store-path.conf");
+    const lines = acpmuxStorePathDropIn().split("\n");
+    expect(lines).toContain("[Service]");
+    const pathLine = lines.find((l) => l.startsWith("Environment=PATH="));
+    // The store first, as a login shell orders it, then every entry of the unit's own PATH.
+    expect(pathLine).toBe(`Environment=PATH=/opt/cmux/github/bin:/opt/cmux/current/bin:${ACPMUX_UNIT_PATH}`);
   });
 });

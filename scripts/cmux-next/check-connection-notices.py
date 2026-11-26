@@ -33,7 +33,8 @@ when it
 The allowlist only shrinks: with --base REV a row the list at REV lacks fails (a unit that moved to another file
 under the same name keeps its row), and a row whose unit no longer shows an unbounded connection state (fixed,
 renamed or deleted, by any file) fails as stale until a change removes it. Every unlisted offender is judged on
-every run, with or without --base. The unit is the granularity: a component with
+every run, with or without --base. Passive inline JSX words move to each component mounting them, including
+named imports and aliases; unsupported uses retain a finding in the presenter. The unit is the granularity: a component with
 any button passes, so the check catches a new state drawn with nothing to do, not a button that does the wrong thing.
 
     python3 scripts/cmux-next/check-connection-notices.py                     # the working tree
@@ -107,8 +108,8 @@ ERROR_TYPE = re.compile(r"(Error|Failure|Errors|Failures)$")
 TIME_GATES = re.compile(
     r"\b("
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
-    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows"  # web holds
-    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|connectionChip|connectionLasting"  # native holds
+    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows|useAutoRetry|stillTrying|useLinkDownSaid|LINK_DOWN_SAID_MS"  # web holds
+    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|AutoRetry|connectionChip|connectionLasting"  # native holds
     r")\b"
 )
 # A gate helper called with a literal grace: `useLasting(x, 500)`, `useAfterDelay(x, 1_000)`.
@@ -372,6 +373,9 @@ def scan(tree: Tree) -> list[Unit]:
     bound = policy_bound_ms(tree)
     units: dict[str, Unit] = {}
     imports: dict[str, list[tuple[str, str]]] = {}  # file -> (local name, resolved module path without suffix)
+    presenter_imports: dict[str, list[tuple[str, str, str]]] = {}
+    opaque_modules: set[str] = set()
+    unresolved_exports: set[str] = set()
     for path in files:
         surface = surface_of(path)
         if surface is None or not path.endswith(SOURCE_SUFFIXES) or SKIP.search(path):
@@ -379,11 +383,30 @@ def scan(tree: Tree) -> list[Unit]:
         source = strip_comments(tree.read(path))
         lines = source.split("\n")
         if path.endswith((".ts", ".tsx")):
-            imports[path] = [
-                (binding.strip().split(" as ")[-1].strip(), resolve_spec(path, m.group(2)))
-                for m in TS_IMPORT.finditer(source) if m.group(2).startswith(".")
-                for binding in m.group(1).split(",") if binding.strip() and binding.strip() != "type"
-            ]
+            imports[path] = []
+            for match in TS_IMPORT.finditer(source):
+                target = resolve_spec(path, match[2]) if match[2].startswith(".") else None
+                for binding in match[1].split(","):
+                    binding = binding.strip()
+                    if binding and binding != "type":
+                        exported, _, local = binding.partition(" as ")
+                        local = local.strip() or exported
+                        if target is None:
+                            # Bundler aliases or bare specifiers are not relative module paths. An
+                            # unresolved import of this export can hide another JSX consumer.
+                            unresolved_exports.add(exported.strip())
+                        else:
+                            imports[path].append((local, target))
+                            if not exported.startswith("type "):
+                                presenter_imports.setdefault(target, []).append((path, exported.strip(), local))
+            # A default, namespace, re-export or dynamic module edge cannot identify every drawing.
+            other_imports = TS_IMPORT.sub("", source)
+            for match in re.finditer(r"""(?:\bfrom\s*|\b(?:import|require)\s*\(\s*)["']([^"']+)["']""", other_imports):
+                if match[1].startswith("."):
+                    opaque_modules.add(resolve_spec(path, match[1]))
+                else:
+                    # Only the filename survives an unknown namespace/default/dynamic alias.
+                    opaque_modules.add(re.sub(r"\.(tsx?|js)$", "", match[1]).rsplit("/", 1)[-1])
         for name, first, last in units_of(path, source):
             uid = f"{path}::{name}"
             unit = units.setdefault(uid, Unit(path, name, surface))
@@ -410,12 +433,66 @@ def scan(tree: Tree) -> list[Unit]:
                               if int(m.group(2).replace("_", "")) < bound]
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
+    drawn_actions(units, imports)
     propagate(units, imports)
+    attribute_presenters(units, presenter_imports, opaque_modules, unresolved_exports)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
     return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name)]
+
+
+# A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
+# holds some other click (a disclosure, a row) does not lend it to the words beside it.
+DRAWN_ACTION = re.compile(r"[A-Z]\w*(?:Button|Action|Actions)$")
+# A web component the unit draws whose name says it is a button (`<ConnectButton onConnect={...} />`). One the tree
+# declares (in the file or imported from it) lends its action only if it carries one (drawn_actions); one declared
+# out of sight (a kit package) is taken at its name.
+DRAWN_BUTTON = re.compile(r"<([A-Z]\w*Button)\b")
+
+
+def drawn_actions(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
+    """A web view that draws a button component (`<ConnectButton onConnect={...} />`, its `<button onClick>` inside)
+    carries that action too: the button sits on the same card as the words. The component is named for its action
+    (DRAWN_ACTION) and declared in the same file or imported into it; a few hops, so a button wrapping a button counts."""
+    acted_by_file: dict[str, set[str]] = {}
+    path_of: dict[str, str] = {}  # module path without suffix (and without a trailing /index) -> file
+    for unit in units.values():
+        if unit.path.endswith(".tsx"):
+            stem = unit.path[:-len(".tsx")]
+            path_of[stem] = unit.path
+            path_of.setdefault(stem.rsplit("/index", 1)[0], unit.path)
+    declared_by_file: dict[str, set[str]] = {}
+    for unit in units.values():
+        if unit.path.endswith(".tsx"):
+            declared_by_file.setdefault(unit.path, set()).add(unit.name)
+    for unit in units.values():
+        if unit.acted or not unit.path.endswith(".tsx"):
+            continue
+        known = set(declared_by_file.get(unit.path, set()))
+        known |= {local for local, target in imports.get(unit.path, [])
+                  if local in declared_by_file.get(path_of.get(target, ""), set())}
+        if any(name not in known for name in DRAWN_BUTTON.findall("\n".join(unit.lines))):
+            unit.acted = True
+    for _round in range(3):
+        acted_by_file = {}
+        for unit in units.values():
+            if unit.acted and unit.path.endswith(".tsx") and DRAWN_ACTION.match(unit.name):
+                acted_by_file.setdefault(unit.path, set()).add(unit.name)
+        moved = False
+        for unit in units.values():
+            if unit.acted or not unit.path.endswith(".tsx"):
+                continue
+            names = set(acted_by_file.get(unit.path, set())) - {unit.name}
+            for local, target in imports.get(unit.path, []):
+                if local in acted_by_file.get(path_of.get(target, ""), set()):
+                    names.add(local)
+            if names and re.search(r"<(?:%s)\b" % "|".join(sorted(map(re.escape, names))), "\n".join(unit.lines)):
+                unit.acted = True
+                moved = True
+        if not moved:
+            break
 
 
 def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
@@ -484,6 +561,79 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin))
             unit.hits = []
             moved = True
+        if not moved:
+            break
+
+
+# Inline text can share its containing row's action. A notice, alert, live region or stateful view
+# owns its own connection state even when a larger page also contains a button.
+INLINE_TAGS = {"span", "small", "strong", "em", "b", "i"}
+OPEN_TAG = re.compile(r"<([A-Za-z][\w.:-]*)(?=[\s/>])")
+RETURN_TAG = re.compile(r"(?:\breturn|=>)\s*\(?\s*<([A-Za-z]\w*)(?=[\s/>])")
+
+
+def inline_presenter(unit: Unit) -> bool:
+    if not unit.path.endswith(".tsx") or not unit.name[:1].isupper() or unit.literal_grace:
+        return False
+    body = "\n".join(unit.lines)
+    if not RETURN_TAG.search(body) or re.search(r"""\baria-live\s*=|\brole\s*=|\buse(?!\w*Strings\b|T\b)\w+\(""", body):
+        return False
+    tags = set(OPEN_TAG.findall(body))
+    # A pure forwarding wrapper may render the very child from which it just received the hit.
+    children = {hit.text.split(": ", 1)[0] for hit in unit.hits if hit.hops}
+    return tags <= INLINE_TAGS | children
+
+
+def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[str, str, str]]],
+                         opaque_modules: set[str], unresolved_exports: set[str]) -> None:
+    """Follow known JSX mounts of passive inline copy to each drawing. A value use, orphan,
+    recursive mount or unresolved import keeps the leaf finding. A slot such as pill={<Pill />}
+    belongs to the caller composing that card and its controls."""
+    by_file: dict[str, list[Unit]] = {}
+    for unit in units.values():
+        by_file.setdefault(unit.path, []).append(unit)
+    for _ in range(4):  # same bounded depth as copy propagation; longer chains retain a finding
+        moved = False
+        for unit in units.values():
+            if unit.ok or not inline_presenter(unit) or max(h.hops for h in unit.hits) >= 4:
+                continue
+            stem = unit.path[:-len(".tsx")]
+            targets = {stem, stem.removesuffix("/index")}
+            if unit.name in unresolved_exports or any(
+                target in opaque_modules or target.rsplit("/", 1)[-1] in opaque_modules for target in targets
+            ):
+                continue
+            bindings = {(unit.path, unit.name)}
+            bindings.update((path, local) for target in targets for path, exported, local in imports.get(target, ())
+                            if exported == unit.name)
+            consumers: dict[tuple[str, str], tuple[Unit, int, str]] = {}
+            unresolved = False
+            for path, local in sorted(bindings):
+                name = re.escape(local)
+                reference = re.compile(rf"(?P<tag></?)?\b{name}\b")
+                for other in by_file.get(path, []):
+                    lines = other.lines
+                    if other.name == "<file>":
+                        lines = TS_IMPORT.sub(lambda m: "\n" * m[0].count("\n"), "\n".join(lines)).split("\n")
+                    for index, line in enumerate(lines):
+                        if other is unit and index == 0:
+                            # The declaration introduces this name; retain recursive uses on the very same line.
+                            line = re.sub(rf"\b(function|const|let)\s+{name}\b", "", line, count=1)
+                        for ref in reference.finditer(line):
+                            quoted = any(s.start() <= ref.start() < s.end() for s in STRING_LITERAL.finditer(line))
+                            mounted = (not quoted and ref["tag"] == "<"
+                                       and re.match(r"(?:\s|/?>|$)", line[ref.end():]))
+                            if mounted and other is not unit and other.name != "<file>":
+                                consumers.setdefault((other.id, local), (other, index, local))
+                            elif ref["tag"] != "</":
+                                unresolved = True
+            if consumers and not unresolved:
+                for other, index, local in consumers.values():
+                    for hit in unit.hits:
+                        other.hits.append(Hit(other.numbers[index], f"{local}: {hit.text}", index,
+                                              hit.hops + 1, hit.origin))
+                unit.hits = []
+                moved = True
         if not moved:
             break
 

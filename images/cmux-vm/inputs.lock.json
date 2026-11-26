@@ -647,27 +647,27 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "67d01201b152cf703af3a9adab5bba27544acf99",
-      "url": "https://files.cmux.com/cmux-tui/67d01201b152cf703af3a9adab5bba27544acf99/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "644dfc6b00e388745cd490f067cd6d6540e74bbb4f73a7a955c7f559eacdfc2d",
-      "size": 156603856,
+      "version": "ee905dc44cc2bf3e64c09ed994afed450ff223f4",
+      "url": "https://files.cmux.com/cmux-tui/ee905dc44cc2bf3e64c09ed994afed450ff223f4/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "c2d3b6216ff10095921655707b885c982932f549f9e58267a7306e5250e16690",
+      "size": 173177552,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/67d01201b152cf703af3a9adab5bba27544acf99/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45351419018; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/ee905dc44cc2bf3e64c09ed994afed450ff223f4/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45891154850; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "67d01201b152cf703af3a9adab5bba27544acf99",
-      "url": "https://files.cmux.com/cmux-tui/67d01201b152cf703af3a9adab5bba27544acf99/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "291bd6fef2b55d7a3476680cfcf27e58f146182e066b75ca996450ce11d045d5",
-      "size": 4936256,
+      "version": "ee905dc44cc2bf3e64c09ed994afed450ff223f4",
+      "url": "https://files.cmux.com/cmux-tui/ee905dc44cc2bf3e64c09ed994afed450ff223f4/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "726f4077943c8e940488a03ff683515d090c25a6b5db5d098becc02a778c24f1",
+      "size": 2520944,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/67d01201b152cf703af3a9adab5bba27544acf99/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45351419018; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/ee905dc44cc2bf3e64c09ed994afed450ff223f4/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45891154850; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "optchat-chief",
@@ -716,6 +716,7 @@
       "size": 160727443,
       "format": "tar.gz",
       "bin": { "codex": "bin/codex" },
+      "companions": ["bin/codex-code-mode-host"],
       "versionArgs": ["--version"],
       "expect": "0.160.0"
     },
@@ -774,6 +775,25 @@
       "bin": { "grok": "grok" },
       "versionArgs": ["--version"],
       "expect": "1.0.77"
+    },
+    {
+      "name": "agy",
+      "version": "1.5.17",
+      "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17-4823843970351104/linux-x64/cli_linux_x64.tar.gz",
+      "sha256": "6304b4f592ae97e59231cfb1b365ee29c155750c9a881f0cc8efe5f5281077cf",
+      "size": 102886235,
+      "format": "tar.gz",
+      "bin": { "agy": "antigravity" },
+      "versionArgs": ["--version"],
+      "expect": "1.5.17",
+      "otherArches": {
+        "aarch64": {
+          "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17-4823843970351104/linux-arm/cli_linux_arm64.tar.gz",
+          "sha256": "d6d2b88493e6e02854da478b215cd1dd98fd8cf985b6be37829dacadea4ffc07",
+          "size": 93662528
+        }
+      },
+      "source": "Antigravity CLI 1.5.17 from the official installer's release manifests (https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json and linux_arm64.json, read 2026-11-25). Each archive holds one file, `antigravity`, linked here as `agy`. The manifests' sha512 values matched the downloads: x64 71a967aa16e0ab5d87196bcd6772130bdab55b2fd768cd24d21b1da401ff9f60280b976cad3dc14a2d646233b0eaf8caf87c490eed73044d54550cbb3d8d67d2, arm64 e4f086d0730b325cfd438ea90396ee78eb23a3110ef7f792824c8817b8d0432462b7b5f91b3d933fc1932a6f4ba73de505e2e96f44448c9fb2427292ead716f7. The sha256 values and sizes are those downloads'. `agy install`, which edits shell profiles, is never run."
     },
     {
       "name": "workerd",
@@ -937,6 +957,10 @@
     "repo": "https://github.com/manaflow-ai/cmux.git",
     "branch": "feat-cmux-next",
     "dir": "/home/cmux/cmux",
+    "bundleLists": [
+      "https://ci-cache-next.cmux.com/v1/any/git-bundle/cmux-blobless-rolling.list",
+      "https://ci-cache-next.cmux.com/v1/any/git-bundle/cmux-blobless.list"
+    ],
     "submodules": ["ghostty-next"],
     "aptRoots": ["libclang-dev"],
     "apt": {

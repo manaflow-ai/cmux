@@ -246,6 +246,15 @@ int32_t cmux_rd_session_note_frame_presented(CmuxRdSession *session, uint16_t st
 /* Writes the stage ledger so far as one UTF-8 JSON object. CMUX_RD_ERR_BUFFER
    when cap is too small; *out_len then holds the size needed. */
 int32_t cmux_rd_session_stage_ledger(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
+/* Session report (cmux.rd-session-report/1). The viewer began connecting at
+   at_us (the clock passed to push_*): the report's first frame counts from
+   the first call. */
+int32_t cmux_rd_session_note_connect_started(CmuxRdSession *session, uint64_t at_us);
+/* Writes this session's report so far (connect to first frame on glass,
+   display-to-glass and Present p50/p95 over every presented frame) as one
+   UTF-8 JSON object. CMUX_RD_ERR_BUFFER when cap is too small; *out_len then
+   holds the size needed. */
+int32_t cmux_rd_session_report(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
 /* The offset of the host's clock from this viewer's (host = viewer +
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */
@@ -534,8 +543,41 @@ int32_t cmux_rd_line_reader_push(CmuxRdLineReader *reader, const uint8_t *bytes,
    when none is ready. */
 int32_t cmux_rd_line_reader_next(CmuxRdLineReader *reader, CmuxRdLine *out);
 
+/* ---- Mac Screen and cmux Remote UI rules (stateless JSON calls) ----
+   A request is {"op": "<area>.<name>", "args": {...}}; the answer is
+   {"ok": <value>} or {"err": "<why>"} (src/ui/mod.rs lists the ops). No I/O,
+   no threads, no clock: a rule that needs the time takes now_ms. */
+/* CMUX_RD_OK with *out and *out_len set to the answer JSON, which the caller
+   frees with cmux_rd_ui_free; CMUX_RD_ERR_NULL / CMUX_RD_ERR_PANIC otherwise. */
+int32_t cmux_rd_ui_call(const uint8_t *json, size_t json_len, uint8_t **out, size_t *out_len);
+/* Frees one answer of cmux_rd_ui_call; NULL is ignored. */
+void cmux_rd_ui_free(uint8_t *ptr, size_t len);
+
+/* ---- Viewer rules (CmuxNextRemoteView) ----
+   The remote desktop viewer's rules and state (cmux_rd_ffi::view): keyboard
+   routing, held keys and HID usages, the system shortcut tap, scroll
+   accumulation, text chunking, the pane state reducer and the latency hold,
+   and the remote-view tab record (URL) and open policy. A request is JSON
+   {"op": "...", ...camelCase fields}; ops are keyboard.*, hid.*, keys.*,
+   mouse.button, shortcuts.*, scroll.add, text.events, pane.reduce, pane.view,
+   latency.sample and tab.*. Every op is pure: state in, next state out.
+   Modifiers are NSEvent.ModifierFlags raw bits, phases NSEvent.Phase bits,
+   instants nanoseconds (int64). The result bytes stay valid until the next
+   call on the same handle. No I/O, no threads; a panic poisons the handle. */
+typedef struct CmuxRdView CmuxRdView;
+
+/* NULL only when allocation fails. */
+CmuxRdView *cmux_rd_view_new(void);
+/* NULL is ignored. */
+void cmux_rd_view_free(CmuxRdView *view);
+/* Runs one request. CMUX_RD_OK with *result and *result_len set (JSON);
+   CMUX_RD_ERR_INVALID when json is not a request. */
+int32_t cmux_rd_view_call(CmuxRdView *view, const uint8_t *json, size_t json_len,
+                          const uint8_t **result, size_t *result_len);
+
 #ifdef __cplusplus
 }
 #endif
+
 
 #endif /* CMUX_RD_FFI_H */

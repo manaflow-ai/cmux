@@ -27,8 +27,8 @@ jobs:
   benches:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    # The script's 90-minute bench budget plus setup.
-    timeout-minutes: 115
+    # The script's 90-minute bench budget plus setup, plus the state read's rate-limit waits.
+    timeout-minutes: 160
     permissions:
       actions: read
       contents: read
@@ -50,6 +50,8 @@ jobs:
 
       # An unread state stops the job (after retries): the plan and the state are never written from nothing.
       - name: Read the last state
+        # Room for two waits on GitHub's rate-limit reset (20 min cap each).
+        timeout-minutes: 45
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/nightly_interaction_latency.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/prev"
@@ -74,7 +76,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Install webview dependencies
         if: steps.plan.outputs.count != '0'

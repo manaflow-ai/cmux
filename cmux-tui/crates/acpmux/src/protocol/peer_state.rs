@@ -53,11 +53,16 @@ pub enum MachineLink {
     /// A Cloud machine that is paused; it resumes on use. Not sent by acpmux yet (the Cloud
     /// carrier does not carry acpmux until carrier slice 3); a renderer draws it when sent.
     Paused,
+    /// Not dialed, on purpose: nothing has used it since this daemon started, or its link closed
+    /// after it went unused (`peer_demand.rs`). Using it connects it; it was reachable when last
+    /// linked, unless it is `offline` instead. Folded to `connected` for an older app, which then
+    /// lets a person pick it, and the pick connects it.
+    Idle,
 }
 
 impl MachineLink {
     /// Every state, in the order of the enum: a renderer's table test walks it.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::Connected,
         Self::Connecting,
         Self::Reconnecting,
@@ -67,12 +72,13 @@ impl MachineLink {
         Self::AuthFailed,
         Self::UpdateRequired,
         Self::Paused,
+        Self::Idle,
     ];
 
     /// Its `state` for an app that knows only the five older words.
     pub fn folded(self) -> PeerLinkState {
         match self {
-            Self::Connected => PeerLinkState::Connected,
+            Self::Connected | Self::Idle => PeerLinkState::Connected,
             Self::Connecting => PeerLinkState::Connecting,
             Self::Reconnecting | Self::Restarting => PeerLinkState::Reconnecting,
             Self::Degraded => PeerLinkState::Degraded,
@@ -94,6 +100,7 @@ impl MachineLink {
             Self::AuthFailed => "authFailed",
             Self::UpdateRequired => "updateRequired",
             Self::Paused => "paused",
+            Self::Idle => "idle",
         }
     }
 }
@@ -290,6 +297,10 @@ pub struct PeerStateChanged {
     /// What a person does about `reason`; null when there is none.
     #[serde(default)]
     pub action: Option<OfflineAction>,
+    /// The composer status dot's item for this link (`composer_status::machine_link_item`);
+    /// null while the link is up or paused, and from an older acpmux.
+    #[serde(default)]
+    pub status: Option<super::composer_status::StatusItem>,
     /// Why the route last went down (a failed dial, or a path that died while another
     /// answered); null before any did, or when no failure so far had a type. Kept while the
     /// link is up again, so a surface can say why it moved. A word this build does not know (a
@@ -325,6 +336,7 @@ mod tests {
             next_retry_at: None,
             reason: None,
             action: None,
+            status: None,
             down_reason: Some(DialFail::PathChanged),
             last_seen: None,
             error: None,
@@ -354,6 +366,7 @@ mod tests {
         }
         assert_eq!(MachineLink::Restarting.folded(), PeerLinkState::Reconnecting);
         assert_eq!(MachineLink::AuthFailed.folded(), PeerLinkState::Offline);
+        assert_eq!(MachineLink::Idle.folded(), PeerLinkState::Connected);
     }
 
     /// Every reason has one wire word (the design's kebab-case words) and its own action.

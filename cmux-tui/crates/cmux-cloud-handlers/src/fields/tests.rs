@@ -164,6 +164,26 @@ fn the_created_answer_carries_bootstrap_repo_and_machine_config() {
 }
 
 #[test]
+fn a_create_with_options_says_whether_its_machine_was_reused() {
+    let made = |created: f64| -> Created {
+        serde_json::from_value(json!({
+            "machine": {"id": "vm-5", "title": "t", "status": "running", "createdAt": created},
+            "askedAt": 1_764_000_000.0,
+        }))
+        .unwrap()
+    };
+    let reused = created(&NewMachine::default(), &made(1_764_000_000.0 - 600.0));
+    assert_eq!(reused["reused"], json!(true));
+    let own = created(&NewMachine::default(), &made(1_764_000_000.0 + 40.0));
+    assert_eq!(own["reused"], json!(false));
+    assert!(own["created_at"].is_string());
+    // NaN or infinite times (a broken record) claim nothing.
+    let mut broken = made(0.0);
+    broken.machine.created_at = Some(f64::NAN);
+    assert!(!created(&NewMachine::default(), &broken).contains_key("reused"));
+}
+
+#[test]
 fn a_create_with_no_script_says_none() {
     let made: Created = serde_json::from_value(json!({
         "machine": {"id": "vm-4", "title": "t", "status": "running"},
@@ -286,6 +306,28 @@ fn machine_status_prints_the_disk_bar_and_its_split() {
     let none = status(json!({}));
     assert!(!describe(&none).contains("disk"));
     assert!(status_fields(&none).get("disk").is_none());
+}
+
+#[test]
+fn machine_status_names_the_chats_on_the_disk_and_its_last_eviction() {
+    let g = 1024_u64.pow(3);
+    let status: Status = serde_json::from_value(json!({
+        "machineId": "vm-1", "title": "box", "status": "running", "state": "running",
+        "diskTotalMb": 20480.0, "diskUsedMb": 10240.0, "diskFreeMb": 10240.0,
+        "diskChats": [{"id": "c-a", "bytes": 4 * g}, {"id": "c-b", "bytes": g}, {"id": "c-c", "bytes": g / 2},
+            {"id": "c-d", "bytes": 1}],
+        "diskEvicted": {"at": 1_700_000_000_000_u64, "freedBytes": 3 * g, "paths": ["/home/u/.npm/_cacache"]},
+    }))
+    .unwrap();
+    let text = describe(&status);
+    assert!(text.contains("\ndisk chats: c-a 4, c-b 1, c-c 0.5 GB, 1 more\n"), "{text}");
+    assert!(
+        text.contains("\ndisk cleared: 3 GB of caches and idle build output at 1700000000000"),
+        "{text}"
+    );
+    let fields = status_fields(&status);
+    assert_eq!(fields["disk_chats"][0]["id"], json!("c-a"));
+    assert_eq!(fields["disk_evicted"]["freed_bytes"], json!(3 * g));
 }
 
 #[test]

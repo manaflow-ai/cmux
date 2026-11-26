@@ -1,4 +1,8 @@
-name: cmux-next PR autofix
+name: cmux-next PR autofix (advisory)
+# Named "(advisory)": autoland (next_autoland.counts_red) and NOW's pr_verdict read every job of a
+# workflow whose name ends so as advisory, so a repair run that ends after the waited checks or gives up never
+# holds a pull request's verdict (it ran up to 298.8 min, 2026-11-26 08:57Z pass). The base autofix stays the
+# backstop for a repair that did not land.
 
 # Runs the base autofix's mechanical repairs (scripts/cmux-next/base-autofix.sh)
 # on the immutable merge tree for a feat-cmux-next pull request, so a pull request lands with its
@@ -56,7 +60,7 @@ name: cmux-next PR autofix
 # is replaced by a moving branch tip during the run.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     branches: [feat-cmux-next]
     # docs-only paths: BEGIN (scripts/ci/docs_only_paths.py --sync writes this block; edit DOCS_ONLY_PATHS there)
     paths:
@@ -91,6 +95,7 @@ on:
       - "docs/ci/node-product-cache-maintenance.md"
       - "plans/cmux-next/actions.md"
       - "docs/mdm/managed-preferences.md"
+      - "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md"
       - "docs/ci/health-report.md"
       - "docs/privacy.md"
       - "docs/network-requirements.md"
@@ -105,6 +110,7 @@ on:
       - "cmux-tui/crates/cmux-extension-sdk/README.md"
       - "cmux-tui/vendor/terminput-crossterm/README.md"
       - "mux/packages/brain/conformance/README.md"
+      - "Native/OptChat/chief-kernel/src/turn_checks.md"
     # docs-only paths: END
   # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
   # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
@@ -113,7 +119,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-pr-autofix-${{ github.event.pull_request.number }}
+  group: cmux-next-pr-autofix-${{ github.event.pull_request.number }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
@@ -124,9 +130,9 @@ jobs:
   # Whether the Mac action-exports job runs: decided on Linux, so a pull
   # request that changes neither the catalog nor the settings never takes a Mac.
   action-areas:
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: action export areas
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The checkout below fetches every branch's commit graph and trees (no blobs): 4-5 minutes on the 2 vCPU pool on
     # 2026-11-03, so a 5-minute limit cancelled 27 of the last 40 runs inside actions/checkout.
     timeout-minutes: 15
@@ -137,8 +143,14 @@ jobs:
       actions: ${{ steps.areas.outputs.actions }}
       settings: ${{ steps.areas.outputs.settings }}
       changed: ${{ steps.changed.outputs.changed }}
+      # Whether the changed paths hold a generated output (generated_outputs.py output_of, the base's copy): false
+      # lets generated-drift skip, since its check can only flag a changed generated output. Empty runs it.
+      generated: ${{ steps.generated.outputs.generated }}
       # Whether the repair job has anything to repair (any autofix-areas.sh key on).
       repairs: ${{ steps.areas.outputs.repairs }}
+      # The Linux preflight already fetched and restored the base autofix scripts. Reuse them on the
+      # repair rerun instead of paying the 3-13 minute blob restore a second time.
+      context: ${{ steps.context-upload.outcome == 'success' && 'true' || 'false' }}
       # The owned gui label while one of its runners is idle now, else empty (the Mac job then
       # takes Blacksmith macOS).
       mac_runner: ${{ steps.mac-runner.outputs.runs_on }}
@@ -147,7 +159,7 @@ jobs:
       grant_runner: ${{ steps.grant.outputs.grant_runner }}
       grant_jobs: ${{ steps.grant.outputs.grant_jobs }}
     steps:
-      # Only the merge commit and scripts/cmux-next (the fallback copies of the
+      # Only the merge commit and the autofix helper trees (the fallback copies of the
       # two scripts below); the next step fetches the history it needs. A
       # fetch-depth 0 checkout fetched every branch's (about 25,000) commits
       # and trees and the whole tree's blobs: 3-6 min on 2026-11-03.
@@ -155,8 +167,26 @@ jobs:
         with:
           ref: ${{ github.sha }}
           filter: blob:none
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
             scripts/cmux-next
+            scripts/ci/cargo_affected.py
+            scripts/ci/check_cmux_tui_tree_inputs.py
+            scripts/ci/defaults_guard.py
+            scripts/ci/job_inputs.py
+            scripts/ci/fast_check_route.py
+            scripts/ci/detect_linux_guard_changes.py
+            scripts/ci/workflow_guard_groups.py
+            scripts/ci/workload_entrypoints.py
+            scripts/ci/same_tree_reuse.py
+            scripts/ci/fast-check-inputs.json
+            scripts/ci/generated-files.json
+            scripts/ci/generated-files-baseline.txt
+            scripts/ci/affected-jobs.json
+            scripts/ci/pr_router.json
+            scripts/ci/job-inputs-always.json
+            scripts/ci/same_tree_reuse.json
+            .gitmodules
           persist-credentials: false
 
       # The freshness guard and the changed paths need the true merge base: the
@@ -208,10 +238,48 @@ jobs:
           # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
           # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
           # restore to fetch them itself.
-          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next | awk '$1 == "blob" { print $2 }' |
+          ci_helpers=(
+            scripts/ci/cargo_affected.py
+            scripts/ci/check_cmux_tui_tree_inputs.py
+            scripts/ci/defaults_guard.py
+            scripts/ci/job_inputs.py
+            scripts/ci/fast_check_route.py
+            scripts/ci/detect_linux_guard_changes.py
+            scripts/ci/workflow_guard_groups.py
+            scripts/ci/workload_entrypoints.py
+            scripts/ci/same_tree_reuse.py
+            scripts/ci/fast-check-inputs.json
+            scripts/ci/generated-files.json
+            scripts/ci/generated-files-baseline.txt
+            scripts/ci/affected-jobs.json
+            scripts/ci/pr_router.json
+            scripts/ci/job-inputs-always.json
+            scripts/ci/same_tree_reuse.json
+          )
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next "${ci_helpers[@]}" | awk '$1 == "blob" { print $2 }' |
             git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
               --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
-          git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
+          git --work-tree="$RUNNER_TEMP/autofix" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/cmux-next "${ci_helpers[@]}"
+
+      # generated-drift flags only a changed path that is a generated output with none of its inputs changed, so a
+      # change with no generated output among its paths cannot fail it. Its own job was a runner and a checkout on
+      # every head (about 2,100 runner-min/day on 2026-11-24 10:30-18:00Z) to pass on 97 % of them: 13 of the last 400
+      # feat-cmux-next merges changed a generated output, 7 drifted. The same list (BASE...HEAD, both paths of a
+      # rename) and the base's generated_outputs.py the drift job reads; any doubt (no list, no script, an error)
+      # leaves the output empty and the drift job runs as before.
+      - name: Whether a generated output changed
+        id: generated
+        if: steps.changed.outputs.listed == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          lib="$RUNNER_TEMP/autofix/scripts/cmux-next"
+          [[ -f "$lib/generated_outputs.py" ]] || { echo "The base has no generated_outputs.py; generated-drift runs."; exit 0; }
+          generated="$(python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import generated_outputs as g
+          paths = [line for line in open(sys.argv[2]).read().splitlines() if line]
+          print("true" if any(g.output_of(p) for p in paths) else "false")' "$lib" "$RUNNER_TEMP/changed.txt")"
+          [[ "$generated" == true || "$generated" == false ]]
+          echo "generated=$generated" | tee -a "$GITHUB_OUTPUT"
 
       - name: Refuse stale generator inputs
         env:
@@ -262,6 +330,59 @@ jobs:
               END { print "repairs=" (on ? "true" : "false") }' "$RUNNER_TEMP/areas.txt" | tee -a "$GITHUB_OUTPUT"
           fi
 
+      # The repair job is deliberately a rerun after a red, so its second checkout can consume this
+      # small helper-tree handoff from the already-complete Linux preflight. A failed upload only
+      # takes the old path and keeps the repair correct; changed paths are recomputed by repair.
+      - name: Pack PR autofix context
+        id: context
+        if: always() && steps.areas.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          set -euo pipefail
+          context="$RUNNER_TEMP/pr-autofix-context"
+          rm -rf "$context"
+          mkdir -p "$context/scripts"
+          cp -R "$RUNNER_TEMP/autofix/scripts/cmux-next" "$context/scripts/"
+          # Repair only needs the base fixer's CI helpers and their routing inputs. Keeping the
+          # handoff to this small, explicit set avoids archiving every scripts/ci blob on every PR.
+          ci_helpers=(
+            scripts/ci/cargo_affected.py
+            scripts/ci/check_cmux_tui_tree_inputs.py
+            scripts/ci/defaults_guard.py
+            scripts/ci/job_inputs.py
+            scripts/ci/fast_check_route.py
+            scripts/ci/detect_linux_guard_changes.py
+            scripts/ci/workflow_guard_groups.py
+            scripts/ci/workload_entrypoints.py
+            scripts/ci/same_tree_reuse.py
+            scripts/ci/fast-check-inputs.json
+            scripts/ci/generated-files.json
+            scripts/ci/generated-files-baseline.txt
+            scripts/ci/affected-jobs.json
+            scripts/ci/pr_router.json
+            scripts/ci/job-inputs-always.json
+            scripts/ci/same_tree_reuse.json
+          )
+          for helper in "${ci_helpers[@]}"; do
+            mkdir -p "$context/$(dirname "$helper")"
+            cp "$RUNNER_TEMP/autofix/$helper" "$context/$helper"
+          done
+          : > "$context/generator-inputs-verified"
+
+      - name: Upload PR autofix context
+        id: context-upload
+        if: steps.context.outcome == 'success'
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-autofix-context
+          path: ${{ runner.temp }}/pr-autofix-context
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
       # Where the Mac exports run: the owned gui label only while one of its runners is idle now
       # (read live, as the nightly visual gate's route does), else Blacksmith macOS. The picker
       # comes from the base, as cmux-next.yml's placement does; a fork head never reaches it.
@@ -286,9 +407,25 @@ jobs:
               --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
           git --work-tree="$RUNNER_TEMP/placement" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/ci
 
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: route-token-bot
+        if: (steps.placement.outcome == 'success' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
       - name: Mint the owned-pool routing token
         id: route-token
-        if: steps.placement.outcome == 'success' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (steps.placement.outcome == 'success' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -306,7 +443,7 @@ jobs:
         env:
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
           PR_XCODE_APP: ${{ github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
-          ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
+          ROUTE_TOKEN: ${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) }}
         run: python3 "$RUNNER_TEMP/placement/scripts/ci/cmux_next_media_runner.py" --same-repo true --idle-now --gui-only
 
       # A base without the script grants nothing.
@@ -337,8 +474,8 @@ jobs:
   generated-exports:
     name: exports from cmux-next generated files
     needs: action-areas
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ((needs.action-areas.outputs.actions == 'true' || needs.action-areas.outputs.settings == 'true') && github.event.pull_request.head.repo.full_name == github.repository) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -382,9 +519,24 @@ jobs:
 
       # The wait reads through the route App's own budget, never the GITHUB_TOKEN budget every
       # workflow shares (tests/test_ci_no_github_token_polling.py). No token: a miss.
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0 remaining at 02:17Z and
+        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h; an
+        # even/odd run-id split only cut it to ~9.5k/h on 2026-11-26).
+        id: read-token-bot
+        if: (steps.checkout.outcome == 'success' && vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+
       - name: Mint the read token
         id: read-token
-        if: steps.checkout.outcome == 'success' && vars.GLAEDA_ROUTE_APP_ID != ''
+        if: (steps.checkout.outcome == 'success' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -399,7 +551,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 15
         env:
-          GH_TOKEN: ${{ steps.read-token.outputs.token }}
+          GH_TOKEN: ${{ (steps.read-token-bot.outputs.token || steps.read-token.outputs.token) }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR: ${{ github.event.pull_request.number }}
           ACTIONS: ${{ needs.action-areas.outputs.actions }}
@@ -442,8 +594,8 @@ jobs:
   action-exports-linux:
     name: action exports (Linux)
     needs: [action-areas, generated-exports]
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.action-areas.result == 'success' && needs.action-areas.outputs.actions == 'true' && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true' && (vars.CMUX_ACTION_EXPORTS_LINUX || 'on') != '0') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && needs.action-areas.result == 'success' && needs.action-areas.outputs.actions == 'true' && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true' && (vars.CMUX_ACTION_EXPORTS_LINUX || 'on') != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
     defaults:
@@ -533,6 +685,77 @@ jobs:
           retention-days: 1
           overwrite: true
 
+  # The settings exports (settings-exports.txt) on a Linux runner of our own pool (Leo, 2026-11-25: "if it works on
+  # linux and is at least as fast if not faster, then we ought to just go ahead"):
+  # scripts/cmux-next/regenerate-settings-exports-linux.sh reads the settings sources and the string catalog with
+  # python3 (export-settings-linux.sh) and writes the bytes ManagedPreferencesManifestTests and
+  # SettingsSchemaExportTests write, in under a second where the Mac's package build took minutes. It ends green and
+  # `verified` says whether it made them: when it could not decide (exit 2: a catalog key missing, a source that
+  # changed shape), action-exports below regenerates them on a Mac and says so.
+  settings-exports-linux:
+    name: settings exports (Linux)
+    needs: [action-areas, generated-exports]
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && needs.action-areas.result == 'success' && needs.action-areas.outputs.settings == 'true' && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true' && (vars.CMUX_SETTINGS_EXPORTS_LINUX || 'on') != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      # Made (or found fresh) and, when any changed, uploaded: the Mac job then leaves the settings exports alone.
+      verified: ${{ steps.regenerate.outcome == 'success' && (steps.regenerate.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
+      exports: ${{ steps.regenerate.outcome == 'success' && steps.upload.outcome == 'success' && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
+          sparse-checkout: |
+            /*
+            !/cmux-next-ios/verify/
+          persist-credentials: false
+          submodules: false
+
+      - name: Fetch the base and head commit graphs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch --no-tags --no-recurse-submodules --filter=tree:0 --unshallow origin "$BASE_SHA" "$HEAD_SHA"
+
+      - name: Refuse stale generator inputs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: scripts/cmux-next/check-generator-inputs.sh --base-ref "$BASE_SHA" --merge-ref HEAD
+
+      # The script runs from the checkout (the merge commit): it reads the pull request's own settings sources.
+      - name: Regenerate the settings exports
+        id: regenerate
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          started=$SECONDS
+          scripts/cmux-next/regenerate-settings-exports-linux.sh "$RUNNER_TEMP/settings-exports" 2>&1 | tee "$RUNNER_TEMP/settings-exports.txt"
+          echo "settings exports (Linux): $((SECONDS - started))s" | tee -a "$GITHUB_STEP_SUMMARY"
+          if grep -q '^regenerated: ' "$RUNNER_TEMP/settings-exports.txt"; then
+            echo "exports=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        id: upload
+        if: steps.regenerate.outcome == 'success' && steps.regenerate.outputs.exports == 'true'
+        continue-on-error: true
+        timeout-minutes: 5
+        with:
+          name: settings-exports-linux
+          path: ${{ runner.temp }}/settings-exports
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
   # Regenerates the action and settings exports on a Mac with a read-only token
   # and hands them to repair as the action-exports artifact (files at their
   # repository paths). A pull request whose catalog or settings do not build
@@ -540,11 +763,12 @@ jobs:
   # them back (an Autofix-Run head would skip the exports on every later run).
   action-exports:
     name: action exports (Mac)
-    needs: [action-areas, generated-exports, action-exports-linux]
+    needs: [action-areas, generated-exports, action-exports-linux, settings-exports-linux]
     # Only when generated-exports took no pack and no generated-files job of this head is coming to regenerate
-    # them (it is skipped for a fork, so a fork regenerates here). The action exports are action-exports-linux's:
-    # this Mac makes them only as its fallback, when that job did not (it logs why), and the settings exports.
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.action-areas.result == 'success' && ((needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true') || needs.action-areas.outputs.settings == 'true') && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true') }}
+    # them (it is skipped for a fork, so a fork regenerates here). The action exports are action-exports-linux's and
+    # the settings exports settings-exports-linux's: this Mac makes each only as its fallback, when that job did not
+    # (it logs why).
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && needs.action-areas.result == 'success' && ((needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')) || (needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true'))) && needs.generated-exports.outputs.hit != 'true' && needs.generated-exports.outputs.coming != 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     # The exports need a logged-in session: an owned gui runner, or Blacksmith macOS (where
     # cmux-next.yml's generated files make the same exports). They take the owned gui label only
     # when action-areas saw a gui runner idle (mac_runner, cmux_next_media_runner.py --idle-now
@@ -595,18 +819,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           persist-credentials: false
           submodules: false
 
@@ -665,7 +877,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Give this job its own bun
         run: scripts/cmux-next/private-bun.sh
@@ -709,14 +921,14 @@ jobs:
       # A catalog that does not build is the pull request's own red elsewhere;
       # this job then hands over nothing and the other repairs still run.
       - name: Say why the Mac makes the action exports
-        if: needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true'
+        if: needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')
         env:
           LINUX_RESULT: ${{ needs.action-exports-linux.result }}
         run: echo "::warning title=mac fallback::action exports (Linux) did not make the action exports (job ${LINUX_RESULT:-not run}); regenerating them on this Mac."
 
       - name: Regenerate the action exports
         id: regenerate
-        if: needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true'
+        if: needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -733,9 +945,15 @@ jobs:
       # (each export rewritten by this run), so it writes into a folder of its own, and the files
       # join the action-exports artifact only when the whole regeneration
       # succeeded: a failed one hands repair nothing half-made.
+      - name: Say why the Mac makes the settings exports
+        if: needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true')
+        env:
+          LINUX_RESULT: ${{ needs.settings-exports-linux.result }}
+        run: echo "::warning title=mac fallback::settings exports (Linux) did not make the settings exports (job ${LINUX_RESULT:-not run}); regenerating them on this Mac."
+
       - name: Regenerate the settings exports
         id: settings
-        if: needs.action-areas.outputs.settings == 'true'
+        if: needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true')
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -771,8 +989,8 @@ jobs:
         id: require-exports
         if: always()
         env:
-          ACTIONS_REQUESTED: ${{ needs.action-areas.outputs.actions == 'true' && needs.action-exports-linux.outputs.verified != 'true' }}
-          SETTINGS_REQUESTED: ${{ needs.action-areas.outputs.settings }}
+          ACTIONS_REQUESTED: ${{ needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true') }}
+          SETTINGS_REQUESTED: ${{ needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true') }}
           ACTIONS_EXPORTS: ${{ steps.regenerate.outputs.exports }}
           SETTINGS_EXPORTS: ${{ steps.settings.outputs.exports }}
           ACTIONS_OUTCOME: ${{ steps.regenerate.outcome }}
@@ -827,7 +1045,7 @@ jobs:
     name: autofix repairs
     # The action exports come first: the docs shortcuts are rewritten from them.
     # The other repairs still run when the Mac job fails or is skipped.
-    needs: [action-areas, generated-exports, action-exports-linux, action-exports]
+    needs: [action-areas, generated-exports, action-exports-linux, settings-exports-linux, action-exports]
     # A head with nothing to repair (action-areas' repairs: no autofix-areas.sh key on)
     # takes no runner: on 11-21 10:00-17:00Z, 109 of 282 merged commits needed no repair, and the job's full
     # checkout cost 1-3 minutes each time. Regenerated exports still run it (it commits them), and an empty repairs
@@ -842,8 +1060,8 @@ jobs:
     # the event's head and merge commit, so the repair is of exactly the red head. A re-run also skips the draft
     # tier's term: the event payload of a re-run still says draft after the PR is ready, and a lane's red PR is
     # usually a draft. A push event still runs it.
-    if: ${{ (github.event_name != 'pull_request' || github.run_attempt > 1) && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.action-exports-linux.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ ((github.event_name != 'pull_request' || github.run_attempt > 1) && !cancelled() && (needs.action-areas.outputs.repairs != 'false' || needs.action-exports.outputs.exports == 'true' || needs.action-exports-linux.outputs.exports == 'true' || needs.settings-exports-linux.outputs.exports == 'true' || needs.generated-exports.outputs.exports == 'true') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled'))) && (github.event_name != 'pull_request' || needs.action-areas.result == 'success' || needs.action-areas.result == 'skipped') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # clippy compiles the changed crates (cached below): 40 minutes when it can run (AUTOFIX_GATE_CLIPPY's clause
     # below), 25 otherwise. On 2026-11-23 17:43-23:43Z, 65 of 948 runs ran into the 40-minute limit (about 10,400
     # runner-min/day, a third of the job), 59 of them on Freestyle VMs stalled in the toolchain setups; with the
@@ -867,18 +1085,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           persist-credentials: false
 
       # The merge base for Changed paths and the stale-inputs guard, and the base commit the autofix
@@ -908,6 +1114,15 @@ jobs:
           git diff --no-renames --name-only -z "$BASE_SHA...$HEAD_SHA" | tr '\0' '\n' > "$RUNNER_TEMP/changed.txt"
           echo "listed=true" >> "$GITHUB_OUTPUT"
 
+      - name: Download the PR autofix context
+        if: needs.action-areas.outputs.context == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pr-autofix-context
+          path: ${{ runner.temp }}/pr-autofix-context
+
       # The autofix's own scripts come from the immutable base snapshot, and
       # all generators run on the immutable merge tree for this event.
       - name: Autofix scripts from the base
@@ -916,6 +1131,69 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
+          if [[ -f "$RUNNER_TEMP/pr-autofix-context/generator-inputs-verified" ]]; then
+            base_manifest="$RUNNER_TEMP/autofix-base-manifest"
+            git ls-tree -r --full-tree "$BASE_SHA" -- scripts/cmux-next scripts/ci |
+              awk '$2 == "blob" && $4 !~ /\/\.gitignore$/ { print $3 "\t" $4 }' > "$base_manifest"
+            artifact_ok=true
+            artifact_paths="$RUNNER_TEMP/autofix-artifact-paths"
+            (
+              cd "$RUNNER_TEMP/pr-autofix-context"
+              find scripts/cmux-next scripts/ci -type f ! -name .gitignore -print | sort
+            ) > "$artifact_paths"
+            required_paths="$RUNNER_TEMP/autofix-required-paths"
+            ci_helpers=(
+              scripts/ci/cargo_affected.py
+              scripts/ci/check_cmux_tui_tree_inputs.py
+              scripts/ci/defaults_guard.py
+              scripts/ci/job_inputs.py
+              scripts/ci/fast_check_route.py
+              scripts/ci/detect_linux_guard_changes.py
+              scripts/ci/workflow_guard_groups.py
+              scripts/ci/workload_entrypoints.py
+              scripts/ci/same_tree_reuse.py
+              scripts/ci/fast-check-inputs.json
+              scripts/ci/generated-files.json
+              scripts/ci/generated-files-baseline.txt
+              scripts/ci/affected-jobs.json
+              scripts/ci/pr_router.json
+              scripts/ci/job-inputs-always.json
+              scripts/ci/same_tree_reuse.json
+            )
+            {
+              awk -F '\t' '$2 ~ /^scripts\/cmux-next\// { print $2 }' "$base_manifest"
+              printf '%s\n' "${ci_helpers[@]}"
+            } | sort -u > "$required_paths"
+            missing_paths="$(comm -23 "$required_paths" "$artifact_paths")"
+            [[ -z "$missing_paths" ]] || artifact_ok=false
+            expected_hashes="$RUNNER_TEMP/autofix-base-hashes"
+            actual_hashes="$RUNNER_TEMP/autofix-artifact-hashes"
+            if ! awk 'NR == FNR { oid[$2] = $1; next }
+              { if (!($0 in oid)) bad = 1; else print oid[$0] }
+              END { exit bad ? 1 : 0 }' "$base_manifest" "$artifact_paths" > "$expected_hashes"; then
+              artifact_ok=false
+            fi
+            if [[ "$artifact_ok" == true ]]; then
+              (
+                cd "$RUNNER_TEMP/pr-autofix-context"
+                git hash-object --stdin-paths < "$artifact_paths"
+              ) > "$actual_hashes"
+              cmp -s "$expected_hashes" "$actual_hashes" || artifact_ok=false
+            fi
+            if [[ "$artifact_ok" != true ]]; then
+              echo "::warning::PR autofix context artifact did not match the immutable base; using the batched restore."
+              rm -rf "$RUNNER_TEMP/pr-autofix-context"
+            else
+            mkdir -p "$RUNNER_TEMP/autofix/scripts"
+            cp -R "$RUNNER_TEMP/pr-autofix-context/scripts/." "$RUNNER_TEMP/autofix/scripts/"
+            # Artifact archives do not retain executable bits. Every directly invoked
+            # helper is a shell script; restore that bit before the checks and repair run.
+            find "$RUNNER_TEMP/autofix/scripts" -type f -name '*.sh' -exec chmod +x {} +
+            echo "Reused PR autofix context artifact; skipping the base script restore."
+            echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
+            exit 0
+            fi
+          fi
           # restore, not git archive: archive fetched every blob one request at a time (1,584 s in one run on
           # 2026-11-23); so does restore, hence the batched fetch first.
           # One fetch of every blob the restore reads. Without it a partial clone's restore fetched them one
@@ -1022,7 +1300,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Set up pinned cmux-tui Rust
         id: rust
@@ -1037,8 +1315,13 @@ jobs:
       - name: Install Linux build dependencies for clippy
         if: steps.areas.outputs.clippy == 'true' && steps.rust.outcome == 'success'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Init the ghostty-next submodule for clippy
         if: steps.areas.outputs.clippy == 'true' && steps.rust.outcome == 'success'
@@ -1112,6 +1395,14 @@ jobs:
           name: action-exports-linux
           path: ${{ runner.temp }}/action-exports
 
+      # The Linux job's settings exports, into the same folder (the Mac's artifact then holds none).
+      - name: Download the settings exports made on Linux
+        if: steps.areas.outputs.skip == 'false' && needs.settings-exports-linux.outputs.exports == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: settings-exports-linux
+          path: ${{ runner.temp }}/action-exports
+
       - name: Repair
         if: steps.areas.outputs.skip == 'false'
         env:
@@ -1126,7 +1417,7 @@ jobs:
           ACTIONS: ${{ steps.areas.outputs.actions || needs.action-areas.outputs.actions }}
           EXPORTS_VERIFIED: ${{ (needs.generated-exports.outputs.hit == 'true' || needs.action-exports-linux.outputs.verified == 'true') && 'true' || needs.action-exports.outputs.verified }}
           SETTINGS: ${{ steps.areas.outputs.settings || needs.action-areas.outputs.settings }}
-          SETTINGS_VERIFIED: ${{ needs.generated-exports.outputs.hit == 'true' && 'true' || needs.action-exports.outputs.settings-verified }}
+          SETTINGS_VERIFIED: ${{ (needs.generated-exports.outputs.hit == 'true' || needs.settings-exports-linux.outputs.verified == 'true') && 'true' || needs.action-exports.outputs.settings-verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           GHOSTTY: ${{ steps.areas.outputs.ghostty }}
@@ -1279,9 +1570,11 @@ jobs:
   generated-drift:
     name: generated drift
     needs: [action-areas]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
-    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok')) }}
+    # A pull request into feat-cmux-next runs ci/steps.toml's generated-drift step in pr-pipeline.yml's linux job
+    # instead; this job keeps its docs-only fallback runs.
+    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!cancelled() && !contains(github.event.pull_request.labels.*.name, 'generated-drift-ok') && needs.action-areas.outputs.generated != 'false') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) && (github.event_name != 'pull_request' || needs.action-areas.result == 'success' || needs.action-areas.result == 'skipped') }}
     permissions:
       contents: read
       pull-requests: read

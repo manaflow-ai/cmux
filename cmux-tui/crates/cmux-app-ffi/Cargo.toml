@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.91"
 license = "GPL-3.0-or-later"
 publish = false
-description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the pane pictures schedule, the cmux SDK daemon client, the agent list client, the Chrome cookie sync and live wallpapers"
+description = "The one Rust static library the cmux macOS app links: the C ABIs of the remote desktop core, the sidebar layout reducer, the palette ranker, cmux-motion, the agent pane policy, the action catalog, the daemon connection rules, the daemon launch rules, the app health model, the launch images, the pane pictures schedule, the chat markdown parser, the Screenshots pane rules, the cmux SDK daemon client, the agent list client, the Chrome cookie sync, live wallpapers and the background ready copy's decisions"
 
 # The workspace of the app's C ABIs, with one Cargo.lock for all four: this
 # crate and the FFI crates it links, which name it in `package.workspace`.
@@ -14,7 +14,7 @@ description = "The one Rust static library the cmux macOS app links: the C ABIs 
 # dependency change in a crate they share needs one lock edit, not one per FFI
 # crate (#40883, #40898).
 [workspace]
-members = ["../cmux-launch-record", "../cmux-launch-shell", "../cmux-layout-cache","../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
+members = ["../cmux-background-ready", "../cmux-launch-record", "../cmux-launch-shell", "../cmux-layout-cache","../cmux-layout-reducer-ffi", "../cmux-rd-ffi", "../cmux-sdk-ffi"]
 
 [lib]
 crate-type = ["staticlib"]
@@ -31,10 +31,15 @@ cmux-keymap = { path = "../cmux-keymap" }
 cmux-action-catalog = { path = "../cmux-action-catalog" }
 # cmux-next.json's reads for the app (src/settings.rs: cmux-config's app_ops).
 cmux-config = { path = "../cmux-config" }
+# The Mac Home, chat list and Chief rules (src/home.rs: cmux-home-rules' ops).
+cmux-home-rules = { path = "../cmux-home-rules" }
 # The agent pane relay policy (src/ffi.rs: one check per page frame).
 cmux-agent-pane-policy = { path = "../cmux-agent-pane-policy" }
 # Predictive local echo for a terminal on another machine (cmux-terminal-prediction src/ffi.rs).
 cmux-terminal-prediction = { path = "../cmux-terminal-prediction" }
+# The typed address-bar policy: what the omnibox and New Tab field load or search
+# (cmux-url-input src/ffi.rs, include/cmux_url_input.h; one call per key).
+cmux-url-input = { path = "../cmux-url-input", features = ["ffi"] }
 # The control connection rules (cmux-daemon-conn-core src/ffi.rs: retry pacing,
 # the heartbeat, the request-latency probe, the command scope and JSON ops).
 cmux-daemon-conn-core = { path = "../cmux-daemon-conn-core" }
@@ -48,8 +53,15 @@ cmux-health-core = { path = "../cmux-health-core" }
 cmux-launch-image = { path = "../cmux-launch-image" }
 # When a pane's live thumbnail is captured again (cmux-pane-pictures src/ffi.rs: the schedule; the app captures).
 cmux-pane-pictures = { path = "../cmux-pane-pictures" }
+# The agent chat transcript's markdown parser (cmux-chat-markdown src/ffi.rs: the parsed document as bytes; the app renders).
+cmux-chat-markdown = { path = "../cmux-chat-markdown" }
+# The remote chat wire: the page's acpmux JSON-RPC in, daemon calls and page frames out as JSON effects (src/ffi.rs).
+cmux-acpmux-remote-wire = { path = "../cmux-acpmux-remote-wire" }
+# The Screenshots pane rules (cmux-screenshots src/ffi.rs: what a source lists, the listing, sources, the gate; the app reads disks and draws).
+cmux-screenshots = { path = "../cmux-screenshots" }
 # The spring step and motion tokens (src/motion.rs). No `settings`: the app
 # passes its own settings per call, so no AppKit or env reading here.
+cmux-interactivity = { path = "../cmux-interactivity" }
 cmux-motion = { path = "../cmux-motion", default-features = false }
 # The daemon client the cmux CLI uses (cmux-tui/bindings/rust) as a C ABI:
 # the app's connect, call, command and subscribe (include/cmux_sdk_ffi.h).
@@ -69,6 +81,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Text caps count grapheme clusters, as Swift does (src/system_calendar.rs).
 unicode-segmentation = "1"
+# The background ready copy's decisions (app.backgroundReady): the quit, the hidden plan, the login item, the
+# launch, the update exit and the Chromium warm-up (include/cmux_background_ready.h).
+cmux-background-ready = { path = "../cmux-background-ready" }
 
 # Generates include/cmux_motion_ffi.h (cbindgen.toml); tests/c_header.rs fails
 # when the committed header differs. A test, not a build.rs: no build rewrites

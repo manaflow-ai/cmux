@@ -17,7 +17,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { AgentIdentity } from "./AgentIdentity";
 import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
-import { trayItemKey, type TrayItem } from "./runningTray";
+import { SILENT_TURN_ICON, trayItemKey, type TrayItem } from "./runningTray";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -36,6 +36,7 @@ function markOf(item: TrayItem, chatHarness: string | undefined): Mark {
     return { harness: item.agent.harness ?? chatHarness, tone: agentTone(item.agent.id), icon: SUBAGENT_FALLBACK };
   if (item.kind === "session")
     return { harness: item.session.harness, tone: agentTone(item.session.sessionId), icon: "agent.chat" };
+  if (item.kind === "turn") return { icon: SILENT_TURN_ICON };
   return { icon: "terminal" };
 }
 

@@ -225,6 +225,7 @@ async fn a_watch_turned_off_stops_waking_for_other_chats_changes() {
     assert_eq!(changed_of(&resumed, &s, "renamed"), 1, "a resumed watch hears the next change");
 }
 
+#[cfg(unix)]
 fn cpu_now() -> Duration {
     // SAFETY: getrusage writes the struct it is given and reads nothing else.
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
@@ -243,6 +244,7 @@ const EVENTS: usize = 4_000;
 /// to the last connection reading its last.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "manual per-event cost measurement"]
+#[cfg(unix)]
 async fn fanout_wake_cost() {
     for connections in [4usize, 16, 64] {
         let hub = hub_of(SESSIONS);

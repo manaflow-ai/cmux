@@ -3,7 +3,9 @@
 //! it. A customization out in the world (a setup, a profile, a theme file, a
 //! person's cmux-next.json) may name any of them, and the retired-keys table
 //! is how cmux-config migrates it (`cmux_config::migrations`). So a change
-//! that deletes a row without a retired entry fails here, in its own PR.
+//! that deletes a row without a retired entry fails here, in its own PR: the
+//! cmux_next_ name puts it in CI's cmux_next_ daemon tests step, and
+//! scripts/ci/persisted_formats.py fails a change that drops a line of the record.
 //!
 //! The record is schemas/settings/published-keys.txt, one key per line,
 //! sorted. It only grows: a new row is added with
@@ -22,7 +24,7 @@ fn record() -> PathBuf {
 }
 
 #[test]
-fn every_published_key_is_a_row_or_retired() {
+fn cmux_next_persisted_settings_keys_published_or_retired() {
     let path = record();
     let text = std::fs::read_to_string(&path).unwrap_or_default();
     let published: BTreeSet<String> = text

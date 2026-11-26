@@ -5,11 +5,14 @@
 //! channel (`cmux-layout-reducer-ffi`, ops `cloud_*`).
 
 pub mod agent_check;
+pub mod approval_answer;
 pub mod ask;
+pub mod autosize_row;
 pub mod balance;
 pub mod capability;
 pub mod computer_status;
 pub mod hybrid;
+pub mod hybrid_gui;
 pub mod hybrid_show;
 pub mod hybrid_tools;
 pub mod keep_count;

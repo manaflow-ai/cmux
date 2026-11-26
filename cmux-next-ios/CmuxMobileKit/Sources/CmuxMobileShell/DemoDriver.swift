@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
+    nonisolated static let names: Set<String> = Set(["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-workspaces-updating", "retry-home-updating", "retry-chat-updating", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]).union(feedClosedTabsNames)
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -391,6 +391,7 @@ struct DemoDriver {
             shell.workspacesPath = [ws]
             await pause(1.2)
             shell.terminalTabs.model(forTabID: "t-zsh")?.toggleKeyboard()
+        case _ where Self.feedClosedTabsNames.contains(name): await feedClosedTabs(name)
         default: break
         }
     }
@@ -441,7 +442,7 @@ struct DemoDriver {
         KeyboardPinTrace.note("done")
     }
 
-    private func pause(_ seconds: Double) async {
+    func pause(_ seconds: Double) async {
         try? await Task.sleep(for: .seconds(seconds))
     }
 
@@ -1392,24 +1393,32 @@ final class CatchingUpSource: AgentSessionSource {
     var summary: AgentSessionSummary { inner.summary }
 
     func events() -> AsyncStream<AgentSessionEvent> {
+        let (head, rest) = eventsWithHead()
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
-        let inner = inner, hold = hold
+        for event in head { continuation.yield(event) }
         Task { @MainActor in
-            var first = true
-            for await event in inner.events() {
-                continuation.yield(event)
-                guard first else { continue }
-                first = false
-                continuation.yield(.historyLoading(true))
-                // Demo only: stands in for a Mac that takes `hold` to answer the catch-up.
-                Task { @MainActor in
-                    try? await Task.sleep(for: hold)
-                    continuation.yield(.historyLoading(false))
-                }
-            }
+            for await event in rest { continuation.yield(event) }
             continuation.finish()
         }
         return stream
+    }
+
+    /// The mock's history is the head (``MockAgentSession/eventsWithHead()``), the catch-up right
+    /// after it: the kept transcript is in the chat's first frame.
+    func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        let (head, rest) = inner.eventsWithHead()
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        let hold = hold
+        Task { @MainActor in
+            // Demo only: stands in for a Mac that takes `hold` to answer the catch-up.
+            try? await Task.sleep(for: hold)
+            continuation.yield(.historyLoading(false))
+        }
+        Task { @MainActor in
+            for await event in rest { continuation.yield(event) }
+            continuation.finish()
+        }
+        return (head + [.historyLoading(true)], stream)
     }
 
     func send(_ intent: AgentClientIntent) { inner.send(intent) }
@@ -1427,10 +1436,23 @@ final class FailedLastTurnSource: AgentSessionSource {
     var summary: AgentSessionSummary { inner.summary }
 
     func events() -> AsyncStream<AgentSessionEvent> {
+        let (head, rest) = eventsWithHead()
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
-        let inner = inner
+        for event in head { continuation.yield(event) }
         Task { @MainActor in
-            for await event in inner.events() { continuation.yield(event) }
+            for await event in rest { continuation.yield(event) }
+            continuation.finish()
+        }
+        return stream
+    }
+
+    /// The mock's history is the head (``MockAgentSession/eventsWithHead()``); the failed turn
+    /// follows it.
+    func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        let (head, rest) = inner.eventsWithHead()
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        Task { @MainActor in
+            for await event in rest { continuation.yield(event) }
             continuation.finish()
         }
         Task { @MainActor in
@@ -1445,7 +1467,7 @@ final class FailedLastTurnSource: AgentSessionSource {
                             at: at),
             ]))
         }
-        return stream
+        return (head, stream)
     }
 
     func send(_ intent: AgentClientIntent) { inner.send(intent) }

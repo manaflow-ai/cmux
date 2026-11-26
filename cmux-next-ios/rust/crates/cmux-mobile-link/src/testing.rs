@@ -8,7 +8,9 @@
 //! frame goes to the other with its peer id set to the sender's device.
 //!
 //! [`TestTurn`] is a TURN server on loopback, over UDP and over TLS (a
-//! self-signed certificate the dial options trust).
+//! self-signed certificate the dial options trust, or one a [`TestCa`]
+//! issued). [`TestProxy`] (HTTP `CONNECT`) and [`TestSocks5`] are the proxies
+//! of a network whose only way out is its proxy.
 //!
 //! [`shape_by_profile`] plays a named phone link profile (cmux-fault's
 //! `link-profiles.json`) on a tunnel's received datagrams.
@@ -63,6 +65,12 @@ pub struct FakeOptions {
     /// The relay-held send queue (RFD 0142 R8; the Worker's `LINK_RELAY_HOLD=on`): `hold` frames are kept,
     /// in memory, per session, as link-relay.ts keeps them. Off: answered `hold_refused` `off`.
     pub relay_hold: bool,
+    /// An older hub: never answer a `wg-init`'s `ticketEarly` with a `wg-ticket`
+    /// (PROTOCOL.md "Early relay ticket").
+    pub no_early_ticket: bool,
+    /// Forward each `wg-resp` this much later (a Mac that gathers slowly), so
+    /// a join on the early ticket can be seen to run before the answer.
+    pub answer_delay: std::time::Duration,
 }
 
 /// One relay-held item (link-relay.ts / relay-hold.ts `HeldItem`).
@@ -384,6 +392,12 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                 {
                     payload.remove("version");
                 }
+                if !options.answer_delay.is_zero() && value["payload"]["kind"] == "wg-resp" {
+                    tokio::time::sleep(options.answer_delay).await;
+                }
+                let early_ticket = !options.no_early_ticket
+                    && value["payload"]["kind"] == "wg-init"
+                    && value["payload"]["ticketEarly"] == Value::Bool(true);
                 if options.strip_direct_endpoints
                     && matches!(value["payload"]["kind"].as_str(), Some("wg-init" | "wg-resp"))
                 {
@@ -411,12 +425,26 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
                         if kind.starts_with("wg-") {
                             let ticket = state
                                 .tickets
-                                .entry((session, to))
+                                .entry((session.clone(), to.clone()))
                                 .or_insert_with(|| uuid::Uuid::new_v4().simple().to_string())
                                 .clone();
                             value["relayTicket"] = Value::String(ticket);
                         }
                         let _ = target.send(Message::Text(value.to_string().into()));
+                        // team-hub.ts: the dialer's own ticket, back at once.
+                        if early_ticket {
+                            let ticket = state
+                                .tickets
+                                .entry((session.clone(), device.clone()))
+                                .or_insert_with(|| uuid::Uuid::new_v4().simple().to_string())
+                                .clone();
+                            let _ = out_tx.send(Message::Text(
+                                json!({"type":"signal","to":device,"from":to,"fromUserId":user,"sessionId":session,
+                                    "payload":{"kind":"wg-ticket"},"relayTicket":ticket})
+                                .to_string()
+                                .into(),
+                            ));
+                        }
                     }
                     (true, None) => {
                         let _ = out_tx.send(Message::Text(
@@ -991,6 +1019,18 @@ impl webrtc::turn::auth::AuthHandler for TestAuth {
     }
 }
 
+/// A host name [`TestTurn`]'s TLS certificate also names (beside `127.0.0.1`), for a test
+/// that dials it by name through its own resolver (`route_literals`).
+pub const TEST_TURN_HOST: &str = "turn.cmux.test";
+
+/// [`TestTurn::ice`] with `host` in place of `127.0.0.1`.
+pub fn ice_named(ice: &crate::api::IceServer, host: &str) -> crate::api::IceServer {
+    crate::api::IceServer {
+        urls: ice.urls.iter().map(|url| url.replace("127.0.0.1", host)).collect(),
+        ..ice.clone()
+    }
+}
+
 /// A TURN server on loopback for tests: UDP on one port, TLS (RFC 5766 over
 /// TLS, a self-signed certificate for 127.0.0.1) on another, and plain TCP
 /// on a third. Relayed addresses are `127.0.0.1` with ports in
@@ -1205,7 +1245,20 @@ impl webrtc::util::Conn for BlockableUdp {
 }
 
 impl TestTurn {
+    /// A TURN server whose TLS certificate is self-signed ([`Self::roots`]
+    /// trusts it).
     pub async fn start() -> Self {
+        Self::start_with(None).await
+    }
+
+    /// A TURN server whose TLS certificate `ca` issued, as a company network
+    /// that inspects TLS re-signs every server with its own root. Its
+    /// [`Self::roots`] is empty: trust `ca`, or nothing does.
+    pub async fn start_signed_by(ca: &TestCa) -> Self {
+        Self::start_with(Some(ca)).await
+    }
+
+    async fn start_with(ca: Option<&TestCa>) -> Self {
         let slot = NEXT_RELAY_PORTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 45;
         let first = TEST_RELAY_PORTS_START + slot * 100;
         let relay_ports = first..=first + 99;
@@ -1223,19 +1276,31 @@ impl TestTurn {
                 .await;
         servers.lock().unwrap_or_else(PoisonError::into_inner).push(server);
 
-        let certified =
-            rcgen::generate_simple_self_signed(vec!["127.0.0.1".to_owned()]).expect("certificate");
-        let mut roots = rustls::RootCertStore::empty();
-        roots.add(certified.cert.der().clone()).expect("root");
-        let key = rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
-            certified.key_pair.serialize_der(),
-        ));
+        let (chain, key, roots) = match ca {
+            Some(ca) => {
+                let (chain, key) = ca.issue("127.0.0.1");
+                (chain, key, Arc::new(rustls::RootCertStore::empty()))
+            }
+            None => {
+                let certified = rcgen::generate_simple_self_signed(vec![
+                    "127.0.0.1".to_owned(),
+                    TEST_TURN_HOST.to_owned(),
+                ])
+                .expect("certificate");
+                let mut roots = rustls::RootCertStore::empty();
+                roots.add(certified.cert.der().clone()).expect("root");
+                let key = rustls::pki_types::PrivateKeyDer::Pkcs8(
+                    rustls::pki_types::PrivatePkcs8KeyDer::from(certified.key_pair.serialize_der()),
+                );
+                (vec![certified.cert.der().clone()], key, Arc::new(roots))
+            }
+        };
         let tls =
             rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
                 .with_safe_default_protocol_versions()
                 .expect("TLS versions")
                 .with_no_client_auth()
-                .with_single_cert(vec![certified.cert.der().clone()], key)
+                .with_single_cert(chain, key)
                 .expect("TLS server config");
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
         let streams = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -1297,18 +1362,7 @@ impl TestTurn {
             username: Some("cmuxMobile".into()),
             credential: Some("secret".into()),
         };
-        Self {
-            ice,
-            roots: Arc::new(roots),
-            relay_ports,
-            servers,
-            tasks,
-            streams,
-            udp_block,
-            allocated,
-            granted,
-            stream_delay,
-        }
+        Self { ice, roots, relay_ports, servers, tasks, streams, udp_block, allocated, granted, stream_delay }
     }
 
     async fn server(
@@ -1412,6 +1466,18 @@ impl TestTurn {
         (from, to)
     }
 
+    /// A STUN URL on the server's UDP port (TURN servers answer Binding
+    /// requests too), so a test network can show UDP answering STUN.
+    pub fn stun(&self) -> crate::api::IceServer {
+        let udp = self.ice.urls[0].trim_start_matches("turn:").trim_end_matches("?transport=udp");
+        crate::api::IceServer { urls: vec![format!("stun:{udp}")], username: None, credential: None }
+    }
+
+    /// The `host:port` of the server's TLS port.
+    pub fn tls_address(&self) -> String {
+        self.ice.urls[1].trim_start_matches("turns:").trim_end_matches("?transport=tcp").to_owned()
+    }
+
     /// Stream connections (TLS or TCP) the server accepted so far.
     pub fn stream_connections(&self) -> usize {
         self.streams.load(std::sync::atomic::Ordering::Relaxed)
@@ -1426,6 +1492,291 @@ impl TestTurn {
     /// Whether `addr` is one of this server's relayed addresses.
     pub fn is_relayed(&self, addr: &std::net::SocketAddr) -> bool {
         self.allocated.lock().unwrap_or_else(PoisonError::into_inner).contains(addr)
+    }
+}
+
+/// A certificate authority for tests: a company's TLS-inspection root, as
+/// an MDM profile would install it on a phone.
+pub struct TestCa {
+    certificate: rcgen::Certificate,
+    key: rcgen::KeyPair,
+}
+
+impl Default for TestCa {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TestCa {
+    pub fn new() -> Self {
+        let key = rcgen::KeyPair::generate().expect("CA key");
+        let mut params = rcgen::CertificateParams::new(Vec::<String>::new()).expect("CA params");
+        params.distinguished_name.push(rcgen::DnType::CommonName, "Example Corp TLS Inspection Root");
+        params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        params.key_usages = vec![
+            rcgen::KeyUsagePurpose::KeyCertSign,
+            rcgen::KeyUsagePurpose::CrlSign,
+            rcgen::KeyUsagePurpose::DigitalSignature,
+        ];
+        let certificate = params.self_signed(&key).expect("CA certificate");
+        Self { certificate, key }
+    }
+
+    /// The root, as the OS trust store would hold it.
+    pub fn roots(&self) -> Arc<[rustls::pki_types::CertificateDer<'static>]> {
+        Arc::from(vec![self.certificate.der().clone()])
+    }
+
+    /// A server certificate for `name` (a host name or an IP address) and its
+    /// key, as the inspecting proxy would present it.
+    pub fn issue(
+        &self,
+        name: &str,
+    ) -> (Vec<rustls::pki_types::CertificateDer<'static>>, rustls::pki_types::PrivateKeyDer<'static>) {
+        let key = rcgen::KeyPair::generate().expect("server key");
+        let mut params = rcgen::CertificateParams::new(vec![name.to_owned()]).expect("server params");
+        params.distinguished_name.push(rcgen::DnType::CommonName, name);
+        params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+        params.use_authority_key_identifier_extension = true;
+        let certificate = params.signed_by(&key, &self.certificate, &self.key).expect("server certificate");
+        let der = rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
+            key.serialize_der(),
+        ));
+        (vec![certificate.der().clone(), self.certificate.der().clone()], der)
+    }
+}
+
+/// What a [`TestProxy`] asks of a client before it opens a tunnel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProxyAuth {
+    None,
+    /// HTTP Basic with this user name and password.
+    Basic(String, String),
+    /// NTLM or Kerberos only (`Proxy-Authenticate: Negotiate` and `NTLM`),
+    /// as many company proxies on Windows networks: never satisfied here.
+    NtlmOrNegotiate,
+}
+
+/// An HTTP proxy on loopback that only tunnels (`CONNECT host:port`), as a
+/// company network's only way out. It records every tunnel it opened.
+pub struct TestProxy {
+    pub port: u16,
+    auth: ProxyAuth,
+    tunnels: Arc<Mutex<Vec<String>>>,
+    refused: Arc<std::sync::atomic::AtomicUsize>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl TestProxy {
+    pub async fn start(auth: ProxyAuth) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind proxy");
+        let port = listener.local_addr().expect("addr").port();
+        let tunnels = Arc::new(Mutex::new(Vec::new()));
+        let refused = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let task = {
+            let (auth, tunnels, refused) = (auth.clone(), Arc::clone(&tunnels), Arc::clone(&refused));
+            tokio::spawn(async move {
+                while let Ok((client, _)) = listener.accept().await {
+                    let (auth, tunnels, refused) = (auth.clone(), Arc::clone(&tunnels), Arc::clone(&refused));
+                    tokio::spawn(async move {
+                        let _ = Self::serve(client, &auth, &tunnels, &refused).await;
+                    });
+                }
+            })
+        };
+        Self { port, auth, tunnels, refused, task }
+    }
+
+    async fn serve(
+        mut client: tokio::net::TcpStream,
+        auth: &ProxyAuth,
+        tunnels: &Mutex<Vec<String>>,
+        refused: &std::sync::atomic::AtomicUsize,
+    ) -> std::io::Result<()> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            if client.read(&mut byte).await? == 0 {
+                return Ok(());
+            }
+            head.push(byte[0]);
+        }
+        let head = String::from_utf8_lossy(&head).into_owned();
+        let mut words = head.lines().next().unwrap_or("").split_whitespace();
+        let (method, target) = (words.next().unwrap_or(""), words.next().unwrap_or("").to_owned());
+        if method != "CONNECT" {
+            client.write_all(b"HTTP/1.1 405 Method Not Allowed\r\nContent-Length: 0\r\n\r\n").await?;
+            return Ok(());
+        }
+        let given = head.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.trim().eq_ignore_ascii_case("proxy-authorization").then(|| value.trim().to_owned())
+        });
+        let challenge = match auth {
+            ProxyAuth::None => None,
+            ProxyAuth::Basic(user, password) => {
+                use base64::Engine;
+                let expected = format!(
+                    "Basic {}",
+                    base64::engine::general_purpose::STANDARD.encode(format!("{user}:{password}"))
+                );
+                (given.as_deref() != Some(expected.as_str()))
+                    .then_some("Proxy-Authenticate: Basic realm=\"corp\"\r\n")
+            }
+            ProxyAuth::NtlmOrNegotiate => {
+                Some("Proxy-Authenticate: Negotiate\r\nProxy-Authenticate: NTLM\r\n")
+            }
+        };
+        if let Some(challenge) = challenge {
+            refused.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let answer =
+                format!("HTTP/1.1 407 Proxy Authentication Required\r\n{challenge}Content-Length: 0\r\n\r\n");
+            client.write_all(answer.as_bytes()).await?;
+            return Ok(());
+        }
+        let Ok(mut upstream) = tokio::net::TcpStream::connect(target.as_str()).await else {
+            client.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n").await?;
+            return Ok(());
+        };
+        tunnels.lock().unwrap_or_else(PoisonError::into_inner).push(target);
+        client.write_all(b"HTTP/1.1 200 Connection established\r\n\r\n").await?;
+        let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+        Ok(())
+    }
+
+    /// This proxy as the system's settings would name it, with no
+    /// credentials (add them with [`crate::egress::ProxyServer::with_credentials`]).
+    pub fn server(&self) -> crate::egress::ProxyServer {
+        crate::egress::ProxyServer::new("127.0.0.1", self.port)
+    }
+
+    /// Every hop through this proxy only (`ProxyConfig::Fixed`), with the
+    /// credentials it asks for when it asks for Basic.
+    pub fn config(&self) -> crate::egress::ProxyConfig {
+        let server = match &self.auth {
+            ProxyAuth::Basic(user, password) => self.server().with_credentials(user, password),
+            _ => self.server(),
+        };
+        crate::egress::ProxyConfig::Fixed(vec![crate::egress::Hop::Http(server)])
+    }
+
+    /// The `host:port` of every tunnel opened so far, in order.
+    pub fn tunnels(&self) -> Vec<String> {
+        self.tunnels.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+
+    /// Tunnel requests refused for missing or wrong sign-in.
+    pub fn refused(&self) -> usize {
+        self.refused.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl Drop for TestProxy {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+/// A SOCKS5 proxy on loopback (RFC 1928, and RFC 1929 when it has a user
+/// name and password), recording every connection it made.
+pub struct TestSocks5 {
+    pub port: u16,
+    tunnels: Arc<Mutex<Vec<String>>>,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl TestSocks5 {
+    pub async fn start(credentials: Option<(&str, &str)>) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind SOCKS");
+        let port = listener.local_addr().expect("addr").port();
+        let tunnels = Arc::new(Mutex::new(Vec::new()));
+        let credentials = credentials.map(|(user, password)| (user.to_owned(), password.to_owned()));
+        let task = {
+            let tunnels = Arc::clone(&tunnels);
+            tokio::spawn(async move {
+                while let Ok((client, _)) = listener.accept().await {
+                    let (tunnels, credentials) = (Arc::clone(&tunnels), credentials.clone());
+                    tokio::spawn(async move {
+                        let _ = Self::serve(client, credentials, &tunnels).await;
+                    });
+                }
+            })
+        };
+        Self { port, tunnels, task }
+    }
+
+    async fn serve(
+        mut client: tokio::net::TcpStream,
+        credentials: Option<(String, String)>,
+        tunnels: &Mutex<Vec<String>>,
+    ) -> std::io::Result<()> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut hello = [0u8; 2];
+        client.read_exact(&mut hello).await?;
+        let mut methods = vec![0u8; usize::from(hello[1])];
+        client.read_exact(&mut methods).await?;
+        let wanted = if credentials.is_some() { 0x02 } else { 0x00 };
+        if !methods.contains(&wanted) {
+            client.write_all(&[0x05, 0xFF]).await?;
+            return Ok(());
+        }
+        client.write_all(&[0x05, wanted]).await?;
+        if let Some((user, password)) = credentials {
+            let mut version_len = [0u8; 2];
+            client.read_exact(&mut version_len).await?;
+            let mut given_user = vec![0u8; usize::from(version_len[1])];
+            client.read_exact(&mut given_user).await?;
+            let mut len = [0u8; 1];
+            client.read_exact(&mut len).await?;
+            let mut given_password = vec![0u8; usize::from(len[0])];
+            client.read_exact(&mut given_password).await?;
+            let ok = given_user == user.as_bytes() && given_password == password.as_bytes();
+            client.write_all(&[0x01, if ok { 0x00 } else { 0x01 }]).await?;
+            if !ok {
+                return Ok(());
+            }
+        }
+        let mut request = [0u8; 4];
+        client.read_exact(&mut request).await?;
+        let host = match request[3] {
+            0x01 => {
+                let mut ip = [0u8; 4];
+                client.read_exact(&mut ip).await?;
+                std::net::Ipv4Addr::from(ip).to_string()
+            }
+            0x03 => {
+                let mut len = [0u8; 1];
+                client.read_exact(&mut len).await?;
+                let mut name = vec![0u8; usize::from(len[0])];
+                client.read_exact(&mut name).await?;
+                String::from_utf8_lossy(&name).into_owned()
+            }
+            _ => return Ok(()),
+        };
+        let mut port = [0u8; 2];
+        client.read_exact(&mut port).await?;
+        let target = format!("{host}:{}", u16::from_be_bytes(port));
+        let Ok(mut upstream) = tokio::net::TcpStream::connect(target.as_str()).await else {
+            client.write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
+            return Ok(());
+        };
+        tunnels.lock().unwrap_or_else(PoisonError::into_inner).push(target);
+        client.write_all(&[0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0, 0]).await?;
+        let _ = tokio::io::copy_bidirectional(&mut client, &mut upstream).await;
+        Ok(())
+    }
+
+    /// The `host:port` of every connection made so far.
+    pub fn tunnels(&self) -> Vec<String> {
+        self.tunnels.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+}
+
+impl Drop for TestSocks5 {
+    fn drop(&mut self) {
+        self.task.abort();
     }
 }
 

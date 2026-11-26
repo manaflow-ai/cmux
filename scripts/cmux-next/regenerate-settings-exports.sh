@@ -79,16 +79,23 @@ CMUX_SWIFT_BIN_PATH="$bin" "$root/scripts/cmux-next/compile-string-catalogs.sh"
 # fails before it writes never hands over an old copy as fresh.
 marker="$(mktemp)"
 cmux_next_cleanup_paths+=("$marker")
+# What was already changed before the export: check-settings-exports.sh checks the BASE parent's
+# settings sources out in place (schemas/settings/source/*.json among them) before it exports from
+# them, so those show in `git status` without the export writing them.
+dirty_before="$(cd "$root" && git status --porcelain --untracked-files=all -- docs/mdm schemas/settings)"
 sleep 1 # sleep-ok: an mtime-granularity tick: the marker must be older than anything the tool writes
 "$bin/CmuxNextSettingsExport" "$root"
 cd "$root"
 # A file the exporters wrote that this list does not name would be left stale
-# by the bots: refuse it.
+# by the bots: refuse it. Written: a status line that is new, or a file newer than the marker.
 listed="$(printf '%s\n' "${exports[@]}")"
-while IFS= read -r path; do
-  [[ -n "$path" ]] || continue
-  grep -qxF -- "$path" <<<"$listed" || { echo "::error::the settings export wrote $path, which regenerate-settings-exports.sh does not list" >&2; exit 1; }
-done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings | cut -c4-)
+while IFS= read -r line; do
+  [[ -n "$line" ]] || continue
+  path="${line:3}"
+  grep -qxF -- "$path" <<<"$listed" && continue
+  grep -qxF -- "$line" <<<"$dirty_before" && [[ ! "$path" -nt "$marker" ]] && continue
+  echo "::error::the settings export wrote $path, which regenerate-settings-exports.sh does not list" >&2; exit 1
+done < <(git status --porcelain --untracked-files=all -- docs/mdm schemas/settings)
 for file in "${exports[@]}"; do
   # OUT can sit in a kept .build (a fleet warm slot): drop an earlier run's copy, so only
   # what this run regenerated is handed over.
