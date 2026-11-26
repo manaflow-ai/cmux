@@ -1,0 +1,20 @@
+/mnt/lane-data/checkouts/cmux/lane--ram-mcp-serve-idle/.target-mcp/debug/deps/cmux_codex_acp-16d23094ede9e738.d: /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/lib.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/config.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/content.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/items.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/patch.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/speed.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/mod.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/client.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/commands.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/goals.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/history.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/requests.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/server.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/suggestions.rs
+
+/mnt/lane-data/checkouts/cmux/lane--ram-mcp-serve-idle/.target-mcp/debug/deps/libcmux_codex_acp-16d23094ede9e738.rmeta: /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/lib.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/config.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/content.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/items.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/patch.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/speed.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/mod.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/client.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/commands.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/goals.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/history.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/requests.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/server.rs /home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/suggestions.rs
+
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/lib.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/config.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/content.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/items.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/patch.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/speed.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/mod.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/client.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/commands.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/goals.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/history.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/requests.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/server.rs:
+/home/cmux/.cargo/git/checkouts/cmux-codex-acp-8bd52ecc83e39be7/dfa59bc/src/translator/suggestions.rs:
+
+# env-dep:CARGO_PKG_VERSION=0.1.0

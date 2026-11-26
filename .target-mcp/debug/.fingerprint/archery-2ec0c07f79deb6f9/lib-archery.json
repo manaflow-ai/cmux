@@ -1,0 +1,1 @@
+{"rustc":7458672600737419911,"features":"[]","declared_features":"[\"serde\", \"triomphe\"]","target":17726337252579428112,"profile":16289734112950270629,"path":13345985544926913644,"deps":[],"local":[{"CheckDepInfo":{"dep_info":"debug/.fingerprint/archery-2ec0c07f79deb6f9/dep-lib-archery","checksum":false}}],"rustflags":[],"config":8247474407144887393,"compile_kind":0}
