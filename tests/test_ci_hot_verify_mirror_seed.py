@@ -50,7 +50,7 @@ class HotVerifyMirrorSeedTest(unittest.TestCase):
         self.assertEqual(mirror["env"]["SPARSE"], action["with"]["sparse-checkout"])
         run = mirror["run"]
         for expected in (
-            "/var/lib/cmux-git/cmux.git/objects",
+            "/var/lib/cmux-git/cmux.git",
             'mirror="${CMUX_GIT_MIRROR:-/var/lib/cmux-git/cmux.git}/objects"',
             "objects/info/alternates",
             "git fetch --no-tags --no-recurse-submodules --depth=1",
