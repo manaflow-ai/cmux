@@ -6,7 +6,11 @@ use acpmux_book::index::OriginState;
 use cmux_json::JsonSet as _;
 
 mod resolve;
-pub(super) use resolve::{names_remote, remote_closed, remote_segment};
+pub(super) use resolve::remote_closed;
+// Only remote_rows' tests read these through `hub::peers`; unscoped, a lib build calls them
+// unused and `cargo clippy --fix` (the base autofix) deletes them, breaking the test build.
+#[cfg(test)]
+pub(super) use resolve::{names_remote, remote_segment};
 #[cfg(test)]
 mod test_hooks;
 #[cfg(test)]
