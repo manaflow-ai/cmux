@@ -60,6 +60,10 @@ struct AppLanguageTests {
         let value = Mutex(false)
     }
 
+    nonisolated private final class StartFlag: Sendable {
+        let value = Mutex(0)
+    }
+
     /// Count the expensive Foundation boundary, not the cache's implementation. In particular,
     /// equal returned bundle identities alone cannot detect repeatedly resolving the same path.
     nonisolated private final class ResolutionCountingBundle: Bundle, @unchecked Sendable {
@@ -277,11 +281,11 @@ struct AppLanguageTests {
         language.set("ja")
         let answer = bundle.inAppLanguage
         let count = 10_000 * scale
-        let started = Mutex(0)
+        let started = StartFlag()
         await withTaskGroup(of: Int.self) { group in
             for _ in 0 ..< 4 {
                 group.addTask {
-                    started.withLock { $0 += 1 }
+                    started.value.withLock { $0 += 1 }
                     var matched = 0
                     for _ in 0 ..< count {
                         if bundle.inAppLanguage === answer { matched += 1 }
@@ -290,7 +294,7 @@ struct AppLanguageTests {
                 }
             }
             // Do not start the main-actor clock until every reader has entered its loop.
-            while started.withLock({ $0 }) < 4 { await Task.yield() }
+            while started.value.withLock({ $0 }) < 4 { await Task.yield() }
             let clock = ContinuousClock()
             let start = clock.now
             var matched = 0
