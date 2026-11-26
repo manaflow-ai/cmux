@@ -5,6 +5,7 @@ and failed the plan on cmux-next UI PRs (#17602, #17609) that change no SQL."""
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
@@ -206,6 +207,110 @@ class TreelessProbe(unittest.TestCase):
         failed = next(s for s in steps if s.get("name") == "Base checkout did not finish")
         self.assertIn("steps.checkout-retry.outcome == 'failure'", failed["if"])
         self.assertIn("exit 1", failed["run"])
+
+
+def plan_steps() -> list[dict]:
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]["steps"]
+
+
+def retry_function(script: str) -> str:
+    start = script.index("git_retry() {")
+    return script[start:script.index("\n}\n", start) + 3]
+
+
+class TransportRetry(unittest.TestCase):
+    """A dropped github.com transfer ("Operation too slow", job 139712437101 on cmux#55995) is
+    tried again, bounded; a refusal stops on its first try; the error names the tries."""
+
+    RETRIED = ("same-tree", "trees", "files")
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        self.calls = self.tmp / "calls"
+        # sleep is a no-op here so the backoff costs the test nothing.
+        (self.bin / "sleep").write_text("#!/bin/sh\necho \"sleep $*\" >> \"$CALLS\"\n")
+        (self.bin / "sleep").chmod(0o755)
+
+    def fake_git(self, *answers: tuple[int, str]) -> None:
+        # Each call takes the next answer (exit code, stderr); the last one repeats.
+        lines = ["#!/bin/sh", 'n=$(grep -c "^git" "$CALLS" 2>/dev/null || echo 0)', 'echo "git $*" >> "$CALLS"']
+        for index, (code, err) in enumerate(answers[:-1]):
+            lines.append(f'if [ "$n" -eq {index} ]; then echo "{err}" >&2; exit {code}; fi')
+        code, err = answers[-1]
+        lines.append(f'echo "{err}" >&2; exit {code}')
+        (self.bin / "git").write_text("\n".join(lines) + "\n")
+        (self.bin / "git").chmod(0o755)
+
+    def run_retry(self) -> tuple[int, str, list[str]]:
+        script = retry_function(next(s for s in plan_steps() if s.get("id") == "trees")["run"])
+        env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}", "CALLS": str(self.calls),
+               "RUNNER_NAME": "e1c-0251"}
+        result = subprocess.run(["bash", "-euo", "pipefail", "-c", script + 'git_retry "fetch of the head abc" 5 fetch origin abc'],
+                                env=env, capture_output=True, text=True)
+        calls = self.calls.read_text().splitlines() if self.calls.exists() else []
+        return result.returncode, result.stdout + result.stderr, calls
+
+    def test_a_slow_transfer_is_tried_again_and_then_passes(self):
+        self.fake_git((128, "error: RPC failed; curl 28 Operation too slow. Less than 1000 bytes/sec transferred the last 30 seconds"), (0, ""))
+        code, log, calls = self.run_retry()
+        self.assertEqual(code, 0, log)
+        self.assertEqual([c for c in calls if c.startswith("git")].__len__(), 2, calls)
+        self.assertIn("failed on try 1 of 3, trying again", log)
+        self.assertIn("http.lowSpeedLimit=1000", calls[0])
+
+    def test_transport_failures_stop_after_three_tries_and_name_them(self):
+        for err in ("error: RPC failed; curl 28 Operation too slow.",
+                    "fatal: unable to access 'https://github.com/o/r.git/': Could not resolve host: github.com",
+                    "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 502",
+                    "error: RPC failed; curl 56 Recv failure: Connection reset by peer"):
+            with self.subTest(err=err):
+                self.calls.unlink(missing_ok=True)
+                self.fake_git((128, err))
+                code, log, calls = self.run_retry()
+                self.assertNotEqual(code, 0, log)
+                self.assertEqual([c for c in calls if c.startswith("git")].__len__(), 3, calls)
+                self.assertEqual([c for c in calls if c.startswith("sleep")], ["sleep 5", "sleep 15"])
+                self.assertIn("::error::fetch of the head abc failed on all 3 tries (5 s each) on runner e1c-0251", log)
+
+    def test_a_refusal_is_not_tried_again(self):
+        for err in ("fatal: remote error: upload-pack: not our ref 0000000000000000000000000000000000000000",
+                    "remote: Repository not found.",
+                    "fatal: unable to access 'https://github.com/o/r.git/': The requested URL returned error: 403",
+                    "fatal: couldn't find remote ref refs/heads/gone"):
+            with self.subTest(err=err):
+                self.calls.unlink(missing_ok=True)
+                self.fake_git((128, err))
+                code, log, calls = self.run_retry()
+                self.assertNotEqual(code, 0, log)
+                self.assertEqual(len(calls), 1, calls)
+                self.assertIn("refused on try 1 of 3, not tried again", log)
+
+    def test_a_hang_is_cut_at_the_bound_and_tried_again(self):
+        self.fake_git((124, ""))
+        code, log, calls = self.run_retry()
+        self.assertNotEqual(code, 0, log)
+        self.assertIn("failed on all 3 tries", log)
+        self.assertIn("hung past 5 s", log)
+
+    def test_every_step_that_reads_github_uses_the_same_retry(self):
+        steps = {s.get("id"): s["run"] for s in plan_steps() if s.get("id") in self.RETRIED}
+        self.assertEqual(set(steps), set(self.RETRIED))
+        bodies = {retry_function(run) for run in steps.values()}
+        self.assertEqual(len(bodies), 1, "the git_retry copies drifted apart")
+        for sid, run in steps.items():
+            for line in run.splitlines():
+                # A git command line (not a comment or a message) that talks to the remote.
+                if re.search(r"\b(fetch|archive) (-|origin)", line) and not line.lstrip().startswith(("#", "echo")):
+                    with self.subTest(step=sid, line=line.strip()):
+                        self.assertIn("git_retry ", line)
+
+    def test_the_job_deadline_fits_the_retried_path(self):
+        plan = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]
+        # probe 3 x 60, checkout 2 x 60, head fetch 3 x 90, blob read 3 x 90, backoff 2 x 20.
+        worst = 3 * 60 + 2 * 60 + 3 * 90 + 3 * 90 + 2 * 20
+        self.assertGreaterEqual(plan["timeout-minutes"] * 60, worst)
 
 
 if __name__ == "__main__":
