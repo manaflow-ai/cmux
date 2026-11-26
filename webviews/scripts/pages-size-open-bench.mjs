@@ -43,7 +43,6 @@ const pages = [
   "chief-views",
   "cloud",
   "cloud-progress",
-  "coderouter",
   "cookie-import",
   "debug-settings",
   "feed",

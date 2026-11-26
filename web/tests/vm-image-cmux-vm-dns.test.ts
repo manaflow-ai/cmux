@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DNS_SMOKE_COMMAND, dnsCheckProblems, EDGE_RESOLVER_ARM_COMMAND, EDGE_RESOLVER_DROP_IN, edgeResolverFiles, edgeResolverPathUnit, edgeResolverScript, FREESTYLE_TLS_DROP_IN, MACHINE_HEALTH_DIR, resolverBakeCommand } from "../scripts/cmux-vm-image/dns";
@@ -12,6 +12,25 @@ const dirs: string[] = [];
 afterAll(() => {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 });
+
+// The system tools the script may call, minus the machine's own tailscale: on a host that has it
+// (a fleet runner, a lane VM, both on the tailnet) /usr/bin/tailscale answered for a machine
+// stubbed without it, and "tailscale is not installed" never printed.
+let systemBin: string | undefined;
+function systemPath(): string {
+  if (systemBin) return systemBin;
+  const dir = mkdtempSync(path.join(tmpdir(), "cmux-dns-check-sys-"));
+  dirs.push(dir);
+  for (const from of ["/usr/bin", "/bin"]) {
+    if (!existsSync(from)) continue;
+    for (const name of readdirSync(from)) {
+      if (name === "tailscale" || name === "tailscaled" || existsSync(path.join(dir, name))) continue;
+      symlinkSync(path.join(from, name), path.join(dir, name));
+    }
+  }
+  systemBin = dir;
+  return dir;
+}
 
 type Machine = {
   link?: boolean;
@@ -62,7 +81,7 @@ async function check(machine: Machine, args: string[] = []) {
     stub(dir, "tailscale", ts.status === "fail" ? "exit 1" : `[ "$1 $2" = "status --json" ] && cat ${path.join(dir, "status.json")}`);
   }
   const result = await runChild("bash", [SCRIPT, "--timeout", "0", ...args], {
-    env: { PATH: `${path.join(dir, "bin")}:/usr/bin:/bin`, CMUX_DNS_RESOLV_CONF: resolv, CMUX_DNS_STUB: stubFile },
+    env: { PATH: `${path.join(dir, "bin")}:${systemPath()}`, CMUX_DNS_RESOLV_CONF: resolv, CMUX_DNS_STUB: stubFile },
     timeout: 30_000,
   });
   let calls: string[] = [];
