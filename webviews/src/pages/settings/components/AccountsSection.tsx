@@ -6,6 +6,7 @@ import { memo, useCallback, useEffect, useId, useMemo, useState } from "react";
 import { useKeptItems } from "../keptItems";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
+import { SignInBackend } from "../../../ui/SignInButton";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
 import { useSettingsSelector, useStore } from "../context";
 import type { SettingsState } from "../store";
@@ -177,6 +178,7 @@ function CmuxAccountRow({ cmux }: { cmux: AccountsCmux }) {
         <div className="accounts-buttons">
           <Buttons buttons={cmux.buttons} onRun={(id) => void store.runAccounts({ action: id })} />
         </div>
+        {cmux.signInBackend && <SignInBackend line={cmux.signInBackend} />}
         {cmux.note && <div className="row-help">{cmux.note}</div>}
         {cmux.error && (
           <div className="row-error" data-outcome="danger">
