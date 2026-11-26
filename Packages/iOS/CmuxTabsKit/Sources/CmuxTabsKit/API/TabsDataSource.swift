@@ -97,6 +97,12 @@ public protocol TabsDataSource: AnyObject, Observable {
 
     /// A row above the toolbar for the active tab. Default: none.
     @ViewBuilder func accessory(for tab: TabsKitTab, context: TabsKitContentContext) -> Accessory
+    /// What fills the band behind a top bar over `tab`'s page (from the screen's top to the
+    /// bar's bottom edge), laid out at the page's whole size and cut to the band, so a page
+    /// that paints its own ground (a terminal over its Mac's theme and wallpaper) continues
+    /// under the bar. Nil (the default): black under a light status bar, else the page
+    /// background.
+    func topBarGround(for tab: TabsKitTab) -> AnyView?
     /// Shown over the page while the address field is focused. The default
     /// lists matching open tabs and a Search row.
     @ViewBuilder func editingBackground(_ editing: TabsKitAddressEditing) -> EditingBackground
@@ -163,6 +169,7 @@ extension TabsDataSource where EditingBackground == TabsKitAddressSuggestions {
 }
 
 extension TabsDataSource {
+    public func topBarGround(for tab: TabsKitTab) -> AnyView? { nil }
     public func thumbnail(for id: TabsKitTab.ID) -> UIImage? { nil }
     public func icon(for id: TabsKitTab.ID) -> UIImage? { nil }
     public func cardContentOffset(for id: TabsKitTab.ID, visibleHeight: CGFloat) -> CGFloat { 0 }
