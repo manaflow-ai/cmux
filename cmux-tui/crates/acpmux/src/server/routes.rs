@@ -146,7 +146,10 @@ pub(super) async fn handle(
                     }
                     let mut file =
                         routes::file_from_edit(&base, old.kind == routes::RouteKind::ClaudeToken)?;
-                    if file.kind == routes::RouteKind::DirectApiKey && file.kind == old.kind {
+                    if file.kind == routes::RouteKind::DirectApiKey
+                        && file.kind == old.kind
+                        && (file.provider() == old.provider() || old.cloud_enabled == Some(false))
+                    {
                         file.cloud_enabled = old.cloud_enabled;
                     }
                     if file.kind == routes::RouteKind::ClaudeToken {

@@ -1,6 +1,6 @@
 // The desktop host advertises Cloud launch support separately from connection readiness.
 import { createContext, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { currentCloudMachine } from "./cloudMachines";
+import { cloudMachineForRegistry } from "./cloudMachines";
 import { pageIsKey, watchPageKey } from "./pageKey";
 
 export type CloudConnectionReason = "none" | "signedOut" | "off" | "cloudOff";
@@ -115,9 +115,17 @@ export function selectFamilyOnReturn(
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
 /// Undefined is automatic placement. Null means the explicit peer has no verified account VM.
-export function cloudPickerMachineForDraft(machine: string | null | undefined, peer: string | null | undefined) {
+export function cloudPickerMachineForDraft(
+  machine: string | null | undefined,
+  peer: string | null | undefined,
+  registries: Readonly<Partial<Record<string, string>>> | undefined,
+) {
   if (peer === undefined) return machine ?? undefined;
-  return (peer && currentCloudMachine(peer)?.id) || null;
+  return (
+    (peer &&
+      cloudMachineForRegistry(registries && Object.hasOwn(registries, peer) ? registries[peer] : undefined)?.id) ||
+    null
+  );
 }
 
 type CloudReturn = {
@@ -241,5 +249,6 @@ export function useCloudServed(
 
 /// The setup state of a Cloud composer and the picker's Settings > Cloud > Cloud models destination.
 export const CloudServedContext = createContext<
-  { served?: CloudServed; refresh?(): void; openSettings?(family: string): void } | undefined
+  | { served?: CloudServed; linkedClaude?: CloudServed; refresh?(): void; openSettings?(family: string): void }
+  | undefined
 >(undefined);

@@ -1618,12 +1618,22 @@ impl State {
                 let _ = old.tx.send(HostFrame::Superseded);
             }
             let exited = self.exit_h.map(|_| self.leader_code.unwrap_or(None));
+            let harness_start = self.harness_start;
+            // The base host omitted the start time from Hello even for a live harness.
+            #[cfg(all(target_os = "linux", debug_assertions))]
+            let harness_start = harness_start.filter(|_| {
+                !self
+                    .spec
+                    .env
+                    .iter()
+                    .any(|(key, value)| key == "ACPMUX_TEST_LEGACY_HOST_HELLO" && value == "1")
+            });
             let _ = tx.send(HostFrame::HostHello {
                 version,
                 host_build: self.record.host_build.clone(),
                 incarnation: self.record.incarnation.clone(),
                 harness_pid: self.record.harness_pid,
-                harness_start: self.harness_start,
+                harness_start,
                 last_h: self.next_h,
                 acked_h: self.acked_h,
                 max_out_id: self.max_out_id,

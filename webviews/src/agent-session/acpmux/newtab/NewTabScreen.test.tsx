@@ -2850,7 +2850,8 @@ test("a Cloud machine folder starts the chat on its existing peer", async () => 
   };
   let machineID: string | undefined;
   let peerName: string | null | undefined;
-  const readMachine = () => cloudPickerMachineForDraft(machineID, peerName);
+  let registries: Record<string, string> = { builder: "registry-a" };
+  const readMachine = () => cloudPickerMachineForDraft(machineID, peerName, registries);
   let picker!: ReturnType<typeof useCloudServed>;
   function Screen() {
     picker = useCloudServed(call, true, { readMachine });
@@ -2887,8 +2888,8 @@ test("a Cloud machine folder starts the chat on its existing peer", async () => 
   }
   const option = (title: string) =>
     [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.textContent?.includes(title));
-  const builder = { id: "vm_builder", name: "builder", stage: "ready" };
-  const other = { id: "vm_other", name: "other", stage: "ready" };
+  const builder = { id: "vm_builder", name: "renamed-builder", stage: "ready", cloudRegistryId: "registry-a" };
+  const other = { id: "vm_other", name: "builder", stage: "ready", cloudRegistryId: "registry-b" };
   setCloudMachinesForTest([other, builder]);
   try {
     await act(async () => root!.render(<Screen />));
@@ -2901,18 +2902,13 @@ test("a Cloud machine folder starts the chat on its existing peer", async () => 
     expect(calls.at(-1)).toEqual(["cloud.connect", { family: "claude", machine: builder.id }]);
 
     // A peer without an unambiguous VM match cannot open Settings for a different machine.
-    for (const collision of [
-      { ...builder, id: "vm_same_name" },
-      { ...other, id: builder.name },
-    ]) {
-      await act(async () => {
-        setCloudMachinesForTest([other, builder, collision]);
-        picker.refresh();
-        picker.openSettings("claude", () => {});
-      });
-      expect(calls).toHaveLength(3);
-      expect(picker.served).toBeUndefined();
-    }
+    await act(async () => {
+      registries = {};
+      picker.refresh();
+      picker.openSettings("claude", () => {});
+    });
+    expect(calls).toHaveLength(3);
+    expect(picker.served).toBeUndefined();
 
     await typePrompt("fix the flaky test");
     await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());

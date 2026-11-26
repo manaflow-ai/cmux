@@ -467,11 +467,8 @@ impl OAuth {
         }
     }
 
-    pub async fn revoke(&self, provider: Provider, record: &Record) {
-        // GitHub requires the OAuth application's secret to revoke its grant.
-        if provider == Provider::Grok
-            && let Ok(http) = self.http()
-        {
+    pub async fn revoke_grok(&self, record: &Record) {
+        if let Ok(http) = self.http() {
             let _ = form(
                 http.post(self.grok("/oauth2/revoke")),
                 &[

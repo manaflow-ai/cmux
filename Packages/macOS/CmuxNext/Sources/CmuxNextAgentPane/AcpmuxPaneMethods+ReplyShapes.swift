@@ -42,7 +42,7 @@ nonisolated extension AcpmuxPaneMethods {
             // This Mac draws. One word from a fixed list, nothing that names the host.
             "device": .string,
             "peers": .list(.object([
-                "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
+                "name": .string, "transport": .scheme(from: "url"), "connected": .bool, "cloudRegistryId": .string,
                 "state": .string, "lastSeen": .number, "attempts": .number,
                 // The same cached, one-minute health reading the native remote-machine sidebar
                 // displays. Keep only values needed for a warning and the budget verdict;
@@ -88,7 +88,7 @@ nonisolated extension AcpmuxPaneMethods {
         // relay derives transport from `url` and drops the endpoint and all other metadata.
         "_acpmux/peer_reconnect": .object([
             "peers": .list(.object([
-                "name": .string, "transport": .scheme(from: "url"), "connected": .bool,
+                "name": .string, "transport": .scheme(from: "url"), "connected": .bool, "cloudRegistryId": .string,
                 "state": .string, "lastSeen": .number, "attempts": .number, "error": .string,
             ])),
         ]),

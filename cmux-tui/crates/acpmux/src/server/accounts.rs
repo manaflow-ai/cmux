@@ -306,6 +306,9 @@ fn set(
     instance: Option<Option<String>>,
 ) -> Result<Value, RpcError> {
     let error = |e: routes::RouteError| crate::hub::route_error(&e);
+    if cloud_enabled.is_some() && !matches!(&instance, Some(Some(_))) {
+        return Err(RpcError::invalid_params("servesCloud needs a connection instance"));
+    }
     if id == CLAUDE_LOGIN_ID && routes::find(dir, id).is_err() {
         if cloud_enabled.is_some() {
             return Err(RpcError::invalid_params("servesCloud needs an API-key connection"));
@@ -340,7 +343,7 @@ fn set(
                     "servesCloud needs an API-key connection".into(),
                 ));
             }
-            file.cloud_enabled = (!cloud_enabled).then_some(false);
+            file.cloud_enabled = Some(cloud_enabled);
         }
         if let Some(enabled) = enabled {
             file.disabled = !enabled;
@@ -505,7 +508,8 @@ mod tests {
             disabled: false,
             provider: None,
         };
-        routes::add(Some(&dir), "claude-key", &file, false).unwrap();
+        let route = routes::add(Some(&dir), "claude-key", &file, false).unwrap();
+        let instance = Some(route.file.credential_instance);
         routes::update_bindings(&state, |b| {
             b.families.insert("claude".into(), "claude-key".into());
             b.families.insert("codex".into(), "codex-2".into());
@@ -514,13 +518,13 @@ mod tests {
             b.chats.insert("chat-1".into(), "claude-key".into());
         })
         .unwrap();
-        set(Some(&dir), &state, "claude-key", None, None, Some(false), None).unwrap();
+        set(Some(&dir), &state, "claude-key", None, None, Some(false), instance.clone()).unwrap();
         let saved = routes::find(Some(&dir), "claude-key").unwrap();
         assert_eq!(saved.file.cloud_enabled, Some(false));
         assert_eq!(saved.file.secret, file.secret);
         assert_eq!(saved.file.disabled, file.disabled);
-        set(Some(&dir), &state, "claude-key", None, None, Some(true), None).unwrap();
-        assert_eq!(routes::find(Some(&dir), "claude-key").unwrap().file.cloud_enabled, None);
+        set(Some(&dir), &state, "claude-key", None, None, Some(true), instance).unwrap();
+        assert_eq!(routes::find(Some(&dir), "claude-key").unwrap().file.cloud_enabled, Some(true));
 
         set(Some(&dir), &state, "claude-key", Some(true), None, None, None).unwrap();
         assert_eq!(

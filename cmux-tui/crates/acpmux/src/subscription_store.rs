@@ -7,8 +7,6 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::chatgpt::store::Record as ChatgptRecord;
-
 #[cfg(any(target_os = "macos", test))]
 #[derive(Default)]
 enum KeychainProbe {
@@ -175,16 +173,17 @@ pub(super) trait Keychain: Sync {
     fn write(&self, service: &str, account: &str, value: &[u8]) -> Result<bool, Error>;
     fn delete(&self, service: &str, account: &str) -> Result<(), Error>;
     fn accounts(&self, _service: &str, _id: &str) -> Result<Vec<String>, Error> {
-        // ChatGPT uses files on platforms without a login Keychain.
+        // Generation replacement after a cross-build refusal is specific to Keychain.
         Ok(Vec::new())
     }
 }
 
 #[derive(PartialEq)]
-pub(crate) struct ChatgptGrants {
+pub(crate) struct Grants<T> {
+    saved: Option<Value>,
     active_name: Option<String>,
-    pub(crate) active: Option<ChatgptRecord>,
-    pub(crate) retired: Vec<(String, ChatgptRecord)>,
+    pub(crate) active: Option<T>,
+    pub(crate) retired: Vec<(String, T)>,
 }
 
 pub(crate) struct Store<'a> {
@@ -461,55 +460,76 @@ impl<'a> Store<'a> {
                 keychain.delete(&service, &name)?;
             }
         }
-        match crate::home_fs::remove_file(path) {
-            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(Error::Storage),
-            _ => Ok(()),
-        }
+        remove_file(&path)
     }
 
-    pub(crate) fn chatgpt_grants(&self, id: &str) -> Result<ChatgptGrants, Error> {
+    pub(crate) fn grants<T: DeserializeOwned>(&self, id: &str) -> Result<Grants<T>, Error> {
         let _guard = self.lock()?;
-        self.chatgpt_grants_locked(id)
+        self.grants_locked(id)
     }
 
-    fn chatgpt_grants_locked(&self, id: &str) -> Result<ChatgptGrants, Error> {
-        let active = self.read_locked(id)?;
-        let mut grants = ChatgptGrants { active_name: None, active, retired: Vec::new() };
-        let Some(keychain) = self.keychain else { return Ok(grants) };
-        let Some(bytes) = file(&self.path(id)?)? else { return Ok(grants) };
-        let index: Value = decode(&bytes)?;
-        if index.get("keychain").is_none() {
-            return Ok(grants);
-        }
-        grants.active_name = Some(account(id, generation(&index)?));
+    fn grants_locked<T: DeserializeOwned>(&self, id: &str) -> Result<Grants<T>, Error> {
+        // Inventory must leave the legacy file and every Keychain grant intact until revocation.
+        let bytes = file(&self.path(id)?)?;
+        let saved = bytes.as_deref().map(decode::<Value>).transpose()?;
+        let indexed = saved.as_ref().filter(|index| index.get("keychain").is_some());
+        let active_name =
+            indexed.map(|index| generation(index).map(|g| account(id, g))).transpose()?;
+        let active =
+            if active_name.is_none() { bytes.as_deref().map(decode).transpose()? } else { None };
+        let mut grants = Grants { saved, active_name, active, retired: Vec::new() };
+        let Some(keychain) = self.keychain else {
+            return if grants.active_name.is_some() {
+                Err(Error::ReauthRequired)
+            } else {
+                Ok(grants)
+            };
+        };
         let service = self.service();
-        // Earlier builds could replace the index while the prior item still existed.
-        for name in keychain.accounts(&service, id)? {
-            if grants.active_name.as_ref() == Some(&name) {
-                continue;
-            }
+        let chatgpt_identity = grants
+            .saved
+            .as_ref()
+            .filter(|_| self.provider == "chatgpt")
+            .map(|index| metadata(self.provider, id, index));
+        let mut names = keychain.accounts(&service, id)?;
+        if let Some(name) = &grants.active_name
+            && !names.contains(name)
+        {
+            names.push(name.clone());
+        }
+        for name in names {
             let Some(bytes) = keychain.read(&service, &name)? else { continue };
             let record: Value = decode(&bytes)?;
+            let active = grants.active_name.as_ref() == Some(&name);
             match legacy_item_provider(&record) {
-                Some("chatgpt") if same_chatgpt_account(&index, &record) => {
-                    let record = serde_json::from_value(record).map_err(|_| Error::Storage)?;
-                    grants.retired.push((name, record));
-                }
-                Some("chatgpt") => return Err(Error::ReauthRequired),
-                Some(_) => {}
-                None => return Err(Error::Storage),
+                Some(provider) if provider == self.provider => {}
+                Some(_) if !active => continue,
+                _ => return Err(Error::Storage),
+            }
+            if self.provider == "chatgpt"
+                && !chatgpt_identity
+                    .as_ref()
+                    .is_some_and(|index| same_chatgpt_account(index, &record))
+            {
+                return Err(Error::ReauthRequired);
+            }
+            let record = serde_json::from_value(record).map_err(|_| Error::Storage)?;
+            if active {
+                grants.active = Some(record);
+            } else {
+                grants.retired.push((name, record));
             }
         }
         Ok(grants)
     }
 
-    pub(crate) fn delete_chatgpt_grants(
+    pub(crate) fn delete_grants<T: DeserializeOwned + PartialEq>(
         &self,
         id: &str,
-        grants: &ChatgptGrants,
+        grants: &Grants<T>,
     ) -> Result<(), Error> {
         let _guard = self.lock()?;
-        if self.chatgpt_grants_locked(id)? != *grants {
+        if self.grants_locked::<T>(id)? != *grants {
             return Err(Error::Storage);
         }
         if let Some(keychain) = self.keychain {
@@ -517,8 +537,11 @@ impl<'a> Store<'a> {
             for (name, _) in &grants.retired {
                 keychain.delete(&service, name)?;
             }
+            if let Some(name) = &grants.active_name {
+                keychain.delete(&service, name)?;
+            }
         }
-        self.delete_locked(id)
+        remove_file(&self.path(id)?)
     }
 
     fn lock(&self) -> Result<Option<cmux_file_lock::FileLock>, Error> {
@@ -554,6 +577,13 @@ fn file(path: &Path) -> Result<Option<Vec<u8>>, Error> {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(_) => Err(Error::Storage),
+    }
+}
+
+fn remove_file(path: &Path) -> Result<(), Error> {
+    match crate::home_fs::remove_file(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(Error::Storage),
+        _ => Ok(()),
     }
 }
 

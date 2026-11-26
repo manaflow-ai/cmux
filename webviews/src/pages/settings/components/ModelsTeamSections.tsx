@@ -11,6 +11,10 @@ import { type Run } from "./modelConnections";
 
 const AGENT_NAMES = { claude: "Claude", codex: "Codex" } as const;
 
+export function sharedModelKeyName(agent: keyof typeof AGENT_NAMES) {
+  return t("settingsWindow.models.org.key", AGENT_NAMES[agent]);
+}
+
 export function OrganizationSection({ models, busy, run }: { models: ModelsState; busy: boolean; run: Run }) {
   const { team, canEdit, keys } = models.organization;
   const [adding, setAdding] = useState(false);
@@ -76,7 +80,7 @@ function OrgKeyRow({
   run: Run;
 }) {
   const [mode, setMode] = useState<"idle" | "edit" | "confirm">("idle");
-  const name = t("settingsWindow.models.org.key", AGENT_NAMES[agent]);
+  const name = sharedModelKeyName(agent);
   return (
     <div className="row accounts-row" data-org-key={agent}>
       <div className="row-main">

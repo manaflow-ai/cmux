@@ -160,9 +160,9 @@ fn a_large_chatgpt_grant_is_stored_and_rotated_in_the_login_keychain() {
     let unrelated = account("chatgpt-second", Some(Uuid::new_v4()));
     Keychain::write(&items, &store.service(), &retired, &bytes).unwrap();
     Keychain::write(&items, &store.service(), &unrelated, &bytes).unwrap();
-    let grants = store.chatgpt_grants(id).unwrap();
+    let grants = store.grants::<Value>(id).unwrap();
     assert_eq!(grants.retired.len(), 1);
-    store.delete_chatgpt_grants(id, &grants).unwrap();
+    store.delete_grants(id, &grants).unwrap();
     assert!(Keychain::read(&items, &store.service(), &current).unwrap().is_none());
     assert!(Keychain::read(&items, &store.service(), &retired).unwrap().is_none());
     assert!(Keychain::read(&items, &store.service(), &unrelated).unwrap().is_some());
@@ -198,6 +198,7 @@ fn chatgpt_reads_and_updates_the_restored_legacy_record_without_keychain_migrati
     store.write(id, &restored).unwrap();
     assert_eq!(decode::<Value>(&std::fs::read(&path).unwrap()).unwrap(), restored);
     assert_eq!(keychain.read(&store.service(), id).unwrap(), Some(stored_bytes));
+    assert!(matches!(store.grants::<Value>(id), Err(Error::ReauthRequired)));
 }
 
 #[test]

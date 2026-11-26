@@ -66,7 +66,18 @@ fn chunk_starts(e: &Value, prefix: &str) -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_daemon_killed_and_restarted_starts_the_agent_again_on_its_launch_credential() {
-    let mut daemon = claude_family_daemon("cred", json!({}));
+    launch_credential_survives_adoption("cred", json!({})).await;
+}
+
+#[cfg(debug_assertions)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn adoption_recovers_a_launch_credential_from_a_base_version_host_hello() {
+    launch_credential_survives_adoption("cred-old", json!({"ACPMUX_TEST_LEGACY_HOST_HELLO": "1"}))
+        .await;
+}
+
+async fn launch_credential_survives_adoption(tag: &str, env: Value) {
+    let mut daemon = claude_family_daemon(tag, env);
     let mut rpc = daemon.rpc().await;
     let created = rpc
         .call(

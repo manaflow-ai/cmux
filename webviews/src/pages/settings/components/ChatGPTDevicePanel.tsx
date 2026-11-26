@@ -70,7 +70,8 @@ export function ChatGPTDeviceForm({
   }, [expiresAt, now, seconds]);
   const expired = seconds === 0 || (state?.phase === "failed" && state.error === "expired_token");
   // A renewal dialog opens a new attempt even when the host still holds the last plan error.
-  const failed = phase === "failed" && (!target || (started && state !== initialState.current));
+  const failed = state?.phase === "failed" && (!target || (started && state !== initialState.current));
+  const requiresOtherBuild = signIn === "kimi" && failed && state.error === "keychain_other_build";
   const pending = phase === "starting" || (phase === "waiting" && !expired) || phase === "cancelling";
   const begin = () =>
     run({
@@ -88,7 +89,7 @@ export function ChatGPTDeviceForm({
       data-chatgpt-device={phase ?? "idle"}
       onSubmit={(event) => {
         event.preventDefault();
-        if (busy || pending || connected) return;
+        if (busy || pending || connected || requiresOtherBuild) return;
         setStarted(true);
         void begin();
       }}
@@ -133,7 +134,7 @@ export function ChatGPTDeviceForm({
       <ConnectionFooter
         onClose={onCancel}
         busy={busy}
-        disabled={connected}
+        disabled={connected || requiresOtherBuild}
         failed={!!error || seconds === 0 || failed}
         connectAction="connectChatGPTDevice"
         loading={pending || busy}
@@ -147,7 +148,11 @@ function deviceFailure(provider: ModelDeviceProvider, state: Extract<ChatGPTDevi
     case "keychain_locked":
       return t("settingsWindow.models.keychainLocked", providerNames[provider]);
     case "keychain_other_build":
-      return t("settingsWindow.models.keychainOtherBuild");
+      return t(
+        provider === "kimi"
+          ? "settingsWindow.models.kimi.keychainOtherBuild"
+          : "settingsWindow.models.keychainOtherBuild",
+      );
     case "no_copilot_access":
       return t("settingsWindow.models.copilot.noAccess");
     case "enterprise_server":

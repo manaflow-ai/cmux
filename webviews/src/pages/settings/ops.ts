@@ -845,7 +845,7 @@ export type ModelsRun =
     }
   | { action: "finishClaudeLogin"; cloud: boolean; code: string; machine?: string; recoverySession?: string }
   | { action: "cancelChatGPTDevice" }
-  | { action: "setCloud"; id: string; on: boolean }
+  | { action: "setCloud"; id: string; instance: string; on: boolean }
   | {
       action: "addKey";
       provider: ModelProvider;

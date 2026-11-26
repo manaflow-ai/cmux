@@ -93,6 +93,20 @@ export function peerConnectedFromStatus(status: unknown): Record<string, boolean
   return connected;
 }
 
+/// The registry of each Cloud VM's current peer lease, as reported by this Mac's daemon.
+export function peerCloudRegistriesFromStatus(status: unknown): Record<string, string> {
+  const peers = (status as { peers?: unknown } | undefined)?.peers;
+  if (!Array.isArray(peers)) return {};
+  return Object.fromEntries(
+    peers.flatMap((peer) => {
+      const { name, cloudRegistryId } = (peer ?? {}) as { name?: unknown; cloudRegistryId?: unknown };
+      return typeof name === "string" && name && typeof cloudRegistryId === "string" && cloudRegistryId
+        ? [[name, cloudRegistryId]]
+        : [];
+    }),
+  );
+}
+
 /// Each peer's link state from `_acpmux/status` (the relay keeps it as a string;
 /// AcpmuxPaneMethods.replyShapes). A peer with no state, or one that is not a string, is left out.
 /// Each peer's whole link state from `_acpmux/status` or `_acpmux/peers` rows (`link`, linkState.ts),

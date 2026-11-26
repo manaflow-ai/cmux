@@ -97,8 +97,8 @@ struct CloudSetupTests {
         ]))
         let rule = setup(Connections(.init(personal: [endpoint, openRouter], organization: [])))
         rule.machineHarnesses = { _ in ["claude", "opencode"] }
-        #expect(await rule.choose(harness: "deepseek", model: "byo/model", account: nil) == .setup(family: "deepseek", model: "byo/model"))
-        #expect(await rule.choose(harness: "openrouter", model: nil, account: nil) == .setup(family: "openrouter", model: nil))
+        #expect(await rule.choose(harness: "deepseek", model: "byo/model", account: nil) == .localOnly)
+        #expect(await rule.choose(harness: "openrouter", model: nil, account: nil) == .localOnly)
         #expect(await rule.choose(harness: "claude", model: nil, account: "openrouter-key") == .setup(family: "claude", model: nil))
         let readiness = await rule.served(machine: "guest")
         #expect(readiness.servedHarnesses.isEmpty)

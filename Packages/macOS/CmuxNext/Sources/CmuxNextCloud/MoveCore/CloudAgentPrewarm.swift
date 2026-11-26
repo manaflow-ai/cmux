@@ -44,10 +44,17 @@ public struct CloudAgentPrewarm: Sendable, Equatable {
     /// ``send(surface:endpoint:ownerLink:permissionMode:credentials:)`` with nothing waiting for it: `credentials` reads the chat's
     /// launch credential as the start reads it (never spending it), and `done` gets the outcome for the log.
     public func begin(surface: UInt64, endpoint: @escaping AgentSessionAttachClient.EndpointProvider, ownerLink: @escaping AgentSessionAttachClient.OwnerLink,
-                      permissionMode: String?, credentials: @escaping @MainActor @Sendable () async -> Credential?,
+                      permissionMode: String?, credentials: @escaping @MainActor @Sendable () async throws -> Credential?,
                       done: @escaping @Sendable (String) -> Void) {
         // task-owner: one hint, never awaited by the start; it ends with its answer
-        Task { done(await send(surface: surface, endpoint: endpoint, ownerLink: ownerLink, permissionMode: permissionMode, credentials: await credentials())) }
+        Task {
+            do {
+                let credential = try await credentials()
+                done(await send(surface: surface, endpoint: endpoint, ownerLink: ownerLink, permissionMode: permissionMode, credentials: credential))
+            } catch {
+                done("credential unavailable")
+            }
+        }
     }
 
     /// Sends the prewarm for the chat tab `surface` over the owner answer of its link (`ownerLink`), with the start's

@@ -179,13 +179,76 @@ async fn new_keys_wait_for_cloud_opt_in_and_openrouter_never_delivers() {
         assert_eq!(refused["error"]["data"]["reason"], "connections.not_cloud");
         assert!(!refused.to_string().contains(fixture));
         if provider == "google" {
-            let enabled =
-                rpc.call(method::MUX_ACCOUNT_SET, json!({"id": id, "servesCloud": true})).await;
+            let enabled = rpc
+                .call(
+                    method::MUX_ACCOUNT_SET,
+                    json!({"id": id, "instance": row["credential_instance"], "servesCloud": true}),
+                )
+                .await;
             assert!(enabled.get("error").is_none(), "{enabled}");
             let credential = rpc.call(method::MUX_CONNECTIONS_CREDENTIAL, request).await;
             assert_eq!(credential["result"]["env"], json!({"GEMINI_API_KEY": fixture}));
         }
     }
+}
+
+#[tokio::test]
+async fn a_cloud_toggle_cannot_authorize_a_new_key_at_the_same_route_id() {
+    let home = tempfile::tempdir().unwrap();
+    let mut config = Config::default();
+    config.path = Some(home.path().join("config.json"));
+    config.profile_sources = crate::config::ProfileSources::none();
+    config.profile_sources.cmux_json = Some(home.path().join("cmux.json"));
+    let hub = hub_with_config(config);
+    let mut rpc = Rpc::connect(&hub, &Who::Person).await;
+    let id = "google-key";
+    let instance = |reply: &Value| {
+        reply["result"]["connections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap()["credential_instance"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+
+    let original = rpc
+        .call(
+            method::MUX_CONNECTIONS_KEY_ADD,
+            json!({"provider": "google", "secret": "env:ORIGINAL"}),
+        )
+        .await;
+    let removed = rpc
+        .call(method::MUX_CONNECTIONS_REMOVE, json!({"id": id, "instance": instance(&original)}))
+        .await;
+    assert!(removed.get("error").is_none(), "{removed}");
+    let replacement = rpc
+        .call(
+            method::MUX_CONNECTIONS_KEY_ADD,
+            json!({"provider": "google", "secret": "env:REPLACEMENT"}),
+        )
+        .await;
+    assert_ne!(instance(&original), instance(&replacement));
+
+    for expected in [None, Some(instance(&original))] {
+        let mut change = json!({"id": id, "servesCloud": true});
+        if let Some(expected) = expected {
+            change["instance"] = json!(expected);
+        }
+        let refused = rpc.call(method::MUX_ACCOUNT_SET, change).await;
+        assert!(refused.get("error").is_some(), "{refused}");
+    }
+    let read = rpc.call(method::MUX_CONNECTIONS_CREDENTIAL, json!({"id": id})).await;
+    assert_eq!(read["error"]["data"]["reason"], "connections.not_cloud");
+    let enabled = rpc
+        .call(
+            method::MUX_ACCOUNT_SET,
+            json!({"id": id, "instance": instance(&replacement), "servesCloud": true}),
+        )
+        .await;
+    assert!(enabled.get("error").is_none(), "{enabled}");
 }
 
 #[tokio::test]

@@ -4611,18 +4611,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudSetupNeed = heldCloudSetup(cloudStart);
   const cloudSetupWaiting = cloudStart?.signingIn === true;
   const cloudPickerMachine = useCallback(
-    () => cloudPickerMachineForDraft(cloudDraftMachineID.current, cloudDraftPeer.current),
+    () =>
+      cloudPickerMachineForDraft(
+        cloudDraftMachineID.current,
+        cloudDraftPeer.current,
+        snapshotRef.current?.peerCloudRegistries,
+      ),
     [],
   );
   // A linked machine is a Persistent destination with its own Cloud model readiness.
   const cloudPickerActive =
     cloudPicked || (cloudDraftHasPeer && !onOtherMachinePage && (!snapshot.sessionId || emptyLocalChat));
+  const accountMachines = useCloudMachines();
   const pickerEnvironment = cloudPicked ? cloudStartEnvironment(undefined, cloudEnvironment.pick.current) : undefined;
   const cloudServed = useCloudServed(callNative, cloudPickerActive, {
     readMachine: cloudPickerMachine,
     environment: pickerEnvironment,
   });
   const { openSettings: connectCloudPicker, refresh: refreshCloudPicker } = cloudServed;
+  useEffect(() => {
+    if (cloudDraftHasPeer) refreshCloudPicker();
+  }, [accountMachines, cloudDraftHasPeer, refreshCloudPicker, snapshot.peerCloudRegistries]);
   const openCloudPickerSettings = useCallback(
     (family: string) => {
       if (connectHeldCloudSend(family, cloudSetupNeed, cloudSetupWaiting, setUpCloudNow.current)) return;
@@ -4664,10 +4673,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       pickerEnvironment,
     ],
   );
-  const cloudPickerSetup = useMemo(
-    () => ({ ...cloudServed, openSettings: openCloudPickerSettings }),
-    [cloudServed, openCloudPickerSettings],
-  );
+  const cloudPickerSetup = useMemo(() => {
+    const { served, ...actions } = cloudServed;
+    return {
+      ...actions,
+      ...(served ? (cloudDraftHasPeer ? { linkedClaude: served } : { served }) : {}),
+      openSettings: openCloudPickerSettings,
+    };
+  }, [cloudDraftHasPeer, cloudServed, openCloudPickerSettings]);
   const modelConnect = useMemo(
     () => setupConnect(cloudSetupNeed, cloudSetupWaiting, (action) => setUpCloudNow.current(action)),
     [cloudSetupNeed, cloudSetupWaiting],
@@ -7786,7 +7799,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // The account's machine a Cloud chat runs on, for the chat menu's Pause and Resume; the
   // account's list is read when such a chat shows (and after each pick), never on a timer.
-  const accountMachines = useCloudMachines();
   const chatMachine = chatCloudMachine(summary, accountMachines);
   // Leo, 2026-11-04: "as the user's selected cloud/is typing in it… that's when we can do an
   // optimistic resume". A keystroke in a Cloud chat whose machine reads paused wakes it with that

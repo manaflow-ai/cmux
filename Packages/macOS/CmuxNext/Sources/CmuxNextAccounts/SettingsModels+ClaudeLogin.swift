@@ -173,7 +173,8 @@ extension SettingsModels {
             || (environment != nil && currentCloudClaudeState?.environment != environment)
             || (name != nil && currentCloudClaudeState?.machineName != name))
             ? ClaudeLoginState() : claudeLoginState(target)
-        guard target == .mac ? state.phase != "disabled" : state.phase != "failed" else { return }
+        let failedCloudAttempt = target == .cloud && state.phase == "failed"
+        guard target == .mac ? state.phase != "disabled" : !failedCloudAttempt || state.signedIn == true else { return }
         guard target == .mac || machine != nil else { return }
         let previous = claudeLogins[target]
         let stillChecking = {
@@ -185,11 +186,17 @@ extension SettingsModels {
         do {
             let reply = try await claudeCall(.claudeLoginStatus, "status", ["agent": "claude"], machine: machine)
             guard stillChecking() else { return }
-            setClaudeLogin(target, machine, reply["signedIn"]?.boolValue == true ? "connected" : "idle",
-                           apiKey: reply["apiKey"]?.boolValue == true, signedIn: reply["signedIn"]?.boolValue == true)
-            if let machine, reply["signedIn"]?.boolValue == true { onCloudClaudeSignIn?(machine.id) }
+            let signedIn = reply["signedIn"]?.boolValue == true
+            let apiKey = reply["apiKey"]?.boolValue == true
+            if failedCloudAttempt {
+                setClaudeLogin(target, machine, state.phase, error: state.error, apiKey: apiKey, signedIn: signedIn,
+                               recoverySession: state.recoverySession)
+                return
+            }
+            setClaudeLogin(target, machine, signedIn ? "connected" : "idle", apiKey: apiKey, signedIn: signedIn)
+            if let machine, signedIn { onCloudClaudeSignIn?(machine.id) }
         } catch {
-            guard stillChecking(), !(error is CancellationError) else { return }
+            guard stillChecking(), !failedCloudAttempt, !(error is CancellationError) else { return }
             setClaudeFailure(target, machine, error, requestedEnvironment: environment, requestedName: name)
         }
     }

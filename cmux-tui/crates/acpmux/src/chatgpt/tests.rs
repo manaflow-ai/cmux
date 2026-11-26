@@ -875,6 +875,34 @@ async fn chatgpt_disconnect_requires_cleanup_of_the_retired_grant() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chatgpt_disconnect_revokes_and_removes_a_keychain_grant_after_legacy_restore() {
+    let s = setup().await;
+    let id = "chatgpt";
+    assert_eq!(sign_in(&s, &[("code", "c1")]).await.0, Status::Done(id.into()));
+    let home = &s.places.home;
+    let grants = crate::subscription_store::Store::new(home, id);
+    let keychain_account = grants.test_account(id);
+    let mut legacy = store::read(home, id).unwrap().unwrap();
+    legacy.refresh_token = "fixture-legacy-refresh".into();
+    let path = store::dir(home).join("chatgpt.json");
+    store::write_atomic(&path, &serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert!(grants.has_test_item(&keychain_account));
+    assert_eq!(store::read(home, id).unwrap(), Some(legacy));
+
+    let route = routes::find(s.places.routes.as_deref(), id).unwrap();
+    let instance = route.file.credential_instance.as_deref().unwrap();
+    assert!(s.service.remove(&s.places, id, instance).await.unwrap());
+    assert!(!path.exists());
+    assert!(!grants.has_test_item(&keychain_account));
+    assert!(routes::find(s.places.routes.as_deref(), id).is_err());
+    let revoked = &s.fake.state.lock().unwrap().revoke_forms;
+    assert_eq!(
+        revoked.iter().map(|form| form["token"].as_str()).collect::<Vec<_>>(),
+        ["fixture-legacy-refresh", "refresh-0"]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn chatgpt_reapproval_refuses_a_different_workspace_for_the_same_subject() {
     let s = setup().await;
     let id = "chatgpt";

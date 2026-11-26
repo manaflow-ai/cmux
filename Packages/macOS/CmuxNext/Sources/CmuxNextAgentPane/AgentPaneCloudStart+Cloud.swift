@@ -1,4 +1,5 @@
 public import CmuxNextCloud
+import CmuxNextCompat
 public import Foundation
 
 // The Cloud side of a start the App runs (CloudStartChat): what it may copy, and the steps and
@@ -95,8 +96,16 @@ extension AgentPaneCloudStart {
 }
 
 extension AgentPaneCloudStart {
-    /// First-send setup is required unless a destination has a live Claude login.
-    @MainActor public func connectionSetupReply(for choice: CloudSetup.Choice, readyClaude: Bool) -> [String: Any]? {
+    package static var localOnlyMessage: String {
+        String(localized: "cloud.start.localOnlyModel", defaultValue: "This model runs locally. Choose a Cloud model or run the chat on this computer.", bundle: .module.inAppLanguage)
+    }
+
+    /// Refuse local-only profiles or offer setup for a Cloud connection that can be added.
+    @MainActor public func connectionRefusalReply(for choice: CloudSetup.Choice, readyClaude: Bool) -> [String: Any]? {
+        if choice == .localOnly {
+            return AgentPaneReply.failure(code: "cloud_model_local_only", message: Self.localOnlyMessage,
+                                          details: nil, retryable: false, origin: "native")
+        }
         guard case .setup(let family, let model) = choice else { return nil }
         if family == "claude", readyClaude { return nil }
         return Self.cloudSetupReply(family: family, model: model)
@@ -121,7 +130,7 @@ extension AgentPaneCloudStart {
         guard case .setup(let family, let model) = choice else {
             return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: true, origin: "native")
         }
-        if !CloudSetup.setupFamilies.contains(family), await setup.launchConnection(family)?.endpointProfile != true {
+        if !CloudSetup.setupFamilies.contains(family) {
             return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: true, origin: "native")
         }
         return Self.cloudSetupReply(family: family, model: model, machine: machine)

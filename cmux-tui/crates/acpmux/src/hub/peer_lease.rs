@@ -26,6 +26,7 @@ use super::*;
 pub struct PeerLease {
     pub name: String,
     pub generation: u64,
+    pub(super) cloud_registry_id: Option<String>,
 }
 
 impl Hub {
@@ -43,6 +44,7 @@ impl Hub {
         token: String,
         peer_token: Option<String>,
         vm_boundary: bool,
+        cloud_registry_id: Option<String>,
         saved: &crate::config::Config,
     ) -> Result<(PeerLease, tokio::sync::watch::Receiver<u64>), RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
@@ -72,10 +74,11 @@ impl Hub {
         // and saves its sessions (`save_peer_cache`).
         let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
         let (generation, settled) = self.spawn_peer(name, &pc, false);
-        leases.insert(name.to_owned(), generation);
+        let lease = PeerLease { name: name.to_owned(), generation, cloud_registry_id };
+        leases.insert(name.to_owned(), lease.clone());
         drop(leases);
         tracing::info!(peer = %name, "peer leased");
-        Ok((PeerLease { name: name.to_owned(), generation }, settled))
+        Ok((lease, settled))
     }
 
     /// End `lease`: stop its peer and drop its rows, unless the name now
@@ -92,7 +95,7 @@ impl Hub {
                     _ => None,
                 }
             };
-            if leases.get(&lease.name) == Some(&lease.generation) {
+            if leases.get(&lease.name) == Some(lease) {
                 leases.remove(&lease.name);
             }
             peer
@@ -110,6 +113,15 @@ impl Hub {
     /// Whether `name` is a leased peer now.
     pub fn is_leased(&self, name: &str) -> bool {
         self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(name)
+    }
+
+    pub(crate) fn peer_has_cloud_registry(&self, peer: &crate::peer::Peer, registry: &str) -> bool {
+        self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).get(&peer.name).is_some_and(
+            |lease| {
+                lease.generation == peer.generation
+                    && lease.cloud_registry_id.as_deref() == Some(registry)
+            },
+        )
     }
 }
 
@@ -130,11 +142,15 @@ mod tests {
         let cfg = crate::config::Config::default();
         for url in ["ws://10.0.0.5:4000", "ssh://me@host", "http://127.0.0.1:1", "ws://example.com"]
         {
-            let e = hub.lease_peer("vm", url, "t".into(), None, false, &cfg).unwrap_err();
+            let e = hub.lease_peer("vm", url, "t".into(), None, false, None, &cfg).unwrap_err();
             assert!(e.message.contains("loopback"), "{url}: {}", e.message);
         }
-        assert!(hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, &cfg).is_ok());
-        assert!(hub.lease_peer("vm2", "wss://example.com", "t".into(), None, false, &cfg).is_ok());
+        assert!(
+            hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, None, &cfg).is_ok()
+        );
+        assert!(
+            hub.lease_peer("vm2", "wss://example.com", "t".into(), None, false, None, &cfg).is_ok()
+        );
     }
 
     #[tokio::test]
@@ -153,8 +169,9 @@ mod tests {
                 github_broker: false,
             },
         );
-        let e =
-            hub.lease_peer("box", "ws://127.0.0.1:1", "t".into(), None, false, &cfg).unwrap_err();
+        let e = hub
+            .lease_peer("box", "ws://127.0.0.1:1", "t".into(), None, false, None, &cfg)
+            .unwrap_err();
         assert!(e.message.contains("saved peer"), "{}", e.message);
     }
 
@@ -162,15 +179,24 @@ mod tests {
     async fn ending_an_old_lease_leaves_its_renewal_running() {
         let hub = hub();
         let cfg = crate::config::Config::default();
-        let (old, _) =
-            hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, &cfg).unwrap();
-        let (new, _) =
-            hub.lease_peer("vm", "ws://127.0.0.1:2", "t".into(), None, false, &cfg).unwrap();
+        let (old, _) = hub
+            .lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, Some("a".into()), &cfg)
+            .unwrap();
+        let original_peer = hub.peer_by_name("vm").unwrap();
+        assert!(hub.peer_has_cloud_registry(&original_peer, "a"));
+        let (new, _) = hub
+            .lease_peer("vm", "ws://127.0.0.1:2", "t".into(), None, false, Some("b".into()), &cfg)
+            .unwrap();
         hub.end_peer_lease(&old);
+        let current_peer = hub.peer_by_name("vm").unwrap();
+        assert!(!hub.peer_has_cloud_registry(&current_peer, "a"));
+        assert!(!hub.peer_has_cloud_registry(&original_peer, "b"));
+        assert!(hub.peer_has_cloud_registry(&current_peer, "b"));
         assert!(hub.is_leased("vm"));
         assert_eq!(hub.peers().len(), 1);
         assert_eq!(hub.peers()[0]["url"], "ws://127.0.0.1:2");
         assert_eq!(hub.peers()[0]["leased"], true);
+        assert_eq!(hub.peers()[0]["cloudRegistryId"], "b");
         hub.end_peer_lease(&new);
         assert!(!hub.is_leased("vm"));
         assert!(hub.peers().is_empty());
@@ -205,7 +231,7 @@ mod tests {
                 let cfg = crate::config::Config::default();
                 for _ in 0..2_000 {
                     let (lease, _) = hub
-                        .lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, &cfg)
+                        .lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, false, None, &cfg)
                         .unwrap();
                     hub.end_peer_lease(&lease);
                 }
@@ -226,7 +252,7 @@ mod tests {
         let hub = hub();
         let cfg = crate::config::Config::default();
         let (lease, _) =
-            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, None, &cfg).unwrap();
         let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
         hub.apply_peer_notice(
             "vm",
@@ -252,7 +278,7 @@ mod tests {
         let store = crate::store::open(&cfg.store, dir.path()).unwrap();
         let hub = Hub::new(cfg.clone(), store);
         let (lease, _) =
-            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, None, &cfg).unwrap();
         let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
         hub.apply_peer_notice(
             "vm",
@@ -292,7 +318,7 @@ mod tests {
 
         // A saved peer takes the leased name over.
         let (lease, _) =
-            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, None, &cfg).unwrap();
         hub.add_peer("vm", "ws://127.0.0.1:8", None, None, false).await.unwrap();
         hub.apply_peer_notice(
             "vm",
@@ -304,7 +330,7 @@ mod tests {
 
         // The lease ended.
         let (lease, _) =
-            hub.lease_peer("vm2", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
+            hub.lease_peer("vm2", "ws://127.0.0.1:9", "t".into(), None, false, None, &cfg).unwrap();
         hub.end_peer_lease(&lease);
         hub.apply_peer_notice(
             "vm2",
@@ -342,7 +368,7 @@ mod tests {
         let store = crate::store::open(&cfg.store, dir.path()).unwrap();
         let hub = Hub::new(cfg.clone(), store);
         let (lease, _) =
-            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, &cfg).unwrap();
+            hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, false, None, &cfg).unwrap();
         let e = hub.remove_peer("vm").await.unwrap_err();
         assert!(e.message.contains("leased"), "{}", e.message);
         assert!(

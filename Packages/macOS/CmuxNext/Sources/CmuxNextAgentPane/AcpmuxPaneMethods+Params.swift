@@ -19,7 +19,7 @@ nonisolated extension AcpmuxPaneMethods {
         // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
         // each as it checks `cwd`. `restricted`: a read-only chat in a folder the person declined
         // (Read-only here); acpmux keeps its policy and the folder's config off (hub/restricted.rs).
-        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted"]),
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "cloudRegistryId", "noProject", "model", "restricted"]),
         "chat.fix_from_link": (["url", "cwd", "harness", "model", "_meta"], []),
         "chat.fix_from_link.prepare": (["url", "cwd", "harness", "model"], []),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
@@ -302,6 +302,10 @@ nonisolated extension AcpmuxPaneMethods {
         // A start's model is a spawn parameter (Claude Code's `--model`, `${model}` in a harness's
         // argv or env): one model id, never a flag or anything else.
         if method == "session/new", let model = acpmux["model"], !isModelID(model) { return "_meta.acpmux.model is not a model id" }
+        if method == "session/new", let registry = acpmux["cloudRegistryId"] {
+            guard let id = registry as? String, !id.isEmpty, id.utf8.count <= 128,
+                  let peer = acpmux["peer"] as? String, !peer.isEmpty else { return "_meta.acpmux.cloudRegistryId requires a peer and a registry id" }
+        }
         return nil
     }
 

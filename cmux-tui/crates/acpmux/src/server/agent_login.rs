@@ -334,7 +334,7 @@ pub(crate) async fn use_gateway(
     if agent == Agent::Claude
         && let Some(session) = &session
     {
-        hub.select_claude_gateway(session).await?;
+        hub.select_claude_gateway(session, false).await?;
     } else {
         match machine.choose_team(agent) {
             Ok(true) => {}

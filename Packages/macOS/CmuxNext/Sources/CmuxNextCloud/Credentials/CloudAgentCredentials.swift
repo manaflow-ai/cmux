@@ -69,7 +69,7 @@ public struct CloudAgentCredential: Sendable, Equatable, CustomStringConvertible
 
 /// The owner's model credentials for Cloud chats (model-connections.md "Revision 2", lane F): the one
 /// entry point that reads a connection's credential from this Mac's acpmux, the connection each new
-/// Cloud chat starts on (the Cloud start picks it, ``use(connection:chat:machine:)``), and the
+/// Cloud chat starts on (the Cloud start picks it, ``use(choice:chat:machine:harness:claudeAuth:)``), and the
 /// ``refresher`` that keeps each live ChatGPT plan agent's token fresh on its machine.
 ///
 /// Nothing here writes a credential anywhere: it is read when a start or a refresh needs it, sent
@@ -100,7 +100,7 @@ public final class CloudAgentCredentials {
     private var tracked: [ChatKey: UUID] = [:]
 
     private struct Selection {
-        let connection: String?
+        let connection: CloudSetup.Choice?
         let harness: String?
         let claudeAuth: AgentSessionAttachClient.ClaudeAuth?
     }
@@ -322,10 +322,14 @@ public final class CloudAgentCredentials {
         return credential
     }
 
-    /// The Cloud start's choice for the chat tab `chat` on `machine`: its agent launches on connection
-    /// `id` (nil: the machine's own route). Read once, at the chat's start on that machine.
-    public func use(connection id: String?, chat: String, machine: String, harness: String? = nil, claudeAuth: AgentSessionAttachClient.ClaudeAuth? = nil) {
-        chosen[ChatKey(machine: machine, chat: chat)] = id != nil || claudeAuth != nil ? Selection(connection: id, harness: harness, claudeAuth: id == nil ? claudeAuth : nil) : nil
+    /// Records the connection or explicit Claude route for this chat's pending launch.
+    public func use(choice: CloudSetup.Choice = .fallback, chat: String, machine: String, harness: String? = nil, claudeAuth: AgentSessionAttachClient.ClaudeAuth? = nil) {
+        let key = ChatKey(machine: machine, chat: chat)
+        if case .connection = choice {
+            chosen[key] = Selection(connection: choice, harness: harness, claudeAuth: nil)
+        } else {
+            chosen[key] = claudeAuth.map { Selection(connection: nil, harness: harness, claudeAuth: $0) }
+        }
     }
 
     public func stopDeliveringCredential(chat: String, machine: String, harness: String) {
@@ -350,7 +354,7 @@ public final class CloudAgentCredentials {
     }
 
     /// The connection chosen for `chat` on `machine`, if any.
-    public func connection(chat: String, machine: String) -> String? {
+    package func connectionChoice(chat: String, machine: String) -> CloudSetup.Choice? {
         chosen[ChatKey(machine: machine, chat: chat)]?.connection
     }
 
@@ -368,20 +372,37 @@ public final class CloudAgentCredentials {
 
     /// The credential the chat's start sends, read now. A chosen connection that cannot be read throws:
     /// the start says so instead of using another route. With no choice, the connection Cloud first use
-    /// picks for `harness` (``setup``); nil when none serves it or it cannot be read (the machine's own route).
+    /// picks for `harness` (``setup``). A selected Gemini or Grok connection must still match its saved instance.
     public func launchCredential(chat: String, machine: String, harness: String? = nil, model: String? = nil) async throws -> CloudAgentCredential? {
         if let selection = chosen[ChatKey(machine: machine, chat: chat)],
            selection.harness == nil || selection.harness == harness,
            selection.claudeAuth == nil || CloudSetup.family(of: harness) == "claude" {
             guard let connection = selection.connection else { return nil }
-            return try await credential(forConnection: connection, model: model, harness: harness)
+            return try await launchCredential(for: connection, harness: harness, model: model)
         }
-        guard let picked = await setup?.choose(harness: harness, model: model, account: nil).connectionID else { return nil }
+        guard let choice = await setup?.choose(harness: harness, model: model, account: nil),
+              let picked = choice.connectionID else { return nil }
+        if choice.requiresCredentialInstance {
+            return try await launchCredential(for: choice, harness: harness, model: model)
+        }
         let connection = await setup?.launchConnection(picked)
         if connection?.endpointCredentials == true || connection?.kind == CloudAgentCredential.chatGPTPlan {
             return try await credential(forConnection: picked, model: model, harness: harness)
         }
         return try? await credential(forConnection: picked, model: model, harness: harness)
+    }
+
+    /// Reads the launch credential for a choice already made, including when prewarming the agent.
+    package func launchCredential(for choice: CloudSetup.Choice, harness: String?, model: String?) async throws -> CloudAgentCredential? {
+        guard case .connection(let id, _, let instance) = choice else { return nil }
+        let credential = try await credential(forConnection: id, model: model, harness: harness)
+        if choice.requiresCredentialInstance {
+            guard let expected = instance.flatMap(UUID.init(uuidString:)),
+                  credential.instance.flatMap(UUID.init(uuidString:)) == expected else {
+                throw Failure.unavailable(connection: id)
+            }
+        }
+        return credential
     }
 
     /// Keeps the chat's delivered credential current after its start or reattach.

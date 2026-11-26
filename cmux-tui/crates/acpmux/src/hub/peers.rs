@@ -626,14 +626,26 @@ impl Hub {
     }
 
     pub fn peers(&self) -> Vec<Value> {
-        // Read before `peers` is locked (lock order: `peer_leases`, then `peers`).
-        let leased: std::collections::HashSet<String> =
-            self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
+        let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).clone();
         // Released before the rows are counted, so this read takes `peers` and
         // `remote_sessions` separately and never in the reverse nested order.
         let (listed, brokers): (Vec<(String, Value)>, std::collections::HashSet<String>) = {
             let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-            let listed = peers.values().map(|p| (p.name.clone(), p.summary())).collect();
+            let listed = peers
+                .values()
+                .map(|p| {
+                    let mut row = p.summary();
+                    if let Some(lease) =
+                        leases.get(&p.name).filter(|lease| lease.generation == p.generation)
+                    {
+                        row.set("leased", Value::Bool(true));
+                        if let Some(id) = &lease.cloud_registry_id {
+                            row.set("cloudRegistryId", json!(id));
+                        }
+                    }
+                    (p.name.clone(), row)
+                })
+                .collect();
             (listed, peers.values().filter(|p| p.github_broker()).map(|p| p.name.clone()).collect())
         };
         let counts = self.remote_sessions.read().peer_counts();
@@ -641,9 +653,6 @@ impl Hub {
             .into_iter()
             .map(|(name, mut s)| {
                 s.set("sessions", json!(counts.get(&name).copied().unwrap_or(0)));
-                if leased.contains(&name) {
-                    s.set("leased", Value::Bool(true));
-                }
                 if brokers.contains(&name) {
                     s.set("githubBroker", Value::Bool(true));
                 }

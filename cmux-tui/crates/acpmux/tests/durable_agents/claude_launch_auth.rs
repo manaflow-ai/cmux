@@ -226,6 +226,33 @@ async fn recovered_claude_uses_the_machine_login_over_profile_and_project_provid
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_owner_fork_of_recovered_claude_keeps_the_machine_login() {
+    let daemon = claude_account_daemon("rec-fork", true);
+    let mut rpc = daemon.rpc().await;
+    guest_api_route(&mut rpc).await;
+    rpc.call(
+        "_acpmux/route/default.set",
+        json!({"scope": "family:claude", "routeId": "guest-api"}),
+    )
+    .await;
+    let parent = setup_token_chat(&daemon, &mut rpc).await;
+    recover_token_chat(&mut rpc, &parent).await;
+    assert_eq!(agent_env(&daemon, &parent, "CMUX_CLAUDE_AUTH").await, "own");
+    let turn = daemon.wait_event(&parent, "completed turn", |e| e["kind"] == "turn_result");
+    let fork =
+        rpc.call("acp.session.fork", json!({"sessionId": parent, "throughSeq": turn["seq"]})).await;
+    let child = fork["sessionId"].as_str().unwrap();
+
+    assert_eq!(agent_env(&daemon, child, "ANTHROPIC_BASE_URL").await, "");
+    assert_eq!(agent_env(&daemon, child, "FIXTURE_CLAUDE_API_KEY_SET").await, "");
+    assert_eq!(agent_env(&daemon, child, "CMUX_CLAUDE_AUTH").await, "own");
+    assert_eq!(
+        agent_env(&daemon, child, "CLAUDE_CONFIG_DIR").await,
+        daemon.home.join("signed-in-account").to_str().unwrap()
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn recovered_claude_keeps_the_machine_login_on_a_cold_start_with_a_new_guest_default() {
     let mut daemon = claude_account_daemon("recovery-cold", true);
     let mut rpc = daemon.rpc().await;

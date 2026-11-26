@@ -2013,10 +2013,9 @@ impl Hub {
                 crate::claude_auth::explain(&session.id, &e.message, cloud_host, gateway)
         {
             tracing::warn!(session = %session.id, "Claude agent is not signed in");
-            // The gateway fallback (off by default, `agent_login::GATEWAY_FALLBACK_ENV`): a chat
-            // with no credential on a team the gateway serves uses it without asking. The agent
-            // restarts on it once this turn ends, and the first send goes again there
-            // (`auto_resume/first_send.rs`).
+            // A chat without a selected credential can use the team's gateway automatically
+            // (`agent_login::GATEWAY_FALLBACK_ENV`, off by default). The agent restarts on it once
+            // this turn ends, and the first send goes again there (`auto_resume/first_send.rs`).
             let fell_back = gateway
                 && crate::agent_login::gateway_fallback_on()
                 && crate::claude_auth::spawned(&session.id)

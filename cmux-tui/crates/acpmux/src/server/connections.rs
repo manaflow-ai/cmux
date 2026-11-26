@@ -357,6 +357,9 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
     }
     let can_serve_cloud =
         serves_cloud(facts.kind, &facts.provider) && (facts.kind != "api-key" || standard_endpoint);
+    // Only these API keys served Cloud before per-key consent was added.
+    let legacy_cloud_default =
+        facts.kind != "api-key" || matches!(facts.provider.as_str(), "anthropic" | "openai");
     Connection {
         id: route.id.clone(),
         credential_instance: route.file.credential_instance.clone(),
@@ -370,7 +373,7 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
         sign_in_reason: None,
         enabled: !route.file.disabled,
         default_for,
-        serves_cloud: can_serve_cloud && route.file.cloud_enabled != Some(false),
+        serves_cloud: can_serve_cloud && route.file.cloud_enabled.unwrap_or(legacy_cloud_default),
         can_serve_cloud,
         can_check_access,
         can_replace_key: (standard_endpoint && route.file.credential_instance.is_some())
@@ -688,9 +691,15 @@ pub(super) fn ordered(mut list: Vec<Connection>, explicit: &[String]) -> Vec<Con
 
 /// The `ConnectionsState`.
 fn state(dir: Option<&Path>, home: &Path, sources: &ProfileSources) -> Value {
-    let b = routes::bindings(home);
+    let mut b = routes::bindings(home);
     let mut connections = list(dir, home, &b, sources);
+    // A removal records its marker first. A route that is still present can be retried.
     for connection in &mut connections {
+        if let Some(instance) = &connection.credential_instance
+            && let Some(disconnected) = b.disconnected_credentials.get_mut(&connection.id)
+        {
+            disconnected.remove(instance);
+        }
         if !connection.signed_in {
             continue;
         }
@@ -715,6 +724,7 @@ fn state(dir: Option<&Path>, home: &Path, sources: &ProfileSources) -> Value {
             _ => {}
         }
     }
+    b.disconnected_credentials.retain(|_, instances| !instances.is_empty());
     let mut state = json!({
         "connections": ordered(connections, &b.connection_order),
         "spread": b.spread.unwrap_or(true),
@@ -2019,6 +2029,75 @@ secret = "keychain:work"
         routes::remove(dir, &d.home, &id).unwrap();
         assert!(replace_key(dir, &d.home, &id, "openai", old, &instance, &sources).is_err());
         assert!(routes::find(dir, &id).is_err());
+    }
+
+    #[test]
+    fn existing_google_and_xai_keys_need_explicit_cloud_consent() {
+        let d = dirs();
+        let dir = Some(d.routes.as_path());
+        let sources = ProfileSources::none();
+        for (provider, family, url) in [
+            ("google", "gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),
+            ("xai", "grok", "https://api.x.ai/v1"),
+        ] {
+            let id = format!("{provider}-key");
+            let legacy = routes::file_from_json(&json!({
+                "kind": "direct-api-key", "provider": provider, "families": [family],
+                "openaiBaseUrl": url, "secret": "keychain:work",
+            }))
+            .unwrap();
+            std::fs::write(
+                d.routes.join(format!("{id}.toml")),
+                toml::to_string_pretty(&legacy).unwrap(),
+            )
+            .unwrap();
+            let listed = state(dir, &d.home, &sources);
+            assert_eq!(find(&listed, &id)["can_serve_cloud"], true);
+            assert_eq!(find(&listed, &id)["serves_cloud"], false);
+            assert_eq!(
+                credential_plan(dir, &d.home, &id, &sources).unwrap_err().data.unwrap()["reason"],
+                "connections.not_cloud"
+            );
+            routes::edit(dir, &id, |file| {
+                file.cloud_enabled = Some(true);
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(find(&state(dir, &d.home, &sources), &id)["serves_cloud"], true);
+            assert_eq!(credential_plan(dir, &d.home, &id, &sources).unwrap().0, family);
+        }
+    }
+
+    #[test]
+    fn failed_disconnect_keeps_the_key_and_retry_publishes_its_withdrawal() {
+        let d = dirs();
+        let dir = Some(d.routes.as_path());
+        let sources = ProfileSources::none();
+        let (id, listed) =
+            add_key(dir, &d.home, "anthropic", "keychain:work", None, &sources, Some(true))
+                .unwrap();
+        let instance = find(&listed, &id)["credential_instance"].as_str().unwrap();
+        let write = d.home.join("routes/bindings.json.tmp");
+        std::fs::create_dir_all(&write).unwrap();
+
+        assert!(routes::remove(dir, &d.home, &id).is_err());
+        let listed = state(dir, &d.home, &sources);
+        assert_eq!(find(&listed, &id)["credential_instance"], instance);
+        assert!(listed.get("disconnected_credentials").is_none());
+
+        std::fs::remove_dir(&write).unwrap();
+        // A crash after the marker write but before the route move also leaves a retryable row.
+        routes::update_bindings(&d.home, |b| {
+            b.disconnected_credentials.entry(id.clone()).or_default().insert(instance.to_owned());
+        })
+        .unwrap();
+        assert!(state(dir, &d.home, &sources).get("disconnected_credentials").is_none());
+
+        routes::remove(dir, &d.home, &id).unwrap();
+        let listed = state(dir, &d.home, &sources);
+        assert!(!state_ids(&listed).contains(&id));
+        assert_eq!(listed["disconnected_credentials"][&id], json!([instance]));
+        assert!(credential_plan(dir, &d.home, &id, &sources).is_err());
     }
 
     #[test]

@@ -544,6 +544,44 @@ import Testing
         #expect(operations == ["status", "start", "cancel"])
     }
 
+    @Test(arguments: ["bad_code", "unknown_login"])
+    func failedCloudClaudeReauthenticationCanRefreshTheExistingSignIn(refusal: String) async throws {
+        let models = make(daemon: Daemon())
+        var signedIn = true
+        var operations: [String] = []
+        let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", name: "Cloud VM", environment: "env_b", request: { op, _ in
+            operations.append(op)
+            switch op {
+            case "start":
+                return Data(#"{"loginId":"reauth","url":"https://claude.ai/oauth/manual"}"#.utf8)
+            case "finish":
+                return Data(#"{"refused":{"reason":"\#(refusal)"}}"#.utf8)
+            default:
+                return Data(#"{"signedIn":\#(signedIn)}"#.utf8)
+            }
+        }, openCallback: { _, _, _ in false })
+        models.cloudClaudeLogin = { preferred, _, _ in preferred == machine.id ? .ready(machine) : .connectable }
+        models.prepareCloudClaudeLogin = { preferred, _, _ in preferred == machine.id ? machine : nil }
+        await models.checkClaudeLogin(.cloud, machine: machine.id)
+        _ = try await models.run(["action": "connectClaude", "cloud": true, "machine": "vm_b", "replace": "claude-cloud-login"], context: click)
+        await models.claudeLoginTasks[.cloud]?.value
+        _ = try await models.run(["action": "finishClaudeLogin", "cloud": true, "machine": "vm_b", "code": "fixture"], context: click)
+        await models.claudeLoginTasks[.cloud]?.value
+
+        let failed = models.state["cloudClaudeLogin"]
+        #expect(failed?["phase"] == "failed")
+        #expect(failed?["error"] == .string(refusal == "unknown_login" ? "expired" : refusal))
+        #expect(failed?["signedIn"] == true)
+        #expect(failed?["machine"] == "vm_b")
+        await models.checkClaudeLogin(.cloud, machine: machine.id)
+        #expect(models.state["cloudClaudeLogin"] == failed)
+
+        signedIn = false
+        await models.checkClaudeLogin(.cloud, machine: machine.id)
+        #expect(models.state["cloudClaudeLogin"]?["signedIn"] == false)
+        #expect(operations == ["status", "start", "finish", "cancel", "status", "status"])
+    }
+
     @Test(arguments: [true, false])
     func unavailableAutomaticCloudCallbackUsesTheManualCodeOnTheSameMachine(signedIn: Bool) async throws {
         let daemon = Daemon()

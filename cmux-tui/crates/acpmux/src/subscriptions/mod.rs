@@ -187,7 +187,7 @@ impl KimiRegion {
 }
 
 // Deliberately no Debug representation.
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct Record {
     access_token: String,
     refresh_token: String,
@@ -543,12 +543,46 @@ impl Service {
         instance: String,
     ) -> Result<(), Failure> {
         let guard = self.account(&id).lock_owned().await;
-        let (home, route_id) = (places.home.clone(), id.clone());
-        let key = (provider, home.clone(), route_id.clone());
+        let (read_places, read_id, read_instance) = (places.clone(), id.clone(), instance.clone());
+        let grants = blocking(move || {
+            let check_instance = || {
+                let route = check_route(provider, read_places.routes.as_deref(), &read_id)?;
+                if route.file.credential_instance.as_deref() != Some(read_instance.as_str()) {
+                    return Err("not_found");
+                }
+                Ok(())
+            };
+            check_instance()?;
+            let grants = provider
+                .store(&read_places.home)
+                .grants::<Record>(&read_id)
+                .map_err(|error| error.code())?;
+            check_instance()?;
+            Ok(grants)
+        })
+        .await?;
+        let key = (provider, places.home.clone(), id.clone());
+        // GitHub requires the OAuth application's secret to revoke its grant.
+        if provider == Provider::Grok {
+            let fresh =
+                self.pending_writes.lock().unwrap_or_else(|p| p.into_inner()).get(&key).cloned();
+            let mut attempted = std::collections::HashSet::new();
+            let records = fresh
+                .iter()
+                .map(Arc::as_ref)
+                .chain(grants.active.iter())
+                .chain(grants.retired.iter().map(|(_, record)| record));
+            for record in records {
+                if !record.refresh_token.is_empty()
+                    && attempted.insert(record.refresh_token.as_str())
+                {
+                    self.oauth.revoke_grok(record).await;
+                }
+            }
+        }
         let pending = self.pending_writes.clone();
-        let (_, record) = blocking(move || {
+        blocking(move || {
             let _guard = guard;
-            check_route(provider, places.routes.as_deref(), &id)?;
             routes::remove_with(
                 places.routes.as_deref(),
                 &places.home,
@@ -558,30 +592,22 @@ impl Service {
                     if route.file.kind != provider.kind() {
                         return Err("not_found");
                     }
-                    let record = if provider == Provider::Grok {
-                        let fresh =
-                            pending.lock().unwrap_or_else(|p| p.into_inner()).get(&key).cloned();
-                        let stored = provider.read(&home, &route_id)?;
-                        fresh.or_else(|| stored.map(Arc::new))
-                    } else {
-                        None
-                    };
-                    provider.delete(&places.home, &id)?;
+                    provider
+                        .store(&places.home)
+                        .delete_grants(&id, &grants)
+                        .map_err(|error| error.code())?;
                     pending.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
                     #[cfg(unix)]
                     if provider == Provider::Copilot {
                         crate::agent::copilot_auth::remove_route(&id);
                     }
-                    Ok(record)
+                    Ok(())
                 },
                 |_| "storage",
             )
+            .map(|_| ())
         })
-        .await?;
-        if let Some(record) = record {
-            self.oauth.revoke(provider, &record).await;
-        }
-        Ok(())
+        .await
     }
 }
 

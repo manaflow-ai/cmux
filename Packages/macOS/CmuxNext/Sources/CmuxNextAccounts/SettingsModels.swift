@@ -387,10 +387,14 @@ public final class SettingsModels {
             await refresh()
         case "setCloud":
             guard let id = listedID(params), let on = params["on"]?.boolValue,
-                  connections.contains(where: { $0["id"]?.stringValue == id && $0["kind"]?.stringValue == "api-key" }) else {
-                throw PageError.invalidParams("setCloud needs an API-key connection and on")
+                  let instance = params["instance"]?.stringValue,
+                  connections.contains(where: {
+                      $0["id"]?.stringValue == id && $0["kind"]?.stringValue == "api-key"
+                          && $0["credentialInstance"]?.stringValue == instance
+                  }) else {
+                throw PageError.invalidParams("setCloud needs the listed API-key connection instance and on")
             }
-            try await mutate(.accountSet, ["id": id, "servesCloud": on])
+            try await mutate(.accountSet, ["id": id, "instance": instance, "servesCloud": on])
         case "rename":
             guard let id = listedID(params), id != "claude-login",
                   let name = params["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),

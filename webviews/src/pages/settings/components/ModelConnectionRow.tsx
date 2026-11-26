@@ -20,7 +20,6 @@ import { isCloudSubscription, markOf, tokenTimeRemaining, type Run, type SetupSe
 export type RowAction = {
   kind: "rename" | "disconnect";
   connection: ModelConnection;
-  description?: string;
 };
 
 export function ModelConnectionRow({
@@ -79,6 +78,7 @@ export function ModelConnectionRow({
   const endpoint = connection.kind === "endpoint";
   const cloudSubscription = isCloudSubscription(connection);
   const otherBuild = connection.signInReason === "keychain_other_build";
+  const kimiOtherBuild = otherBuild && connection.kind === "kimi-plan";
   const checking = access.state === "checking";
   const failure = access.result && "failure" in access.result;
   const expires = cloud && connection.expiresAt ? new Date(connection.expiresAt * 1000) : undefined;
@@ -93,11 +93,13 @@ export function ModelConnectionRow({
   const warning = !connection.enabled
     ? undefined
     : (renewal ??
-      (failure
-        ? t("settingsWindow.models.status.refused")
-        : !connection.signedIn && !endpoint
-          ? t(otherBuild ? "settingsWindow.models.keychainOtherBuild" : "settingsWindow.models.status.signInNeeded")
-          : undefined));
+      (kimiOtherBuild
+        ? t("settingsWindow.models.kimi.keychainOtherBuild")
+        : failure
+          ? t("settingsWindow.models.status.refused")
+          : !connection.signedIn && !endpoint
+            ? t(otherBuild ? "settingsWindow.models.keychainOtherBuild" : "settingsWindow.models.status.signInNeeded")
+            : undefined));
   const kind = t(
     endpoint
       ? "settingsWindow.models.kind.custom"
@@ -115,7 +117,9 @@ export function ModelConnectionRow({
     connection.id === "claude-cloud-login" || legacyClaude
       ? "claude"
       : connection.kind === "kimi-plan"
-        ? "kimi-code"
+        ? kimiOtherBuild
+          ? undefined
+          : "kimi-code"
         : cloudSubscription && connection.kind !== "claude-token"
           ? connection.kind.slice(0, -"-plan".length)
           : builtin
@@ -339,16 +343,7 @@ export function ModelConnectionRow({
                   <MenuItem
                     className="ui-menu-item-destructive"
                     data-value="remove"
-                    onSelect={() =>
-                      action({
-                        kind: "disconnect",
-                        connection,
-                        description:
-                          cloudSubscription && connection.kind !== "claude-token"
-                            ? t("settingsWindow.models.cloud.removeChatGPT")
-                            : undefined,
-                      })
-                    }
+                    onSelect={() => action({ kind: "disconnect", connection })}
                   >
                     <Icon name="link.slash" />
                     {t("settingsWindow.models.disconnect")}

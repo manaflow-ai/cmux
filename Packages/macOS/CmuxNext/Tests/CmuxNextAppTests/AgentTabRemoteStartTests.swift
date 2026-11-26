@@ -200,7 +200,7 @@ struct AgentTabRemoteStartTests {
         let (tabs, key) = try makeTabs(seedCwd: seedCwd)
         tabs.remoteFolder = { _ in remoteFolder }
         tabs.cloudCredentials = CloudAgentCredentials()
-        tabs.cloudCredentials?.use(connection: launchChoice.connectionID, chat: key, machine: "Cloud fixture", harness: harness,
+        tabs.cloudCredentials?.use(choice: launchChoice, chat: key, machine: "Cloud fixture", harness: harness,
                                    claudeAuth: launchChoice.claudeAuth)
         var recorded: [(String, String, String?, String?)] = []
         tabs.onRemoteChatStarted = { recorded.append(($0, $1, $2, $3)) }

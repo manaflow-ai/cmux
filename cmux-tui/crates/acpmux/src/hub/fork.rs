@@ -736,6 +736,11 @@ impl Hub {
         let rules_kept = !fresh
             && !moved
             && crate::context_inventory::fork_keeps_rules(recorded, recorded_seq, fork_seq);
+        // A same-harness fork keeps the recovered account choice. It never ran on the old token,
+        // so there is no prior host to restart.
+        let keeps_claude_recovery = target.is_none()
+            && subsession.is_none()
+            && super::credentials::uses_claude_machine_login(&parent_meta);
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -750,8 +755,10 @@ impl Hub {
             credential_connection: None,
             credential_withdrawn: false,
             credential_model: None,
-            claude_token_recovery: None,
-            claude_login_restart_pending: None,
+            claude_token_recovery: parent_meta
+                .claude_token_recovery
+                .filter(|_| keeps_claude_recovery),
+            claude_login_restart_pending: keeps_claude_recovery.then_some(false),
             launch_digest: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),

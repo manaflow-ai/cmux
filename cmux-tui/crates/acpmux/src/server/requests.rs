@@ -946,6 +946,11 @@ async fn new_on_peer(
         ));
     }
     let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
+    if let Some(registry) = mux_meta(params).and_then(|m| m.get("cloudRegistryId"))
+        && !registry.as_str().is_some_and(|id| hub.peer_has_cloud_registry(&peer, id))
+    {
+        return Err(RpcError::no_peer(peer_name));
+    }
     if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
         return Err(super::trust_gate::peer_unsupported(&peer.name));
     }
@@ -3055,7 +3060,8 @@ async fn dispatch_request_with_identity(
             let vm_boundary = params.get("vmBoundary") == Some(&Value::Bool(true));
             let (lease, mut settled) = {
                 let cfg = hub.config.read().await;
-                hub.lease_peer(&name, &url, token, text("peerToken"), vm_boundary, &cfg)?
+                let registry = text("cloudRegistryId").filter(|id| id.len() <= 128);
+                hub.lease_peer(&name, &url, token, text("peerToken"), vm_boundary, registry, &cfg)?
             };
             conn.hold_peer_lease(hub, lease);
             let waited = if wait {

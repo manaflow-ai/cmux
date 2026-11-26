@@ -2,7 +2,7 @@
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import { GALLERY_NOW } from "../../gallery/clock";
 import { chatgptDeviceError, mockChatGPTDevice, mockModels } from "./mockModels";
-import type { AccountsState } from "./ops";
+import type { AccountsState, ModelsState } from "./ops";
 import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
@@ -50,6 +50,30 @@ const signInHost: AccountsState = {
   signInAccounts: [...ACCOUNT_LISTS.signedOut],
 };
 const cloudPlan = mockModels.chatgptForCloud.personal.connections.find((c) => c.kind === "chatgpt-plan")!;
+const cloudKeyModels: ModelsState = {
+  ...mockModels.empty,
+  personal: {
+    ...mockModels.empty.personal,
+    connections: [
+      {
+        id: "openai-key",
+        credentialInstance: "fixture-openai",
+        label: "OpenAI API key",
+        kind: "api-key",
+        provider: "openai",
+        families: ["codex"],
+        email: null,
+        plan: null,
+        signedIn: true,
+        enabled: true,
+        defaultFor: [],
+        servesCloud: true,
+        canServeCloud: true,
+      },
+    ],
+  },
+};
+const openCloudKeyMenu = click('[data-menu="connection-openai-key"]');
 
 export default settingsPageEntry({
   id: "pages.settings-models",
@@ -129,49 +153,15 @@ export default settingsPageEntry({
     "cloud-coming-soon": dialog("deepseek", { ...mockModels.empty, cloudHarnesses: [] }, cloud),
     "cloud-endpoint-toggle-error": {
       ...cloud,
-      models: {
-        ...mockModels.empty,
-        cloudHarnesses: ["opencode"],
-        personal: {
-          ...mockModels.empty.personal,
-          connections: [
-            {
-              id: "deepseek",
-              label: "DeepSeek",
-              kind: "endpoint",
-              provider: "deepseek",
-              families: ["deepseek"],
-              email: null,
-              plan: null,
-              signedIn: true,
-              enabled: true,
-              defaultFor: [],
-              servesCloud: true,
-              canServeCloud: true,
-              launchHarness: "opencode",
-              endpoint: {
-                kind: "openai-endpoint",
-                preset: "deepseek",
-                baseUrl: "https://api.deepseek.com",
-                models: ["deepseek-chat"],
-                revision: "1",
-              },
-            },
-          ],
-        },
-      },
-      endpoint: { addFails: "cmux.page.invalid_params" },
-      steps: [
-        click('[data-menu="connection-deepseek"]'),
-        click('[data-value="setCloud"]'),
-        wait('[data-card="cloudModels"] [role="alert"]'),
-      ],
+      models: cloudKeyModels,
+      options: { failing: { "cmux.settings.models.run": "cmux.models.failed" } },
+      steps: [openCloudKeyMenu, click('[data-value="setCloud"]'), wait('[data-card="cloudModels"] [role="alert"]')],
     },
     "cloud-key-form": dialog("openai", mockModels.empty, cloud),
     "cloud-key-menu": {
       ...cloud,
-      models: mockModels.macLogins,
-      steps: [click('[data-menu="connection-openrouter-key"]'), wait('[data-value="setCloud"]')],
+      models: cloudKeyModels,
+      steps: [openCloudKeyMenu, wait('[data-value="setCloud"]')],
     },
     "claude-form": dialog("claude"),
     "claude-approving": dialog("claude", mockModels.claudeApproving),

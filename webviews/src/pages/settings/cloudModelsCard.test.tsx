@@ -1,5 +1,6 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { act } from "react";
+import modelsGallery from "./models.gallery";
 import type { ModelsState } from "./ops";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
@@ -44,6 +45,54 @@ test("Cloud models sits alongside Cloud Environments and Cloud Workspaces", asyn
   expect(rendered.container.querySelector('[data-card="cloudEnvironments"]')).not.toBeNull();
   expect(rendered.container.textContent).toContain("Cloud Workspaces");
   expect(ops(rendered.provider, "cmux.settings.models.state")).toHaveLength(1);
+});
+
+test.each([
+  ["claude", "Shared Claude key"],
+  ["codex", "Shared Codex key"],
+] as const)("Cloud Models shows a member's shared %s key without a personal connection", async (agent, label) => {
+  const models: ModelsState = {
+    ...mockModels.empty,
+    organization: {
+      team: { id: "team-acme", name: "Acme" },
+      canEdit: false,
+      keys: [{ agent, set: true, last4: null }],
+    },
+  };
+  const rendered = await render(models);
+  expect(card(rendered).textContent).toContain(label);
+  expect(card(rendered).textContent).not.toContain("No connections yet");
+
+  await act(async () =>
+    rendered.provider.setModels({
+      ...models,
+      organization: { ...models.organization, keys: [{ agent, set: false, last4: null }] },
+    }),
+  );
+  expect(card(rendered).textContent).not.toContain(label);
+  expect(card(rendered).textContent).toContain("No connections yet");
+});
+
+test.each([
+  ["cloud-endpoint-toggle-error", '[data-card="cloudModels"] [role="alert"]'],
+  ["cloud-key-menu", '[data-value="setCloud"]'],
+])("gallery variant %s reaches its Cloud Models state", async (name, result) => {
+  const fixture = modelsGallery.variants[name]!;
+  const rendered = (page = await renderPage({
+    path: "/settings/cloud",
+    closedMore: true,
+    mock: fixture.options,
+    setup: (provider) => {
+      provider.models = structuredClone(fixture.models ?? null);
+    },
+  }));
+  for (const step of fixture.steps ?? []) {
+    const control = document.querySelector(step.selector);
+    expect(control, step.selector).not.toBeNull();
+    if (step.action === "click") await click(control!);
+  }
+  expect(document.querySelector(result)).not.toBeNull();
+  expect(card(rendered).querySelector('[data-connection="openai-key"]')).not.toBeNull();
 });
 
 test.each([
@@ -148,6 +197,30 @@ test("a refused Claude sign-out leaves the connection and shows the error in Clo
   await click(document.querySelector('[data-value="signOutClaude"]')!);
   expect(ids(rendered)).toContain("claude-cloud-login");
   expect(card(rendered).querySelector('[role="alert"]')?.textContent).toBe("Could not sign out of Claude Code.");
+});
+
+test.each([
+  ["bad_code", "Enter the code from your browser."],
+  ["expired", "The sign-in expired. Start again."],
+])("a Claude reauthentication failure (%s) keeps the signed-in machine and its actions", async (error, message) => {
+  const login = { phase: "connected", signedIn: true, error: null, machine: "vm_b", machineName: "Cloud VM" } as const;
+  const rendered = await render({ ...mockModels.empty, cloudClaudeLogin: login });
+  const menu = () => card(rendered).querySelector('[data-menu="connection-claude-cloud-login"]')!;
+  await click(menu());
+  await click(document.querySelector('[data-value="signInAgain"]')!);
+  await click(panel()!.querySelector('[data-models-action="connectClaude"]')!);
+  await act(async () =>
+    rendered.provider.setModels({ ...mockModels.empty, cloudClaudeLogin: { ...login, phase: "code" } }),
+  );
+  await act(async () =>
+    rendered.provider.setModels({ ...mockModels.empty, cloudClaudeLogin: { ...login, phase: "failed", error } }),
+  );
+  expect(panel()?.querySelector('[role="alert"]')?.textContent).toBe(message);
+  expect(ids(rendered)).toContain("claude-cloud-login");
+  await click(panel()!.querySelector(".models-dialog-close")!);
+  await click(menu());
+  await click(document.querySelector('[data-value="signOutClaude"]')!);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "signOutClaude", cloud: true, machine: "vm_b" });
 });
 
 test("reopening an explicit-machine link checks the same guest again", async () => {
@@ -502,6 +575,8 @@ test.each(["openai", "google", "vertex-express", "xai"])(
       servesCloud: false,
     });
     await act(async () => rendered.history.push("/settings/cloud"));
+    const instance = rendered.provider.models?.personal.connections.find((c) => c.id === id)?.credentialInstance ?? "";
+    expect(instance).toBeTruthy();
     const key = card(rendered).querySelector(`[data-connection="${id}"]`)!;
     const menu = () => key.querySelector(`[data-menu="connection-${id}"]`)!;
     expect(key.textContent).toContain("Off for new chats");
@@ -512,13 +587,13 @@ test.each(["openai", "google", "vertex-express", "xai"])(
     const use = document.querySelector('[data-value="setCloud"]')!;
     expect(use.textContent).toBe("Use on Cloud");
     await click(use);
-    expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, on: true });
+    expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, instance, on: true });
     expect(key.textContent).not.toContain("Off for new chats");
     await click(menu());
     const stop = document.querySelector('[data-value="setCloud"]')!;
     expect(stop.textContent).toBe("Stop using on Cloud");
     await click(stop);
-    expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, on: false });
+    expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, instance, on: false });
     expect(key.textContent).toContain(
       "Off for new chats. Older machines can keep using the key until their chats end.",
     );
@@ -623,6 +698,7 @@ test("Connect opens the opted-out connection's Cloud toggle", async () => {
   const state = structuredClone(mockModels.empty);
   state.personal.connections.push({
     id: "anthropic-key",
+    credentialInstance: "fixture-anthropic",
     label: "Anthropic API key",
     provider: "anthropic",
     kind: "api-key",
@@ -640,8 +716,38 @@ test("Connect opens the opted-out connection's Cloud toggle", async () => {
   const enable = document.querySelector('[data-value="setCloud"]')!;
   expect(enable.textContent).toBe("Use on Cloud");
   await click(enable);
-  expect(rendered.provider.modelRuns).toEqual([{ action: "setCloud", id: "anthropic-key", on: true }]);
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "setCloud", id: "anthropic-key", instance: "fixture-anthropic", on: true },
+  ]);
   expect(card(rendered).textContent).not.toContain("Not used on Cloud");
+});
+
+test("a stale Cloud menu cannot opt a replacement key in before the page refreshes", async () => {
+  const rendered = await render(mockModels.empty, "/settings/models?focus=models.add.google");
+  await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-api-key");
+  await click(panel()!.querySelector('[data-models-action="addKey"]')!);
+  await act(async () => rendered.history.push("/settings/cloud"));
+  const state = rendered.provider.models!;
+  const saved = state.personal.connections.find((c) => c.id === "google-key")!;
+  const instance = saved.credentialInstance ?? "";
+  expect(instance).toBeTruthy();
+  await click(card(rendered).querySelector('[data-menu="connection-google-key"]')!);
+  const toggle = document.querySelector('[data-value="setCloud"]')!;
+  // Change the mock host's state without delivering its update to the open menu yet.
+  rendered.provider.models = {
+    ...state,
+    personal: { ...state.personal, connections: [{ ...saved, credentialInstance: "replacement" }] },
+  };
+  await click(toggle);
+  expect(rendered.provider.modelRuns.at(-1)).toEqual({
+    action: "setCloud",
+    id: saved.id,
+    instance,
+    on: true,
+  });
+  expect(rendered.provider.models.personal.connections[0]?.servesCloud).toBe(false);
+  expect(card(rendered).querySelector('[role="alert"]')).not.toBeNull();
+  expect(document.querySelector('[data-value="setCloud"]')).toBeNull();
 });
 
 test("saved OpenRouter and endpoint rows stay local even with stale Cloud readiness", async () => {

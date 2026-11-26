@@ -416,11 +416,18 @@ export function ModelPicker(props: ModelPickerProps) {
   acpmuxPerf.render("composer:model");
   const cloudSetup = useContext(CloudServedContext);
   const cloudServed = cloudSetup?.served;
+  const linkedClaude = cloudSetup?.linkedClaude;
   const openConnectionSettings = cloudSetup?.openSettings;
   const pickerState = useCallback(
-    (entry: Pick<HarnessChoice, "id" | "folder">) =>
-      cloudServed && entry.folder ? "unsupported" : cloudPickerState(cloudServed, entry.id),
-    [cloudServed],
+    (entry: Pick<HarnessChoice, "id" | "folder">) => {
+      if (entry.folder) return cloudServed ? "unsupported" : undefined;
+      if (cloudServed) return cloudPickerState(cloudServed, entry.id);
+      if (entry.id === "claude" && linkedClaude?.families.claude !== undefined) {
+        return linkedClaude.families.claude ? "ready" : "disconnected";
+      }
+      return undefined;
+    },
+    [cloudServed, linkedClaude],
   );
   const cloudNeedsConnection = useCallback(
     (entry: Pick<HarnessChoice, "id" | "folder">) => {
@@ -505,11 +512,11 @@ export function ModelPicker(props: ModelPickerProps) {
   const signInNoteFor = useCallback(
     (entry: HarnessChoice) =>
       cloudNeedsConnection(entry)
-        ? t(cloudPickerReason(cloudServed, entry.id))
+        ? t(cloudPickerReason(cloudServed ?? linkedClaude, entry.id))
         : loginFor(entry) !== undefined
           ? t("harnesses.signedOut")
           : undefined,
-    [cloudNeedsConnection, cloudServed, loginFor, t],
+    [cloudNeedsConnection, cloudServed, linkedClaude, loginFor, t],
   );
   const signInActionFor = useCallback(
     (entry: HarnessChoice) => {

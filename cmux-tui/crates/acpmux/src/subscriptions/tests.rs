@@ -472,12 +472,13 @@ async fn subscription_disconnect_reports_keychain_delete_failure_and_can_retry()
 
         store.allow_test_item(id);
         if provider == Provider::Grok {
+            assert!(fake.calls.lock().unwrap()[0].contains("token=fixture-refresh"));
             store.refuse_test_item(id, crate::subscription_store::Error::KeychainOtherBuild);
             assert_eq!(
                 service.remove(provider, places.clone(), id.into(), instance.clone()).await,
                 Err("keychain_other_build")
             );
-            assert!(fake.calls.lock().unwrap().is_empty());
+            assert_eq!(fake.calls.lock().unwrap().len(), 1);
             assert!(routes::find(places.routes.as_deref(), id).is_ok());
             store.allow_test_item(id);
         }
@@ -486,7 +487,111 @@ async fn subscription_disconnect_reports_keychain_delete_failure_and_can_retry()
         assert!(!provider.path(&places.home, id).unwrap().exists());
         assert!(routes::find(places.routes.as_deref(), id).is_err());
         if provider == Provider::Grok {
-            assert!(fake.calls.lock().unwrap()[0].contains("token=fixture-refresh"));
+            assert_eq!(fake.calls.lock().unwrap().len(), 2);
+        }
+    }
+}
+
+#[tokio::test]
+async fn grok_disconnect_revokes_the_pending_refresh_before_a_route_backup_failure() {
+    let provider = Provider::Grok;
+    let (service, fake, _root, places) = fixture(provider, 30, vec![], true).await;
+    let id = "grok-fixture";
+    let mut record = super::Record {
+        access_token: "fixture-access".into(),
+        refresh_token: "fixture-stored-refresh".into(),
+        expires_at: 1,
+        region: None,
+        device_id: None,
+        sub: None,
+        login: None,
+        email: None,
+    };
+    super::save(provider, &places, id, false, &record).unwrap();
+    record.refresh_token = "fixture-pending-refresh".into();
+    service
+        .pending_writes
+        .lock()
+        .unwrap()
+        .insert((provider, places.home.clone(), id.into()), Arc::new(record));
+    let instance =
+        routes::find(places.routes.as_deref(), id).unwrap().file.credential_instance.unwrap();
+    let backups = places.home.join("route-backups");
+    std::fs::write(&backups, "blocks backup directory creation").unwrap();
+    assert_eq!(
+        service.remove(provider, places.clone(), id.into(), instance.clone()).await,
+        Err("storage")
+    );
+    {
+        let calls = fake.calls.lock().unwrap();
+        assert_eq!(calls.len(), 2);
+        assert!(calls[0].contains("token=fixture-pending-refresh"));
+        assert!(calls[1].contains("token=fixture-stored-refresh"));
+    }
+    assert!(routes::find(places.routes.as_deref(), id).is_ok());
+    std::fs::remove_file(backups).unwrap();
+    service.remove(provider, places.clone(), id.into(), instance).await.unwrap();
+    assert!(routes::find(places.routes.as_deref(), id).is_err());
+    assert_eq!(fake.calls.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn disconnect_removes_retired_grok_and_copilot_grants_after_access_is_restored() {
+    use crate::subscription_store::Error;
+
+    for provider in [Provider::Grok, Provider::Copilot] {
+        let (service, fake, _root, places) = fixture(provider, 30, vec![], true).await;
+        let id = provider.name();
+        let mut record = super::Record {
+            access_token: "fixture-retired-access".into(),
+            refresh_token: if provider == Provider::Grok { "fixture-retired-refresh" } else { "" }
+                .into(),
+            expires_at: if provider == Provider::Grok { 1 } else { 0 },
+            region: None,
+            device_id: None,
+            sub: None,
+            login: None,
+            email: None,
+        };
+        super::save(provider, &places, id, false, &record).unwrap();
+        let store = provider.store(&places.home);
+        let retired = store.test_account(id);
+        store.refuse_test_item(id, Error::KeychainOtherBuild);
+        record.access_token = "fixture-active-access".into();
+        if provider == Provider::Grok {
+            record.refresh_token = "fixture-active-refresh".into();
+        }
+        super::save(provider, &places, id, true, &record).unwrap();
+        let active = store.test_account(id);
+        assert_ne!(active, retired);
+        let foreign = Provider::Kimi.store(&places.home);
+        let mut kimi = record.clone();
+        kimi.region = Some(KimiRegion::Global);
+        foreign.write(id, &kimi).unwrap();
+        let foreign_account = foreign.test_account(id);
+
+        let instance =
+            routes::find(places.routes.as_deref(), id).unwrap().file.credential_instance.unwrap();
+        assert_eq!(
+            service.remove(provider, places.clone(), id.into(), instance.clone()).await,
+            Err("keychain_other_build")
+        );
+        assert!(store.has_test_item(&active));
+        assert!(routes::find(places.routes.as_deref(), id).is_ok());
+        assert!(fake.calls.lock().unwrap().is_empty());
+
+        store.allow_test_item(&retired);
+        assert!(store.has_test_item(&retired));
+        service.remove(provider, places.clone(), id.into(), instance).await.unwrap();
+        assert!(!store.has_test_item(&active));
+        assert!(!store.has_test_item(&retired));
+        assert!(foreign.has_test_item(&foreign_account));
+        assert!(routes::find(places.routes.as_deref(), id).is_err());
+        if provider == Provider::Grok {
+            let calls = fake.calls.lock().unwrap();
+            assert_eq!(calls.len(), 2);
+            assert!(calls[0].contains("token=fixture-active-refresh"));
+            assert!(calls[1].contains("token=fixture-retired-refresh"));
         }
     }
 }

@@ -6,7 +6,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::CODEX_CLIENT_ID;
-use crate::subscription_store::{ChatgptGrants, Error, Store};
+use crate::subscription_store::{Error, Grants, Store};
 
 #[cfg(test)]
 pub(crate) fn dir(home: &Path) -> std::path::PathBuf {
@@ -102,16 +102,16 @@ pub(crate) fn delete(home: &Path, id: &str) -> Result<(), Error> {
     store(home).delete(id)
 }
 
-pub(super) fn disconnect_grants(home: &Path, id: &str) -> Result<ChatgptGrants, Error> {
-    store(home).chatgpt_grants(id)
+pub(super) fn disconnect_grants(home: &Path, id: &str) -> Result<Grants<Record>, Error> {
+    store(home).grants(id)
 }
 
 pub(super) fn delete_disconnected_grants(
     home: &Path,
     id: &str,
-    grants: &ChatgptGrants,
+    grants: &Grants<Record>,
 ) -> Result<(), Error> {
-    store(home).delete_chatgpt_grants(id, grants)
+    store(home).delete_grants(id, grants)
 }
 
 #[derive(Deserialize)]

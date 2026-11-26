@@ -25,6 +25,15 @@ const sent: Record<string, Record<string, unknown>> = {
   "local, folder, read-only": newSessionParams({ cwd: "/work/project" }, "claude", false, undefined, undefined, true),
   "no project": newSessionParams({}, "claude", true),
   "peer, model": newSessionParams({ peer: "devbox" }, "codex", false, "gpt-5.5"),
+  "Cloud peer, registry": newSessionParams(
+    { peer: "cloud-builder" },
+    "claude",
+    false,
+    undefined,
+    undefined,
+    false,
+    "registry-builder",
+  ),
   adopt: newSessionParams({ adopt }),
 };
 

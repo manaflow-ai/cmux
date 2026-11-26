@@ -112,11 +112,19 @@ impl Hub {
         Ok(())
     }
 
-    /// A named Claude chat keeps its gateway choice across a restart.
-    pub(crate) async fn select_claude_gateway(&self, session: &Session) -> Result<bool, RpcError> {
+    /// A named Claude chat keeps its gateway choice across a restart. Automatic fallback
+    /// is only available when the chat has no explicit machine-login choice.
+    pub(crate) async fn select_claude_gateway(
+        &self,
+        session: &Session,
+        automatic: bool,
+    ) -> Result<bool, RpcError> {
         let _spawn = self.spawn_lease(session).await;
-        self.check_claude_route_change(session)?;
         let meta = session.meta();
+        if automatic && super::spawn::launch_requires_claude_machine_login(&meta) {
+            return Ok(false);
+        }
+        self.check_claude_route_change(session)?;
         if self.config.read().await.family(&meta.harness).as_deref() != Some("claude") {
             return Err(RpcError::invalid_params(
                 "the login agent does not match the chat's harness",
@@ -131,7 +139,7 @@ impl Hub {
 
     /// Record the automatic gateway choice before scheduling the restart of this chat.
     pub(crate) async fn use_gateway_now(self: &Arc<Self>, session: &Arc<Session>) -> bool {
-        match self.select_claude_gateway(session).await {
+        match self.select_claude_gateway(session, true).await {
             Ok(true) => {}
             Ok(false) => return false,
             Err(e) => {

@@ -348,7 +348,11 @@ impl Hub {
         meta.apply_chat_store(&mut p.env);
         // The session's own env last, over the preset, never expanded: its
         // values were checked as given (session_env.rs).
+        let requested_claude_team = launch_requires_claude_team(meta);
         for (k, v) in &meta.session_env {
+            if requested_claude_team && k == "CMUX_CLAUDE_AUTH" {
+                continue;
+            }
             p.env.insert(k.clone(), v.clone());
         }
         // A chat a person started asks sr2 for its person reserve (`sr2_priority.rs`), decided
@@ -429,7 +433,11 @@ impl Hub {
         if meta.remote_origin {
             p.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
         }
-        let requires_claude_team = launch_requires_claude_team(meta);
+        // Claude wrappers select their own provider. Keep their launch environment and
+        // route even when Cloud readiness found a team key for plain Claude.
+        let claude_wrapper = crate::config::derive_family(&meta.harness, &p) == "claude"
+            && !crate::claude_cloud_auth::launches_claude_itself(&p.argv);
+        let requires_claude_team = requested_claude_team && !claude_wrapper;
         let requires_claude_login = launch_requires_claude_machine_login(meta);
         p.env.remove(crate::claude_cloud_auth::REQUIRED_TEAM);
         if requires_claude_team {
@@ -456,7 +464,7 @@ impl Hub {
         // The owner's Cloud credential: straight to the provider, no coderouter route
         // (`agent_credentials.rs`). Its names only are logged, never a value.
         let direct = if let Some(c) =
-            credential.filter(|_| !requires_claude_team && !requires_claude_login)
+            credential.filter(|_| !requested_claude_team && !requires_claude_login)
         {
             c.check_launch_destination()?;
             let family = crate::config::derive_family(&meta.harness, &p);

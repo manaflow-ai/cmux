@@ -221,9 +221,8 @@ struct CloudStartSession {
         steps.done("connect"); try still(name)
         let setup = services.cloud.setup
         let (choice, refusal) = await request.launchReadiness(setup: setup, machine: id)
-        if let refused = refusal {
-            throw ActionFailure(message: request.setupRequired(refused, scheme: services.linkScheme, machine: id))
-        }
+        if choice == .localOnly { throw ActionFailure(message: AgentPaneCloudStart.localOnlyMessage) }
+        if let refusal { throw ActionFailure(message: request.setupRequired(refusal, scheme: services.linkScheme, machine: id)) }
         try still(name)
         // Remote approvals run beside the copy, as the composer's (awaited on every exit, cancelled on an error one); a machine this run made runs nobody's agent, so its status is not read. Their Cloud API execs need the machine running, which a new one is once connected.
         let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus) { account == services.cloud.account } }) {
@@ -263,7 +262,7 @@ struct CloudStartSession {
         try still(name)
         let started: AgentTabRemoteStart.Started, tabKey = opened.key
         do {
-            let tabs = services.agentTabs; services.cloud.agentCredentials.use(connection: choice.connectionID, chat: tabKey, machine: id, harness: agent, claudeAuth: choice.claudeAuth)
+            let tabs = services.agentTabs; services.cloud.agentCredentials.use(choice: choice, chat: tabKey, machine: id, harness: agent, claudeAuth: choice.claudeAuth)
             await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
             let listed = await CloudWait.holds(within: .seconds(60)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))

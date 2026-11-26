@@ -105,13 +105,14 @@ async function mount(
     // A live model probe can report only id/name; the bundled catalog supplies its capabilities.
     models: entry.models.map((model) => ({ id: model.id, name: model.name })),
   }));
-  const builder = { id: "vm_builder", name: "builder", stage: "ready" };
+  const builder = { id: "vm_builder", name: "builder", stage: "ready", cloudRegistryId: "registry-builder" };
   const snapshot = noChat([], {
     catalog,
     ...(options.linkedCloudMachine
       ? {
           peers: [builder.name],
           peerKinds: { [builder.name]: "cloud" },
+          peerCloudRegistries: { [builder.name]: builder.cloudRegistryId },
           peerConnected: { [builder.name]: true },
         }
       : {}),
@@ -239,7 +240,7 @@ async function open() {
 }
 const deferred = { harness: "claude", cwd: "/tmp/classic-project", deferred: true };
 
-test("New Tab keeps the linked Cloud machine's Connect row when its location pick switches to Persistent", async () => {
+test("a linked Cloud machine keeps Claude Connect and its existing Codex models", async () => {
   const { calls, builder } = await mount({ linkedCloudMachine: true });
   expect(paneWindow().cmuxAcpmuxDebug?.runMode().runMode).toBe("cloud");
   const location = host.querySelector<HTMLButtonElement>('.nt-location [data-kind="computer"] button')!;
@@ -265,6 +266,12 @@ test("New Tab keeps the linked Cloud machine's Connect row when its location pic
   expect(calls.filter(({ method }) => method === "cloud.connect").map(({ params }) => params)).toEqual([
     { family: "claude", machine: builder.id },
   ]);
+  if (!document.querySelector(".acpmux-cols")) await open();
+  const codex = popup().querySelector<HTMLElement>('[role="tab"][aria-label="Codex"]');
+  expect(codex).not.toBeNull();
+  await act(async () => codex!.click());
+  expect(items().map(label), popup().textContent ?? "").toContain("GPT-6 Astra");
+  expect(popup().textContent).not.toContain("Runs on Cloud soon");
 });
 
 test("a classic New Tab starts its deferred chat before changing model", async () => {

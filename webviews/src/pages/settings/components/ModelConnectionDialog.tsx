@@ -108,7 +108,11 @@ export function ModelConnectionDialog({
   const revokeCopilot = rowAction?.kind === "disconnect" && connection?.kind === "copilot-plan";
   const description =
     rowAction?.kind === "disconnect"
-      ? ((revokeCopilot ? undefined : rowAction.description) ?? t("settingsWindow.models.removeConfirm"))
+      ? t(
+          rowAction.connection.kind === "chatgpt-plan"
+            ? "settingsWindow.models.removeChatGPT"
+            : "settingsWindow.models.removeConfirm",
+        )
       : undefined;
   const mark =
     provider?.mark ??

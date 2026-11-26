@@ -87,7 +87,7 @@ struct AgentPaneCloudSetUpTests {
         let key = UUID().uuidString
         let original = AgentPaneCloudStart(task: "held prompt", cwd: nil, key: key)
         let choice = CloudSetup.Choice.setup(family: "claude", model: nil)
-        let refusal = try #require(original.connectionSetupReply(for: choice, readyClaude: false))
+        let refusal = try #require(original.connectionRefusalReply(for: choice, readyClaude: false))
         #expect(Self.code(refusal) == "cloud_setup_required")
         model.transport.gestures.record()
         let ready = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "setUpClaude", "family": "claude"]]))
@@ -96,10 +96,25 @@ struct AgentPaneCloudSetUpTests {
         #expect(await model.respond(to: again)["ok"] as? Bool == true)
         let start = try #require(retried)
         #expect(start.machine == "vm_b" && start.usesMachineLogin)
-        #expect(start.connectionSetupReply(for: choice, readyClaude: true) == nil)
+        #expect(start.connectionRefusalReply(for: choice, readyClaude: true) == nil)
         let opened = AgentPaneCloudStarted(start: start, chat: nil, workspace: nil, account: [], machineID: "vm_b")
         #expect(opened.start.machine == nil && !opened.start.usesMachineLogin, "the later Repick must use its own machine")
         #expect(opened.start.key == key)
+    }
+
+    @Test(arguments: ["openrouter", "providers/custom"])
+    func aLocalOnlyModelGetsARefusalInsteadOfACloudSetupWait(harness: String) async throws {
+        let endpoint = try #require(CloudSetup.Connection(json: ["id": "providers/custom", "kind": "endpoint"]))
+        let setup = CloudSetup(read: { .init(personal: [endpoint], organization: []) })
+        let start = try #require(AgentPaneCloudStart(params: [
+            "task": "held prompt", "key": UUID().uuidString, "home": true, "harness": harness,
+        ]))
+        let (choice, _) = await setup.launchReadiness(for: start)
+        let reply = try #require(start.connectionRefusalReply(for: choice, readyClaude: false))
+        #expect(Self.code(reply) == "cloud_model_local_only")
+        let error = try #require(reply["error"] as? [String: Any])
+        #expect(error["userMessage"] as? String == AgentPaneCloudStart.localOnlyMessage)
+        #expect(error["retryable"] as? Bool == false)
     }
 
     @Test func aSetUpThatEndsWithNoConnectionKeepsNoClick() async {

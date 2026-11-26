@@ -258,6 +258,48 @@ test("a sign-in from another build offers to reconnect the same row", async () =
   expect(rendered.provider.modelRuns).toEqual([{ action: "connectChatGPTDevice", id: plan.id, openBrowser: true }]);
 });
 
+test("a Kimi Code sign-in from another build directs cleanup to that build", async () => {
+  const models = structuredClone(mockModels.empty);
+  models.personal.connections.push({
+    id: "kimi-plan",
+    credentialInstance: "fixture-kimi",
+    label: "Kimi Code",
+    provider: "kimi",
+    kind: "kimi-plan",
+    families: ["opencode"],
+    enabled: true,
+    signedIn: false,
+    signInReason: "keychain_other_build",
+    servesCloud: true,
+    defaultFor: [],
+    email: null,
+    plan: null,
+  });
+  const rendered = await render(models);
+  expect(status(rendered, "kimi-plan")?.textContent).toBe(
+    "Open the cmux build that saved this sign-in and disconnect it there before reconnecting here.",
+  );
+  await click(menuButton(rendered, "kimi-plan"));
+  expect(menuItem("signInAgain")).toBeNull();
+});
+
+test("a Kimi Code approval that hits another build's keychain directs cleanup there", async () => {
+  const rendered = await render(mockModels.empty);
+  await pick("kimi-code");
+  await click(action(panel()!, "connectChatGPTDevice")!);
+  await act(async () =>
+    rendered.provider.setModels({
+      ...rendered.provider.models!,
+      deviceProvider: "kimi",
+      chatgptDevice: { phase: "failed", error: "keychain_other_build" },
+    }),
+  );
+  expect(panel()?.querySelector("[role=alert]")?.textContent).toBe(
+    "Open the cmux build that saved this sign-in and disconnect it there before reconnecting here.",
+  );
+  expect(action(panel()!, "connectChatGPTDevice")?.disabled).toBe(true);
+});
+
 test("API key validation, reveal, and successful submission use the existing key op", async () => {
   const rendered = await render(mockModels.empty);
   await pick("anthropic");
@@ -1247,6 +1289,40 @@ test("Disconnect confirms in a dialog and returns focus to Connect when the row 
   expect(connectionIds(rendered)).toEqual(["codex-login", "claude-login", "chatgpt", "claude-token"]);
   expect(document.activeElement).toBe(add());
 });
+
+test("Disconnect reports a failed write and can retry with the same connection", async () => {
+  const rendered = await render(mockModels.macLogins);
+  const run = jest.spyOn(rendered.store, "runModels").mockResolvedValueOnce({ failure: "Write failed" });
+  try {
+    await chooseAction(rendered, "openrouter-key", "remove");
+    await click(action(panel()!, "confirmRemove")!);
+    expect(panel()?.querySelector('[role="alert"]')?.textContent).toContain("Write failed");
+    expect(connectionIds(rendered)).toContain("openrouter-key");
+    const retry = action(panel()!, "confirmRemove")!;
+    expect(retry.disabled).toBe(false);
+    await click(retry);
+    expect(run.mock.calls).toEqual([
+      [{ action: "remove", id: "openrouter-key", instance: "fixture-openrouter" }],
+      [{ action: "remove", id: "openrouter-key", instance: "fixture-openrouter" }],
+    ]);
+    expect(panel()).toBeNull();
+    expect(connectionIds(rendered)).not.toContain("openrouter-key");
+  } finally {
+    run.mockRestore();
+  }
+});
+
+test.each(["/settings/models", "/settings/cloud"])(
+  "ChatGPT Disconnect describes local and Cloud access from %s",
+  async (path) => {
+    const rendered = await render(mockModels.chatgptForCloud, path);
+    await chooseAction(rendered, "chatgpt", "remove");
+    expect(panel()?.querySelector(".models-dialog-heading p")?.textContent).toBe(
+      "This removes the saved ChatGPT sign-in. Local Codex and Cloud chats using it will lose access to this connection.",
+    );
+    expect(rendered.provider.modelRuns).toEqual([]);
+  },
+);
 
 test("a stale Disconnect keeps the replacement even after the original row disappears", async () => {
   const rendered = await render(mockModels.macLogins);

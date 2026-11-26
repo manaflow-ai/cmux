@@ -101,7 +101,9 @@ public final class CloudSetup {
         public func choice(family: String, model: String?, account: String?) -> Choice {
             if let personal {
                 let serving = personal.filter { $0.enabled && $0.signedIn && $0.servesCloud && $0.families.contains(family) }
-                if let pick = serving.first(where: { $0.id == account }) ?? serving.first { return .connection(id: pick.id, family: family) }
+                if let pick = serving.first(where: { $0.id == account }) ?? serving.first {
+                    return .connection(id: pick.id, family: family, credentialInstance: pick.credentialInstance)
+                }
             }
             if organization?.contains(family) == true { return .organization(family: family) }
             return personal == nil ? .fallback : .setup(family: family, model: model)
@@ -111,7 +113,7 @@ public final class CloudSetup {
         public func serves(_ family: String) -> Bool? {
             switch choice(family: family, model: nil, account: nil) {
             case .connection, .organization, .gateway, .claudeMachineLogin: true
-            case .setup: false
+            case .setup, .localOnly: false
             case .fallback: nil
             }
         }
@@ -127,9 +129,8 @@ public final class CloudSetup {
 
     /// The connection one Cloud start runs on (``choose(harness:model:account:)``).
     public enum Choice: Equatable, Sendable {
-        /// This Mac's connection `id` (an `_acpmux/connections` row): the start reads its credential
-        /// (`_acpmux/connections/credential {id}`) and sends it with the agent launch to the machine.
-        case connection(id: String, family: String)
+        /// The saved connection selected from this Mac's daemon, including its instance at selection time.
+        case connection(id: String, family: String, credentialInstance: String? = nil)
         /// The organization's shared key for `family`, which the platform edge serves; nothing to send.
         case organization(family: String)
         /// The inference gateway of the team the machine is made in, in gateway mode and online, serves `family` (``gateway``): the machine's
@@ -139,6 +140,8 @@ public final class CloudSetup {
         case claudeMachineLogin
         /// Nothing serves `family`: the chat shows Set up Cloud naming `model`, and nothing starts.
         case setup(family: String, model: String?)
+        /// The profile runs locally and has no Cloud connection to set up.
+        case localOnly
         /// The snapshot has unknown readiness.
         case fallback
 
@@ -153,8 +156,13 @@ public final class CloudSetup {
 
         /// This Mac's connection whose credential the chat's agent launch carries; nil for every other choice.
         public var connectionID: String? {
-            if case .connection(let id, _) = self { return id }
+            if case .connection(let id, _, _) = self { return id }
             return nil
+        }
+
+        var requiresCredentialInstance: Bool {
+            guard case .connection(_, let family, _) = self else { return false }
+            return CloudSetup.nativeHarnesses[family] != nil
         }
     }
 
@@ -339,7 +347,7 @@ public final class CloudSetup {
     }
 
     /// The connection a Cloud start on the picker's `harness`, `model` and `account` runs on. Lane F
-    /// (app-to-machine credential delivery) reads ``Choice/connection(id:family:)``'s credential and
+    /// (app-to-machine credential delivery) reads the chosen connection's credential and
     /// sends it with the agent launch; ``Choice/setup(family:model:)`` shows the card instead.
     public func choose(harness: String?, model: String?, account: String?) async -> Choice {
         await launchReadiness(harness: harness, model: model, account: account).choice
@@ -349,10 +357,9 @@ public final class CloudSetup {
     public func launchReadiness(harness: String?, model: String?, account: String? = nil, readyClaude: Bool = false) async -> (choice: Choice, refusal: Refusal?) {
         let snapshot = routed(await read?() ?? .init(personal: nil, organization: nil))
         let normalized = (harness ?? "claude").lowercased()
-        if let profile = snapshot.personal?.first(where: { $0.endpointProfile && $0.id == harness }) {
-            return (.setup(family: profile.id, model: model), nil)
+        if normalized == "openrouter" || snapshot.personal?.contains(where: { $0.endpointProfile && $0.id == harness }) == true {
+            return (.localOnly, nil)
         }
-        if normalized == "openrouter" { return (.setup(family: normalized, model: model), nil) }
         let gatewayFamily = Self.family(of: harness)
         guard let family = gatewayFamily ?? (Self.nativeHarnesses[normalized] == nil ? nil : normalized)
         else { return (.fallback, nil) }

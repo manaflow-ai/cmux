@@ -16,6 +16,39 @@ fn hub(home: &std::path::Path) -> Arc<Hub> {
 }
 
 #[tokio::test]
+async fn automatic_gateway_fallback_keeps_signed_out_machine_login_choices() {
+    let home = tempfile::tempdir().unwrap();
+    let hub = hub(home.path());
+    hub.set_vm_marker_root(home.path().to_owned());
+    let profile = hub.config.read().await.profile("claude").unwrap().clone();
+    for recovered in [false, true] {
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": META_SCHEMA,
+            "id": if recovered { "recovered" } else { "explicit" },
+            "name": "signed-out",
+            "harness": "claude",
+            "cwd": home.path(),
+            "status": "idle",
+            "createdAt": 1,
+            "updatedAt": 1,
+        }))
+        .unwrap();
+        if recovered {
+            meta.claude_token_recovery = Some(crate::store::ClaudeTokenRecovery::MachineLogin);
+            meta.claude_login_restart_pending = Some(false);
+        } else {
+            meta.session_env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+        }
+        let session = hub.make_session(meta);
+
+        assert!(!hub.use_gateway_now(&session).await, "recovered: {recovered}");
+        let launch =
+            hub.spawn_profile_for(&session.meta(), &profile, &Default::default()).await.unwrap();
+        assert_eq!(launch.env["CMUX_CLAUDE_AUTH"], "own");
+    }
+}
+
+#[tokio::test]
 async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     let root =
         std::env::temp_dir().join(format!("acpmux-spawn-claude-cloud-{}", std::process::id()));
@@ -85,6 +118,18 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
         assert_eq!(got.env.get("ANTHROPIC_API_KEY"), None, "{argv:?} got the team key");
         assert!(!got.env.contains_key(crate::claude_cloud_auth::TEAM_MARKER), "{argv:?}");
         assert_eq!(got.argv, launcher.argv, "{argv:?} got a team --settings");
+
+        let mut linked = meta.clone();
+        linked.session_env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
+        linked.session_env.insert(crate::claude_cloud_auth::REQUIRED_TEAM.into(), "1".into());
+        launcher.env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+        launcher.env.insert("ANTHROPIC_BASE_URL".into(), "https://wrapper.test".into());
+        let got = hub.spawn_profile_for(&linked, &launcher, &none).await.unwrap();
+        assert_eq!(got.argv, launcher.argv);
+        assert_eq!(got.env["CMUX_CLAUDE_AUTH"], "own");
+        assert_eq!(got.env["ANTHROPIC_BASE_URL"], "https://wrapper.test");
+        assert!(!got.env.contains_key(crate::claude_cloud_auth::REQUIRED_TEAM));
+        assert!(!got.env.contains_key(crate::claude_cloud_auth::TEAM_MARKER));
     }
     // Claude itself by its full path still takes team mode.
     let mut by_path = profile(&[]);
@@ -230,7 +275,7 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
             pinned.claude_login_restart_pending = Some(false);
         }
         let session = hub.make_session(pinned);
-        assert!(hub.select_claude_gateway(&session).await.unwrap());
+        assert!(hub.select_claude_gateway(&session, false).await.unwrap());
         let gateway = hub.spawn_profile_for(&session.meta(), &p, &none).await.unwrap();
         assert_eq!(
             gateway.env.get("ANTHROPIC_BASE_URL").map(String::as_str),

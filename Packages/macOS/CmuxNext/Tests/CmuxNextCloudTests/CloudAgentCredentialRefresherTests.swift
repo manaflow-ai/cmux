@@ -200,7 +200,7 @@ struct CloudAgentCredentialRefresherTests {
             return Data(#"{"family":"claude","kind":"api-key","env":{"ANTHROPIC_API_KEY":"sk-ant-api03-abc"},"expires_at":null}"#.utf8)
         }
         #expect(try await credentials.launchCredential(chat: "tab-1", machine: "m1") == nil, "no choice: the machine's own route")
-        credentials.use(connection: "route-claude", chat: "tab-1", machine: "m1")
+        credentials.use(choice: .connection(id: "route-claude", family: "claude"), chat: "tab-1", machine: "m1")
         let launch = try #require(try await credentials.launchCredential(chat: "tab-1", machine: "m1"))
         #expect(asked == ["route-claude"])
         #expect(launch.env == ["ANTHROPIC_API_KEY": "sk-ant-api03-abc"] && launch.family == "claude" && !launch.refreshes)
@@ -210,12 +210,12 @@ struct CloudAgentCredentialRefresherTests {
         #expect(!dumped.contains("sk-ant"), "the mirror names the variable only")
         // Spent once the chat started on it.
         credentials.started(chat: "tab-1", machine: "m1", on: launch) { _ in .delivered }
-        #expect(credentials.connection(chat: "tab-1", machine: "m1") == nil)
+        #expect(credentials.connectionChoice(chat: "tab-1", machine: "m1") == nil)
     }
 
     @Test func aChosenConnectionThatCannotBeReadRefusesTheStart() async {
         let credentials = CloudAgentCredentials { _ in Data(#"{"error":"nope"}"#.utf8) }
-        credentials.use(connection: "gone", chat: "tab", machine: "m")
+        credentials.use(choice: .connection(id: "gone", family: "claude"), chat: "tab", machine: "m")
         await #expect(throws: CloudAgentCredentials.Failure.unavailable(connection: "gone")) {
             try await credentials.launchCredential(chat: "tab", machine: "m")
         }
@@ -245,7 +245,7 @@ struct CloudAgentCredentialRefresherTests {
         #expect(try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "claude") == nil, "an unreadable pick is the machine's own route")
         // A Cloud start's own choice still wins over the rule.
         unreadable = false
-        credentials.use(connection: "route-claude", chat: "cli-tab", machine: "m1")
+        credentials.use(choice: .connection(id: "route-claude", family: "claude"), chat: "cli-tab", machine: "m1")
         _ = try await credentials.launchCredential(chat: "cli-tab", machine: "m1", harness: "claude")
         #expect(asked.last == "route-claude")
     }
@@ -454,7 +454,7 @@ struct CloudAgentCredentialRefresherTests {
             return Data()
         })
         credentials.setup = setup
-        credentials.use(connection: nil, chat: "draft", machine: "vm_b", claudeAuth: .own)
+        credentials.use(chat: "draft", machine: "vm_b", claudeAuth: .own)
         credentials.move(chat: "draft", to: "chat", machine: "vm_b")
         #expect(try await credentials.launchCredential(chat: "chat", machine: "vm_b", harness: "claude") == nil)
         credentials.openModelConnectionSettings(machine: "vm_b", harness: "claude-work", session: "session-b")
@@ -465,13 +465,44 @@ struct CloudAgentCredentialRefresherTests {
     /// The Cloud start hands its choice to the launch: a `.connection` names its id, every other choice
     /// none, and a tab that got another key than the start planned keeps the choice.
     @Test func theStartsChoiceReachesTheLaunchUnderTheTabsKey() {
-        #expect(CloudSetup.Choice.connection(id: "route-claude", family: "claude").connectionID == "route-claude")
+        let choice = CloudSetup.Choice.connection(id: "route-claude", family: "claude")
+        #expect(choice.connectionID == "route-claude")
         #expect(CloudSetup.Choice.organization(family: "claude").connectionID == nil && CloudSetup.Choice.fallback.connectionID == nil)
         let credentials = CloudAgentCredentials()
-        credentials.use(connection: "route-claude", chat: "planned", machine: "m1")
+        credentials.use(choice: choice, chat: "planned", machine: "m1")
         credentials.move(chat: "planned", to: "tab-9", machine: "m1")
-        #expect(credentials.connection(chat: "tab-9", machine: "m1") == "route-claude" && credentials.connection(chat: "planned", machine: "m1") == nil)
+        #expect(credentials.connectionChoice(chat: "tab-9", machine: "m1") == choice && credentials.connectionChoice(chat: "planned", machine: "m1") == nil)
         credentials.move(chat: "none", to: "tab-9", machine: "m1")
-        #expect(credentials.connection(chat: "tab-9", machine: "m1") == "route-claude", "no choice to move leaves the tab's own")
+        #expect(credentials.connectionChoice(chat: "tab-9", machine: "m1") == choice, "no choice to move leaves the tab's own")
+    }
+
+    @Test(arguments: ["gemini", "grok"])
+    func aPendingStartRefusesAReplacementUnderTheSameConnectionID(family: String) async throws {
+        let id = "saved-key"
+        let original = UUID().uuidString
+        var current = original
+        var key = "original-fixture"
+        let variable = family == "gemini" ? "GEMINI_API_KEY" : "XAI_API_KEY"
+        let setup = CloudSetup(read: { .init(personal: [.init(id: id, families: [family], credentialInstance: current)], organization: []) })
+        let credentials = CloudAgentCredentials { _ in
+            try JSONSerialization.data(withJSONObject: ["family": family, "kind": "api-key", "credential_instance": current, "env": [variable: key]])
+        }
+        credentials.setup = setup
+        let choice = await setup.choose(harness: family, model: nil, account: id)
+        let refusal = CloudAgentCredentials.Failure.unavailable(connection: id)
+
+        current = UUID().uuidString
+        key = "replacement-fixture"
+        credentials.use(choice: choice, chat: "planned", machine: "vm", harness: family)
+        credentials.move(chat: "planned", to: "opened", machine: "vm")
+        await #expect(throws: refusal) {
+            try await credentials.launchCredential(chat: "opened", machine: "vm", harness: family)
+        }
+        await #expect(throws: refusal) {
+            try await credentials.launchCredential(for: choice, harness: family, model: nil)
+        }
+
+        let newLaunch = try #require(try await credentials.launchCredential(chat: "new", machine: "vm", harness: family))
+        #expect(newLaunch.instance == current && newLaunch.env[variable] == key)
     }
 }

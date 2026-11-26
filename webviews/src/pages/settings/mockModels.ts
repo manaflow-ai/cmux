@@ -219,6 +219,7 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       return { ...state, chatgptDevice: { phase: "idle" } };
     case "setCloud": {
       const connection = find(run.id);
+      if (connection.credentialInstance !== run.instance) throw new Error("the connection changed while it was open");
       if (connection.kind !== "api-key" || !(connection.canServeCloud ?? connection.servesCloud))
         throw new Error("setCloud needs an eligible API-key connection");
       return personal({

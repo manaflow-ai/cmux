@@ -20,7 +20,7 @@ import { GroupHeader } from "./GroupHeader";
 import { ModelConnectionDialog } from "./ModelConnectionDialog";
 import { ModelConnectionRow, ModelRow, type RowAction } from "./ModelConnectionRow";
 import { ModelProviderPicker } from "./ModelProviderPicker";
-import { MembersSection, OrganizationSection } from "./ModelsTeamSections";
+import { MembersSection, OrganizationSection, sharedModelKeyName } from "./ModelsTeamSections";
 import { SettingsErrorRow } from "./SettingsErrorRow";
 import {
   isCloudSubscription,
@@ -85,6 +85,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
       (isCloudSubscription(c) || (c.canServeCloud ?? c.servesCloud)),
   );
   const routeRows = cloud ? cloudRows : connections.filter((c) => c.kind !== "native-login");
+  const cloudTeamKeys = cloud && models?.organization.team ? models.organization.keys.filter((key) => key.set) : [];
   const cloudClaude = models?.cloudClaudeLogin;
   const namedVisit = machineName ? request : null;
   const explicitVisit = machine ? request : null;
@@ -98,8 +99,9 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
       ? cloudClaude
       : undefined
     : models?.claudeLogin;
+  const claudeConnected = cloud && claudeLogin?.phase === "connected" && !!claudeLogin.machine;
   const nativeCloud: ModelConnection | undefined =
-    cloud && claudeLogin?.phase === "connected" && claudeLogin.machine
+    claudeConnected || (cloud && claudeLogin?.phase === "failed" && claudeLogin.signedIn && claudeLogin.machine)
       ? {
           id: "claude-cloud-login",
           kind: "claude-login",
@@ -162,7 +164,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const usable = (c: ModelConnection) => c.enabled && c.signedIn && tokenTimeRemaining(c, now) > 0;
   const ready = cloudRows.filter((c) => c.servesCloud && usable(c) && !cloudRunnerStatus(c));
   const servesFamily = (c: ModelConnection, family: string) => (c.cloudFamilies ?? c.families).includes(family);
-  const canToggleCloud = (c: ModelConnection) => c.kind === "api-key" && (c.canServeCloud ?? c.servesCloud);
+  const canToggleCloud = (c: ModelConnection) =>
+    c.kind === "api-key" && !!c.credentialInstance && (c.canServeCloud ?? c.servesCloud);
   const cloudOff =
     family && !machine && !machineName && !environment && !ready.some((c) => servesFamily(c, family))
       ? cloudRows.find((c) => canToggleCloud(c) && !c.servesCloud && usable(c) && servesFamily(c, family))
@@ -191,7 +194,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const devicePending = device === "starting" || device === "waiting" || device === "cancelling";
   const claudePending =
     capture === "preparing" || capture === "approving" || capture === "code" || capture === "cancelling";
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const menuKey = (c: ModelConnection) => (cloud ? `${c.id}:${c.credentialInstance ?? ""}` : c.id);
+  const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   useLayoutEffect(() => {
     if (reveal && !family) revealRow(section.current);
   }, [reveal, family, open]);
@@ -199,7 +203,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     setHandled(request);
     setCheckedNamedVisit(null);
     setFormError(false);
-    setOpenMenuId(cloudOff?.id ?? null);
+    setOpenMenuKey(cloudOff ? menuKey(cloudOff) : null);
     setPickerOpen((focus === add && !family) || !!requestedDisabled);
     const resume = !family && (!focus || (cloud && focus === CLOUD_MODELS_FOCUS));
     const id =
@@ -232,7 +236,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     !currentVisit.connected &&
     available &&
     family &&
-    ((family === "claude" && nativeCloud && !recoverySession) ||
+    ((family === "claude" && claudeConnected && !recoverySession) ||
       ready.some((c) => servesFamily(c, family) && !currentVisit.ids.has(c.id)))
   ) {
     setSetupVisit({ ...currentVisit, connected: true });
@@ -261,7 +265,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     ...(visitRecovery ? { recoverySession: visitRecovery } : {}),
   };
   const existingClaude =
-    setup?.id === requestedId && family === "claude" && nativeCloud && !recoverySession && !setup?.target;
+    setup?.id === requestedId && family === "claude" && claudeConnected && !recoverySession && !setup?.target;
   const active = setup && !existingClaude ? providerById(setup.id) : undefined;
   const awaitingSignIn =
     active?.id === devicePreset
@@ -362,49 +366,63 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
               />
             </div>
           )}
-          {available && cloud && !unsupported && displayed.length === 0 && (
+          {available && cloud && !unsupported && displayed.length === 0 && cloudTeamKeys.length === 0 && (
             <div className="row">
               <p className="row-help">{t("settingsWindow.cloud.models.empty")}</p>
             </div>
           )}
           {available &&
-            displayed.map((connection, index) => (
-              <ModelConnectionRow
-                key={connection.id}
-                connection={connection}
-                index={ids.indexOf(connection.id) >= 0 ? ids.indexOf(connection.id) : index}
-                count={ids.length}
-                tools={models.connectionTools === true}
-                cloud={cloud}
-                busy={locked}
-                now={now}
-                cloudRunnerStatus={cloud ? cloudRunnerStatus(connection) : undefined}
-                focusRequest={
-                  (!cloud && focus === connection.id) ||
-                  (openMenuId === connection.id && cloudOff?.id === connection.id)
-                    ? request
-                    : undefined
-                }
-                menuOpen={openMenuId === connection.id}
-                onMenuOpenChange={(open) => {
-                  setOpenMenuId((current) => (open ? connection.id : current === connection.id ? null : current));
-                }}
-                run={rowRun}
-                connecting={activeRow === connection && (awaitingSignIn || (!!setup?.edit && locked))}
-                onMove={(to) => order(moveId(ids, connection.id, to))}
-                onSetup={pick}
-                onAction={pick}
-                onCloudChange={
-                  cloud && canToggleCloud(connection)
-                    ? () =>
-                        void rowRun({
-                          action: "setCloud",
-                          id: connection.id,
-                          on: !connection.servesCloud,
-                        })
-                    : undefined
-                }
-              />
+            displayed.map((connection, index) => {
+              const key = menuKey(connection);
+              const instance = connection.credentialInstance;
+              return (
+                <ModelConnectionRow
+                  key={key}
+                  connection={connection}
+                  index={ids.indexOf(connection.id) >= 0 ? ids.indexOf(connection.id) : index}
+                  count={ids.length}
+                  tools={models.connectionTools === true}
+                  cloud={cloud}
+                  busy={locked}
+                  now={now}
+                  cloudRunnerStatus={cloud ? cloudRunnerStatus(connection) : undefined}
+                  focusRequest={
+                    (!cloud && focus === connection.id) || (openMenuKey === key && cloudOff?.id === connection.id)
+                      ? request
+                      : undefined
+                  }
+                  menuOpen={openMenuKey === key}
+                  onMenuOpenChange={(open) => {
+                    setOpenMenuKey((current) => (open ? key : current === key ? null : current));
+                  }}
+                  run={rowRun}
+                  connecting={activeRow === connection && (awaitingSignIn || (!!setup?.edit && locked))}
+                  onMove={(to) => order(moveId(ids, connection.id, to))}
+                  onSetup={pick}
+                  onAction={pick}
+                  onCloudChange={
+                    cloud && instance && canToggleCloud(connection)
+                      ? () =>
+                          void rowRun({
+                            action: "setCloud",
+                            id: connection.id,
+                            instance,
+                            on: !connection.servesCloud,
+                          })
+                      : undefined
+                  }
+                />
+              );
+            })}
+          {available &&
+            cloudTeamKeys.map(({ agent }) => (
+              <div className="row accounts-row" key={agent}>
+                <ModelRow
+                  mark={{ agent }}
+                  label={sharedModelKeyName(agent)}
+                  detail={t("settingsWindow.models.org.keySet")}
+                />
+              </div>
             ))}
           {available && (
             <ModelProviderPicker
