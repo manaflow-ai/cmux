@@ -24,11 +24,20 @@ final class AttachmentPrestager {
     static let log = Logger(subsystem: "dev.cmux.mobile", category: "upload")
 
     /// An early upload: its task and when the file was picked.
+    struct Signature: Equatable {
+        let name: String
+        let byteCount: Int?
+        let dataCount: Int?
+        let fileURL: URL?
+        let head: Data
+        let tail: Data
+    }
+
     struct Entry {
         let task: Task<Result, any Error>
         let started: ContinuousClock.Instant
         let directory: String?
-        let signature: Int
+        let signature: Signature
     }
 
     private(set) var entries: [String: Entry] = [:]
@@ -37,7 +46,8 @@ final class AttachmentPrestager {
     /// rule): not an image the prompt carries, not a PDF small enough to go inline, and with bytes here.
     nonisolated static func uploadsAtSend(_ attachment: AgentAttachment, promptUploads: Bool = false) -> Bool {
         if attachment.kind == .image {
-            guard promptUploads else { return false }
+            guard promptUploads || attachment.imageMIMEType == nil || attachment.data == nil
+                || (attachment.data?.count ?? attachment.byteCount ?? 0) > inlineImageBytes else { return false }
             return attachment.data != nil || attachment.fileURL != nil
         }
         guard attachment.data != nil || attachment.fileURL != nil else { return false }
@@ -76,8 +86,9 @@ final class AttachmentPrestager {
                     throw error
                 }
             }
+            let signature = Self.signature(attachment)
             entries[attachment.id] = Entry(task: task, started: started, directory: directory,
-                                           signature: attachment.hashValue)
+                                           signature: signature)
         }
     }
 
@@ -111,4 +122,17 @@ final class AttachmentPrestager {
     nonisolated static func ms(_ duration: Duration) -> Int64 {
         duration.components.seconds * 1000 + duration.components.attoseconds / 1_000_000_000_000_000
     }
+
+    /// Keep identity checks bounded. Hashing an attachment's full Data on the main actor would
+    /// turn a large photo change into another transfer-sized pause.
+    nonisolated static func signature(_ attachment: AgentAttachment) -> Signature {
+        let data = attachment.data
+        return Signature(name: attachment.name, byteCount: attachment.byteCount, dataCount: data?.count,
+                         fileURL: attachment.fileURL, head: Data(data?.prefix(32) ?? []),
+                         tail: Data(data?.suffix(32) ?? []))
+    }
+
+    /// The daemon's inline image cap is 3.75 MiB decoded. Larger images use a file reference on
+    /// older Macs, while newer Macs upload every image as a prompt-owned reference.
+    nonisolated static let inlineImageBytes = (5 << 20) / 4 * 3
 }

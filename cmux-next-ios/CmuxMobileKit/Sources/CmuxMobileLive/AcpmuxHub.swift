@@ -1481,8 +1481,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let attachments = await Self.inlinePDFs(attachments)
         let inline = Self.inlineDocuments(attachments)
         var promptRefs: [String: (uploadID: String, fileName: String, ownerToken: String?)] = [:]
-        for attachment in attachments where (attachment.kind != .image && !inline.contains(attachment.id))
-            || (promptUpload != nil && attachment.kind == .image) {
+        for attachment in attachments where Self.needsUpload(attachment, inline: inline, promptUpload: promptUpload != nil) {
             let payload: LinkUpload.Payload
             if attachment.data == nil, attachment.fileURL == nil, let path = attachment.macPath {
                 // A recorded video (Retry of an earlier prompt) is on the Mac already: its link goes again.
@@ -1646,7 +1645,12 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             if let id = uploadID {
                 var cancelParams: [String: JSONValue] = ["sessionId": .string(sessionID), "uploadId": .string(id)]
                 if let ownerToken { cancelParams["ownerToken"] = .string(ownerToken) }
-                _ = try? await connection.request("_acpmux/file_put_cancel", .object(cancelParams))
+                // A cancelled task cannot issue a request itself. Use an unstructured detached
+                // cleanup so a forPrompt upload is removed with its owner token.
+                let cleanup = Task.detached {
+                    _ = try? await connection.request("_acpmux/file_put_cancel", .object(cancelParams))
+                }
+                _ = await cleanup.value
             }
             throw error
         }
@@ -1730,6 +1734,15 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         if blocks.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string("")])) }
         return blocks
+    }
+
+    nonisolated static func needsUpload(_ attachment: AgentAttachment, inline: Set<String>, promptUpload: Bool) -> Bool {
+        if attachment.kind == .image {
+            if promptUpload { return true }
+            guard let data = attachment.data, attachment.imageMIMEType != nil else { return true }
+            return data.count > AttachmentPrestager.inlineImageBytes
+        }
+        return !inline.contains(attachment.id)
     }
 
     nonisolated static func mimeType(name: String) -> String {
