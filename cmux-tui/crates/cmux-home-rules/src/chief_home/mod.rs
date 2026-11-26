@@ -1,11 +1,20 @@
 //! The `chief_home` area's ops: where each Chief's home lives and how it moves, one rule for every build and
 //! platform. Moved from CmuxNextHomeEngine (`ChiefHome.swift`, `ChiefHome+NamedChief.swift`,
-//! `ChiefHomeDirectory.swift`). The files, locks and SQLite reads stay in Swift; it hands these ops what it
-//! read and does what they decide.
+//! `ChiefHomeDirectory.swift`, `HomeChiefRecord.swift`, `HomeArchivedChiefs.swift`, `ChiefAppAcpmuxMove.swift`,
+//! `ChiefAppLinks.swift`, `ChiefAdoption.swift`, `ChiefMigration*.swift`) and CmuxNextHostedChief
+//! (`HostedChiefModels.swift`, `HostedChiefLedger.swift`, `HostedChiefMigration.swift`). The files, locks,
+//! SQLite reads and network calls stay in Swift; it hands these ops what it read and does what they decide.
 
+pub mod acpmux;
+pub mod adoption;
 mod build;
+pub mod directory;
 pub mod home;
+pub mod hosted;
+pub mod migration;
 mod path;
+pub mod records;
+mod time;
 
 use crate::ops::{OpError, parse, reply};
 use serde::Deserialize;
@@ -24,6 +33,63 @@ pub const OPS: &[&str] = &[
     "session_name",
     "tab_host",
     "uses_app_acpmux",
+    // HomeChiefRecord.swift, HomeArchivedChiefs.swift
+    "record_list",
+    "archived_ids",
+    "archived_visible",
+    "archived_other_chiefs",
+    "archived_hidden",
+    "archived_openable",
+    "archived_hides",
+    // HostedChiefModels.swift
+    "cloud_parse",
+    "cloud_choice",
+    "cloud_chiefs",
+    // ChiefAppAcpmuxMove.swift, ChiefAppLinks.swift
+    "acpmux_plan",
+    "acpmux_mark_file",
+    "acpmux_read_mark",
+    "acpmux_mark_text",
+    "acpmux_on_app",
+    "acpmux_idle",
+    "app_links",
+    "app_temporary_link",
+    // ChiefHomeDirectory.swift
+    "directory_home_parents",
+    "directory_admits",
+    "directory_homes",
+    "directory_owned",
+    // HostedChiefLedger.swift, HostedChiefMigration.swift
+    "ledger_keys",
+    "ledger_is_refusal",
+    "ledger_host",
+    "hosted_wiring_copies",
+    "hosted_start",
+    "hosted_memory_step",
+    "hosted_brain",
+    "hosted_failure",
+    // ChiefAdoption.swift
+    "adoption_plan",
+    "adoption_record",
+    "adoption_is_sidecar",
+    "adoption_raw_files",
+    // ChiefMigration.swift, ChiefMigration+Read.swift, ChiefMigrationPlan.swift
+    "migration_session_component",
+    "migration_old_chiefs",
+    "migration_run_step",
+    "migration_plan",
+    "migration_memory",
+    "migration_has_memory",
+    "migration_host_state",
+    "migration_record",
+    "migration_log_line",
+    "migration_local_date",
+    "migration_time",
+    "migration_message",
+    "migration_read_log",
+    "migration_cursor",
+    "migration_pick_chief",
+    "migration_copy_skips",
 ];
 
 #[derive(Deserialize)]
@@ -139,6 +205,8 @@ pub fn call(name: &str, request: &Value) -> Result<Value, OpError> {
             let request: ParticipantsRequest = parse(request)?;
             Ok(json!({ "chief": home::named_chief(&request.participants) }))
         }
-        _ => Err(OpError::Unknown),
+        _ => calls::call(name, request),
     }
 }
+
+mod calls;
