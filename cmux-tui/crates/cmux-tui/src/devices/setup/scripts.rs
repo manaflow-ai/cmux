@@ -74,6 +74,31 @@ if launchctl print "gui/$uid/$label" >/dev/null 2>&1; then
 fi
 if launchctl bootstrap "gui/$uid" "$f" >/dev/null 2>&1; then echo load=bootstrapped; else echo load=failed; fi"#;
 
+/// Installs and loads this user's acpmux daemon LaunchAgent (`com.acpmux.daemon`, RunAtLoad,
+/// KeepAlive, in `gui/<uid>`), the thing that keeps the daemon serving with no app running, through
+/// acpmux's own `daemon service install` (idempotent: an unchanged, loaded job is left as it runs).
+/// The app's bundled acpmux when it can point the job at its bundle
+/// (`acpmux::capabilities::DAEMON_SERVICE_APP`), else the join's `~/.local/bin/acpmux`. Then it reads back what the job
+/// runs and whether launchd has it loaded.
+pub(super) const DAEMON: &str = r#"set -u
+B='/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux'; L="$HOME/.local/bin/acpmux"
+f="$HOME/Library/LaunchAgents/com.acpmux.daemon.plist"
+if [ -x "$B" ] && "$B" capabilities 2>/dev/null | grep -qx daemon-service-app-v1; then bin=$B; echo by=app
+elif [ -x "$L" ] && "$L" daemon service --help >/dev/null 2>&1; then bin=$L; echo by=join
+else echo 'error=no acpmux here installs its LaunchAgent: cmux NIGHTLY is too old and the Mac has not joined'; exit 1; fi
+out=$("$bin" --json daemon service install 2>&1); rc=$?
+echo "service=$(printf '%s' "$out" | tr -d '\n')"
+[ "$rc" = 0 ] || { echo "error=$(printf '%s\n' "$out" | tail -n 1)"; exit 1; }
+p=$(plutil -extract ProgramArguments.0 raw -o - "$f" 2>/dev/null); [ "$p" = /bin/sh ] && p=$(plutil -extract ProgramArguments.3 raw -o - "$f" 2>/dev/null)
+echo "program=$p"
+if launchctl print "gui/$(id -u)/com.acpmux.daemon" >/dev/null 2>&1; then echo loaded=1; else echo loaded=0; fi"#;
+
+/// [`DAEMON`] without installing: what the job runs and whether it is loaded.
+pub(super) const DAEMON_CHECK: &str = r#"f="$HOME/Library/LaunchAgents/com.acpmux.daemon.plist"
+p=$(plutil -extract ProgramArguments.0 raw -o - "$f" 2>/dev/null); [ "$p" = /bin/sh ] && p=$(plutil -extract ProgramArguments.3 raw -o - "$f" 2>/dev/null)
+echo "program=$p"
+if launchctl print "gui/$(id -u)/com.acpmux.daemon" >/dev/null 2>&1; then echo loaded=1; else echo loaded=0; fi"#;
+
 /// [`KEEPALIVE`] without writing: whether the file there is this content (stdin).
 pub(super) const KEEPALIVE_CHECK: &str = r#"f="$HOME/Library/LaunchAgents/com.cmuxterm.app.nightly.keepalive.plist"
 if [ ! -f "$f" ]; then echo file=missing; elif cmp -s - "$f"; then echo file=same; else echo file=differs; fi"#;
