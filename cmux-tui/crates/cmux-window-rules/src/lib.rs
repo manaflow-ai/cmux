@@ -8,6 +8,11 @@
 //!
 //! - [`close`]: what closing tabs asks first (a working agent, a foreground
 //!   program) and whether the close earns an undo toast.
+//! - [`desktop_center`], [`desktop_attention`], [`desktop_bursts`],
+//!   [`desktop_announce`]: the desktop notification rules (whether a launch
+//!   uses Notification Center, a banner's category and what its actions do,
+//!   the Needs you banners a mark change posts or withdraws, agent-finished
+//!   bursts and VoiceOver's status line).
 //! - [`tabs`]: what a new tab or pane opens and where (its kind, the browser
 //!   open plan, a split's plan), tab moves, numbers, duplicates, restarts and
 //!   icons; [`tabs::panes`] the pane and terminal tables; [`tabs::strip`]
@@ -46,6 +51,10 @@ pub mod browser;
 pub mod chat;
 pub mod close;
 pub mod closed;
+pub mod desktop_announce;
+pub mod desktop_attention;
+pub mod desktop_bursts;
+pub mod desktop_center;
 pub mod editors;
 pub mod files;
 pub mod history;
