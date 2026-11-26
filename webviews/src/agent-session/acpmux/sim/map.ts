@@ -49,8 +49,11 @@ const still = (steps: StepTrace[], what: string): string[] => {
     .filter((step) => settled(rowsOf(step)).join(" ") !== first)
     .map((step) => `${what}: rows changed at "${step.label}"`);
 };
-/** Each row that landed above a row already drawn while its turn ran (the live line stays last, so
- *  landing over them is no landing). A reader's own step (opening a fold) is theirs. */
+/** Each row that landed above a row already drawn while its turn ran (the live line stays last, so landing over it
+ *  is no landing; so does the running turn's next-step card while it is the tail, with only the live line under it:
+ *  turns.ts `shapeLiveTurn` draws it over the live line the moment the wrap-up returns, and the reply streams in over
+ *  it, as run.ts's shift anchor and test/browser/chatChurnWatch.ts `TAIL_CARD` read it). A reader's own step (opening
+ *  a fold) is theirs. */
 const landings = (run: SimResult): { label: string; id: string; kind: string; above: string }[] => {
   const out: { label: string; id: string; kind: string; above: string }[] = [];
   let before: StepTrace | undefined;
@@ -59,9 +62,15 @@ const landings = (run: SimResult): { label: string; id: string; kind: string; ab
     before = step;
     if (!was?.rows || !step.rows || !was.working || !step.working || was.turn !== step.turn) continue;
     if (step.label.startsWith("reader ")) continue;
-    const pinned = (row: RowProbe) => row.live;
-    const old = new Set(was.rows.filter((row) => !pinned(row)).map((row) => row.id));
-    const now = step.rows.filter((row) => !pinned(row));
+    const tail = (row: RowProbe) => row.live;
+    const pinnedIn = (rows: RowProbe[]) => {
+      const card = (row: RowProbe, at: number) => row.id.startsWith("nextStep-") && rows.slice(at + 1).every(tail);
+      return (row: RowProbe, at: number) => tail(row) || card(row, at);
+    };
+    const pinnedWas = pinnedIn(was.rows);
+    const pinnedNow = pinnedIn(step.rows);
+    const old = new Set(was.rows.filter((row, at) => !pinnedWas(row, at)).map((row) => row.id));
+    const now = step.rows.filter((row, at) => !pinnedNow(row, at));
     const lastOld = now.reduce((found, row, at) => (old.has(row.id) ? at : found), -1);
     now.forEach((row, at) => {
       if (!old.has(row.id) && at < lastOld)
@@ -361,6 +370,35 @@ export const MAP: MapEntry[] = [
   },
 
   // ---- What comes in while a turn runs. ----
+  {
+    id: "command-leaves-line-under-note",
+    when: "A command runs on the live line; an earlier task's end is noted under its run; Claude Code then moves the command to the background, and the turn wraps up with a reply streaming over the card.",
+    wrong:
+      'The command went back into its run above the note, and the run grew a line: every row above the note moved 22 px (coord-tool-burst, +48 s). Leo, 2026-11-22: "the content within neeeds to be fucking settling fucking night instantly without extraneous movement".',
+    expected:
+      "The command the live line named lands in a run under the note, never above it: from the note on, no row above it gains a call, and the reply streams in over the wrap-up card with nothing above it moving.",
+    scenario: "stream-under-card",
+    check: (run) => {
+      const from = run.traces.findIndex((step) => rowsOf(step).some((row) => row.kind === "backgroundTask"));
+      if (from < 0) return ["the scenario no longer notes a task's end"];
+      // The rows over the note and the calls each holds; undefined once the note is folded away (the turn ended).
+      const above = (step: StepTrace) => {
+        const rows = rowsOf(step);
+        const note = rows.findIndex((row) => row.kind === "backgroundTask");
+        return note < 0
+          ? undefined
+          : rows
+              .slice(0, note)
+              .map((row) => `${row.id}:${row.calls ?? 0}`)
+              .join(" ");
+      };
+      const first = above(run.traces[from]!);
+      return run.traces
+        .slice(from)
+        .filter((step) => step.working && above(step) !== undefined && above(step) !== first)
+        .map((step) => `rows above the note changed at "${step.label}": ${above(step)}`);
+    },
+  },
   {
     id: "retrying",
     when: "The model cannot be reached mid-turn; acpmux retries, then hears it again.",

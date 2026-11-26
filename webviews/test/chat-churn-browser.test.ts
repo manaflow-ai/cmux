@@ -9,7 +9,7 @@
 // flashes of bullshit. sub-second in and out bullshit."
 //
 // `CHAT_CHURN_SCENARIOS=a,b` picks scenarios; `CHAT_CHURN_OUT=FILE` writes the reports as JSON.
-import { afterAll, beforeAll, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Browser, Page } from "playwright";
@@ -18,7 +18,9 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("chat-churn-browser.test.ts", async () => {
-  const PAGE = "/test/browser/chat-sim.html?motion=on";
+  // `CHAT_CHURN_WIDTH=PX` sets the pane's width (default 720).
+  const width = Number(process.env.CHAT_CHURN_WIDTH) || 720;
+  const PAGE = `/test/browser/chat-sim.html?motion=on&width=${width}`;
   /// One line: shifts and flashes per minute of churn, with what moved and what blinked.
   function churnLine(name: string, report: ChurnReport): string {
     const minutes = Math.max(report.durationMs, 1) / 60_000;
@@ -49,7 +51,7 @@ await requireBrowserLane("chat-churn-browser.test.ts", async () => {
     await warmViteServer(vite, "/test/browser/chat-sim.html");
     const { port } = vite.httpServer!.address() as { port: number };
     browser = await chromium.launch({ headless: true });
-    page = await browser.newPage({ viewport: { width: 720, height: 1000 } });
+    page = await browser.newPage({ viewport: { width, height: 1000 } });
     page.on("pageerror", (error) => console.error(`chat-churn page: ${error.message}`));
     await page.goto(`http://127.0.0.1:${port}${PAGE}`);
     await page.waitForFunction(() => "__chatSim" in window);
@@ -64,7 +66,14 @@ await requireBrowserLane("chat-churn-browser.test.ts", async () => {
     "subagent",
     "long-turn-messages",
     "incoming-notice-turn",
+    "stream-under-card",
   ];
+  // Scenarios that must move nothing above the reader's anchor until the turn ends (its end's fold is
+  // the turn-end lane's): a reply streaming over the wrap-up card, a command leaving the live line
+  // under a task's note (Leo, 2026-11-22: "the content within neeeds to be fucking settling fucking
+  // night instantly without extraneous movement").
+  const STILL = new Set(["stream-under-card"]);
+  const TURN_END = new Set(["turn_end", "turn_result", "status ready"]);
   const reports: Record<string, ChurnReport> = {};
   afterAll(() => {
     if (process.env.CHAT_CHURN_OUT) writeFileSync(process.env.CHAT_CHURN_OUT, JSON.stringify(reports, null, 1));
@@ -80,7 +89,7 @@ await requireBrowserLane("chat-churn-browser.test.ts", async () => {
       console.log(churnLine(name, report));
       for (const shift of report.shifts.slice(0, 30))
         console.log(
-          `  shift +${(shift.at / 1000).toFixed(2)} s (${shift.step}) ${shift.frames} frames, ${shift.rows.length} rows up to ${shift.px}px above ${shift.anchor}: ${shift.rows.slice(0, 4).join(" ")}`,
+          `  shift +${(shift.at / 1000).toFixed(2)} s (${shift.step}) ${shift.frames} frames, ${shift.rows.length} rows up to ${shift.px}px above ${shift.anchor}: ${shift.rows.slice(0, 4).join(" ")}; cause ${shift.cause.join(" ") || "none drawn"}`,
         );
       for (const flash of report.flashes.slice(0, 30))
         console.log(
@@ -88,5 +97,11 @@ await requireBrowserLane("chat-churn-browser.test.ts", async () => {
         );
       for (const blink of report.blinks.slice(0, 30))
         console.log(`  blink +${(blink.at / 1000).toFixed(2)} s (${blink.step}) ${blink.id} gone ${blink.goneMs} ms`);
+      if (STILL.has(name)) {
+        const midTurn = report.shifts.filter((shift) => !TURN_END.has(shift.step));
+        expect(midTurn.map((shift) => `+${shift.at} ms ${shift.step}: ${shift.rows.join(" ")} ${shift.px}px`)).toEqual(
+          [],
+        );
+      }
     }, 1_500_000);
 });

@@ -35,7 +35,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { scriptNoun, commandLine, commandSaid } from "./commandActions";
+import { commandLine, commandSaid, scriptNoun } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -3821,14 +3821,27 @@ export { AFTER_SEND };
 /// for a run of its own right under the prompt (`AFTER_SEND`), so it lands below the prompt when it
 /// ends instead of in its run above it. One pass over the turn's rows per prompt the person sent
 /// into it (a few); a turn with none is returned as it is.
+///
+/// A background task's end noted mid-call (`bgtask-`, direct.ts) is drawn the same way: the command
+/// the live line named when the note came (the newest foreground shell still going then) lands under
+/// the note, never back in its run above it. In Leo's chat (coord-tool-burst, +48 s) a `task-wait`
+/// that Claude Code moved to the background left the line for its run above an earlier task's note,
+/// and the run grew a line: every row above the note moved 22 px (Leo, 2026-11-22: "the content
+/// within neeeds to be fucking settling fucking night instantly without extraneous movement").
+/// Only that one command moves: every other call going then is drawn in its run already, and taking
+/// it out would move the rows above as much.
 export function afterSends(rows: AcpmuxRow[], clockOffset = 0): AcpmuxRow[] {
   let out: AcpmuxRow[] | undefined;
   const emptied = new Set<AcpmuxRow>();
   for (let at = 1; at < (out ?? rows).length; at += 1) {
     const list = out ?? rows;
     const sent = list[at]!;
-    if (!sentByPerson(sent) || sent.failed) continue;
+    const note = sent.kind === "backgroundTask";
+    if (!note && (!sentByPerson(sent) || sent.failed)) continue;
     const sentAt = sentTime(sent, clockOffset);
+    const lined = note ? linedAt(list, at, sentAt) : undefined;
+    if (note && !lined) continue;
+    const goes = (item: NonNullable<AcpmuxRow["items"]>[number]) => (lined ? item === lined : goingAt(item, sentAt));
     const moved: NonNullable<AcpmuxRow["items"]> = [];
     let source: AcpmuxRow | undefined;
     // Every row an item came from: Find and a count's reveal still name them (`joined`, chatFind.ts
@@ -3837,10 +3850,10 @@ export function afterSends(rows: AcpmuxRow[], clockOffset = 0): AcpmuxRow[] {
     let version = 0;
     for (let before = 0; before < at; before += 1) {
       const row = list[before]!;
-      if (row.kind !== "activity" || !row.items?.some((item) => goingAt(item, sentAt))) continue;
+      if (row.kind !== "activity" || !row.items?.some(goes)) continue;
       out ??= [...rows];
-      const stays = row.items.filter((item) => !goingAt(item, sentAt));
-      moved.push(...row.items.filter((item) => goingAt(item, sentAt)));
+      const stays = row.items.filter((item) => !goes(item));
+      moved.push(...row.items.filter(goes));
       source ??= row;
       for (const id of row.joined ?? [row.id]) if (!members.includes(id)) members.push(id);
       version = mixVersion(version, row.version);
@@ -3859,6 +3872,32 @@ export function afterSends(rows: AcpmuxRow[], clockOffset = 0): AcpmuxRow[] {
     });
   }
   return out ? (emptied.size ? out.filter((row) => !emptied.has(row)) : out) : rows;
+}
+
+/// The command the live line named when the row at `at` came (`lineCall`'s fallback then): the newest
+/// shell before it that ran in the foreground at `sentAt` and is going still or ended after it.
+function linedAt(
+  rows: readonly AcpmuxRow[],
+  at: number,
+  sentAt: number,
+): NonNullable<AcpmuxRow["items"]>[number] | undefined {
+  for (let before = at - 1; before >= 0; before -= 1) {
+    const row = rows[before]!;
+    if (row.kind === "user" && !row.incoming) return undefined;
+    if (row.kind !== "activity") continue;
+    const items = row.items ?? [];
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const item = items[index]!;
+      const tool = item.tool;
+      if (!tool || tool.kind !== "execute" || isDraftCall(tool) || awaitsPermission(tool) || keepsOwnRow(tool))
+        continue;
+      if (!goingAt(item, sentAt)) continue;
+      // A shell already in the background at the note was drawn in its run, not on the line: Claude
+      // Code answers a backgrounded call at once, so it ended before the note.
+      return item;
+    }
+  }
+  return undefined;
 }
 
 /// When a live turn's current stretch of thinking began and when the turn last heard anything, on

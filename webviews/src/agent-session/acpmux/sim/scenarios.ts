@@ -67,6 +67,97 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-22: "the content within neeeds to be fucking settling fucking night instantly without
+  // extraneous movement". His coordinator's chat (coord-tool-burst): a `task-wait` runs on the live line,
+  // an earlier task's end is noted under its run, then Claude Code moves the wait to the background; the
+  // turn calls wrap_up, whose card draws at once, and the reply streams in over the card. Nothing above
+  // the streaming reply, or above the note, may move (test/chat-churn-browser.test.ts asserts 0 shifts).
+  "stream-under-card": () => {
+    const b = sim(
+      "stream-under-card",
+      "A command on the live line goes to the background under a task's note, then a reply streams over the wrap-up card.",
+    );
+    const session = (sessionUpdate: string, fields: Record<string, unknown>) => ({
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: { sessionId: "agent-1", update: { sessionUpdate, ...fields } },
+    });
+    b.prompt("Start the tray-plan lane and forward my notes to it.");
+    b.think("I'll write the brief and start the lane, then wait for it.", { chunks: 3 });
+    const wait = b.nextCallId();
+    b.tool("task-wait b1082tkx0 2>&1 | tail -4", { open: true });
+    b.wait(1_500);
+    // An earlier turn's background shell ends: its call is on no page here, so only its end is noted.
+    b.record(
+      "in",
+      "background_task_update",
+      session("background_task_update", {
+        taskId: "bkd5kdsos",
+        toolCallId: "toolu-earlier-turn",
+        command: "bash start-lane.sh hb-cache-caps",
+        description: "Start hb-cache-caps lane",
+        state: "completed",
+      }),
+      0,
+      "background_task_update",
+    );
+    b.wait(1_500);
+    // Claude Code moves the wait to the background, then answers its call.
+    b.record(
+      "in",
+      "background_task_update",
+      session("background_task_update", {
+        taskId: "bgrfh7mh6",
+        toolCallId: wait,
+        command: "task-wait b1082tkx0 2>&1 | tail -4",
+        description: "Wait for tray-plan lane start",
+        origin: "auto_backgrounded",
+        state: "running",
+      }),
+      0,
+      "background_task_update",
+    );
+    b.toolEnd(wait, { ms: 400, output: "Command running in background with ID: bgrfh7mh6" });
+    b.think("The lane is up; forwarding his notes and wrapping up.", { chunks: 2 });
+    b.tool("leo-forward --last 2 --to gcp-agent-lane-1/tray-plan", { ms: 500 });
+    const recap = {
+      recap: "Your four UI notes went word for word to a new lane, tray-plan. CI work goes on.",
+    };
+    const wrapUp = b.nextCallId();
+    b.record(
+      "in",
+      "tool_call",
+      session("tool_call", {
+        toolCallId: wrapUp,
+        title: "mcp__acpmux__wrap_up",
+        kind: "other",
+        status: "in_progress",
+        rawInput: recap,
+        _meta: { claude: { tool: "mcp__acpmux__wrap_up" } },
+      }),
+      300,
+      "tool start: wrap_up",
+    );
+    b.record(
+      "in",
+      "tool_call_update",
+      session("tool_call_update", {
+        toolCallId: wrapUp,
+        status: "completed",
+        content: [
+          { type: "content", content: { type: "text", text: JSON.stringify({ ...recap, ask: null, actions: [] }) } },
+        ],
+      }),
+      600,
+      "tool completed: wrap_up",
+    );
+    b.say(
+      `I sent all four of your chat UI notes to a new lane, tray-plan. ${PARAGRAPH}${PARAGRAPH}\n\n- **The running tray:** you said it's maybe too short.\n- **The plan list:** how items get created and expire.\n- **Tool result cards:** the who_else card's word list.\n\n${PARAGRAPH}`,
+      { chunks: 24, chunkMs: 60, after: 2_000 },
+    );
+    return b.turnEnd().build();
+  },
+
   basic: () =>
     sim("basic", "One prompt: a thought, commands with text between, a reply, the turn ends.")
       .prompt("The retry test is flaky. Find out why and fix it.")
