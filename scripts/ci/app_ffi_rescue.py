@@ -145,6 +145,9 @@ def watch(env: Mapping[str, str], api: Callable[..., Any] = _api, clock: Callabl
                 waited = (now - queued_since) / 60
                 stuck_on = list((build_job(jobs) or {}).get("labels") or [])
                 inputs = rescue_inputs(switch, stuck_on, env, tried_pools(env.get("RESCUE_TRIED")))
+                if inputs is not None and env.get("FFI_UNIVERSAL") == "true":
+                    # A stable release's universal run stays universal when rescued (app-ffi-release.yml ARM64 ONLY).
+                    inputs["universal"] = "true"
                 if inputs is None:
                     out(f"::warning::{BUILD_JOB} queued {waited:.0f} min with no runner on {', '.join(stuck_on)}; "
                         f"vars.CI_BLACKSMITH_MACOS is `{switch}` and no untried owned pool is set (named: "

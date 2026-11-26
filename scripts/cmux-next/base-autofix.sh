@@ -11,10 +11,7 @@
 #     from FILE, the package's `swift package dump-package` output (Swift 6.2
 #     on Linux dumps the same manifest as the Mac);
 #   - SDK wire layers: every language binding's generated files from
-#     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk),
-#     and the seven SDKs' .cmux-resource-api.json descriptors from
-#     cmux-tui/spec/resource-operations-v2.json
-#     (cmux-tui/bindings/rust/scripts/sync-resource-api.py; with --sdk);
+#     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
 #   - the daemon capability export: plans/cmux-next/daemon-capabilities.json from
 #     DaemonEndpoint.swift (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
@@ -188,28 +185,20 @@ fi
 # 1c. (Page strings: build output since #21946, never committed. --strings is
 # still accepted, as a no-op, for callers that pass it.)
 
-# 1d. SDK wire layers, and the SDKs' resource API descriptors (their
-# catalog_sha256 goes stale on any resource-operations-v2.json change: #23191,
-# #34498). A frozen one is put back as it was and reported.
+# 1d. SDK wire layers. (The SDKs' resource API descriptors, whose pasted
+# catalog_sha256 went stale on catalog changes, #23191 and #34498, are gone:
+# resource-operations-v2.json is the only copy, cmux-tui/scripts/check-sdk-single-source.py.)
+# A frozen one is put back as it was and reported.
 if (( sdk )); then
   codegen="$repo/cmux-tui/bindings/codegen/generate.py"
-  resource_sync="$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py"
-  sdk_stale=0
   if [[ -f "$codegen" ]] && ! python3 -I "$codegen" --check >/dev/null 2>&1; then
     python3 -I "$codegen" --write >/dev/null
-    sdk_stale=1
-  fi
-  if [[ -f "$resource_sync" ]] && ! python3 -I "$resource_sync" --check >/dev/null 2>&1; then
-    python3 -I "$resource_sync" >/dev/null
-    sdk_stale=1
-  fi
-  if (( sdk_stale )); then
     changed="$(git -C "$repo" ls-files --modified --others --exclude-standard -- cmux-tui/bindings)"
     while IFS= read -r rel; do
       [[ -n "$rel" ]] || continue
       if frozen "$rel"; then
         git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
-        echo "skipped (frozen): $rel (stale; python3 cmux-tui/bindings/codegen/generate.py --write and python3 cmux-tui/bindings/rust/scripts/sync-resource-api.py)"
+        echo "skipped (frozen): $rel (stale; python3 cmux-tui/bindings/codegen/generate.py --write)"
       else
         echo "fixed: regenerated $rel"
       fi
@@ -472,11 +461,8 @@ fi
 # to it (--all would also format its path dependencies).
 if (( fmt )) && [[ -f "$repo/cmux-tui/Cargo.toml" ]]; then
   before="$(git -C "$repo" status --porcelain -- cmux-tui)"
-  # A crate whose tests/ files are modules of one `it` binary (tests/it/main.rs, #56677) reaches them
-  # through a generated list cargo fmt cannot follow, so they are named to rustfmt.
-  (cd "$repo/cmux-tui" && fmt_tests=() &&
-    for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done &&
-    cargo fmt --all ${fmt_tests[@]+-- "${fmt_tests[@]}"})
+  # The it-binary crates' test files are formatted per crate, with that crate's edition.
+  (cd "$repo/cmux-tui" && bash "$script_dir/../ci/cmux-tui-fmt.sh")
   after="$(git -C "$repo" status --porcelain -- cmux-tui)"
   [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in cmux-tui"
 fi
