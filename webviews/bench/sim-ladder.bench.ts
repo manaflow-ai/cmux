@@ -29,7 +29,7 @@
 // with the count reads above it. Frame p95 is no sum of items, so its ratio is p95(top) / max(p95(mid), 16.7 ms).
 // sim_ladder.ratio_max is the worst; cmuxterm-hq's NOW reads it as benches.rows[key=sim_ladder_marginal_ratio_max].
 //   bun bench/sim-ladder.bench.ts [--axes chats,tabs] [--rungs 10,50,100] [--sessions 3000] [--rows 120]
-//     [--window 5000] [--settle 20000] [--rate 20] [--freeze] [--json out.json]
+//     [--window 15000] [--settle 20000] [--rate 20] [--freeze] [--json out.json]
 // Hidden means Chromium's own hidden state (CEF's WasHidden: no frames, no compositor, visibilityState "hidden"), not a
 // script override: each added page is a tab, loaded in front and then put behind the focused chat, of a Chrome this bench
 // launches and drives through connectOverCDP with noDefaults, because Playwright's own pages get
@@ -97,7 +97,14 @@ const TRANSCRIPT_EVENTS: number[] | null = (() => {
 // seed_capped with the turns the profile asked for.
 const SEED_TURNS_MAX = Number(flag("--seed-turns-max") ?? 33_334);
 const FULL_SEED = argv.includes("--full-seed") || PROFILE !== undefined;
-const WINDOW_MS = Number(flag("--window") ?? 5000);
+// The ladder's window is 15 s, the fidelity scene's 5 s. On the ladder a hidden item costs well under 1 ms/s, so a rung's
+// reading must resolve a few ms/s over 40-50 items, and 5 s windows could not: the focused chat's own GC under the list
+// churn (100-250 ms of CPU every ~5 s, ThreadPoolForeg) lands in a 1.7 s third or a 5 s window or not, by phase, so the
+// same rung read +-30 ms/s between windows. Three runs at one head on 32 cores read ratio_max 1.44, 1.01 and 1.00; the
+// 1.44 was tabs cpu 54/54/90 while that run's whole-window read went the other way (76/118/114, ratio -0.08), and chats
+// cpu read 0.2 and 0 in the other two: the ratio of two noises, either side of flat.
+// 15 s windows hold three of those GCs each, the cost is still in every reading, only its phase is gone.
+const WINDOW_MS = Number(flag("--window") ?? (PROFILE ? 5000 : 15_000));
 const changesPerMin = fromProfile("sessions_changed_per_min");
 const RATE = Number(flag("--rate") ?? (changesPerMin !== null ? changesPerMin / 60 : 20));
 const FREEZE = argv.includes("--freeze");
@@ -384,19 +391,23 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   // after a collection) that V8 collects at a moment of its own: one major collection of 4-6 s of ThreadPoolForeground CPU
   // landed inside the window of x50 in every run (610, 658, 326, 794 ms/s), a load cost read as the rung's steady state.
   // Collect it first, once per isolate as the heap reading below does, and log what that took: the load's cost stays visible.
-  const gcPids = renderers(rootPid);
-  const gcTicks0 = gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
-  await Promise.all(
-    items
-      .filter((item, index) => index === 0 || item.page.url() !== items[0]!.page.url())
-      .map((item) =>
-        Promise.race([
-          item.cdp.send("HeapProfiler.collectGarbage").catch(() => undefined),
-          new Promise((resolve) => setTimeout(resolve, 20_000)),
-        ]),
-      ),
-  );
-  lastLoadMs = Math.round(((gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0) - gcTicks0) / ticksPerSecond) * 1000);
+  // A full collection of every isolate (the chats share one, each tab has its own), as renderer CPU ms.
+  const collect = async (timeoutMs: number) => {
+    const gcPids = renderers(rootPid);
+    const gcTicks0 = gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
+    await Promise.all(
+      items
+        .filter((item, index) => index === 0 || item.page.url() !== items[0]!.page.url())
+        .map((item) =>
+          Promise.race([
+            item.cdp.send("HeapProfiler.collectGarbage").catch(() => undefined),
+            new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+          ]),
+        ),
+    );
+    return Math.round(((gcPids.reduce((sum, pid) => sum + cpuTicks(pid), 0) - gcTicks0) / ticksPerSecond) * 1000);
+  };
+  lastLoadMs = await collect(20_000);
   console.log(`SIM-LADDER   load collection ${lastLoadMs} ms of renderer CPU`);
   const settled = await settle(rootPid, focused);
   if (!settled) console.log(`SIM-LADDER   not settled in ${SETTLE_MS} ms`);
@@ -415,6 +426,20 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
     );
     return all.reduce((sum, m) => sum + (m?.metrics.find((x) => x.name === "ScriptDuration")?.value ?? 0), 0);
   };
+  // Each window starts from the same point of V8's collection cycle: right after a full collection, then 1 s for its
+  // sweep. A major collection of the chats' shared heap marks every live MB (x10's 190 MB took 0.8-1.6 s of CPU, x50's
+  // 830 MB 4 s), and V8 spaces them by its heap limit, which grows with the heap: x10 ran one every ~25 s, x100 none
+  // in 45 s. So with the window started wherever settle ended, whether a rung's window caught one was phase: the same
+  // x10 read 50 in one window and 109-156 in the next, and x50 861 in one run, 72 in another. Started after a
+  // collection, a window holds a natural one only when the pages promote garbage fast enough to refill the heap within
+  // it, which is what a per-item allocation does, so that cost still shows; the collections this bench forces are
+  // logged per window ("phase collections"), never counted.
+  const phaseMs: number[] = [];
+  const phaseLock = async () => {
+    phaseMs.push(await collect(10_000));
+    await focused.waitForTimeout(1000);
+  };
+  await phaseLock();
   const ticks0 = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
   const threads0 = threadTicks(pids);
   const script0 = await script();
@@ -500,6 +525,7 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   // 128 ms/s across runs of the same code): a cost that lasts shows in all three, a one-off burst in one.
   const windows = [windowMsPerS];
   for (let i = 1; i < 3; i += 1) {
+    await phaseLock();
     const before = pids.reduce((sum, pid) => sum + cpuTicks(pid), 0);
     const from = performance.now();
     await focused.waitForTimeout(WINDOW_MS);
@@ -511,7 +537,7 @@ async function measure(rootPid: number, items: Item[], focused: Page): Promise<S
   console.log(`SIM-LADDER   per-second cpu ms / pool ms / js heap MB: ${trace.join(" ")}`);
   const medianWindow = [...windows].sort((a, b) => a - b)[1]!;
   console.log(
-    `SIM-LADDER   cpu windows ms/s ${windows.map(Math.round).join(", ")} | median ${Math.round(medianWindow)}`,
+    `SIM-LADDER   cpu windows ms/s ${windows.map(Math.round).join(", ")} | median ${Math.round(medianWindow)} | phase collections ms ${phaseMs.join(", ")}`,
   );
   // Memory after a full collection: what the pages keep, not how far each heap has grown since its last GC (chats x100
   // read 4583 MB in one run and 5331 in the next, at the same pages).
