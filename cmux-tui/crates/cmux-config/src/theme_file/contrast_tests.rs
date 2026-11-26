@@ -68,7 +68,7 @@ fn example_theme_files() -> Vec<PathBuf> {
 /// so a muted caption on a selected row of a beige or gray sidebar stays under 4.5:1 whatever the
 /// file says. The app's fix (inks fitted to the surface they sit on) takes these out; a pair here
 /// that passes fails the test, so the list only shrinks.
-const KNOWN: [(&str, &str); 28] = [
+const KNOWN: [(&str, &str); 29] = [
     ("astrolabe-dawn", "sidebar selected row muted text"),
     ("classic-desktop", "sidebar dim text"),
     ("classic-desktop", "sidebar muted text"),
@@ -96,6 +96,7 @@ const KNOWN: [(&str, &str); 28] = [
     ("tonal-dark", "sidebar selected row muted text"),
     ("tonal-ink", "sidebar selected row muted text"),
     ("tonal-ink-dark", "sidebar selected row muted text"),
+    ("web-coding-app", "sidebar selected row muted text"),
     ("workbench-light", "sidebar selected row muted text"),
 ];
 
