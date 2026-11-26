@@ -357,5 +357,16 @@
       "reason": "design gallery: skeleton variants drawn for review, not in a flow"
     }
   ],
-  "known_layout_shifts": []
+  "known_layout_shifts": [
+    {
+      "flow": "tab-grid-51",
+      "max_shift_frames": 36,
+      "issue": "https://github.com/manaflow-ai/cmux/issues/58845"
+    },
+    {
+      "flow": "workspaces",
+      "max_shift_frames": 18,
+      "issue": "https://github.com/manaflow-ai/cmux/issues/58846"
+    }
+  ]
 }

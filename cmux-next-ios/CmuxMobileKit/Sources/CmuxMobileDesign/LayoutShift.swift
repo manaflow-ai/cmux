@@ -5,6 +5,7 @@
 #if os(iOS)
 import QuartzCore
 import SwiftUI
+import UIKit
 
 /// With `-cmux-placeholder-markers` (the ios-placeholder-bounds suite's launch argument), counts
 /// layout shifts of every `.layoutShiftTracked` row once per display frame and shows the counts as
@@ -18,6 +19,18 @@ public final class LayoutShiftProbe {
     public private(set) var text = "{}"
 
     @ObservationIgnored private var rows: [String: LayoutShiftCounter.Row] = [:]
+    /// Which tracked view reports each id: a card is also drawn as the live page's stand-in, the
+    /// zoom's copy and a context-menu preview, and two views writing one id read as one row
+    /// jumping between them every frame.
+    @ObservationIgnored private var owners: [String: UUID] = [:]
+    /// UIKit lists that report their own rows (`watch`).
+    @ObservationIgnored private var lists: [WatchedList] = []
+
+    private struct WatchedList {
+        weak var view: UIScrollView?
+        let prefix: String
+        let rows: () -> [(String, CGRect)]
+    }
     @ObservationIgnored private var counter = LayoutShiftCounter()
     @ObservationIgnored private var link: CADisplayLink?
 
@@ -27,15 +40,57 @@ public final class LayoutShiftProbe {
         self.link = link
     }
 
-    func set(_ id: String, _ row: LayoutShiftCounter.Row?) { rows[id] = row }
+    func set(_ id: String, _ row: LayoutShiftCounter.Row?, by token: UUID) {
+        if let row {
+            guard owners[id] == nil || owners[id] == token else { return }
+            owners[id] = token
+            rows[id] = row
+        } else if owners[id] == token {
+            owners[id] = nil
+            rows[id] = nil
+        }
+    }
+
+    /// A UIKit list (the chat transcript) whose rows are counted: `rows` gives each row inside the
+    /// list's visible bounds and its frame there (content frame less the content offset), as
+    /// `LoadFrameProbe.watch` does. Nothing is counted while the list is off screen or hidden.
+    /// Measured in the list, so a transform of the list (the grid's zoom, the live page following
+    /// its card) is not a shift, and native and SwiftUI cells are counted alike.
+    public func watch(_ view: UIScrollView, prefix: String, rows: @escaping () -> [(String, CGRect)]) {
+        lists.append(WatchedList(view: view, prefix: prefix, rows: rows))
+    }
+
+    private func listRows() -> [String: LayoutShiftCounter.Row] {
+        lists.removeAll { $0.view == nil }
+        var out: [String: LayoutShiftCounter.Row] = [:]
+        for list in lists {
+            guard let view = list.view, Self.isShown(view) else { continue }
+            let visible = CGRect(origin: .zero, size: view.bounds.size)
+            for (id, frame) in list.rows() where frame.intersects(visible) {
+                out[list.prefix + id] = .init(frame, .window)
+            }
+        }
+        return out
+    }
+
+    /// In a window and not hidden or transparent (a tab kept alive under another).
+    private static func isShown(_ view: UIView) -> Bool {
+        guard view.window != nil else { return false }
+        var next: UIView? = view
+        while let v = next {
+            if v.isHidden || v.alpha < 0.01 || v.layer.opacity < 0.01 { return false }
+            next = v.superview
+        }
+        return true
+    }
 
     fileprivate func tick() {
         let frames = counter.frames, shifts = counter.shiftFrames
-        counter.frame(rows)
+        counter.frame(lists.isEmpty ? rows : rows.merging(listRows()) { first, _ in first })
         guard counter.frames != frames, counter.frames == 1 || counter.shiftFrames != shifts || counter.frames % 30 == 0 else { return }
         let json: [String: Any] = [
             "frames": counter.frames, "shiftFrames": counter.shiftFrames,
-            "shiftedRows": counter.shiftedRows, "lastMoved": counter.lastMoved, "rows": rows.count,
+            "shiftedRows": counter.shiftedRows, "lastMoved": counter.lastMoved, "rows": rows.count + listRows().count,
         ]
         let data = (try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys])) ?? Data()
         text = String(data: data, encoding: .utf8) ?? "{}"
@@ -74,20 +129,32 @@ public struct LayoutShiftProbeLabel: View {
 private struct LayoutShiftTracked: ViewModifier {
     let id: String
     let space: LayoutShiftCounter.Space
+    @State private var token = UUID()
 
     func body(content: Content) -> some View {
         if let probe = LayoutShiftProbe.shared {
-            let space = space
+            let space = space, token = token
             content
-                .onGeometryChange(for: CGRect.self) { proxy in
-                    space == .scrollContent ? proxy.frame(in: .scrollView) : proxy.frame(in: .global)
+                .onGeometryChange(for: CGRect?.self) { proxy in
+                    Self.measure(proxy, space)
                 } action: { rect in
-                    probe.set(id, .init(rect, space))
+                    probe.set(id, rect.map { .init($0, space) }, by: token)
                 }
-                .onDisappear { probe.set(id, nil) }
+                .onDisappear { probe.set(id, nil, by: token) }
         } else {
             content
         }
+    }
+
+    /// The row's frame in its scroll view, while some of it is inside the scroll view's visible
+    /// bounds; nil off them, or outside any scroll view (a copy of a card: the zoom's, a preview).
+    /// Never the screen: a transform of the whole list (the grid's zoom scale) is not a shift.
+    private static func measure(_ proxy: GeometryProxy, _ space: LayoutShiftCounter.Space) -> CGRect? {
+        guard let visible = proxy.bounds(of: .scrollView),
+              visible.intersects(CGRect(origin: .zero, size: proxy.size)) else { return nil }
+        let frame = proxy.frame(in: .scrollView)
+        // `.window`: the frame in the scroll view's visible bounds (a scroll moves every row alike).
+        return space == .window ? CGRect(origin: CGPoint(x: -visible.minX, y: -visible.minY), size: frame.size) : frame
     }
 }
 
