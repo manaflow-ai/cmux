@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import ImageIO
 public import CmuxNextDesign
 public import CmuxNextWakeups
 
@@ -158,6 +159,17 @@ public final class AgentPaneLaunchImages {
         }
         guard let page = pages[key], taken.insert(key).inserted else { return nil }
         return NSImage(cgImage: page.image, size: page.size)
+    }
+
+    /// `key`'s last page without handing it out: a released page's held frame, else the page the last quit saved
+    /// while the launch read keeps it. The hover card's miniature shows it for a chat not on screen since (#51768).
+    /// A held frame taken in the other light or dark look than `appearance` is skipped, as ``take(_:size:appearance:)`` does.
+    public func lastPage(_ key: String, appearance: NSAppearance.Name? = nil) -> CGImage? {
+        if let frame = held[key], appearance == nil || frame.appearance == nil || frame.appearance == appearance,
+           let source = CGImageSourceCreateWithData(frame.data as CFData, nil) {
+            return CGImageSourceCreateImageAtIndex(source, 0, nil)
+        }
+        return (delivered ?? read?.value)?[key]?.image
     }
 
     /// Holds `image` as tab `key`'s frame until ``take(_:size:appearance:)`` or ``drop(_:)``.

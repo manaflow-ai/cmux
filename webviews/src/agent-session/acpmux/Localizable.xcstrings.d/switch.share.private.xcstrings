@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "switch.share.private" : {
+      "comment" : "Agent pane: the machine is private (only its creator starts chats on it), so it cannot be shared",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This machine is private, so only its creator can start chats on it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "هذا الجهاز خاص، لذا لا يمكن إلا لمنشئه بدء المحادثات عليه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ova mašina je privatna, pa samo njen kreator može pokretati razgovore na njoj."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne maskine er privat, så kun dens opretter kan starte chats på den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Diese Maschine ist privat, daher kann nur ihr Ersteller dort Chats starten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta máquina es privada, así que solo quien la creó puede iniciar chats en ella."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cette machine est privée : seul son créateur peut y démarrer des discussions."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa macchina è privata, quindi solo chi l'ha creata può avviarvi chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このマシンは非公開のため、チャットを開始できるのは作成者だけです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ាស៊ីននេះជាឯកជន ដូច្នេះមានតែអ្នកបង្កើតប៉ុណ្ណោះដែលអាចចាប់ផ្ដើមការជជែកនៅលើវាបាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 기기는 비공개라서 만든 사람만 채팅을 시작할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne maskinen er privat, så bare den som opprettet den kan starte chatter på den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ta maszyna jest prywatna, więc czaty może na niej rozpoczynać tylko jej twórca."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esta máquina é privada, então só quem a criou pode iniciar chats nela."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Эта машина приватная, поэтому чаты на ней может начинать только её создатель."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เครื่องนี้เป็นแบบส่วนตัว จึงมีเพียงผู้สร้างเท่านั้นที่เริ่มแชทบนเครื่องนี้ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu makine özel, bu yüzden üzerinde yalnızca onu oluşturan kişi sohbet başlatabilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ця машина приватна, тому чати на ній може починати лише її творець."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Máy này ở chế độ riêng tư nên chỉ người tạo mới bắt đầu trò chuyện trên đó được."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "这台机器是私有的，因此只有其创建者可以在上面开始聊天。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "這台機器是私人的，因此只有其建立者可以在上面開始聊天。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

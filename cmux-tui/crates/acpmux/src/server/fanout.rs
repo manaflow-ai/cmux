@@ -6,7 +6,7 @@ use super::{
     json,
 };
 use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::watch;
 
 /// How long a turn's answer waits for its connection's fan-out to send the updates broadcast
 /// before it ([`Flush::sent`]). The fan-out only sends queued lines (it never waits on a client),
@@ -18,25 +18,57 @@ const FLUSH_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
 /// overtake the turn's last text: the pane drew the turn ended, then its words, a layout shift
 /// (tests/permission_matrix.rs, 2 runs in 50 on a loaded Linux box). Its events are broadcast
 /// before the turn's answer resolves, so once the fan-out has drained its queue they are sent.
-pub(super) struct Flush(mpsc::UnboundedSender<oneshot::Sender<()>>);
+///
+/// A coalescing slot, never a queue (RFD 0124 R4): an ask bumps a count, the fan-out drains once
+/// for every ask made by then and posts the count it served. However many turns end while the
+/// fan-out is stalled, the connection holds two numbers, where an unbounded channel held one
+/// waiter per ask until the fan-out woke. Nothing is shed: one drain answers every ask before it.
+pub(super) struct Flush {
+    asked: watch::Sender<u64>,
+    served: watch::Receiver<u64>,
+}
+
+/// The fan-out's end of [`Flush`].
+pub(super) struct Flushes {
+    asked: watch::Receiver<u64>,
+    served: watch::Sender<u64>,
+}
 
 impl Flush {
-    pub(super) fn channel() -> (Self, mpsc::UnboundedReceiver<oneshot::Sender<()>>) {
-        let (tx, rx) = mpsc::unbounded_channel();
-        (Self(tx), rx)
+    pub(super) fn channel() -> (Self, Flushes) {
+        let (asked, asked_rx) = watch::channel(0);
+        let (served_tx, served) = watch::channel(0);
+        (Self { asked, served }, Flushes { asked: asked_rx, served: served_tx })
     }
 
     /// Returns once the fan-out sent what was broadcast before this call, its task ended, or
     /// [`FLUSH_BOUND`] passed.
     pub(super) async fn sent(&self) {
-        let (done, sent) = oneshot::channel();
-        if self.0.send(done).is_ok() {
-            let _ = tokio::time::timeout(FLUSH_BOUND, sent).await;
-        }
+        let mut ask = 0;
+        self.asked.send_modify(|n| {
+            *n += 1;
+            ask = *n;
+        });
+        let mut served = self.served.clone();
+        // An ended fan-out drops its end: the wait returns at once.
+        let _ = tokio::time::timeout(FLUSH_BOUND, served.wait_for(|n| *n >= ask)).await;
     }
 }
 
-fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
+impl Flushes {
+    /// The next ask: the count to post once the queue is drained. `None` once the asking side
+    /// is gone.
+    async fn asked(&mut self) -> Option<u64> {
+        self.asked.changed().await.ok()?;
+        Some(*self.asked.borrow_and_update())
+    }
+
+    fn served(&self, ask: u64) {
+        self.served.send_replace(ask);
+    }
+}
+
+pub(super) fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     // A record a catch-up after a lap already sent goes no second time (`stream_cursor.rs`).
     if ev.remote.is_none() && !conn.stream_cursors.advance(&ev.session_id, ev.record.seq) {
         return;
@@ -54,7 +86,7 @@ async fn lapped(hub: &Arc<Hub>, conn: &Arc<Conn>, dropped: u64) {
     super::stream_cursor::catch_up(hub, conn, deliver_once).await;
 }
 
-fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
+pub(super) fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
     let _stream = durable_gate::stream_scope(&ev.record);
     #[cfg(test)]
@@ -71,7 +103,7 @@ fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
 pub(super) fn start(
     hub: Arc<Hub>,
     conn: Arc<Conn>,
-    mut flushes: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
+    mut flushes: Flushes,
 ) -> tokio::task::JoinHandle<()> {
     // Only the events routed to this connection (`interest.rs`), in broadcast order.
     let rx = conn.interest.inbox.clone();
@@ -82,20 +114,27 @@ pub(super) fn start(
     let mut presence = hub.presence.subscribe();
     tokio::spawn(async move {
         loop {
+            let rows_due = conn.held_rows.due();
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
+                // The rows held behind a turn's first output go at their bound (`held_rows.rs`).
+                () = super::held_rows::wait(rows_due), if rows_due.is_some() => {
+                    super::held_rows::flush(&hub, &conn);
+                    continue;
+                }
                 // A turn's answer waits for the events queued before it (`Flush`).
-                Some(done) = flushes.recv() => {
+                Some(ask) = flushes.asked() => {
                     loop {
                         match rx.try_recv() {
-                            Ok(ev) => send_event(&hub, &conn, ev),
+                            Ok(ev) => super::follow::event(&hub, &conn, ev).await,
                             Err(broadcast::error::TryRecvError::Lagged(n)) => {
                                 lapped(&hub, &conn, n).await
                             }
                             Err(_) => break,
                         }
                     }
-                    let _ = done.send(());
+                    super::held_rows::flush(&hub, &conn);
+                    flushes.served(ask);
                     continue;
                 }
                 note = harnesses.recv() => {
@@ -160,7 +199,7 @@ pub(super) fn start(
                 }
             };
             match ev {
-                Ok(ev) => send_event(&hub, &conn, ev),
+                Ok(ev) => super::follow::event(&hub, &conn, ev).await,
                 Err(broadcast::error::RecvError::Lagged(n)) => lapped(&hub, &conn, n).await,
                 Err(broadcast::error::RecvError::Closed) => break,
             }
@@ -172,7 +211,9 @@ pub(super) fn start(
 /// with the same raw id); never to a peer daemon's link, which does not carry presence
 /// (`hub/presence.rs`).
 fn send_presence(conn: &Conn, note: &serde_json::Value) {
-    if conn.origin == super::Origin::Peer {
+    if conn.origin == super::Origin::Peer
+        || !conn.client_features.hears_any(&[crate::capabilities::CHAT_PRESENCE])
+    {
         return;
     }
     let attached = note
@@ -233,6 +274,49 @@ pub(super) mod tests {
         if name.starts_with(WAKE_PREFIX) {
             *WAKES.lock().unwrap_or_else(|e| e.into_inner()).entry(name).or_default() += 1;
         }
+    }
+
+    /// A stalled fan-out holds two counts however many turns ask it to flush (RFD 0124 R4), and
+    /// its one drain answers every ask made before it, none waiting out `FLUSH_BOUND`.
+    #[tokio::test]
+    async fn flush_asks_coalesce_while_the_fan_out_is_stalled() {
+        let (flush, mut flushes) = super::Flush::channel();
+        let flush = std::sync::Arc::new(flush);
+        let started = std::time::Instant::now();
+        let waits: Vec<_> = (0..10_000)
+            .map(|_| {
+                let flush = flush.clone();
+                tokio::spawn(async move { flush.sent().await })
+            })
+            .collect();
+        while *flush.asked.borrow() < 10_000 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(flushes.asked().await, Some(10_000), "one wake for every ask");
+        flushes.served(10_000);
+        for wait in waits {
+            wait.await.expect("ask");
+        }
+        assert!(started.elapsed() < super::FLUSH_BOUND, "an ask waited out its bound");
+        // An ask after the drain waits for the next one.
+        let next = tokio::spawn({
+            let flush = flush.clone();
+            async move { flush.sent().await }
+        });
+        assert_eq!(flushes.asked().await, Some(10_001));
+        assert!(!next.is_finished());
+        flushes.served(10_001);
+        next.await.expect("next ask");
+    }
+
+    /// An ended fan-out answers an ask at once, as a closed channel did.
+    #[tokio::test]
+    async fn a_flush_after_the_fan_out_ended_returns_at_once() {
+        let (flush, flushes) = super::Flush::channel();
+        drop(flushes);
+        let started = std::time::Instant::now();
+        flush.sent().await;
+        assert!(started.elapsed() < super::FLUSH_BOUND);
     }
 
     /// Hub events the fan-out of the connection named `name` woke for.

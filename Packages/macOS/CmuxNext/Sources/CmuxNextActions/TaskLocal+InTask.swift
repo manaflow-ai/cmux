@@ -25,6 +25,10 @@ extension TaskLocal {
     public func withValueInTask<R>(_ value: Value, operation body: () -> R) -> R {
         // The only sanctioned synchronous bindings (check-concurrency: task-local bindings).
         if withUnsafeCurrentTask(body: { $0 != nil }) { return withValue(value, operation: body) }
+        #if !canImport(Darwin)
+        // Linux runs only the action exporter, which has no Objective-C unwinds to guard.
+        return withValue(value, operation: body)
+        #else
         guard #available(macOS 15.4, *) else { return withValue(value, operation: body) }
         return withoutActuallyEscaping(body) { body in
             // An Objective-C exception that unwound this task's frame to an older system catch would
@@ -45,6 +49,7 @@ extension TaskLocal {
             }
             return run.finish()
         }
+        #endif
     }
 }
 

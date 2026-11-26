@@ -94,7 +94,7 @@ fn new_pane_right_with_browser_kind_creates_a_browser_column() {
     let columns = handle_command(
         &wire.mux,
         wire.mux.local_test_client(0),
-        Command::ListWorkspaces { known: None, limit: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &wire.writer,
     )
     .unwrap()["workspaces"][0]["screens"][0]["columns"]
@@ -148,10 +148,10 @@ fn malformed_kind_requests_are_refused_and_create_nothing() {
 
 /// The browser kind is a raw-protocol field. Public v2 `pane.split` keeps
 /// its terminal-only contract (its result type is `CreatedTerminalPath`), so
-/// `kind` and `url` there, and the daemon-internal browser field, are refused
-/// and create nothing.
+/// `kind` and `url` there, and the daemon-internal browser field, are dropped
+/// unread: the split succeeds and makes a terminal pane, never a browser.
 #[test]
-fn public_pane_split_refuses_browser_fields() {
+fn public_pane_split_ignores_browser_fields() {
     for (index, extra) in [
         json!({"kind": "browser", "url": "https://a.test"}),
         json!({"url": "https://a.test"}),
@@ -195,15 +195,12 @@ fn public_pane_split_refuses_browser_fields() {
             assert!(Instant::now() < deadline, "no pane.split response");
             std::thread::sleep(Duration::from_millis(2));
         };
-        if extra.as_object().unwrap().is_empty() {
-            assert_eq!(response["ok"], true, "the control request must pass: {response}");
-            assert_eq!(wire.pane_count(), 2);
-        } else {
-            assert_eq!(response["ok"], false, "{extra} must be refused: {response}");
-            let text = response.to_string();
-            assert!(text.contains("unknown parameters"), "{extra}: wrong refusal {response}");
-            assert_eq!(wire.pane_count(), 1, "{extra} must create nothing");
-        }
+        assert_eq!(response["ok"], true, "{extra}: the split must pass: {response}");
+        assert_eq!(wire.pane_count(), 2);
+        let browsers = wire.mux.with_state(|state| {
+            state.surfaces.values().filter(|surface| surface.kind() == SurfaceKind::Browser).count()
+        });
+        assert_eq!(browsers, 0, "{extra}: the split made a terminal, never a browser");
         disconnect_client(&wire.mux, client, false);
     }
 }

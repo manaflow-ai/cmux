@@ -24,7 +24,7 @@ function statusLabel(t: Translate, status: string | undefined): string {
   if (!status) return "";
   const label =
     status === "running"
-      ? t("tools.runningUnnamed")
+      ? ""
       : status === "failed"
         ? t("tools.failed")
         : status === "merged"

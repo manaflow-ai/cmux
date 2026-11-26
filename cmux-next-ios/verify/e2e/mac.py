@@ -52,13 +52,23 @@ def pb(plist, cmd, check=True):
 
 
 def dev_credential():
-    """(email, password) of the DEBUG dev credential (AuthCoordinator.sendCode "42")."""
-    src = os.path.join(REPO, "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/Coordinator/AuthCoordinator.swift")
-    text = open(src).read()
-    m = re.search(r'CMUXAuthAutoLoginCredentials\(email:\s*"([^"]+)",\s*password:\s*"([^"]+)"\)', text)
-    if not m:
-        raise RuntimeError("DEBUG dev credential not found in CmuxAuthRuntime")
-    return m.group(1), m.group(2)
+    """(email, password) of the DEBUG dev account, from the environment (`CMUX_UITEST_STACK_EMAIL` /
+    `CMUX_UITEST_STACK_PASSWORD`, the names the app reads), else from the CI auth profile
+    (`~/.secrets/cmuxterm-dev.env`). The source holds no credential since AuthCoordinator moved it to
+    the launch environment; reading it from AuthCoordinator.swift failed every run of this rig.
+    Same lookup as scripts/ci/cmux_next_pair_e2e.py."""
+    keys = ("CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD")
+    found = {k: os.environ.get(k, "") for k in keys}
+    profile = os.path.expanduser("~/.secrets/cmuxterm-dev.env")
+    if not all(found.values()) and os.path.isfile(profile):
+        for line in open(profile):
+            k, sep, v = line.rstrip("\n").partition("=")
+            if sep and k in keys and not found[k]:
+                found[k] = v
+    if not all(found.values()):
+        raise RuntimeError("DEBUG dev credential: set CMUX_UITEST_STACK_EMAIL and CMUX_UITEST_STACK_PASSWORD "
+                           "(or provide ~/.secrets/cmuxterm-dev.env)")
+    return found[keys[0]], found[keys[1]]
 
 
 RIG_BUNDLE = re.compile(r"\.mobile[.-]e2e[.-][0-9A-Za-z]+$")

@@ -947,7 +947,7 @@ fn connection_close_cancels_a_wait_queued_after_clear_history() {
 /// answered while the admitted waits are pending. Closing the connection ends every wait
 /// and returns its permit.
 #[test]
-fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
+fn wait_for_off_dispatch_admits_past_the_old_cap_without_queueing() {
     let mux = test_mux();
     let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
     let (writer, outbound) = captured_writer();
@@ -964,24 +964,17 @@ fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
         })
         .to_string()
     };
-    for id in 0..RESOURCE_WAITS_PER_CLIENT_CAPACITY {
+    // Past the old cap of 8 waits per connection: no count refuses a wait.
+    let waits = 9;
+    for id in 0..waits {
         assert!(handle_connection_message(&mux, client, &wait(id), &writer, &scheduler));
     }
-    let over = RESOURCE_WAITS_PER_CLIENT_CAPACITY;
-    assert!(handle_connection_message(&mux, client, &wait(over), &writer, &scheduler));
     // A request that goes through the connection's queue, as the waits do: a plain `identify`
-    // is answered on the reader before the queue (#33273), so it would race the refusal and
-    // prove nothing about the queue.
+    // is answered on the reader before the queue (#33273), so it would not prove the waits
+    // left the queue.
     let later = json!({"id":"later","cmd":"list-workspaces"}).to_string();
     assert!(handle_connection_message(&mux, client, &later, &writer, &scheduler));
 
-    let refused = pop_json(&outbound);
-    assert_eq!(refused["id"], json!(over), "the wait over capacity was not answered first");
-    assert_eq!(refused["ok"], false, "a wait over capacity was admitted: {refused}");
-    assert!(
-        refused["error"].as_str().is_some_and(|error| error.contains("wait-for")),
-        "the refusal does not name wait-for: {refused}"
-    );
     let answered = pop_json(&outbound);
     assert_eq!(answered["id"], "later", "a queued request waited behind pending waits");
     assert_eq!(answered["ok"], true, "{answered}");
@@ -1005,7 +998,7 @@ fn wait_for_off_dispatch_refuses_over_capacity_without_queueing() {
     );
     assert_eq!(
         mux.control_clients.resource_wait_admission.active(),
-        RESOURCE_WAITS_PER_CLIENT_CAPACITY,
+        waits,
         "each pending wait-for must hold one terminal-wait worker permit"
     );
 

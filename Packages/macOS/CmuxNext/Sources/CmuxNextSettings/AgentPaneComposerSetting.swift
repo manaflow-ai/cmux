@@ -8,7 +8,7 @@ import CmuxNextDesign
 /// webviews/src/agent-session/acpmux/composerSettings.ts):
 ///
 /// ```jsonc
-/// "agentPane": { "showContextUsage": true, "composerRing": "context", "showDictation": true, "spellChecking": false, "attachmentView": "inline", "scrollToBottomOnSend": true, "showMachineLoadWarnings": true }
+/// "agentPane": { "showContextUsage": true, "composerRing": "context", "showDictation": true, "spellChecking": false, "attachmentView": "strip", "scrollToBottomOnSend": true, "showMachineLoadWarnings": true }
 /// ```
 ///
 /// `showContextUsage`: the context usage ring beside the model. The ring's right-click hides it,
@@ -27,8 +27,11 @@ import CmuxNextDesign
 /// Leo, 2026-11-07: "you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's
 /// thing ... Or, like, maybe you can map the button to that thing, perhaps?"
 /// `spellChecking`: opt-in system spell checking for web and native composers. It is off by default.
+/// `composerVimKeys`: opt-in modal vim keys in the web composer (Esc for normal mode; i, a, I, A, o, h, j, k, l,
+/// w, b, e, 0, $, x, dd, u). It is off by default and never steals a key when off
+/// (webviews composer/vimKeys.ts).
 /// `attachmentView`: how pictures and files show in every composer and in sent messages, `inline`
-/// (each in the text where it was added, as Messages does; the default), `strip` (in a row) or
+/// (each in the text where it was added, as Messages does), `strip` (in a row; the default) or
 /// `both` (in the text and in the row, each removable from either; sent messages draw it as
 /// `inline`). Only the look: a draft's text, its attachments and their order are the same in all.
 /// `scrollToBottomOnSend`: when enabled, sending while reading up jumps to the newest row (the
@@ -63,6 +66,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var dictationSource = Self.dictationSourceDefault
     public var dictationShortcut = Self.dictationShortcutDefault
     public var spellChecking = Self.spellCheckingDefault
+    public var composerVimKeys = Self.composerVimKeysDefault
     public var attachmentView = Self.attachmentViewDefault
     public var scrollToBottomOnSend = Self.scrollToBottomOnSendDefault
     public var showMachineLoadWarnings = Self.showMachineLoadWarningsDefault
@@ -71,6 +75,12 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var composerLook = Self.composerLookDefault
     public var emptyChatComposerPosition = Self.emptyChatComposerPositionDefault
     public var followUpMode = Self.followUpModeDefault
+    /// `developerTools.overloadNotice` (``HostOverloadNoticeSetting``, Settings > Advanced >
+    /// Developer Tools; off by default): the chat's "This Mac is overloaded" banner.
+    public var showOverloadNotice = HostOverloadNoticeSetting.fallback
+    /// `agentPane.savedPrompts`, checked here only: acpmux reads it from cmux.json at each list
+    /// (crates/acpmux/src/prompts.rs) and serves it to the page, so it is not in `pageValue`.
+    public var savedPrompts = Self.savedPromptsDefault
     /// The Debug Settings opt-in (`agent.reasoningSlider`); never parsed from cmux.json.
     public var reasoningSlider = false
     /// The Debug Settings visual choice (`agent.reasoningSliderStyle`); never parsed from cmux.json.
@@ -80,7 +90,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
 
     public static let fallback = AgentPaneComposerSetting()
 
-    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, followUpMode, reasoningSlider, reasoningSliderStyle}`.
+    /// The page's value (the `composer` host event): `{showContextUsage, composerRing, showDictation, dictationSource, dictationShortcut, spellChecking, composerVimKeys, attachmentView, scrollToBottomOnSend, showMachineLoadWarnings, newChatsIn, composerLook, emptyChatComposerPosition, followUpMode, showOverloadNotice, reasoningSlider, reasoningSliderStyle}`.
     public var pageValue: JSONValue {
         [
             "showContextUsage": .bool(showContextUsage),
@@ -89,6 +99,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "dictationSource": .string(dictationSource.rawValue),
             "dictationShortcut": .string(dictationShortcut),
             "spellChecking": .bool(spellChecking),
+            "composerVimKeys": .bool(composerVimKeys),
             "attachmentView": .string(attachmentView.rawValue),
             "scrollToBottomOnSend": .bool(scrollToBottomOnSend),
             "showMachineLoadWarnings": .bool(showMachineLoadWarnings),
@@ -97,6 +108,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             "composerLook": .string(composerLook.rawValue),
             "emptyChatComposerPosition": .string(emptyChatComposerPosition.rawValue),
             "followUpMode": .string(followUpMode.rawValue),
+            "showOverloadNotice": .bool(showOverloadNotice),
             "reasoningSlider": .bool(reasoningSlider),
             "reasoningSliderStyle": .string(reasoningSliderStyle)
         ]
@@ -152,6 +164,14 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                 setting.sessionWorktrees = place
                 continue
             }
+            if descriptor.path == savedPromptsPath {
+                guard descriptor.accepts(value) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.savedPrompts = value
+                continue
+            }
             if descriptor.path == newChatsInPath {
                 guard descriptor.accepts(value), let place = value.stringValue.flatMap(AgentPaneNewChatPlace.init(rawValue:)) else {
                     diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
@@ -191,6 +211,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
             if descriptor.path == showContextUsagePath { setting.showContextUsage = flag }
             if descriptor.path == showDictationPath { setting.showDictation = flag }
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }
+            if descriptor.path == composerVimKeysPath { setting.composerVimKeys = flag }
             if descriptor.path == scrollToBottomOnSendPath { setting.scrollToBottomOnSend = flag }
             if descriptor.path == showMachineLoadWarningsPath { setting.showMachineLoadWarnings = flag }
         }

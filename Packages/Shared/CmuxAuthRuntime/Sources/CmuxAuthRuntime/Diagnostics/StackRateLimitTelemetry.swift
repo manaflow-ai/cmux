@@ -1,5 +1,7 @@
 public import Foundation
+#if canImport(os)
 import os
+#endif
 import StackAuth
 
 /// Which auth step the sign-in service answered with 429.

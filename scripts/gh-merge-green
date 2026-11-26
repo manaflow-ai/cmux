@@ -293,10 +293,10 @@ fi
 # every reported exact-head check and status context must be completed successfully.
 workflow_response=''
 graphql_workflow_response() {
-  local file="$1" owner="${repo%/*}" name="${repo#*/}" response text
+  local file="$1" ref="${2:-$base}" owner="${repo%/*}" name="${repo#*/}" response text
   response=$(gh api graphql \
     -f query='query($owner:String!,$name:String!,$expr:String!){repository(owner:$owner,name:$name){object(expression:$expr){... on Blob{text}}}}' \
-    -f owner="$owner" -f name="$name" -f expr="$base:.github/workflows/$file" 2>/dev/null) || return 2
+    -f owner="$owner" -f name="$name" -f expr="$ref:.github/workflows/$file" 2>/dev/null) || return 2
   if jq -e '.errors? and (.errors | length > 0)' >/dev/null 2>&1 <<<"$response"; then
     return 2
   fi
@@ -305,7 +305,7 @@ graphql_workflow_response() {
     return 1
   fi
   workflow_response=$(jq -n --arg text "$text" '{content:($text|@base64),encoding:"base64"}') || return 2
-  echo "note: used GraphQL fallback to inspect $base:.github/workflows/$file" >&2
+  echo "note: used GraphQL fallback to inspect $ref:.github/workflows/$file" >&2
   return 0
 }
 graphql_check_runs_response() {
@@ -340,14 +340,15 @@ git_patches() {
   fi
   git -C "$repo_dir" show --format= --find-renames "$sha"
 }
+# workflow_on_base FILE [REF]: REF defaults to the pull request's base branch.
 workflow_on_base() {
-  local file="$1" response
+  local file="$1" ref="${2:-$base}" response
   # A missing optional workflow is a normal negative result.  Disable the
   # global ERR trap just for this expected nonzero API response; otherwise
   # Bash fires the trap before the 404 branch below can classify it.
   local status
   trap - ERR
-  response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$base" 2>/dev/null)
+  response=$(gh api --include "repos/$repo/contents/.github/workflows/$file" -X GET -f "ref=$ref" 2>/dev/null)
   status=$?
   trap on_error ERR
   if [ "$status" -eq 0 ]; then
@@ -357,13 +358,13 @@ workflow_on_base() {
   if grep -qE '^HTTP/[^ ]+ 404([[:space:]]|$)' <<<"$response"; then
     return 1
   fi
-  graphql_workflow_response "$file"
+  graphql_workflow_response "$file" "$ref"
   case "$?" in
     0) return 0 ;;
     1) return 1 ;;
   esac
   refuse \
-    "not green: cannot probe $file on $repo base $base" \
+    "not green: cannot probe $file on $repo at $ref" \
     'restore GitHub contents API access; only HTTP 404 means the workflow is absent'
 }
 
@@ -465,7 +466,7 @@ fi
 # God-file, localization and concurrency lint fail only on the change itself, so
 # they are never waived: --override is for base-red or flaky lanes. Any such
 # check reported on the exact head must complete green, with or without it.
-# So must `risk evidence` (risk-tier.yml on feat-cmux-next): it grades the PR's
+# So must `risk evidence` (main's risk-tier.yml, for feat-cmux-next): it grades the PR's
 # own diff and description, so it is never base-red. It goes red only on a
 # takeback no `Takes back #N:` line owns; a missing sign-off or a BLOCK on a high
 # head only warns (docs/ci/risk-tiers.md on feat-cmux-next). This script is part of that gate,
@@ -489,7 +490,7 @@ while IFS=$'\t' read -r name st co; do
   esac
 done <<<"$runs"
 
-# `risk evidence` passes while advisory (before ENFORCE_FROM in the base's risk-tier.yml), and a
+# `risk evidence` passes while advisory (before ENFORCE_FROM in main's risk-tier.yml), and a
 # verdict from then stays green until the pull request is re-graded. After the cutover, only a
 # verdict whose job started after it counts (the evidence step decides advisory-or-not while the
 # job runs, so a job that started earlier may have graded as advisory), and a pull request with
@@ -521,13 +522,15 @@ if not match:
 print(match.group(1))
 ' <<<"$workflow_response"
 }
-if [ "$base" = feat-cmux-next ] && workflow_on_base risk-tier.yml; then
+# risk-tier.yml is pull_request_target, so GitHub runs the default branch's copy for a feat-cmux-next
+# pull request; its ENFORCE_FROM is read there (feat-cmux-next has no copy since cmux ci-v2 step 3).
+if [ "$base" = feat-cmux-next ] && workflow_on_base risk-tier.yml main; then
   enforce_status=0
   enforce_from=$(risk_enforce_from) || enforce_status=$?
   if [ "$enforce_status" -ne 0 ]; then
     refuse \
-      "not green: cannot read ENFORCE_FROM (YYYY-MM-DDTHH:MM:SSZ) from $base:.github/workflows/risk-tier.yml" \
-      "restore ENFORCE_FROM in risk-tier.yml on $base, then retry"
+      "not green: cannot read ENFORCE_FROM (YYYY-MM-DDTHH:MM:SSZ) from main:.github/workflows/risk-tier.yml" \
+      "restore ENFORCE_FROM in risk-tier.yml on main, then retry"
   fi
   now=${GH_MERGE_GREEN_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
   if [ -n "$enforce_from" ] && [[ ! "$now" < "$enforce_from" ]]; then

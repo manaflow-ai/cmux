@@ -11,12 +11,12 @@
 //! `CMUX_TUI_TEST_UNOWNED_HOST_INTERVAL_MS`.
 //!
 //! Numbers (restore time with N such hosts):
-//! `CMUX_TEST_UNOWNED_HOST_BENCH=1 cargo test -p cmux-tui --test unowned_terminal_hosts
+//! `CMUX_TEST_UNOWNED_HOST_BENCH=1 cargo test -p cmux-tui --test it
 //! unowned_hosts_restore_time -- --nocapture`.
 
 #![cfg(unix)]
 
-mod fault_support;
+use crate::fault_support;
 
 use std::fs;
 use std::path::{Path, PathBuf};

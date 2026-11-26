@@ -111,7 +111,9 @@ build_side() {
     echo "CHIEF-LAT-BUILD after $sha (same as before: A/A)"
     return
   fi
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet --depth 1 origin "$sha"
+  depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$sha"
   git worktree add --quiet --detach "$src" "$sha"
   mkdir -p "$bin"
   "$src/scripts/cmux-next/build-acpmux.sh" --output "$bin/acpmux"
@@ -206,9 +208,9 @@ summarize() {
     --out "$work/$side.json" --md "$work/$side.md")" || return 1
   echo "CHIEF-LAT-SUMMARY $line"
 }
-summarize before "$before" "${before_dirs[@]}" || status=1
+summarize before "$before" ${before_dirs[@]+"${before_dirs[@]}"} || status=1
 if [[ -n "$after" ]]; then
-  summarize after "$after" "${after_dirs[@]}" || status=1
+  summarize after "$after" ${after_dirs[@]+"${after_dirs[@]}"} || status=1
   python3 -I "$measure/chief_latency.py" compare "$work/before.json" "$work/after.json" \
     --md "$work/table.md" --json "$work/compare.json" || status=1
 else

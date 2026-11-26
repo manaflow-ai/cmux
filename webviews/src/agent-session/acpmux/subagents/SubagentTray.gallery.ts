@@ -2,13 +2,12 @@
 // Running subagents, background commands and chats the agent started in one tray at the foot of
 // the chat, right above the composer (SubagentTray.tsx, runningTray.ts), never in the middle of
 // history, in a turn and after it ("Running in background · …"): one running is its line alone;
-// several get a header ("3 subagents running · 1 command") with a line each; past three they start
+// several get a header ("3 subagents · 1 command") with a line each; past three they start
 // folded to the header. The transcript has no "Running in background" row. A subagent that ended
 // remains a bounded status card in the tray and leaves one line where it ended
 // (SubagentDoneLine.tsx), a failure in the danger color, a stopped one with why when known, and
 // Restart on hover for one that did not finish. The tray's lines are the summary card's
-// Subagents rows (AgentLine.tsx). The group card and the agents pill this replaces are
-// subagents.gallery.ts, under Debug Settings agentPane.debug.subagentTray off.
+// Subagents rows (AgentLine.tsx). The summary card and a subagent's own view are subagents.gallery.ts.
 import { agentPaneEntry } from "../../../gallery/format";
 import {
   activity,
@@ -129,28 +128,6 @@ const described = activity(
   ],
   1.4,
 );
-
-/** A running turn with a five-step todo list and three background commands (the tray's hat). */
-function planChat() {
-  return chat(
-    [
-      user("Land the tray change: compile, test and update the spec", 3),
-      row("plan", 2.9, {
-        plan: [
-          { content: "Read the tray and its tests", status: "completed" },
-          { content: "Move the plan into the hat", status: "completed" },
-          { content: "Run the tray tests", status: "in_progress" },
-          { content: "Compile the app on the fleet", status: "pending" },
-          { content: "Update the design spec", status: "pending" },
-        ],
-      }),
-      devServer,
-      described,
-      assistant("The plan is in the hat now. The tests and the compile are running.", 0.5),
-    ],
-    { isWorking: true },
-  );
-}
 
 /** Background shell lines anyone runs, with no description, so each reads by a built-in rule
  * (session-info/commandRules.ts; Leo, 2026-11-03: "we should be able to parse these more... like
@@ -932,45 +909,6 @@ export default pinKindsHead(
         },
         snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
       },
-      "plan-and-commands": {
-        note: 'Leo\'s composer hat with the turn\'s todo list (2026-11-03: "we said earlier the composer hat is kinda ok?"): folded, it reads "2 of 5 · <the step at work>" before the newest command, "+2 more" and the time; the transcript holds no list while the turn runs.',
-        play: async (ctx) => {
-          await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
-          const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent ?? "";
-          if (!title.startsWith("2 of 5 · Run the tray tests")) throw new Error(`unexpected hat: ${title}`);
-          if (ctx.document.querySelector(".cv-plan:not(.acpmux-running-tray .cv-plan)"))
-            throw new Error("the running list is in the hat, not the transcript");
-        },
-        snapshot: planChat(),
-      },
-      "plan-and-commands-open": {
-        note: "The same hat opened: the checklist first, then a line per background command.",
-        play: async (ctx) => {
-          await openTray(ctx);
-          await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .cv-plan__item").length === 5);
-          await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LINE).length === 3);
-        },
-        snapshot: planChat(),
-      },
-      "plan-short-dock": {
-        note: "The opened hat in a dock with room for the header and about three rows: the checklist and the command lines share that height, each scrolling in place, so a command's Stop stays reachable.",
-        play: async (ctx) => {
-          await openTray(ctx);
-          await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LINE).length === 3);
-          const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock")!;
-          const composer = dock.querySelector<HTMLElement>(".acpmux-composer")!;
-          const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
-          const rows = 3 * header.getBoundingClientRect().height;
-          dock.style.maxHeight = `${composer.getBoundingClientRect().height + header.getBoundingClientRect().height + rows}px`;
-          const shown = (selector: string) => {
-            const tray = ctx.document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
-            const box = ctx.document.querySelector(selector)!.getBoundingClientRect();
-            return Math.min(box.bottom, tray.bottom) - Math.max(box.top, tray.top);
-          };
-          await ctx.waitFor(() => shown(".acpmux-running-tray__plan") > 0 && shown(".acpmux-running-tray__list") > 0);
-        },
-        snapshot: planChat(),
-      },
       "several-running": {
         note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each once its header is opened (it starts folded to the header). The ended task remains a compact status card.",
         // The header-time test measures this time (hat-header-time-width.test.ts); the default draws none
@@ -993,6 +931,30 @@ export default pinKindsHead(
           ],
           { isWorking: true },
         ),
+      },
+      "hat-context-menu-bottom": {
+        note: "Right-click the finished task beside its time and checkmark. In the Mac app, the chat menu opens above the pointer.",
+        height: 480,
+        snapshot: rowsChat([
+          agent("Review the remaining changes", 4),
+          agent("Check the fix and ask its owner to land it", 2, "completed", { ran: 119 / 60 }),
+        ]),
+        play: async (ctx) => {
+          await openTray(ctx);
+          const label = {
+            selector: '.acpmux-running-tray .acpmux-agent-line[data-status="done"] .acpmux-summary-agent__name',
+          };
+          await ctx.waitFor(() => ctx.document.querySelector(label.selector));
+          const target = ctx.find(label);
+          if (target.getBoundingClientRect().top < ctx.document.documentElement.clientHeight / 2)
+            throw new Error("The finished task must sit in the bottom half of the pane.");
+          // The finished row has no Stop menu. Its right-click must reach the native chat menu.
+          const gestures: Event[] = [];
+          target.addEventListener("contextmenu", (event) => gestures.push(event), { once: true });
+          await ctx.contextMenu(label);
+          if (!gestures.length || gestures[0]!.defaultPrevented)
+            throw new Error("The finished task must pass its right-click through to the chat menu.");
+        },
       },
       // Tucked away (Settings > Agent Chat > Tuck Away Running Tray, TrayPullTab.tsx): the tab on the
       // composer's top edge still flags what needs the person (Leo said "Yes", 2026-11-04, to "the
@@ -1038,7 +1000,7 @@ export default pinKindsHead(
                 throw new Error(`the tab sits ${pull.getAttribute("data-side")}`);
               if (waits !== !!ctx.document.querySelector(".acpmux-tray-pull__dot"))
                 throw new Error(waits ? "a chat waits on you: the tab shows a dot" : "nothing waits: no dot");
-              if (!waits && ctx.document.querySelector(".acpmux-tray-pull__count")?.textContent !== "3")
+              if (!waits && ctx.document.querySelector<HTMLElement>(".acpmux-tray-pull__count")?.dataset.count !== "3")
                 throw new Error("the tab counts the three that run");
             },
             snapshot: (() => {
@@ -1100,7 +1062,7 @@ export default pinKindsHead(
         ),
       },
       "one-agent-two-commands": {
-        note: "One subagent and two background commands, opened: the header reads exactly `1 subagent running · 1 test run · 1 build` above its lines, the commands counted by what they do (folded, it names them: agent-pane.subagent-tray-names).",
+        note: "One subagent and two background commands, opened: the header reads exactly `1 subagent · 1 test run · 1 build` above its lines, the commands counted by what they do (folded, it names them: agent-pane.subagent-tray-names).",
         play: async (ctx) => {
           await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
           await ctx.click({ selector: ".acpmux-running-tray__head" });
@@ -1108,7 +1070,7 @@ export default pinKindsHead(
           // leaving words are gone.
           await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__title .acpmux-tick__out"));
           const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-          if (title !== "1 subagent running · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
+          if (title !== "1 subagent · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
         },
         snapshot: chat(
           [
@@ -1216,7 +1178,7 @@ export default pinKindsHead(
           const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
           // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
           // the list counts after what runs.
-          if (title !== "2 subagents running · 2 sessions · 1 test run · 1 build · 3 done")
+          if (title !== "2 subagents · 2 sessions · 1 test run · 1 build · 3 done")
             throw new Error(`the header must count the rows: ${title}`);
         },
         snapshot: countsChats(false),
@@ -1289,7 +1251,7 @@ export default pinKindsHead(
         play: async (ctx) => {
           await openTray(ctx);
           await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
-          await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
+          await ctx.waitFor(() => ctx.document.querySelector(".acpmux-view-corner"));
         },
         snapshot: rowsChat([
           agent("Make autoland land again", 6.2, "running", {

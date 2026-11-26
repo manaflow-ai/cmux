@@ -13,7 +13,8 @@ import { type StringKey, type Translate, translate } from "./i18n";
 import { wholeNewTab } from "./newtab/sharedPart";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { suggestionOrder, type SuggestionOrder } from "./newtab/suggestionOrder";
-import { isStartableProject } from "./newtab/startedProject";
+import { readClockStyle, type NewTabClockStyle } from "./newtab/clockModel";
+import { isCloudPick, isStartableProject } from "./newtab/startedProject";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 import { ageWithDate } from "./timeLabels";
 
@@ -88,12 +89,16 @@ export type NewTabHost = {
   /// The extension that draws in the slot over the composer (`tabs.newTabApp`: an app id with `cmux.newtab/1`,
   /// newtab/NewTabAppSlot.tsx); unset leaves the slot out. It never replaces the page.
   app?: string;
+  /// The New Tab clock over the composer (`tabs.newTabClock.*`, newtab/NewTabClock.tsx); unset draws none.
+  clock?: NewTabClockStyle;
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
   /// The project of the chat the person last picked and started (newtab/startedProject.ts).
   startedProject?: string;
+  /// The folder or GitHub repository the person last started a Cloud chat in (newtab/startedProject.ts).
+  cloudStartedProject?: string;
   /// The home folder, so `~/path` reads as a folder.
   home?: string;
   /// false: leave the field unfocused (Cmd-L opened the page for the omnibar, cx-e2aa).
@@ -103,6 +108,10 @@ export type NewTabHost = {
   /// The page lists only its own connection's chats, not the store every page shares (another
   /// machine's page, newtab/chatStore.ts).
   privateChatLists?: boolean;
+  /// The page's chats start on another machine (an inherited SSH or Cloud context: AgentPaneNewTab
+  /// `warmedOnThisMac(false)`), known from the first render, before its client connects: a send naming
+  /// `@computer-use` holds as that machine's, never this Mac's setup (CMUX-682).
+  startsRemote?: boolean;
   /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent chats
   /// only, never All chats. Unset lists All chats where the template does.
   allChats?: false;
@@ -131,6 +140,8 @@ function readNewTabStart(value: unknown): NewTabStart | undefined {
 export function pickedNewTabApp(host: NewTabHost | undefined, goneAt: number | undefined, adoptions: number) {
   return host && !host.history && host.app && goneAt !== adoptions ? host.app : undefined;
 }
+
+const withClock = (clock: NewTabClockStyle | undefined) => (clock ? { clock } : {});
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
 /// A context that comes as the page's own part is joined with its shared part first (newtab/sharedPart.ts).
@@ -177,15 +188,20 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     // `tabs.newTabApp`, which the app sends only when it is an app id by the manifest's own
     // pattern (Swift NewTabAppSetting.isValidID), so the page does not check the rule again.
     ...(typeof object.app === "string" && object.app ? { app: object.app } : {}),
+    ...withClock(readClockStyle(object.clock)),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(isStartableProject(typeof object.startedProject === "string" ? object.startedProject : undefined)
       ? { startedProject: object.startedProject as string }
+      : {}),
+    ...(isCloudPick(typeof object.cloudStartedProject === "string" ? object.cloudStartedProject : undefined)
+      ? { cloudStartedProject: object.cloudStartedProject as string }
       : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
     ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
+    ...(object.startsRemote === true ? { startsRemote: true } : {}),
     ...(object.allChats === false ? { allChats: false as const } : {}),
     ...(order ? { suggestionOrder: order } : {}),
     ...(start ? { start } : {}),

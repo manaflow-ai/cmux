@@ -1,6 +1,6 @@
 // l10n-allow-file: recorded chat fixtures, not shipped UI.
 import { expect, test } from "bun:test";
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 import { recordedConversationEvents } from "./exportEvents";
 import { recordedConversationMarkdown } from "./exportMarkdown";
 

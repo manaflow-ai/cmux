@@ -98,5 +98,38 @@ class SeedShort(unittest.TestCase):
         self.assertTrue(bench.seed_short({"requested": 100000, "rows": 0}))
 
 
+class KeyVerdicts(unittest.TestCase):
+    """A surface whose keys the key router consumes measures nothing, and before key_verdicts said nothing about why:
+    #45273's fleet run typed 80 keys into the chat and read 0 probe rows with no reason named (2026-11-23). What
+    `debug.key` answered for each key is kept beside the measurement."""
+
+    def type_keys(self, replies):
+        """type_keys over len(REPLIES) keys, each `debug.key` answering replies[i]; no probe row lands."""
+        seen = iter(replies)
+        with mock.patch.object(bench, "rpc", lambda *a, **k: next(seen)), \
+             mock.patch.object(bench, "probe_rows", lambda: []), \
+             mock.patch.object(bench, "wait_until", lambda *a, **k: None), \
+             mock.patch.object(bench.opts, "words", False), \
+             mock.patch.object(bench.opts, "interval", 0):
+            return bench.type_keys(len(replies), {}, "key_to_frame_ms")
+
+    def test_the_router_eating_every_key_is_named_in_the_verdicts(self):
+        eaten = {"handled_by": "app", "action": "focusComposer", "window_kind": "main"}
+        rows, trips, verdicts = self.type_keys([eaten] * 3)
+        self.assertEqual(rows, [], "a key the router consumed opens no probe sample")
+        self.assertEqual(verdicts, {"app/focusComposer@main": 3})
+
+    def test_the_dispatched_route_and_an_error_are_counted_apart(self):
+        rows, trips, verdicts = self.type_keys([
+            {"handled_by": "page", "action": "insertText", "window_kind": "main"},
+            {"handled_by": "page", "action": "insertText", "window_kind": "main"},
+            {"error": "no focused window"},
+            None,
+        ])
+        self.assertEqual(verdicts, {"page/insertText@main": 2, 'error:"no focused window"': 1,
+                                    "no reply (NoneType)": 1})
+        self.assertEqual(len(trips), 4, "every key is timed, whoever handled it")
+
+
 if __name__ == "__main__":
     unittest.main()

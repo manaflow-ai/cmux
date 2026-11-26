@@ -195,16 +195,18 @@ extension CloudHandlers {
                 return deletionPending(session.machineID)
             }
         }
+        // The run waits for the server (the catalog's `waits_for_result`), and one that outlasts
+        // ``machineAnswerWait`` answers `pending` while the pause or resume goes on.
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            result("pause machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
+            result("pause machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["status": .string("pausing")])) {
                 try await cloud.pauseMachine(session.machineID)
                 return machineFields(session.machineID, ["status": .string("paused")])
             }
         }
         bind("cloudResumeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            result("resume machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
+            result("resume machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["status": .string("starting")])) {
                 try await cloud.resumeMachine(session.machineID)
                 return machineFields(session.machineID, ["status": .string("running")])
             }
@@ -508,7 +510,7 @@ extension CloudHandlers {
             let values = try await keychainValues(items)
             // Sealed on this Mac to the machine's daemon key and opened only there (`cmux carrier secrets`):
             // no value crosses the platform, a file API, a terminal or a log.
-            let delivered = try await cloud.machineAPI.deliverSealedSecrets(machineID, values: values)
+            let delivered = try await cloud.machineAPI.daemon.deliverSealedSecrets(machineID, values: values)
             guard case .wrote(let count) = delivered else {
                 throw ActionFailure(message: CloudStrings.secretsNotDelivered(Self.sealedReason(delivered)))
             }
@@ -524,7 +526,7 @@ extension CloudHandlers {
 
     /// A sealed delivery's failure as its fixed code: the machine's refusal (`bad-name`, `replay`, `busy`)
     /// or the step that failed. Never a value or a machine's own text.
-    static func sealedReason(_ answer: CloudAPIClient.SealedDelivery) -> String {
+    static func sealedReason(_ answer: CloudDaemon.SealedDelivery) -> String {
         switch answer {
         case .wrote: "unexpected"
         case .failed(let code, let refusal, _): refusal ?? code
@@ -554,7 +556,7 @@ extension CloudHandlers {
         CloudHandlerRules().machineFields(machineID, extra)
     }
 
-    /// How long a CLI or agent fork, restore, resize or kill waits for the
+    /// How long a CLI or agent fork, restore, resize, kill, pause or resume waits for the
     /// server before it answers `pending`: inside `action.run`'s 40 s result
     /// deadline. The work finishes either way.
     static let machineAnswerWait: Duration = .seconds(30)

@@ -44,21 +44,22 @@ import { ChangePullRequest } from "./ChangePullRequest";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { Doodle, DoodleActions, DoodleHeadline } from "./doodle/UpdateDoodle";
 import { useDecoration } from "../../theme/decorations";
-import { distinctSummary, mergedView, readableUpdate, titleKey } from "./model";
+import { changeItems, distinctSummary, mergedView, readableChanges, readableUpdate, rowKind, titleKey } from "./model";
 import type { Strings } from "../shared/i18n";
 import type { ReleaseNotes } from "./types";
 import type {
+  BuildPullRequests,
   UpdateHighlightItem,
   UpdateHighlightMedia,
   UpdateHighlights,
   UpdateSurfaceActions,
 } from "./updateHighlights";
-import { PREVIEW_CLOSE_MS, PreviewIntent, plainEntries, previewEntries } from "./updatedPreview";
+import { PREVIEW_CLOSE_MS, PreviewIntent, plainEntries, previewEntries, withoutGenericEntry } from "./updatedPreview";
 import { parsePreviewMode, type UpdatedPreviewMode } from "./updatedPreviewMode";
 import { pressCard, SHIPPED_DRAG_FEEL, type CardDragFeel, type CardDragHost, type CardRow } from "./updatedCardDrag";
 import { PREVIEW_MAX_PX, UpdatedCardPreview, type PreviewLayout, type PreviewTarget } from "./UpdatedCardPreview";
 export type { PreviewLayout } from "./UpdatedCardPreview";
-import { summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
+import { hasCuratedChanges, summarizeHighlights, summarizeUpdate, type SummaryRow } from "./updateSummary";
 
 /** "1.0.0-nightly.3845050428001" reads "nightly 3845050", as the native Update Ready card
  * (UpdateChangelog.cardVersion): every nightly is 1.0.0. Any other version reads as itself. */
@@ -205,19 +206,6 @@ function PopoverHead({
  * the look before). Gallery variants. */
 export type WhatsNewPlacement = "title" | "top-right" | "button";
 
-/** How many lines the resting card has (Leo 2026-11-23, ask-33e37575cb: "the fuck is a pill with 2
- * lines supposed to be for anyways? the fuck kind of information are you showing with a single
- * fucking line of content?"). The card says one thing, that cmux updated, so it is one line: `row`
- * (shipped) is "Updated to Nightly" with What's New at its trailing end, and every change of the
- * update is one hover away (the preview beside the sidebar, or above the card). `row-change` keeps
- * the update's top change on that one line after the title, cut at the edge. `two-line` is the look
- * before (title over the top change, the composer's height), now with the card corner instead of
- * the composer's near-capsule. Each is the one-line composer's box (48; Leo 2026-11-07: "the exact
- * same height as the composer") at the layout grid's card corner (--grid-card-radius, 16: a third
- * of the box, never a capsule), not the composer's 22, which is half its round controls plus the
- * inset and reads as a pill on a card with no round controls in it. Gallery variants. */
-export type UpdatedCardShape = "row" | "row-change" | "two-line";
-
 /** How long the card waits for the host to make room for the open preview before it opens anyway. */
 const PREVIEW_ROOM_WAIT_MS = 150;
 
@@ -231,7 +219,6 @@ export function UpdatedCard({
   decoration,
   animate = true,
   placement = "title",
-  shape = "row",
   previewLayout = "header",
   previewMode,
   previewOpen,
@@ -259,10 +246,8 @@ export function UpdatedCard({
   decoration?: string | null;
   /** The doodle draws on (false: drawn from the start, for stills). */
   animate?: boolean;
-  /** Where What's New sits (gallery variants); `title` ships. A `row` card puts it at the line's end. */
+  /** Where What's New sits (gallery variants); `title` ships. */
   placement?: WhatsNewPlacement;
-  /** How many lines the resting card has (gallery variants); `row` ships. */
-  shape?: UpdatedCardShape;
   /** How the open hover preview is laid out (gallery variants); `header` ships. The sidebar host
       draws its x on the card's title line, wherever this layout puts it (SidebarUpdatedCardHost). */
   previewLayout?: PreviewLayout;
@@ -368,8 +353,10 @@ export function UpdatedCard({
       aria-label={strings.t("updates.card.dismiss")}
       onClick={actions.dismiss}
     >
-      <svg viewBox="0 0 10 10" aria-hidden="true">
-        <path d="M2 2l6 6M8 2l-6 6" />
+      {/* The app's one card x (ui/DismissButton.tsx): 12 by 12, a 6 px cross at 1.25 (Leo 2026-11-23:
+          "strange proportioned close symbol" for the old 8 px one at 1.4). */}
+      <svg viewBox="0 0 12 12" aria-hidden="true">
+        <path d="M3 3l6 6M9 3l-6 6" />
       </svg>
     </button>
   );
@@ -382,7 +369,6 @@ export function UpdatedCard({
       <p className="wn-card-note">
         <button type="button" className="wn-card-seenew" onClick={openWhatsNew}>
           {strings.t("updates.card.seeWhatsNew")}
-          <span aria-hidden="true"> ↗</span>
         </button>
       </p>
     ) : notesLoading ? (
@@ -392,7 +378,7 @@ export function UpdatedCard({
         {top ? (
           <>
             <span className="wn-card-area">{strings.format("updates.card.areaLabel", rowLabel(top, strings))}</span>{" "}
-            {top.phrases[0]}
+            {top.full[0] ?? top.phrases[0]}
           </>
         ) : (
           strings.t(span ? "changelog.page.maintenance" : "updates.card.whatsNewInBuild")
@@ -426,7 +412,6 @@ export function UpdatedCard({
       className="wn-card wn-updated"
       aria-labelledby={titleId}
       data-placement={placement}
-      data-shape={shape}
       data-layout={previewLayout}
       data-mode={mode}
       data-anchor={anchor}
@@ -451,27 +436,16 @@ export function UpdatedCard({
           {title}
           {/* The shipped title line is the title alone (Lawrence 2026-11-07: "Updated to ..." was cut
               to fit What's New beside it); What's New leads the open preview. */}
-          {shape === "row-change" && !preview.shown && (
-            <>
-              <span className="wn-card-sep" aria-hidden="true">
-                ·
-              </span>
-              {note}
-            </>
-          )}
-          {(placement === "top-right" || shape === "row") && (
+          {placement === "top-right" && (
             <button type="button" className="wn-card-link" onClick={openWhatsNew}>
               {strings.t("changelog.page.title")}
-              <span aria-hidden="true"> ↗</span>
             </button>
           )}
         </div>
         {close}
-        {shape === "two-line" && note}
+        {note}
         {/* Open, the card's second line is the full version, in the note's place and height. */}
-        {shape === "two-line" && preview.shown && name !== data.version && (
-          <p className="wn-card-version">{data.version}</p>
-        )}
+        {preview.shown && name !== data.version && <p className="wn-card-version">{data.version}</p>}
         {placement === "button" && <div className="wn-card-actions">{whatsNew}</div>}
       </div>
     </section>
@@ -735,6 +709,7 @@ export function UpdateReadyHighlights({
   actions,
   briefLayout = "stacked",
   layout = "two-line",
+  pullRequestsOpen = false,
 }: {
   data: UpdateHighlights;
   /** The notes of every build after the running version up to the staged one, newest first: the
@@ -744,8 +719,13 @@ export function UpdateReadyHighlights({
   actions: UpdateSurfaceActions;
   briefLayout?: BriefLayout;
   layout?: ReadyLayout;
+  /** "What's in this build" starts open (gallery stills); the popover starts with it closed. */
+  pullRequestsOpen?: boolean;
 }) {
   const titleId = useId();
+  const pullRequests = data.pullRequests ? (
+    <BuildPullRequestList list={data.pullRequests} strings={strings} open={pullRequestsOpen} />
+  ) : null;
   const scroller = useRef<HTMLElement | null>(null);
   // One callback for both scrollers: the brief popover's section and the list's div.
   const scrollerRef = (element: HTMLElement | null) => {
@@ -810,6 +790,7 @@ export function UpdateReadyHighlights({
         {data.moreCount > 0 && (
           <div className="wn-pop-more">{strings.format("updates.card.more", String(data.moreCount))}</div>
         )}
+        {pullRequests}
       </section>
     );
   }
@@ -858,6 +839,7 @@ export function UpdateReadyHighlights({
             )}
           </div>
         )}
+        {pullRequests}
       </div>
       <div className="wn-pop-foot">
         {!rest && data.moreCount > 0 && (
@@ -869,6 +851,42 @@ export function UpdateReadyHighlights({
         </button>
       </div>
     </section>
+  );
+}
+
+/** "What's in this build" (Leo 2026-11-26: "hm do we display which prs go into which nightly maybe
+ * that'd be useful per thing?"): a closed disclosure under the changes; open, the span's pull
+ * requests by area, each its linked title and #number, then its author, and the internal count. */
+function BuildPullRequestList({ list, strings, open }: { list: BuildPullRequests; strings: Strings; open: boolean }) {
+  const count = list.groups.reduce((sum, group) => sum + group.items.length, 0);
+  if (count === 0) return null;
+  return (
+    <details className="wn-pop-prs" open={open || undefined}>
+      <summary>
+        {strings.t("updates.popover.prs.title")}
+        <span className="wn-pop-prs-count"> · {count}</span>
+      </summary>
+      {list.groups.map((group) => (
+        <section key={group.area ?? ""} className="wn-pop-rest-group" aria-label={group.area ?? undefined}>
+          <h4>{group.area || strings.t("updates.popover.prs.other")}</h4>
+          <ul>
+            {group.items.map((item) => (
+              <li key={item.pr} className="wn-pop-row">
+                <span className="wn-pop-text">
+                  <span className="wn-pop-item">
+                    <ChangePullRequest pr={item.url} title={item.title} />
+                  </span>
+                  {item.author && <span className="wn-pop-line"> {item.author}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      {list.internalCount > 0 && (
+        <div className="wn-pop-more">{strings.format("updates.popover.prs.internal", String(list.internalCount))}</div>
+      )}
+    </details>
   );
 }
 
@@ -935,11 +953,13 @@ const SCROLL_KEYS: Record<string, number | "page" | "-page" | "start" | "end"> =
 /** The update with every change of the builds it spans (`span`, newest first, the page's notes):
  * the staged build's own items first, then each other build's readable changes once, so an
  * update across several nightlies lists all of them (Leo 2026-11-05: "i can't even scroll
- * through the changes from that preview!"). Without notes, the host's items as they are. */
+ * through the changes from that preview!"). A build with no reviewed entries lists its readable
+ * commits, and the generic "Fixes and improvements" entry stays out in every language, as the card's
+ * preview does (`previewEntries`). Without notes, the host's items as they are. */
 function withSpan(data: UpdateHighlights, span: ReleaseNotes[] | undefined, language: string): UpdateHighlights {
   if (!span || span.length === 0) return data;
-  const view = mergedView(span, language);
-  const spanned = [view.hero, ...view.groups.flatMap((group) => group.items)].flatMap((item) =>
+  const view = mergedView(span.map(withoutGenericEntry), language);
+  const spanned: UpdateHighlightItem[] = [view.hero, ...view.groups.flatMap((group) => group.items)].flatMap((item) =>
     item
       ? [
           {
@@ -953,6 +973,19 @@ function withSpan(data: UpdateHighlights, span: ReleaseNotes[] | undefined, lang
         ]
       : [],
   );
+  // mergedView lists reviewed entries alone: a build of commits only would add nothing.
+  for (const build of span) {
+    if (hasCuratedChanges(build)) continue;
+    readableChanges(changeItems(build)).changes.forEach((change, index) =>
+      spanned.push({
+        id: `span:${build.build}-${index}`,
+        title: change.title,
+        summary: change.description || null,
+        category: rowKind(change.title),
+        pr: null,
+      }),
+    );
+  }
   const seen = new Set([...data.items, ...(data.rest ?? [])].map((item) => titleKey(item.title)));
   const extra = spanned.filter((item) => {
     const key = titleKey(item.title);

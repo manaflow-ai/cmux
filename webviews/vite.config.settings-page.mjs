@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
+import { jsonDevSourceMap } from "./dev-server/jsonDevSourceMap.mjs";
 
 // Dev server for the Settings page (src/pages/settings) with hot reload. Outside the app the page
 // runs on the in-memory fake transport (src/pages/settings/fakeTransport.ts). Serve only: the
@@ -21,5 +22,5 @@ export default defineConfig({
     // The page imports the schema from schemas/settings at the repository root.
     fs: { allow: [webviewsRoot, path.join(repoRoot, "schemas/settings")] },
   },
-  plugins: [...reactWithCompiler()],
+  plugins: [...reactWithCompiler(), jsonDevSourceMap()],
 });

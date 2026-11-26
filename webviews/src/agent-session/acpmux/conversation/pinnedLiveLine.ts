@@ -26,6 +26,7 @@
 // and motion off never move the chase (x stays 0), so this draws nothing.
 import { motionMode } from "../../../ui/motion/motionMode";
 import { LIVE_THINKING } from "./turns";
+import { keyframeKinds } from "./keyframeKinds";
 
 export const PIN_LIVE_ATTR = "data-pin-live";
 
@@ -121,8 +122,7 @@ function reachAbove(rows: Pinned, px: number): void {
 /// Ends the clip animations `playing` on a row (Web Animations override its inline clip). O(its own).
 function dropClipGlides(playing: readonly Animation[]) {
   for (const animation of playing) {
-    const effect = animation.effect as KeyframeEffect | null;
-    if (effect?.getKeyframes?.().some((frame) => "clipPath" in frame)) animation.cancel();
+    if (keyframeKinds(animation.effect).clips) animation.cancel();
   }
 }
 
@@ -214,6 +214,12 @@ export function drawPinned(thread: HTMLElement, x: number): void {
   }
 }
 
+/// The live line `thread` holds pinned now, if any: its translate is the pin's while it is held, so
+/// a motion's settle (VirtualTranscript.tsx `settleMotion`) leaves it on. O(1).
+export function pinnedLiveRow(thread: HTMLElement | null): HTMLElement | undefined {
+  return thread ? pinned.get(thread)?.live : undefined;
+}
+
 /// A placement pass started or retargeted tail glides after taking the pin: update its clips before paint.
 export function refreshPinned(thread: HTMLElement | null): void {
   if (thread) drawPinned(thread, threadY(thread));
@@ -245,8 +251,7 @@ function translating(row: HTMLElement): Animation[] {
 function translatingOf(animations: readonly Animation[]): Animation[] {
   return animations.filter((animation) => {
     if (animation.playState === "finished" || animation.playState === "idle") return false;
-    const frames = (animation.effect as KeyframeEffect | null)?.getKeyframes?.();
-    return frames?.some((frame) => "translate" in frame || "transform" in frame) ?? false;
+    return keyframeKinds(animation.effect).translates;
   });
 }
 

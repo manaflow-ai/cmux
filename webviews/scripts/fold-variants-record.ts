@@ -4,7 +4,7 @@
 // fold's length (ms), and the widest blank band the view opens while it plays (px, the "gash").
 // Leo, 2026-11-22: "the big fold we do for claude is not good looking enough. it looks like a gash collapsing."
 //
-//   bun scripts/fold-variants-record.ts [--looks fade,tuck,...] [--out DIR] [--ffmpeg PATH] [--scenario replay]
+//   bun scripts/fold-variants-record.ts [--looks fade,tuck,...] [--out DIR] [--ffmpeg PATH] [--scenario replay|sim:NAME]
 //     [--fixture FILE.ndjson --end STEP --tag NAME] [--recaps fade,rise,...] [--subagents slide,swap,...]
 //
 // `--recaps` records the turn with its closing recap (scenario big-claude-recap) once per recap entrance
@@ -183,7 +183,7 @@ export function measure(run: Run) {
     let drawn = false;
     for (let index = first; index < samples.length; index += 1) {
       const rows = samples[index]!.rows.filter((row) => keys.has(row[0]));
-      const prior = new Map(samples[index - 1]!.rows.map((row) => [row[0], row]));
+      const prior = new Map((samples[index - 1]?.rows ?? []).map((row) => [row[0], row]));
       for (const row of rows) {
         const was = prior.get(row[0]);
         if (was && seen(was[3]) && seen(row[3])) step = Math.max(step, Math.abs(row[1] - was[1]));

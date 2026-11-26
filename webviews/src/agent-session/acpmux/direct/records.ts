@@ -1,7 +1,9 @@
 import type { AcpmuxTurnRetry } from "../model";
 import type { SessionEvent } from "../protocol/generated/types";
 
-/** What an `adopt.live` refusal's details offer: a fork (Claude Code), and the holding process. */
+/// The connection failures acpmux classifies (hub/outage.rs).
+const OUTAGE_CAUSES = ["dns", "refused", "timeout", "unreachable"] as const;
+
 /// What a `turn_retrying` record says the live line shows (acpmux hub/turn_retry.rs).
 export function readTurnRetry(msg: Record<string, unknown>): AcpmuxTurnRetry {
   const count = (value: unknown) =>
@@ -10,11 +12,18 @@ export function readTurnRetry(msg: Record<string, unknown>): AcpmuxTurnRetry {
   const maxRetries = count(msg.maxRetries);
   const errorStatus = count(msg.errorStatus);
   const error = typeof msg.error === "string" && msg.error.trim() ? msg.error.trim() : undefined;
+  const cause = OUTAGE_CAUSES.find((c) => c === msg.cause);
+  const host = typeof msg.host === "string" && /^[a-z0-9.-]{1,253}$/i.test(msg.host) ? msg.host : undefined;
+  const retryAt =
+    typeof msg.retryAt === "number" && Number.isFinite(msg.retryAt) && msg.retryAt > 0 ? msg.retryAt : undefined;
   return {
     ...(attempt !== undefined && { attempt }),
     ...(maxRetries !== undefined && (attempt === undefined || attempt <= maxRetries) && { maxRetries }),
     ...(errorStatus !== undefined && { errorStatus }),
     ...(error !== undefined && { error }),
+    ...(cause !== undefined && { cause }),
+    ...(host !== undefined && { host }),
+    ...(retryAt !== undefined && { retryAt }),
   };
 }
 

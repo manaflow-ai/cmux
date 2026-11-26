@@ -163,7 +163,7 @@ pub(super) fn parse(params: &Value) -> Result<CallParams, RpcError> {
     })
 }
 
-fn device_record(hub: &Hub, id: Option<&str>) -> Option<DeviceRecord> {
+pub(super) fn device_record(hub: &Hub, id: Option<&str>) -> Option<DeviceRecord> {
     let id = id?;
     let list = hub.pairing.list();
     let device = list.get("devices").and_then(Value::as_array)?.iter().find(|d| d["id"] == id)?;
@@ -209,8 +209,7 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                 "tag": call.tag,
             });
             if let Some(peer) = hub.peer_by_name(&machine) {
-                return peer
-                    .request(method::MUX_COMPUTER_USE_CALL, onward)
+                return super::peer_targeted::request(&peer, method::MUX_COMPUTER_USE_CALL, onward)
                     .await
                     .map_err(link_error);
             }
