@@ -705,6 +705,25 @@ class HotKeys(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout)["parts"], ["rust"])
 
+    def test_keys_sorted_by_other_rules_fall_back_to_the_diff(self):
+        # A live_apply.py rule change moves files between digests: the two records do not compare.
+        self.publish(self.base, rules="a" * 64)
+        self.publish(FIX, rules="b" * 64)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertNotIn("via", plan)
+        self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff
+        self.publish(FIX, rules="a" * 64)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(plan["via"], "published keys")
+
+    def test_the_keys_name_the_rules_that_sorted_them(self):
+        hot = load_hot("hot_apply_rules_digest_under_test")
+        self.assertRegex(hot.rules_digest(), r"^[0-9a-f]{64}$")
+
     def test_equal_keys_are_a_no_op(self):
         self.publish(self.base)
         self.publish(FIX)
@@ -1326,7 +1345,10 @@ class PinCompatibility(unittest.TestCase):
 class StringCatalogs(unittest.TestCase):
     """A string catalog gen-strings.mjs reads is web: the bundle built for a commit carries its words."""
 
-    WEB_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
+    # gen-strings.mjs names a one-file-per-key table by its directory (scripts/cmux-next/string_catalogs.py); an
+    # edit is to one key's file in it.
+    WEB_TABLE = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d"
+    WEB_CATALOG = f"{WEB_TABLE}/settings.demo.title.xcstrings"
     SWIFT_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextOnlySwift/Localizable.xcstrings"
 
     def setUp(self):
@@ -1339,7 +1361,7 @@ class StringCatalogs(unittest.TestCase):
         self.git("config", "user.name", "t")
         gen = self.repo / "webviews/scripts/pages/gen-strings.mjs"
         gen.parent.mkdir(parents=True)
-        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_CATALOG}" }}] }} }};\n')
+        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_TABLE}" }}] }} }};\n')
         (self.repo / "webviews/src").mkdir(parents=True)
         (self.repo / "webviews/src/web-abi.json").write_text('{"abi": 3}\n')
         for catalog in (self.WEB_CATALOG, self.SWIFT_CATALOG):

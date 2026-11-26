@@ -245,6 +245,9 @@ impl JournalMaintenance {
                         return;
                     }
                     let Some(mux) = weak_mux.upgrade() else { return };
+                    // Not demoted: a tick holds the workspace registry lock (the auto-vacuum migration, a full
+                    // VACUUM) that layout commits take, so a lowered holder would delay the resize reply under
+                    // load. It keeps the thread's own QoS, as before cmux-interactivity.
                     outcome = mux.run_journal_maintenance(&mut ledgers);
                     // A tick runs 30 s or more after the last request, past
                     // the quiet trim it armed: arm it again, or the pages the
@@ -288,6 +291,7 @@ fn run_index_backfill(weak_mux: &Weak<Mux>, control: &JournalMaintenanceControl)
     loop {
         let outcome = {
             let Some(mux) = weak_mux.upgrade() else { return };
+            // Not demoted, like the tick: a slice holds the workspace registry lock layout commits take.
             if mux.journal_maintenance_paused() { Ok(true) } else { mux.run_index_backfill_slice() }
         };
         // Same as a maintenance tick: the slices' freed pages are trimmed

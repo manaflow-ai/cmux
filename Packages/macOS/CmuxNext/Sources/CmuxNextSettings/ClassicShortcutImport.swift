@@ -93,6 +93,7 @@ extension SettingsController {
     @discardableResult
     public func importClassicShortcuts(marker: UserDefaults, bundleIdentifier: String? = Bundle.main.bundleIdentifier)
         async throws -> Bool {
+        guard !marker.bool(forKey: ClassicShortcutImport.importedKey) else { return false }
         // A DEV build never derives its settings from another build's preferences (BuildStatePaths): its own only.
         let others = BuildIdentity(bundleID: bundleIdentifier, bundledTag: nil).isolatesSharedState ? []
             : ClassicShortcutImport.domains.filter { $0 != bundleIdentifier }.compactMap { UserDefaults(suiteName: $0) }
@@ -108,7 +109,7 @@ extension SettingsController {
     public func importClassicShortcuts(from sources: [UserDefaults], marker: UserDefaults) async throws -> Bool {
         guard !marker.bool(forKey: ClassicShortcutImport.importedKey) else { return false }
         let registry = applier.registry
-        var edits: [(path: [String], value: JSONValue?)] = []
+        var edits: [(path: [String], value: JSONValue)] = []
         for (classicID, binding) in ClassicShortcutImport.recorded(in: sources).sorted(by: { $0.key < $1.key }) {
             let id = registry.canonicalID(for: ActionID(rawValue: classicID)).rawValue
             guard registry.descriptor(for: ActionID(rawValue: id)) != nil,
@@ -121,11 +122,9 @@ extension SettingsController {
             }
             if !bound { edits.append((["shortcuts", "bindings", id], binding)) }
         }
-        if !edits.isEmpty {
-            try await file.apply(edits)
-            await reloadAfterWrite()
-        }
+        let applied = edits.isEmpty ? [] : try await file.setUnset(edits)
+        if !applied.isEmpty { await reloadAfterWrite() }
         marker.set(true, forKey: ClassicShortcutImport.importedKey)
-        return !edits.isEmpty
+        return !applied.isEmpty
     }
 }

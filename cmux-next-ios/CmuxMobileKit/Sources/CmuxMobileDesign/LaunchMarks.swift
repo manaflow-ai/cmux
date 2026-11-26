@@ -20,7 +20,9 @@ import SwiftUI
 /// - `workspaces_list_frame`: the Workspaces list's first frame with rows was presented (the list rig's seeded rows)
 /// - `workspace_row_tap`: a workspace row was tapped
 /// - `chat_composer_ready`: an agent chat's composer was on screen (first frame presented; not a hidden chat face)
+/// - `chat_first_row_frame`: the first readable transcript row was laid out and presented
 /// - `terminal_ready`: a terminal attached to its session presented a frame
+/// - `terminal_first_row_frame`: the first non-empty terminal output row was presented
 /// - `terminal_key_sent`: the first single printable key a terminal's session accepted
 /// - `terminal_echo_presented`: that key's byte, as text in that terminal's output, was presented
 /// - `demo_done` (DEBUG): a `-cmux-mobile-demo` driver finished and its last state stopped moving

@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 import Foundation
 
 @testable import CmuxIrxTransport
@@ -15,7 +19,7 @@ final class TunnelTestTCPServer: @unchecked Sendable {
     private var stopped = false
 
     init(mode: Mode) throws {
-        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        let fd = socket(AF_INET, streamSocketType, 0)
         guard fd >= 0 else { throw POSIXError(.EIO) }
         var one: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, socklen_t(MemoryLayout<Int32>.size))
@@ -72,7 +76,7 @@ final class TunnelTestTCPServer: @unchecked Sendable {
         defer { lock.unlock() }
         guard !stopped else { return }
         stopped = true
-        shutdown(listenFD, SHUT_RDWR)
+        shutdown(listenFD, Int32(SHUT_RDWR))
         close(listenFD)
     }
 }
@@ -233,3 +237,9 @@ final class TunnelTestClock: @unchecked Sendable {
         lock.withLock { current = current + duration }
     }
 }
+
+#if canImport(Darwin)
+private let streamSocketType = SOCK_STREAM
+#else
+private let streamSocketType = Int32(SOCK_STREAM.rawValue)
+#endif

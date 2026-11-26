@@ -4,11 +4,13 @@
 // page's own mock host, MockOnboardingProvider) in headless Chromium and checks the walk's three budgets
 // (docs/design/make-cmux-yours-intro-walk.md in cmuxterm-hq):
 //   - zero layout shift: no named part of the screen moves or resizes when a pick is clicked, read two ways: the
-//     browser's own layout-shift entries (CLS, PerformanceObserver) and the parts' boxes before and after;
+//     browser's own layout-shift entries (CLS, PerformanceObserver) and the parts' boxes before and after. A shift
+//     made only of the live preview's own parts (.onb-make-window reflowing to show a density) on a density pick is
+//     the pick showing: reported per step as `previewCls` and in the summary as `preview_cls_max`, never failed; on
+//     any other step it counts as CLS;
 //   - one publish per pick: each click on a choice sends exactly one op, and Skip sends exactly one;
 //   - Skip restores: after picks then Skip, the choices the page shows equal the ones it opened on. The mock answers
-//     as the host does (MakeItYoursStepModel: "Skip keeps what is set"), so this reads false until the host's Skip
-//     restores the opening settings and the mock follows it.
+//     as the host does (MakeItYoursStepModel.revert writes the opening choices back on Skip).
 //
 //   bun scripts/intro-walk.mjs [--out report.json] [--reuse-build]
 //
@@ -111,7 +113,23 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     globalThis.cmuxOnboardingMockCalls = [];
     globalThis.cmuxLayoutShifts = [];
     new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) globalThis.cmuxLayoutShifts.push(entry.value);
+      for (const entry of list.getEntries()) {
+        // What moved, so a CLS failure names its element: tag.class and the box before and after.
+        const sources = (entry.sources ?? []).map((source) => {
+          const node = source.node;
+          const name =
+            node?.nodeType === 1
+              ? `${node.tagName.toLowerCase()}${node.className ? `.${String(node.className).trim().split(/\s+/).join(".")}` : ""}`
+              : String(node?.nodeName ?? "?");
+          const box = (rect) => [rect.x, rect.y, rect.width, rect.height].map((v) => Math.round(v * 10) / 10);
+          const preview = node?.nodeType === 1 && node.closest(".onb-make-window") !== null;
+          return { node: name, preview, from: box(source.previousRect), to: box(source.currentRect) };
+        });
+        // The live preview (.onb-make-window) reflows to show a density pick (styles.css: "a pick reflows it in one
+        // transition"): a shift made only of its own parts is the pick showing, not the screen moving.
+        const preview = sources.length > 0 && sources.every((source) => source.preview);
+        globalThis.cmuxLayoutShifts.push({ value: entry.value, sources, preview });
+      }
     }).observe({ type: "layout-shift", buffered: true });
   });
   const query = new URLSearchParams({
@@ -146,11 +164,25 @@ async function walkArm(browser, baseUrl, { arm, variant }, width) {
     await frames(page);
     await frames(page);
     const after = await page.evaluate(readBoxes, PARTS);
-    const { calls, cls } = await page.evaluate(() => ({
+    const { calls, cls, previewCls, shifted, allShifted } = await page.evaluate(() => ({
       calls: globalThis.cmuxOnboardingMockCalls.map((call) => call.op),
-      cls: globalThis.cmuxLayoutShifts.reduce((sum, value) => sum + value, 0),
+      cls: globalThis.cmuxLayoutShifts.filter((shift) => !shift.preview).reduce((sum, shift) => sum + shift.value, 0),
+      previewCls: globalThis.cmuxLayoutShifts
+        .filter((shift) => shift.preview)
+        .reduce((sum, shift) => sum + shift.value, 0),
+      shifted: globalThis.cmuxLayoutShifts.filter((shift) => !shift.preview).flatMap((shift) => shift.sources),
+      allShifted: globalThis.cmuxLayoutShifts.flatMap((shift) => shift.sources),
     }));
-    const step = { step: label, ops: calls, cls: Math.round(cls * 10000) / 10000, moved: moves(before, after) };
+    // Only a density pick may reflow the preview; a preview shift on any other step is a shift like any other.
+    const reflows = label.startsWith("density=");
+    const step = {
+      step: label,
+      ops: calls,
+      cls: Math.round((reflows ? cls : cls + previewCls) * 10000) / 10000,
+      previewCls: reflows ? Math.round(previewCls * 10000) / 10000 : 0,
+      moved: moves(before, after),
+      shifted: reflows ? shifted : allShifted,
+    };
     steps.push(step);
     return step;
   };
@@ -205,12 +237,14 @@ async function main() {
   };
   let shiftMax = 0;
   let clsMax = 0;
+  let previewClsMax = 0;
   let publishesMax = 0;
   for (const walk of walks) {
     for (const step of walk.steps) {
       const px = Math.max(0, ...step.moved.map((move) => move.px));
       shiftMax = Math.max(shiftMax, px);
       clsMax = Math.max(clsMax, step.cls);
+      previewClsMax = Math.max(previewClsMax, step.previewCls ?? 0);
       publishesMax = Math.max(publishesMax, step.ops.length);
       judge(
         step.moved.length === 0 && step.cls === 0,
@@ -235,6 +269,7 @@ async function main() {
     pass_share: checks ? Math.round((passed / checks) * 10000) / 10000 : 0,
     shift_max_px: shiftMax,
     cls_max: clsMax,
+    preview_cls_max: previewClsMax,
     publishes_per_pick_max: publishesMax,
     skip_restores: walks.length > 0 && walks.every((walk) => walk.skipRestores),
     failures,

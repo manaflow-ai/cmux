@@ -18,7 +18,7 @@ Superseded means, for a push event only:
   - a lane branch (any ref but main, feat-cmux-next, next-batch/* and
     cmux-tui-pin-*) whose head is no longer SHA;
   - a cmux-tui-pin-* ref at GitHub's merge commit for a pull request
-    ("Merge <head> into <base>", made by cmux-next-pr-merge-tree.yml) whose
+    ("Merge <head> into <base>", made by the retired PR merge-tree publisher) whose
     pull request is open with a different head now, and no pull request has
     that head any more;
   - such a pin whose pull request merged into feat-cmux-next at that head, and
@@ -69,7 +69,7 @@ non-trunk branch the head is read first, so a moved branch is superseded
 without the pull request and dispatch lookups.
 
 Usage: cmux_tui_superseded_push.py --event E --ref REF --sha SHA [--key KEY --run-id ID]
-Environment: GH_TOKEN (contents, pull-requests and actions read),
+Environment: GH_TOKEN (contents, pull-requests and actions read), GH_TOKEN_SPARES (tried in order on 403 or 429),
 GITHUB_REPOSITORY, GITHUB_API_URL (default https://api.github.com).
 Prints the reason and writes stale=true|false to $GITHUB_OUTPUT. Exits 0.
 """
@@ -109,22 +109,35 @@ class ApiError(Exception):
 
 
 def api(path: str) -> tuple[int, object]:
+    """GET PATH with GH_TOKEN, then each of GH_TOKEN_SPARES while the answer is 403 or 429.
+
+    A rate-limited github.token answered 403 to the cmux-next dispatch lookup on most branch pushes
+    (2026-11-24 23Z..11-25 01Z): "could not tell" kept the run, and an on-request head nobody asked
+    for built its three targets (about 100 runner-min) anyway. tree-preflight mints CI pool tokens
+    (scripts/ci/ci_pool_tokens.py) and lists github.token last among the spares."""
     base = os.environ.get("GITHUB_API_URL", "https://api.github.com").rstrip("/")
     repo = os.environ["GITHUB_REPOSITORY"]
-    request = urllib.request.Request(
-        f"{base}/repos/{repo}/{path}",
-        headers={
-            "Authorization": f"Bearer {os.environ.get('GH_TOKEN', '')}",
-            "Accept": "application/vnd.github+json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            return response.status, json.loads(response.read().decode() or "null")
-    except urllib.error.HTTPError as error:
-        return error.code, None
-    except (urllib.error.URLError, OSError, ValueError) as error:
-        raise ApiError(f"GET {path}: {error}") from error
+    tokens = list(dict.fromkeys(t for t in [os.environ.get("GH_TOKEN", ""),
+                                            *os.environ.get("GH_TOKEN_SPARES", "").split()] if t)) or [""]
+    status = 0
+    for token in tokens:
+        request = urllib.request.Request(
+            f"{base}/repos/{repo}/{path}",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                return response.status, json.loads(response.read().decode() or "null")
+        except urllib.error.HTTPError as error:
+            status = error.code
+            if status not in (403, 429):
+                return status, None
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            raise ApiError(f"GET {path}: {error}") from error
+    return status, None
 
 
 def ls_remote(remote: str, *patterns: str) -> str:

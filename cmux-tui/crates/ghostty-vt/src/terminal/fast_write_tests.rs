@@ -114,3 +114,60 @@ fn the_fused_pre_parse_scan_matches_the_byte_at_a_time_reference() {
         assert_eq!(fast.vt_replay_bytes().ok(), reference.vt_replay_bytes().ok(), "seed {seed}");
     }
 }
+
+/// `cat` output: long plain lines, SGR-colored words and runs of non-ASCII
+/// text, with now and then a sequence the trackers act on. Cut into frames
+/// from 1 byte to 4 KiB, a cut lands inside a code point, a CSI and an OSC,
+/// and between two 16-byte scan blocks; every frame must give the same
+/// bytes and state as the byte-at-a-time reference.
+#[test]
+fn plain_and_colored_frames_match_the_reference_at_every_cut() {
+    const WORDS: &[&[u8]] = &[
+        b"cargo",
+        b"warning:",
+        b"src/main.rs:42:7",
+        "日本語".as_bytes(),
+        "│─┼".as_bytes(),
+        "é→✓".as_bytes(),
+        "🙂".as_bytes(),
+        b"0123456789abcdef0123456789abcdef",
+    ];
+    const RARE: &[&[u8]] =
+        &[b"\x1b]133;A\x07", b"\x1b[?25l", b"\x1b[?25h", b"\x1b]0;t\x07", b"\x1b_G\x1b\\", b"\x9c"];
+    let mut seed: u64 = 3;
+    let mut next = move |n: usize| {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        usize::try_from(seed >> 33).unwrap_or(0) % n
+    };
+    let mut bytes = Vec::new();
+    for line in 0..300 {
+        for word in 0..1 + next(30) {
+            if word > 0 {
+                bytes.push(b' ');
+            }
+            let text = WORDS[next(WORDS.len())];
+            if line % 4 == 0 {
+                bytes.extend_from_slice(format!("\x1b[38;5;{}m", next(256)).as_bytes());
+                bytes.extend_from_slice(text);
+                bytes.extend_from_slice(b"\x1b[0m");
+            } else {
+                bytes.extend_from_slice(text);
+            }
+        }
+        if line % 97 == 13 {
+            bytes.extend_from_slice(RARE[next(RARE.len())]);
+        }
+        bytes.extend_from_slice(b"\r\n");
+    }
+    for frame_len in [1, 2, 3, 7, 15, 16, 17, 31, 33, 64, 255, 1024, 4096] {
+        let mut fast = Terminal::new(80, 24, 1 << 20, Callbacks::default()).unwrap();
+        let mut reference = Terminal::new(80, 24, 1 << 20, Callbacks::default()).unwrap();
+        for (index, frame) in bytes.chunks(frame_len).enumerate() {
+            let accepted = fast.vt_write_with_normalized(frame).into_owned();
+            let expected = reference.vt_write_with_normalized_reference(frame).into_owned();
+            assert_eq!(accepted, expected, "frames of {frame_len}, frame {index}");
+            assert_eq!(state(&fast), state(&reference), "frames of {frame_len}, frame {index}");
+        }
+        assert_eq!(fast.vt_replay_bytes().ok(), reference.vt_replay_bytes().ok(), "{frame_len}");
+    }
+}

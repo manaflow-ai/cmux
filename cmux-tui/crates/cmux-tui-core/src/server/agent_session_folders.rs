@@ -80,13 +80,68 @@ pub(crate) fn own_work_folder(make: bool) -> Option<PathBuf> {
     crate::platform::home_dir().and_then(|home| work_folder(&home, make))
 }
 
-/// The fresh folder for a Cloud chat with no selected repository. The tab's
-/// surface id is stable before the acp session exists, so retries reuse the
-/// same folder without making Swift choose a path. Surface ids come from the
-/// mux's persisted `next_id` snapshot and are never reset during restore.
-pub(crate) fn own_chat_folder(chat_id: u64, make: bool) -> Option<PathBuf> {
-    let home = crate::platform::home_dir()?;
-    chat_folder(&home, chat_id, make)
+/// The fresh folder for a Cloud chat with no selected repository under `home`: the machine's
+/// reserved warm folder when one is waiting (its session already runs there, so the first
+/// message goes to a warm agent), else `~/chats/<chat_id>`, made. The tab's surface id is
+/// stable before the acp session exists, so retries reuse the same folder without making
+/// Swift choose a path. Surface ids come from the mux's persisted `next_id` snapshot and are
+/// never reset during restore.
+pub(crate) fn own_chat_folder(home: &Path, chat_id: u64) -> Option<PathBuf> {
+    reserved_chat_folder(home, chat_id).or_else(|| chat_folder(home, chat_id, true))
+}
+
+/// The ticket the machine's acpmux writes for its reserved first home-chat folder
+/// (`acpmux` `hub/pool/reserved.rs`): a regular file in `~/chats` holding the folder's name,
+/// whose session is already warm.
+pub(crate) const RESERVED_TICKET: &str = ".reserved";
+/// What a chat renames the ticket to when it takes the folder, so a retry of the same chat
+/// finds it again and no other chat can take it.
+const CLAIMED_PREFIX: &str = ".claimed-";
+
+/// A reserved folder name: `r` and 32 lowercase hex digits, never a surface id.
+fn reserved_name(name: &str) -> bool {
+    name.strip_prefix('r').is_some_and(|hex| {
+        hex.len() == 32 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
+}
+
+/// The folder a ticket file names; None unless it is a small regular file this user owns.
+fn ticket_folder(ticket: &Path) -> Option<String> {
+    let metadata = std::fs::symlink_metadata(ticket).ok()?;
+    if !metadata.is_file() || metadata.len() > 64 {
+        return None;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if metadata.uid() != unsafe { libc::geteuid() } || metadata.mode() & 0o022 != 0 {
+            return None;
+        }
+    }
+    let name = std::fs::read_to_string(ticket).ok()?.trim().to_owned();
+    reserved_name(&name).then_some(name)
+}
+
+/// The reserved folder `chat_id` owns: the one it already took (a retry or a reopen), else the
+/// machine's unclaimed one, taken by one atomic rename of the ticket, so exactly one chat
+/// gets it. None when `~/chats/<chat_id>` already exists (the chat started there before), when
+/// nothing is reserved, or when the reserved folder is not this user's private folder; the
+/// caller then makes `~/chats/<chat_id>` as before.
+pub(crate) fn reserved_chat_folder(home: &Path, chat_id: u64) -> Option<PathBuf> {
+    let chats = home.join(CHAT_FOLDER);
+    if !private_owned_dir(&chats)
+        || std::fs::symlink_metadata(chats.join(chat_id.to_string())).is_ok()
+    {
+        return None;
+    }
+    let claimed = chats.join(format!("{CLAIMED_PREFIX}{chat_id}"));
+    if ticket_folder(&claimed).is_none() {
+        // Only one racer's rename finds the ticket; the others fail and read the winner's mark.
+        ticket_folder(&chats.join(RESERVED_TICKET))?;
+        let _ = std::fs::rename(chats.join(RESERVED_TICKET), &claimed);
+    }
+    let dir = chats.join(ticket_folder(&claimed)?);
+    private_owned_dir(&dir).then(|| std::fs::canonicalize(dir).ok()).flatten()
 }
 
 /// Resolve a per-chat folder under `home`, refusing symlinks and creating the

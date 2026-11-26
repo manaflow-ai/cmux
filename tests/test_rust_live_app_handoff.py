@@ -249,6 +249,53 @@ class AppHandoffTests(unittest.TestCase):
         self.assertEqual(app.builds_run[-1], "base build\n")
         self.assertFalse(any(self.state.glob("app-original-*.json")))
 
+    def test_the_handoff_links_the_builds_instead_of_copying_them(self):
+        # A debug cmux-tui is 614 MB; the handoff copied it twice per swap (the file before, the new build).
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        base_inode = app.file.stat().st_ino
+        swapper = self.swapper(app)
+        swapper.swap({"cmux-tui": self.new})
+        self.assertEqual(app.file.stat().st_ino, self.new.stat().st_ino)
+        self.assertEqual(swapper.app_original[1].stat().st_ino, base_inode)
+        swapper.restore_app()
+        self.assertEqual(app.file.stat().st_ino, base_inode)
+        self.assertEqual(app.file.read_text(), "base build\n")
+
+    def test_the_waits_ask_the_daemons_socket_once_it_named_the_same_pid(self):
+        # A `server status` per 50 ms poll started a CLI each time; the socket answers in a millisecond.
+        import socket as socket_mod
+        sock_path = Path(tempfile.mkdtemp(prefix="rl-", dir="/tmp")) / "s"
+        self.addCleanup(shutil.rmtree, sock_path.parent, True)
+        answering = {"pid": 4242}
+        server = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
+        server.bind(str(sock_path))
+        server.listen(8)
+        self.addCleanup(server.close)
+
+        def serve():
+            while True:
+                try:
+                    conn, _ = server.accept()
+                except OSError:
+                    return
+                with conn:
+                    conn.recv(65536)
+                    conn.sendall((json.dumps({"ok": True, "data": {"pid": answering["pid"]}}) + "\n").encode())
+        threading.Thread(target=serve, daemon=True).start()
+        swapper = rust_live.Swapper(None, None, state=self.state)
+        calls = []
+        swapper.cli = lambda _bin, *words, **_k: calls.append(words) or subprocess.CompletedProcess(
+            words, 0, json.dumps({"pid": 4242, "socket": str(sock_path)}), "")
+        exe = self.tmp / "exe"
+        exe.write_text("x")
+        with unittest.mock.patch.object(rust_live.os, "readlink", lambda _p: str(exe)):
+            self.assertEqual(swapper.owner(self.new), (4242, exe))
+        self.assertEqual(swapper.owner_sock, str(sock_path))
+        answering["pid"] = 4343
+        self.assertEqual(swapper.wait_for_new_owner(self.new, 4242), 4343)
+        self.assertEqual(len(calls), 1)  # the first status only
+
     def test_a_daemon_outside_an_app_still_restarts_through_the_cli(self):
         swapper = rust_live.Swapper("s", None, state=self.state)
         loose = self.tmp / "target" / "cmux-tui"

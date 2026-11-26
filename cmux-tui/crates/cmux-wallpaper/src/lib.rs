@@ -44,17 +44,24 @@ pub mod grade;
 pub mod manifest;
 #[cfg(feature = "compile")]
 pub mod program;
+pub mod scene;
 pub mod schedule;
 pub mod signature;
 pub mod trail;
 
-pub use first_party::{FirstParty, first_party, first_party_at, first_party_by_id, smoke};
+pub use first_party::{
+    FirstParty, SCENE_ENGINE_GLSL, SCENE_ENGINE_MSL, SCENE_ENGINE_SOURCE, embedded_by_id,
+    first_party, first_party_at, first_party_by_id, smoke,
+};
 pub use frame::{
     ActivityState, FRAME_BYTES, FRAME_FLOATS, FrameInput, PointerState, pack_frame, srgb_to_linear,
 };
 pub use manifest::{Manifest, ManifestError, ManifestErrorKind, Param, Still, Variant};
 #[cfg(feature = "compile")]
-pub use program::{Compiled, ProgramError, ProgramErrorKind, compile, compile_bytes};
+pub use program::{
+    Compiled, ProgramError, ProgramErrorKind, compile, compile_bytes, compile_scene_engine,
+};
+pub use scene::{Player, SCENE_BYTES, SCENE_FLOATS, Scene};
 pub use schedule::{Decision, HoldReason, ScheduleInput, gpu_strikes, idle_after, schedule};
 pub use signature::{Dot, Glyph, Signer, glyph};
 pub use trail::{TRAIL_LIFE_S, TRAIL_POINTS, TRAIL_STEP_S, TrailPoint, TrailState};

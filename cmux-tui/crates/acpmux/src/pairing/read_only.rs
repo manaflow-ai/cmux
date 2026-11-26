@@ -27,9 +27,12 @@ const ALLOWED: &[&str] = &[
     method::MUX_ATTACH,
     method::MUX_DETACH,
     method::MUX_INFO,
+    // A row this client missed, whole again (`server/session_patch.rs`).
+    method::MUX_SESSION_RESYNC,
     method::MUX_EVENTS,
     method::MUX_ATTACHMENT,
     method::MUX_TURN_SHOTS,
+    method::MUX_TURN_FRAMES,
     method::MUX_QUEUE_TEXT,
     method::MUX_ROWS,
     method::MUX_HISTORY,
@@ -38,6 +41,10 @@ const ALLOWED: &[&str] = &[
     method::MUX_SCHEMA,
     method::MUX_RESOLVE,
     method::SESSION_SIGNATURE,
+    // Who is on the machine now (`hub/here.rs`); a beat is a write and stays out.
+    method::MUX_HERE,
+    // The synced chat state a replica lacks (`hub/synced.rs`); a push is a write and stays out.
+    method::MUX_SYNC_PULL,
 ];
 
 /// Whether a read-only connection may call `m`.

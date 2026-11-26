@@ -1,0 +1,118 @@
+name: Repro capsule journey (PR CLI on staging)
+
+# `cmux repro run CAPSULE --cloud staging` end to end (cmuxterm-hq#23808, crate cmux-repro): this pull
+# request's cmux-tui replays each committed capsule in cmux-tui/crates/cmux-repro/fixtures/ on a fresh
+# staging machine, red on the original, then green with the capsule's candidate fix when one sits beside it
+# (NAME.capsule.json, NAME.candidate.patch). The machine is deleted after. Receipts go to the artifact.
+#
+# Leo: "the first experiment works end to end on prod or staging and we used it ourselves at least once for
+# real work".
+#
+# Secrets: the staging agent test account (CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD in cmux-next-vm-image-dev),
+# same-repo pull requests only. The capsules hold no secret: `cmux repro create` scrubs and refuses a leak.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - cmux-tui/crates/cmux-repro/**
+      - cmux-tui/crates/cmux-tui/src/cli/repro.rs
+      - cmux-tui/crates/cmux-tui/src/cli/cloud_journey.rs
+      - cmux-tui/crates/cmux-tui/src/cli/cloud_journey/**
+      - .github/workflows/repro-capsule-journey.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repro-capsule-journey-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  replay:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Initialize Ghostty protocol submodules
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+      - name: Install Linux cmux-tui build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
+      - name: Build this pull request's Linux cmux-tui
+        id: build-cmux-tui
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+        run: |
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          binary="$target_dir/debug/cmux-tui"
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          test -x "$binary"
+          case "$binary" in /*) ;; *) binary="$PWD/$binary" ;; esac
+          echo "path=$binary" >> "$GITHUB_OUTPUT"
+      - name: Replay each capsule on a fresh staging machine
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
+          CMUX_REPRO: "1"
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/repro-capsule"
+          mkdir -p "$out"
+          if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "${CMUX_DOGFOOD_STACK_PASSWORD:-}" ]; then
+            echo "::error title=Repro capsule journey cannot run::CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD are empty in this environment"
+            exit 1
+          fi
+          status=0
+          printf '### Repro capsules on staging\n\n| capsule | result | seconds |\n|---|---|---:|\n' >> "$GITHUB_STEP_SUMMARY"
+          for capsule in cmux-tui/crates/cmux-repro/fixtures/*.capsule.json; do
+            name="$(basename "$capsule" .capsule.json)"
+            candidate="${capsule%.capsule.json}.candidate.patch"
+            args=(repro run "$capsule" --cloud staging --out "$out/$name" --receipt "$out/$name.receipt.json")
+            [ -f "$candidate" ] && args+=(--candidate "$candidate")
+            start=$SECONDS
+            if "$CMUX_PATH" "${args[@]}" > "$out/$name.log" 2>&1; then result=pass; else result=red; status=1; fi
+            cat "$out/$name.log"
+            printf '| %s | %s | %s |\n' "$name" "$result" "$((SECONDS - start))" >> "$GITHUB_STEP_SUMMARY"
+          done
+          exit "$status"
+      - name: Keep receipts and journeys
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: repro-capsule-journey-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/repro-capsule/
+          if-no-files-found: warn
+          retention-days: 7

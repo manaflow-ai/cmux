@@ -8,7 +8,8 @@ import Testing
 /// in this build" card: the x was not concentric with the card's corner): the same inset from the top and from the
 /// side, and its round hover shape the card's corner less that inset, the shared rule
 /// (``ConcentricContainer/cornerControl(outerRadius:side:minimumPadding:)``). Measured on every dismissable card as
-/// it lays out.
+/// it lays out. The Updated card's x keeps this corner only until its page reports its title line; it then sits
+/// on that line (u51892, UpdatedCardCloseTitleLineTests).
 @MainActor @Suite(.serialized) struct CardCloseConcentricTests {
     /// What breaks the rule for the x at `close` (with `radius`) in the top trailing corner of the card at `card`
     /// rounded by `outer`: the top and the side insets differ, or the x does not round by the corner less the inset.

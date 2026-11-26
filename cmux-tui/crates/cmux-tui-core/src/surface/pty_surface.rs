@@ -356,6 +356,13 @@ impl PtySurface {
     pub(super) fn request_frame_from_reader(&self, generation: u64) {
         self.frame_requests.request(generation, false);
         self.mark_output_dirty();
+        // `SurfaceOutput` is published once until a renderer takes the
+        // output; the held screen detector's watch needs every output.
+        if crate::mux::journal_plugin_demand_tapped()
+            && let Some(mux) = self.mux.upgrade()
+        {
+            mux.note_journal_plugin_demand_output(self.event_surface_id);
+        }
     }
 
     /// Apply one replacement to the terminal stream and publish its revision.

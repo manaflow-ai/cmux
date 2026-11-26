@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.chatListStatusPills.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows Running, Needs you, Done or Failed as a small pill on each live chat in All Chats."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعرض «قيد التشغيل» أو «يحتاج إليك» أو «تم» أو «فشل» كشارة صغيرة على كل دردشة نشطة في كل الدردشات."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikazuje Pokrenuto, Treba vas, Gotovo ili Neuspjelo kao malu oznaku na svakom aktivnom razgovoru u Svim razgovorima."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser Kører, Kræver dig, Færdig eller Mislykkedes som et lille mærke på hver aktiv chat i Alle chats."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigt „Läuft“, „Braucht dich“, „Fertig“ oder „Fehlgeschlagen“ als kleine Pille an jedem aktiven Chat in Alle Chats."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Muestra En curso, Te necesita, Listo o Error como una pequeña etiqueta en cada chat activo de Todos los chats."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Affiche En cours, Vous attend, Terminé ou Échec sous forme de petite pastille sur chaque discussion active de Toutes les discussions."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra In esecuzione, Serve il tuo intervento, Fatto o Non riuscito come piccola pillola su ogni chat attiva in Tutte le chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "すべてのチャットで、実行中のチャットごとに「実行中」「要対応」「完了」「失敗」を小さなピルで表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញ កំពុងដំណើរការ ត្រូវការអ្នក រួចរាល់ ឬ បរាជ័យ ជាស្លាកតូចលើការជជែកសកម្មនីមួយៗក្នុងការជជែកទាំងអស់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모든 채팅에서 활성 채팅마다 실행 중, 확인 필요, 완료 또는 실패를 작은 배지로 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser Kjører, Trenger deg, Ferdig eller Mislyktes som et lite merke på hver aktive chat i Alle chatter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazuje Działa, Potrzebuje Cię, Gotowe lub Niepowodzenie jako małą plakietkę przy każdym aktywnym czacie we Wszystkich czatach."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra Em execução, Precisa de você, Concluído ou Falhou como um pequeno selo em cada chat ativo em Todos os chats."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показывает «Выполняется», «Нужны вы», «Готово» или «Ошибка» небольшой меткой у каждого активного чата во «Всех чатах»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดง กำลังทำงาน ต้องการคุณ เสร็จแล้ว หรือ ล้มเหลว เป็นป้ายเล็กๆ บนแชทที่ใช้งานอยู่แต่ละรายการในแชททั้งหมด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tüm Sohbetler’deki her etkin sohbette Çalışıyor, Sizi bekliyor, Bitti veya Başarısız durumunu küçük bir etiket olarak gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показує «Виконується», «Потрібні ви», «Готово» або «Помилка» невеликою міткою біля кожного активного чату у «Всіх чатах»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiển thị Đang chạy, Cần bạn, Xong hoặc Thất bại dưới dạng nhãn nhỏ trên mỗi cuộc trò chuyện đang hoạt động trong Tất cả cuộc trò chuyện."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在所有聊天中，为每个进行中的聊天显示“运行中”“需要你”“完成”或“失败”小标签。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在所有聊天中，為每個進行中的聊天顯示「執行中」「需要你」「完成」或「失敗」小標籤。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

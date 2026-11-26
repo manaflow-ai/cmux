@@ -467,6 +467,24 @@ impl WorkspaceRegistry {
         Some((fold.revision, workspaces))
     }
 
+    /// [`Self::stated_workspaces`] for the workspaces `ids` only: a commit that changes only these
+    /// (a workspace insert) copies their digests, not one for each workspace of the session.
+    pub(crate) fn stated_workspaces_of(
+        &mut self,
+        ids: &[&str],
+    ) -> Option<(u64, HashMap<String, StatedDigests>)> {
+        self.catch_up_public_fold();
+        let fold = self.public_fold.as_ref()?;
+        let workspaces = ids
+            .iter()
+            .filter_map(|id| {
+                let key = ("workspace".to_string(), (*id).to_string());
+                fold.values.get(&key).map(|value| ((*id).to_string(), value.clone()))
+            })
+            .collect();
+        Some((fold.revision, workspaces))
+    }
+
     /// Whether the fold holds every live topology resource (a full projection was folded).
     #[cfg(test)]
     pub(crate) fn public_fold_complete_for_test(&self) -> bool {

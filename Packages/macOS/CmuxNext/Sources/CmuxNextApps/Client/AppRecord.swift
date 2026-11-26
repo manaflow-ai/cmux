@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxNextActions
 
 /// Where an app came from (`apps-list` `source`).
 public nonisolated enum AppSource: String, Sendable, Hashable, CaseIterable {
@@ -55,6 +56,24 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
     public var instance: AppInstance?
     /// The web panes the daemon lets this client host (`web_pages`, `render: web`).
     public var webPages: [AppWebPage] = []
+    /// The app's `contributes.keybindings` (`keybindings`), in keybindings.json form: the daemon
+    /// already turned an own op into `app.command.run` `{app, command}`.
+    public var keybindings: [Keybinding] = []
+
+    /// One contributed binding: `keys` are the strokes (`["ctrl+k", "s"]`).
+    public struct Keybinding: Sendable, Hashable {
+        public var keys: [String]
+        public var command: String
+        public var when: String?
+        public var args: [String: AppJSON]
+
+        public init(keys: [String], command: String, when: String? = nil, args: [String: AppJSON] = [:]) {
+            self.keys = keys
+            self.command = command
+            self.when = when
+            self.args = args
+        }
+    }
 
     /// One palette command of an app: a catalog op of its own family.
     public struct Command: Sendable, Hashable, Identifiable {
@@ -62,12 +81,46 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         public var op: String
         public var title: AppLocalizedText
         public var when: String?
+        /// The op's default shortcuts (catalog `keyboard`, `commands[].keys`).
+        public var keys: [Key]
+        /// Single browser-page keys (`page_keys`), with `cmux.keys` overrides applied by the daemon.
+        public var pageKeys: [String]
+        /// The raw catalog predicate for each page key (`page_key_when`).
+        public var pageKeyWhen: [String: String]
         public var id: String { op }
 
-        public init(op: String, title: AppLocalizedText, when: String? = nil) {
+        public init(op: String, title: AppLocalizedText, when: String? = nil, keys: [Key] = [], pageKeys: [String] = [], pageKeyWhen: [String: String] = [:]) {
             self.op = op
             self.title = title
             self.when = when
+            self.keys = keys
+            self.pageKeys = pageKeys
+            self.pageKeyWhen = pageKeyWhen
+        }
+
+        /// Whether a bare page key runs this command under the live context.
+        public func answers(pageKey character: String, shift: Bool) -> Bool {
+            answers(pageKey: character, shift: shift, context: KeyContext(["browserFocused": .bool(true)]))
+        }
+
+        public func answers(pageKey character: String, shift: Bool, context: KeyContext) -> Bool {
+            let key = shift ? "shift+\(character)" : character
+            guard pageKeys.contains(key) else { return false }
+            guard let raw = pageKeyWhen[key], let clause = try? WhenClause.parse(raw) else {
+                return pageKeyWhen[key] == nil
+            }
+            return clause.evaluate(context)
+        }
+
+        /// One default shortcut: one chord (`cmd+shift+r`) and its context (`browserFocused`).
+        public struct Key: Sendable, Hashable {
+            public var key: String
+            public var when: String?
+
+            public init(key: String, when: String? = nil) {
+                self.key = key
+                self.when = when
+            }
         }
 
         /// `name` names this command: the full op (`coderouter.app.connect_account`),
@@ -133,9 +186,20 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
         revision = json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) }
         instance = AppInstance(json: json["instance"])
         webPages = json["web_pages"]?.arrayValue?.compactMap(AppWebPage.init(json:)) ?? []
+        keybindings = (json["keybindings"]?.arrayValue ?? []).compactMap { entry in
+            guard let key = entry["key"]?.stringValue, let command = entry["command"]?.stringValue else { return nil }
+            return Keybinding(keys: key.split(separator: " ").map(String.init), command: command,
+                              when: entry["when"]?.stringValue, args: entry["args"]?.objectValue ?? [:])
+        }
         commands = (json["commands"]?.arrayValue ?? []).compactMap { entry in
             guard let op = entry["op"]?.stringValue else { return nil }
-            return Command(op: op, title: AppLocalizedText(json: entry["title"]) ?? AppLocalizedText(op), when: entry["when"]?.stringValue)
+            let keys = (entry["keys"]?.arrayValue ?? []).compactMap { key in
+                key["key"]?.stringValue.map { Command.Key(key: $0, when: key["when"]?.stringValue) }
+            }
+            let pageKeys = entry["page_keys"]?.arrayValue?.compactMap(\.stringValue) ?? []
+            let pageKeyWhen = entry["page_key_when"]?.objectValue?.compactMapValues(\.stringValue) ?? [:]
+            return Command(op: op, title: AppLocalizedText(json: entry["title"]) ?? AppLocalizedText(op), when: entry["when"]?.stringValue,
+                           keys: keys, pageKeys: pageKeys, pageKeyWhen: pageKeyWhen)
         }
     }
 
@@ -148,7 +212,16 @@ public nonisolated struct AppRecord: Sendable, Hashable, Identifiable {
             "grants": .array(grants.sorted().map(AppJSON.string)), "manifest": manifest.raw, "available": .bool(available),
             "bundle_dir": bundleDirectory.map { .string($0.path) } ?? .null,
             "revision": revision.map { .number(Double($0)) } ?? .null,
-            "commands": .array(commands.map { ["op": .string($0.op), "title": .string($0.title.english)] }),
+            "commands": .array(commands.map { command in
+                ["op": .string(command.op), "title": .string(command.title.english),
+                 "keys": .array(command.keys.map { ["key": .string($0.key), "when": $0.when.map(AppJSON.string) ?? .null] }),
+                 "page_keys": .array(command.pageKeys.map(AppJSON.string)),
+                 "page_key_when": .object(command.pageKeyWhen.mapValues(AppJSON.string))]
+            }),
+            "keybindings": .array(keybindings.map { binding in
+                ["key": .string(binding.keys.joined(separator: " ")), "command": .string(binding.command),
+                 "when": binding.when.map(AppJSON.string) ?? .null, "args": .object(binding.args)]
+            }),
         ]
     }
 }

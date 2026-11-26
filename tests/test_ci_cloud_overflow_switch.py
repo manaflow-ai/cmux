@@ -157,7 +157,7 @@ class SigningVariableTests(unittest.TestCase):
     def test_the_switch_reads_the_one_list(self) -> None:
         self.assertIs(switch.SIGNING_VARIABLES, signing.EPHEMERAL_RUNNER_VARIABLES)
         self.assertIn("MACOS_RUNNER_26", switch.SIGNING_VARIABLES)
-        # LINUX_RUNNER names our own Linux runners since 2026-11-19; no signing job reads it (rule 7 refuses one).
+        # LINUX_RUNNER names our own Linux runners since 2026-11-19; no signing job reads it.
         self.assertNotIn("LINUX_RUNNER", switch.SIGNING_VARIABLES)
 
     def test_no_failover_names_a_reused_machine_for_a_signing_variable(self) -> None:

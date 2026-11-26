@@ -1,9 +1,9 @@
 import AppKit
 
-/// Tells a ``ThinScroller`` where the pointer is over its scroll view, so the knob shows and widens
-/// as the pointer nears the trailing edge, and when the user scrolls the view (AppKit's live scroll
-/// notification), so the knob shows then, as macOS overlay scrollers do. One tracking area on the
-/// scroll view, pointer events only: nothing runs on a key press.
+/// Tells a ``ThinScroller`` where the pointer is over its scroll view, so a knob shown by scrolling
+/// widens as the pointer nears the trailing edge. The AppKit live-scroll notification shows the knob
+/// when the user scrolls the view. One tracking area on the scroll view, pointer events only:
+/// nothing runs on a key press.
 @MainActor
 final class ThinScrollerProximity: NSResponder {
     private weak var scroller: ThinScroller?

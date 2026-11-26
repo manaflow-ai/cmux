@@ -146,8 +146,8 @@ import Testing
         let keys = Self.keys(Self.options(openProjects: true), Self.manyGroups())
         #expect(Set(keys).count == keys.count)
     }
-    /// The opened Archive lists every archived group: Recents never folds them behind a Show more it cannot draw.
-    @Test func theOpenedArchiveListsEveryArchivedGroup() {
+    /// Archived groups leave the sidebar (cmux#51635): Recents draws none of them, and they add no Show more.
+    @Test func archivedGroupsLeaveTheSidebar() {
         let archived: [SidebarNode] = (0..<7).map { index in
             var member = Self.ws("a\(index)")
             member.isArchived = true
@@ -157,9 +157,9 @@ import Testing
         }
         var o = Self.options()
         o.foldsDone = true
-        o.openDoneFolds = [.archive]
         let keys = Self.keys(o, [SidebarSection(kind: .machine(Self.local), nodes: [.workspace(Self.ws("x"))] + archived)])
-        #expect(keys.filter { if case .group = $0 { true } else { false } } == (0..<7).map { Self.g("z\($0)") })
+        #expect(!keys.contains { if case .group = $0 { true } else { false } })
+        #expect(keys.contains(Self.w("x")))
         #expect(!keys.contains(.showMore(.projects)))
     }
     /// A project past the first five whose workspace needs you lists, as a row past the row limit does.

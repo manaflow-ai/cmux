@@ -13,6 +13,7 @@ pub const MAX_SESSION_IDS: usize = 512;
 /// `session/signature` params.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
+// skew: strict schema only: keeps the web param type closed; serde ignores new fields
 #[schemars(deny_unknown_fields)]
 pub struct SignatureParams {
     /// At most 512 session ids. Any string gets a glyph: it is a pure function of the id.

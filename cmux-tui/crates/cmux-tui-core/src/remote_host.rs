@@ -97,6 +97,9 @@ mod imp {
         pub(crate) fn set_app_permissions(&self, _permissions: super::AppPermissions) -> Value {
             self.status()
         }
+        pub(crate) fn preview_place(&self, _params: &Value) -> Result<Option<Value>, String> {
+            Err("Computer Use's live preview runs on macOS only".into())
+        }
     }
 
     impl crate::mux::Mux {

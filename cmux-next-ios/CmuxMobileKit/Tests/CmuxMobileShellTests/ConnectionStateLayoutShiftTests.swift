@@ -18,8 +18,6 @@ import UIKit
 
     static let states: [(String, ConnectionBannerState?)] = [
         ("connected", nil),
-        ("reconnecting", .reconnecting(to: "Mac Studio")),
-        ("connecting", .connecting(to: "Mac Studio")),
         ("offline", .offline),
         ("mac offline", .macOffline("Mac Studio")),
         ("connection failed", .connectionFailed),
@@ -153,8 +151,7 @@ import UIKit
 
     /// A link state is a chip a few words wide, never a sentence across the screen.
     @Test func aLinkStateIsAChipNotASentence() {
-        let links: [ConnectionBannerState] = [.reconnecting(to: "Mac Studio"), .connecting(to: "Mac Studio"), .offline,
-                                              .macOffline("Mac Studio"), .connectionFailed]
+        let links: [ConnectionBannerState] = [.offline, .macOffline("Mac Studio"), .connectionFailed]
         for state in links {
             guard let chip = state.chip else {
                 Issue.record("\(state.text): drawn as a banner, not a chip")

@@ -2,6 +2,10 @@
 //! asked over this machine's unix socket, goes to the Mac that lends GitHub here. Moved from
 //! `github_broker.rs` (`github_broker::handle`): it reads the hub and the connection, which that
 //! lower module does not reach.
+//!
+//! A `token` answer goes back to the agent session's process that asked (git's credential
+//! helper, the `gh` shim, GitHub MCP: `github_lane_mint.rs`) and nowhere else: the session's
+//! `github_broker_action` row names the repository and permissions, never the token.
 
 use std::sync::Arc;
 
@@ -9,8 +13,8 @@ use serde_json::{Value, json};
 
 use super::Conn;
 use crate::github_broker::{
-    GithubActionParams, LANE_WAIT, audit_payload, deadline_from, denied, invalid, source_of,
-    validate,
+    GithubAction, GithubActionParams, LANE_WAIT, audit_payload, deadline_from, denied,
+    installation_token, invalid, source_of, validate,
 };
 use crate::hub::Hub;
 use crate::rpc::RpcError;
@@ -49,7 +53,16 @@ pub async fn handle(hub: &Arc<Hub>, conn: &Arc<Conn>, params: Value) -> Result<V
     wire.deadline_ms = Some(deadline_from(crate::store::now_ms()));
     let wire = serde_json::to_value(&wire).map_err(|e| RpcError::internal(e.to_string()))?;
     let budget = LANE_WAIT;
-    let reply = owner.request_client(crate::rpc::method::MUX_GITHUB_ACTION, wire, budget).await;
+    let mut reply = owner.request_client(crate::rpc::method::MUX_GITHUB_ACTION, wire, budget).await;
+    // A `token` answer carries an App installation token and nothing else goes on as one: an
+    // older Mac, or one that answered another shape, is refused here.
+    if request.action == GithubAction::Token
+        && let Ok(v) = &reply
+        && !v.get("token").and_then(Value::as_str).is_some_and(installation_token)
+    {
+        reply = Err(RpcError::new(-32045, "the Mac's answer holds no GitHub App token")
+            .with_data(json!({"reason": "github.app_token", "code": "invalid_reply"})));
+    }
     let source = source_of(&reply);
     match &reply {
         Ok(_) => record("allowed", None, source),

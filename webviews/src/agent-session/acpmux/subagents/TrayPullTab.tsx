@@ -62,7 +62,6 @@ export function TrayPullTab({
   chat,
   waiting,
   running,
-  working,
   side,
   quiet = false,
   capped = false,
@@ -73,8 +72,6 @@ export function TrayPullTab({
   waiting: number;
   /// Lines that run: with none waiting, the tab shows their count.
   running: number;
-  /// Something runs that the tab does not count (the turn's task list): the chevron takes the accent.
-  working: boolean;
   side: TrayHandleSide;
   /// The quiet look (hatPillPlace.experiment.ts `quiet`): no glass slab, the chevron and count in
   /// muted ink in the gap of the composer's top line.
@@ -117,7 +114,7 @@ export function TrayPullTab({
   const label = [
     t("tray.untuck"),
     waiting > 0 && t("summary.subagents.waiting", { n: waiting }),
-    running > 0 && t("summary.subagents.running", { n: running }),
+    running > 0 && t("subagents.count", { n: running }),
   ]
     .filter(Boolean)
     .join(" · ");
@@ -127,7 +124,7 @@ export function TrayPullTab({
       data-side={side}
       data-hat={look}
       data-quiet={quiet || undefined}
-      data-running={running > 0 || working || undefined}
+      data-running={running > 0 || undefined}
       data-waiting={waiting > 0 || undefined}
       // What the slot opens for (none, the dot, or the count's width in digits), so the composer's
       // top line can leave a gap the pill's width under it (subagents.css "The line stops at the hat").

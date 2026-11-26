@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "It decides whether an agent may start viewing the person's own screens without their click; an agent never loosens it."
+}

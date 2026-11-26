@@ -84,7 +84,7 @@ fn failing_turn(error: &str, text: &str) -> Harness {
     h.connect();
     h.say("user_local", text);
     while prompts(&h) == 0 {
-        h.step();
+        h.poll_step();
     }
     h
 }
@@ -152,7 +152,7 @@ fn a_turn_cut_by_a_network_error_waits_for_the_endpoint_then_runs_again() {
     h.connect();
     h.say("user_local", "rebase a187");
     while prompts(&h) == 0 {
-        h.step();
+        h.poll_step();
     }
     // The cut waits while the endpoint does not answer; its timer is only
     // the bound of that wait, far away.
@@ -195,7 +195,7 @@ fn a_task_waiting_on_the_network_resumes_after_a_relaunch() {
     h.connect();
     h.say("user_local", "finish the migration");
     while prompts(&h) == 0 {
-        h.step();
+        h.poll_step();
     }
     // The turn ends cut, then nothing runs while offline.
     let quiet = Instant::now() + Duration::from_millis(500);
