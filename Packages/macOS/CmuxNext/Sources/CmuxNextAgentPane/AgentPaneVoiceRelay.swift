@@ -69,7 +69,7 @@ final class AgentPaneVoiceRelay {
     fileprivate var active: Bool { scope != nil }
 
     var event: AgentPageEvent {
-        var value: [String: JSONValue] = ["state": .string(shownPhase), "enabled": .bool(active),
+        var value: [String: JSONValue] = ["state": .string(shownPhase), "enabled": .bool(view?.model.composer.voiceButton == true),
             "level": .number(Double(level)), "restartRequired": .bool(restartRequired)]
         value["message"] = .string(failureMessage ?? message)
         return AgentPageEvent(kind: "voice", value: .object(value))
@@ -157,7 +157,9 @@ final class AgentPaneVoiceRelay {
         return view.model.sessionId == scope.session && view.model.transport.connection == scope.connection
     }
     func settingsChanged(_ settings: AgentPaneComposerSetting) {
-        guard active else { return }
+        // Availability follows the setting even before a lease starts and after cancellation.
+        // The page otherwise has no Start control with which to create the first lease.
+        guard active else { push(); return }
         if !settings.voiceButton { cancel(); return }
         if !captured.isEmpty && captured != ["engine": settings.dictationEngine.rawValue,
             "url": settings.dictationEngineURL, "model": settings.dictationEngineModel] {

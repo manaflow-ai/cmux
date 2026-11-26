@@ -35,6 +35,51 @@ import CmuxNextDictation
         #expect(wire.receive(end, session: "s") == [.init(id: "answer:0", text: "", done: true)])
         #expect(wire.receive(end, session: "s").isEmpty)
     }
+    private func fullChunk(session: String = "s", ref: Int = 7, sequence: Int = 1, text: String = "Hello") -> String {
+        #"{"method":"_acpmux/event","params":{"sessionId":"\#(session)","seq":\#(sequence),"chunkRef":\#(ref),"kind":"agent_message_chunk","msg":{"params":{"update":{"messageId":"answer","content":{"type":"text","text":"\#(text)"}}}}}}"#
+    }
+    private func compactChunk(ref: Int = 7, sequence: Int = 2, text: String = " world") -> String {
+        #"{"method":"_acpmux/chunk","params":{"ref":\#(ref),"seq":\#(sequence),"dt":1,"text":"\#(text)"}}"#
+    }
+    @Test func compactChunksSpeakTheWholeAnswerAndFlushAcrossToolAndTurnBoundaries() {
+        var wire = AgentPaneVoiceWire()
+        var answer = wire.receive(fullChunk(), session: "s")
+        answer += wire.receive(compactChunk(), session: "s")
+        answer += wire.receive(compactChunk(sequence: 3, text: "!"), session: "s")
+        #expect(answer.map(\.text).joined() == "Hello world!")
+        #expect(answer.allSatisfy { $0.id == "answer:0" && !$0.done })
+        let tool = #"{"method":"_acpmux/event","params":{"sessionId":"s","seq":4,"kind":"tool_call"}}"#
+        #expect(wire.receive(tool, session: "s") == [.init(id: "answer:0", text: "", done: true)])
+        // The server retains its template across non-chunk events; so must the adapter.
+        #expect(wire.receive(compactChunk(sequence: 5, text: "Done."), session: "s") == [.init(id: "answer:1", text: "Done.", done: false)])
+        let end = #"{"method":"_acpmux/event","params":{"sessionId":"s","seq":6,"kind":"turn_end"}}"#
+        #expect(wire.receive(end, session: "s") == [.init(id: "answer:1", text: "", done: true)])
+        #expect(wire.receive(compactChunk(sequence: 5), session: "s").isEmpty)
+    }
+    @Test func compactRefsCannotCrossChatsReplaceNewerTemplatesOrAdvanceTheCursorWhenUnknown() {
+        var wire = AgentPaneVoiceWire()
+        #expect(wire.receive(compactChunk(sequence: 100), session: "s").isEmpty)
+        #expect(!wire.receive(fullChunk(), session: "s").isEmpty)
+        #expect(wire.receive(fullChunk(session: "other", ref: 8, sequence: 100), session: "s").isEmpty)
+        #expect(wire.receive(compactChunk(ref: 8, sequence: 101), session: "s").isEmpty)
+        #expect(wire.receive(compactChunk(), session: "s") == [.init(id: "answer:0", text: " world", done: false)])
+        #expect(wire.receive(compactChunk(), session: "s").isEmpty)
+        #expect(!wire.receive(fullChunk(ref: 9, sequence: 3), session: "s").isEmpty)
+        #expect(wire.receive(fullChunk(sequence: 1), session: "s").isEmpty)
+        #expect(wire.receive(compactChunk(sequence: 200), session: "s").isEmpty)
+        #expect(!wire.receive(compactChunk(ref: 9, sequence: 4), session: "s").isEmpty)
+        #expect(wire.receive(compactChunk(ref: 9, sequence: 5), session: "other").isEmpty)
+        #expect(!wire.receive(fullChunk(session: "other", ref: 10), session: "other").isEmpty)
+        // A new connection lease has no templates, even if the server reuses the numeric ref.
+        wire = AgentPaneVoiceWire()
+        #expect(wire.receive(compactChunk(ref: 10), session: "other").isEmpty)
+    }
+    @Test func anEmptyFullChunkStillTeachesItsTemplateButMalformedDeltasDoNotAdvanceIt() {
+        var wire = AgentPaneVoiceWire()
+        #expect(wire.receive(fullChunk(text: ""), session: "s").isEmpty)
+        #expect(wire.receive(#"{"method":"_acpmux/chunk","params":{"ref":7,"seq":99,"dt":-1,"text":"wrong"}}"#, session: "s").isEmpty)
+        #expect(wire.receive(compactChunk(), session: "s") == [.init(id: "answer:0", text: " world", done: false)])
+    }
     @Test func promptUsesTheExistingChatAndOneStableDeduplicationId() throws {
         let value = try JSONDecoder().decode(JSONValue.self, from: Data(AgentPaneVoiceWire.prompt(session: "remote-chat", id: "u1", text: "a\n\"b").utf8))
         #expect(value["method"]?.stringValue == "session/prompt")
