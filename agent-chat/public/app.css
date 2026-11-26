@@ -442,7 +442,7 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .msg .body blockquote { margin: 10px 0; padding-left: 12px; color: var(--text-dim); border-left: 2px solid var(--border-strong); }
 .msg .body ul, .msg .body ol { padding-left: 22px; }
 .markdown-table-wrap { max-width: 100%; overflow-x: auto; margin: 10px 0; }
-.markdown-table-wrap table { border-collapse: collapse; min-width: max-content; font-size: calc(var(--font-size-base) - 1.5px); }
+.markdown-table-wrap table { border-collapse: collapse; min-width: max-content; margin-inline: auto; font-size: calc(var(--font-size-base) - 1.5px); }
 .markdown-table-wrap th { color: var(--text-dim); font-weight: 400; background: var(--bg-raised); }
 .markdown-table-wrap th, .markdown-table-wrap td { padding: 6px 10px; text-align: left; vertical-align: top; }
 .markdown-table-wrap tr:nth-child(even) td { background: color-mix(in srgb, var(--fg) 3%, transparent); }
@@ -648,7 +648,6 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .turn-activity-detail .tool,
 .turn-activity-detail .files-changed,
 .turn-activity-detail .status-line,
-.turn-activity-detail .plan-block,
 .turn-activity-detail .error-block-wrap,
 .turn-activity-detail details.thinking {
   max-width: none; margin-left: 0; margin-right: 0; padding-left: 0; padding-right: 0;
@@ -686,12 +685,6 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .error-block { padding: 8px 14px; color: var(--red); font-size: calc(var(--font-size-base) - 1.5px); border-left: 2px solid var(--red); }
 .error-block-wrap { max-width: 760px; margin: 0 auto 14px; padding: 0 24px; }
 .status-line { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; font-size: calc(var(--font-size-base) - 2.5px); color: var(--text-faint); }
-.plan-block { max-width: 760px; margin: 0 auto 10px; padding: 0 24px; color: var(--text-dim); font-size: calc(var(--font-size-base) - 2px); }
-.plan-entry { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 3px 0; }
-.plan-entry-status { flex: none; min-width: 74px; color: var(--text-faint); font-family: var(--font-mono); font-size: calc(var(--font-size-code) - 1px); text-transform: lowercase; }
-.plan-entry-text { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
-.plan-entry-priority { flex: none; color: var(--text-faint); font-family: var(--font-mono); font-size: calc(var(--font-size-code) - 1px); }
-.plan-entry-in_progress .plan-entry-status { color: var(--accent); font-weight: 600; }
 .files-changed {
   max-width: 760px; margin: -8px auto 18px; padding: 0 24px; color: var(--text-dim);
 }

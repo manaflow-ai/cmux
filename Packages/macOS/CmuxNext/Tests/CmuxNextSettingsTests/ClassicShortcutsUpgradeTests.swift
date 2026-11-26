@@ -8,7 +8,7 @@ import Testing
 
 /// The update from classic cmux (hq#1870 parity audit, cx-x5bdq): shortcuts a
 /// person recorded in classic's Settings lived in classic's preferences
-/// (`shortcut.<action id>`), not in `cmux.json`. Next's launch import brings
+/// (`shortcut.<action id>`), not in `cmux.json`. The accepted import brings
 /// them over once, under next's ID for a renamed action; a binding in
 /// `cmux.json` wins, and a key next can't bind stays behind.
 @MainActor @Suite(.serialized) struct ClassicShortcutsUpgradeTests {
@@ -51,7 +51,14 @@ import Testing
         let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()),
                                           managedWatchFiles: [])
+        next.set(true, forKey: "browserDisabledOverride")
         await settings.reload()
+        await settings.runLaunchMigrations(marker: next)
+        #expect(next.object(forKey: ClassicShortcutImport.importedKey) == nil)
+        #expect(next.object(forKey: ClassicPreferenceImport.importedKey) == nil)
+        #expect(try await settings.file.value(at: LinkRouting.enabledPath) == nil)
+        try await settings.importClassicPreferences(from: [next], marker: next)
+        #expect(try await settings.file.value(at: LinkRouting.enabledPath) == .bool(false))
         try await settings.importClassicShortcuts(from: [stable, nightly], marker: next)
         let registry = settings.applier.registry
 

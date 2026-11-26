@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.chiefPet.about.fox" : {
+      "comment" : "Chief pet character Fox (a fox with a cape): one-line description.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A caped fox for clever, quick fixes."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ثعلب بعباءة للإصلاحات الذكية السريعة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lisica s plaštom za pametne, brze popravke."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En ræv med kappe til kloge, hurtige rettelser."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Fuchs mit Umhang für clevere, schnelle Fixes."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un zorro con capa para arreglos rápidos e ingeniosos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un renard à cape pour des correctifs malins et rapides."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una volpe col mantello per correzioni rapide e ingegnose."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "賢く素早い修正のための、マントのキツネ。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កញ្ជ្រោងពាក់អាវផាយសម្រាប់ការជួសជុលឆ្លាតនិងលឿន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "영리하고 빠른 수정을 위한 망토 여우."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En rev med kappe for smarte, raske rettelser."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lis w pelerynie do sprytnych, szybkich poprawek."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma raposa de capa para correções rápidas e espertas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Лис в плаще для умных и быстрых исправлений."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จิ้งจอกสวมผ้าคลุมสำหรับการแก้ไขที่ฉลาดและรวดเร็ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Akıllı ve hızlı düzeltmeler için pelerinli bir tilki."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Лис у плащі для кмітливих і швидких виправлень."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chú cáo khoác áo choàng cho những bản sửa nhanh và khéo."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "披着斗篷、修得又快又巧的狐狸。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "披著斗篷、修得又快又巧的狐狸。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

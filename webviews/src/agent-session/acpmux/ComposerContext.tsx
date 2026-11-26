@@ -33,7 +33,6 @@ import {
 } from "./cloudMachines";
 import {
   environmentReady,
-  environmentPickable,
   environmentSections,
   knownMachines,
   orderEnvironments,
@@ -43,12 +42,13 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
+  environmentPickable,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover, isGitHubLocation } from "./FolderPopover";
 import { cloudRepositoryPick, cloudSourceFolders, type CloudFolder } from "./sourcePickerModel";
-import { GitHubGlyph } from "./GitHubIcons";
+import { GitHubGlyph, GitHubMark } from "./GitHubIcons";
 import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
@@ -92,13 +92,11 @@ import { AUTO_LOOK } from "./autoWhereModel";
 import { useSameValue } from "./session-info/sameValue";
 /// How a new chat's strip asks where it runs (gallery seam; `where-machine` ships). Leo, 2026-11-03,
 /// on Codex desktop's strip: "chatgpt codex has nicer ways to deal with stuff".
-/// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Other devices) | Machine,
-///   the machine control only while the pick is another machine. Other devices opens the person's
-///   own machines in the Where menu itself (Austin, 2026-11-12; it was Remote, which opened the
-///   machine control). Cloud has none: it gives the
-///   workspace its own new machine (design/composer.md rule 18).
-/// - `where-machine-always`: the same, the machine control also shown on This Mac (its own name
-///   with its live dot); never for Cloud.
+/// - `where-machine` (Codex desktop): Project | Where (This Mac, Cloud, Other devices). Other devices
+///   opens the person's machines, Cloud ones too, in the Where menu itself, and Where's face names the
+///   machine picked: no machine chip. Cloud's image is Settings > Cloud's Default image, not a composer
+///   pick (the user, 2026-11-24). Cloud reuses the person's machine or makes one (design/composer.md rule 18).
+/// - `where-machine-always`: kept for saved settings; now the same as `where-machine`.
 /// - `cloud-toggle` (ChatGPT Work): Project | Machine (This Mac first), and a cloud toggle at the
 ///   strip's end asking "Where should this chat run?" (This Mac, Cloud).
 /// - `combined`: one control for both, This Mac, Cloud and Other devices (the person's own
@@ -771,6 +769,9 @@ export function ComposerContext({
     }
     return machine !== undefined;
   };
+  // A Cloud machine is Cloud's own pick: choosing one keeps Cloud, and Cloud picked beside it is no conflict.
+  const isCloudComputer = (id: string) =>
+    peerKinds[id] === "cloud" || menuComputers.some((computer) => computer.id === id && computer.kind === "cloud");
   const pickComputer = (id: string) => {
     if (!readOnly && id !== selectedComputer) {
       // Another machine (a Cloud one too): a folder panel's answer or failure for the last one no
@@ -974,6 +975,17 @@ export function ComposerContext({
                 folderPicks.current += 1;
                 if (waiting) clearWaiting();
               }
+              // Cloud or Sandboxed picked while another machine of the person's is the pick: that
+              // machine's route would take the Send (App `onOtherMachinePage`), so the pick goes back to
+              // this Mac first and the chat starts where Where says.
+              if (
+                (mode === "cloud" || mode === "sandboxed") &&
+                selectedComputer !== "local" &&
+                selectedComputer !== initialComputer &&
+                !isCloudComputer(selectedComputer)
+              ) {
+                pickComputer("local");
+              }
               runMode.onMode(mode);
             },
           },
@@ -1035,18 +1047,15 @@ export function ComposerContext({
   ) : (
     <EnvironmentIcon kind="local" />
   );
-  // The third chip: which machine while another machine is the pick; in `where-machine-always` the machine chip on this Mac too. Cloud has no third chip:
   // Cloud is one pick, and Send reuses the person's machine or makes one (cmux-tui cloud.startChat),
   // with its progress in the chat (CloudStartView). Leo, 2026-11-04: "after you pick Cloud, like,
-  // you shouldn't be seeing the new machine situation. Like, we can just get rid of that". Only a
-  // Cloud machine picked by name (Machines…) gets the machine chip, naming it, with no New machine.
+  // you shouldn't be seeing the new machine situation. Like, we can just get rid of that". A Cloud
+  // machine picked by name (Other devices, Machines…) is named on Where's own face.
   const cloudMachinePicked = cloudSide && !cloudPicked && !sandboxPicked;
-  const machineShown =
-    layout === "where-machine"
-      ? offMac || savedPick !== undefined || cloudMachinePicked
-      : layout === "where-machine-always"
-        ? (!cloudSide && !sandboxPicked) || cloudMachinePicked
-        : true;
+  // The user, 2026-11-24: the strip is three pickers, "folder, (local, cloud or autocloud or machine),
+  // environment". A specific machine is Where's pick (its Other devices list holds the Cloud machines
+  // too) and Where's face names it: no third machine chip in the `where-machine` layouts.
+  const machinePicked = offMac || savedPick !== undefined || (cloudMachinePicked && !pageOnCloud);
   const runToggle = environmentsShown && layout === "cloud-toggle";
   // The machine and Cloud chips' face: a server, the machine's name and its live dot (Codex desktop's
   // machine chip). This Mac, where the machine chip shows it, is this Mac's own name; Cloud with no
@@ -1130,7 +1139,7 @@ export function ComposerContext({
                     // GitHub's mark only for a repository picked as one (FolderPopover isGitHubLocation): a folder of
                     // this Mac picked here that Cloud starts as its repository stays a folder (cmux#53226).
                     isGitHubLocation(currentFolder) && !isGitHubCheckoutPick ? (
-                      <GitHubGlyph />
+                      <GitHubMark chip />
                     ) : isGitHubCheckoutPick ? (
                       <FolderIcon />
                     ) : currentLocation ? (
@@ -1234,7 +1243,7 @@ export function ComposerContext({
             layout === "combined" ? (
               <EnvironmentPicker
                 {...pickerProps}
-                label={t(CONTEXT_LABELS.environment)}
+                label={t("composer.computer")}
                 menu="Computer"
                 value={
                   autoPicked
@@ -1268,7 +1277,7 @@ export function ComposerContext({
             ) : layout === "cloud-toggle" ? (
               <EnvironmentPicker
                 {...pickerProps}
-                label={t(CONTEXT_LABELS.environment)}
+                label={t("composer.computer")}
                 menu="Computer"
                 value={machineValue}
                 face={machineFace}
@@ -1279,29 +1288,22 @@ export function ComposerContext({
               <>
                 <EnvironmentPicker
                   {...pickerProps}
-                  label={t(CONTEXT_LABELS.environment)}
+                  label={t("composer.computer")}
                   menu="Computer"
                   value={wherePlace}
-                  face={<LocationFace icon={whereIcon} value={whereName} chevron />}
+                  face={
+                    machinePicked && placeName ? (
+                      machineFace
+                    ) : (
+                      <LocationFace icon={whereIcon} value={whereName} chevron />
+                    )
+                  }
                   rows="where"
-                  // Other devices opens the person's own machines in place; a pick there is the
-                  // machine chip's pick (Austin, 2026-11-12: it was Remote, which opened that chip).
+                  // Other devices opens the person's own machines in place, Cloud machines too: a
+                  // pick there is where the chat runs, and Where's face names it.
                   otherDevices
+                  cloudDevices
                 />
-                {machineShown && (
-                  <EnvironmentPicker
-                    {...pickerProps}
-                    label={t(CONTEXT_LABELS.machine)}
-                    menu="Machine"
-                    value={machineValue}
-                    face={machineFace}
-                    rows="machines"
-                    includeLocal={layout === "where-machine-always"}
-                    ownOnly={!cloudMachinePicked}
-                    digits={false}
-                    setupMenu={false}
-                  />
-                )}
               </>
             )
           ) : (
