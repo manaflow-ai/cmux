@@ -199,9 +199,19 @@ def frozen():
 
 
 def record(path, seconds):
-    rpc("debug.motion", {"action": "record_start", "path": path, "seconds": seconds, "mbps": 30})
-    return wait(lambda: (lambda r: r if r.get("capturing") or r.get("error") else None)(
+    """Starts the app's window recorder on `path`; the reply once it captures (or its error)."""
+    started = rpc("debug.motion", {"action": "record_start", "path": path, "seconds": seconds, "mbps": 30})
+    if started.get("error"):
+        return started
+    return wait(lambda: (lambda r: r if (r.get("capturing") and r.get("path") == path) or r.get("error") else None)(
         rpc("debug.motion", {"action": "record_read"})), 10, 0.05)
+
+
+def record_end():
+    """Stops the recording (a timed one keeps the recorder until stopped) and waits until its movie is written."""
+    rpc("debug.motion", {"action": "record_stop"})
+    return wait(lambda: (lambda r: r if r.get("written") or r.get("error") else None)(
+        rpc("debug.motion", {"action": "record_read"})), 30, 0.25)
 
 
 def phase(seconds, tabs, away, home):
@@ -217,8 +227,9 @@ def phase(seconds, tabs, away, home):
                 froze[label] = round(time.monotonic() - hidden_at, 1)
         time.sleep(1.0)  # sleep-ok: one read of the app's freeze state per second while the workspace is hidden
     movie = os.path.join(OUT, f"show-{int(seconds)}s.mov") if opts.record else None
+    recorded = None
     if movie:
-        record(movie, 9)
+        recorded = record(movie, 9)
         time.sleep(0.8)  # sleep-ok: the movie starts on the hidden workspace, before the switch back
     shown_at = time.monotonic()
     back = show(home)
@@ -228,9 +239,9 @@ def phase(seconds, tabs, away, home):
     time.sleep(2.0)  # sleep-ok: the second read, 2 s later: currentTime and decoded frames must move
     second = {label: state(tab) for label, tab in tabs.items()}
     if movie:
-        wait(lambda: rpc("debug.motion", {"action": "record_read"}).get("written") or None, 30, 0.5)
+        recorded = {"start": recorded, "end": record_end()}
     record_ = {"phase": name, "hidden_s": round(shown_at - hidden_at, 1), "froze_at_s": froze, "frozen_after_show": sorted(still_frozen),
-               "shown": back, "first": first, "second": second, "movie": movie}
+               "shown": back, "first": first, "second": second, "movie": movie, "recorded": recorded}
     RESULTS["phases"].append(record_)
     save()
     return record_
@@ -253,7 +264,9 @@ def judge(result, threshold):
         moved_t, moved_frames = (b.get("t") or 0) - (a.get("t") or 0), (b.get("frames") or 0) - (a.get("frames") or 0)
         seen = f"paused={b.get('paused')} t+{moved_t:.2f}s frames+{moved_frames} freezes={b.get('freezes')} resumes={b.get('resumes')} hidden_ms={b.get('hidden_ms')}"
         if plays:
-            check(b.get("paused") is False and moved_t >= 1.0 and moved_frames >= 5, f"{name}: {label}: the video plays after the show ({seen})")
+            # currentTime moves (a looping clip wraps it, so any change counts) and new frames are decoded.
+            check(b.get("paused") is False and abs(moved_t) >= 0.2 and moved_frames >= 5,
+                  f"{name}: {label}: the video plays after the show ({seen})")
         else:
             check(b.get("paused") is True and moved_frames == 0, f"{name}: {label}: the video the page paused stays paused ({seen})")
     return "judged"
