@@ -12,6 +12,7 @@ refused with exit 2 and the exact directory and command to run instead.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import io
 import json
@@ -179,10 +180,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(body.index("cargo_package_workspace_check.py"), body.index("command = subprocess.Popen("))
         self.assertIn("refused='cargo-package-workspace'", body)
 
-    def run_step(self, command: str) -> tuple[subprocess.CompletedProcess[str], dict | None, bool]:
+    def run_step(self, command: str, job: str = "checks") -> tuple[subprocess.CompletedProcess[str], dict | None, bool]:
         """The Run fast checks step's script, in a git checkout of the fixture, with a fake cargo on PATH (no real
         cargo ever runs here): (its result, its receipt, whether the fake cargo ran)."""
-        body = WORKFLOW.read_text(encoding="utf-8").split("      - name: Run fast checks\n", 1)[1]
+        job_body = WORKFLOW.read_text(encoding="utf-8").split(f"\n  {job}:\n", 1)[1]
+        body = job_body.split("      - name: Run fast checks\n", 1)[1]
         script = textwrap.dedent(body.split("          python3 - <<'PY'\n", 1)[1].split("\n          PY", 1)[0])
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -209,6 +211,23 @@ class WorkflowTests(unittest.TestCase):
             receipt_path = runner / "fast-checks.json"
             receipt = json.loads(receipt_path.read_text()) if receipt_path.exists() else None
             return result, receipt, ran.exists()
+
+    def test_receipt_hashes_the_exact_dispatched_command_on_every_exit(self) -> None:
+        for job, command, code in (
+                ("checks", "true  # café\n", 0),
+                ("checks", "exit 7", 7),
+                ("checks", "cmux-ci run --display", 0),
+                ("checks", "cargo test -p rd-host", 2),
+                ("checks-mac", "true  # café\n", 0),
+                ("checks-mac", "exit 7", 7)):
+            with self.subTest(job=job, command=command):
+                result, receipt, _ = self.run_step(command, job)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertIsNotNone(receipt)
+                self.assertEqual(receipt.get("command_sha256"), hashlib.sha256(command.encode()).hexdigest())
+                logs = [line.removeprefix("FAST_CHECKS_RECEIPT=") for line in result.stdout.splitlines()
+                        if line.startswith("FAST_CHECKS_RECEIPT=")]
+                self.assertEqual([json.loads(line) for line in logs], [receipt])
 
     def test_the_step_refuses_an_excluded_crate_with_a_receipt_and_runs_a_member(self) -> None:
         result, receipt, ran = self.run_step("cargo test -p rd-host")
