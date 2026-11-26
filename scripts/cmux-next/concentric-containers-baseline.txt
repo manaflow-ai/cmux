@@ -45,7 +45,6 @@ webviews/src/agent-session/acpmux/harnesses/harnesses.css: .acpmux-harnesses-clo
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-card { border-radius: 16px }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-cards[data-variant="list"] .nt-card { border-radius: var(--ds-radius-popup) }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-hovercard { border-radius: var(--ds-radius-popup) }
-webviews/src/agent-session/acpmux/newtab/screen.css: .nt-row-action kbd { border-radius: 4px }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-screen[data-template="cards"] .nt-card { border-radius: 14px }
 webviews/src/agent-session/acpmux/newtab/screen.css: .nt-stage-card { border-radius: 14px }
 webviews/src/agent-session/acpmux/quickModelColumns.css: .acpmux-cols-card { border-radius: var(--ui-popup-radius, var(--ds-radius-popup)) }
@@ -57,13 +56,10 @@ webviews/src/agent-session/acpmux/styles.css: .acpmux-chief-card-dismiss { borde
 webviews/src/agent-session/acpmux/styles.css: .acpmux-dictation-notice { border-radius: 12px }
 webviews/src/agent-session/acpmux/styles.css: .acpmux-dictation-settings,.acpmux-dictation-dismiss { border-radius: 6px }
 webviews/src/agent-session/acpmux/styles.css: .acpmux-host-error-card { border-radius: 12px }
-webviews/src/agent-session/acpmux/styles.css: .acpmux-menu-hint { border-radius: 5px }
-webviews/src/agent-session/acpmux/styles.css: .acpmux-omni-action kbd { border-radius: 4px }
 webviews/src/agent-session/acpmux/styles.css: .acpmux-open-app-card { border-radius: var(--ds-radius-xl) }
 webviews/src/agent-session/acpmux/styles.css: .acpmux-permission-panel .acpmux-permission-card { border-radius: 6px }
 webviews/src/agent-session/acpmux/styles.css: .acpmux-secret-card { border-radius: 12px }
 webviews/src/agent-session/acpmux/subagents/AgentCard.css: .cv-agent-card { border-radius: var(--grid-cards-radius) }
-webviews/src/agent-session/acpmux/subagents/subagents.css: .cv-subagent-of__close { border-radius: var(--ds-radius-sm) }
 webviews/src/agent-session/acpmux/subagents/subagents.css: .ui-card.acpmux-agent-card__popup { border-radius: var(--ds-radius-popup) }
 webviews/src/agent-session/acpmux/summary/WorkflowCard.css: .acpmux-workflow-card { border-radius: var(--grid-cards-radius) }
 webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-card { border-radius: var(--ui-popup-radius) }
@@ -71,9 +67,7 @@ webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-card[data
 webviews/src/agent-session/acpmux/summary/summary.css: .acpmux-summary-tab__close { border-radius: 4px }
 webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minimap__card { border-radius: var(--ds-radius-xl) }
 webviews/src/agent-session/acpmux/threadMinimap/threadMinimap.css: .acpmux-minimap__prompt[data-pending] { border-radius: var(--ds-radius-sm) }
-webviews/src/agent-session/acpmux/uiPointer/uiPointer.css: .cmux-ui-pointer-kbd { border-radius: 4px }
 webviews/src/agent-session/acpmux/uiPointer/uiPointer.css: .cmux-ui-pointer-label, .cmux-ui-pointer-hint { border-radius: 6px }
-webviews/src/icon-picker/styles.css: .icon-keycap { border-radius: 5px }
 webviews/src/optchat-inspector/styles.css: .card { border-radius: 8px }
 webviews/src/optchat-inspector/styles.css: .term .tip { border-radius: 6px }
 webviews/src/pages/apps/styles.css: .apps-card { border-radius: 12px }
@@ -90,7 +84,6 @@ webviews/src/pages/github/styles.css: .gh-md kbd { border-radius: 4px }
 webviews/src/pages/history/styles.css: .history-sheet { border-radius: 12px }
 webviews/src/pages/home-channels/chiefWork.css: .hc-chief-work__refresh, .hc-chief-work__close { border-radius: 6px }
 webviews/src/pages/home-channels/ledger.css: .lg-goal-strip { border-radius: var(--ds-radius-popup) }
-webviews/src/pages/home-channels/ledger.css: .lg-kbd { border-radius: 4px }
 webviews/src/pages/home-channels/ledger.css: .lg-palette.ui-dialog, .lg-palette { border-radius: 12px }
 webviews/src/pages/keybindings/styles.css: .keys-notice { border-radius: 7px }
 webviews/src/pages/markdown/styles.css: .cmux-comment-card { border-radius: 10px }
@@ -99,4 +92,3 @@ webviews/src/pages/settings/styles.css: .harness-update-card { border-radius: va
 webviews/src/pages/tasks/styles.css: .tasks-card { border-radius: 6px }
 webviews/src/ui/importCards.css: .import-card { border-radius: 10px }
 webviews/src/ui/ui.css: .ui-sheet { border-radius: 12px 12px 0 0 }
-webviews/src/viewer-empty/styles.css: .ve-hint kbd { border-radius: var(--ui-row-radius, 4px) }

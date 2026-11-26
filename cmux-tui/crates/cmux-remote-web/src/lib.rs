@@ -130,7 +130,7 @@ struct ServerWelcome {
 
 enum HandshakeState {
     New,
-    AwaitingServerHandshake(snow::HandshakeState),
+    AwaitingServerHandshake(Box<snow::HandshakeState>),
     AwaitingWelcome(SecureState),
     Established(SecureState),
     Closed,
@@ -204,7 +204,7 @@ impl RemoteWebClient {
         let message = write_handshake(&mut handshake, &[])?;
         self.outbound.push_back(prelude_bytes);
         self.outbound.push_back(message);
-        self.state = HandshakeState::AwaitingServerHandshake(handshake);
+        self.state = HandshakeState::AwaitingServerHandshake(Box::new(handshake));
         Ok(())
     }
 

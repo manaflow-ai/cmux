@@ -105,6 +105,9 @@ public final class DaemonService {
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?
     @ObservationIgnored var launchSnapshotLocation = LaunchSnapshotLocation()
+    /// The registry id this home's record holds (`LaunchSnapshot.knownRegistryID`): a handshake that reports another
+    /// records it (`rememberLaunchSnapshot`), so a relaunch never draws another session's snapshot.
+    @ObservationIgnored var launchRecordedRegistryID: String?
     /// Callers of `endpoint()` waiting for the first connection (terminals
     /// drawn from the launch snapshot attach as soon as it exists).
     @ObservationIgnored var connectionWaiters: [CheckedContinuation<Void, Never>] = []

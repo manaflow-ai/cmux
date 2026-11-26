@@ -21,5 +21,8 @@ snow.workspace = true
 wasm-bindgen.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# snow's ring and rand_core pull both getrandom lines; on wasm32-unknown-unknown
+# each needs its browser backend turned on or the crate refuses to compile.
 getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom-02 = { package = "getrandom", version = "0.2", features = ["js"] }
 

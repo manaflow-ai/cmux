@@ -1,0 +1,4 @@
+{
+  "agent": "network",
+  "why": "Update checks and downloads reach the network; install on quit replaces the app."
+}

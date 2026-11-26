@@ -4,6 +4,7 @@
 use super::*;
 use crate::config::Config;
 use serde_json::json;
+use std::collections::BTreeMap;
 
 fn meta(id: &str, family: &str, sid: Option<&str>, status: &str, at: u64) -> SessionMeta {
     serde_json::from_value(json!({
@@ -133,7 +134,7 @@ async fn a_chat_aged_out_between_passes_tells_its_own_row_only() {
     hub.usage_pass_due_for_test();
     hub.refresh_usage_stats().await;
     assert_eq!(hub.usage_passes_for_test(), (2, 0), "no chat to read");
-    assert!(!hub.usage_stats.stats.lock().unwrap().get("aging").is_some(), "its stats went");
+    assert!(hub.usage_stats.stats.lock().unwrap().get("aging").is_none(), "its stats went");
     assert!(session.summary_gen.load(Ordering::SeqCst) > own, "its own row was told");
     assert_eq!(every_row_generation(&hub), every, "no other closed row went stale");
     let told = hub.events.list_since(head).unwrap().rows;
@@ -151,7 +152,7 @@ async fn a_purged_chats_stats_make_every_closed_row_stale() {
     stats_found(&hub, "purged");
     let every = every_row_generation(&hub);
     hub.refresh_usage_stats().await;
-    assert!(!hub.usage_stats.stats.lock().unwrap().get("purged").is_some());
+    assert!(hub.usage_stats.stats.lock().unwrap().get("purged").is_none());
     assert!(every_row_generation(&hub) > every, "every closed row went stale");
 }
 
@@ -249,4 +250,86 @@ async fn a_chats_stats_go_stale_by_its_turn_and_its_transcript() {
     assert!(fresh(), "read again: fresh");
     hub.refresh_usage_stats_of(&session);
     assert!(!fresh() && kept(), "its turn ended: stale, still served");
+}
+
+/// A chat on a Claude Code wrapper profile (`family = "claude-sr2"`) is read as Claude Code,
+/// from Claude Code's own transcript; Chief's is not.
+#[tokio::test]
+async fn a_claude_sr2_chat_is_read_as_claude_code() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for meta in [
+        meta("sr2", "claude-sr2", Some("s1"), "idle", now - 1_000),
+        meta("sr2-pipe", "claude-sr2-pipe", Some("s2"), "closed", now - 2_000),
+        meta("chief", "chief", Some("s3"), "idle", now - 3_000),
+    ] {
+        hub.store.save(&meta).unwrap();
+        hub.insert_test_session(meta);
+    }
+    let read = hub.usage_sources(&hub.sessions(), now).await;
+    assert_eq!(ids(&read), ["sr2", "sr2-pipe"]);
+    assert!(read.iter().all(|(_, s)| s.family == "claude"), "read from Claude Code's transcript");
+    assert_eq!(transcript_family("claude"), Some("claude"));
+    assert_eq!(transcript_family("codex"), Some("codex"));
+    assert_eq!(transcript_family("codex-review-box"), Some("codex"));
+    assert_eq!(transcript_family("codexy"), None);
+    assert_eq!(transcript_family("claudette"), None);
+    assert_eq!(transcript_family("gemini"), None);
+}
+
+/// A reviewer on codex-review-box (`family = "codex-review-box"`) is read as Codex, from the
+/// home its profile keeps for that chat alone (`ACPMUX_CODEX_HOMES_PER_CHAT`): the box binds
+/// `<folder>/<chat id>/sessions` of the host's, so its rollout is there and nowhere else.
+#[tokio::test]
+async fn a_codex_review_box_chat_is_read_from_its_own_codex_home() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    let chat = meta("review-1", "codex-review-box", Some("019a-sid"), "idle", now - 1_000);
+    hub.store.save(&chat).unwrap();
+    hub.insert_test_session(chat);
+    let read = hub.usage_sources(&hub.sessions(), now).await;
+    assert_eq!(ids(&read), ["review-1"]);
+    assert_eq!(read[0].1.family, "codex", "read from Codex's rollout");
+
+    let root = tempfile::tempdir().unwrap();
+    let mut env = BTreeMap::new();
+    env.insert(CODEX_HOMES_PER_CHAT.to_owned(), root.path().display().to_string());
+    env.insert("CODEX_HOME".to_owned(), "/home/u/.codex".to_owned());
+    for bad in ["", ".", "..", "a/b", "a\\b"] {
+        let mut kept = env.clone();
+        per_chat_codex_home(&mut kept, bad);
+        assert_eq!(kept["CODEX_HOME"], "/home/u/.codex", "{bad:?} is no folder name");
+    }
+    per_chat_codex_home(&mut env, "review-1");
+    let home = root.path().join("review-1");
+    assert_eq!(env["CODEX_HOME"], home.display().to_string());
+
+    // What Codex in the box wrote under its bound sessions folder is what the reader counts.
+    let (y, m, d) = crate::usage_stats::civil_from_days(now / DAY_MS);
+    let day = home.join(format!("sessions/{y:04}/{m:02}/{d:02}"));
+    std::fs::create_dir_all(&day).unwrap();
+    let at = crate::server::iso(now - 500);
+    let lines = [
+        json!({"timestamp": at, "type": "turn_context", "payload": {"model": "gpt-6-astra"}}),
+        json!({"timestamp": at, "type": "event_msg", "payload": {"type": "token_count",
+            "info": {"total_token_usage": {"total_tokens": 1100},
+                "last_token_usage": {"input_tokens": 1000, "cached_input_tokens": 400,
+                    "output_tokens": 100, "total_tokens": 1100},
+                "model_context_window": 258_400}}}),
+    ];
+    let text: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    std::fs::write(day.join("rollout-2026-11-25T18-00-00-019a-sid.jsonl"), text).unwrap();
+    let source = Source {
+        family: "codex".into(),
+        agent_session_id: "019a-sid".into(),
+        created_at: now - 1_000,
+        env,
+        ..Default::default()
+    };
+    let stats = Tracker::default()
+        .refresh(&source, now, &crate::usage_stats::Models::default())
+        .expect("the rollout is found");
+    assert_eq!(stats.tokens24h, Some(1100));
+    let by_model = stats.tokens_by_model1h.expect("the reviewer's hour is measured");
+    assert_eq!(by_model.get("gpt-6-astra"), Some(&1100));
 }

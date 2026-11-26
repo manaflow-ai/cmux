@@ -8,9 +8,13 @@
 //! notifications (`NotifyAccess=main`, `cli/hosts.rs` `SYSTEMD_UNIT`); this thread arms systemd's
 //! watchdog at [`LIMIT`] and is the only thing that pings it:
 //! - Every [`interval`] it connects to the daemon's own socket and sends the hello every client
-//!   sends first, with a [`HELLO_BOUND`] deadline. An answer pings `WATCHDOG=1`. No answer, past
-//!   [`STARTUP_GRACE`] (hello waits for the hub during a long replay), pings nothing: systemd
-//!   ends the daemon after `WatchdogSec` and starts a new one, agents kept (`KillMode=process`).
+//!   sends first. The hello's deadline is systemd's own: the watchdog limit from the last ping,
+//!   less [`PING_RESERVE`] ([`Plan::hello_wait`], at least [`HELLO_BOUND`]). An answer pings
+//!   `WATCHDOG=1`, however slow: a starved host or a hub busy replaying answers late but is not
+//!   hung, and a fixed 20 s hello made systemd end a live daemon after three slow answers. No
+//!   answer for the whole window, past [`STARTUP_GRACE`] (hello waits for the hub during a long
+//!   replay), pings nothing: systemd ends the daemon within its limit and starts a new one,
+//!   agents kept (`KillMode=process`).
 //! - Its resident memory over [`rss_bound`] for [`RSS_STRIKES`] checks in a row sends the daemon
 //!   SIGTERM, the restart handoff a supervisor uses (`daemon.rs`), so it stops as an update does.
 //!
@@ -22,13 +26,18 @@
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixDatagram, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use cmux_deadline::Deadline;
 use cmux_supervise_core::StopCause;
 
-/// How long the daemon has to answer its own hello: a client's slow notice says so at 10 s
-/// (`slow_notice.rs`); twice that is a daemon no client can use.
+/// The least one hello waits, and the answer time past which it says the daemon is slow: a
+/// client's slow notice says so at 10 s (`slow_notice.rs`); twice that is a daemon no client can
+/// use. Slow is not hung: the hello waits on until [`Plan::hello_wait`] (systemd's own limit).
 pub(crate) const HELLO_BOUND: Duration = Duration::from_secs(20);
+/// Kept before systemd's limit when a hello waits: the ping after a late answer must land in time.
+pub(crate) const PING_RESERVE: Duration = Duration::from_secs(10);
 /// Pings before this much uptime need no hello: a start that replays a large journal answered
 /// its first hello 93 s after binding (2026-11-12, `gauges.rs`).
 pub(crate) const STARTUP_GRACE: Duration = Duration::from_secs(10 * 60);
@@ -63,6 +72,36 @@ pub(crate) fn interval(limit: Duration) -> Duration {
     (limit / 3).max(Duration::from_secs(5))
 }
 
+/// How one watchdog runs: systemd's limit, how often it checks, the startup grace, what it keeps
+/// before the limit and the least a hello waits. [`Plan::for_limit`] is the daemon's; tests scale it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Plan {
+    pub(crate) limit: Duration,
+    pub(crate) every: Duration,
+    pub(crate) grace: Duration,
+    pub(crate) reserve: Duration,
+    pub(crate) floor: Duration,
+}
+
+impl Plan {
+    pub(crate) fn for_limit(limit: Duration) -> Self {
+        Self {
+            limit,
+            every: interval(limit),
+            grace: STARTUP_GRACE,
+            reserve: PING_RESERVE.min(limit / 6),
+            floor: HELLO_BOUND.min(limit / 3),
+        }
+    }
+
+    /// How long a hello asked at `now` waits: until systemd's limit counted from `last_ping`, less
+    /// the reserve, and at least the floor. One deadline (systemd's), never a fresh one per check:
+    /// a daemon that answers anywhere inside it pings in time.
+    pub(crate) fn hello_wait(&self, last_ping: Instant, now: Instant) -> Duration {
+        Deadline::starting(last_ping, self.limit).timeout_at(now, None, self.floor, self.reserve)
+    }
+}
+
 /// [`RSS_BOUND`], or `ACPMUX_DAEMON_RSS_MAX`; None when that is 0 (off).
 pub(crate) fn rss_bound(env: Option<&str>) -> Option<u64> {
     match env.map(str::trim).filter(|v| !v.is_empty()) {
@@ -84,9 +123,9 @@ pub(crate) fn start(socket: PathBuf) {
         rss_bound = bound,
         "self-check: pinging the systemd watchdog while the daemon answers its own hello"
     );
-    let _ = std::thread::Builder::new()
-        .name("acpmux-watchdog".into())
-        .spawn(move || run(&socket, &notify, limit, bound));
+    let _ = std::thread::Builder::new().name("acpmux-watchdog".into()).spawn(move || {
+        watch(&socket, &notify, Plan::for_limit(limit), bound, &AtomicBool::new(false))
+    });
 }
 
 /// What one check decided.
@@ -101,13 +140,23 @@ pub(crate) enum Verdict {
 }
 
 /// The check's state between runs.
-#[derive(Default)]
 pub(crate) struct Check {
     over: u32,
     unanswered: u32,
+    grace: Duration,
+}
+
+impl Default for Check {
+    fn default() -> Self {
+        Self::new(STARTUP_GRACE)
+    }
 }
 
 impl Check {
+    pub(crate) fn new(grace: Duration) -> Self {
+        Self { over: 0, unanswered: 0, grace }
+    }
+
     /// One check: whether the hello was answered, how long the daemon has run, its RSS.
     pub(crate) fn judge(
         &mut self,
@@ -123,7 +172,7 @@ impl Check {
         self.unanswered = if answered { 0 } else { self.unanswered + 1 };
         if self.over >= RSS_STRIKES {
             Verdict::Restart
-        } else if answered || uptime < STARTUP_GRACE {
+        } else if answered || uptime < self.grace {
             Verdict::Ping
         } else {
             Verdict::Hung
@@ -131,15 +180,31 @@ impl Check {
     }
 }
 
-fn run(socket: &Path, notify: &str, limit: Duration, bound: Option<u64>) {
+/// The check loop, until `stop` (the daemon's never is; a test's is).
+pub(crate) fn watch(
+    socket: &Path,
+    notify: &str,
+    plan: Plan,
+    bound: Option<u64>,
+    stop: &AtomicBool,
+) {
     let born = Instant::now();
-    let every = interval(limit);
-    let mut check = Check::default();
+    let limit = plan.limit;
+    let mut last_ping = born;
+    let mut check = Check::new(plan.grace);
     let mut restarting = false;
-    loop {
+    while !stop.load(Ordering::Relaxed) {
         let asked = Instant::now();
-        let answered = hello(socket, HELLO_BOUND);
+        let answered = hello(socket, plan.hello_wait(last_ping, asked));
+        let took = asked.elapsed();
+        if answered.is_ok() && took > plan.floor {
+            tracing::warn!(
+                took_ms = u64::try_from(took.as_millis()).unwrap_or(u64::MAX),
+                "self-check: the daemon answered its own hello slowly; slow is not hung, it pings"
+            );
+        }
         let rss = rss_bytes();
+        let mut pinged = true;
         match check.judge(answered.is_ok(), born.elapsed(), rss, bound) {
             Verdict::Ping => ping(notify),
             Verdict::Hung => {
@@ -149,9 +214,10 @@ fn run(socket: &Path, notify: &str, limit: Duration, bound: Option<u64>) {
                     waited_ms = u64::try_from(asked.elapsed().as_millis()).unwrap_or(u64::MAX),
                     rss,
                     error = %why,
-                    "self-check: the daemon did not answer its own hello; the systemd watchdog restarts it within {}s",
+                    "self-check: the daemon did not answer its own hello within systemd's limit; the systemd watchdog restarts it within {}s",
                     limit.as_secs()
                 );
+                pinged = false;
                 super::supervision::stopping(StopCause::NoProgress(format!(
                     "watchdog: no answer to its own hello ({why})"
                 )));
@@ -177,7 +243,10 @@ fn run(socket: &Path, notify: &str, limit: Duration, bound: Option<u64>) {
             }
             Verdict::Restart => ping(notify),
         }
-        std::thread::sleep(every.saturating_sub(asked.elapsed()));
+        if pinged {
+            last_ping = Instant::now();
+        }
+        std::thread::sleep(plan.every.saturating_sub(asked.elapsed()));
     }
 }
 

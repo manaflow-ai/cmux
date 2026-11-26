@@ -68,6 +68,7 @@ fn invalid_vectors_are_refused() {
             RelayFrameError::Kind(_) => expected == "kind",
             RelayFrameError::TooLarge(_) => expected == "too_large",
             RelayFrameError::BadBatch => expected == "bad_batch",
+            RelayFrameError::BadHub => expected == "bad_hub",
         };
         assert!(matches, "vector expected {expected}, got {error:?}");
         checked += 1;

@@ -14,7 +14,12 @@
 # and profiles (webviews/bench/link-profiles.json). Its TERMINAL_RESTART_JSON: first content, settled.
 #
 #   cmux-ci test --setup rust -- 'scripts/measure/restart-settled-linux.sh [links=local,rtt50,rtt200,throttled]
-#     [rounds=5] [turns=120] [down=0] [only=chat|terminal]'
+#     [rounds=5] [turns=120] [down=0] [only=chat|terminal] [fixture=plain|work] [open=1] [cpu=4]'
+#
+# fixture=work gives the chat's turns their work (tool calls, thoughts, notices), which a finished turn folds, and adds
+# goneRows (rows drawn that the settled chat no longer draws) to its line; open=1 leaves the last turn running, as a
+# coordinator's often is (Leo, 2026-11-22, ask-c93c2b96ac: "i see this rush and barrage of tool calls and message on a
+# sort of \"renewed-load\" of chats. but they get folded/hidden anyways"). cpu=N slows the chat's page N times.
 #
 # Prints both rows per link and one `RESTART_SETTLED_COMPARE {...}` line: per link, the chat's and the terminal's
 # medians and the ratio chat settled / terminal settled. What it does not cover: the native app's process start,
@@ -26,6 +31,9 @@ rounds=5
 turns=120
 down=0
 only=both
+fixture=plain
+open=0
+cpu=1
 for arg in "$@"; do
   case "$arg" in
     links=*) links="${arg#links=}" ;;
@@ -33,6 +41,9 @@ for arg in "$@"; do
     turns=*) turns="${arg#turns=}" ;;
     down=*) down="${arg#down=}" ;;
     only=*) only="${arg#only=}" ;;
+    fixture=*) fixture="${arg#fixture=}" ;;
+    open=*) open="${arg#open=}" ;;
+    cpu=*) cpu="${arg#cpu=}" ;;
     *) echo "restart-settled-linux.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -49,7 +60,7 @@ if [[ "$only" != chat ]]; then
   (
     cd "$root/cmux-tui"
     # Every profile in link-profiles.json, 120 turns (the test's own fixture); `links=` and `turns=` pick the chat's.
-    RESTART_ATTACH=snapshot ROUNDS="$rounds" cargo test --locked --release -p cmux-tui --test terminal_restart_settled -- --ignored --nocapture
+    RESTART_ATTACH=snapshot ROUNDS="$rounds" cargo test --locked --release -p cmux-tui --test it -- terminal_restart_settled:: --ignored --nocapture
   ) >"$out/terminal.log" 2>&1 || { status=1; echo "restart-settled: the terminal measure failed:"; tail -n 30 "$out/terminal.log"; }
   grep -E "^TERMINAL_RESTART_JSON " "$out/terminal.log" || true
 fi
@@ -60,10 +71,10 @@ if [[ "$only" != terminal ]]; then
   cd "$root/webviews"
   [[ -d node_modules ]] || bun install --frozen-lockfile >/dev/null
   [[ -n "${CMUX_CHROME_HEADLESS_SHELL:-}" ]] || [[ ! -x "$root/scripts/ci/ensure-system-chrome.sh" ]] ||
-    eval "$("$root/scripts/ci/ensure-system-chrome.sh" --print-env 2>/dev/null || true)"
+    eval "$("$root/scripts/ci/ensure-system-chrome.sh" 2>/dev/null | grep '^CMUX_CHROME_HEADLESS_SHELL=' | sed 's/^/export /' || true)"
   IFS=, read -r -a each <<<"$links"
   for link in "${each[@]}"; do
-    LINK="$link" MODE=down ROUNDS="$rounds" TURNS="$turns" ACPMUX_DOWN_MS="$down" \
+    LINK="$link" MODE=down ROUNDS="$rounds" TURNS="$turns" ACPMUX_DOWN_MS="$down" FIXTURE="$fixture" OPEN="$open" CPU="$cpu" \
       bun bench/first-load-after-restart.bench.ts >"$out/chat-$link.log" 2>&1 ||
       { status=1; echo "restart-settled: the chat bench failed on $link:"; grep -v BABEL "$out/chat-$link.log" | tail -n 20; }
     grep -E "^RESTART_SETTLED_JSON |^restart split" "$out/chat-$link.log" || true

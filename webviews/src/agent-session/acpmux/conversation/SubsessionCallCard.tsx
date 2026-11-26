@@ -36,6 +36,7 @@ import { RawToggle, SentMessageLine } from "./SentMessageLine";
 import type { SubsessionCall, SubsessionDelivery, SubsessionReply } from "./subsessionCalls";
 import "./SubsessionCallCard.css";
 import { sessionLine } from "./subsessionCallCardModel";
+import { orderedCountWords } from "../session-info/subagentsSectionModel";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 const toolActivity = (tool: Tool): AcpmuxActivity => ({ kind: "tool", text: tool.title, tool });
@@ -89,14 +90,11 @@ function StartedGroup({ entries }: { entries: readonly StartedGroupEntry[] }) {
     else if (child?.state === "done") done++;
     else if (entries[index]?.call.running) working = true;
   }
-  const status = [
-    waiting ? t("summary.subagents.waiting", { n: waiting }) : undefined,
-    failed ? t("summary.subagents.failed", { n: failed }) : undefined,
-    working ? t("subsession.state.working") : undefined,
-    children.length > 0 && done === children.length ? t("subagents.state.completed") : undefined,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const status = orderedCountWords(
+    { waiting, failed, running: working ? 1 : 0, done: children.length > 0 && done === children.length ? done : 0 },
+    t,
+    { words: { running: () => t("subsession.state.working"), done: () => t("subagents.state.completed") } },
+  ).join(" · ");
   return (
     <DisclosureRow
       disclosureKey={`subsession-group:${entries[0]?.tool.id}`}

@@ -29,6 +29,10 @@ pub(crate) struct Unbuilt {
     source: Source,
     updated_at: u64,
     status: Option<&'static str>,
+    /// This daemon's session is neither a side chat nor started by another chat's agent: true
+    /// until [`ListRows::mark_top_level`] reads it, which only a `topLevelOnly` read asks for
+    /// (its parent's state is a second lookup a plain list never pays).
+    top_level: bool,
 }
 
 enum Source {
@@ -36,24 +40,41 @@ enum Source {
     Own(Arc<Session>),
     /// A peer's mirrored row (or a hub machine's, `mesh_book.rs`).
     Peer(Arc<RemoteSession>),
+    /// This daemon's chat that left memory (`evict.rs`): its kept row.
+    Evicted(Arc<super::evict::Evicted>),
 }
 
 impl Unbuilt {
     fn local(session: Arc<Session>) -> Self {
         let (updated_at, status) = session.read_meta(|m| (m.updated_at, m.status.as_str()));
-        Self { source: Source::Own(session), updated_at, status: Some(status) }
+        Self { source: Source::Own(session), updated_at, status: Some(status), top_level: true }
     }
 
     /// This daemon's session where the kept order placed it (`list_order.rs`), by the `updatedAt`
     /// it was placed by: a window of the order stays in its order.
-    fn placed(session: Arc<Session>, updated_at: u64) -> Self {
-        let status = session.read_meta(|m| m.status.as_str());
-        Self { source: Source::Own(session), updated_at, status: Some(status) }
+    fn placed(row: super::list_order::OrderRow, updated_at: u64) -> Self {
+        match row {
+            super::list_order::OrderRow::Own(session) => {
+                let status = session.read_meta(|m| m.status.as_str());
+                Self {
+                    source: Source::Own(session),
+                    updated_at,
+                    status: Some(status),
+                    top_level: true,
+                }
+            }
+            super::list_order::OrderRow::Evicted(row) => Self::evicted(row),
+        }
+    }
+
+    fn evicted(row: Arc<super::evict::Evicted>) -> Self {
+        let (updated_at, status) = (row.updated_at(), row.status().as_str());
+        Self { source: Source::Evicted(row), updated_at, status: Some(status), top_level: true }
     }
 
     fn mirrored(row: Arc<RemoteSession>) -> Self {
         let updated_at = row.summary.updated_ms();
-        Self { source: Source::Peer(row), updated_at, status: None }
+        Self { source: Source::Peer(row), updated_at, status: None, top_level: true }
     }
 }
 
@@ -61,6 +82,7 @@ impl PageRow for Unbuilt {
     fn session_id(&self) -> &str {
         match &self.source {
             Source::Own(session) => &session.id,
+            Source::Evicted(row) => row.id(),
             Source::Peer(row) => row.summary.session_id().unwrap_or(""),
         }
     }
@@ -71,15 +93,22 @@ impl PageRow for Unbuilt {
 
     fn peer(&self) -> Option<&str> {
         match &self.source {
-            Source::Own(_) => None,
+            Source::Own(_) | Source::Evicted(_) => None,
             Source::Peer(row) => row.summary.peer(),
         }
     }
 
     fn status(&self) -> Option<&str> {
         match &self.source {
-            Source::Own(_) => self.status,
+            Source::Own(_) | Source::Evicted(_) => self.status,
             Source::Peer(row) => row.summary.status(),
+        }
+    }
+
+    fn top_level(&self) -> bool {
+        match &self.source {
+            Source::Own(_) | Source::Evicted(_) => self.top_level,
+            Source::Peer(row) => row.summary.top_level(),
         }
     }
 }
@@ -92,6 +121,35 @@ pub(crate) struct ListRows {
 }
 
 impl ListRows {
+    /// Reads whether each of this daemon's rows is top level, as its summary would say
+    /// (`session_order::top_level_summary`): no live `side` tag, no sub-session link
+    /// (`startedBy`), no listed parent (`spawnedBy`, [`Hub::spawned_by_session`]). Only for a read
+    /// with `topLevelOnly`; a peer's row carries its own answer, and an evicted chat's is read
+    /// from the row it kept when it left memory.
+    fn mark_top_level(&mut self, hub: &Hub, params: &Value) -> Result<(), RpcError> {
+        if !super::session_pages::bool_filter(params, "topLevelOnly")? {
+            return Ok(());
+        }
+        for row in &mut self.rows {
+            if let Source::Evicted(kept) = &row.source {
+                let kept = serde_json::from_str::<Value>(&kept.row_text(false));
+                row.top_level =
+                    kept.map_or(true, |kept| crate::session_order::top_level_summary(&kept));
+                continue;
+            }
+            let Source::Own(session) = &row.source else { continue };
+            let own_child = session.read_meta(|m| {
+                let now = crate::store::now_ms();
+                m.subsession.as_ref().is_some_and(|link| !link.started_by.is_empty())
+                    || m.tags
+                        .get(super::btw::SIDE_TAG)
+                        .is_some_and(|tag| tag.expires_at.is_none_or(|expires| expires > now))
+            });
+            row.top_level = !own_child && hub.spawned_by_session(session).is_none();
+        }
+        Ok(())
+    }
+
     /// The rows, newest first, as `session_pages::sort_session_summaries` sorts them.
     pub(crate) fn rows(&self) -> &[Unbuilt] {
         &self.rows
@@ -101,6 +159,9 @@ impl ListRows {
     pub(crate) fn value(&self, hub: &Hub, row: &Unbuilt, with_tools: bool) -> Value {
         match &row.source {
             Source::Own(session) => hub.cached_closed_summary(session, with_tools),
+            Source::Evicted(row) => {
+                serde_json::from_str(&row.row_text(with_tools)).unwrap_or(Value::Null)
+            }
             // Parsed from the text the list writes (`peer_row.rs`), its tools left out unless
             // `with_tools`.
             Source::Peer(row) => {
@@ -118,6 +179,7 @@ impl ListRows {
     pub(crate) fn text(&self, hub: &Hub, row: &Unbuilt, with_tools: bool) -> Arc<str> {
         match &row.source {
             Source::Own(session) => hub.own_row_text(session, with_tools),
+            Source::Evicted(row) => row.row_text(with_tools),
             Source::Peer(row) => self.peer_text(row, with_tools).into(),
         }
     }
@@ -133,6 +195,14 @@ impl Hub {
         // This daemon's rows first, then the peers', then the hub machines': of two rows that
         // sort alike, the one a whole list puts first stays first (a stable sort).
         let mut rows: Vec<Unbuilt> = own.into_iter().map(Unbuilt::local).collect();
+        // The chats that left memory: listed from their kept rows (`evict.rs`).
+        rows.extend(
+            self.evicted
+                .rows()
+                .into_iter()
+                .filter(|row| !live_only || row.status() != SessionStatus::Closed)
+                .map(Unbuilt::evicted),
+        );
         if !own_only {
             let open = |r: &RemoteSession| !live_only || r.summary.status() != Some("closed");
             let remote = self.remote_sessions.snapshot();
@@ -169,7 +239,8 @@ impl Hub {
                 // as a pick from every row does). Before, a window of only that `updatedAt` started
                 // pages at its first row, and they repeated it (#42131 review, F1).
                 let past = own.last().is_some_and(|(_, at)| from.is_some_and(|from| *at < from));
-                let list = self.window_rows(own, all, from);
+                let mut list = self.window_rows(own, all, from);
+                list.mark_top_level(self, params)?;
                 let named = |row: &Unbuilt| super::session_pages::names_cursor(params, row);
                 let reached = from.is_none() || past || list.rows().iter().any(named);
                 let picked = pick_page(list.rows(), params)?;
@@ -180,15 +251,21 @@ impl Hub {
                 most = most.saturating_mul(4);
             }
         }
-        let list = self.list_rows(excludes_closed(params), false);
+        let mut list = self.list_rows(excludes_closed(params), false);
+        list.mark_top_level(self, params)?;
         let picked = pick_page(list.rows(), params)?;
         Ok((list, picked))
     }
 
     /// The window `own` (the kept order's rows from `from`, all of them when `all`) and the peers'
     /// rows that sort among them, sorted: the start of the list from `from`.
-    fn window_rows(&self, own: Vec<(Arc<Session>, u64)>, all: bool, from: Option<u64>) -> ListRows {
-        let last = if all { None } else { own.last().map(|(s, at)| (*at, s.id.clone())) };
+    fn window_rows(
+        &self,
+        own: Vec<(super::list_order::OrderRow, u64)>,
+        all: bool,
+        from: Option<u64>,
+    ) -> ListRows {
+        let last = if all { None } else { own.last().map(|(s, at)| (*at, s.id().to_owned())) };
         let mut rows: Vec<Unbuilt> =
             own.into_iter().map(|(s, at)| Unbuilt::placed(s, at)).collect();
         // A peer's row sorts before the window's last own row when newer, or as new and a lower id.
@@ -277,7 +354,9 @@ impl Hub {
             .iter()
             .filter_map(|&at| list.rows().get(at))
             .map(|row| match &row.source {
-                Source::Own(_) => BuiltRow::Tree(list.value(self, row, with_tools)),
+                Source::Own(_) | Source::Evicted(_) => {
+                    BuiltRow::Tree(list.value(self, row, with_tools))
+                }
                 Source::Peer(peer) => {
                     BuiltRow::Peer(list.peer_text(peer, with_tools), peer.clone())
                 }
@@ -296,7 +375,8 @@ impl Hub {
         own_only: bool,
         budget: usize,
     ) -> Result<String, RpcError> {
-        let list = self.list_rows(excludes_closed(params), own_only);
+        let mut list = self.list_rows(excludes_closed(params), own_only);
+        list.mark_top_level(self, params)?;
         let text = |row: &Unbuilt| list.text(self, row, with_tools);
         super::list_guard::bounded(list.rows(), text, params, budget)
     }

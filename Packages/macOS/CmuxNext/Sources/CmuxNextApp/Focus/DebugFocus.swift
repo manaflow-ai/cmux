@@ -112,7 +112,7 @@ enum DebugFocus {
                 "first_responder": window?.firstResponder.map { .string(String(describing: type(of: $0))) } ?? .null,
                 "classified": .string(actual.debugName),
                 "child_window_page": controller.focusApplier.focusedChildWindowPageID.map(JSONValue.string) ?? .null,
-                "devtools_tab": controller.focusApplier.focusedDevToolsTabID.map(JSONValue.string) ?? .null,
+                "devtools_tab": controller.focusApplier.focusedDevToolsTabID.map(JSONValue.string) ?? .null, "ax_focused": .string(NSApp.accessibilityFocusReport),
             ]),
             "layout_focused_pane": layoutFocus.map(JSONValue.string) ?? .null,
             "recent_events": .array(controller.focus.recent.suffix(12).map(JSONValue.string)),

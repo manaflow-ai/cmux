@@ -129,7 +129,7 @@ test("browserAuth.request: only credential fields (password, username, one-time 
 
 test("sites.list names every tool; help lists methods; drafts list", async () => {
   const names = (await s.value("sites.list()")).map((t) => t.name);
-  assert.deepEqual(names, ["googleAccounts", "googleDocs", "googleSheets", "googleSlides", "googleDrive", "gmail", "googleCalendar", "googleSearch", "youtube", "slack", "notion", "linkedin", "x", "github", "linear", "jira", "pageAssets", "webmcp", "browserAuth"]);
+  assert.deepEqual(names, ["googleAccounts", "googleDocs", "googleSheets", "googleSlides", "googleDrive", "gmail", "googleCalendar", "googleSearch", "youtube", "meet", "slack", "notion", "linkedin", "x", "github", "linear", "jira", "pageAssets", "webmcp", "browserAuth"]);
   assert.ok((await s.value("sites.list()")).every((t) => t.summary && !t.error));
   assert.match(await s.value('sites.help("gmail")'), /sites\.gmail\.search\nsites\.gmail\.inbox\nsites\.gmail\.thread/);
   assert.ok(Array.isArray(await s.value("sites.drafts.list()")));

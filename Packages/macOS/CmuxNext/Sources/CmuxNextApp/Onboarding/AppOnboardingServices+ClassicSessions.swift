@@ -11,6 +11,7 @@ import Foundation
 /// What `workspace.importClassic` opened and what it left in classic.
 struct ClassicImportSummary: Equatable {
     var opened = 0
+    var settingsOnly = false
     /// Cloud VM workspaces: cmux-next cannot reach a classic VM.
     var leftCloudVMs = false
     /// SSH workspaces whose host did not connect.

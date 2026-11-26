@@ -115,6 +115,16 @@ pub struct Ended {
 /// The longest `/end` reason the hub keeps, in UTF-16 units (it cuts a longer one there).
 pub const HUB_REASON_MAX: usize = 100;
 
+/// What this host says to a viewer that offered WebRTC: it serves cmux.rd/1. A viewer that
+/// knows it (the iPhone's Screen Sharing) leaves its WebRTC stream and offers cmux.rd/1 on a
+/// fresh ticket (`/reattach`); the Session DO relays it like any frame, and a viewer that does
+/// not know the type ignores it.
+pub const TRANSPORT_FRAME: &str = r#"{"type":"transport","transport":"cmux.rd/1"}"#;
+
+/// How long a viewer that offered WebRTC has to offer cmux.rd/1 after [`TRANSPORT_FRAME`],
+/// before the session ends `failed` as it did before the frame (an older viewer never does).
+pub const RD_OFFER_WAIT: Duration = Duration::from_secs(15);
+
 /// The `/end` reason for a session this side could not serve: `failed: <why>`, so the viewer's
 /// card says why (the Mac's `MacScreenEndReason` reads every `failed` prefix as a failure and
 /// shows the rest) instead of guessing that the host is asleep or offline. `why` is made
@@ -236,10 +246,22 @@ pub fn serve(
     // The helper's last status line, so a session stopped before it connected says how far it got.
     let mut last_status: Option<String> = None;
     let mut stopped = false;
+    // When the viewer offered WebRTC and heard [`TRANSPORT_FRAME`]: it has [`RD_OFFER_WAIT`].
+    let mut webrtc_offered: Option<std::time::Instant> = None;
     let ended = loop {
         if stop.load(Ordering::SeqCst) {
             stopped = true;
             break Ended { reason: "stopped".into(), connected, tell_hub: None };
+        }
+        if serve.is_none() && webrtc_offered.is_some_and(|at| at.elapsed() >= RD_OFFER_WAIT) {
+            // A viewer that speaks WebRTC only (an older iPhone build, or an old Mac).
+            let _ = ws.send_text(r#"{"type":"bye"}"#);
+            let reason = "the viewer offered WebRTC; this host serves cmux.rd/1 viewers";
+            break Ended {
+                reason: reason.into(),
+                connected,
+                tell_hub: Some(failed_reason(reason)),
+            };
         }
         // The host process's lines.
         if let Some(s) = serve.as_mut() {
@@ -385,14 +407,16 @@ pub fn serve(
                     continue;
                 }
                 let Some(offer) = RdDocument::parse(sdp) else {
-                    // A WebRTC viewer (the iPhone's, or an old Mac): this host serves cmux.rd/1 only.
-                    let _ = ws.send_text(r#"{"type":"bye"}"#);
-                    let reason = "the viewer offered WebRTC; this host serves cmux.rd/1 viewers";
-                    break Ended {
-                        reason: reason.into(),
-                        connected,
-                        tell_hub: Some(failed_reason(reason)),
-                    };
+                    // A WebRTC viewer (the iPhone's, or an old Mac): this host serves cmux.rd/1
+                    // only. Say so once, and wait for its cmux.rd/1 offer (bounded above): the
+                    // session stays up for the viewer's reattach.
+                    if webrtc_offered.is_none() {
+                        webrtc_offered = Some(std::time::Instant::now());
+                        if let Err(e) = ws.send_text(TRANSPORT_FRAME) {
+                            eprintln!("{log}: transport frame not sent: {e}");
+                        }
+                    }
+                    continue;
                 };
                 let mut started = match Serve::start(command) {
                     Ok(s) => s,

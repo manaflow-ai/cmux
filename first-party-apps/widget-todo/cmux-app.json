@@ -40,6 +40,13 @@
         "title": "List name",
         "description": "The name over the list. Leave empty for To Do.",
         "default": ""
+      },
+      "color": {
+        "type": "string",
+        "title": "List color",
+        "description": "The color of the list name, checkboxes and New item.",
+        "enum": ["red", "orange", "yellow", "green", "blue", "purple", "brown"],
+        "default": "blue"
       }
     }
   },

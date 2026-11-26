@@ -1,4 +1,4 @@
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 
 export type ConversationExportSource = {
   detail(): Promise<{ lastSeq: number }>;
