@@ -56,7 +56,9 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/main
-          sparse-checkout: scripts/ci/billing_nightly.py
+          sparse-checkout: |
+            scripts/ci/billing_nightly.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Open, update or close the red-nightly issue
