@@ -213,11 +213,37 @@
   --glass-gloss: 0;
 }
 
+/* THE CONTRAST EDGE (light glass over a light wallpaper; fs-agent-lane-17's readback on cmux#59205:
+   "with the light theme over a light (snow) photo, the hover card almost disappears. It is white glass
+   over white with no visible edge"). The hairline ring sits inside the glass, over its own white tint,
+   and elevation 2 is a 6 px blur at 11%, so over snow nothing marks where the glass ends. Every
+   floating glass (a popup, menu, hover card, tooltip, dialog, a transient surface) adds one outer
+   ring of the theme's ink and a soft lift under it, on the backdrop side of its edge. Both are dark
+   and translucent, so they adapt to what is behind on their own: a dark ink at 12% over white reads
+   as a line, over a dark or busy photo it is a shade on pixels that are already dark and does not
+   show. In dark they are transparent, so the dark theme draws exactly as before. Docked chrome and
+   content cards keep their one hairline (design-system-decisions B2: docked surfaces cast no shadow).
+   The gallery's ui.glass-contrast-edge compares the candidates (ring, lift, floor, ring + lift). */
+:root {
+  --glass-contrast-ring: light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent), transparent);
+  --glass-contrast-lift: light-dark(color-mix(in srgb, black 14%, transparent), transparent);
+  --glass-contrast-edge: 0 0 transparent;
+}
+:is(.ui-popup, .ui-card, .ui-dialog, .ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-glass-transient, .cu-tooltip).ui-glass,
+.ui-glass:is([data-glass-level="popover"], [data-glass-level="menu"], [data-glass-level="chip"]) {
+  --glass-contrast-edge:
+    0 0 0 var(--cmux-hairline, 0.5px) var(--glass-contrast-ring),
+    0 4px 14px -4px var(--glass-contrast-lift);
+}
+:root[data-borders="none"] {
+  --glass-contrast-ring: transparent;
+}
+
 .ui-glass {
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
-  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation), var(--glass-contrast-edge);
 }
 /* CONTENT LAYER (design/glass-system.md, rule 2: glass is for floating things; a card in the
    content layer gets a near-solid surface). A card that sits in the content layer (a permission ask
@@ -483,7 +509,8 @@
         inset -0.75px -1px 1px -0.5px var(--glass-shade),
         inset 0 0 3px 0 var(--glass-shade),
         inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge),
-        var(--glass-elevation);
+        var(--glass-elevation),
+        var(--glass-contrast-edge);
     }
   }
 }
@@ -657,7 +684,7 @@
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
-  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation), var(--glass-contrast-edge);
 }
 /* A hover card that is not a tooltip popup (the header icons' preview, the thread minimap's card) is
    the same glass: desktop.css's solid .ui-card fill never wins over it, whichever sheet loads last. */
@@ -665,7 +692,7 @@
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
-  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation), var(--glass-contrast-edge);
 }
 /* A hover card's own class may set its border's width (a session card's hairline ring); its colour
    stays clear over one class more. */
