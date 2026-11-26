@@ -49,8 +49,27 @@ pub struct Policy {
     pub delete_local: bool,
     /// Session ids never removed locally (pinned or starred chats). They are still copied.
     pub keep: HashSet<String>,
+    /// Asked again under the ledger lock right before a file goes, for its session id: a chat
+    /// opened since the pass began (and so missing from `keep`) is kept too.
+    pub kept_now: KeptNow,
     /// Now, in milliseconds since the epoch.
     pub now_ms: u64,
+}
+
+/// [`Policy::kept_now`]: None keeps only `keep`.
+#[derive(Clone, Default)]
+pub struct KeptNow(pub Option<std::sync::Arc<dyn Fn(&str) -> bool + Send + Sync>>);
+
+impl KeptNow {
+    fn kept(&self, sid: &str) -> bool {
+        self.0.as_ref().is_some_and(|kept| kept(sid))
+    }
+}
+
+impl std::fmt::Debug for KeptNow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "KeptNow(asked)" } else { "KeptNow(none)" })
+    }
 }
 
 /// One copy in the ledger.
