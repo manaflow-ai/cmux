@@ -196,7 +196,6 @@
     "cmux-tui/crates/cmux-tui/src/cli/cloud_client_session.rs:rust-duration": {"count": 1, "reason": "bound: the 15 s is slack added to the caller's own timeout_ms for create and exec, so the HTTP request outlives the machine-side timeout; it is not a short cap of its own"},
     "cmux-tui/crates/cmux-tui/src/cli/cloud_machines.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/cloud_start_chat.rs:rust-duration": {"count": 1, "reason": "base-red catch-up 2026-11-25: added on base before this ratchet ran"},
-    "cmux-tui/crates/cmux-tui/src/cli/coderouter.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/codex_app_server.rs:rust-duration": {"count": 1, "reason": "debt: pre-existing short hard timeout; remove or replace with liveness"},
     "cmux-tui/crates/cmux-tui/src/cli/ext.rs:rust-duration": {"count": 1, "reason": "base-red catch-up 2026-11-25: added on base before this ratchet ran"},
     "cmux-tui/crates/cmux-tui/src/cli/hosts_check.rs:rust-duration": {"count": 1, "reason": "base-red catch-up 2026-11-25: added on base before this ratchet ran"},
