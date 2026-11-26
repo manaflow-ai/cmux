@@ -33,6 +33,7 @@ const claudeLogin: ModelConnection = {
 
 const chatgptPlan: ModelConnection = {
   id: "chatgpt",
+  credentialInstance: "fixture-chatgpt",
   kind: "chatgpt-plan",
   provider: "openai",
   families: ["codex"],
@@ -47,6 +48,7 @@ const chatgptPlan: ModelConnection = {
 
 const claudeToken: ModelConnection = {
   id: "claude-token",
+  credentialInstance: "fixture-claude-token",
   kind: "claude-token",
   provider: "anthropic",
   families: ["claude"],
@@ -195,6 +197,8 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       const found = find(run.id);
       if (found.kind === "codex-login" || found.kind === "claude-login")
         throw new Error(`${run.id} is the CLI's own login: sign out in the CLI, or turn it off`);
+      if ((found.credentialInstance ?? null) !== run.instance)
+        throw new Error("the connection changed while it was open");
       return personal({ connections: connections.filter((c) => c.id !== run.id) });
     }
     case "connectChatGPT":

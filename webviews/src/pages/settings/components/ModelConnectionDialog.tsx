@@ -472,7 +472,13 @@ function ModelRowActionForm({
   const submit = async () => {
     if (!valid || busy || pending.current) return;
     if (!endpoint) {
-      if (await run(rename ? { action: "rename", id: connection.id, name } : { action: "remove", id: connection.id }))
+      if (
+        await run(
+          rename
+            ? { action: "rename", id: connection.id, name }
+            : { action: "remove", id: connection.id, instance: connection.credentialInstance ?? null },
+        )
+      )
         onClose();
       return;
     }
@@ -484,12 +490,16 @@ function ModelRowActionForm({
         await new ChiefHost(store.chiefCalls).addBackend(
           modelEndpointBackend(
             { ...endpoint, name, models: endpoint.models.join(","), apiKey: "" },
-            { id: connection.id, own: true, typedKey: connection.signedIn },
+            { id: connection.provider, own: true, typedKey: connection.signedIn },
             { revision: endpoint.revision },
           ),
         );
       } else {
-        const reply = await store.runAgents({ action: "remove", id: connection.id });
+        const reply = await store.runAgents({
+          action: "remove",
+          id: connection.provider,
+          endpointRevision: endpoint.revision,
+        });
         if (!reply.ok) {
           setFailure(userMessage(reply.error, SETTINGS_SENTENCES));
           return;

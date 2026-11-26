@@ -371,17 +371,10 @@ impl AgentCredential {
         self.env.contains_key(ANTHROPIC_KEY) || self.uses_claude_setup_token()
     }
 
-    pub(crate) fn has_anthropic_endpoint(&self) -> bool {
-        self.endpoint.as_ref().is_some_and(|endpoint| endpoint.kind == Kind::Anthropic)
-    }
-
-    /// Verify a matching endpoint resolves to public addresses on this machine.
-    pub(crate) async fn check_endpoint_destination(&self, family: &str) -> Result<(), RpcError> {
-        if let Some(endpoint) = &self.endpoint
-            && Family::of_harness(family) == Some(self.family())
-            && !byo_endpoint::resolves_publicly(&endpoint.base_url).await
-        {
-            return Err(RpcError::invalid_params("the endpoint does not resolve to a public host")
+    /// Delivered endpoint credentials require a transport that checks the actual destination.
+    pub(crate) fn check_launch_destination(&self) -> Result<(), RpcError> {
+        if self.endpoint.is_some() {
+            return Err(RpcError::invalid_params("The connection is unavailable.")
                 .with_data(serde_json::json!({"reason": "credentials.endpoint_unavailable"})));
         }
         Ok(())
@@ -417,7 +410,11 @@ pub(crate) fn token_shaped(value: &str) -> bool {
 pub fn requested(meta: Option<&Value>) -> Result<Option<AgentCredential>, RpcError> {
     match meta.and_then(|m| m.get(FIELD)) {
         None | Some(Value::Null) => Ok(None),
-        Some(value) => AgentCredential::parse(value).map(Some),
+        Some(value) => {
+            let credential = AgentCredential::parse(value)?;
+            credential.check_launch_destination()?;
+            Ok(Some(credential))
+        }
     }
 }
 
@@ -612,7 +609,7 @@ pub(crate) fn recovered_from_pid(pid: u32, start: u64, session: &str) -> Option<
 
 /// The ChatGPT account a ChatGPT access token (a JWT) names, from its unverified claims: it only
 /// picks the header the token is sent with, so the backend still checks the token itself.
-fn token_account(jwt: &str) -> Option<String> {
+pub(crate) fn token_account(jwt: &str) -> Option<String> {
     token_claims(jwt)?
         .pointer("/https:~1~1api.openai.com~1auth/chatgpt_account_id")
         .and_then(Value::as_str)
@@ -701,12 +698,15 @@ fn set_codex_provider(argv: &mut Vec<String>, provider: &CodexProvider<'_>) {
     }
 }
 
-/// Where a `-c` override goes in a codex command line: right after its `app-server` word, else
-/// right after the program, so it follows (and wins over) the profile's own root overrides.
+/// Where a `-c` override goes in a Codex command line: after its `app-server` or completion
+/// `exec` subcommand, or right after the program without either subcommand.
 /// Codex 0.160 drops every override before the subcommand once the subcommand has one of its own
 /// (cmux#45774), so the launch moves every override after `app-server` before it, in order
 /// (`harness_limits::codex_args`, cmux#48354): none is dropped on any codex.
 pub fn codex_config_index(argv: &[String]) -> usize {
+    if argv.get(1).is_some_and(|arg| arg == "exec") {
+        return 2;
+    }
     argv.iter().skip(1).position(|a| a == "app-server").map_or(1, |i| i + 2).min(argv.len())
 }
 

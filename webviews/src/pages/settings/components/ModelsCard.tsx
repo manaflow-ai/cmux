@@ -81,11 +81,10 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const cloudRows = connections.filter(
     (c) => !isLocalOnlyPlan(c) && (isCloudSubscription(c) || (c.canServeCloud ?? c.servesCloud)),
   );
-  const routeRows = cloud
-    ? cloudRows
-    : connections.filter((c) => c.kind !== "native-login" && c.kind !== "claude-token");
+  const routeRows = cloud ? cloudRows : connections.filter((c) => c.kind !== "native-login");
   const cloudClaude = models?.cloudClaudeLogin;
   const namedVisit = machineName ? request : null;
+  const explicitVisit = machine ? request : null;
   const claudeLogin = cloud
     ? (!namedVisit || checkedNamedVisit === namedVisit) &&
       (!machine || !cloudClaude?.machine || cloudClaude.machine === machine) &&
@@ -137,7 +136,18 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
         };
       }
     }
-  }, [available, cloud, claudeAvailable, cloudClaudeMachine, machine, environment, machineName, namedVisit, store]);
+  }, [
+    available,
+    cloud,
+    claudeAvailable,
+    cloudClaudeMachine,
+    machine,
+    environment,
+    machineName,
+    namedVisit,
+    explicitVisit,
+    store,
+  ]);
   const now = Date.now();
   const cloudRunnerStatus = (connection: ModelConnection): "updating" | "offline" | "notReady" | undefined => {
     const runner = connection.launchHarness;

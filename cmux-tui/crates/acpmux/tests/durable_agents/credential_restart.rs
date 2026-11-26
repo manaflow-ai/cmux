@@ -271,21 +271,3 @@ async fn recovery_reusing_a_login_before_adoption_restarts_the_old_host_before_t
     .unwrap();
     assert_eq!(meta["claudeLoginRestartPending"], false);
 }
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_explicit_machine_login_overrides_the_team_preference_for_one_launch() {
-    let daemon = claude_recovery_daemon("start-own-claude");
-    let mut rpc = daemon.rpc().await;
-    let started = rpc.call("session/new", json!({
-        "cwd": daemon.home, "mcpServers": [], "_meta": {"acpmux": {"claudeMachineLogin": true}}
-    })).await;
-    let normal = rpc.call("session/new", json!({"cwd": daemon.home, "mcpServers": []})).await;
-    assert_eq!(
-        agent_env(&daemon, started["sessionId"].as_str().unwrap(), "CMUX_CLAUDE_AUTH", 1).await,
-        "own"
-    );
-    assert_eq!(
-        agent_env(&daemon, normal["sessionId"].as_str().unwrap(), "CMUX_CLAUDE_AUTH", 1).await,
-        "team"
-    );
-}

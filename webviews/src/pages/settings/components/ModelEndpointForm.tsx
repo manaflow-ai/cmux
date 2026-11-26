@@ -57,6 +57,16 @@ export function ModelEndpointForm({
   const kind = existing?.kind ?? "openai-endpoint";
   const store = useStore();
   const service = useMemo(() => new ChiefHost(store.chiefCalls), [store]);
+  const targets = useMemo(
+    () => ({
+      async harnessIds() {
+        const profiles = await service.harnessIds();
+        const connections = store.getSnapshot().models?.personal.connections ?? [];
+        return [...profiles, ...connections.map(({ id }) => id)];
+      },
+    }),
+    [service, store],
+  );
   const [typedName, setName] = useState(original?.label ?? (provider.id === "endpoint" ? "" : provider.name));
   const gateway =
     cloudflare && existing
@@ -98,8 +108,8 @@ export function ModelEndpointForm({
       ? bedrockRegion(parsed?.hostname ?? "")
       : undefined;
   const name = !original && regionOrResource ? `${provider.name} (${regionOrResource})` : typedName;
-  const currentTarget = original ? { id: original.id, own: true, typedKey: original.signedIn } : null;
-  const next = useNextTarget(original ? null : service, name, "endpoint", currentTarget);
+  const currentTarget = original ? { id: original.provider, own: true, typedKey: original.signedIn } : null;
+  const next = useNextTarget(original ? null : targets, name, "endpoint", currentTarget);
   const urlProblem =
     (azure && (/\/deployments(?:\/|$)/i.test(path) || azureChatRoute.test(path)) ? "azure" : null) ??
     (cloud && parsed?.protocol === "http:" ? "insecure" : null) ??

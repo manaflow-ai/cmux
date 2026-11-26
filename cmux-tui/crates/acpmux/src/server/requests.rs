@@ -3387,17 +3387,7 @@ async fn dispatch_request_with_identity(
             }
             reply
         }
-        method::MUX_CONNECTIONS_GROK_HOOK => {
-            let caller = conn
-                .caller()
-                .filter(|_| conn.origin == Origin::Local)
-                .ok_or_else(|| conn.person_only("reading Grok Build access"))?;
-            let id = params
-                .get("id")
-                .and_then(Value::as_str)
-                .ok_or_else(|| RpcError::invalid_params("a route id is required"))?;
-            hub.grok_hook_credential(caller, id).await
-        }
+        method::MUX_CONNECTIONS_GROK_HOOK => Err(RpcError::method_not_found(m)),
         name if super::connections::METHODS.contains(&name) => {
             // A connection's token goes to the person's app, never to an agent acpmux runs: only a
             // connection that proved the person reads one (`connections::reads_token`).
@@ -4747,5 +4737,6 @@ async fn agent_credentials_update(
         wire["endpoint"] = endpoint.clone();
     }
     let credential = crate::agent_credentials::AgentCredential::parse(&wire)?;
+    credential.check_launch_destination()?;
     hub.update_credential(id, credential, legacy_refresh).await
 }

@@ -5,9 +5,12 @@ use super::*;
 use crate::store::{META_SCHEMA, SessionMeta};
 use serde_json::json;
 
-fn hub() -> Arc<Hub> {
-    let config: crate::config::Config =
-        serde_json::from_value(json!({"store": {"mode": "memory"}})).unwrap();
+fn hub(home: &std::path::Path) -> Arc<Hub> {
+    let config: crate::config::Config = serde_json::from_value(json!({
+        "store": {"mode": "memory"},
+        "harnesses": {"claude": {"kind": "claude-stdio", "argv": ["claude"], "env": {"HOME": home}}}
+    }))
+    .unwrap();
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
     Hub::new(config, store)
 }
@@ -29,7 +32,7 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     .unwrap();
     let home = root.join("home");
     std::fs::create_dir_all(home.join(".claude")).unwrap();
-    let hub = hub();
+    let hub = hub(&home);
     hub.set_vm_marker_root(root.clone());
     let meta: SessionMeta = serde_json::from_value(json!({
         "schema": META_SCHEMA,
@@ -205,10 +208,37 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     let team = hub.spawn_profile_for(&account, &p, &none).await.unwrap();
     assert_eq!(team.env.get("ANTHROPIC_BASE_URL").map(String::as_str), Some("https://localhost"));
     account.session_env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+    account.stop_condition = Some("The task is done.".into());
     let own = hub.spawn_profile_for(&account, &p, &none).await.unwrap();
     assert_eq!(own.env.get("CMUX_CLAUDE_AUTH").map(String::as_str), Some("own"));
     assert!(!own.env.contains_key("ANTHROPIC_BASE_URL"));
+    let settings = crate::claude_cloud_auth::flag_settings(&own.argv[1..], &home).unwrap().unwrap();
+    assert_eq!(settings["hooks"]["Stop"][0]["hooks"][0]["prompt"], "The task is done.");
+    assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "");
     assert_eq!(std::fs::read_to_string(choice.join("claude")).unwrap(), "team\n");
+    let refused = hub.spawn_profile_for(&account, &flagged, &none).await.err().unwrap();
+    assert_eq!(refused.data.unwrap()["reason"], "route.unavailable");
+
+    // A gateway selection supersedes a machine login even when the machine preference is own.
+    std::fs::write(choice.join("claude"), "own\n").unwrap();
+    hub.config.write().await.harnesses.insert(meta.harness.clone(), p.clone());
+    for recovered in [false, true] {
+        let mut pinned = account.clone();
+        if recovered {
+            pinned.session_env.remove("CMUX_CLAUDE_AUTH");
+            pinned.claude_token_recovery = Some(crate::store::ClaudeTokenRecovery::MachineLogin);
+            pinned.claude_login_restart_pending = Some(false);
+        }
+        let session = hub.make_session(pinned);
+        assert!(hub.select_claude_gateway(&session).await.unwrap());
+        let gateway = hub.spawn_profile_for(&session.meta(), &p, &none).await.unwrap();
+        assert_eq!(
+            gateway.env.get("ANTHROPIC_BASE_URL").map(String::as_str),
+            Some("https://localhost")
+        );
+        assert!(gateway.env.contains_key(crate::claude_cloud_auth::TEAM_MARKER));
+        assert_eq!(std::fs::read_to_string(choice.join("claude")).unwrap(), "own\n");
+    }
 
     // The explicit Cloud start replaces even a profile's personal launch key and endpoint.
     std::fs::write(choice.join("claude"), "own\n").unwrap();
@@ -236,6 +266,19 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "https://localhost");
     assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], crate::codex_cloud_auth::PLACEHOLDER_KEY);
     assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "");
+
+    // An explicit team request cannot copy a settings file into argv and durable spawn metadata.
+    std::fs::write(
+        home.join("personal.json"),
+        r#"{"env":{"ANTHROPIC_BASE_URL":"https://personal.test","AWS_BEARER_TOKEN_BEDROCK":"fixture-file-secret"}}"#,
+    ).unwrap();
+    let mut file_profile = profile(&[]);
+    file_profile.argv.extend(["--settings".into(), "personal.json".into()]);
+    let own = hub.spawn_profile_for(&meta, &file_profile, &none).await.unwrap();
+    assert_eq!(own.argv, file_profile.argv);
+    let refused = hub.spawn_profile_for(&requested, &file_profile, &none).await.err().unwrap();
+    assert_eq!(refused.data.unwrap()["reason"], "route.unavailable");
+    assert!(!refused.message.contains("fixture-file-secret"));
 
     std::fs::remove_file(root.join("etc/cmux/model-plane.env")).unwrap();
     let refused = hub.spawn_profile_for(&requested, &personal, &none).await.err().unwrap();

@@ -350,7 +350,7 @@ pub struct Cli {
 
 impl Cli {
     /// A variable as the CLI sees it: the profile's, else this daemon's.
-    fn var(&self, key: &str) -> Option<String> {
+    pub(crate) fn var(&self, key: &str) -> Option<String> {
         self.env
             .get(key)
             .cloned()

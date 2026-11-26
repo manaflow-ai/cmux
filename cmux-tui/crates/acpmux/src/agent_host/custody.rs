@@ -157,7 +157,7 @@ impl Ring {
                 .create_new(true)
                 .mode(0o600)
                 .open(&path)?;
-            let _ = crate::home_fs::remove_file(&path);
+            crate::home_fs::remove_file(&path)?;
             Ok(Self { fd: OwnedFd::from(file) })
         }
     }
@@ -309,39 +309,6 @@ fn read_pipe(pipe: RawFd, buf: &mut [u8]) -> std::io::Result<usize> {
     }
 }
 
-/// Holds only a possible prefix of the key across reads, so a split write cannot leak it.
-struct RingRedaction {
-    key: Vec<u8>,
-    tail: Vec<u8>,
-}
-
-impl RingRedaction {
-    fn append_from(&mut self, pipe: RawFd, ring: &Ring, at: u64) -> std::io::Result<(usize, bool)> {
-        let mut chunk = [0; 16 << 10];
-        let n = read_pipe(pipe, &mut chunk)?;
-        let eof = n == 0;
-        self.tail.extend_from_slice(&chunk[..n]);
-        let mut output = Vec::with_capacity(self.tail.len());
-        let mut rest = self.tail.as_slice();
-        let finder = memchr::memmem::Finder::new(&self.key);
-        while let Some(start) = finder.find(rest) {
-            output.extend_from_slice(&rest[..start]);
-            output.extend_from_slice(b"[redacted]");
-            rest = &rest[start + self.key.len()..];
-        }
-        let keep = if eof {
-            0
-        } else {
-            let possible = rest.len().min(self.key.len() - 1);
-            (1..=possible).rev().find(|&len| rest.ends_with(&self.key[..len])).unwrap_or(0)
-        };
-        output.extend_from_slice(&rest[..rest.len() - keep]);
-        let consumed = self.tail.len() - keep;
-        self.tail.drain(..consumed);
-        Ok((ring.append(&output, at)?, eof))
-    }
-}
-
 /// The harness's stdout through the ring: bytes from `read_off` on, read back from the ring, and
 /// moved there from the pipe as the reader needs more.
 pub(crate) struct RingPipe {
@@ -350,7 +317,6 @@ pub(crate) struct RingPipe {
     read_off: u64,
     end: u64,
     eof: bool,
-    redaction: Option<RingRedaction>,
 }
 
 impl RingPipe {
@@ -359,18 +325,13 @@ impl RingPipe {
         pipe: OwnedFd,
         ring: std::sync::Arc<Ring>,
         from: u64,
-        key: Option<&str>,
     ) -> std::io::Result<Self> {
         set_nonblocking(pipe.as_raw_fd())?;
         let end = ring.end()?;
         let pipe = tokio::io::unix::AsyncFd::with_interest(pipe, tokio::io::Interest::READABLE)?;
-        // Linux's private memfd retains the exact stream across a host crash. Redact
-        // its entries at the host's journal and tap boundary. Other platforms redact
-        // before writing to the unlinked, disk-backed ring.
-        let redaction = key
-            .filter(|key| !cfg!(target_os = "linux") && !key.is_empty())
-            .map(|key| RingRedaction { key: key.as_bytes().to_vec(), tail: Vec::new() });
-        Ok(Self { pipe, ring, read_off: from.min(end), end, eof: false, redaction })
+        // Keep exact stream offsets for a replacement host. The journal and tap redact
+        // completed entries before publishing them.
+        Ok(Self { pipe, ring, read_off: from.min(end), end, eof: false })
     }
 }
 
@@ -399,14 +360,10 @@ impl tokio::io::AsyncRead for RingPipe {
                 Poll::Pending => return Poll::Pending,
             };
             let pipe = this.pipe.get_ref().as_raw_fd();
-            let appended = match this.redaction.as_mut() {
-                Some(redaction) => redaction.append_from(pipe, &this.ring, this.end),
-                None => this.ring.append_from(pipe, this.end, 256 << 10).map(|n| (n, n == 0)),
-            };
-            match appended {
-                Ok((n, eof)) => {
+            match this.ring.append_from(pipe, this.end, 256 << 10) {
+                Ok(n) => {
                     this.end += n as u64;
-                    this.eof = eof;
+                    this.eof = n == 0;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => guard.clear_ready(),
                 Err(e) => return Poll::Ready(Err(e)),
@@ -653,12 +610,11 @@ pub(crate) fn inherited(
 }
 
 #[cfg(test)]
-mod ring_redaction_tests {
+mod ring_tests {
     use super::*;
 
-    #[cfg(target_os = "linux")]
     #[tokio::test]
-    async fn a_replacement_linux_reader_recovers_a_partial_frame_with_a_split_grant() {
+    async fn a_replacement_reader_recovers_a_partial_frame_with_a_key_prefix() {
         use tokio::io::AsyncReadExt as _;
 
         let dir = tempfile::tempdir().unwrap();
@@ -668,39 +624,23 @@ mod ring_redaction_tests {
         assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
         let reader = unsafe { OwnedFd::from_raw_fd(fds[0]) };
         let mut writer = std::fs::File::from(unsafe { OwnedFd::from_raw_fd(fds[1]) });
-        let key = Some("fixture-grant");
         let mut original =
-            RingPipe::new(dup(reader.as_raw_fd()).unwrap(), ring.clone(), 0, key).unwrap();
+            RingPipe::new(dup(reader.as_raw_fd()).unwrap(), ring.clone(), 0).unwrap();
         let prefix = b"{\"text\":\"fixture-";
         writer.write_all(prefix).unwrap();
-        let mut partial = vec![0; prefix.len()];
+        let mut partial = [0; 1];
+        // The pipe was consumed before the first byte was returned. The replacement must be
+        // able to replay the unpublished suffix as well as the byte the old reader returned.
         original.read_exact(&mut partial).await.unwrap();
-        assert_eq!(partial.as_slice(), prefix);
+        assert_eq!(partial, [prefix[0]]);
+        assert_eq!(ring.end().unwrap(), prefix.len() as u64);
         drop(original);
 
-        writer.write_all(b"grant\"}\n").unwrap();
+        writer.write_all(b"ordinary\"}\n").unwrap();
         drop(writer);
-        let mut replacement = RingPipe::new(reader, ring, 0, key).unwrap();
+        let mut replacement = RingPipe::new(reader, ring, 0).unwrap();
         let mut replay = Vec::new();
         replacement.read_to_end(&mut replay).await.unwrap();
-        assert_eq!(replay.as_slice(), b"{\"text\":\"fixture-grant\"}\n");
-    }
-
-    #[test]
-    fn local_grants_split_across_reads_never_reach_the_ring() {
-        let dir = tempfile::tempdir().unwrap();
-        let ring = Ring::create(dir.path()).unwrap();
-        let (mut writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
-        let mut redaction = RingRedaction { key: b"fixture-kimi-grant".to_vec(), tail: Vec::new() };
-        writer.write_all(b"provider refused fixture-kimi-").unwrap();
-        let (n, _) = redaction.append_from(reader.as_raw_fd(), &ring, 0).unwrap();
-        let mut first = vec![0; n];
-        assert_eq!(ring.read_at(&mut first, 0).unwrap(), n);
-        assert_eq!(first, b"provider refused ");
-        writer.write_all(b"grant twice: fixture-kimi-grant\n").unwrap();
-        redaction.append_from(reader.as_raw_fd(), &ring, n as u64).unwrap();
-        let mut replay = vec![0; ring.end().unwrap() as usize];
-        assert_eq!(ring.read_at(&mut replay, 0).unwrap(), replay.len());
-        assert_eq!(replay, b"provider refused [redacted] twice: [redacted]\n");
+        assert_eq!(replay.as_slice(), b"{\"text\":\"fixture-ordinary\"}\n");
     }
 }

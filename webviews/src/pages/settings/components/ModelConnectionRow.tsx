@@ -131,22 +131,24 @@ export function ModelConnectionRow({
   const reconnect = useRef<HTMLButtonElement>(null);
   const rename = tools && !nativeLogin && connection.kind !== "claude-login" && (!endpoint || !!connection.endpoint);
   const disconnect = cloud ? cloudSubscription : !nativeLogin && !builtin && (!endpoint || !!connection.endpoint);
-  const enableCloudSubscription = cloud && cloudSubscription && !connection.enabled;
+  const enableCloudSubscription = cloud && cloudSubscription && !legacyClaude && !connection.enabled;
   const status =
-    connection.kind === "claude-token"
-      ? undefined
-      : cloud && !connection.servesCloud && connection.kind !== "claude-login"
-        ? t("settingsWindow.cloud.status.notUsed")
-        : !connection.enabled
-          ? t("settingsWindow.models.status.turnedOff")
-          : (warning ??
-            (cloudRunnerStatus === "updating"
-              ? t("settingsWindow.cloud.status.updating")
-              : cloudRunnerStatus === "offline"
-                ? t("settingsWindow.cloud.status.offline")
-                : cloudRunnerStatus === "notReady"
-                  ? t("settingsWindow.cloud.status.notReady")
-                  : undefined));
+    !connection.enabled && connection.kind === "claude-token"
+      ? t("settingsWindow.models.status.turnedOff")
+      : connection.kind === "claude-token"
+        ? undefined
+        : cloud && !connection.servesCloud && connection.kind !== "claude-login" && !legacyClaude
+          ? t(onCloudChange ? "settingsWindow.cloud.status.offForNewChats" : "settingsWindow.cloud.status.notUsed")
+          : !connection.enabled
+            ? t("settingsWindow.models.status.turnedOff")
+            : (warning ??
+              (cloudRunnerStatus === "updating"
+                ? t("settingsWindow.cloud.status.updating")
+                : cloudRunnerStatus === "offline"
+                  ? t("settingsWindow.cloud.status.offline")
+                  : cloudRunnerStatus === "notReady"
+                    ? t("settingsWindow.cloud.status.notReady")
+                    : undefined));
   const plan = planName(connection.families[0] ?? "", connection.plan);
   const details = [
     connection.email,
@@ -354,7 +356,7 @@ export function ModelConnectionRow({
             </MenuPopup>
           </Menu>
         )}
-        {!cloud && !nativeLogin && !endpoint && (
+        {((!cloud && !nativeLogin && !endpoint) || legacyClaude) && (
           <Switch
             checked={connection.enabled}
             disabled={busy}

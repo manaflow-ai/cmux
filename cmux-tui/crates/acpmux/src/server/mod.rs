@@ -2810,6 +2810,7 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 }
 
 mod agent_login;
+pub(crate) use agent_login::claude_machine_login_env;
 mod agent_messages;
 mod app_reply;
 #[cfg(test)]

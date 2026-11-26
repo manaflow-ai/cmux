@@ -19,6 +19,7 @@ impl Hub {
         let (dir, _) = crate::routes::places(&*self.config.read().await);
         let found = crate::routes::find(dir.as_deref(), route_id)
             .map_err(|e| RpcError::invalid_params(format!("route {route_id}: {}", e.message())))?;
+        found.check_local_launch().map_err(|e| route_error(&e))?;
         if !found.serves(family) {
             return Err(RpcError::invalid_params(format!(
                 "route {route_id} does not serve the {family} harness"
@@ -133,19 +134,24 @@ impl Hub {
             );
             env.insert(crate::chatgpt::LOCAL_EXPIRY_ENV.into(), expires_at.to_string());
         }
-        if let Some(provider) = crate::subscriptions::Provider::for_kind(moved.file.kind) {
-            let (_, home) = routes::places(&*self.config.read().await);
-            let (token, expires_at, region) = self
-                .subscriptions
-                .grant(provider, &home, &id, crate::subscriptions::LOCAL_MARGIN)
-                .await
-                .map_err(subscription_error)?;
+        use crate::subscriptions::Provider;
+        if let Some(provider) = Provider::for_kind(moved.file.kind) {
+            let grant = async || {
+                let (_, home) = routes::places(&*self.config.read().await);
+                let (token, expires_at, region) = self
+                    .subscriptions
+                    .grant(provider, &home, &id, crate::subscriptions::LOCAL_MARGIN)
+                    .await
+                    .map_err(subscription_error)?;
+                Ok::<_, RpcError>((token, expires_at, region, home))
+            };
             match provider {
-                crate::subscriptions::Provider::Grok => {
+                Provider::Grok => {
                     let _ = session.ok_or_else(|| subscription_error("session_required"))?;
                     env.insert(crate::subscriptions::grok_hook::ROUTE.into(), id.clone());
                 }
-                crate::subscriptions::Provider::Kimi => {
+                Provider::Kimi => {
+                    let (token, expires_at, region, _) = grant().await?;
                     let region = region.ok_or_else(|| subscription_error("reauth_required"))?;
                     env.extend(
                         crate::byo_endpoint::opencode_env(
@@ -167,14 +173,15 @@ impl Hub {
                         expires_at.to_string(),
                     );
                 }
-                crate::subscriptions::Provider::Copilot => {
+                Provider::Copilot => {
+                    let (token, _, _, _home) = grant().await?;
                     env.insert(crate::agent_credentials::COPILOT_TOKEN.into(), token);
                     #[cfg(unix)]
                     {
                         env.insert(crate::agent::copilot_auth::ROUTE_ENV.into(), id.clone());
                         env.insert(
                             crate::agent::copilot_auth::ROUTE_HOME_ENV.into(),
-                            home.to_string_lossy().into_owned(),
+                            _home.to_string_lossy().into_owned(),
                         );
                     }
                 }
@@ -339,52 +346,6 @@ impl Hub {
         .flatten()
     }
 
-    /// A proven local Grok caller may only read the route its own chat uses.
-    pub(crate) async fn grok_hook_credential(
-        &self,
-        caller: &str,
-        id: &str,
-    ) -> Result<Value, RpcError> {
-        use crate::subscriptions::{LOCAL_MARGIN, Provider};
-        let unavailable = || subscription_error("not_available");
-        let session = self.resolve_here(caller)?;
-        let meta = session.meta();
-        let (dir, home, profile) = {
-            let config = self.config.read().await;
-            let (dir, home) = routes::places(&config);
-            (dir, home, config.harnesses.get(&meta.harness).cloned().ok_or_else(unavailable)?)
-        };
-        let family = crate::config::derive_family(&meta.harness, &profile);
-        if family != "grok" {
-            return Err(unavailable());
-        }
-        let route_id = id.to_owned();
-        let root = home.clone();
-        let matched = tokio::task::spawn_blocking(move || {
-            routes::spawn_route(
-                &routes::bindings(&root),
-                &meta.id,
-                meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str),
-                &family,
-                &profile.env,
-            )
-            .is_some_and(|(chosen, _)| chosen == route_id)
-                && routes::find(dir.as_deref(), &route_id)
-                    .is_ok_and(|route| route.file.kind == Provider::Grok.kind())
-        })
-        .await
-        .map_err(|_| unavailable())?;
-        if !matched {
-            return Err(unavailable());
-        }
-        let (access_token, expires_at) = self
-            .subscriptions
-            .token(Provider::Grok, &home, id, LOCAL_MARGIN)
-            .await
-            .map_err(subscription_error)?;
-        Ok(json!({"access_token": access_token, "expires_at": expires_at}))
-    }
-
     /// Bind a chat to a route (None: back to the inherited one) and move its
     /// harness onto it: an idle chat restarts now and resumes; a running
     /// turn finishes first (`now`: is cancelled first).
@@ -424,18 +385,35 @@ impl Hub {
             let to = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
             route_account::switch_allowed(current.as_deref(), &to).map_err(|e| route_error(&e))?;
         }
-        let from = routes::bindings(&state).chats.get(&session.id).cloned();
-        routes::set_binding(&state, &format!("chat:{}", session.id), route.as_deref())
-            .map_err(|e| route_error(&e))?;
-        let running = session.turn().is_some();
-        self.append(
-            session,
-            "mux",
-            "route_changed",
-            json!({"from": from, "to": route, "when": if running && !now { "after-turn" } else { "now" }}),
-        );
+        let running = {
+            let _spawn = self.spawn_lease(session).await;
+            let claude = profile
+                .as_ref()
+                .is_some_and(|p| crate::config::derive_family(&meta.harness, p) == "claude");
+            if claude {
+                self.check_claude_route_change(session)?;
+            }
+            let binding = format!("chat:{}", session.id);
+            let from = routes::bindings(&state).chats.get(&session.id).cloned();
+            routes::set_binding(&state, &binding, route.as_deref()).map_err(|e| route_error(&e))?;
+            if claude && let Err(error) = self.save_claude_launch_auth(session, false) {
+                routes::set_binding(&state, &binding, from.as_deref())
+                    .map_err(|e| route_error(&e))?;
+                return Err(error);
+            }
+            let running = session.turn().is_some();
+            if running {
+                session.route_switch.store(true, Ordering::SeqCst);
+            }
+            self.append(
+                session,
+                "mux",
+                "route_changed",
+                json!({"from": from, "to": route, "when": if running && !now { "after-turn" } else { "now" }}),
+            );
+            running
+        };
         if running {
-            session.route_switch.store(true, Ordering::SeqCst);
             if now {
                 self.cancel(session).await?;
             }

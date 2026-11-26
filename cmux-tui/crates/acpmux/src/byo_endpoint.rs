@@ -313,24 +313,6 @@ fn public_ip(ip: std::net::IpAddr) -> bool {
     }
 }
 
-/// Check the machine's current DNS answers before handing the URL to the harness.
-pub(crate) async fn resolves_publicly(base_url: &str) -> bool {
-    let Ok(url) = reqwest::Url::parse(base_url) else { return false };
-    let Some(host) = url.host_str() else { return false };
-    let host = host.trim_start_matches('[').trim_end_matches(']');
-    if let Ok(ip) = host.parse() {
-        return public_ip(ip);
-    }
-    let port = url.port().unwrap_or(443);
-    let Ok(Ok(mut addresses)) =
-        tokio::time::timeout(FETCH_TIMEOUT, tokio::net::lookup_host((host, port))).await
-    else {
-        return false;
-    };
-    addresses.next().is_some_and(|first| public_ip(first.ip()))
-        && addresses.all(|address| public_ip(address.ip()))
-}
-
 fn public_ipv4(ip: std::net::Ipv4Addr) -> bool {
     let [a, b, ..] = ip.octets();
     a != 0

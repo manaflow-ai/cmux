@@ -1,6 +1,5 @@
-//! ChatGPT subscription records live in the login Keychain on macOS. The
-//! owner-only files in `<acpmux home>/chatgpt/` carry the account metadata and
-//! Keychain references. Other platforms retain their owner-only JSON records.
+//! ChatGPT subscription records are owner-only JSON files. New macOS grants
+//! live in the login Keychain, with a metadata index in place of the record.
 
 use std::path::Path;
 
@@ -27,6 +26,8 @@ pub(crate) struct Record {
     pub email: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
     #[serde(default)]
     pub access_token: String,
     #[serde(default)]
@@ -61,10 +62,17 @@ impl Record {
     /// Signed out in place: the tokens go, the identity stays (a later sign-in of the same
     /// account finds this record and its route).
     pub fn clear_tokens(&mut self) {
+        self.workspace = self.workspace();
         self.access_token.clear();
         self.refresh_token.clear();
         self.id_token.clear();
         self.expires_at = 0;
+    }
+
+    pub(super) fn workspace(&self) -> Option<String> {
+        crate::agent_credentials::token_account(&self.access_token)
+            .or_else(|| crate::agent_credentials::token_account(&self.id_token))
+            .or_else(|| self.workspace.clone())
     }
 }
 
@@ -100,6 +108,7 @@ pub(crate) struct Metadata {
     pub sub: String,
     pub email: Option<String>,
     pub plan: Option<String>,
+    pub workspace: Option<String>,
     signed_in: bool,
 }
 
@@ -107,10 +116,6 @@ impl Metadata {
     pub(crate) fn signed_in(&self) -> bool {
         self.client_id == CODEX_CLIENT_ID && self.signed_in
     }
-}
-
-pub(crate) fn migrate_all(home: &Path) {
-    store(home).migrate_all::<Record>();
 }
 
 pub(crate) fn available(home: &Path, id: &str) -> Result<bool, Error> {

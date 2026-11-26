@@ -147,6 +147,35 @@ async fn recovery_rechecks_replay_after_a_transient_timeout() {
 }
 
 #[tokio::test]
+async fn recovery_rechecks_an_incomplete_replay_after_the_open_turn_ends() {
+    let (mut daemon, session, host) = token_chat("r11-open-replay").await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut old_client = daemon.rpc().await;
+    old_client.send(
+        "session/prompt",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+    ).await;
+    daemon.wait_event(&session, "the open turn's first chunk", |e| chunk(e, "before-gate"));
+
+    let replay_gate = daemon.home.join("replay-stalled");
+    std::fs::write(&replay_gate, "").unwrap();
+    daemon.env.push((
+        "ACPMUX_TEST_REPLAY_INCOMPLETE_FILE".into(),
+        replay_gate.to_string_lossy().into_owned(),
+    ));
+    let mut rpc = restart_after_recovery(&mut daemon, &session, false).await;
+    assert!(daemon.events(&session).iter().any(|event| event["kind"] == "host_adopted"));
+    assert_eq!(daemon.host_record(&session)["host_pid"], host["host_pid"]);
+    ends_its_turn(&daemon, &session, &gate);
+    std::fs::remove_file(replay_gate).unwrap();
+
+    let reply = prompt_reply(&mut rpc, &session).await;
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "{reply}");
+    assert_ne!(daemon.host_record(&session)["host_pid"], host["host_pid"]);
+}
+
+#[tokio::test]
 async fn recovery_refuses_the_prompt_when_the_old_host_outlives_the_end_deadline() {
     let (mut daemon, session, host) = token_chat("r9-timeout").await;
     let mut rpc = restart_after_recovery(&mut daemon, &session, false).await;

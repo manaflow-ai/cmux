@@ -157,10 +157,10 @@ extension CloudAgentCredentialRefresher {
             do {
                 _ = try await client.updateCredentials(credential?.env ?? [:], sessionID: sessionID, ownerLink: ownerLink, launchEndpoint: credential?.endpoint)
                 outcome = .delivered
-            } catch let error as AgentSessionAttachError
-                        where error.code == "agent_session.unknown_tab" || error.code == AgentSessionAttachClient.startUnsupported {
+            } catch let error as AgentSessionAttachError where error.code == "agent_session.unknown_tab" {
                 outcome = .gone
             } catch {
+                // A guest that cannot take the write can still be running on the last credential.
                 outcome = .failed
             }
             await client.close()

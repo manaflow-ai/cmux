@@ -264,17 +264,38 @@ impl Hub {
         };
         // The profile's env with its bound route (claude-sr, claude-cr, a route file).
         let mut env = profile.env.clone();
+        env.remove(crate::chatgpt::LOCAL_EXPIRY_ENV);
+        env.remove(crate::subscriptions::LOCAL_KIMI_EXPIRY);
         self.apply_route_for(name, None, None, false, profile, &mut env)
             .await
             .map_err(|e| failed(e.message))?;
-        // Codex runs without the user's config: their provider comes back.
-        let codex = match recipe {
-            Recipe::Codex => codex_user_config(&env).await,
-            _ => CodexUserConfig::default(),
+        let chatgpt = recipe == Recipe::Codex && env.contains_key(crate::chatgpt::LOCAL_EXPIRY_ENV);
+        let kimi =
+            recipe == Recipe::OpenCode && env.contains_key(crate::subscriptions::LOCAL_KIMI_EXPIRY);
+        // The CLI ignores the user's config. Restore its provider only without a selected grant.
+        let codex = if recipe == Recipe::Codex && !chatgpt {
+            codex_user_config(&env).await
+        } else {
+            CodexUserConfig::default()
         };
-        let model = match &req.model {
-            Some(model) => Some(model.clone()),
-            None => self.small_model(name, recipe, &env, &codex).await,
+        let model = if kimi {
+            let qualified = format!(
+                "{}/{}",
+                crate::byo_endpoint::OPENCODE_PROVIDER,
+                crate::subscriptions::KIMI_MODEL
+            );
+            if let Some(model) = req.model.as_deref()
+                && !matches!(model, "default" | crate::subscriptions::KIMI_MODEL)
+                && model != qualified
+            {
+                return Err(CompleteError::InvalidParams("model not found".into()));
+            }
+            Some(qualified)
+        } else {
+            match &req.model {
+                Some(model) => Some(model.clone()),
+                None => self.small_model(name, recipe, &env, &codex).await,
+            }
         };
         let small_fast = env_value(&env, model_pick::SMALL_FAST_ENV);
         if !fallback.permits(recipe, model.as_ref(), small_fast.as_deref()) {
@@ -306,8 +327,14 @@ impl Hub {
         let dir =
             RunDir::new_in(&places.runs()).map_err(|e| failed(format!("a run folder: {e}")))?;
         let folders = recipes::Folders { cwd: &cwd, run: dir.path() };
-        let inv = recipes::invocation(recipe, program, prefix, model.as_deref(), folders)
+        let mut inv = recipes::invocation(recipe, program, prefix, model.as_deref(), folders)
             .with_codex_overrides(&codex.overrides);
+        if chatgpt {
+            let mut argv = vec![inv.program.clone()];
+            argv.append(&mut inv.args);
+            crate::agent_credentials::configure_chatgpt(&mut argv, &mut env);
+            inv.args = argv.into_iter().skip(1).collect();
+        }
         if let Some(file) = &inv.prompt_file {
             dir.write_private(file, req.prompt.as_bytes())
                 .map_err(|e| failed(format!("the prompt file: {e}")))?;
@@ -327,17 +354,19 @@ impl Hub {
         .await
         .map_err(|e| failed(format!("{e:#}")))?;
         for (key, value) in &inv.env_set {
-            if scratch.is_some() && key == "OPENCODE_CONFIG_CONTENT" {
-                // Keep the Copilot provider selection and add the completion's tool restrictions.
+            if (kimi || scratch.is_some()) && key == "OPENCODE_CONFIG_CONTENT" {
+                // Keep the selected provider and add the completion's tool restrictions.
                 let current =
                     crate::agent::command_env(&cmd).into_iter().find(|(name, _)| name == key);
-                let mut config: Value =
-                    current.and_then(|(_, value)| serde_json::from_str(&value).ok()).ok_or_else(
-                        || failed("missing GitHub Copilot provider configuration".into()),
-                    )?;
+                let mut config: Value = current
+                    .and_then(|(_, value)| serde_json::from_str(&value).ok())
+                    .ok_or_else(|| failed("invalid OpenCode completion configuration".into()))?;
                 let isolated: Value = serde_json::from_str(value)
                     .map_err(|_| failed("invalid OpenCode completion configuration".into()))?;
                 config["agent"] = isolated["agent"].clone();
+                if kimi {
+                    config["enabled_providers"] = json!([crate::byo_endpoint::OPENCODE_PROVIDER]);
+                }
                 cmd.env(key, config.to_string());
             } else {
                 cmd.env(key, value);

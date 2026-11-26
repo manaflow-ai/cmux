@@ -560,15 +560,30 @@ pub(super) fn save(
     let dir = places.routes.as_deref();
     let records = store::all(&places.home);
     let VerifiedSignIn { claims, answer } = sign_in;
-    if let Some((_, expected)) = records.iter().find(|(id, _)| Some(id) == reauth.as_ref())
-        && expected.sub != claims.sub
-    {
-        return Err(Failure::wrong_account(
-            claims.email.clone().unwrap_or_else(|| "another ChatGPT account".into()),
-            expected.email.clone().unwrap_or_else(|| "the connected ChatGPT account".into()),
-        ));
+    let mut record = Record {
+        client_id: client_id.to_owned(),
+        sub: claims.sub,
+        email: claims.email,
+        plan: claims.plan,
+        workspace: claims.account,
+        ..Record::default()
+    };
+    answer.apply(&mut record, super::now_unix());
+    let workspace = record.workspace();
+    if let Some((_, expected)) = records.iter().find(|(id, _)| Some(id) == reauth.as_ref()) {
+        if expected.sub != record.sub {
+            return Err(Failure::wrong_account(
+                record.email.clone().unwrap_or_else(|| "another ChatGPT account".into()),
+                expected.email.clone().unwrap_or_else(|| "the connected ChatGPT account".into()),
+            ));
+        }
+        if expected.workspace.is_some() && expected.workspace != workspace {
+            return Err(Failure::new("different_account", "ChatGPT approved a different account"));
+        }
     }
-    let same = |r: &store::Metadata| r.client_id == client_id && r.sub == claims.sub;
+    let same = |r: &store::Metadata| {
+        r.client_id == client_id && r.sub == record.sub && r.workspace == workspace
+    };
     if reject_existing
         && records.iter().any(|(id, r)| {
             same(r)
@@ -591,14 +606,6 @@ pub(super) fn save(
                 .find(|id| !taken(id))
                 .unwrap_or_else(|| "chatgpt".to_owned())
         });
-    let mut record = Record {
-        client_id: client_id.to_owned(),
-        sub: claims.sub,
-        email: claims.email,
-        plan: claims.plan,
-        ..Record::default()
-    };
-    answer.apply(&mut record, super::now_unix());
     store::write(&places.home, &id, &record).map_err(super::store_failure)?;
     let disabled = routes::find(dir, &id)
         .ok()

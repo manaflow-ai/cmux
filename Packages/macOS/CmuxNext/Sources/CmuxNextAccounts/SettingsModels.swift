@@ -399,8 +399,11 @@ public final class SettingsModels {
         case "checkAccess":
             return try await checkAccess(params)
         case "remove":
-            guard let id = listedID(params) else { throw PageError.invalidParams("remove needs a listed id") }
-            try await mutate(.connectionsRemove, ["id": id])
+            guard let id = listedID(params), let instance = params["instance"]?.stringValue,
+                  connections.contains(where: { $0["id"]?.stringValue == id && $0["credentialInstance"]?.stringValue == instance }) else {
+                throw PageError.invalidParams("remove needs the listed connection instance")
+            }
+            try await mutate(.connectionsRemove, ["id": id, "instance": instance])
         case "connectChatGPT":
             return try await connectChatGPT(id: params["id"]?.stringValue)
         case "cancelChatGPT":

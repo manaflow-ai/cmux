@@ -340,6 +340,48 @@ pub(crate) fn isolate_endpoint_settings(argv: &mut Vec<String>) {
     *argv = isolated;
 }
 
+/// Start on the CLI's machine-wide account, clearing credentials from the profile, inherited
+/// environment and Claude settings. The OAuth store remains in the same home as auth status.
+pub(crate) fn apply_machine_login(
+    env: &mut BTreeMap<String, String>,
+    argv: &mut Vec<String>,
+    mut account: BTreeMap<String, String>,
+    generated_settings: Option<&Map<String, Value>>,
+) -> bool {
+    let at = argv.iter().position(|arg| arg == "--").unwrap_or(argv.len());
+    // Claude takes only the last flag. Keep file settings in place, including policy rules,
+    // and refuse a launch that would require copying an existing flag's settings into argv.
+    if argv[..at].iter().any(|arg| arg == "--settings" || arg.starts_with("--settings=")) {
+        return false;
+    }
+    let clears = [
+        ("ANTHROPIC_BASE_URL".to_owned(), String::new()),
+        ("ANTHROPIC_API_KEY".to_owned(), String::new()),
+    ];
+    argv.splice(at..at, ["--settings".to_owned(), team_settings(generated_settings, &clears, "")]);
+    let unset = TEAM_CLEARS
+        .into_iter()
+        .chain([
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_BASE_URL",
+            "CMUX_CLAUDE_TEAM_API_KEY",
+            "CMUX_CLAUDE_TEAM_BASE_URL",
+            "HOME",
+            "CLAUDE_CONFIG_DIR",
+            TEAM_MARKER,
+            crate::routes::NAME_KEY,
+            crate::routes::PROFILE_ROUTE_KEY,
+            crate::byo_endpoint::OWN_ENDPOINT_KEY,
+        ])
+        .chain(env.get(crate::routes::UNSET_KEY).into_iter().flat_map(|list| list.split(',')))
+        .filter(|key| !key.is_empty())
+        .map(str::to_owned)
+        .collect();
+    account.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+    crate::routes::apply(env, &crate::routes::RouteEnv { set: account, unset });
+    true
+}
+
 /// The key itself stays in the process environment. The last settings overlay
 /// pins the official origin and disables competing credential sources.
 pub(crate) fn isolate_api_key_settings(argv: &mut Vec<String>) {
@@ -429,6 +471,11 @@ pub(crate) fn flag_settings(
         Ok(_) => Err("--settings is not a JSON object".to_owned()),
         Err(e) => Err(format!("--settings: {e}")),
     }
+}
+
+/// Whether the last settings flag references a file.
+pub(crate) fn has_file_flag_settings(argv: &[String]) -> bool {
+    settings_args(argv).1.is_some_and(|value| !value.trim_start().starts_with('{'))
 }
 
 /// `argv` without any `--settings` (before a `--`), and the last one's value.

@@ -309,7 +309,7 @@ pub struct AwayRecap {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ClaudeTokenRecovery {
     MachineLogin,
-    // Accepted on read for metadata written before recovery was scoped to a chat.
+    // A saved setup-token rejection, including metadata written before chat-scoped recovery.
     #[serde(rename = "rejected")]
     LegacyRejected,
 }

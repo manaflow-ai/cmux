@@ -596,8 +596,7 @@ impl Started {
         // With the agent holder, stdout is read through its ring (`custody.rs`).
         let ring_reader = |pipe: OwnedFd, holder: &Holder| -> Result<Reader> {
             let ring = holder.fds.ring.clone();
-            let local_key = spec.local_launch_key_index().map(|index| spec.env[index].1.as_str());
-            Ok(Box::new(super::custody::RingPipe::new(pipe, ring, holder.replay_from, local_key)?))
+            Ok(Box::new(super::custody::RingPipe::new(pipe, ring, holder.replay_from)?))
         };
         let harness_start = match &harness {
             Harness::Spawned(_) => record.harness_pid.and_then(crate::owner_exit::process_start),

@@ -1241,6 +1241,18 @@ pub fn remove(
     acpmux_home: &Path,
     forget: Option<&dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>>,
 ) -> Result<Removed, AdminError> {
+    remove_checked(id, cfg, sources, acpmux_home, forget, None)
+}
+
+/// Remove an endpoint only if it still matches the profile shown in Settings.
+pub(crate) fn remove_checked(
+    id: &str,
+    cfg: &Config,
+    sources: &ProfileSources,
+    acpmux_home: &Path,
+    forget: Option<&dyn Fn(&crate::cli::harness_secret::StoreCommand) -> anyhow::Result<()>>,
+    revision: Option<&str>,
+) -> Result<Removed, AdminError> {
     if !profiles::valid_id(id) {
         return Err(AdminError::Invalid(format!("{id:?} is not a harness id")));
     }
@@ -1263,10 +1275,16 @@ pub fn remove(
             "no harness profile {id} in your harness folder"
         )));
     }
+    let text = std::fs::read_to_string(&path);
+    if let Some(revision) = revision {
+        if profiles::content_revision(text.as_ref().map_err(failed)?) != revision {
+            return Err(AdminError::Invalid("the endpoint changed while it was open".into()));
+        }
+    }
+    let text = text.unwrap_or_default();
     let dir = backup_dir(acpmux_home);
     ensure_dir(&dir)?;
     let backup = format!("{id}-{}.toml", unix_millis());
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
     move_file(&path, &dir.join(&backup))?;
     if let Some(instance) = crate::agent_credentials::stored_instance(&text) {
         let state = cfg.path.as_deref().and_then(Path::parent).unwrap_or(acpmux_home);
@@ -1465,6 +1483,46 @@ pub fn registry_value(reg: &Registry, which: &dyn Fn(&str) -> Option<String>) ->
 #[cfg(all(test, unix))]
 mod endpoint_lock_tests {
     use super::*;
+
+    #[test]
+    fn a_stale_disconnect_cannot_remove_a_recreated_endpoint() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("harnesses");
+        let sources = ProfileSources { user_dir: Some(dir.clone()), ..Default::default() };
+        let params = AddParams::from_json(&json!({
+            "example": "openai-endpoint", "id": "custom",
+            "baseUrl": "https://models.example/v1", "model": "model",
+        }))
+        .unwrap();
+        let add = || {
+            add_endpoint_keyed(
+                &params,
+                &sources,
+                &EndpointKey { value: None, store: &no_store, taken: &never },
+            )
+            .unwrap()
+        };
+        let original = add();
+        let original_text = std::fs::read_to_string(&original.path).unwrap();
+        let revision = profiles::content_revision(&original_text);
+        remove_checked("custom", &Config::default(), &sources, root.path(), None, Some(&revision))
+            .unwrap();
+        let replacement = add();
+        let replacement_text = std::fs::read_to_string(&replacement.path).unwrap();
+        assert_ne!(profiles::content_revision(&replacement_text), revision);
+        assert!(
+            remove_checked(
+                "custom",
+                &Config::default(),
+                &sources,
+                root.path(),
+                None,
+                Some(&revision)
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read_to_string(&replacement.path).unwrap(), replacement_text);
+    }
 
     /// An endpoint add lets go of its lock, also while a child the daemon forked meanwhile has
     /// the descriptor: else the next add or remove waits until that child execs.

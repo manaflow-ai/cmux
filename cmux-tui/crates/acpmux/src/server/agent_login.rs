@@ -17,8 +17,8 @@
 //! (`restarted: false`), never cutting the turn.
 //!
 //! `start {agent: "claude@gateway"}` (`agent_login::GATEWAY_SUFFIX`) is the card's third way in:
-//! no sign-in runs; the chat's agent uses cmux's gateway (the team's CodeRouter account), as
-//! `cr use team claude` records it, when the image says the team has one
+//! no sign-in runs; the chat's agent uses cmux's gateway (the team's CodeRouter account)
+//! when the image says the team has one
 //! (`Machine::gateway_access`), and answers `{gateway: true, restarted}`; else `no_gateway`.
 
 use super::{Conn, ConnAuth, Origin};
@@ -208,6 +208,19 @@ pub(super) fn machine(hub: &Hub) -> Machine {
     Machine { root: hub.vm_marker_root(), home: dirs::home_dir().unwrap_or_default() }
 }
 
+/// The account environment used by the machine-wide Claude sign-in and status RPCs.
+pub(crate) fn claude_machine_login_env(
+    cfg: &Config,
+) -> Option<std::collections::BTreeMap<String, String>> {
+    let cli = cli_for(cfg, Agent::Claude, None)?;
+    Some(
+        ["HOME", "CLAUDE_CONFIG_DIR"]
+            .into_iter()
+            .filter_map(|key| cli.var(key).map(|value| (key.to_owned(), value)))
+            .collect(),
+    )
+}
+
 /// After a sign-in: the machine's launcher picks the own sign-in, and the
 /// named chat's agent restarts (module docs). Whether it restarted now.
 async fn signed_in(
@@ -303,8 +316,8 @@ async fn restart_claude_account(hub: &Arc<Hub>, store: &Path) -> Result<bool, Rp
     Ok(hub.restart_harnesses(None, Some(&ids)).await.now > 0)
 }
 
-/// The chat's agent uses cmux's gateway here (module docs): the image's own check first, then
-/// the `cr use team` choice, then the named chat's agent restarts on it. Whether it restarted now.
+/// A named Claude chat saves its gateway choice before restarting. A machine-wide choice
+/// is recorded in the image's account preference. Returns whether a chat restarted now.
 pub(crate) async fn use_gateway(
     hub: &Arc<Hub>,
     agent: Agent,
@@ -317,22 +330,31 @@ pub(crate) async fn use_gateway(
             format!("cmux's gateway does not serve {} for this machine's team", agent.name()),
         )));
     }
-    match machine.choose_team(agent) {
-        Ok(true) => {}
-        Ok(false) => {
-            return Err(error(LoginError::new(reason::NO_GATEWAY, "not a cmux Cloud machine")));
-        }
-        Err(e) => {
-            return Err(error(LoginError::new(
-                reason::FAILED,
-                format!("record the gateway choice: {e}"),
-            )));
+    let session = session_id.map(|key| hub.resolve(key)).transpose()?;
+    if agent == Agent::Claude
+        && let Some(session) = &session
+    {
+        hub.select_claude_gateway(session).await?;
+    } else {
+        match machine.choose_team(agent) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(error(LoginError::new(reason::NO_GATEWAY, "not a cmux Cloud machine")));
+            }
+            Err(e) => {
+                return Err(error(LoginError::new(
+                    reason::FAILED,
+                    format!("record the gateway choice: {e}"),
+                )));
+            }
         }
     }
-    let Some(key) = session_id else { return Ok(false) };
-    let session = hub.resolve(key)?;
+    let Some(session) = session else { return Ok(false) };
     let ids = std::collections::BTreeSet::from([session.id.clone()]);
     let done = hub.restart_harnesses(None, Some(&ids)).await;
+    if let Some((_, error)) = done.failed.first() {
+        return Err(RpcError::internal(error.clone()));
+    }
     Ok(done.now > 0)
 }
 

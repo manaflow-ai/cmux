@@ -187,7 +187,7 @@ impl KimiRegion {
 }
 
 // Deliberately no Debug representation.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct Record {
     access_token: String,
     refresh_token: String,
@@ -499,7 +499,16 @@ impl Service {
                     let pending = self.pending_writes.clone();
                     blocking(move || {
                         let _guard = guard;
-                        provider.delete(&home, &id)?;
+                        if provider == Provider::Kimi {
+                            // Keep the identity needed to check the next approval.
+                            let mut cleared = Arc::unwrap_or_clone(record);
+                            cleared.access_token.clear();
+                            cleared.refresh_token.clear();
+                            cleared.expires_at = 0;
+                            provider.write(&home, &id, &cleared)?;
+                        } else {
+                            provider.delete(&home, &id)?;
+                        }
                         pending.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
                         Ok(())
                     })
@@ -531,27 +540,43 @@ impl Service {
         provider: Provider,
         places: crate::chatgpt::Places,
         id: String,
+        instance: String,
     ) -> Result<(), Failure> {
         let guard = self.account(&id).lock_owned().await;
         let (home, route_id) = (places.home.clone(), id.clone());
         let key = (provider, home.clone(), route_id.clone());
         let pending = self.pending_writes.clone();
-        let record = blocking(move || {
+        let (_, record) = blocking(move || {
             let _guard = guard;
             check_route(provider, places.routes.as_deref(), &id)?;
-            let fresh = pending.lock().unwrap_or_else(|p| p.into_inner()).get(&key).cloned();
-            let record = match fresh {
-                Some(record) => Some(record),
-                None => provider.read(&home, &route_id).ok().flatten().map(Arc::new),
-            };
-            provider.delete(&places.home, &id)?;
-            pending.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
-            #[cfg(unix)]
-            if provider == Provider::Copilot {
-                crate::agent::copilot_auth::remove_route(&id);
-            }
-            routes::remove(places.routes.as_deref(), &places.home, &id).map_err(|_| "storage")?;
-            Ok(record)
+            routes::remove_with(
+                places.routes.as_deref(),
+                &places.home,
+                &id,
+                Some(&instance),
+                |route| {
+                    if route.file.kind != provider.kind() {
+                        return Err("not_found");
+                    }
+                    let record = if provider == Provider::Grok {
+                        let fresh =
+                            pending.lock().unwrap_or_else(|p| p.into_inner()).get(&key).cloned();
+                        fresh.or_else(|| {
+                            provider.read(&home, &route_id).ok().flatten().map(Arc::new)
+                        })
+                    } else {
+                        None
+                    };
+                    provider.delete(&places.home, &id)?;
+                    pending.lock().unwrap_or_else(|p| p.into_inner()).remove(&key);
+                    #[cfg(unix)]
+                    if provider == Provider::Copilot {
+                        crate::agent::copilot_auth::remove_route(&id);
+                    }
+                    Ok(record)
+                },
+                |_| "storage",
+            )
         })
         .await?;
         if let Some(record) = record {
@@ -602,8 +627,17 @@ fn save(
     record: &Record,
 ) -> Result<(), Failure> {
     let dir = places.routes.as_deref();
+    let store = provider.store(&places.home);
+    if provider == Provider::Kimi && replace {
+        let prior = store.metadata(id);
+        let expected = prior.as_ref().and_then(|metadata| metadata["sub"].as_str());
+        if !expected
+            .is_some_and(|subject| !subject.is_empty() && Some(subject) == record.sub.as_deref())
+        {
+            return Err("different_account");
+        }
+    }
     if let Some(sub) = &record.sub {
-        let store = provider.store(&places.home);
         for route in routes::load(dir).0 {
             if route.file.kind != provider.kind() {
                 continue;

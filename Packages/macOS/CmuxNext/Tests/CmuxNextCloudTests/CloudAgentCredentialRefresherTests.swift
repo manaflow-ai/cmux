@@ -1,4 +1,5 @@
 @testable import CmuxNextCloud
+import CmuxNextDaemon
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -356,6 +357,39 @@ struct CloudAgentCredentialRefresherTests {
         credentials.credentialConnectionsChanged()
         await credentials.keySync?.value
         #expect(machine.pushes == [first.env, [:], first.env])
+    }
+
+    @Test func anUnsupportedWithdrawalKeepsItsDeliveryForAReconnect() async throws {
+        let instance = UUID().uuidString
+        var cloudOn = false
+        let credentials = CloudAgentCredentials(machineIdentity: "mac") { _ in
+            try keyReply(kind: "api-key", instance: instance, key: "fixture-key")
+        }
+        credentials.readCredentialConnections = {
+            .init(connections: [.init(id: "key", families: ["claude"], servesCloud: cloudOn,
+                                      canServeCloud: true, credentialInstance: instance)])
+        }
+        let first = try await credentials.credential(forConnection: "key")
+        let outcome = Machine()
+        let replace = CloudAgentCredentialRefresher.machineReplace(surface: 7, sessionID: "session",
+            ownerLink: { 3 }, reconnect: nil, endpoint: {
+                throw AgentSessionAttachError(code: AgentSessionAttachClient.startUnsupported, message: "fixture refusal")
+            })
+        credentials.started(chat: "chat", machine: "guest", sessionID: "session", on: first, replace: { credential in
+            _ = await outcome.push(credential?.env ?? [:])
+            return await replace(credential)
+        }, push: outcome.push)
+        await credentials.keySync?.value
+        #expect(outcome.pushes == [[:]])
+
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(outcome.pushes == [[:], [:]])
+
+        cloudOn = true
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+        #expect(outcome.pushes == [[:], [:], first.env])
     }
 
     @Test func reattachRetriesARefusedWithdrawalOfAnExplicitDisconnect() async throws {

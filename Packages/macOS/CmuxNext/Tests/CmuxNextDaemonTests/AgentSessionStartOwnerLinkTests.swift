@@ -114,6 +114,34 @@ import Testing
     }
 
     @Test(arguments: [false, true])
+    func aSavedAPIKeyRequiresWithdrawalAndAReattachBinding(supported: Bool) async throws {
+        let capabilities = [DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]
+            + (supported ? [DaemonCapability.agentSessionBoundCredentials.rawValue, "agent-session-credential-reattach-v1"] : [])
+        let daemon = try PresenceDaemon(capabilities: ["agent-session-attach-v1", "agent-session-start-v1"] + capabilities)
+        defer { daemon.stop() }
+        let key = ["ANTHROPIC_API_KEY": "fixture-key"]
+        let binding = "anthropic-key:" + String(repeating: "a", count: 64)
+        for connection in ["anthropic-key", binding] {
+            let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+            do {
+                _ = try await client.start(cwd: "/w", harness: "claude", ownerLink: link(3, 3), credentials: key, credentialConnection: connection)
+            } catch let error as AgentSessionAttachError {
+                #expect((error.code != AgentSessionAttachClient.endpointCredentialsUnsupported) == (supported && connection == binding))
+            }
+            await client.close()
+        }
+        let prewarm = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        _ = try await prewarm.prewarm(cwd: "/w", harness: "claude", ownerLink: link(3, 3), credentials: key)
+        await prewarm.close()
+        let starts = daemon.frames.filter { $0["cmd"] as? String == "agent-session-start" }
+        #expect(starts.count == (supported ? 1 : 0))
+        if supported {
+            #expect((starts.first?["credentials"] as? [String: Any])?["connection"] as? String == binding)
+        }
+        #expect(daemon.frames.contains { $0["cmd"] as? String == "agent-session-prewarm" } == supported)
+    }
+
+    @Test(arguments: [false, true])
     func credentialWritesRequireTheDurableSessionCapability(supported: Bool) async throws {
         var capabilities = ["agent-session-attach-v1", AgentSessionAttachClient.startCredentialsCapability]
         if supported { capabilities.append(DaemonCapability.agentSessionBoundCredentials.rawValue) }

@@ -907,9 +907,9 @@ impl Hub {
         }
         let intact = adopted.acked_h <= resume_after && !work.receipts_unproven;
         let recovery_complete = claude_recovery && replayed && intact;
-        // Work already recovered from a partial log must never be rebuilt twice. An
-        // idle, intact prefix can be checked again after its live replay catches up.
-        let recovery_retryable = intact && (recovery_complete || work.can_end_replayed_host());
+        // The retry checks the drained journal without rebuilding work. An intact prefix
+        // can be checked again even if the work it described was still open at adoption.
+        let recovery_retryable = intact;
         let changes = session.status_changes.load(Ordering::SeqCst);
         self.recover_work(session, &child, &incarnation, work).await;
         if recovery_complete {

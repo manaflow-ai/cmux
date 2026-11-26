@@ -1430,7 +1430,9 @@ impl Hub {
             let mut plan = plan;
             plan.args.extend(super::additional_dirs::claude_args(&meta));
             // Its stop condition, at every start (a resume or respawn too: `stop_condition.rs`).
-            plan.args.extend(super::stop_condition::claude_args(&meta));
+            if !super::spawn::launch_requires_claude_machine_login(&meta) {
+                plan.args.extend(super::stop_condition::claude_args(&meta));
+            }
             // A restricted chat's folder settings and MCP servers stay off (`restricted.rs`).
             plan.args.extend(super::restricted::claude_args(&meta));
             let (plan, mut profile) = self.remote_chain_plan(session, profile, plan).await?;

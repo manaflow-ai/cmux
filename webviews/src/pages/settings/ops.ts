@@ -722,7 +722,7 @@ export type ModelProvider = "openai" | "anthropic" | "openrouter" | "google" | "
 
 /** One of the person's connections (acpmux `_acpmux/connections`), in the order threads use them. */
 export type ModelConnection = {
-  /** The acpmux route id. */
+  /** The acpmux connection id. Endpoints use their provider field as their harness profile id. */
   id: string;
   /** Identity of this saved route, even when its ID is reused later. */
   credentialInstance?: string | null;
@@ -818,7 +818,7 @@ export type ModelsRun =
   | { action: "spread"; on: boolean }
   | { action: "enable"; id: string; on: boolean }
   | { action: "rename"; id: string; name: string }
-  | { action: "remove"; id: string }
+  | { action: "remove"; id: string; instance: string | null }
   | { action: "connectChatGPT"; id?: string }
   | { action: "cancelChatGPT" }
   | {
@@ -983,7 +983,7 @@ export type AgentsRun =
       protocol?: "acp" | "terminal";
       envKeys?: string[];
     }
-  | { action: "remove"; id: string }
+  | { action: "remove"; id: string; endpointRevision?: string }
   | { action: "restore"; backup?: string }
   | { action: "doctor"; id: string; noPrompt?: boolean }
   /** A user profile's icon: a typed value, an image's base64 bytes, or Automatic (`clear`). */

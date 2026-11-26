@@ -2021,7 +2021,7 @@ impl Hub {
                 && crate::agent_login::gateway_fallback_on()
                 && crate::claude_auth::spawned(&session.id)
                     .is_some_and(|s| !crate::claude_auth::find(&s.env).signed_in())
-                && self.use_gateway_now(session);
+                && self.use_gateway_now(session).await;
             e.message = if fell_back {
                 tracing::info!(session = %session.id, "Claude has no credential: the chat uses cmux's gateway");
                 crate::claude_auth::gateway_fallback_text(&e.message)
@@ -2407,7 +2407,14 @@ impl Hub {
         let last = last_turn_of(turn_result, now_ms());
         self.lane_report_record_result(&session.id, turn_result);
         if turn_result.get("trigger") != Some(&Value::Bool(true)) {
-            session.meta.lock().unwrap().last_turn = Some(last);
+            let mut meta = session.meta.lock().unwrap();
+            if last["errorCode"] == "claude_cloud_token_rejected"
+                && meta.claude_token_recovery.is_none()
+            {
+                meta.claude_token_recovery =
+                    Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
+            }
+            meta.last_turn = Some(last);
         }
         // Every turn's end passes here once: its parent hears it (`subsession_results.rs`).
         self.subsession_turn_ended(session, turn_result);

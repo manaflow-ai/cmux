@@ -771,6 +771,8 @@ export class MockSettingsProvider {
         }
         this.modelRuns.push(run);
         if (!this.models) throw new ProtocolError("cmux.settings.unavailable", "this host has no Models part");
+        if (run.action === "signOutClaude" && this.claudeSignOutRefused)
+          throw new ProtocolError("cmux.models.failed", "Claude sign-out was refused");
         if (run.action === "checkAccess") {
           await this.holdModelAccess;
           return this.modelAccess;
@@ -1193,6 +1195,7 @@ export class MockSettingsProvider {
   private readonly chatgptDeviceCompletion?: ModelsState;
   holdModelAccess: Promise<void> | null = null;
   holdNamedClaudeStatus: Promise<void> | null = null;
+  claudeSignOutRefused = false;
   /** Models gestures the page sent (pasted keys included, so tests can check what was sent). */
   readonly modelRuns: ModelsRun[] = [];
   private readonly modelsChanged = new Set<EventSourceContext>();

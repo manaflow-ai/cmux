@@ -125,7 +125,7 @@ export async function updateEndpointCloud(store: SettingsStore, connection: Mode
     await new ChiefHost(store.chiefCalls).addBackend(
       modelEndpointBackend(
         { ...endpoint, name: connection.label, models: endpoint.models.join(","), apiKey: "" },
-        { id: connection.id, own: true, typedKey: connection.signedIn },
+        { id: connection.provider, own: true, typedKey: connection.signedIn },
         { revision: endpoint.revision, servesCloud: !connection.servesCloud },
       ),
     );

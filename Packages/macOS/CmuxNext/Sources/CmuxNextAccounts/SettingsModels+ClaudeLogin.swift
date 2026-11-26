@@ -73,6 +73,7 @@ extension SettingsModels {
         var environment: String?
         var recoverySession: String?
         var completion: String?
+        var waitsForGuestUpdate = false
 
         var blocksConnect: Bool { phase == "disabled" && error != "update_claude" && error != "cli_missing" }
 
@@ -129,7 +130,8 @@ extension SettingsModels {
             guard let state, state.machine == nil || state.phase == "failed" || state.phase == "disabled" else { return .init() }
             return state
         case .ready(let machine):
-            guard let state, state.machine == machine.id || (state.machine == nil && state.phase == "failed") else {
+            guard let state, !state.waitsForGuestUpdate,
+                  state.machine == machine.id || (state.machine == nil && state.phase == "failed") else {
                 return .init(machine: machine.id, machineName: machine.name, environment: machine.environment)
             }
             return state
@@ -352,8 +354,8 @@ extension SettingsModels {
             if target == .mac { await refresh() }
             setClaudeLogin(target, machine, "idle", signedIn: false)
         } catch {
-            guard !(error is CancellationError), target == .mac || cloudClaudeAccount?() == account else { return }
-            setClaudeFailure(target, machine, error)
+            if target == .cloud { throw error }
+            if !(error is CancellationError) { setClaudeFailure(target, machine, error) }
         }
     }
 
@@ -422,7 +424,8 @@ extension SettingsModels {
         }
         let reply = try JSONValue.parse(data)
         if let reason = reply["refused"]?["reason"]?.stringValue {
-            throw PageError(code: "cmux.models.\(reason)", message: "Claude sign-in was refused")
+            let message = method == .claudeLoginLogout ? "Claude sign-out was refused" : "Claude sign-in was refused"
+            throw PageError(code: "cmux.models.\(reason)", message: message)
         }
         return reply
     }
@@ -434,13 +437,14 @@ extension SettingsModels {
         let reason = refusal == "unknown_login" ? "expired" : refusal ?? "failed"
         let disabled = ["cli_missing", "update_claude", "shared_machine", "unsupported"].contains(reason)
         setClaudeLogin(target, machine, disabled ? "disabled" : "failed", error: reason, recoverySession: recoverySession,
-                       requestedMachine: requestedMachine, requestedEnvironment: requestedEnvironment, requestedName: requestedName)
+                       requestedMachine: requestedMachine, requestedEnvironment: requestedEnvironment, requestedName: requestedName,
+                       waitsForGuestUpdate: target == .cloud && machine == nil && reason == "unsupported")
     }
 
     private func setClaudeLogin(_ target: ClaudeLoginTarget, _ machine: CloudClaudeMachine?, _ phase: String,
                                 error: String? = nil, apiKey: Bool? = nil, signedIn: Bool? = nil, completion: String? = nil,
                                 recoverySession: String? = nil, requestedMachine: String? = nil, requestedEnvironment: String? = nil,
-                                requestedName: String? = nil) {
+                                requestedName: String? = nil, waitsForGuestUpdate: Bool = false) {
         let account = cloudClaudeAccount?()
         let previous = claudeLogins[target].flatMap {
             $0.machine == machine?.id && (target == .mac || cloudClaudeStateAccount == account) ? $0 : nil
@@ -449,6 +453,7 @@ extension SettingsModels {
         claudeLogins[target] = .init(phase: phase, error: error, apiKey: apiKey ?? previous?.apiKey ?? false,
                                     signedIn: signedIn ?? previous?.signedIn, machine: machine?.id ?? requestedMachine, machineName: machine?.name ?? requestedName,
                                     environment: machine?.environment ?? requestedEnvironment, recoverySession: recoverySession,
-                                    completion: completion ?? previous.flatMap { $0.recoverySession == recoverySession ? $0.completion : nil })
+                                    completion: completion ?? previous.flatMap { $0.recoverySession == recoverySession ? $0.completion : nil },
+                                    waitsForGuestUpdate: waitsForGuestUpdate)
     }
 }

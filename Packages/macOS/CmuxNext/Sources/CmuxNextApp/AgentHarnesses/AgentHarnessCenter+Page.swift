@@ -29,7 +29,7 @@ extension AgentHarnessCenter {
                 guard request.isComplete else { throw PageError.invalidParams("nothing to start") }
                 return try await add(request)
             case "remove" where !id.isEmpty:
-                return try await remove(id: id)
+                return try await remove(id: id, endpointRevision: params["endpointRevision"]?.stringValue)
             case "restore":
                 guard let backup = params["backup"]?.stringValue ?? lastRemovedBackup else {
                     throw PageError.invalidParams("no backup")

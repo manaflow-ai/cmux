@@ -735,12 +735,37 @@ async fn a_dead_refresh_token_signs_the_account_out() {
 async fn remove_revokes_the_refresh_token() {
     let s = setup().await;
     sign_in(&s, &[("code", "c1")]).await;
-    assert!(s.service.remove(&s.places.home, "chatgpt").await.unwrap());
+    let route = routes::find(s.places.routes.as_deref(), "chatgpt").unwrap();
+    let instance = route.file.credential_instance.as_deref().unwrap();
+    assert!(s.service.remove(&s.places, "chatgpt", instance).await.unwrap());
     let revoked = s.fake.state.lock().unwrap().revoke_forms.clone();
     assert_eq!(revoked[0]["token"], "refresh-0");
     assert_eq!(revoked[0]["token_type_hint"], "refresh_token");
     assert_eq!(revoked[0]["client_id"], super::CODEX_CLIENT_ID);
     assert!(store::read(&s.places.home, "chatgpt").unwrap().is_none());
+    assert!(routes::find(s.places.routes.as_deref(), "chatgpt").is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_stale_disconnect_does_not_revoke_the_replacement_grant() {
+    let s = setup().await;
+    sign_in(&s, &[("code", "c1")]).await;
+    let id = "chatgpt";
+    let dir = s.places.routes.as_deref();
+    let original = routes::find(dir, id).unwrap();
+    let stale = original.file.credential_instance.as_deref().unwrap();
+    routes::remove(dir, &s.places.home, id).unwrap();
+    let replacement = routes::add(dir, id, &original.file, false).unwrap();
+    assert_ne!(replacement.file.credential_instance.as_deref(), Some(stale));
+    let record = store::read(&s.places.home, id).unwrap().unwrap();
+
+    assert!(s.service.remove(&s.places, id, stale).await.is_err());
+    assert_eq!(store::read(&s.places.home, id).unwrap(), Some(record));
+    assert!(s.fake.state.lock().unwrap().revoke_forms.is_empty());
+    assert_eq!(
+        routes::find(dir, id).unwrap().file.credential_instance,
+        replacement.file.credential_instance
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -756,10 +781,77 @@ async fn chatgpt_remove_reports_an_unreadable_keychain_and_keeps_the_index() {
         Err(crate::subscription_store::Error::KeychainOtherBuild)
     ));
 
-    let error = s.service.remove(home, id).await.unwrap_err();
+    let route = routes::find(s.places.routes.as_deref(), id).unwrap();
+    let error = s
+        .service
+        .remove(&s.places, id, route.file.credential_instance.as_deref().unwrap())
+        .await
+        .unwrap_err();
     assert_eq!(error.code, "keychain_other_build");
     assert_eq!(store.metadata(id).unwrap()["signed_in"], true);
     assert!(s.fake.state.lock().unwrap().revoke_forms.is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chatgpt_can_disconnect_after_signing_in_again_with_a_refused_old_item() {
+    let s = setup().await;
+    let id = "chatgpt";
+    let home = &s.places.home;
+    assert_eq!(sign_in(&s, &[("code", "c1")]).await.0, Status::Done(id.into()));
+    let store = crate::subscription_store::Store::new(home, "chatgpt");
+    store.refuse_test_item(id, crate::subscription_store::Error::KeychainOtherBuild);
+    assert!(matches!(
+        store::read(home, id),
+        Err(crate::subscription_store::Error::KeychainOtherBuild)
+    ));
+
+    assert_eq!(sign_in_again(&s, Some(id), &[("code", "c2")]).await.0, Status::Done(id.into()));
+    assert!(s.service.remove(home, id).await.unwrap());
+    assert!(store::read(home, id).unwrap().is_none());
+    assert_eq!(s.fake.state.lock().unwrap().revoke_forms[0]["token"], "refresh-0");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chatgpt_reapproval_refuses_a_different_workspace_for_the_same_subject() {
+    let s = setup().await;
+    let id = "chatgpt";
+    let home = &s.places.home;
+    assert_eq!(sign_in(&s, &[("code", "c1")]).await.0, Status::Done(id.into()));
+    let prior = store::read(home, id).unwrap().unwrap();
+    s.fake.state.lock().unwrap().account = Some("other-workspace");
+
+    assert_eq!(
+        sign_in_again(&s, Some(id), &[("code", "c2")]).await.0,
+        Status::Failed("different_account".into())
+    );
+    assert!(store::read(home, id).is_ok_and(|current| current.as_ref() == Some(&prior)));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chatgpt_cannot_deliver_a_pending_grant_when_a_restored_index_is_unreadable() {
+    let s = setup().await;
+    let id = "chatgpt";
+    let home = &s.places.home;
+    assert_eq!(sign_in(&s, &[("code", "c1")]).await.0, Status::Done(id.into()));
+    let previous = store::read(home, id).unwrap().unwrap();
+    let current = store::Record {
+        access_token: "fixture-pending-access".into(),
+        expires_at: now() + 3600,
+        ..previous.clone()
+    };
+    s.service
+        .pending_writes
+        .lock()
+        .unwrap()
+        .insert((home.clone(), id.into()), super::PendingWrite { previous, current });
+    let path = store::dir(home).join(format!("{id}.json"));
+    let mut index: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    index["workspace"] = json!("restored-workspace");
+    store::write_atomic(&path, &serde_json::to_vec(&index).unwrap()).unwrap();
+    crate::subscription_store::Store::new(home, "chatgpt")
+        .refuse_test_item(id, crate::subscription_store::Error::KeychainOtherBuild);
+
+    assert_eq!(s.service.token(home, id).await.unwrap_err().code, "keychain_other_build");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

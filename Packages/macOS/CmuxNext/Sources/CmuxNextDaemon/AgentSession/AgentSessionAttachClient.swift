@@ -99,6 +99,10 @@ public actor AgentSessionAttachClient {
         endpoint != nil || credentials?["GEMINI_API_KEY"] != nil || credentials?["GOOGLE_API_KEY"] != nil || credentials?["XAI_API_KEY"] != nil
     }
 
+    private static func needsKeyWithdrawal(_ endpoint: LaunchEndpoint?, _ credentials: [String: String]?) -> Bool {
+        needsEndpointCapability(endpoint, credentials) || credentials?["ANTHROPIC_API_KEY"] != nil || credentials?["OPENAI_API_KEY"] != nil
+    }
+
     /// The refusal of a Codex start that carries a credential to a daemon without ``startCodexCredentialsCapability``,
     /// before it is sent; `AgentRemoteStartRefusal.olderDaemonCodes` updates the machine and starts again.
     public static let codexCredentialsUnsupported = "app.codex_credentials_update"
@@ -319,6 +323,13 @@ public actor AgentSessionAttachClient {
             guard !Self.needsEndpointCapability(launchEndpoint, credentials) || (served.endpointCredentials && served.credentials && served.vmKind) else {
                 throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the daemon does not take endpoint credentials")
             }
+            // A saved API key can be turned off for Cloud. Persist its binding for reattach.
+            // Read-only endpoint profiles can serve Cloud without a Settings toggle or a binding.
+            guard !Self.needsKeyWithdrawal(launchEndpoint, credentials)
+                    || (served.boundCredentials && served.credentialReattach
+                        && (launchEndpoint != nil || credentialConnection?.contains(":") == true)) else {
+                throw AgentSessionAttachError(code: Self.endpointCredentialsUnsupported, message: "the Cloud key requires credential withdrawal and a saved connection binding")
+            }
             if let claudeAuth {
                 let supportsAuth = claudeAuth == .own ? served.claudeMachineLogin : served.claudeTeamRoute
                 guard supportsAuth, served.vmKind, ownerLink != nil else {
@@ -379,7 +390,8 @@ public actor AgentSessionAttachClient {
             }
         }
         guard callerOwnsVM, !Self.needsSubscriptionCapability(credentials) || served.subscriptionCredentials,
-              !Self.needsEndpointCapability(launchEndpoint, credentials) || served.endpointCredentials else { return false }
+              !Self.needsEndpointCapability(launchEndpoint, credentials) || served.endpointCredentials,
+              !Self.needsKeyWithdrawal(launchEndpoint, credentials) || (served.boundCredentials && served.credentialReattach) else { return false }
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: false, personKey: nil,
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,

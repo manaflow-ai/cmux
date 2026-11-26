@@ -138,6 +138,62 @@ test("a targeted Claude visit hides another machine's row and signs out its own 
   ]);
 });
 
+test("a refused Claude sign-out leaves the connection and shows the error in Cloud Models", async () => {
+  const rendered = await render({
+    ...mockModels.empty,
+    cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_b" },
+  });
+  rendered.provider.claudeSignOutRefused = true;
+  await click(card(rendered).querySelector('[data-menu="connection-claude-cloud-login"]')!);
+  await click(document.querySelector('[data-value="signOutClaude"]')!);
+  expect(ids(rendered)).toContain("claude-cloud-login");
+  expect(card(rendered).querySelector('[role="alert"]')?.textContent).toBe("Could not sign out of Claude Code.");
+});
+
+test("reopening an explicit-machine link checks the same guest again", async () => {
+  const path = "/settings/models?provider=claude&machine=vm_b&open=";
+  const models = { ...mockModels.empty };
+  const rendered = await render(models, path + "before");
+  await act(async () =>
+    rendered.provider.setModels({
+      ...models,
+      cloudClaudeLogin: { phase: "disabled", error: "unsupported", machine: "vm_b" },
+    }),
+  );
+  const connect = () => panel()?.querySelector<HTMLButtonElement>('[data-models-action="connectClaude"]');
+  expect(connect()?.disabled).toBe(true);
+  const checks = () =>
+    ops(rendered.provider, "cmux.settings.models.run").filter(
+      (run) => (run as { action?: string }).action === "checkClaudeLogin",
+    );
+  const before = checks().length;
+  await act(async () => rendered.history.push(path + "after"));
+  expect(checks().slice(before)).toEqual([{ action: "checkClaudeLogin", cloud: true, machine: "vm_b" }]);
+  await act(async () =>
+    rendered.provider.setModels({
+      ...models,
+      cloudClaudeLogin: { phase: "idle", error: null, machine: "vm_b" },
+    }),
+  );
+  expect(connect()?.disabled).toBe(false);
+});
+
+test("Cloud Models can turn a saved setup token off and back on", async () => {
+  const rendered = await render(mockModels.claudeTokenOnly);
+  const row = () => card(rendered).querySelector('[data-connection="claude-token"]')!;
+  const toggle = () => row().querySelector('[role="switch"]')!;
+  expect(toggle().getAttribute("aria-checked")).toBe("true");
+  await click(toggle());
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  expect(row().textContent).toContain("Turned off");
+  await click(toggle());
+  expect(toggle().getAttribute("aria-checked")).toBe("true");
+  expect(rendered.provider.modelRuns).toEqual([
+    { action: "enable", id: "claude-token", on: false },
+    { action: "enable", id: "claude-token", on: true },
+  ]);
+});
+
 test("Claude and Codex picker links open their Cloud forms and a new open value reopens the form", async () => {
   const rendered = await render(mockModels.empty, "/settings/models?provider=claude&open=1");
   expect(panel()?.dataset.modelsDialog).toBe("claude");
@@ -431,7 +487,7 @@ test("Cloud models can enable and disable a key added in Models without removing
   await act(async () => rendered.history.push("/settings/cloud"));
   const key = card(rendered).querySelector('[data-connection="openai-key"]')!;
   expect(key.textContent).toContain("API key");
-  expect(key.textContent).not.toContain("Not used on Cloud");
+  expect(key.textContent).not.toContain("Off for new chats");
   await click(key.querySelector('[data-menu="connection-openai-key"]')!);
   expect(document.querySelector('[data-value="moveUp"]')).toBeNull();
   expect(document.querySelector('[data-value="moveDown"]')).toBeNull();
@@ -444,7 +500,8 @@ test("Cloud models can enable and disable a key added in Models without removing
     id: "openai-key",
     on: false,
   });
-  expect(key.textContent).toContain("Not used on Cloud");
+  expect(key.textContent).toContain("Off for new chats. Older machines can keep using the key until their chats end.");
+  expect(key.textContent).not.toContain("Not used on Cloud");
   await click(key.querySelector('[data-menu="connection-openai-key"]')!);
   const use = document.querySelector('[data-value="setCloud"]')!;
   expect(use.textContent).toBe("Use on Cloud");
@@ -454,7 +511,7 @@ test("Cloud models can enable and disable a key added in Models without removing
     id: "openai-key",
     on: true,
   });
-  expect(key.textContent).not.toContain("Not used on Cloud");
+  expect(key.textContent).not.toContain("Off for new chats");
   await act(async () => rendered.history.push("/settings/models"));
   const local = rendered.container.querySelector('[data-card="models"] [data-connection="openai-key"]')!;
   await click(local.querySelector("[data-menu]")!);
@@ -524,13 +581,13 @@ test("Cloud models updates a saved endpoint using its existing profile revision 
     servesCloud: false,
   });
   expect(edited).not.toHaveProperty("apiKey");
-  expect(endpoint.textContent).toContain("Not used on Cloud");
+  expect(endpoint.textContent).toContain("Off for new chats");
 
   rendered.provider.agents.endpoint.addFails = "cmux.page.invalid_params";
   await click(endpoint.querySelector("[data-menu]")!);
   await click(document.querySelector('[data-value="setCloud"]')!);
   expect(card(rendered).querySelector('[role="alert"]')).not.toBeNull();
-  expect(endpoint.textContent).toContain("Not used on Cloud");
+  expect(endpoint.textContent).toContain("Off for new chats");
 });
 
 test("Settings search opens the Cloud models card", async () => {

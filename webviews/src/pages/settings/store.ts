@@ -953,7 +953,12 @@ export class SettingsStore {
     if (run.action !== "checkClaudeLogin" && run.action !== "closeKeyPage") await this.refreshModels();
     return reply.ok
       ? { failure: reply.value.failure ?? null, verificationFailed: reply.value.verificationFailed }
-      : { failure: userMessage(reply.error, SETTINGS_SENTENCES) };
+      : {
+          failure:
+            run.action === "signOutClaude" && reply.error.code === "cmux.models.failed"
+              ? t("settingsWindow.models.claude.signOutFailed")
+              : userMessage(reply.error, SETTINGS_SENTENCES),
+        };
   }
 
   /** Reads the provider's model list without refreshing or changing saved connections. */

@@ -50,7 +50,25 @@ pub(super) static KEYCHAIN: MemoryKeychain = MemoryKeychain::new();
 
 impl Store<'_> {
     pub(crate) fn refuse_test_item(&self, id: &str, error: Error) {
-        KEYCHAIN.refuse(&self.service(), id, error, false);
+        let index: Value = decode(&std::fs::read(self.path(id).unwrap()).unwrap()).unwrap();
+        KEYCHAIN.refuse(&self.service(), &account(id, generation(&index).unwrap()), error, false);
+    }
+
+    pub(crate) fn refuse_test_delete(&self, id: &str, error: Error) {
+        KEYCHAIN.refuse(&self.service(), id, error, true);
+    }
+
+    pub(crate) fn allow_test_item(&self, id: &str) {
+        let service = self.service();
+        KEYCHAIN
+            .refusals
+            .lock()
+            .unwrap()
+            .retain(|refusal| refusal.service != service || refusal.account != id);
+    }
+
+    pub(crate) fn has_test_item(&self, id: &str) -> bool {
+        KEYCHAIN.read(&self.service(), id).unwrap().is_some()
     }
 }
 
@@ -86,23 +104,11 @@ impl Keychain for MemoryKeychain {
         }
         Ok(())
     }
-
-    fn accounts(&self, service: &str, id: &str) -> Result<Vec<String>, Error> {
-        Ok(self
-            .items
-            .lock()
-            .unwrap()
-            .iter()
-            .flat_map(|items| items.keys())
-            .filter(|(scope, name)| scope == service && is_subscription_account(name, id))
-            .map(|(_, name)| name.clone())
-            .collect())
-    }
 }
 
 #[cfg(target_os = "macos")]
 #[test]
-fn a_large_chatgpt_grant_migrates_and_rotates_in_the_login_keychain() {
+fn a_large_chatgpt_grant_is_stored_and_rotated_in_the_login_keychain() {
     use security_framework::os::macos::keychain::CreateOptions;
 
     let home = tempfile::tempdir().unwrap();
@@ -122,7 +128,7 @@ fn a_large_chatgpt_grant_migrates_and_rotates_in_the_login_keychain() {
     });
     let bytes = serde_json::to_vec(&record).unwrap();
     assert!(bytes.len() > 4096);
-    crate::chatgpt::store::write_atomic(&path, &bytes).unwrap();
+    store.write(id, &record).unwrap();
 
     assert!(store.read::<Value>(id).is_ok_and(|value| value.as_ref() == Some(&record)));
     let index: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
@@ -133,76 +139,105 @@ fn a_large_chatgpt_grant_migrates_and_rotates_in_the_login_keychain() {
     record["refresh_token"] = json!("d".repeat(3_000));
     store.write(id, &record).unwrap();
     assert!(store.read::<Value>(id).is_ok_and(|value| value.as_ref() == Some(&record)));
-    let retired = account(id, Some(Uuid::new_v4()));
+    let current = account(id, generation(&index).unwrap());
     let unrelated = account("chatgpt-second", Some(Uuid::new_v4()));
-    for name in [&retired, &unrelated] {
-        Keychain::write(&items, &store.service(), name, &bytes).unwrap();
-    }
+    Keychain::write(&items, &store.service(), &unrelated, &bytes).unwrap();
     store.delete(id).unwrap();
-    assert!(Keychain::read(&items, &store.service(), id).is_ok_and(|value| value.is_none()));
-    assert!(Keychain::read(&items, &store.service(), &retired).is_ok_and(|value| value.is_none()));
-    assert!(
-        Keychain::read(&items, &store.service(), &unrelated).is_ok_and(|value| value.is_some())
-    );
+    assert!(Keychain::read(&items, &store.service(), &current).unwrap().is_none());
+    assert!(Keychain::read(&items, &store.service(), &unrelated).unwrap().is_some());
+}
+
+fn chatgpt_access_token(workspace: &str) -> String {
+    use base64::Engine as _;
+    let claims = json!({"https://api.openai.com/auth": {"chatgpt_account_id": workspace}});
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims.to_string());
+    format!("fixture.{payload}.fixture")
 }
 
 #[test]
-fn chatgpt_migration_keeps_the_restored_subject_and_client() {
+fn chatgpt_reads_and_updates_the_restored_legacy_record_without_keychain_migration() {
     let home = tempfile::tempdir().unwrap();
     let keychain = MemoryKeychain::new();
     let store = Store { home: home.path(), provider: "chatgpt", keychain: Some(&keychain) };
-    let restored = json!({
-        "client_id": "restored-client", "sub": "restored-user", "expires_at": 100,
-        "refresh_token": "fixture-restored"
+    let id = "chatgpt";
+    let path = store.path(id).unwrap();
+    let mut restored = json!({
+        "client_id": "client", "sub": "subject", "expires_at": 100,
+        "access_token": chatgpt_access_token("restored-workspace"), "refresh_token": "fixture-restored"
     });
-    for (id, field) in [("different-user", "sub"), ("different-client", "client_id")] {
-        let mut stored = restored.clone();
-        stored[field] = json!("other");
-        stored["expires_at"] = json!(200);
-        stored["refresh_token"] = json!("fixture-other");
-        store.write(id, &stored).unwrap();
-        crate::chatgpt::store::write_atomic(
-            &store.path(id).unwrap(),
-            &serde_json::to_vec(&restored).unwrap(),
-        )
-        .unwrap();
+    let mut stored = restored.clone();
+    stored["access_token"] = json!(chatgpt_access_token("other-workspace"));
+    stored["expires_at"] = json!(200);
+    let stored_bytes = serde_json::to_vec(&stored).unwrap();
+    keychain.write(&store.service(), id, &stored_bytes).unwrap();
+    write_file(&path, &restored).unwrap();
 
-        assert!(store.read::<Value>(id).is_ok_and(|grant| grant.as_ref() == Some(&restored)));
-        assert!(store.read::<Value>(id).is_ok_and(|grant| grant.as_ref() == Some(&restored)));
-    }
+    assert!(store.read::<Value>(id).is_ok_and(|grant| grant.as_ref() == Some(&restored)));
+    restored["expires_at"] = json!(300);
+    store.write(id, &restored).unwrap();
+    assert_eq!(decode::<Value>(&std::fs::read(&path).unwrap()).unwrap(), restored);
+    assert_eq!(keychain.read(&store.service(), id).unwrap(), Some(stored_bytes));
 }
 
 #[test]
-fn chatgpt_disconnect_keeps_its_index_until_every_chatgpt_copy_is_deleted() {
+fn a_restored_chatgpt_index_refuses_a_different_account_or_workspace() {
+    let home = tempfile::tempdir().unwrap();
+    let keychain = MemoryKeychain::new();
+    let store = Store { home: home.path(), provider: "chatgpt", keychain: Some(&keychain) };
+    let id = "chatgpt";
+    let path = store.path(id).unwrap();
+    let restored = json!({
+        "client_id": "client", "sub": "subject", "expires_at": 100,
+        "id_token": chatgpt_access_token("restored-workspace"),
+        "access_token": chatgpt_access_token("restored-workspace"), "refresh_token": "fixture"
+    });
+    for (key, value) in [
+        ("sub", json!("other-subject")),
+        ("client_id", json!("other-client")),
+        ("access_token", json!(chatgpt_access_token("other-workspace"))),
+    ] {
+        let mut stored = restored.clone();
+        stored[key] = value;
+        keychain.write(&store.service(), id, &serde_json::to_vec(&stored).unwrap()).unwrap();
+        store.write_index(id, &store.service(), None, &restored).unwrap();
+        assert_eq!(store.read::<Value>(id), Err(Error::ReauthRequired));
+        assert_eq!(store.delete(id), Err(Error::ReauthRequired));
+        assert!(path.exists());
+        assert!(keychain.read(&store.service(), id).unwrap().is_some());
+    }
+
+    keychain.write(&store.service(), id, &serde_json::to_vec(&restored).unwrap()).unwrap();
+    assert_eq!(store.read::<Value>(id).unwrap(), Some(restored));
+    let mut index: Value = decode(&std::fs::read(&path).unwrap()).unwrap();
+    index.as_object_mut().unwrap().remove("workspace");
+    write_file(&path, &index).unwrap();
+    assert_eq!(store.read::<Value>(id), Err(Error::ReauthRequired));
+}
+
+#[test]
+fn chatgpt_disconnect_keeps_its_index_when_the_active_item_refuses_deletion() {
     let home = tempfile::tempdir().unwrap();
     let keychain = MemoryKeychain::new();
     let store = Store { home: home.path(), provider: "chatgpt", keychain: Some(&keychain) };
     let id = "chatgpt";
     let service = store.service();
-    let retired = account(id, Some(Uuid::new_v4()));
-    let other_provider = account(id, Some(Uuid::new_v4()));
     let record = json!({"client_id": "client", "sub": "account", "refresh_token": "fixture"});
     store.write(id, &record).unwrap();
-    keychain.write(&service, &retired, &serde_json::to_vec(&record).unwrap()).unwrap();
-    keychain.write(&service, &other_provider, br#"{"region":"global"}"#).unwrap();
+    let path = store.path(id).unwrap();
+    let index: Value = decode(&std::fs::read(&path).unwrap()).unwrap();
+    let active = account(id, generation(&index).unwrap());
 
-    // The older grant is readable, but its access list refuses deletion.
-    keychain.refuse(&service, &retired, Error::KeychainOtherBuild, true);
+    keychain.refuse(&service, &active, Error::KeychainOtherBuild, true);
     assert_eq!(store.delete(id), Err(Error::KeychainOtherBuild));
-    assert!(store.path(id).unwrap().exists());
-    assert!(keychain.read(&service, id).unwrap().is_some());
+    assert!(path.exists());
     keychain.refusals.lock().unwrap().clear();
 
-    // The current grant can also refuse deletion independently of reads.
-    keychain.refuse(&service, id, Error::KeychainOtherBuild, true);
-    assert_eq!(store.delete(id), Err(Error::KeychainOtherBuild));
-    assert!(store.path(id).unwrap().exists());
-    keychain.refusals.lock().unwrap().clear();
     store.delete(id).unwrap();
-    assert!(!store.path(id).unwrap().exists());
-    assert!(keychain.read(&service, id).unwrap().is_none());
-    assert!(keychain.read(&service, &retired).unwrap().is_none());
-    assert!(keychain.read(&service, &other_provider).unwrap().is_some());
+    assert!(!path.exists());
+    assert!(keychain.read(&service, &active).unwrap().is_none());
+    store.write(id, &record).unwrap();
+    write_file(&path, &index).unwrap();
+    assert!(store.read::<Value>(id).unwrap().is_none());
 }
 
 #[test]
@@ -210,8 +245,8 @@ fn subscription_migration_retries_a_failed_keychain_write_and_reads_the_rotated_
     use std::sync::atomic::Ordering;
     let home = tempfile::tempdir().unwrap();
     let keychain = MemoryKeychain::new();
-    let store = Store { home: home.path(), provider: "chatgpt", keychain: Some(&keychain) };
-    let id = "chatgpt";
+    let store = Store { home: home.path(), provider: "kimi", keychain: Some(&keychain) };
+    let id = "kimi";
     let path = store.path(id).unwrap();
     let original = json!({
         "client_id": "fixture", "sub": "fixture-user", "expires_at": 100,
@@ -314,7 +349,7 @@ fn subscription_migration_prefers_the_grant_with_the_later_expiry() {
 }
 
 #[test]
-fn subscription_startup_migrates_all_four_provider_folders_without_routes() {
+fn subscription_startup_migrates_other_providers_and_keeps_legacy_chatgpt_records() {
     let home = tempfile::tempdir().unwrap();
     let id = "orphan";
     let record = json!({
@@ -334,9 +369,13 @@ fn subscription_startup_migrates_all_four_provider_folders_without_routes() {
         let store = Store::new(home.path(), provider);
         let id = format!("{id}-{provider}");
         let index: Value = decode(&std::fs::read(store.path(&id).unwrap()).unwrap()).unwrap();
-        assert!(index["keychain"].is_string());
-        assert!(index.get("access_token").is_none());
-        assert!(index.get("refresh_token").is_none());
+        if provider == "chatgpt" {
+            assert_eq!(index, record);
+        } else {
+            assert!(index["keychain"].is_string());
+            assert!(index.get("access_token").is_none());
+            assert!(index.get("refresh_token").is_none());
+        }
         assert!(store.read::<Value>(&id).is_ok_and(|value| value.as_ref() == Some(&record)));
     }
 }

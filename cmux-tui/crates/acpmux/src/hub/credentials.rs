@@ -125,12 +125,14 @@ impl Hub {
                 return credential.uses_claude_subscription_token();
             }
         }
-        let Some(connection) = meta.credential_connection.as_deref() else { return false };
-        if is_saved_claude_token(connection)
-            || meta.claude_token_recovery == Some(ClaudeTokenRecovery::LegacyRejected)
+        if meta.claude_token_recovery == Some(ClaudeTokenRecovery::LegacyRejected)
             || meta.last_turn.as_ref().and_then(|turn| turn["errorCode"].as_str())
                 == Some("claude_cloud_token_rejected")
         {
+            return true;
+        }
+        let Some(connection) = meta.credential_connection.as_deref() else { return false };
+        if is_saved_claude_token(connection) {
             return true;
         }
         let dir = crate::routes::places(&*self.config.read().await).0;
@@ -285,7 +287,11 @@ impl Hub {
     /// The Cloud owner withdrew a delivered model credential.
     pub(crate) async fn revoke_credential(self: &Arc<Self>, id: &str) -> Result<Value, RpcError> {
         let (session, _family) = self.credential_session(id).await?;
-        let _spawn = session.spawn_lock.lock().await;
+        // As for a route switch, wait for the turn and anything the harness is still doing.
+        // The caller retries a pending withdrawal; success means the old host has ended.
+        let _turn = session.turn_lock.try_lock().map_err(|_| withdrawal_pending())?;
+        let _using = session.harness_use.try_write().map_err(|_| withdrawal_pending())?;
+        let _spawn = session.spawn_lock.try_lock().map_err(|_| withdrawal_pending())?;
         let meta = session.meta();
         // Adoption takes the same spawn lock. A recorded host can still have the key in
         // its environment, so refuse until we can detach its adopted child.
@@ -293,17 +299,39 @@ impl Hub {
         if self.hands_off(&session) || (child.is_none() && !Self::host_record_gone(&session.id)) {
             return Err(withdrawal_pending());
         }
-        let host_nonce =
-            child.and_then(|child| child.host_record().map(|record| record.start_nonce));
-        let removed = session.credential.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if removed.is_none() && meta.credential_connection.is_none() {
+        let held = session.credential.lock().unwrap_or_else(|e| e.into_inner()).is_some();
+        if !held && meta.credential_connection.is_none() {
             return Ok(json!({"sessionId": session.id, "restart": "none"}));
         }
-        #[cfg(unix)]
-        if Family::of_harness(&_family) == Some(Family::Copilot) {
-            crate::agent::copilot_auth::remove_session(&session.id);
+        let host_nonce =
+            child.as_ref().and_then(|child| child.host_record().map(|record| record.start_nonce));
+        let _link = match &child {
+            Some(child) => {
+                let link = child.try_hold_host_link().map_err(|_| withdrawal_pending())?;
+                if !child.recovery_replay_complete()
+                    || !Self::drain_inbound(&session).await
+                    || (host_nonce.is_some() && !child.is_alive().await)
+                {
+                    return Err(withdrawal_pending());
+                }
+                link
+            }
+            None => None,
+        };
+        if session.turn().is_some()
+            || session.harness_turn.load(Ordering::SeqCst)
+            || session.compacting.load(Ordering::SeqCst)
+            || session.asks_in_flight.load(Ordering::SeqCst) != 0
+            || session.agent_requests.load(Ordering::SeqCst) != 0
+            || session.has_pending_permissions()
+            || self.holds_work_below(&session)
+        {
+            return Err(withdrawal_pending());
         }
-        self.detach_child(&session).await;
+        if child.is_some() {
+            // Use only the link whose work was checked. A lost link cannot justify killing a host.
+            self.detach_claude_recovery_child(&session).await;
+        }
         let host_ended = match host_nonce {
             Some(nonce) => {
                 crate::agent_host::wait_dead_async(
@@ -318,6 +346,11 @@ impl Hub {
         };
         if session.child.lock().await.is_some() || !host_ended {
             return Err(withdrawal_pending());
+        }
+        session.credential.lock().unwrap_or_else(|e| e.into_inner()).take();
+        #[cfg(unix)]
+        if Family::of_harness(&_family) == Some(Family::Copilot) {
+            crate::agent::copilot_auth::remove_session(&session.id);
         }
         Ok(json!({"sessionId": session.id, "restart": "none"}))
     }
@@ -753,6 +786,108 @@ mod tests {
         start.await.unwrap();
         assert!(!launched(&session).contains_key(CLAUDE_OAUTH));
         assert_eq!(launched(&session).get("CMUX_CLAUDE_AUTH").map(String::as_str), Some("own"));
+        hub.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    async fn a_saved_claude_rejection_survives_grant_loss_and_later_turns() {
+        let hub = hub();
+        let session = hub
+            .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() })
+            .await
+            .unwrap();
+        session.meta.lock().unwrap().last_turn =
+            Some(json!({"errorCode": "claude_cloud_token_rejected"}));
+        hub.check_claude_recovery(&session, None).await.unwrap();
+        for connection in [None, Some("custom-mac-only:0123456789abcdef")] {
+            {
+                let mut meta = session.meta.lock().unwrap();
+                meta.credential_connection = connection.map(str::to_owned);
+                meta.claude_token_recovery = None;
+            }
+            hub.record_last_turn(&session, &json!({"errorCode": "claude_cloud_token_rejected"}));
+            hub.check_claude_recovery(&session, None).await.unwrap();
+
+            hub.record_last_turn(&session, &json!({"errorCode": "model_not_found"}));
+            assert_eq!(session.meta().last_turn.unwrap()["errorCode"], "model_not_found");
+            hub.check_claude_recovery(&session, None).await.unwrap();
+        }
+        hub.shutdown_all().await;
+    }
+
+    #[tokio::test]
+    async fn withdrawal_waits_for_a_live_turn_permission_and_background_work() {
+        use crate::hub::{Control, person::Answerer};
+
+        let hub = hub();
+        let credential = AgentCredential::parse(&json!({
+            "env": {"ANTHROPIC_API_KEY": "fixture-key"}, "connection": "personal-models"
+        }))
+        .unwrap();
+        let session = hub
+            .new_session(NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                credential: Some(credential),
+                ..NewRequest::default()
+            })
+            .await
+            .unwrap();
+        let child = hub.child_for(&session).await.unwrap();
+        let mut events = hub.subscribe();
+        let turn = {
+            let (hub, session) = (hub.clone(), session.clone());
+            tokio::spawn(async move {
+                hub.prompt(
+                    &session,
+                    vec![json!({"type": "text", "text": "ask: fixture permission"})],
+                    "test",
+                    false,
+                )
+                .await
+            })
+        };
+        let timeout = std::time::Duration::from_secs(15);
+        let permission = tokio::time::timeout(timeout, async {
+            loop {
+                let event = events.recv().await.unwrap();
+                if event.record.kind == "permission_request" && event.session_id == session.id {
+                    break event.record.msg["permissionId"].as_str().unwrap().to_owned();
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let pending = hub.revoke_credential(&session.id).await.unwrap_err();
+        assert_eq!(pending.data.unwrap()["reason"], "credentials.host_pending");
+        assert!(child.is_alive().await);
+        assert_eq!(hub.credential_status(&session.id).await.unwrap()["held"], true);
+        hub.respond_permission(
+            &session,
+            &permission,
+            Some("no".into()),
+            None,
+            None,
+            Answerer { person: true, ..Default::default() },
+            Control::Local,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            tokio::time::timeout(timeout, turn).await.unwrap().unwrap().unwrap()["stopReason"],
+            "end_turn"
+        );
+
+        *session.work_below_since.lock().unwrap() = 1;
+        let pending = hub.revoke_credential(&session.id).await.unwrap_err();
+        assert_eq!(pending.data.unwrap()["reason"], "credentials.host_pending");
+        assert!(child.is_alive().await);
+
+        *session.work_below_since.lock().unwrap() = 0;
+        hub.revoke_credential(&session.id).await.unwrap();
+        assert!(!child.is_alive().await);
+        assert_eq!(hub.credential_status(&session.id).await.unwrap()["held"], false);
+        let error = hub.child_for(&session).await.err().expect("withdrawn key cannot be used");
+        assert_eq!(error.data.unwrap()["reason"], "credentials.needed");
         hub.shutdown_all().await;
     }
 

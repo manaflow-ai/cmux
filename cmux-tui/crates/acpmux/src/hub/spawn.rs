@@ -6,6 +6,10 @@ use super::*;
 use crate::config::check_preset_args;
 use cmux_json::JsonSet as _;
 
+pub(super) fn launch_requires_claude_machine_login(meta: &SessionMeta) -> bool {
+    meta.session_env.get("CMUX_CLAUDE_AUTH").is_some_and(|auth| auth == "own")
+}
+
 fn require_launch_credential(
     meta: &SessionMeta,
     credential: Option<&crate::agent_credentials::AgentCredential>,
@@ -419,17 +423,43 @@ impl Hub {
         }
         let requires_claude_team =
             meta.session_env.contains_key(crate::claude_cloud_auth::REQUIRED_TEAM);
+        let requires_claude_login = launch_requires_claude_machine_login(meta);
         p.env.remove(crate::claude_cloud_auth::REQUIRED_TEAM);
+        let claude_route_unavailable = || {
+            RpcError::invalid_params("The selected Claude model route is unavailable.")
+                .with_data(serde_json::json!({"reason": "route.unavailable"}))
+        };
         if requires_claude_team {
             p.env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
+        } else if requires_claude_login {
+            if crate::config::derive_family(&meta.harness, &p) != "claude"
+                || !crate::claude_cloud_auth::launches_claude_itself(&p.argv)
+                || crate::claude_cloud_auth::managed_provider_override(&self.vm_marker_root())
+            {
+                return Err(claude_route_unavailable());
+            }
+            let account = crate::server::claude_machine_login_env(&*self.config.read().await)
+                .ok_or_else(claude_route_unavailable)?;
+            let settings = meta.stop_condition.as_deref().map(super::stop_condition::settings);
+            if !crate::claude_cloud_auth::apply_machine_login(
+                &mut p.env,
+                &mut p.argv,
+                account,
+                settings.as_ref().and_then(Value::as_object),
+            ) {
+                return Err(claude_route_unavailable());
+            }
         } else if super::credentials::uses_claude_machine_login(meta) {
             p.env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
         }
         // The owner's Cloud credential: straight to the provider, no coderouter route
         // (`agent_credentials.rs`). Its names only are logged, never a value.
-        let direct = if let Some(c) = credential.filter(|_| !requires_claude_team) {
+        let direct = if let Some(c) =
+            credential.filter(|_| !requires_claude_team && !requires_claude_login)
+        {
+            c.check_launch_destination()?;
             let family = crate::config::derive_family(&meta.harness, &p);
-            if (c.has_anthropic_endpoint() || c.uses_direct_anthropic_credential())
+            if c.uses_direct_anthropic_credential()
                 && family == "claude"
                 && crate::claude_cloud_auth::managed_provider_override(&self.vm_marker_root())
             {
@@ -438,7 +468,6 @@ impl Hub {
                 )
                 .with_data(serde_json::json!({"reason": "credentials.endpoint_unavailable"})));
             }
-            c.check_endpoint_destination(&family).await?;
             let applied = crate::agent_credentials::apply(c, &family, &mut p.argv, &mut p.env);
             let names: Vec<&str> = c.names().collect();
             if applied {
@@ -455,8 +484,8 @@ impl Hub {
         } else {
             false
         };
-        // An explicit Cloud team launch takes precedence over a saved route binding.
-        let account_home = if direct || requires_claude_team {
+        // An explicit Cloud Claude auth choice takes precedence over a saved route binding.
+        let account_home = if direct || requires_claude_team || requires_claude_login {
             None
         } else {
             self.apply_route(meta, forking, profile, &mut p.env).await?
@@ -573,16 +602,15 @@ impl Hub {
         // opted-in launch that keeps own on purpose (a launcher of its own, a pair it sets) logs
         // why and keeps it.
         let claude_family = !direct
+            && !requires_claude_login
             && crate::config::derive_family(&meta.harness, &p) == "claude"
             && !p.env.contains_key(crate::routes::NAME_KEY);
         let claude_launch =
             claude_family && crate::claude_cloud_auth::launches_claude_itself(&p.argv);
-        let team_unavailable = || {
-            RpcError::invalid_params("The selected Claude model route is unavailable.")
-                .with_data(serde_json::json!({"reason": "route.unavailable"}))
-        };
-        if requires_claude_team && !claude_launch {
-            return Err(team_unavailable());
+        if requires_claude_team
+            && (!claude_launch || crate::claude_cloud_auth::has_file_flag_settings(&p.argv[1..]))
+        {
+            return Err(claude_route_unavailable());
         }
         if claude_family
             && !claude_launch
@@ -617,7 +645,7 @@ impl Hub {
             .then(|| crate::agent::resolved_profile_env(&p))
         {
             Some(Ok(env)) => Some(env),
-            Some(Err(_)) if requires_claude_team => return Err(team_unavailable()),
+            Some(Err(_)) if requires_claude_team => return Err(claude_route_unavailable()),
             Some(Err(error)) if claude_join.is_some() => {
                 let why = format!("its profile env does not resolve: {error}");
                 return Err(joined_declined(&meta.id, "claude", "profile_env", &why));
@@ -700,7 +728,7 @@ impl Hub {
                 }
             };
             if requires_claude_team && pair.is_none() {
-                return Err(team_unavailable());
+                return Err(claude_route_unavailable());
             }
             if pair.is_none()
                 && let (Some(join), Ok(flag)) = (&claude_join, &flag)

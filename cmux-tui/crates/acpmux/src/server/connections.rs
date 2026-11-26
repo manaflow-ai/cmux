@@ -533,13 +533,13 @@ fn list(
     }
     let records: HashMap<String, chatgpt::store::Metadata> =
         chatgpt::store::all(home).into_iter().collect();
-    for route in routes::load(dir).0 {
+    let saved_routes = routes::load(dir).0;
+    let saved_ids: BTreeSet<_> = saved_routes.iter().map(|route| route.id.clone()).collect();
+    for route in saved_routes {
         if route.id == routes::CODEX_LOGIN_ROUTE_ID {
             continue;
         }
-        let route = if route.file.credential_instance.is_none()
-            && standard_key_endpoint(&route.file).is_some()
-        {
+        let route = if route.file.credential_instance.is_none() {
             routes::for_credential(dir, &route.id).unwrap_or(route)
         } else {
             route
@@ -671,17 +671,22 @@ fn list(
             && sources.user_dir.as_ref().is_some_and(|dir| {
                 Path::new(&meta.source_path) == dir.join(format!("{id}.toml")).as_path()
             });
-        if out.iter().all(|connection| connection.id != id)
-            && let Some(endpoint) = endpoint_connection(
-                &id,
-                &profile,
-                meta.display_name.as_deref(),
-                if editable { meta.content_revision } else { None },
-                meta.credential_instance,
-                meta.cloud_enabled,
-                meta.endpoint_preset,
-            )
-        {
+        if let Some(mut endpoint) = endpoint_connection(
+            &id,
+            &profile,
+            meta.display_name.as_deref(),
+            if editable { meta.content_revision } else { None },
+            meta.credential_instance,
+            meta.cloud_enabled,
+            meta.endpoint_preset,
+        ) {
+            if id == CLAUDE_LOGIN_ID || saved_ids.contains(&id) || routes::find(None, &id).is_ok() {
+                // Route and profile IDs have separate owners. Keep the endpoint editable
+                // while a legacy collision makes its launch ID ambiguous.
+                endpoint.id = format!("endpoint:{id}");
+                endpoint.serves_cloud = false;
+                endpoint.can_serve_cloud = false;
+            }
             out.push(endpoint);
         }
     }
@@ -733,7 +738,10 @@ fn state(dir: Option<&Path>, home: &Path, sources: &ProfileSources) -> Value {
             continue;
         };
         match available {
-            Err(error @ crate::subscription_store::Error::KeychainOtherBuild) => {
+            Err(
+                error @ (crate::subscription_store::Error::KeychainOtherBuild
+                | crate::subscription_store::Error::ReauthRequired),
+            ) => {
                 connection.signed_in = false;
                 connection.sign_in_reason = Some(error.code());
             }
@@ -811,9 +819,10 @@ pub(super) fn add_key(
             routes::PROVIDERS.join(", ")
         ))
     })?;
+    let profiles = config::profiles::load(sources);
     let id = std::iter::once(format!("{}-key", p.id))
         .chain((2..1000).map(|n| format!("{}-key-{n}", p.id)))
-        .find(|id| routes::find(dir, id).is_err())
+        .find(|id| routes::find(dir, id).is_err() && !profiles.profiles.contains_key(id))
         .ok_or_else(|| RpcError::invalid_params("too many keys for this provider"))?;
     let file = RouteFile {
         credential_instance: None,
@@ -1396,6 +1405,7 @@ pub(super) async fn handle(
         }
         method::MUX_CONNECTIONS_REMOVE => {
             let id = need("id")?;
+            let instance = need("instance")?;
             let (d, h, i) = (dir.clone(), home.clone(), id.clone());
             let found = blocking(move || {
                 list(d.as_deref(), &h, &routes::bindings(&h), &ProfileSources::none())
@@ -1412,6 +1422,7 @@ pub(super) async fn handle(
                         provider,
                         chatgpt::Places { routes: dir.clone(), home: home.clone() },
                         id,
+                        instance,
                     )
                     .await
                     .map_err(subscription_failure)?;
@@ -1426,17 +1437,35 @@ pub(super) async fn handle(
                     )));
                 }
                 "chatgpt-plan" => {
-                    hub.chatgpt.remove(&home, &id).await.map_err(failure)?;
+                    hub.chatgpt
+                        .remove(
+                            &chatgpt::Places { routes: dir.clone(), home: home.clone() },
+                            &id,
+                            &instance,
+                        )
+                        .await
+                        .map_err(failure)?;
+                    let state = blocking(move || state(dir.as_deref(), &home, &sources)).await?;
+                    announce_later(hub);
+                    return Ok(state);
                 }
                 _ => {}
             }
             let state = blocking(move || {
-                let legacy = if found.kind == "claude-token" {
-                    routes::find(dir.as_deref(), &id).ok().and_then(|route| route.file.secret)
-                } else {
-                    None
-                };
-                routes::remove(dir.as_deref(), &home, &id).map_err(|e| route_error(&e))?;
+                let (_, legacy) = routes::remove_with(
+                    dir.as_deref(),
+                    &home,
+                    &id,
+                    Some(&instance),
+                    |route| {
+                        Ok(route
+                            .file
+                            .secret
+                            .clone()
+                            .filter(|_| route.file.kind == RouteKind::ClaudeToken))
+                    },
+                    |e| route_error(&e),
+                )?;
                 let mut result = state(dir.as_deref(), &home, &sources);
                 if let Some(reference) = legacy.filter(|reference| {
                     reference.starts_with("keychain:cmux-model-key/claude-token-")
@@ -2081,6 +2110,35 @@ secret = "keychain:work"
     }
 
     #[test]
+    fn restored_chatgpt_index_for_another_workspace_requires_sign_in_in_settings() {
+        let d = dirs();
+        let dir = Some(d.routes.as_path());
+        let file = routes::file_from_json(&json!({
+            "kind": "chatgpt-plan", "provider": "openai", "families": ["codex"],
+        }))
+        .unwrap();
+        let id = "chatgpt";
+        routes::add(dir, id, &file, false).unwrap();
+        let record = chatgpt::store::Record {
+            client_id: chatgpt::CODEX_CLIENT_ID.into(),
+            sub: "fixture-user".into(),
+            workspace: Some("active-workspace".into()),
+            refresh_token: "fixture-refresh".into(),
+            ..Default::default()
+        };
+        chatgpt::store::write(&d.home, id, &record).unwrap();
+        let path = chatgpt::store::dir(&d.home).join("chatgpt.json");
+        let mut index: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        index["workspace"] = json!("restored-workspace");
+        chatgpt::store::write_atomic(&path, &serde_json::to_vec(&index).unwrap()).unwrap();
+
+        let settings = state(dir, &d.home, &ProfileSources::none());
+        assert_eq!(find(&settings, id)["signed_in"], false);
+        assert_eq!(find(&settings, id)["sign_in_reason"], "reauth_required");
+        assert!(settings.get("disconnected_credentials").is_none());
+    }
+
+    #[test]
     fn saved_claude_token_route_can_serve_cloud_and_can_be_removed() {
         let d = dirs();
         let dir = Some(d.routes.as_path());
@@ -2289,6 +2347,46 @@ secret = "keychain:work"
                 assert_eq!(planned.err().unwrap().data.unwrap()["reason"], "connections.not_cloud");
             }
         }
+    }
+
+    #[test]
+    fn a_saved_endpoint_stays_editable_when_a_route_has_the_same_id() {
+        let d = dirs();
+        let dir = Some(d.routes.as_path());
+        let empty = ProfileSources::none();
+        let id = "openai-key";
+        let folder = d.home.join("harnesses");
+        std::fs::create_dir_all(&folder).unwrap();
+        let sources = ProfileSources { user_dir: Some(folder.clone()), ..Default::default() };
+        let account = format!("cmux-harness/{id}/CMUX_BYO_API_KEY");
+        std::fs::write(
+            folder.join(format!("{id}.toml")),
+            byo_endpoint::profile_text(&byo_endpoint::Endpoint {
+                cloud_enabled: None,
+                preset: None,
+                id,
+                name: "Custom OpenAI Key",
+                kind: Kind::OpenAi,
+                base_url: "https://models.example/v1",
+                models: &["some-model".into()],
+                keychain_item: Some(&account),
+            }),
+        )
+        .unwrap();
+        let (key, settings) =
+            add_key(dir, &d.home, "openai", "keychain:fixture", None, &sources, None).unwrap();
+        assert_eq!(key, "openai-key-2");
+        assert_eq!(find(&settings, id)["kind"], "endpoint");
+
+        // A CLI route or pre-existing configuration can still use the profile's ID.
+        add_key(dir, &d.home, "openai", "keychain:legacy", None, &empty, None).unwrap();
+        let settings = state(dir, &d.home, &sources);
+        assert_eq!(find(&settings, id)["kind"], "api-key");
+        let endpoint = find(&settings, "endpoint:openai-key");
+        assert_eq!(endpoint["provider"], id);
+        assert_eq!(endpoint["label"], "Custom OpenAI Key");
+        assert_eq!(endpoint["can_serve_cloud"], false);
+        assert!(endpoint["endpoint"]["revision"].is_string());
     }
 
     #[test]

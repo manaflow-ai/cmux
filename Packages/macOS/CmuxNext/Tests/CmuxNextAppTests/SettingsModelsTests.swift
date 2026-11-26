@@ -211,6 +211,21 @@ import Testing
         #expect(models.state["claudeLogin"]?["phase"] == "idle")
     }
 
+    @Test func disconnectRequiresAndForwardsTheCapturedConnectionInstance() async throws {
+        let daemon = Daemon()
+        let models = make(daemon: daemon)
+        models.apply(["connections": [["id": "openai-key", "kind": "api-key", "credential_instance": "replacement"]]])
+        await #expect(throws: PageError.self) {
+            try await models.run(["action": "remove", "id": "openai-key", "instance": "original"], context: click)
+        }
+        #expect(daemon.calls.withLock { $0 }.isEmpty)
+
+        _ = try await models.run(["action": "remove", "id": "openai-key", "instance": "replacement"], context: click)
+        #expect(daemon.calls.withLock { $0 } == [
+            Call(method: "_acpmux/connections/remove", params: ["id": "openai-key", "instance": "replacement"]),
+        ])
+    }
+
     @Test func cloudClaudeLoginStaysOnItsSelectedMachine() async throws {
         let daemon = Daemon()
         let opened = Opened()
@@ -354,6 +369,37 @@ import Testing
         #expect(login?["environment"] == "env_b")
     }
 
+    @Test func cloudClaudeCanConnectOnceTheSameGuestSupportsLogin() async throws {
+        let models = make(daemon: Daemon())
+        var updated = false
+        var operations: [String] = []
+        let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", environment: "env_b", request: { op, _ in
+            operations.append(op)
+            return Data((op == "status" ? #"{"signedIn":false}"# : #"{"signedIn":true}"#).utf8)
+        }, openCallback: { _, _, _ in false })
+        models.cloudClaudeLogin = { preferred, _, _ in
+            updated && preferred == machine.id ? .ready(machine) : .connectable
+        }
+        models.prepareCloudClaudeLogin = { preferred, _, _ in
+            guard updated, preferred == machine.id else {
+                throw PageError(code: "cmux.models.unsupported", message: "unsupported")
+            }
+            return machine
+        }
+        let request: JSONValue = ["action": "connectClaude", "cloud": true, "machine": "vm_b", "environment": "env_b"]
+        _ = try await models.run(request, context: click)
+        await models.claudeLoginTasks[.cloud]?.value
+        #expect(models.state["cloudClaudeLogin"]?["error"] == "unsupported")
+
+        updated = true
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "idle")
+        #expect(models.state["cloudClaudeLogin"]?["machine"] == "vm_b")
+        _ = try await models.run(request, context: click)
+        await models.claudeLoginTasks[.cloud]?.value
+        #expect(operations == ["start"])
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "connected")
+    }
+
     @Test(arguments: [false, true], ["update_claude", "cli_missing"])
     func cloudClaudeCanRetryAfterInstallingOrUpdatingTheCLI(connect: Bool, refusal: String) async throws {
         let models = make(daemon: Daemon())
@@ -424,6 +470,26 @@ import Testing
         dropped = false
         _ = try await models.run(["action": "signOutClaude", "cloud": true, "machine": "vm_a"], context: click)
         #expect(requests == ["vm_a:status", "vm_a:logout"])
+    }
+
+    @Test func cloudClaudeSignOutPropagatesTheRefusalAndKeepsTheConnection() async throws {
+        let models = make(daemon: Daemon())
+        var refusesLogout = true
+        let machine = SettingsModels.CloudClaudeMachine(id: "vm_b", request: { op, _ in
+            if op == "logout", refusesLogout { return Data(#"{"refused":{"reason":"failed"}}"#.utf8) }
+            return Data(#"{"signedIn":true}"#.utf8)
+        }, openCallback: { _, _, _ in false })
+        models.cloudClaudeLogin = { _, _, _ in .ready(machine) }
+        await models.checkClaudeLogin(.cloud, machine: machine.id)
+        let request: JSONValue = ["action": "signOutClaude", "cloud": true, "machine": "vm_b"]
+        await #expect(throws: PageError(code: "cmux.models.failed", message: "Claude sign-out was refused")) {
+            try await models.run(request, context: click)
+        }
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "connected")
+        #expect(models.state["cloudClaudeLogin"]?["signedIn"] == true)
+        refusesLogout = false
+        _ = try await models.run(request, context: click)
+        #expect(models.state["cloudClaudeLogin"]?["phase"] == "idle")
     }
 
     @Test func cloudClaudeReauthenticationTargetsTheConnectedMachineAndKeepsOtherTokens() async throws {

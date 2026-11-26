@@ -54,7 +54,7 @@ export function ModelKeyForm({
               ? { servesCloud: true }
               : {}),
         },
-        cloud ? () => setVerificationFailed(true) : undefined,
+        () => setVerificationFailed(true),
       ))
     ) {
       if (edit && apiKey) onKeyReplaced?.();

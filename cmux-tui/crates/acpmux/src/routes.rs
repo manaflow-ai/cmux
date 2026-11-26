@@ -386,6 +386,17 @@ impl Route {
             && self.file.secret.is_some()
     }
 
+    /// Whether a launch on this machine can use the route directly.
+    pub(crate) fn check_local_launch(&self) -> Result<(), RouteError> {
+        if self.file.kind == RouteKind::ClaudeToken {
+            return Err(RouteError::Unavailable(format!(
+                "route {} is a Cloud connection: its credential goes to a Cloud machine's agent, not a chat on this Mac",
+                self.id
+            )));
+        }
+        Ok(())
+    }
+
     /// Whether it serves `family`.
     pub fn serves(&self, family: &str) -> bool {
         // Existing xAI route files were written for Codex. They can also serve the native CLI
@@ -964,16 +975,20 @@ fn write_route(
     Ok(Route { id: id.to_owned(), file, path })
 }
 
+fn has_credential_instance(kind: RouteKind) -> bool {
+    matches!(
+        kind,
+        RouteKind::DirectApiKey
+            | RouteKind::DirectSubscription
+            | RouteKind::ClaudeToken
+            | RouteKind::ChatgptPlan
+    ) || crate::subscriptions::Provider::for_kind(kind).is_some()
+}
+
 fn assign_credential_instance(file: &mut RouteFile) -> bool {
-    if matches!(
-        file.kind,
-        RouteKind::DirectApiKey | RouteKind::ClaudeToken | RouteKind::ChatgptPlan
-    ) || crate::subscriptions::Provider::for_kind(file.kind).is_some()
-    {
-        if file.credential_instance.is_none() {
-            file.credential_instance = Some(uuid::Uuid::new_v4().to_string());
-            return true;
-        }
+    if has_credential_instance(file.kind) && file.credential_instance.is_none() {
+        file.credential_instance = Some(uuid::Uuid::new_v4().to_string());
+        return true;
     }
     false
 }
@@ -981,7 +996,10 @@ fn assign_credential_instance(file: &mut RouteFile) -> bool {
 /// Read the route for delivery, assigning an identity to pre-existing files under the edit lock.
 pub(crate) fn for_credential(dir: Option<&Path>, id: &str) -> Result<Route, RouteError> {
     let mut route = find(dir, id)?;
-    if route.file.credential_instance.is_none() && !route.path.as_os_str().is_empty() {
+    if route.file.credential_instance.is_none()
+        && has_credential_instance(route.file.kind)
+        && !route.path.as_os_str().is_empty()
+    {
         let Ok(_guard) = lock_route_files(dir) else { return Ok(route) };
         route = find(dir, id)?;
         if route.file.credential_instance.is_none() && !route.path.as_os_str().is_empty() {
@@ -1003,8 +1021,33 @@ pub(crate) fn for_credential(dir: Option<&Path>, id: &str) -> Result<Route, Rout
 
 /// Move a route to the backup folder; the backup's name restores it.
 pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, RouteError> {
-    let _guard = lock_route_files(dir)?;
-    let route = find(dir, id)?;
+    remove_with(dir, home, id, None, |_| Ok(()), |error| error).map(|(backup, ())| backup)
+}
+
+/// Validate the captured connection and clean up its credentials under the route write lock.
+pub(crate) fn remove_with<T, E>(
+    dir: Option<&Path>,
+    home: &Path,
+    id: &str,
+    instance: Option<&str>,
+    cleanup: impl FnOnce(&Route) -> Result<T, E>,
+    route_error: impl Fn(RouteError) -> E,
+) -> Result<(String, T), E> {
+    let _guard = lock_route_files(dir).map_err(&route_error)?;
+    let route = find(dir, id).map_err(&route_error)?;
+    if instance.is_some_and(|expected| route.file.credential_instance.as_deref() != Some(expected))
+    {
+        return Err(route_error(RouteError::BadParams(
+            "the connection changed while it was open".into(),
+        )));
+    }
+    let result = cleanup(&route)?;
+    let backup = backup_removed_route(home, route).map_err(route_error)?;
+    Ok((backup, result))
+}
+
+fn backup_removed_route(home: &Path, route: Route) -> Result<String, RouteError> {
+    let id = route.id.as_str();
     let backups = backups_dir(home);
     // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's now.
     // The backup goes through the folder this daemon holds (`home_fs`): a home replaced after the
@@ -1378,6 +1421,7 @@ pub fn env_for_on(
     home: &Path,
     gateway: Option<&str>,
 ) -> Result<RouteEnv, RouteError> {
+    route.check_local_launch()?;
     if !route.serves(family) {
         return Err(RouteError::BadParams(format!(
             "route {} does not serve the {family} harness",
@@ -1388,10 +1432,6 @@ pub fn env_for_on(
         set: BTreeMap::new(),
         unset: SCRUBBED.iter().map(|k| (*k).to_owned()).collect(),
     };
-    if route.file.kind == RouteKind::ClaudeToken {
-        // Local bindings use the machine's own login. Cloud resolves the reference separately.
-        return Ok(RouteEnv::default());
-    }
     if matches!(
         route.file.kind,
         RouteKind::ChatgptPlan | RouteKind::GrokPlan | RouteKind::CopilotPlan | RouteKind::KimiPlan
