@@ -31,6 +31,8 @@ on:
       - vendor/stack-auth-swift-sdk-prerelease/**
       - cmux-next-ios/CmuxMobileKit/**
       - scripts/ci/swift-linux-packages.txt
+      - scripts/ci/swift-linux-targets.txt
+      - scripts/ci/swift_linux_targets.py
       - scripts/ci/package-test-lane.sh
       - scripts/ci/swift-test-debug-info.sh
       - scripts/ci/swiftpm-binary-module-guard.sh
@@ -315,6 +317,24 @@ jobs:
             vendor/stack-auth-swift-sdk-prerelease/.build
             cmux-next-ios/CmuxMobileKit/.build
           key: swift-linux-packages-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ runner.arch }}-${{ matrix.group }}-${{ steps.key.outputs.inputs }}
+
+  # The Linux target ratchet (scripts/ci/swift_linux_targets.py): every target listed in
+  # scripts/ci/swift-linux-targets.txt is still in its package's Linux shape (`swift package dump-package`
+  # with the row's environment). Seconds, no build, and no Mac fallback: a target that leaves Linux turns
+  # this red; ci-guards keeps the list's count at or above its floor, so the count only goes up.
+  linux-targets:
+    name: Swift targets on Linux (ratchet)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 15
+    container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install python3
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3
+      - name: Every listed target is in its package's Linux shape
+        run: python3 scripts/ci/swift_linux_targets.py --verify
 
   # One small Linux job decides whether any group handed a package to the Mac, so a green run never
   # takes a Mac from the queue.
