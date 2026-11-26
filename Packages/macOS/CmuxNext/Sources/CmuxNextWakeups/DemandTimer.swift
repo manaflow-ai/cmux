@@ -111,6 +111,8 @@ public final class DemandTimer: Sendable {
             guard state.generation == generation, cancelSleep || !Task.isCancelled else { return false }
             if cancelSleep { state.task?.cancel() }
             state.task = nil
+            // Claimed once: the deadline's own fire and a ride on another wake race for the same schedule.
+            state.generation &+= 1
             return true
         }
     }

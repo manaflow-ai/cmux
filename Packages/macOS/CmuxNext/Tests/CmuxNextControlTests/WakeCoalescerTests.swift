@@ -87,4 +87,25 @@ struct WakeCoalescerTests {
         coalescer.wake()
         #expect(Self.reasons(ledger, "moved").isEmpty)
     }
+
+    @Test func aRideAndItsOwnDeadlineRunItOnce() async throws {
+        let clock = ManualClock()
+        let coalescer = Self.coalescer(clock)
+        let ledger = WakeupLedger()
+        let timer = DemandTimer(owner: "once", clock: clock, ledger: ledger, early: .seconds(5), coalescer: coalescer)
+        let runs = Runs()
+        timer.schedule(after: .seconds(10)) { runs.add() }
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(10))
+        coalescer.wake()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(Self.reasons(ledger, "once").values.reduce(0, +) == 1, "one claim, whichever came first")
+        #expect(runs.count == 1)
+    }
+}
+
+private nonisolated final class Runs: Sendable {
+    private let value = Mutex(0)
+    var count: Int { value.withLock { $0 } }
+    func add() { value.withLock { $0 += 1 } }
 }
