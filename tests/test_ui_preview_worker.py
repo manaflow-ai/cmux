@@ -593,6 +593,7 @@ class ColdSideTests(unittest.TestCase):
             e1, e2 = worker.web.vite_env(), g2.vite_env()
             self.assertEqual(e1["CMUX_VITE_TRANSFORM_CACHE"], e2["CMUX_VITE_TRANSFORM_CACHE"])
             self.assertEqual(e1["CMUX_VITE_TRANSFORM_CACHE"], str(worker.state / "vite-transforms"))
+            self.assertEqual(e1["CMUX_REACT_COMPILER"], "oxc")
             self.assertNotEqual(e1["CMUX_VITE_CACHE_DIR"], e2["CMUX_VITE_CACHE_DIR"])  # never one folder for two vites
             # Inside webviews/ (the gallery's fs.allow), so vite serves it.
             self.assertTrue(e1["CMUX_VITE_CACHE_DIR"].startswith(str(worker.web.tree / "webviews") + os.sep))

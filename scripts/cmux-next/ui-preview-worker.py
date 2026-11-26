@@ -350,8 +350,12 @@ class Gallery:
         return self.tree / "webviews" / "node_modules" / f".vite-{key or self.key or 'none'}"
 
     def vite_env(self) -> dict:
-        """The gallery vite's port, the shared transform cache and this config's deps folder."""
+        """The gallery vite's port, the React Compiler pass, the shared transform cache and this config's deps folder.
+        oxc, not babel: four agent-pane entries on a cold vite took 64-70 s under babel (App.tsx alone ~33 s) and
+        21 s under oxc, with byte-identical PNGs. The transform cache only applies under babel (reactCompiler.mjs
+        returns before it for oxc); it stays set so CMUX_REACT_COMPILER=babel in the worker's env is still fast."""
         return {"CMUX_GALLERY_DEV_PORT": str(self.port),
+                "CMUX_REACT_COMPILER": os.environ.get("CMUX_REACT_COMPILER") or "oxc",
                 "CMUX_VITE_TRANSFORM_CACHE": str(self.worker.state / "vite-transforms"),
                 "CMUX_VITE_CACHE_DIR": str(self.deps_dir())}
 
