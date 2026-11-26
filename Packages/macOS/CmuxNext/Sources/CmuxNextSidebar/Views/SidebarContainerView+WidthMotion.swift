@@ -6,6 +6,12 @@ import CmuxNextDesign
 /// frame: hover refreshes run on a deadline rather than per frame, and the
 /// motion ends even if its completion is lost.
 extension SidebarContainerView {
+    /// The token whose time the show and the hide both slide over (instant-splits gap row 5): `split`, the one motion
+    /// length D every pane transition moves on (about 100 ms), not `appear`'s 160 ms and `disappear`'s 130 ms. The
+    /// sidebar's slide resizes the panes beside it, so on its own time a Cmd-B settled at 163 ms (split-scale bench,
+    /// s1-empty-w1 side_open) against the panes' 120 ms budget; on D it lands with them.
+    static let widthSpring = MotionSpring.split
+
     /// Where one width motion goes from and to: the width and the clip's reach into the gutter ride one progress.
     struct WidthLeg {
         var width: (from: CGFloat, to: CGFloat)
@@ -26,7 +32,7 @@ extension SidebarContainerView {
         (widthConstraint.constant, edge.constant) = (fromWidth, fromReach)
         let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(token, in: window) : 0
         // The float slides in from the window's edge as a drawer does: the strong ease (a spring's start) over the
-        // token's time, so it reads at once and lands soft; its slide out takes the faster disappear token. The
+        // token's time, so it reads at once and lands soft; its slide out takes the same time. The
         // docked show and hide keep the layout curve, which the content beside them shares. Reduce Motion: 0, instant.
         widthMotion.activeCurve = isFloatOverlay ? TimedProgress.drawerCurve : TimedProgress.curve
         widthMotion.run(duration: duration, in: self, trace: "sidebar.width", completion: completion)
