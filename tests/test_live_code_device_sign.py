@@ -26,6 +26,13 @@ class DeviceSignTests(unittest.TestCase):
         self.assertIsNone(patch.device_sign_refusal("arm64-apple-ios17.0-simulator", "-"))
         self.assertIsNone(patch.device_sign_refusal("arm64-apple-macos14.0", "-"))
 
+    def test_unsigned_is_offered_for_a_patch_another_mac_signs(self):
+        # ios-live phone patch: the slot's Mac compiles with --unsigned, the phone's own Mac signs (ios-device.sh place).
+        import subprocess, sys
+        out = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "live-code", "patch.py"), "--help"],
+                             capture_output=True, text=True).stdout
+        self.assertIn("--unsigned", out)
+
 
 if __name__ == "__main__":
     unittest.main()

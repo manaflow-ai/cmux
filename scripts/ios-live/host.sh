@@ -603,7 +603,7 @@ cmd="${1:-status}"; shift || true
 # Commands that change the device or its app run one at a time per device, under its drive lock:
 # a caller who is admitted waits for the one before it (a person slot has no timed lease to wait on).
 case "$cmd" in
-  erase|up|swap|swift|undo|relaunch|tap|type)
+  erase|up|swap|swift|phone-build|phone-patch|undo|relaunch|tap|type)
     if [[ "${IOS_LIVE_LOCKED:-}" != "$drive_lock" ]]; then
       admit "${1:-}"
       with_lock wait "$drive_lock" bash "$self" "$cmd" "$@"
@@ -680,6 +680,32 @@ except Exception: print(0)' "$root/state.json")" ;;
     cp "$patch" "$root/current.patch"
     mkdir -p "$root/live-patches"; cp "$patch" "$root/live-patches/$(now_ms).patch"
     state_set patch="$(shasum -a 256 "$patch" | cut -c1-12)" owner="$owner" last_kind=swift swift_ms=$(( $(now_ms) - t0 )) >/dev/null ;;
+
+  phone-build)  # phone-build OWNER: the running base's live code build for a real iPhone (iphoneos, unsigned), in phone/
+    # The phone's own Mac pulls it, signs it for its phone and installs it (ios-live phone build): no build there.
+    owner="${1:?phone-build OWNER}"
+    has_live_code || die "this base has no live code (scripts/live-code/ios-sim.sh)"
+    phone_base="$(state_get base)"; [[ -n "$phone_base" ]] || die "nothing is up yet: ios-live up first"
+    checkout "$phone_base" >/dev/null
+    t0=$(now_ms); log="$root/logs/phone-build-$(date -u +%Y%m%dT%H%M%SZ).log"
+    (cd "$src" && XCODEGEN="$xcodegen" JOBS="$jobs" LIVE_CODE_IOS_SDK=iphoneos bash scripts/live-code/ios-sim.sh build "$root/phone" Demo) \
+      >"$log" 2>&1 || { tail -30 "$log"; die "phone live code build failed (log $log)"; }
+    state_set phone_base="$phone_base" phone_build_ms=$(( $(now_ms) - t0 )) >/dev/null
+    echo "phone-app $(cat "$root/phone/app-path")"
+    echo "phone-base $phone_base" ;;
+
+  phone-patch)  # phone-patch OWNER BASE PATCH: compile the patch's Swift files for the phone build, unsigned, into phone/stage
+    owner="${1:?}"; ref="${2:?}"; patch="$(abs "${3:?}")"
+    phone_base="$(state_get phone_base)"; [[ -n "$phone_base" && -f "$root/phone/xcodebuild.log" ]] || die "no phone build here: ios-live phone build"
+    want="$(git -C "$src" rev-parse -q --verify "$ref^{commit}" 2>/dev/null || true)"
+    [[ "$want" == "$phone_base" ]] || die "your base ${ref:0:12} is not the phone build's ${phone_base:0:12}: ios-live phone build again"
+    checkout "$phone_base" "$patch" >/dev/null
+    files=()
+    while IFS= read -r f; do files+=("$src/$f"); done < <(git -C "$src" diff --name-only HEAD -- 'cmux-next-ios/*.swift')
+    [[ ${#files[@]} -gt 0 ]] || die "the patch changes no Swift file of cmux-next-ios"
+    for f in "${files[@]}"; do [[ -f "$f" ]] || die "$f is new or deleted: that needs a phone build"; done
+    rm -rf "$root/phone/stage" && mkdir -p "$root/phone/stage"
+    python3 "$src/scripts/live-code/patch.py" --log "$root/phone/xcodebuild.log" --live "$root/phone/stage" --unsigned "${files[@]}" ;;
 
   undo)  # undo OWNER [--all]: take back live code edits; only a live code build has any
     owner="${1:?}"

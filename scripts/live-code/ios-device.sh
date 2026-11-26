@@ -14,6 +14,9 @@
 #                                       launch it with CMUX_LIVE_CODE_LINK=1 (KEY=VALUE: launch environment)
 #   scripts/live-code/ios-device.sh patch OUT FILE.swift...  apply edited files to cmux Dev on the phone;
 #                                       waits for the phone's answer and prints it (exit 1: refused)
+#   scripts/live-code/ios-device.sh place OUT PATCH.dylib    sign a patch another Mac compiled unsigned (patch.py
+#                                       --unsigned; ios-live phone patch) with this Mac's identity, put it (and its
+#                                       .json beside it) in the live folder and wait for the phone's answer
 #   scripts/live-code/ios-device.sh undo OUT [--all]         the code before the newest patch (or every patch)
 #   scripts/live-code/ios-device.sh log                      the live folder's log (hostd's and the phone's lines)
 #
@@ -110,6 +113,22 @@ patch() { # OUT FILE...
   answer "$live" "$(basename "$dylib")" "$before"
 }
 
+place() { # OUT DYLIB: the fleet compiles (ios-live phone patch), this Mac signs and serves
+  local out dylib identity live name before
+  out="$(out_dir "$1")"; dylib="${2:?usage: ios-device.sh place OUT PATCH.dylib}"
+  [[ -f "$dylib" ]] || die "no $dylib"
+  identity="$(cat "$out/sign-identity" 2>/dev/null)" || die "no signing identity yet: ios-device.sh run $out UDID first"
+  live="$(live_dir)"
+  name="patch-$(python3 -I -c 'import time; print(time.time_ns())')-$$.dylib"  # patch.py's order: unique, by time
+  before="$(redraws "$live")"
+  codesign --force --timestamp=none --sign "$identity" "$dylib" >/dev/null 2>&1 || die "codesign --sign $identity failed on $dylib"
+  # The sidecar first (live-code status reads its commit and files), then the dylib in one step.
+  [[ -f "${dylib%.dylib}.json" ]] && cp "${dylib%.dylib}.json" "$live/${name%.dylib}.json"
+  cp "$dylib" "$live/.$name" && mv "$live/.$name" "$live/$name"
+  echo "ios-device live code: placed $live/$name"
+  answer "$live" "$name" "$before"
+}
+
 undo() { # OUT [--all]
   local live name before
   live="$(live_dir)"
@@ -125,7 +144,8 @@ case "$cmd" in
   build) build "$@" ;;
   run) run "$@" ;;
   patch) patch "$@" ;;
+  place) place "$@" ;;
   undo) undo "$@" ;;
   log) cat "$(live_dir)/live-code.log" ;;
-  *) sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

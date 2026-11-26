@@ -166,3 +166,14 @@ the new phone. Agents never type anyone's credentials.
 1. Install one iOS simulator runtime: `xcodebuild -downloadPlatform iOS`.
 2. Copy the FFI, unless the host has Rust iOS targets: `ios-live ffi-sync FLEET_HOST`.
 3. `ios-live lease take && ios-live up`. The first build is cold, about 4 min of app build plus the FFI.
+
+## Your phone, with no build on your Mac
+
+`ios-live phone build` makes the slot's base a live code build for a real iPhone on the slot's Mac
+and pulls the app here. `ios-live phone run UDID` signs it with this Mac's Apple Development identity,
+installs it on the attached phone and launches it linked. From then on `ios-live phone patch` sends your
+Swift edits to the slot's Mac, which compiles them unsigned (`patch.py --unsigned`); this Mac signs the
+patch with the identity that signed the app and puts it in the live folder its cmux NEXT host serves on
+the link's `live-code` service (`scripts/live-code/ios-device.sh place`). The phone loads it with no
+rebuild, reinstall or relaunch. Same limits as `ios-live swift`: a new or deleted file, or a stored
+property added, needs `ios-live phone build` again.
