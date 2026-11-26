@@ -375,6 +375,8 @@ final class MacScreenCardView: MacScreenThemedView {
                 row.append(primary(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { $0.requestScope(requested) })
             }
             buttons(row)
+            // Under the row: the backend this Sign In signs in to ("Signs in to cmux.com").
+            if refusal == .notSignedIn, let line = SignInButton.backendLineLabel(actions.signInBackend()) { stack.addArrangedSubview(line) }
         }
     }
 
