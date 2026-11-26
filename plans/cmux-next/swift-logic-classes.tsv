@@ -10153,6 +10153,7 @@ CmuxNextMacScreen	struct	RemotePushConnector	0	LOGIC	100	0	Packages/macOS/CmuxNe
 CmuxNextMacScreen	struct	RetiredPermissionRows	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/RetiredPermissionRows.swift	state/decision code: 10 branch lines, 2 funcs, 1 of 71 lines framework
 CmuxNextMacScreen	struct	ShareHostDevice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/CmuxRemote/ShareHostDevice.swift	state/decision code: 12 branch lines, 8 funcs, 0 of 79 lines framework
 CmuxNextMacScreen	typealias	MacScreenRdMessage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/MacScreenRdProcess.swift	the name the Mac Screen gives RemoteRdLineReader.Line (cmux_rd_line_reader_next): the line type is Rust's AppLine
+CmuxNextMacScreen	enum	RdUI	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/RdUI.swift	FFI glue: serializes one op to cmux_rd_ui_call (cmux-rd-ffi ui/) and parses its answer; no rule in Swift
 CmuxNextMobile	actor	MobileHostSupervisor	0	MIXED	54	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostSupervisor.swift	child spawn and pipes 170; restart/backoff policy, toggle and sign-in phases, token handoff 200
 CmuxNextMobile	actor	MobileHostTokenSupply	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostTokenSupply.swift	token lookup join
 CmuxNextMobile	class	LineBuffer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobile/MobileHost/MobileHostProcess.swift	from class MobileHostProcess:8: hostd child Process supervision
