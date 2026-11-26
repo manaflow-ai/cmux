@@ -277,9 +277,17 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
-    assert "for attempt in 1 2 3" in daemon
-    assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon
-    assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon
+    assert "run: ../scripts/ci/cmux-next-daemon-tests.sh" in daemon
+    # The shared gate owns retries now; keep checking the implementation
+    # reached by the workflow rather than requiring an inline shell copy.
+    daemon_gate = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text()
+    assert "for attempt in 1 2 3" in daemon_gate
+    assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon_gate
+    assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon_gate
+    assert "set -euo pipefail" in daemon_gate
+    assert 'tee "$log" || status=$?' in daemon_gate
+    assert 'exit "$status"' in daemon_gate
+    assert "cargo test ran no cmux_next_ test" in daemon_gate
 
     # A run cannot rerun itself while it is in progress (403 "This workflow
     # is already running"); main's cmux-tui-artifacts-retry.yml retries completed
