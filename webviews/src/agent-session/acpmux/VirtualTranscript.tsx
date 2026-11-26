@@ -25,6 +25,7 @@ import { LoadFadeWindow } from "../shared/loadFade";
 import { entranceAllowed, pageAway } from "../shared/pageReveal";
 import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
+import { shelfLine } from "./conversation/shelvedRows";
 import {
   layoutConversation,
   layoutGeometry,
@@ -60,7 +61,7 @@ import { drawTranscriptShell } from "./transcript/transcriptShell";
 import { useStableCallback } from "./stableCallback";
 import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
-import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { preserveScrollAnchorTop, scrollAnchorBase, fadesBelow } from "./conversation/scrollAnchor";
 import { useBesideStack } from "./conversation/useBesideStack";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
@@ -114,11 +115,11 @@ import { keepTabOnScreen } from "../../ui/tabReach";
 import { type TrailingTimer, trailingTimer } from "../../ui/trailingTimer";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
+  type ReferenceScope,
+  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
-  type ReferenceScope,
-  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -179,7 +180,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay, sendPopEnabled } from "./chatDisplay";
+import { sendPopEnabled, useChatDisplay } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
@@ -7459,6 +7460,8 @@ function TranscriptView({
     // skipped then. Scrolled up, `shownTop` is the offset this commit draws at.
     viewTop: shownTop,
     viewHeight: renderFollowing ? 0 : height,
+    // A followed view shelves the rows far above it (conversation/shelvedRows.ts); scrolled up, none.
+    shelfAbove: shelfLine(renderFollowing && !sessionSwitched, shownTop, height),
     frameKey,
     registry,
     setSizeRef,
