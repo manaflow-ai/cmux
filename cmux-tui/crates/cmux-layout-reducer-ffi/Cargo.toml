@@ -25,6 +25,7 @@ cmux-focus-core = { path = "../cmux-focus-core" }
 cmux-imessage = { path = "../cmux-imessage" }
 cmux-layout-reducer = { path = "../cmux-layout-reducer" }
 cmux-tab-discard = { path = "../cmux-tab-discard" }
+cmux-workspace-naming = { path = "../cmux-workspace-naming" }
 cmux-tasks-core = { path = "../cmux-tasks-core" }
 cmux-window-rules = { path = "../cmux-window-rules" }
 serde = { version = "1", features = ["derive"] }

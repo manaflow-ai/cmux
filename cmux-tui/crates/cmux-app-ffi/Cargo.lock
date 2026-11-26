@@ -486,6 +486,7 @@ dependencies = [
  "cmux-tab-discard",
  "cmux-tasks-core",
  "cmux-window-rules",
+ "cmux-workspace-naming",
  "serde",
  "serde_json",
 ]
@@ -649,6 +650,15 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-workspace-naming"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]

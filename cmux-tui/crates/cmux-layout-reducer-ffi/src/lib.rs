@@ -17,6 +17,8 @@
 //! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
 //! are discarded or are kept),
+//! `cmux-workspace-naming`'s workspace names (`workspace_naming_*`: a new or moved workspace's
+//! name, the auto-name label, the activity prompt and reply, the namer's hold and ledger),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -102,6 +104,7 @@ pub mod tab_drag;
 pub mod typed;
 pub mod window_close_selection;
 mod window_rules;
+mod workspace_naming;
 use sidebar_mirror::Mirror;
 
 pub const ABI_VERSION: u32 = 1;
@@ -616,6 +619,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if workspace_naming::handles(operation) => {
+                workspace_naming::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?

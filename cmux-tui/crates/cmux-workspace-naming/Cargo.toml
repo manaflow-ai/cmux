@@ -1,0 +1,16 @@
+[package]
+name = "cmux-workspace-naming"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The name a cmux NEXT workspace takes: from a moved tab, from its front tab (the sidebar row's live label and the persisted rename), from its activity (Name from Activity's prompt and reply), and the hold that keeps a row's name while its tab's is briefly unknown. Pure rules for the macOS app over the app FFI; the app reads the facts and applies the result"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+unicode-segmentation.workspace = true
