@@ -109,7 +109,7 @@ pub fn command_refusal(command: &str) -> Option<String> {
 /// image pull or a model download (`npm`, `pip`, `cargo`, `docker`, `model`). Such a command runs
 /// better on a machine with a datacenter link and a warm package cache, and its output (node_modules,
 /// target/) need not come back (download bridge, Leo-Ask-Trace: ask-70d77cbccc), so the plan names it
-/// and the chip can offer the run at once instead of after `RUN_ELSEWHERE_AFTER_MS`.
+/// for a caller that wants to offer the run before the normal slow-command delay.
 pub fn fetch_kind(command: &str) -> Option<&'static str> {
     let parts = command.split(['|', ';', '&', '\n', '(', ')', '`']);
     for part in parts {
