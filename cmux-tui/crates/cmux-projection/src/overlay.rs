@@ -2315,6 +2315,7 @@ pub mod content;
 
 #[path = "overlay_age.rs"]
 mod age;
+pub use age::age_unmounted;
 
 #[path = "overlay_extend.rs"]
 mod extend;

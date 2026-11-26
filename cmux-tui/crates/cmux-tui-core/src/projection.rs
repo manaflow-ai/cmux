@@ -995,9 +995,11 @@ pub fn reap_once(acpmux_socket: Option<&Path>) -> cmux_projection::reap::Report 
     report
 }
 
-/// One aging pass over every mounted projection's content store
+/// One aging pass over every projection's content store
 /// (`cmux_projection::overlay::content::Content::age`: unread bytes go cold, then are deleted
-/// unless pinned), then the machine's held number (`cmux_projection::hold::held`) written to
+/// unless pinned): a mounted one through its overlay, an unmounted one through
+/// `cmux_projection::overlay::age_unmounted` (its persisted pins; compress-only when they cannot
+/// be read), with the projection table locked so no mount opens that store meanwhile. Then the machine's held number (`cmux_projection::hold::held`) written to
 /// `projection-held.json` in the workspace state folder for NOW's now-bytes source. Logs both.
 pub fn age_once() -> Option<cmux_projection::hold::Held> {
     let started = std::time::Instant::now();
@@ -1011,11 +1013,10 @@ pub fn age_once() -> Option<cmux_projection::hold::Held> {
             .iter()
             .map(|(name, projected)| (name.clone(), projected.clone()))
             .collect();
-        for (name, projected) in live {
-            let Some(report) = projected.overlay.age(now, &aging) else { continue };
+        let log = |name: &str, how: &str, report: &cmux_projection::overlay::content::AgeReport| {
             if report.went_cold_blobs + report.deleted_blobs > 0 {
                 eprintln!(
-                    "cmux projection aging: {name}: {} blobs cold ({} bytes, {} saved), {} \
+                    "cmux projection aging: {name}{how}: {} blobs cold ({} bytes, {} saved), {} \
                      deleted ({} bytes freed); holds {} bytes",
                     report.went_cold_blobs,
                     report.went_cold_bytes,
@@ -1024,6 +1025,25 @@ pub fn age_once() -> Option<cmux_projection::hold::Held> {
                     report.deleted_stored_bytes,
                     report.held_bytes()
                 );
+            }
+        };
+        for (name, projected) in live {
+            let Some(report) = projected.overlay.age(now, &aging) else { continue };
+            log(&name, "", &report);
+        }
+        let states = crate::platform::workspace_state_dir().map(|dir| dir.join("projections"));
+        for entry in states.iter().flat_map(std::fs::read_dir).flatten().filter_map(Result::ok) {
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
+            // Held across the pass: a mount of this name waits for it (`mount` opens the store
+            // with the table locked), as the reaper's frees do.
+            let table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+            if table.contains_key(&name) {
+                continue;
+            }
+            let report = cmux_projection::overlay::age_unmounted(&entry.path(), now, &aging);
+            drop(table);
+            if let Some(report) = report {
+                log(&name, " (unmounted)", &report);
             }
         }
     }

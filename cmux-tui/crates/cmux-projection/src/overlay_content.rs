@@ -164,6 +164,7 @@ impl AgeReport {
 #[derive(Clone, Copy, Debug)]
 pub struct Aging {
     pub cold_after: Duration,
+    /// [`Duration::MAX`] deletes nothing ([`Aging::compress_only`]).
     pub delete_after: Duration,
     pub max_cold: usize,
 }
@@ -171,6 +172,18 @@ pub struct Aging {
 impl Default for Aging {
     fn default() -> Self {
         Self { cold_after: COLD_AFTER, delete_after: DELETE_AFTER, max_cold: MAX_COLD_PER_PASS }
+    }
+}
+
+impl Aging {
+    /// The same aging with no deletes: blobs go cold, and stay.
+    #[must_use]
+    pub fn compress_only(self) -> Self {
+        Self { delete_after: Duration::MAX, ..self }
+    }
+
+    fn deletes(&self) -> bool {
+        self.delete_after != Duration::MAX
     }
 }
 
@@ -458,11 +471,18 @@ impl Content {
             // Evicted between the check and here: nothing kept.
             return None;
         }
-        inner.touch(hash);
+        // A put is a read: identical bytes fetched again (under this name or another) refresh the
+        // blob's last read in memory and, past the slack, on disk, so a blob in use never ages
+        // out because its bytes arrived through `put` rather than `get`.
+        let was = inner.touch(hash);
         if inner.names.get(&name) != Some(&hash) {
             let line = record(&name, &hash);
             inner.names.insert(name, hash);
             self.append(&mut inner, &line);
+        }
+        drop(inner);
+        if was.is_some_and(|was| now_secs().saturating_sub(was) > READ_AT_SLACK) {
+            self.mark_read(&hash);
         }
         Some(hash)
     }
@@ -513,6 +533,7 @@ impl Content {
             let dead: Vec<(Hash, Cold)> = inner
                 .cold
                 .iter()
+                .filter(|_| aging.deletes())
                 .filter(|(_, cold)| cold.read_at <= delete_before)
                 .map(|(hash, cold)| (*hash, *cold))
                 .collect();
@@ -611,16 +632,29 @@ impl Content {
         Some(packed.len() as u64)
     }
 
-    /// Sets `name`'s last read (tests and the harness: a store whose reads happened days ago).
+    /// Sets `name`'s last read, in memory and on disk (tests and the harness: a store whose
+    /// reads happened days ago, as a later daemon finds it).
     #[cfg(test)]
     pub(super) fn set_read_at(&self, name: &Name, at: SystemTime) {
         let mut inner = self.lock();
         let Some(hash) = inner.names.get(name).copied() else { return };
-        if let Some(read_at) = inner.read_at.get_mut(&hash) {
+        let at = UNIX_EPOCH + Duration::from_secs(secs_of(at));
+        let path = if let Some(read_at) = inner.read_at.get_mut(&hash) {
             *read_at = secs_of(at);
-        }
-        if let Some(cold) = inner.cold.get_mut(&hash) {
+            Some(self.blob_path(&hash))
+        } else if let Some(cold) = inner.cold.get_mut(&hash) {
             cold.read_at = secs_of(at);
+            Some(self.cold.join(cold_name(&hash, cold.bytes)))
+        } else {
+            None
+        };
+        if let Some(file) = path.and_then(|path| fs::File::options().write(true).open(path).ok()) {
+            let _ = file.set_modified(at);
         }
+    }
+
+    /// Every name the index holds (an unmounted store's pins are matched against them).
+    pub(super) fn names(&self) -> Vec<Name> {
+        self.lock().names.keys().cloned().collect()
     }
 }
