@@ -323,15 +323,18 @@ impl Peer {
         Patience::new(format!("{} to reconnect", self.name), wait)
             .quiet()
             .spaced(Duration::from_millis(50), Duration::from_millis(500))
-            .run_async(move || async move {
-                if peer.takes_requests() {
-                    Ok(())
-                } else if peer.link().coming_back(crate::store::now_ms()) {
-                    Err(Attempt::Retry(()))
-                } else {
-                    Err(Attempt::Fail(()))
-                }
-            })
+            .run_async(
+                || (),
+                move || async move {
+                    if peer.takes_requests() {
+                        Ok(())
+                    } else if peer.link().coming_back(crate::store::now_ms()) {
+                        Err(Attempt::Retry(()))
+                    } else {
+                        Err(Attempt::Fail(()))
+                    }
+                },
+            )
             .await
             .map_err(|()| self.unreachable_error())
     }

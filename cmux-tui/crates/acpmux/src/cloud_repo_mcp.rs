@@ -302,17 +302,20 @@ where
             // seconds (a reconnect in progress), never handed to the agent as "retry".
             let listed = cmux_tui_util::retry::Patience::new("the Cloud machine", LIST_PATIENCE)
                 .quiet()
-                .run_async({
-                    let run = &run;
-                    move || {
-                        let req = req.clone();
-                        async move {
-                            run(REPO_LIST_ACTION, req)
-                                .await
-                                .map_err(cmux_tui_util::retry::Attempt::Retry)
+                .run_async(
+                    || "The Cloud machine did not return the repository list in time.".to_owned(),
+                    {
+                        let run = &run;
+                        move || {
+                            let req = req.clone();
+                            async move {
+                                run(REPO_LIST_ACTION, req)
+                                    .await
+                                    .map_err(cmux_tui_util::retry::Attempt::Retry)
+                            }
                         }
-                    }
-                })
+                    },
+                )
                 .await;
             match listed {
                 Ok(result) => ok(result),

@@ -404,18 +404,21 @@ async fn mint(lent: &Lent, r: &GithubActionParams) -> Result<String, RpcError> {
     // changes nothing, and the person's only answer to "try again" would be yes.
     Patience::new("cmux Cloud to mint a GitHub token", MINT_PATIENCE)
         .quiet()
-        .run_async(move || async move {
-            let space = cmux_build_space::process().map(|space| space.cloned());
-            mint_in(lent, &r.repo, asked, label, space).await.map_err(|e| {
-                if e.data.as_ref().and_then(|d| d.get("code")).and_then(Value::as_str)
-                    == Some("unreachable")
-                {
-                    Attempt::Retry(e)
-                } else {
-                    Attempt::Fail(e)
-                }
-            })
-        })
+        .run_async(
+            || app_error("unreachable"),
+            move || async move {
+                let space = cmux_build_space::process().map(|space| space.cloned());
+                mint_in(lent, &r.repo, asked, label, space).await.map_err(|e| {
+                    if e.data.as_ref().and_then(|d| d.get("code")).and_then(Value::as_str)
+                        == Some("unreachable")
+                    {
+                        Attempt::Retry(e)
+                    } else {
+                        Attempt::Fail(e)
+                    }
+                })
+            },
+        )
         .await
 }
 

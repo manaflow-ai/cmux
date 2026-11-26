@@ -241,19 +241,27 @@ impl Bridge {
             // again here, a few seconds at most; the agent never relays "try again".
             let token = cmux_tui_util::retry::Patience::new("a GitHub token", MINT_PATIENCE)
                 .quiet()
-                .run_async(|| {
-                    let ask = github_cli::gh_ask(repo, write);
-                    let mint = Arc::clone(&self.mint);
-                    async move {
-                        tokio::task::spawn_blocking(move || mint(&ask))
-                            .await
-                            .map_err(|_| {
-                                github_cli::refused("vm.agent_unreachable", "the mint stopped")
-                            })
-                            .and_then(|minted| minted)
-                            .map_err(mint_attempt)
-                    }
-                })
+                .run_async(
+                    || {
+                        github_cli::refused(
+                            "vm.agent_unreachable",
+                            "the mint did not answer in time",
+                        )
+                    },
+                    || {
+                        let ask = github_cli::gh_ask(repo, write);
+                        let mint = Arc::clone(&self.mint);
+                        async move {
+                            tokio::task::spawn_blocking(move || mint(&ask))
+                                .await
+                                .map_err(|_| {
+                                    github_cli::refused("vm.agent_unreachable", "the mint stopped")
+                                })
+                                .and_then(|minted| minted)
+                                .map_err(mint_attempt)
+                        }
+                    },
+                )
                 .await?;
             self.held.insert(
                 key,

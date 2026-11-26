@@ -365,13 +365,17 @@ async fn ready_page(client: &Client, m: &str, params: Value) -> Result<Value> {
     use cmux_tui_util::retry::{Attempt, Patience};
     let answer = Patience::new("the chat index to finish scanning", INDEX_WAIT)
         .spaced(std::time::Duration::from_millis(200), std::time::Duration::from_secs(2))
-        .run_async(move || {
-            let params = params.clone();
-            async move {
-                let page = client.request(m, params).await.map_err(|e| Attempt::Fail(Err(e)))?;
-                if scanning(&page) { Err(Attempt::Retry(Ok(page))) } else { Ok(page) }
-            }
-        })
+        .run_async(
+            || Err(anyhow::anyhow!("{m}: the chat index did not answer in time")),
+            move || {
+                let params = params.clone();
+                async move {
+                    let page =
+                        client.request(m, params).await.map_err(|e| Attempt::Fail(Err(e)))?;
+                    if scanning(&page) { Err(Attempt::Retry(Ok(page))) } else { Ok(page) }
+                }
+            },
+        )
         .await;
     match answer {
         Ok(page) | Err(Ok(page)) => Ok(page),

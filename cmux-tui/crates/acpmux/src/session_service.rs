@@ -197,7 +197,7 @@ impl SessionGate for ConfiguredSessionGate {
         let listed = cmux_tui_util::retry::Patience::new("the hub book", BOOK_WAIT)
             .quiet()
             .spaced(std::time::Duration::from_millis(100), std::time::Duration::from_secs(1))
-            .run_async({
+            .run_async(|| (), {
                 let hub = &hub;
                 move || async move {
                     hub.mesh_book_machine(from).ok_or(cmux_tui_util::retry::Attempt::Retry(()))

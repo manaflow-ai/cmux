@@ -136,7 +136,7 @@ pub(crate) async fn attach(
     // mesh hub (503), is asked again for a few seconds instead of the person.
     cmux_tui_util::retry::Patience::new("the cmux platform", PLATFORM_PATIENCE)
         .quiet()
-        .run_async({
+        .run_async(platform_unreachable, {
             let path = path.as_str();
             move || async move {
                 post(machine, path, token, None).await.map_err(|e| {
@@ -443,13 +443,9 @@ async fn post(
     if let Some(body) = body {
         request = request.json(&body);
     }
-    let unreachable = || {
-        refusal("platform_unreachable", "the cmux platform did not answer")
-            .with_data(json!({"reason": "platform_unreachable", "retryable": true}))
-    };
-    let response = request.send().await.map_err(|_| unreachable())?;
+    let response = request.send().await.map_err(|_| platform_unreachable())?;
     let status = response.status().as_u16();
-    let bytes = response.bytes().await.map_err(|_| unreachable())?;
+    let bytes = response.bytes().await.map_err(|_| platform_unreachable())?;
     // The whole answer is read: a long one that names the key still settles the rekey.
     let answer: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     if (200..300).contains(&status) {
@@ -469,6 +465,11 @@ async fn post(
         "status": status,
         "retryable": status == 503,
     })))
+}
+
+fn platform_unreachable() -> RpcError {
+    refusal("platform_unreachable", "the cmux platform did not answer")
+        .with_data(json!({"reason": "platform_unreachable", "retryable": true}))
 }
 
 fn refused_words(status: u16, code: &str) -> String {

@@ -138,24 +138,50 @@ impl Patience {
         }
     }
 
-    /// [`Self::run`] for async tries, waiting on the tokio timer.
+    /// Runs async tries under one deadline, including time spent awaiting a reply.
+    /// On expiry, drops the pending future and returns the last transient error,
+    /// or `on_timeout()` if no try has answered. Expiry never replays the attempt.
     #[cfg(feature = "tokio")]
-    pub async fn run_async<T, E, F, Fut>(mut self, mut attempt: F) -> Result<T, E>
+    pub async fn run_async<T, E, F, Fut>(
+        mut self,
+        on_timeout: impl FnOnce() -> E,
+        mut attempt: F,
+    ) -> Result<T, E>
     where
         F: FnMut() -> Fut,
         Fut: Future<Output = Result<T, Attempt<E>>>,
     {
+        let remaining = self
+            .budget
+            .deadline()
+            .unwrap_or(self.started)
+            .saturating_duration_since(Instant::now());
+        let deadline = tokio::time::Instant::now() + remaining;
+        let mut last_error = None;
         loop {
-            let (error, retry_after) = match attempt().await {
+            // timeout_at polls the future first, even if the deadline has already passed.
+            // A late wake from backoff must not start another request.
+            if tokio::time::Instant::now() >= deadline {
+                return Err(last_error.unwrap_or_else(on_timeout));
+            }
+            let Ok(outcome) = tokio::time::timeout_at(deadline, attempt()).await else {
+                return Err(last_error.unwrap_or_else(on_timeout));
+            };
+            let (error, retry_after) = match outcome {
                 Ok(value) => return Ok(value),
                 Err(Attempt::Fail(error)) => return Err(error),
                 Err(Attempt::Retry(error)) => (error, None),
                 Err(Attempt::RetryAfter(error, after)) => (error, Some(after)),
             };
-            match self.next_wait(retry_after) {
-                Some(wait) => tokio::time::sleep(wait).await,
-                None => return Err(error),
+            let Some(wait) = self.next_wait(retry_after) else {
+                return Err(error);
+            };
+            let retry_at = tokio::time::Instant::now() + wait;
+            if retry_at >= deadline {
+                return Err(error);
             }
+            last_error = Some(error);
+            tokio::time::sleep_until(retry_at).await;
         }
     }
 }
@@ -245,11 +271,44 @@ mod tests {
         let out: Result<u32, &str> = Patience::new("a test", Duration::from_secs(5))
             .quiet()
             .spaced(Duration::from_millis(1), Duration::from_millis(2))
-            .run_async(|| {
-                let n = tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-                async move { if n < 3 { Err(Attempt::Retry("busy")) } else { Ok(n) } }
-            })
+            .run_async(
+                || "timed out",
+                || {
+                    let n = tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    async move { if n < 3 { Err(Attempt::Retry("busy")) } else { Ok(n) } }
+                },
+            )
             .await;
         assert_eq!(out, Ok(3));
+    }
+
+    #[cfg(feature = "tokio")]
+    #[tokio::test(start_paused = true)]
+    async fn async_deadline_ends_a_pending_attempt_without_replaying_it() {
+        for answered in [false, true] {
+            let tries = Cell::new(0);
+            let operation = Patience::new("the reply", Duration::from_secs(10))
+                .quiet()
+                .spaced(Duration::ZERO, Duration::ZERO)
+                .run_async(
+                    || "no reply",
+                    || {
+                        let first = tries.get() == 0;
+                        tries.set(tries.get() + 1);
+                        async move {
+                            if first && answered {
+                                Err(Attempt::Retry("partial reply"))
+                            } else {
+                                std::future::pending::<Result<(), _>>().await
+                            }
+                        }
+                    },
+                );
+            let out = tokio::time::timeout(Duration::from_secs(11), operation)
+                .await
+                .expect("even a pending attempt must finish within the budget");
+            assert_eq!(out, Err(if answered { "partial reply" } else { "no reply" }));
+            assert_eq!(tries.get(), if answered { 2 } else { 1 });
+        }
     }
 }
