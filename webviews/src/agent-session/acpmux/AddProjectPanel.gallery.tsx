@@ -97,6 +97,12 @@ const rejectedBrowse: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-status button"));
 };
 
+const listStillTrying: Play = async (ctx) => {
+  await toSources(ctx);
+  await ctx.click({ text: "Local folder" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-add-project-status [data-still-trying]"));
+};
+
 export default componentEntry({
   id: "agent-pane.add-project-panel",
   title: "Add project panel",
@@ -154,7 +160,21 @@ export default componentEntry({
       props: base,
       play: keyboardBrowse,
     },
+    "list-still-trying": {
+      note: "A folder list that keeps failing is read again on its own; past the deadline one quiet line says so, with no Retry.",
+      props: {
+        ...base,
+        host: {
+          ...host,
+          list: async () => {
+            throw new Error("The folder could not be read.");
+          },
+        },
+      },
+      play: listStillTrying,
+    },
     "browse-error": {
+      // retry-prompt-ok: its Retry opens the native folder chooser again, a sheet the person must want.
       note: "A rejected native folder chooser stays in the panel with its error and Retry action; cancellation still closes it.",
       props: {
         ...base,
