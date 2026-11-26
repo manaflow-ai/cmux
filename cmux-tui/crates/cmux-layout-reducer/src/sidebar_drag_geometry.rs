@@ -664,7 +664,7 @@ pub enum Query {
 #[serde(untagged)]
 pub enum Answer {
     Hit {
-        hit: Option<Hit>,
+        hit: Option<Box<Hit>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         drop_level: Option<i64>,
     },
@@ -705,12 +705,12 @@ pub fn respond(request: &Request) -> Reply {
             Query::Hit { x, y } => {
                 let hit = geometry.hit(*x, *y);
                 let drop_level = hit.as_ref().map(|h| geometry.drop_level(h));
-                Answer::Hit { hit, drop_level }
+                Answer::Hit { hit: hit.map(Box::new), drop_level }
             }
             Query::Beside { key, after } => {
                 let hit = geometry.beside(key, *after);
                 let drop_level = hit.as_ref().map(|h| geometry.drop_level(h));
-                Answer::Hit { hit, drop_level }
+                Answer::Hit { hit: hit.map(Box::new), drop_level }
             }
             Query::EdgeY { top, bottom, x, moving_up, gap_y, gap_height, current, reversing } => {
                 Answer::EdgeY {
