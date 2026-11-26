@@ -17,7 +17,7 @@ import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { exactTime, messageAge, nextMessageAge, messageAgeWidest } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { copyMarkdownResult } from "../richClipboard";
-import { hasMessageMenuHost, openMessageMenu, openForkMenu } from "./messageMenu";
+import { hasMessageMenuHost, openMessageMenu, openForkMenu, releaseMessagePopupOnUnmount } from "./messageMenu";
 import { RowReplyButton } from "./SelectionReply";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -171,6 +171,7 @@ export function ForkButton({
         <button
           {...described}
           type="button"
+          ref={releaseMessagePopupOnUnmount}
           className="cv-iconbtn cv-iconbtn--compact cv-fork-button"
           aria-label={label}
           title={label}
@@ -320,6 +321,7 @@ export function MessageMore({ rowId }: { rowId: string }) {
     <button
       type="button"
       className="cv-iconbtn cv-iconbtn--compact"
+      ref={releaseMessagePopupOnUnmount}
       aria-haspopup="menu"
       aria-label={label}
       title={label}
