@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.changesPill.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A pill over the composer with how many files the chat changed."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "شارة فوق مربع الكتابة تعرض عدد الملفات التي غيّرتها الدردشة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oznaka iznad polja za pisanje s brojem datoteka koje je razgovor izmijenio."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et mærke over skrivefeltet med, hvor mange filer chatten har ændret."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eine Pille über dem Eingabefeld mit der Zahl der Dateien, die der Chat geändert hat."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una píldora sobre el editor con cuántos archivos cambió el chat."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une pastille au-dessus de la zone de saisie indiquant combien de fichiers la discussion a modifiés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una pillola sopra il compositore con quanti file ha modificato la chat."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "入力欄の上に、チャットが変更したファイル数を示すピルを表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្លាកនៅលើប្រអប់សរសេរ ដែលបង្ហាញចំនួនឯកសារដែលការជជែកបានផ្លាស់ប្តូរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "입력창 위에 채팅이 변경한 파일 수를 보여 주는 알약입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et merke over skrivefeltet med hvor mange filer chatten har endret."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pigułka nad polem wpisywania z liczbą plików zmienionych przez czat."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma pílula acima do editor com quantos arquivos o chat alterou."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Плашка над полем ввода с числом файлов, изменённых чатом."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ป้ายเหนือช่องพิมพ์ แสดงจำนวนไฟล์ที่แชตเปลี่ยน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Yazma alanının üstünde sohbetin kaç dosyayı değiştirdiğini gösteren bir hap."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Плашка над полем введення з кількістю файлів, які змінив чат."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một nhãn phía trên ô soạn thảo cho biết cuộc trò chuyện đã thay đổi bao nhiêu tệp."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在输入框上方显示一个胶囊，说明聊天更改了多少个文件。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在輸入框上方顯示一個膠囊，說明聊天變更了多少個檔案。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

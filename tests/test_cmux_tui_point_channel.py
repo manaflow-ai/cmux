@@ -73,6 +73,8 @@ if name == "completion.json":
         "cmux-tui-acpmux-x86_64-unknown-linux-musl": "1" * 64,
         "cmux-tui-acpmux-aarch64-unknown-linux-musl": "2" * 64,
         "cmux-tui-x86_64-unknown-linux-musl": "3" * 64,
+        "cmux-tui-rd-x86_64-unknown-linux-gnu": "6" * 64,
+        "cmux-tui-rd-notices-x86_64-unknown-linux-gnu.md": "7" * 64,
     }})
     open(out, "w").write(body)
     sys.exit(0)
@@ -150,7 +152,9 @@ def run(current=None, race=None, channel="feat-cmux-next", **env):
         full = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STATE=state, GITHUB_SHA=SHA,
                     GITHUB_RUN_ID="5", GITHUB_API_URL="https://api.github.invalid",
                     GITHUB_REPOSITORY="manaflow-ai/cmux", GH_TOKEN="x", R2_ENDPOINT="https://r2.invalid",
-                    FAKE_ORDER=",".join(ORDER), CHANNEL=channel, **env)
+                    FAKE_ORDER=",".join(ORDER), CHANNEL=channel, POINT_COMPARE_RETRY_SLEEP="0",
+                    POINT_GIT_DIR=tmp)
+        full.update(env)
         result = subprocess.run(["bash", script, channel, KEY], env=full, capture_output=True,
                                 text=True, timeout=60)
         path = os.path.join(state, "object")
@@ -174,8 +178,9 @@ def main():
     _check(uploads == ["write-once cmux-tui/channels/feat-cmux-next.json"], f"the first write is write-once: {uploads}")
     channel = json.loads(after or "{}")
     _check(channel.get("key") == KEY and sorted(channel.get("binaries", {})) == [
-        "cmux-tui-acpmux-aarch64-unknown-linux-musl", "cmux-tui-acpmux-x86_64-unknown-linux-musl"],
-        f"the pointer names the tree and only its acpmux binaries: {after}")
+        "cmux-tui-acpmux-aarch64-unknown-linux-musl", "cmux-tui-acpmux-x86_64-unknown-linux-musl",
+        "cmux-tui-rd-x86_64-unknown-linux-gnu"],
+        f"the pointer names the tree, its acpmux and cmux-rd binaries, and no notices: {after}")
 
     # An older commit: moved, by a swap on the bytes that were compared.
     result, after, uploads = run(pointer(OLD))
@@ -223,6 +228,33 @@ def main():
     result, after, uploads = run(None, race=pointer(NEWER))
     _check(result.returncode == 0 and commit_of(after) == NEWER,
            f"a first write that loses the race compares again: {after} {result.stdout}{result.stderr}")
+
+    # The compare API never answers: asked three times, then git answers from the
+    # branch's history. An ancestor moves the pointer; anything else leaves it.
+    with tempfile.TemporaryDirectory() as repo:
+        git = lambda *a: subprocess.run(["git", "-C", repo, *a], check=True, capture_output=True, text=True).stdout.strip()
+        git("init", "-q")
+        git("config", "user.email", "ci@invalid")
+        git("config", "user.name", "ci")
+        git("commit", "-q", "--allow-empty", "-m", "base")
+        base = git("rev-parse", "HEAD")
+        git("commit", "-q", "--allow-empty", "-m", "this push")
+        head = git("rev-parse", "HEAD")
+        git("checkout", "-q", "-b", "side", base)
+        git("commit", "-q", "--allow-empty", "-m", "elsewhere")
+        side = git("rev-parse", "HEAD")
+        git("checkout", "-q", "--detach", head)
+        git("remote", "add", "origin", repo)
+        for mode in ("fail", "junk"):
+            result, after, uploads = run(pointer(base), FAKE_COMPARE=mode, GITHUB_SHA=head, POINT_GIT_DIR=repo)
+            _check(result.returncode == 0 and commit_of(after) == head and uploads == ["replace cmux-tui/channels/feat-cmux-next.json"],
+                   f"a compare that answers {mode} falls back to git, which finds the ancestor: {uploads} {result.stdout}{result.stderr}")
+        result, after, uploads = run(pointer(side), FAKE_COMPARE="fail", GITHUB_SHA=head, POINT_GIT_DIR=repo)
+        _check(result.returncode == 0 and commit_of(after) == side and not uploads,
+               f"git does not find a diverged commit among the ancestors: left as it is: {uploads} {result.stdout}{result.stderr}")
+        result, after, uploads = run(pointer(head), FAKE_COMPARE="fail", GITHUB_SHA=base, POINT_GIT_DIR=repo)
+        _check(result.returncode == 0 and commit_of(after) == head and not uploads,
+               f"git does not move the pointer back to an ancestor: {uploads} {result.stdout}{result.stderr}")
 
     # A tree that is not daemon-tested is not pointed at.
     result, after, uploads = run(pointer(OLD), FAKE_MARKER="0")

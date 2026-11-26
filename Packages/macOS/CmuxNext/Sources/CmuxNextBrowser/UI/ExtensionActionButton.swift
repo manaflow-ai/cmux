@@ -37,8 +37,8 @@ final class ExtensionActionButton: ClickableButton, PointerHoverReporting {
         setAccessibilityIdentifier(ExtensionActionToolbar.Identifier.action(actionID))
         // The toolbar's button size (BrowserToolbarLayout counts on it).
         NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.buttonSize },
+            density.bind(widthAnchor.constraint(equalToConstant: 0)) { [weak self] in OmnibarStyle.buttonSize(scale: OmnibarStyle.scale(of: self)) },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { [weak self] in OmnibarStyle.buttonSize(scale: OmnibarStyle.scale(of: self)) },
         ])
         density.update { [weak self] in
             guard let self else { return }

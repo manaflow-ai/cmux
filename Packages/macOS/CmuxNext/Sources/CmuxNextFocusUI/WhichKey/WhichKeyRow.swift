@@ -16,15 +16,15 @@ public struct WhichKeyRow: Equatable {
 /// The overlay's own text (WhichKey.xcstrings).
 public enum WhichKeyStrings {
     static var cancelHint: String {
-        String(localized: "whichKey.cancelHint", defaultValue: "esc to cancel", table: "WhichKey", bundle: .module)
+        String(localized: "whichKey.cancelHint", defaultValue: "esc to cancel", table: "WhichKey", bundle: .localizedModule)
     }
 
     /// A key that leads to longer chords.
     public static var moreKeys: String {
-        String(localized: "whichKey.moreKeys", defaultValue: "more keys…", table: "WhichKey", bundle: .module)
+        String(localized: "whichKey.moreKeys", defaultValue: "more keys…", table: "WhichKey", bundle: .localizedModule)
     }
 
     static var accessibilityLabel: String {
-        String(localized: "whichKey.accessibilityLabel", defaultValue: "Leader keys", table: "WhichKey", bundle: .module)
+        String(localized: "whichKey.accessibilityLabel", defaultValue: "Leader keys", table: "WhichKey", bundle: .localizedModule)
     }
 }

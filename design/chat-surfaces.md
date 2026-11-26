@@ -37,17 +37,21 @@ Fills that break this, and were in the chat:
 | page | none | none | the transcript's ground: messages, rows, prose |
 | card | ink 4% | ink 10% | a container of content: tool, edit, error, permission and subagent cards, plans, code blocks, tool output |
 | inset | ink 8% | none | a piece in a card or in text: an icon tile, inline code, a chip, a key cap |
+| hover | ink 6% | none | a control in the page under the pointer |
 | control | none | ink 16% | a secondary button's outline at rest |
 
 - Nesting adds the step again: an inset tile on a card is ink 8% over ink 4%, so its step to its parent
   is the same as the card's step to the page.
-- States are the colour roles: hover `--ds-color-hover`, pressed `--ds-color-pressed`, selection
-  `--ds-color-selection`, the host's own fills. A primary button is the accent or the transient
+- States: a control in the page hovers at the hover level (`--ds-surface-hover`, ink 6%), half way from
+  clear to the press; pressed is `--ds-color-pressed` and selection (an on toggle, a checked segment)
+  `--ds-color-selection`, the host's own fills. The host's chrome hover (`--ds-color-hover`, ink 4% in a
+  light theme) is for chrome on its own material: in the page, over glass or a picture, it read ΔL* 2 to
+  3 on a fleet Mac (2026-11-19), so Undo and View changes all but lost their hover in light. A primary button is the accent or the transient
   action fill: a role, not a surface.
 - A state over a filled rest is a layer, never a swap: a control that rests on a level (a filled
   button on inset, a row on card) takes `background-image: var(--ds-surface-hover-layer)` (or
-  `-pressed-layer`) over its own fill. Swapped in, the host's hover (ink 4 to 5%) is lighter than an
-  inset rest (8%), so the pointer would lighten the button. `statesReplacingFilledRest()` in the check
+  `-pressed-layer`) over its own fill. Swapped in, a hover (ink 4 to 6%) is lighter than an inset rest
+  (8%), so the pointer would lighten the button. `statesReplacingFilledRest()` in the check
   fails on a swap.
 - Lines are 1 px ink 10% for a card (an inner divider too), ink 16% for a control. appearance.borders
   none clears them; Increase Contrast draws them in the ink itself.
@@ -76,7 +80,7 @@ opaque one it is the theme's page colour.
 | Inline code | ink 11% / none / 5 | `--cv-code-bg` | inset |
 | Subagent card | ink 6% / accent 22% hairline + white 5% top line / 12 | `W/subagents/AgentCard.css` | card |
 | Rows, chips, keycaps, pills at rest (52 files) | ink 3 to 12%, one share each | many | card (<= 5%) or inset (6 to 12%) |
-| Hovers and presses (52 files) | ink 4 to 12%, one share each | many | hover, pressed |
+| Hovers and presses (52 files) | ink 4 to 12%, one share each | many | the hover level; pressed; an on toggle selection |
 | User bubble | glass tint ink 14% | `.cv-user__bubble` | unchanged: the prompt keeps stronger glass (`messageSurfaces.test.ts`) |
 | Composer, queue, trust ask, dictation notice | composer tokens (`--acpmux-composer-*`) over the popover glass level | `W/styles.css`, `composerStates.css` | unchanged: docked glass |
 | Menus, popovers, pickers, hover cards, tooltips | the menu or chip glass level; on the App's glass, host glass | `ui/glass/glass.css` | unchanged |

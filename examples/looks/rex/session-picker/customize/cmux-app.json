@@ -1,0 +1,33 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": {
+    "en": "Sessions"
+  },
+  "version": "1.0.0",
+  "description": "Sessions using cmux chat identities and native actions.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.newtab/1": {
+      "export": "renderPicker",
+      "title": "Sessions",
+      "symbol": "agent.chat"
+    }
+  },
+  "scopes": {
+    "agent_chat:read": "List local and peer chats and their reported activity.",
+    "actions:run": "Open the selected chat or start one through native cmux actions."
+  },
+  "activation": [
+    "onInterface:cmux.newtab/1"
+  ],
+  "files": [
+    "main.js"
+  ]
+}

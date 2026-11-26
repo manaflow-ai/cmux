@@ -117,6 +117,36 @@ class PrStatusTests(unittest.TestCase):
         pr_status.upsert(REPO, PR, "checks", "red: web / lint", api=gh_with_race, sleep=lambda _: None)
         self.assertEqual(gh.status(), {"bead": "Bead: `cx-abc1`", "checks": "red: web / lint"})
 
+    def test_two_writers_started_together_keep_both_sections(self):
+        # pr-checks.yml's advisory job starts swift-logic and review-link at once: both read a pull request with
+        # no status comment, so both post one. Each one's settle re-read folds the pair into the oldest.
+        gh = FakeGitHub()
+
+        def listed():
+            return gh("GET", f"repos/{REPO}/issues/{PR}/comments", None)
+
+        def call(method, path, payload):
+            gh(method, path, payload)
+
+        empty = listed()
+        first = [True]
+
+        def swift_reads():
+            if first[0]:
+                first[0] = False
+                # review-link read the same empty list and posted first.
+                for write in pr_status.plan(REPO, PR, empty, "review", "Review: links"):
+                    call(*write)
+                return empty
+            return listed()
+
+        pr_status.apply(swift_reads, call, REPO, PR, "swift-logic", "Swift logic: +0", sleep=lambda _: None)
+        # review-link's own settle re-read, after its write.
+        self.assertEqual(pr_status.apply(listed, call, REPO, PR, "review", "Review: links", sleep=lambda _: None),
+                         "unchanged")
+        self.assertEqual(len(gh.comments), 1)
+        self.assertEqual(gh.status(), {"review": "Review: links", "swift-logic": "Swift logic: +0"})
+
     def test_two_status_comments_fold_into_the_oldest(self):
         gh = FakeGitHub()
         first = gh.add(pr_status.render({"bead": "Bead: `cx-abc1`"}))
@@ -351,7 +381,7 @@ class GraphQLReadTests(unittest.TestCase):
         gh = FakeGitHub()
         gh.add("hello")
         self.assertEqual([c["body"] for c in pr_status.list_comments(gh, "o/r", 7)], ["hello"])
-        # a test that patches http_api with its fake (test_defaults_guard) still reads the fake, never GraphQL
+        # a test that patches http_api with its fake (as a caller's test does) still reads the fake, never GraphQL
         saved = pr_status.http_api
         pr_status.http_api = gh
         try:

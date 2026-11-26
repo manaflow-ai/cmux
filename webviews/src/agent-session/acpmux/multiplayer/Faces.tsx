@@ -142,6 +142,7 @@ export function PresenceStack({ viewing, look = "stack" }: { viewing: Participan
     <div className="cv-presence" data-look={look}>
       <span className="cv-presence__label">{t("multiplayer.viewing", { names })}</span>
       {shown.map((person) => (
+        // tooltip-allow: a face, with a name beside it only in the names look.
         <span key={person.id} className="cv-presence__person" aria-hidden="true" title={person.name}>
           <Face person={person} size={20} />
           {look === "names" && <span className="cv-presence__name">{person.name.split(/\s+/)[0]}</span>}

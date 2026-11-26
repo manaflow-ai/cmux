@@ -18,46 +18,46 @@ extension CloudHandlers {
         bindMachineCreation(into: registry, context: context, reason: reason)
         bind("newCloudWorkspace", registry, reason: { reason() ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }) { invocation in
             let target = try workspaceMachine(invocation, context)
-            if let target { try requireAttachableState(target) }
-            let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
-            let route = CloudHandlerRules().ask("cloud_handler_new_workspace", [
-                "hasTarget": target != nil, "connected": target?.daemon.connection != nil,
-                "byUser": origin(of: invocation) == .user, "hasWindow": window != nil,
-            ])?["route"] as? String
-            guard let session = target, route == "workspace" else {
-                // A person's New Cloud Workspace opens a chat that runs in Cloud (New Cloud Chat), no setup dialog.
-                if route == "setup" {
-                    _ = context.registry.perform("palette.newCloudChat", invocation: invocation)
-                    return
-                }
-                // A new machine, or one still on its way: show its progress
-                // now. An ended app link connects again on this gesture, and
-                // a paused machine resumes (idle auto-pause).
-                target?.attach(origin: connectOrigin(for: invocation))
-                let creation = creationFlow(context, startedByPerson: invocation.origin == .user, capCard: invocation.isPersonsOwnRun, askedBy: invocation.callerAgentSession,
-                                            reveals: invocation.allowsViewChange).start(in: window, existing: target)
-                guard let target else {
-                    // A CLI or agent hears the new machine's id and target once the server has it
-                    // (workspace_id too when it is already open), else pending: true; a refusal
-                    // (a plan the create needs) reaches it as a failure, never a card.
-                    reportCreatedMachine(creation, context)
-                    return
-                }
-                // A CLI or agent hears that the workspace comes later: its machine is connecting.
-                result("new cloud workspace", context) {
-                    machineFields(target.machineID).merging(["pending": .bool(true), "status": .string("connecting")]) { field, _ in field }
-                }
-                return
-            }
+            // A machine pausing or resuming is waited out, never "This machine is pausing" (ask-259986a6c4, Leo 2026-11-25:
+            // "whoa what happened here"); `CMUX_CLOUD_SETTLE=0` refuses at once, as before.
+            guard let changing = target, CloudStrings.machineChanging(changing.machine.shownStatus) != nil else { return try newCloudWorkspace(invocation, target: target, context) }
             result("new cloud workspace", context) {
-                // Made in the window it was asked from, like a local New Workspace; a CLI or agent
-                // run without focus leaves every window's view as it is.
-                // Placed as any new workspace (`workspaces.newPlacement`), in no group of its machine's (Leo 2026-11-06).
-                let id = await context.services.windows.createWorkspace(on: session.daemon, into: window?.id)
-                guard let id else { throw ActionFailure(message: CloudStrings.notConnected) }
-                if invocation.allowsViewChange { show(id, context) }
-                return machineFields(session.machineID, ["workspace_id": .string(id)])
+                try await requireAttachableState(changing, waitingOutResume: CloudStartSession.connectWait); try newCloudWorkspace(invocation, target: changing, context)
+                return machineFields(changing.machineID).merging(["pending": .bool(true)]) { field, _ in field }
             }
+        }
+    }
+
+    /// New Cloud Workspace on `target` (nil: a new machine), its machine past any pause or resume in flight.
+    static func newCloudWorkspace(_ invocation: ActionInvocation, target: CloudMachineSession?, _ context: AppActionContext) throws {
+        let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
+        let route = CloudHandlerRules().ask("cloud_handler_new_workspace", [
+            "hasTarget": target != nil, "connected": target?.daemon.connection != nil,
+            "byUser": origin(of: invocation) == .user, "hasWindow": window != nil,
+        ])?["route"] as? String
+        guard let session = target, route == "workspace" else {
+            // A person's New Cloud Workspace opens a chat that runs in Cloud (New Cloud Chat), no setup dialog.
+            if route == "setup" { _ = context.registry.perform("palette.newCloudChat", invocation: invocation); return }
+            // A new machine, or one still on its way: show its progress now. An ended app link connects
+            // again on this gesture, and a paused machine resumes (idle auto-pause).
+            target?.attach(origin: connectOrigin(for: invocation))
+            let creation = creationFlow(context, startedByPerson: invocation.origin == .user, capCard: invocation.isPersonsOwnRun, askedBy: invocation.callerAgentSession,
+                                        reveals: invocation.allowsViewChange).start(in: window, existing: target)
+            guard let target else {
+                // A CLI or agent hears the new machine's id and target once the server has it (workspace_id too when it
+                // is already open), else pending: true; a refusal (a plan the create needs) reaches it as a failure, never a card.
+                return reportCreatedMachine(creation, context)
+            }
+            // A CLI or agent hears that the workspace comes later: its machine is connecting.
+            return result("new cloud workspace", context) { machineFields(target.machineID).merging(["pending": .bool(true), "status": .string("connecting")]) { field, _ in field } }
+        }
+        result("new cloud workspace", context) {
+            // Made in the window it was asked from, like a local New Workspace; a CLI or agent run without focus leaves
+            // every window's view as it is. Placed as any new workspace (`workspaces.newPlacement`), in no group of its machine's (Leo 2026-11-06).
+            let id = await context.services.windows.createWorkspace(on: session.daemon, into: window?.id)
+            guard let id else { throw ActionFailure(message: CloudStrings.notConnected) }
+            if invocation.allowsViewChange { show(id, context) }
+            return machineFields(session.machineID, ["workspace_id": .string(id)])
         }
     }
 
@@ -389,7 +389,7 @@ extension CloudHandlers {
                 }
             }
             try checkScope(session)
-            try await WorkspaceCreation.create(key, name: folder.map { URL(fileURLWithPath: $0.root).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await WorkspaceCreation.firstTerminal(in: $0, cwd: cwd, on: connection) }
+            try await WorkspaceCreation.create(key, name: folder.map { ($0.root as NSString).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await WorkspaceCreation.firstTerminal(in: $0, cwd: cwd, on: connection) }
             return key.rawValue
         }
         return .started

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.app.shortcutLayout.help" : {
+      "comment" : "Settings help under Keyboard Layout. Dvorak, Colemak, AZERTY, QWERTZ and QWERTY are layout names; keep them.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QWERTY-Positionen behalten legt Kurzbefehle auf die US-Tasten, für Dvorak, Colemak, AZERTY und QWERTZ."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Garder les positions QWERTY place les raccourcis sur les touches US, pour Dvorak, Colemak, AZERTY et QWERTZ."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يضع خيار الإبقاء على مواضع QWERTY الاختصارات على مفاتيح التخطيط الأمريكي، لمستخدمي Dvorak وColemak وAZERTY وQWERTZ."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantener posiciones QWERTY pone los atajos en las teclas de EE. UU., para Dvorak, Colemak, AZERTY y QWERTZ."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「保留 QWERTY 位置」會將快速鍵放在美式鍵盤的按鍵位置上，適用於 Dvorak、Colemak、AZERTY 和 QWERTZ。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“保留 QWERTY 位置”会将快捷键放在美式键盘的按键位置上，适用于 Dvorak、Colemak、AZERTY 和 QWERTZ。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QWERTY 위치 유지는 단축키를 미국식 키 위치에 둡니다. Dvorak, Colemak, AZERTY, QWERTZ용입니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「QWERTY の位置を保つ」はショートカットを US キーの位置に置きます。Dvorak、Colemak、AZERTY、QWERTZ 向けです。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zadrži QWERTY položaje stavlja prečice na američke tipke, za Dvorak, Colemak, AZERTY i QWERTZ."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Behold QWERTY-placeringer lægger genveje på de amerikanske taster, til Dvorak, Colemak, AZERTY og QWERTZ."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mantieni posizioni QWERTY mette le scorciatoie sui tasti americani, per Dvorak, Colemak, AZERTY e QWERTZ."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រក្សាទីតាំង QWERTY ដាក់ផ្លូវកាត់លើគ្រាប់ចុចអាមេរិក សម្រាប់ Dvorak, Colemak, AZERTY និង QWERTZ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Behold QWERTY-plasseringer legger snarveier på de amerikanske tastene, for Dvorak, Colemak, AZERTY og QWERTZ."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zachowaj pozycje QWERTY umieszcza skróty na klawiszach amerykańskich, dla Dvorak, Colemak, AZERTY i QWERTZ."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Manter posições QWERTY coloca os atalhos nas teclas americanas, para Dvorak, Colemak, AZERTY e QWERTZ."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«Сохранять позиции QWERTY» ставит сочетания клавиш на американские клавиши, для Dvorak, Colemak, AZERTY и QWERTZ."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "คงตำแหน่ง QWERTY จะวางคีย์ลัดบนปุ่มแบบสหรัฐฯ สำหรับ Dvorak, Colemak, AZERTY และ QWERTZ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "QWERTY konumlarını koru, kısayolları ABD tuşlarına yerleştirir; Dvorak, Colemak, AZERTY ve QWERTZ için."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«Зберігати позиції QWERTY» ставить сполучення клавіш на американські клавіші, для Dvorak, Colemak, AZERTY і QWERTZ."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Giữ vị trí QWERTY đặt phím tắt trên các phím kiểu Mỹ, cho Dvorak, Colemak, AZERTY và QWERTZ."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -12,8 +12,8 @@ use crate::localapi::LocalApi;
 use crate::{Error, Result, Status, Watch, WhoIs, ffi};
 
 /// How the node joins the tailnet. Set before [`Node::start`]; tsnet reads
-/// these once.
-#[derive(Debug, Clone)]
+/// these once. `Debug` never shows the auth key.
+#[derive(Clone)]
 pub struct NodeConfig {
     /// Where the node keeps its keys and login (made 0700). One node per folder.
     pub state_dir: PathBuf,
@@ -26,6 +26,9 @@ pub struct NodeConfig {
     pub control_url: Option<String>,
     /// Remove the device from the tailnet when it goes offline.
     pub ephemeral: bool,
+    /// ACL tags (`tag:name`) the node asks for at login; the control server grants only those
+    /// the key's owner may use. Empty: none asked (a tagged auth key still tags the node).
+    pub advertise_tags: Vec<String>,
     /// Where tsnet writes its log. None: discarded (tsnet logs are verbose
     /// and can carry the sign-in link; the link is read from the API instead).
     pub log_fd: Option<RawFd>,
@@ -39,8 +42,23 @@ impl NodeConfig {
             auth_key: None,
             control_url: None,
             ephemeral: false,
+            advertise_tags: Vec::new(),
             log_fd: None,
         }
+    }
+}
+
+impl std::fmt::Debug for NodeConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NodeConfig")
+            .field("state_dir", &self.state_dir)
+            .field("hostname", &self.hostname)
+            .field("auth_key", &self.auth_key.as_ref().map(|_| "<redacted>"))
+            .field("control_url", &self.control_url)
+            .field("ephemeral", &self.ephemeral)
+            .field("advertise_tags", &self.advertise_tags)
+            .field("log_fd", &self.log_fd)
+            .finish()
     }
 }
 
@@ -79,6 +97,10 @@ impl Node {
             node.call(|| unsafe { ffi::tailscale_set_control_url(sd, url.as_ptr()) })?;
         }
         node.call(|| unsafe { ffi::tailscale_set_ephemeral(sd, config.ephemeral as i32) })?;
+        if !config.advertise_tags.is_empty() {
+            let tags = cstring(&config.advertise_tags.join(","))?;
+            node.call(|| unsafe { ffi::tailscale_set_advertise_tags(sd, tags.as_ptr()) })?;
+        }
         node.call(|| unsafe { ffi::tailscale_set_logfd(sd, config.log_fd.unwrap_or(-1)) })?;
         Ok(node)
     }
@@ -365,43 +387,5 @@ fn create_private_dir(path: &std::path::Path) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-    use std::os::fd::IntoRawFd;
-
-    #[test]
-    fn invalid_configuration_never_reports_secret_values() {
-        let error = cstring("private-auth-key\0suffix").unwrap_err().to_string();
-        assert_eq!(error, "NUL byte in node configuration");
-        assert!(!error.contains("private-auth-key"));
-    }
-
-    /// libtailscale tears its listener down when a read on its end of the socketpair returns
-    /// EOF. A process spawned while the listener is open holds a copy of our end; dropping the
-    /// listener must still end libtailscale's side.
-    #[test]
-    fn dropping_a_listener_ends_libtailscales_side_while_a_child_holds_a_copy() {
-        use std::io::Read;
-        let (ours, mut theirs) = UnixStream::pair().unwrap();
-        let listener = Listener { fd: ours.into_raw_fd() };
-        let inherited = unsafe { libc::dup(listener.fd) };
-        assert!(inherited >= 0, "dup: {}", std::io::Error::last_os_error());
-        drop(listener);
-        theirs.set_nonblocking(true).unwrap();
-        let mut byte = [0_u8; 1];
-        assert_eq!(theirs.read(&mut byte).unwrap(), 0, "libtailscale's side must read EOF");
-        unsafe { libc::close(inherited) };
-    }
-
-    #[test]
-    fn accept_readiness_does_not_block_and_detects_truncated_close() {
-        let (reader, mut writer) = UnixStream::pair().unwrap();
-        let mut listener = Listener { fd: reader.into_raw_fd() };
-        assert!(listener.try_accept().unwrap().is_none());
-        writer.write_all(b"partial").unwrap();
-        assert!(listener.try_accept().unwrap().is_none());
-        drop(writer);
-        assert_eq!(listener.try_accept().unwrap_err().kind(), std::io::ErrorKind::UnexpectedEof);
-    }
-}
+#[path = "node_tests.rs"]
+mod tests;

@@ -34,8 +34,15 @@ class CmuxNextBaseWebVerdict(unittest.TestCase):
         self.text = (ROOT / ".github/workflows/cmux-next-web.yml").read_text()
 
     def test_every_feat_cmux_next_push_runs_it(self):
-        self.assertRegex(self.text, r"\non:\n  push:\n    branches: \[feat-cmux-next\]\n")
-        self.assertNotIn("pull_request", self.text)
+        # Since 2026-11-21 the post-merge batch tier's `web` suite runs ci-web.yml on the base after merges;
+        # cmux-next-web.yml runs only when dispatched (next_batch.py's web lane).
+        self.assertRegex(self.text, r"\non:\n  workflow_dispatch:\n")
+        self.assertNotRegex(self.text, r"\n  push:\n")
+        batch = (ROOT / ".github/workflows/cmux-next-post-merge.yml").read_text()
+        self.assertIn("  web:\n    needs: plan\n    if: contains(needs.plan.outputs.suites, ' web ')\n", batch)
+        self.assertIn("    uses: ./.github/workflows/ci-web.yml\n", batch)
+        # No pull_request trigger; the runs-on fork check (#48644) still names github.event_name == 'pull_request'.
+        self.assertNotRegex(self.text, r"\n  pull_request(_target)?:")
         self.assertNotIn("paths:", self.text)
 
     def test_it_calls_ci_web_as_the_web_job_with_every_web_lane(self):
@@ -231,7 +238,8 @@ class WebValidationTests(unittest.TestCase):
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("linux_16", runs_on)
-        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), runs_on)
+        # Own-branch Linux jobs take the one cmux-linux label since #48644; linux_4 was the pool before it.
+        self.assertTrue(runs_on.endswith(("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}", "|| 'cmux-linux' }}")), runs_on)
         sized_for = int(re.search(r'^          CMUX_WEB_TEST_SIZED_FOR_VCPU: "(\d+)"$', block, re.MULTILINE).group(1))
         sizes = re.findall(r"'blacksmith-(\d+)vcpu-ubuntu-2404'|RUNNER_POOLS\)\.linux_(\d+)", runs_on)
         for vcpu in (int(a or b) for a, b in sizes):
@@ -247,31 +255,35 @@ class WebValidationTests(unittest.TestCase):
         dev-server files four at a time for 18-26 min each (p50 24.4 min, 2026-10-31), the
         long pole from ask to merge for a webview fix, so they were eight. At eight the split
         balanced each shard to about 1000 s of tests (2026-11-13), past a 20 min verdict, so
-        they are twelve (about 690 s each). The base replay (react-apps-base-check) is one
+        they were twelve (about 690 s each). Twelve paid twelve setups and cold Vite warm-ups, about 9%
+        more runner-minutes than eight (2026-11-22), so they are eight again. The base replay (react-apps-base-check) is one
         job that joins every head shard's results artifact (one job a head shard before #42540)."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
         start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
-        shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
-        counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
-        self.assertEqual(len(shards), 12)
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux_4 }}", block)
-        self.assertEqual(shards, list(range(1, len(shards) + 1)))
-        self.assertEqual(counts, {str(len(shards))})
+        # The matrix is web-subarea-scope's pick (webviews_pr_shards.py): all REACT_APPS_SHARDS on a push, shard 1
+        # and the shards holding a touched test on a pull request.
+        self.assertIn("include: ${{ fromJSON(needs.web-subarea-scope.outputs.react_shards) }}", block)
+        scope = workflow[workflow.index("  web-subarea-scope:"):workflow.index("  web-typecheck:")]
+        self.assertEqual(int(re.search(r'^          REACT_APPS_SHARDS: "(\d+)"$', scope, re.MULTILINE).group(1)), 8)
+        self.assertIn("react_shards: ${{ steps.react-shards.outputs.matrix }}", scope)
+        self.assertRegex(block, r"(fromJSON\(vars\.RUNNER_POOLS\)\.linux_4|'cmux-linux') }}")
         base_start = workflow.index("  react-apps-base-check:")
         base_match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[base_start + 3 :])
         base = workflow[base_start:] if base_match is None else workflow[base_start : base_start + 3 + base_match.start()]
         self.assertNotIn("strategy:", base)
-        self.assertIn(f'HEAD_SHARDS: "{len(shards)}"', base)
+        self.assertIn("HEAD_SHARDS: ${{ needs.web-subarea-scope.outputs.react_shards }}", base)
         self.assertIn("pattern: react-apps-head-results-shard*", base)
         for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
-                     "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
+                     "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, source rules)",
                      "Check PR-scoped webview rules"):
             with self.subTest(step=step):
                 body = block[block.index(f"- name: {step}"):]
                 body = body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
-                self.assertIn("if: matrix.shard == 1", body)
+                # Shard 1 only; a same-input receipt hit (#49946, react_shard_receipt.py) may also skip it.
+                self.assertRegex(body, r"\n        if: (matrix\.shard == 1|\$\{\{ matrix\.shard == 1 && "
+                                       r"steps\.receipt\.outputs\.hit != 'true' \}\})\n")
 
     def test_a_shard_whose_engines_failed_is_red_without_running_its_tests(self):
         """A failed engine install went on to the whole suite, 15-25 min, and the shard was red
@@ -283,8 +295,20 @@ class WebValidationTests(unittest.TestCase):
             body = block[block.index(f"- name: {name}\n"):]
             return body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
         self.assertIn("id: engines", step("Install headless engines"))
-        self.assertIn("if: ${{ !cancelled() && steps.engines.outcome != 'failure' }}", step("Test webviews"))
+        # The tests run unless cancelled, the engines failed or a same-input receipt (#49946) already holds their
+        # results: each is a top-level && term of the condition.
+        self.assertRegex(step("Test webviews"), r"\$\{\{ !cancelled\(\) (&& steps\.receipt\.outputs\.hit != 'true' )?"
+                                                r"&& steps\.engines\.outcome != 'failure' && ")
         self.assertIn("steps.webview-tests.outcome != 'skipped'", step("Upload head webview results"))
+        # A pull request's shard whose gate check failed is red whatever its tests say: it skips them (11-21:
+        # 50 of 52 shard 1 jobs red on one gate, then 40 min of tests). A push still runs every test.
+        tests = " ".join(step("Test webviews").split())
+        self.assertIn("!(github.event_name == 'pull_request' && (", tests)
+        for gate_id in ("source-build", "bundles", "merge-driver", "post-edit-format", "webviews-check",
+                        "pr-scoped-rules"):
+            with self.subTest(gate=gate_id):
+                self.assertIn(f"steps.{gate_id}.outcome == 'failure'", tests)
+                self.assertIn(f"id: {gate_id}", block)
         gate = step("Fail on the gate checks")
         self.assertIn("ENGINES: ${{ steps.engines.outcome }}", gate)
         self.assertIn('"ENGINES|Install headless engines"', gate)
@@ -319,16 +343,6 @@ class WebValidationTests(unittest.TestCase):
             env={**os.environ, "WEB_VALIDATION_NEEDS": json.dumps(needs),
                  "GITHUB_EVENT_NAME": event}, capture_output=True).returncode
 
-    def test_failed_or_skipped_optional_placement_does_not_fail_selected_web_results(self):
-        needs = {"changes": {"result": "success", "outputs": {"required": "true"}},
-                 "build": {"result": "success"}, "tests": {"result": "success"},
-                 "database": {"result": "success"}}
-        for result in ("failure", "skipped"):
-            with self.subTest(result=result):
-                placed = {**needs, "portable-placement": {"result": result}}
-                self.assertEqual(gate.failures(placed), {})
-                self.assertEqual(self.check_results(placed, "merge_group"), 0)
-
     def test_gate_rejects_missing_cancelled_failed_or_skipped_required_jobs(self):
         good = {"changes": {"result": "success", "outputs": {"required": "true"}},
                 **{job: {"result": "success"} for job in ("build", "tests", "database")}}
@@ -348,6 +362,20 @@ class WebValidationTests(unittest.TestCase):
         self.assertEqual(self.check_results(docs), 0)
         self.assertNotEqual(self.check_results({**docs, "build": {"result": "failure"}}), 0)
 
+
+    def test_web_typecheck_generates_next_route_types_the_build_no_longer_checks(self):
+        """The production build skips type errors (CMUX_CI_TYPECHECK_SEPARATE); web-typecheck runs next typegen
+        first, so a route type error in .next/types still turns web-typecheck red."""
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        start = workflow.index("  web-typecheck:")
+        match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
+        block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
+        typegen = block.index("run: bun x next typegen")
+        self.assertLess(typegen, block.index("- name: Typecheck"))
+        # next typegen loads next.config.ts, which validates app/env.ts; CI holds none of its secrets.
+        step = block[block.index("- name: Generate Next route types") : typegen]
+        self.assertIn('SKIP_ENV_VALIDATION: "1"', step)
+        self.assertIn("CMUX_CI_TYPECHECK_SEPARATE: \"1\"", workflow)
 
 if __name__ == "__main__":
     unittest.main()

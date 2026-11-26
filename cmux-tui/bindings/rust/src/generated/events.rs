@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2fc186d7961113412cfc6906e8855fc2532403bc1bc55e2b1448d569f9fe5226.
+// cmux-tui mux protocol 12, IR 904084da7c7269d2c068894336d66cb1aa68bb6f467a7992efd2ee435a2ad886.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -34,6 +34,9 @@ pub struct AgentChangedEvent {
     pub source: T::AgentSource,
     pub state: T::AgentState,
     pub surface: T::Id,
+    /// The terminal's public id (\`term_…\`). The record's \`surface\` is the terminal's first tab placement; a client finds every tab that shows the terminal by this id, whatever surface a restore or a reopen gave the tab.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub terminal_id: Option<String>,
     pub updated_at_ms: u64,
 }
 
@@ -93,6 +96,32 @@ pub struct AgentPresenceChangedEvent {
     pub tool: Nullable<String>,
     /// When the hook observed the event; null on clear.
     pub updated_at_ms: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionShareChangedEvent {
+    pub session: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AppsCloudMachineEventKind {
+    #[serde(rename = "record")]
+    Record,
+    #[serde(rename = "live")]
+    Live,
+    #[serde(rename = "lost")]
+    Lost,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppsCloudMachineEvent {
+    pub kind: AppsCloudMachineEventKind,
+    pub machine: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub record: Option<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -384,6 +413,17 @@ pub struct ConversationRunChangedEvent {
     pub conversation: String,
     pub run: Nullable<T::JsonValue>,
     pub steps: Vec<T::JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationScheduledChangedEvent {
+    pub conversation: String,
+    pub participant: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub removed: Option<T::JsonValue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub scheduled: Option<T::JsonValue>,
 }
 
 #[rustfmt::skip]
@@ -1077,6 +1117,8 @@ pub enum Event {
     AgentInventoryChanged(AgentInventoryChangedEvent),
     AgentInventoryWatchEnded(AgentInventoryWatchEndedEvent),
     AgentPresenceChanged(AgentPresenceChangedEvent),
+    AgentSessionShareChanged(AgentSessionShareChangedEvent),
+    AppsCloudMachine(AppsCloudMachineEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
@@ -1105,6 +1147,7 @@ pub enum Event {
     ConversationInboxChanged(ConversationInboxChangedEvent),
     ConversationLive(ConversationLiveEvent),
     ConversationRunChanged(ConversationRunChangedEvent),
+    ConversationScheduledChanged(ConversationScheduledChangedEvent),
     ConversationTyping(ConversationTypingEvent),
     DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
@@ -1181,6 +1224,8 @@ impl Event {
             Self::AgentInventoryChanged(_) => Some("agent-inventory-changed"),
             Self::AgentInventoryWatchEnded(_) => Some("agent-inventory-watch-ended"),
             Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
+            Self::AgentSessionShareChanged(_) => Some("agent-session-share-changed"),
+            Self::AppsCloudMachine(_) => Some("apps-cloud-machine"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
@@ -1209,6 +1254,7 @@ impl Event {
             Self::ConversationInboxChanged(_) => Some("conversation-inbox-changed"),
             Self::ConversationLive(_) => Some("conversation-live"),
             Self::ConversationRunChanged(_) => Some("conversation-run-changed"),
+            Self::ConversationScheduledChanged(_) => Some("conversation-scheduled-changed"),
             Self::ConversationTyping(_) => Some("conversation-typing"),
             Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
@@ -1284,6 +1330,8 @@ impl Event {
             Self::AgentInventoryChanged(_) => Some(&AGENT_INVENTORY_CHANGED_EVENT_METADATA),
             Self::AgentInventoryWatchEnded(_) => Some(&AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA),
             Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
+            Self::AgentSessionShareChanged(_) => Some(&AGENT_SESSION_SHARE_CHANGED_EVENT_METADATA),
+            Self::AppsCloudMachine(_) => Some(&APPS_CLOUD_MACHINE_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
@@ -1312,6 +1360,7 @@ impl Event {
             Self::ConversationInboxChanged(_) => Some(&CONVERSATION_INBOX_CHANGED_EVENT_METADATA),
             Self::ConversationLive(_) => Some(&CONVERSATION_LIVE_EVENT_METADATA),
             Self::ConversationRunChanged(_) => Some(&CONVERSATION_RUN_CHANGED_EVENT_METADATA),
+            Self::ConversationScheduledChanged(_) => Some(&CONVERSATION_SCHEDULED_CHANGED_EVENT_METADATA),
             Self::ConversationTyping(_) => Some(&CONVERSATION_TYPING_EVENT_METADATA),
             Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
@@ -1433,6 +1482,22 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-presence-changed") => match serde_json::from_value::<AgentPresenceChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentPresenceChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("agent-session-share-changed") => match serde_json::from_value::<AgentSessionShareChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentSessionShareChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("apps-cloud-machine") => match serde_json::from_value::<AppsCloudMachineEvent>(raw.clone()) {
+            Ok(event) => Event::AppsCloudMachine(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
@@ -1657,6 +1722,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("conversation-run-changed") => match serde_json::from_value::<ConversationRunChangedEvent>(raw.clone()) {
             Ok(event) => Event::ConversationRunChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("conversation-scheduled-changed") => match serde_json::from_value::<ConversationScheduledChangedEvent>(raw.clone()) {
+            Ok(event) => Event::ConversationScheduledChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

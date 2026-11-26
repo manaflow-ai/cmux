@@ -303,7 +303,7 @@ function withReceipt(Component: typeof HomeLists) {
       >
         <div className="acpmux-main" data-new-chat="">
           <div className="acpmux-stage">
-            <EmptyState project="atlas-web" />
+            <EmptyState />
           </div>
           <div className="acpmux-dock">
             <div className="acpmux-home-area">

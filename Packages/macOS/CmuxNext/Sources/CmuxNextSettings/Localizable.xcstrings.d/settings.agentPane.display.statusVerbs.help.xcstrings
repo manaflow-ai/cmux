@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.statusVerbs.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choose whether the live status line rotates through verbs or stays on Thinking."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wählen Sie, ob die Statuszeile wechselnde Verben oder immer „Nachdenken“ anzeigt."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez si la ligne de statut alterne les verbes ou affiche toujours « Réflexion »."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اختر ما إذا كان سطر الحالة يتناوب بين الأفعال أو يعرض «يفكر» دائمًا."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige si la línea de estado alterna entre verbos o muestra siempre «Pensando»."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "選擇狀態列輪流顯示不同動詞，或始終顯示「思考中」。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "选择状态行轮流显示不同动词，或始终显示“思考中”。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "상태 표시줄에 동사를 번갈아 표시할지, 항상 “생각 중”을 표시할지 선택합니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ステータス行の動詞を順に切り替えるか、「思考中」のみを表示するかを選びます。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Odaberite da li se glagoli u statusu smjenjuju ili uvijek piše „Razmišljam“."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vælg, om statuslinjen skifter mellem verber eller altid viser „Tænker“."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli se la riga di stato alterna i verbi o mostra sempre «Sto pensando»."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ជ្រើសរើសថាតើបន្ទាត់ស្ថានភាពប្តូរកិរិយាសព្ទ ឬបង្ហាញ «កំពុងគិត» ជានិច្ច។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Velg om statuslinjen veksler mellom verb eller alltid viser «Tenker»."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wybierz, czy wiersz stanu zmienia czasowniki, czy zawsze pokazuje „Myślenie”."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escolha se a linha de status alterna entre verbos ou sempre mostra “Pensando”."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выберите, сменяются ли глаголы в строке состояния или всегда отображается «Думаю»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เลือกว่าจะสลับคำกริยาในบรรทัดสถานะหรือแสดง “กำลังคิด” เสมอ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Durum satırının fiilleri dönüşümlü göstermesini veya hep “Düşünüyor” yazmasını seçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Виберіть, чи змінюються дієслова в рядку стану, чи завжди відображається «Думаю»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Chọn để dòng trạng thái luân phiên các động từ hoặc luôn hiển thị “Đang suy nghĩ”."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

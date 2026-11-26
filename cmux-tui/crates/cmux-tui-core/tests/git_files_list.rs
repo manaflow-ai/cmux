@@ -158,3 +158,59 @@ fn cmux_next_git_files_list_lists_one_folder() {
     server::cleanup(&socket);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A folder in no repository (a person's `~/Projects`) lists from the disk:
+/// git status is extra to the Files tree, never its condition. Its children
+/// only (no walk below), folders first, dot names left out, a symlink a
+/// leaf, and a repository inside it is a folder that lists the git way.
+#[test]
+fn cmux_next_git_files_list_lists_a_folder_in_no_repository() {
+    let dir = std::env::temp_dir().join(unique("gfl-plain"));
+    let projects = dir.join("Projects");
+    write(&projects, "notes.md", "notes\n");
+    write(&projects, "Zeta/deep/file.txt", "deep\n");
+    write(&projects, "alpha/a.txt", "a\n");
+    write(&projects, ".DS_Store", "finder\n");
+    std::fs::create_dir_all(projects.join("empty")).unwrap();
+    let repo = repository(&projects);
+    let outside = dir.join("outside");
+    write(&outside, "secret.txt", "outside\n");
+    std::os::unix::fs::symlink(&outside, projects.join("linked")).unwrap();
+    let mux = Mux::new(unique("git-files-list-plain"), SurfaceOptions::default());
+    let socket = dir.join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+    let mut client = Client::connect(&socket);
+
+    let top = client.read("git.files.list", json!({"path": projects.to_string_lossy()}));
+    assert_eq!(
+        entries(&top),
+        [
+            entry("alpha", "directory"),
+            entry("empty", "directory"),
+            entry("repo", "directory"),
+            entry("Zeta", "directory"),
+            entry("linked", "file"),
+            entry("notes.md", "file"),
+        ],
+        "folders first, then names case-insensitively; no dot names; a link is a leaf: {top}"
+    );
+    assert_eq!(top["truncated"], false, "{top}");
+
+    let zeta =
+        client.read("git.files.list", json!({"path": projects.join("Zeta").to_string_lossy()}));
+    assert_eq!(entries(&zeta), [entry("deep", "directory")], "{zeta}");
+
+    let first =
+        client.read("git.files.list", json!({"path": projects.to_string_lossy(), "limit": 2}));
+    assert_eq!(entries(&first), [entry("alpha", "directory"), entry("empty", "directory")]);
+    assert_eq!(first["truncated"], true, "{first}");
+
+    // The repository below lists the git way: ignored target/ is absent.
+    let inner = client.read("git.files.list", json!({"path": repo.to_string_lossy()}));
+    assert!(!entries(&inner).contains(&entry("target", "directory")), "{inner}");
+    assert!(entries(&inner).contains(&entry("src", "directory")), "{inner}");
+
+    mux.shutdown();
+    server::cleanup(&socket);
+    let _ = std::fs::remove_dir_all(&dir);
+}

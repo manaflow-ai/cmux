@@ -63,6 +63,13 @@ final class MessageCell: UICollectionViewCell {
     private(set) lazy var accessibility = MessageCellAccessibility(cell: self)
 
     private(set) var model: MessageRowModel?
+    weak var activeTextSelection: BubbleTextSelectionView?
+    var selectableLabel: UILabel? {
+        if !textLabel.isHidden, (textLabel.attributedText?.length ?? 0) > 0 { return textLabel }
+        if !emojiLabel.isHidden, !(emojiLabel.text ?? "").isEmpty { return emojiLabel }
+        return nil
+    }
+
     private var previousRowID: String?
     /// The row's send flight is in the air (see `setFlightHidden`).
     var isFlightHidden = false
@@ -143,6 +150,7 @@ final class MessageCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        activeTextSelection?.end()
         imageTasks.forEach { $0.cancel() }
         imageTasks = []
         previousRowID = nil
@@ -182,6 +190,11 @@ final class MessageCell: UICollectionViewCell {
     }
 
     private func configureContents(model: MessageRowModel, layout: MessageCellLayout, text: NSAttributedString) {
+        if let selection = activeTextSelection, selection.rowID != model.rowID ||
+            selection.frame != (layout.textFrame ?? layout.emojiFrame.map { MessageCellLayout.emojiGlyphFrame(in: $0) }) ||
+            selection.text != (layout.textFrame == nil ? model.message.text : text.string) {
+            selection.end()
+        }
         let wasScheduled = self.model?.rowID == model.rowID && self.model?.message.isScheduled == true
         self.model = model
         self.cellLayout = layout

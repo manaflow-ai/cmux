@@ -1,12 +1,14 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import Foundation
 
 /// A workspace's panes as its Mac lays them out (cmux-tui `list-workspaces`: screens, each
 /// with a split tree of panes, each pane with its tabs). The phone shows one tab at a time;
 /// the Panes page reads this to show which tabs share a pane and to act on panes as the
 /// Mac's pane menus do (verify/parity-mac.md, Panes).
-public struct WorkspaceLayout: Hashable, Sendable {
-    public struct Pane: Identifiable, Hashable, Sendable {
+public struct WorkspaceLayout: Hashable, Sendable, Codable {
+    public struct Pane: Identifiable, Hashable, Sendable, Codable {
         /// The Mac's pane id (what `split`, `zoom-pane`, `close-pane` and the rest name).
         public var id: Int
         /// The name the person gave the pane on the Mac (Rename Pane…), empty when none.
@@ -35,14 +37,14 @@ public struct WorkspaceLayout: Hashable, Sendable {
     }
 
     /// Side by side (`right`: a vertical divider) or stacked (`down`).
-    public enum Axis: String, Hashable, Sendable {
+    public enum Axis: String, Hashable, Sendable, Codable {
         case horizontal = "right"
         case vertical = "down"
     }
 
     /// The Mac's split tree (`layout`): a pane, a split of two nodes, or a stack of panes
     /// of which one is shown.
-    public indirect enum Node: Hashable, Sendable {
+    public indirect enum Node: Hashable, Sendable, Codable {
         case pane(Int)
         /// `ratio` is the first node's share.
         case split(id: Int, axis: Axis, ratio: Double, first: Node, second: Node)
@@ -139,7 +141,7 @@ public struct WorkspaceLayout: Hashable, Sendable {
     }
 
     /// One split's ratio now and the ratio Equalize Splits gives it.
-    public struct EqualizedSplit: Hashable, Sendable {
+    public struct EqualizedSplit: Hashable, Sendable, Codable {
         public var split: Int
         public var ratio: Double
         public var equalized: Double
@@ -156,7 +158,7 @@ public struct WorkspaceLayout: Hashable, Sendable {
 
     /// One divider of a screen, as Resize Pane moves it (`set-split-ratio {split, ratio}`): the
     /// panes before it (left or above) and after it, and the first side's share.
-    public struct ResizableSplit: Hashable, Sendable, Identifiable {
+    public struct ResizableSplit: Hashable, Sendable, Identifiable, Codable {
         public var split: Int
         public var axis: Axis
         public var ratio: Double
@@ -194,9 +196,9 @@ public struct WorkspaceLayout: Hashable, Sendable {
     /// A horizontal viewport column of a screen (`columns`): as wide as the Mac draws it (a share
     /// of its viewport; the columns together may be wider than the window, which scrolls), docked
     /// to an edge or scrolling, holding a split tree or rows of them.
-    public struct Column: Hashable, Sendable {
+    public struct Column: Hashable, Sendable, Codable {
         /// One row of a column with rows (`rows-v1`), top to bottom.
-        public struct Row: Hashable, Sendable {
+        public struct Row: Hashable, Sendable, Codable {
             /// Permille of the column's viewport height (the rows may scroll past 1000).
             public var height: Double
             public var root: Node
@@ -208,8 +210,8 @@ public struct WorkspaceLayout: Hashable, Sendable {
         }
 
         /// A column pinned to a viewport edge (`dock`, `dock-columns-v1`, `edge-docks-v1`).
-        public struct Dock: Hashable, Sendable {
-            public enum Edge: String, Hashable, Sendable { case left, right, top, bottom }
+        public struct Dock: Hashable, Sendable, Codable {
+            public enum Edge: String, Hashable, Sendable, Codable { case left, right, top, bottom }
             public var edge: Edge
             /// `mode: "overlay"`: a side dock floats over the scrolling columns, which keep the
             /// full width. A docked one (the default) takes its width out of theirs.
@@ -258,7 +260,7 @@ public struct WorkspaceLayout: Hashable, Sendable {
         }
     }
 
-    public struct Screen: Identifiable, Hashable, Sendable {
+    public struct Screen: Identifiable, Hashable, Sendable, Codable {
         public var id: Int
         public var name: String
         /// The screen the workspace shows on the Mac.
@@ -467,6 +469,37 @@ public struct WorkspaceLayout: Hashable, Sendable {
     /// The other panes of `pane`'s screen, the places Move Tab to Pane… offers.
     public func otherPanes(than pane: Int) -> [Pane] {
         (screen(of: pane)?.panes ?? []).filter { $0.id != pane }
+    }
+
+    /// A tab dropped on the Panes page: `tabID` into `pane` at `offset` among the tabs that pane
+    /// lists (its rows as they showed, the dragged one included when it was there). Returns the
+    /// tab the Mac's `move-tab` places it before (nil: the pane's end) and the layout as the Mac
+    /// will list it, or nil when the drop changes nothing or names a tab or pane not listed.
+    public func dropping(_ tabID: String, into pane: Int, at offset: Int) -> (before: String?, layout: WorkspaceLayout)? {
+        guard let from = self.pane(holding: tabID), let to = self.pane(pane) else { return nil }
+        let rows = to.tabIDs
+        let offset = min(max(offset, 0), rows.count)
+        // Its own place, or the place right after it, in its own pane: nothing moves.
+        if from.id == to.id, let own = rows.firstIndex(of: tabID), offset == own || offset == own + 1 { return nil }
+        let before = rows[offset...].first { $0 != tabID }
+        var next = self
+        for s in next.screens.indices {
+            for p in next.screens[s].panes.indices {
+                var moved = next.screens[s].panes[p]
+                if moved.id == from.id {
+                    moved.tabIDs.removeAll { $0 == tabID }
+                    moved.tabCount -= 1
+                    if from.id != to.id, moved.activeTabID == tabID { moved.activeTabID = moved.tabIDs.first }
+                }
+                if moved.id == to.id {
+                    let at = before.flatMap { moved.tabIDs.firstIndex(of: $0) } ?? moved.tabIDs.count
+                    moved.tabIDs.insert(tabID, at: at)
+                    moved.tabCount += 1
+                }
+                next.screens[s].panes[p] = moved
+            }
+        }
+        return (before, next)
     }
 }
 
@@ -680,6 +713,9 @@ public protocol WorkspacePaneBackend: AnyObject {
     func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws
     /// Move Tab to Pane…: the end of another pane's tabs.
     func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws
+    /// A drag on the Panes page: `tab` into `pane` (its own or another), right before `anchor`,
+    /// a tab listed in that pane; nil: the pane's end.
+    func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws
     /// Fork Conversation to `destination`: a copy of the chat beside it, in a new tab, or in a
     /// new workspace; returned once the Mac lists it there.
     func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab
@@ -693,6 +729,9 @@ public protocol WorkspacePaneBackend: AnyObject {
 }
 
 extension WorkspacePaneBackend {
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws {
+        throw WorkspaceCreationError("Not connected")
+    }
     public func setSplitRatio(_ split: Int, to ratio: Double, in workspace: Workspace) async throws {
         throw WorkspaceCreationError("Not connected")
     }
