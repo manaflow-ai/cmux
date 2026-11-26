@@ -194,17 +194,25 @@ fn is_key(text: &str) -> bool {
 
 /// Serve a `_acpmux/remote.pipe` connection: dial, answer request `id` with one line, then carry
 /// bytes between `reader`/`writer` (the unix socket) and the circuit until either side ends.
+///
+/// `early: N` in the params: the N bytes after the request line are the stream's first bytes
+/// (a client that speaks first, as `lane-gh` does to its broker). They are read before the dial
+/// and go right behind the stream's OPEN (`HubCarrier::dial_service_early`), so the far
+/// service's reply comes one relay round trip after the dial instead of two. An acpmux from
+/// before `early` ignores the field and carries those bytes after its reply, as any others, so
+/// a client may send it to any daemon.
 pub(crate) async fn serve_pipe<R, W>(
     hub: Arc<Hub>,
     id: Value,
     params: Value,
-    reader: R,
+    mut reader: R,
     mut writer: W,
 ) where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
     let dialed = async {
+        let early = read_early(&mut reader, &params).await?;
         let (daemon, port) = pipe_target(&hub, &params).await?;
         let carrier = hub.hub_carrier.get().ok_or_else(|| {
             RpcError::new(
@@ -226,7 +234,7 @@ pub(crate) async fn serve_pipe<R, W>(
         } else {
             CircuitService::CmuxTui { port }
         };
-        carrier.dial_service_reported(&daemon, service).await.map_err(|e| {
+        carrier.dial_service_early(&daemon, service, &early).await.map_err(|e| {
             let refusal = crate::machine_routes::refusal_of(&e);
             let message =
                 refusal.get("error").and_then(serde_json::Value::as_str).unwrap_or(&e).to_owned();
@@ -253,9 +261,51 @@ pub(crate) async fn serve_pipe<R, W>(
     let _ = tokio::io::copy_bidirectional(&mut local, &mut circuit).await;
 }
 
+/// How long a pipe's declared early bytes may take to arrive after its request line.
+const EARLY_READ_BOUND: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The `early` bytes a `remote.pipe` request declares (`early: N`), read from `reader`. At most
+/// [`crate::hub_carrier::HubCarrier::EARLY_BYTES`] are taken; past that the client's bytes stay
+/// in the stream and are carried after the reply.
+async fn read_early<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    params: &Value,
+) -> Result<Vec<u8>, RpcError> {
+    use tokio::io::AsyncReadExt;
+    let declared = params.get("early").and_then(Value::as_u64).unwrap_or(0);
+    let take = usize::try_from(declared)
+        .unwrap_or(usize::MAX)
+        .min(crate::hub_carrier::HubCarrier::EARLY_BYTES);
+    let mut early = vec![0u8; take];
+    if take > 0 {
+        tokio::time::timeout(EARLY_READ_BOUND, reader.read_exact(&mut early))
+            .await
+            .map_err(|_| "the early bytes did not arrive in time".to_owned())
+            .and_then(|read| read.map_err(|e| format!("the early bytes: {e}")))
+            .map_err(|why| {
+                RpcError::invalid_params(why).with_data(json!({"reason": "pipe.early"}))
+            })?;
+    }
+    Ok(early)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_pipe_takes_exactly_its_declared_early_bytes() {
+        let mut reader: &[u8] = b"hello-world";
+        let early = read_early(&mut reader, &json!({"early": 5})).await.unwrap();
+        assert_eq!(early, b"hello");
+        assert_eq!(reader, b"-world", "the rest is carried after the reply");
+        let mut reader: &[u8] = b"untouched";
+        assert!(read_early(&mut reader, &json!({})).await.unwrap().is_empty());
+        assert_eq!(reader, b"untouched");
+        let mut short: &[u8] = b"abc";
+        let refused = read_early(&mut short, &json!({"early": 9})).await.unwrap_err();
+        assert_eq!(refused.data.as_ref().and_then(|d| d.get("reason")), Some(&json!("pipe.early")));
+    }
 
     fn consent(required: bool, control: &str) -> Value {
         json!({"consentRequired": required, "consent": {"screen": "none", "control": control}})

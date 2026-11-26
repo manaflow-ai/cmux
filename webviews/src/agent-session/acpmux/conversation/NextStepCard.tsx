@@ -1,11 +1,13 @@
-import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
-import { DismissButton } from "../../../ui/DismissButton";
+import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect, useReducer } from "react";
 import { Icon } from "../icons/Icon";
 import { useT, type StringKey } from "../i18n";
 import { ArrowRight } from "./icons";
 import { focusRoute } from "../../../ui/focusRoute";
 import { inlineText } from "../question/inlineText";
-import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
+import { CardDismiss } from "../question/CardDismiss";
+import { copyTextResult } from "./clipboard";
+import { hasCustomizeRunner, idleRun, runCustomize, runReducer, shareLine, type CustomizeRun } from "./customizeRun";
+import { answerPrompt, type NextStepAsk, type NextStepOption } from "./nextStepAsk";
 import type { AnswerBlock } from "../subagents/restart";
 import {
   answerState,
@@ -110,6 +112,11 @@ export const NextStepCard = memo(function NextStepCard({
   const { sending, failed = false } = state;
   const update = (state: AnswerState) => (answerKey ? setAnswerState(answerKey, state) : setOwn(state));
   const primary = useRef<HTMLButtonElement>(null);
+  // A typed answer (`{label, run}`, customizeRun.ts) runs `cmux customize`: Try it on, then Keep
+  // or Revert. The card's own state: the run is the person's click here, not a reply.
+  const [run, dispatchRun] = useReducer(runReducer, idleRun);
+  // Share copies the one-line install of what was tried on; the card says whether it copied.
+  const [copied, setCopied] = useState<"copied" | "failed">();
   // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
   const shown = answer ?? givenAnswer(state);
   const settled = shown !== undefined || superseded;
@@ -191,6 +198,34 @@ export const NextStepCard = memo(function NextStepCard({
       () => update({ failed: true, typed: typed ? text : undefined }),
     );
   };
+  const customize = (action: CustomizeRun) => {
+    if (run.phase === "running") return;
+    dispatchRun({ type: "start" });
+    void runCustomize(action).then((result) => dispatchRun({ type: "done", run: action, ok: result.ok }));
+  };
+  // After a try-on the card offers Keep and Revert; once either ran, the typed answers are done.
+  const tried = run.phase === "tried";
+  const done = run.phase === "kept" || run.phase === "reverted";
+  // Save is Keep: a kept try-on stays in the person's library (RFD 0150). Share copies the line
+  // that tries the same code on another cmux, while it is on and once it is kept.
+  const line = tried || run.phase === "kept" ? shareLine(run.target) : undefined;
+  const share: NextStepOption[] = line ? [{ label: t("liveCustomize.share"), share: line }] : [];
+  const shownOptions: NextStepOption[] = tried
+    ? [
+        { label: t("liveCustomize.keep"), run: { customize: "keep" } },
+        { label: t("liveCustomize.revert"), run: { customize: "revert" } },
+        ...share,
+      ]
+    : done
+      ? [...share, ...ask.options.filter((option) => !option.run)]
+      : ask.options;
+  const copy = (text: string) => void copyTextResult(text).then((ok) => setCopied(ok ? "copied" : "failed"));
+  const click = (option: NextStepOption) =>
+    option.share !== undefined
+      ? copy(option.share)
+      : option.run && hasCustomizeRunner()
+        ? customize(option.run)
+        : send(option.label);
   return (
     <fieldset ref={card} className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
       <div className="acpmux-question-bar acpmux-next-step__bar">
@@ -198,7 +233,7 @@ export const NextStepCard = memo(function NextStepCard({
           <Icon name="status.question" size={14} />
           {t("question.needsInput")}
         </span>
-        {onDismiss && <DismissButton label={t("message.dismiss")} onDismiss={onDismiss} />}
+        {onDismiss && <CardDismiss label={t("message.dismiss")} onDismiss={onDismiss} />}
       </div>
       {recap}
       <div ref={textRef} className="acpmux-next-step__text" data-whole={whole || undefined}>
@@ -215,17 +250,31 @@ export const NextStepCard = memo(function NextStepCard({
           {t(whole ? "message.less" : "message.more")}
         </button>
       )}
+      {(done || run.phase === "running" || run.failed) && (
+        <output className="acpmux-next-step__detail">
+          {run.phase === "running"
+            ? t("liveCustomize.running")
+            : run.failed
+              ? t("liveCustomize.failed")
+              : t(run.phase === "kept" ? "liveCustomize.kept" : "liveCustomize.reverted")}
+        </output>
+      )}
+      {line && copied && (
+        <output className="acpmux-next-step__detail">
+          {t(copied === "copied" ? "liveCustomize.shared" : "liveCustomize.shareFailed")} <code>{line}</code>
+        </output>
+      )}
       {onAnswer ? (
         <div className="acpmux-next-step__answers">
-          {ask.options.map((option, index) => (
+          {shownOptions.map((option, index) => (
             <button
               key={option.label}
               ref={index === 0 ? primary : undefined}
               type="button"
               className={index === 0 ? "acpmux-next-step__answer is-primary" : "acpmux-next-step__answer"}
               aria-keyshortcuts={answerKeys(index, index === 0 && registerKey !== undefined)}
-              disabled={sending !== undefined}
-              onClick={() => send(option.label)}
+              disabled={sending !== undefined || run.phase === "running"}
+              onClick={() => click(option)}
             >
               <span className="acpmux-question-number" aria-hidden="true">
                 {index + 1}
@@ -291,6 +340,7 @@ export const NextStepCard = memo(function NextStepCard({
           />
         </label>
       )}
+      {/* retry-prompt-ok: the person's pick did not send; sending it again is their paid model request. */}
       {failed && <output className="acpmux-next-step__detail">{t("prompt.notSentAgain")}</output>}
     </fieldset>
   );

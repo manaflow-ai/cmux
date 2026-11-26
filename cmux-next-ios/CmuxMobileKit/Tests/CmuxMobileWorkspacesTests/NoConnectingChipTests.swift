@@ -8,7 +8,7 @@ import UIKit
 
 /// Leo, 2026-11-24 (item 3): "all the connecting... indicators and the graying out of workspaces,
 /// nah let's not do that. let's just keep optimistically connecting and reinforcing the
-/// connection". A link that is still trying (connecting, reconnecting, updating, "Can't reach"
+/// connection". A link that is still trying (connecting, reconnecting, "Can't reach"
 /// while it redials) draws nothing on any surface: the agent chat's composer chip, the
 /// Workspaces and Home banner slot, the chat list, the streamed browser and simulator pages.
 /// Only a fact the person can act on still draws (this phone has no network, the Mac is off).
@@ -16,7 +16,7 @@ import UIKit
 /// Fails on feat-cmux-next before this change: there every kind drew a glass chip about
 /// 100 pt wide once its quiet bound had passed.
 @MainActor struct NoConnectingChipTests {
-    static let waiting: [ConnectionChip.Kind] = [.connecting, .reconnecting, .updating, .cantReach]
+    static let waiting: [ConnectionChip.Kind] = [.connecting, .reconnecting, .cantReach]
 
     private static func size(_ view: some View) -> CGSize {
         UIHostingController(rootView: view).sizeThatFits(in: CGSize(width: 402, height: 200))
@@ -29,7 +29,7 @@ import UIKit
     }
 
     /// The chip over the agent chat's composer (`AgentChatConnectionLine`: `.connecting` while the
-    /// chat is away from its Mac, `.updating` while it catches up), past its quiet bound
+    /// chat is away from its Mac; a catch-up has no kind, Leo 2026-11-24), past its quiet bound
     /// (`downSince: nil`): no room, nothing drawn. The same for the symbol-only form.
     @Test func aStillTryingChipTakesNoRoom() {
         for kind in Self.waiting {
@@ -55,7 +55,6 @@ import UIKit
 
     /// The list rows' and the streamed browser's link states are still-trying ones.
     @Test func listAndBrowserLinkStatesPaintNothing() {
-        #expect(!ListStatusRow.State.updating.chip.paints)
         #expect(!ListStatusRow.State.reconnecting.chip.paints)
         for reason in [StreamedBrowserModel.reconnectingText, StreamedBrowserModel.linkReconnectingText] {
             #expect(StreamedBrowserModel.linkChip(for: reason)?.paints == false, "browser: \(reason)")

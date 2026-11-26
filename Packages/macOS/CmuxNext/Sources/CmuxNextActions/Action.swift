@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(AppKit)
 public import AppKit
+#endif
 
 /// Stable identifier for an action, e.g. `view.toggleSidebar`.
 ///

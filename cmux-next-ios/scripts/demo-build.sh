@@ -72,6 +72,8 @@ team=7WLXT3NR37
 mobile_tag=".$tag"; [[ "$tag" == demo || "$tag" == prod ]] || mobile_tag=".demo.$tag"
 bundle_id="dev.cmux.mobile$mobile_tag"
 display_name="cmux mobile"; [[ "$tag" == demo || "$tag" == prod ]] || display_name="demo $tag"
+# The label this build adds to the phone's name on the account (project.yml CMUX_MOBILE_INSTANCE_LABEL).
+instance_label="DEMO"; [[ "$tag" == demo ]] || instance_label="DEMO $tag"
 if [[ $print_identity == 1 ]]; then
   printf 'bundle_id=%s\ndisplay_name=%s\nbuild_space=none\n' "$bundle_id" "$display_name"
   exit 0
@@ -149,7 +151,7 @@ if [[ $config == Production ]]; then
 else
   # Refs from before the Demo configuration build Debug with the same overrides.
   grep -q '^  Demo: release' project.yml || { config=Debug; notes+=("This ref has no Demo configuration; built Debug (no Settings → Developer)."); }
-  common+=(CMUX_MOBILE_TAG="$mobile_tag" "CMUX_MOBILE_DISPLAY_NAME=$display_name"
+  common+=(CMUX_MOBILE_TAG="$mobile_tag" "CMUX_MOBILE_DISPLAY_NAME=$display_name" "CMUX_MOBILE_INSTANCE_LABEL=$instance_label"
            # $(inherited) keeps each package's own conditions (swift-crypto needs them).
            'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
 fi

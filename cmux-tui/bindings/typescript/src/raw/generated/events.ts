@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR a778a465a40b641793e328255ee0e5328b1b6c4c4546a3a9c2fe5b9492d54b75. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 import type * as T from "./types.js";
@@ -84,6 +84,13 @@ export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type AgentSessionShareChangedEvent = { event: "agent-session-share-changed" } & {
   "session": string;
+};
+
+/** Protocol v12; emission: emitted; streams: control. */
+export type AppsCloudMachineEvent = { event: "apps-cloud-machine" } & {
+  "kind": "record" | "live" | "lost";
+  "machine": string;
+  "record"?: T.JsonValue;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -820,6 +827,7 @@ export type KnownCmuxEvent =
   | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
   | AgentSessionShareChangedEvent
+  | AppsCloudMachineEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent

@@ -61,6 +61,13 @@ COMMENT = re.compile(r"^\s*(//|/\*|\*|\*/)")
 STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\([^)]*\))?\s+)*(let|var)\s+\w+[^{]*$")
 FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
 TYPE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|indirect)\s+)*(struct|class|enum|actor|protocol|extension)\s+\w+")
+# A constant with an initializer that belongs to no instance: `static let x = ...` (any access, `nonisolated(unsafe)`
+# and the like) or a file-level `let x = ...` (indent 0). It changes no type's size, so a patch can carry it: the patch
+# defines the variable and its addressor, the app repoints the addressor, and every caller (patched or not) reaches the
+# patch's copy. Only `let`: a `static var` is state a patch would reset, and an instance property changes the layout.
+STATIC_LET = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|nonisolated(\([^)]*\))?)\s+)*"
+                        r"(static|class)\s+((public|private|fileprivate|internal|package|open|final|nonisolated(\([^)]*\))?)\s+)*let\s+\w+[^{]*=")
+FILE_LET = re.compile(r"^((public|private|fileprivate|internal|package|nonisolated(\([^)]*\))?)\s+)*let\s+\w+[^{]*=")
 ENTRY = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*@main\b")
 # The modules a patch can replace code in: the app's live code build makes every CmuxNext module's
 # symbols interposable (live_code_targets in scripts/live-code/lib/xcodebuild-args.sh: the
@@ -96,6 +103,8 @@ def swift_reasons(lines, added_file):
             reasons.add("new entry point")
         elif TYPE_DECL.match(body):
             reasons.add("type or conformance")
+        elif (STATIC_LET.match(body) and indent <= 4) or (FILE_LET.match(body) and indent == 0):
+            continue  # a constant of no instance: the patch carries it (see STATIC_LET)
         elif STORED.match(body) and indent <= 4 and not body.endswith("{"):
             reasons.add("stored property")  # member level (one indent) or a global
         elif CASE.match(body) and indent == 4:

@@ -31,6 +31,13 @@
 //! waits here. Nothing is dropped: the queues are
 //! bounded by the connections' TCP windows, and past `MAX_QUEUED` packets
 //! the driver leaves smoltcp's output in the device, which then blocks TCP.
+//!
+//! A bulk connection is also held to a delay-based window on the wire
+//! ([`crate::delay_window`]): from its own round-trip times it keeps the
+//! path's queue near [`crate::delay_window::TARGET`] instead of full, so
+//! what the classes above send never waits behind it in the path either.
+//! Its backlog waits here, behind them. An interactive connection is never
+//! held.
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
@@ -39,6 +46,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use tokio::time::Instant;
+
+use crate::delay_window::DelayWindow;
 
 /// Pacing gain over the measured rate (the usual slow-start pacing ratio).
 const GAIN: f64 = 2.0;
@@ -66,6 +75,10 @@ const MAX_DATAGRAMS: usize = 512;
 const MAX_BULK_LEAD: i64 = 16 * 1024;
 /// Packets the pacer holds in all before smoltcp is blocked instead.
 const MAX_QUEUED: usize = 4096;
+/// The longest the newest ACK the stack emitted may wait here for the
+/// segment that carries it; past it the ACK leaves on its own
+/// ([`Pacer::pop_held_ack`]).
+const MAX_ACK_HOLD: Duration = Duration::from_millis(5);
 /// A connection with nothing queued and no packet for this long is
 /// forgotten (it closed, or it will measure afresh).
 const FORGET_AFTER: Duration = Duration::from_secs(120);
@@ -153,6 +166,50 @@ fn tcp_offset(packet: &[u8]) -> Option<usize> {
     (packet.len() >= offset.checked_add(20)?).then_some(offset)
 }
 
+/// A pure ACK (20-byte TCP header, no options) with `template`'s addresses
+/// and ports.
+fn pure_ack(template: &[u8], seq: u32, ack: u32, window: u16) -> Option<Vec<u8>> {
+    let ip = tcp_offset(template)?;
+    let mut packet = template.get(..ip + 20)?.to_vec();
+    let mut sum = 0u32;
+    let add = |sum: &mut u32, bytes: &[u8]| {
+        for pair in bytes.chunks(2) {
+            *sum += u32::from(u16::from_be_bytes([pair[0], *pair.get(1).unwrap_or(&0)]));
+        }
+    };
+    if packet[0] >> 4 == 4 {
+        let total = u16::try_from(ip + 20).ok()?;
+        packet[2..4].copy_from_slice(&total.to_be_bytes());
+        packet[10..12].fill(0);
+        let mut header = 0u32;
+        add(&mut header, &packet[..ip]);
+        packet[10..12].copy_from_slice(&fold(header).to_be_bytes());
+        add(&mut sum, &packet[12..20]);
+    } else {
+        packet[4..6].copy_from_slice(&20u16.to_be_bytes());
+        add(&mut sum, &packet[8..40]);
+    }
+    sum += u32::from(TCP) + 20;
+    let tcp = &mut packet[ip..];
+    tcp[4..8].copy_from_slice(&seq.to_be_bytes());
+    tcp[8..12].copy_from_slice(&ack.to_be_bytes());
+    tcp[12] = 5 << 4;
+    tcp[13] = 0x10;
+    tcp[14..16].copy_from_slice(&window.to_be_bytes());
+    tcp[16..20].fill(0);
+    add(&mut sum, tcp);
+    tcp[16..18].copy_from_slice(&fold(sum).to_be_bytes());
+    Some(packet)
+}
+
+/// The one's-complement checksum of a 32-bit sum of 16-bit words.
+fn fold(mut sum: u32) -> u16 {
+    while sum > 0xFFFF {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    !(sum as u16)
+}
+
 /// A one's-complement checksum after 16-bit words changed from `old` to
 /// `new` (RFC 1624, eqn. 3).
 fn checksum_replace(checksum: u16, old: &[u16], new: &[u16]) -> u16 {
@@ -191,6 +248,15 @@ struct Connection {
     timed: Option<(u32, Instant)>,
     srtt: Option<Duration>,
     last_seen: Instant,
+    /// The delay-based window on the wire (bulk only).
+    delay: DelayWindow,
+    /// The newest ACK the stack emitted on this connection, with the window
+    /// it advertised, and the newest ACK that left on the wire. A segment
+    /// queued here carries the ACK of when it was emitted; the pacer sends
+    /// the newest one instead (see [`Pacer::pop_connection`] and
+    /// [`Pacer::pop_held_ack`]).
+    ack_out: Option<(u32, u16)>,
+    ack_left: Option<u32>,
 }
 
 impl Connection {
@@ -207,6 +273,9 @@ impl Connection {
             timed: None,
             srtt: None,
             last_seen: now,
+            delay: DelayWindow::default(),
+            ack_out: None,
+            ack_left: None,
         }
     }
 
@@ -218,6 +287,31 @@ impl Connection {
         }
     }
 
+    /// Bytes on the wire: sent and not yet acknowledged.
+    fn wire_flight(&self) -> u32 {
+        match (self.snd_max, self.snd_una) {
+            (Some(max), Some(una)) if after(max, una) => max.wrapping_sub(una),
+            _ => 0,
+        }
+    }
+
+    /// Whether the delay window lets the queue's head leave: anything but
+    /// fresh data does, and so does fresh data that fits the window (or
+    /// with nothing on the wire). An interactive connection is never held.
+    fn window_open(&self) -> bool {
+        let Some(window) = self.delay.window() else { return true };
+        if self.interactive() {
+            return true;
+        }
+        let Some(head) = self.queue.front().and_then(|packet| segment(packet)) else {
+            return true;
+        };
+        let end = head.seq.wrapping_add(head.len);
+        let fresh = head.len > 0 && self.snd_max.is_none_or(|max| after(end, max));
+        let flight = self.wire_flight();
+        !fresh || flight == 0 || flight.saturating_add(head.len) <= window
+    }
+
     /// Whether the connection is interactive now (see `INTERACTIVE_QUEUE`).
     fn interactive(&self) -> bool {
         self.queue.len() <= INTERACTIVE_QUEUE && self.flight() < MIN_FLIGHT
@@ -226,7 +320,12 @@ impl Connection {
     /// Bytes per second, or `None` before the first RTT sample (unpaced).
     fn rate(&self) -> Option<f64> {
         let srtt = self.srtt?.as_secs_f64().max(1e-6);
-        Some(GAIN * f64::from(self.flight().max(MIN_FLIGHT)) / srtt)
+        // Held to a window, the backlog queued here is not flight.
+        let flight = match self.delay.window() {
+            Some(window) => self.flight().min(window),
+            None => self.flight(),
+        };
+        Some(GAIN * f64::from(flight.max(MIN_FLIGHT)) / srtt)
     }
 
     /// Record a segment the stack emitted; true when it carries sequence
@@ -248,6 +347,13 @@ impl Connection {
                 self.snd_max = Some(end);
                 if self.timed.is_none() {
                     self.timed = Some((end, now));
+                }
+                // Not a SYN: a repeated SYN restarts the connection here,
+                // so the next SYN-ACK copy would look fresh and the first
+                // copy's ACK would time it at zero, a base no queue exceeds.
+                if !segment.syn {
+                    let flight = self.wire_flight();
+                    self.delay.departed(end, flight, now);
                 }
             } else if self.timed.is_some_and(|(timed, _)| !after(end, timed)) {
                 // A retransmission: its ACK cannot be timed (Karn).
@@ -271,6 +377,111 @@ impl Connection {
         self.una_window_seq = None;
         self.rcv_max = None;
         self.timed = None;
+        self.delay.restart();
+        self.ack_out = None;
+        self.ack_left = None;
+    }
+
+    /// The position of the first queued segment with sequence space that
+    /// never left.
+    fn first_unsent(&self) -> Option<usize> {
+        self.queue.iter().position(|waiting| {
+            segment(waiting).is_some_and(|queued| {
+                queued.len > 0
+                    && self
+                        .snd_max
+                        .is_none_or(|max| after(queued.seq.wrapping_add(queued.len), max))
+            })
+        })
+    }
+
+    /// Record the ACK of a segment the stack emitted.
+    fn emitted_ack(&mut self, segment: &Segment) {
+        if let (Some(ack), false) = (segment.ack, segment.reset)
+            && self.ack_out.is_none_or(|(newest, _)| !after(newest, ack))
+        {
+            self.ack_out = Some((ack, segment.window));
+        }
+    }
+
+    /// Whether the newest ACK the stack emitted waits here behind a head
+    /// that cannot leave soon: held by the delay window for an ACK of its
+    /// own, or paced past [`MAX_ACK_HOLD`]. Held there, the peer hears no
+    /// ACK; if its own data waits on its delay window for that ACK, both
+    /// ends wait on each other and only retransmissions move (the
+    /// upload-under-duress stall: smoltcp ignores a retransmission below
+    /// its window and the ACK it carries, and the link times out).
+    fn ack_held(&self, now: Instant) -> bool {
+        let Some((ack, _)) = self.ack_out else { return false };
+        !self.queue.is_empty()
+            && self.ack_left.is_none_or(|left| after(ack, left))
+            && (!self.window_open() || self.next_free > now + MAX_ACK_HOLD)
+    }
+
+    /// Bring a departing segment's ACK and window up to the newest the stack
+    /// emitted, and a pure ACK's sequence number up to what already left
+    /// (smoltcp rewinds SND.NXT to SND.UNA on a timeout, and a pure ACK
+    /// below the peer's RCV.NXT fails its acceptability test, ACK and
+    /// all). A keepalive probe (below SND.UNA) keeps its sequence number.
+    fn freshen(&mut self, packet: &mut [u8], segment: &Segment) {
+        let Some(tcp) = tcp_offset(packet) else { return };
+        let (mut seq, mut ack, mut window) = (segment.seq, segment.ack, segment.window);
+        if let (Some(old), Some((newest, newest_window))) = (ack, self.ack_out)
+            && !after(old, newest)
+            && newest.wrapping_sub(old) < 1 << 30
+            && !segment.reset
+        {
+            ack = Some(newest);
+            window = newest_window;
+        }
+        if segment.len == 0
+            && !segment.reset
+            && let (Some(una), Some(max)) = (self.snd_una, self.snd_max)
+            && !after(una, seq)
+            && after(max, seq)
+            && max.wrapping_sub(seq) < 1 << 30
+        {
+            seq = max;
+        }
+        if let Some(ack) = ack
+            && self.ack_left.is_none_or(|left| after(ack, left))
+        {
+            self.ack_left = Some(ack);
+        }
+        if (seq, ack, window) == (segment.seq, segment.ack, segment.window) {
+            return;
+        }
+        let Some(header) = packet.get_mut(tcp..).and_then(|tcp| tcp.first_chunk_mut::<20>()) else {
+            return;
+        };
+        let ack = ack.unwrap_or(0);
+        let old_ack = segment.ack.unwrap_or(0);
+        let old = [
+            (segment.seq >> 16) as u16,
+            segment.seq as u16,
+            (old_ack >> 16) as u16,
+            old_ack as u16,
+            segment.window,
+        ];
+        let new = [(seq >> 16) as u16, seq as u16, (ack >> 16) as u16, ack as u16, window];
+        let [_, _, _, _, q0, q1, q2, q3, a0, a1, a2, a3, _, _, w0, w1, c0, c1, _, _] = header;
+        let checksum = checksum_replace(u16::from_be_bytes([*c0, *c1]), &old, &new);
+        [*q0, *q1, *q2, *q3] = seq.to_be_bytes();
+        [*a0, *a1, *a2, *a3] = ack.to_be_bytes();
+        [*w0, *w1] = window.to_be_bytes();
+        [*c0, *c1] = checksum.to_be_bytes();
+    }
+
+    /// A pure ACK carrying the newest ACK, built from a queued segment's
+    /// addresses, at the sequence number that already left.
+    fn held_ack(&mut self) -> Option<Vec<u8>> {
+        let (ack, window) = self.ack_out?;
+        let template = self.queue.back()?;
+        let segment = segment(template)?;
+        let seq = self.snd_max.unwrap_or(segment.seq);
+        let packet = pure_ack(template, seq, ack, window)?;
+        self.ack_left = Some(ack);
+        Some(packet)
     }
 
     fn acked(&mut self, ack: u32, seq: u32, window: u16, now: Instant) {
@@ -282,6 +493,9 @@ impl Connection {
             self.snd_una = Some(ack);
             self.una_window = Some(window);
             self.una_window_seq = Some(seq);
+        }
+        if newer && let Some(max) = self.snd_max {
+            self.delay.acked(ack, max, now);
         }
         if let Some((timed, sent)) = self.timed
             && !after(timed, ack)
@@ -311,6 +525,18 @@ pub enum Priority {
     Media,
     /// Everything that can wait: after media.
     Bulk,
+}
+
+impl Priority {
+    /// The Braid class this priority schedules (RFD 0164 B5).
+    pub const fn braid_class(self) -> cmux_braid_class::Class {
+        use cmux_braid_class::Class;
+        match self {
+            Self::Screen | Self::Media => Class::State,
+            Self::Interactive => Class::Input,
+            Self::Bulk => Class::Bulk,
+        }
+    }
 }
 
 /// Datagrams the datagram service dropped, by reason, since the tunnel
@@ -362,6 +588,41 @@ pub(crate) struct Pacer {
 }
 
 impl Pacer {
+    /// Trace only (`CMUX_WG_STALL_TRACE`): what the pacer holds, one line.
+    pub(crate) fn trace_state(&self, now: Instant) -> String {
+        use std::fmt::Write as _;
+        let mut out = format!(
+            "queued={} other={} screen={} interactive={} media={} bulk={}",
+            self.queued,
+            self.other.len(),
+            self.screen.len(),
+            self.interactive.len(),
+            self.media.len(),
+            self.bulk.len()
+        );
+        for (flow, c) in &self.connections {
+            let _ = write!(
+                out,
+                " [{}:{}->{}:{} q={} free_in_ms={} emitted={:?} max={:?} una={:?} una_win={:?} rcv_max={:?} dwin={:?} srtt={:?} seen_ago_ms={}]",
+                flow.0,
+                flow.1,
+                flow.2,
+                flow.3,
+                c.queue.len(),
+                c.next_free.saturating_duration_since(now).as_millis(),
+                c.snd_emitted,
+                c.snd_max,
+                c.snd_una,
+                c.una_window,
+                c.rcv_max,
+                c.delay.window(),
+                c.srtt,
+                now.saturating_duration_since(c.last_seen).as_millis()
+            );
+        }
+        out
+    }
+
     pub(crate) fn has_room(&self) -> bool {
         self.queued < MAX_QUEUED
     }
@@ -462,6 +723,7 @@ impl Pacer {
             connection.restart();
         }
         let fresh = connection.emitted(&segment);
+        connection.emitted_ack(&segment);
         // Old sequence space past what the peer acknowledged: TCP sends it
         // again. A keepalive repeats the byte before `snd_una`, so it is not.
         let end = segment.seq.wrapping_add(segment.len);
@@ -471,6 +733,36 @@ impl Pacer {
             && connection.snd_una.is_some_and(|una| after(end, una))
         {
             self.resent += 1;
+            connection.delay.resent();
+        }
+        // Everything but fresh data goes ahead of the fresh data queued here
+        // (TCP takes it in any order): the delay window holds that data until
+        // an ACK arrives, and the peer's window waits on the ACKs, resends
+        // and challenge ACKs this side sends. Queued behind held data, both
+        // ends held each other's ACKs after a roam, and only one segment per
+        // backed-off RTO got through (an airplane-mode resume stalled 10 s
+        // instead of 5). A reset stays in order: it ends the data before it.
+        if !fresh
+            && !segment.reset
+            && let Some(max) = connection.snd_max
+            && let Some(at) = connection.queue.iter().position(|waiting| {
+                self::segment(waiting).is_some_and(|queued| {
+                    queued.len > 0 && after(queued.seq.wrapping_add(queued.len), max)
+                })
+            })
+        {
+            connection.queue.insert(at, packet);
+            return fresh;
+        }
+        // A pure ACK (or window update, or keepalive probe) does not wait
+        // behind fresh data the delay window may hold for an ACK from the
+        // peer: the peer may be waiting for this one.
+        if segment.len == 0
+            && !segment.reset
+            && let Some(at) = connection.first_unsent()
+        {
+            connection.queue.insert(at, packet);
+            return fresh;
         }
         connection.queue.push_back(packet);
         fresh
@@ -597,6 +889,9 @@ impl Pacer {
         if let Some(packet) = self.pop_connection(now, true) {
             return Ok(Some((packet, Priority::Interactive)));
         }
+        if let Some(packet) = self.pop_held_ack(now) {
+            return Ok(Some((packet, Priority::Interactive)));
+        }
         self.expire_media(now);
         if let Some((_, packet)) = self.media.pop_front() {
             return Ok(Some((packet, Priority::Media)));
@@ -615,10 +910,13 @@ impl Pacer {
             return Ok(Some((packet, Priority::Bulk)));
         }
         let bulk_free = self.bulk_next_free.filter(|_| !self.bulk.is_empty());
+        let full = !self.has_room();
         let earliest = self
             .connections
             .values()
-            .filter(|connection| !connection.queue.is_empty())
+            // One the window holds waits for an ACK, not a time (unless the
+            // pacer is full; see `pop_connection`).
+            .filter(|connection| !connection.queue.is_empty() && (full || connection.window_open()))
             .map(|connection| connection.next_free)
             .chain(bulk_free)
             .min();
@@ -668,7 +966,15 @@ impl Pacer {
 
     /// The head of the shortest eligible queue among the interactive or the
     /// bulk connections; both are paced.
+    ///
+    /// A full pacer ([`MAX_QUEUED`]) sends its heads paced, delay window or
+    /// not. Full, it refuses the stack, so a retransmission (the only thing
+    /// that brings the ACK the window waits for once the flight was lost)
+    /// cannot get in until something leaves: held, both wait on each other
+    /// until the user timeout closes the link (the phone upload under duress
+    /// sat at 4096 packets with nothing leaving for 60 s).
     fn pop_connection(&mut self, now: Instant, interactive: bool) -> Option<Vec<u8>> {
+        let full = !self.has_room();
         let flow = self
             .connections
             .iter()
@@ -676,16 +982,27 @@ impl Pacer {
                 !connection.queue.is_empty()
                     && connection.interactive() == interactive
                     && connection.next_free <= now
+                    && (full || connection.window_open())
             })
             .min_by_key(|(_, connection)| connection.queue.len())
             .map(|(flow, _)| *flow)?;
         let connection = self.connections.get_mut(&flow)?;
-        let packet = connection.queue.pop_front()?;
+        let mut packet = connection.queue.pop_front()?;
         // Only packets `segment` parsed are queued on a connection.
         if let Some(segment) = segment(&packet) {
             connection.sent(&segment, packet.len(), now);
+            connection.freshen(&mut packet, &segment);
         }
         self.queued = self.queued.saturating_sub(1);
         Some(packet)
+    }
+
+    /// A pure ACK for a connection whose newest ACK waits behind a head
+    /// that cannot leave soon ([`Connection::ack_held`]); it leaves with
+    /// the interactive class, unpaced (one per new ACK).
+    fn pop_held_ack(&mut self, now: Instant) -> Option<Vec<u8>> {
+        let connection =
+            self.connections.values_mut().find(|connection| connection.ack_held(now))?;
+        connection.held_ack()
     }
 }

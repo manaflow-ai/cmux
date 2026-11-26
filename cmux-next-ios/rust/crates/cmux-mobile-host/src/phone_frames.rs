@@ -323,6 +323,7 @@ pub fn record_paint(
         wire_p50_p95 = part(&summary.wire).as_deref().unwrap_or("-"),
         phone_p50_p95 = part(&summary.phone_paint).as_deref().unwrap_or("-"),
         total_p50_p95 = part(&summary.total).as_deref().unwrap_or("-"),
+        transports = ?summary.transports,
         "phone paint"
     );
     let _guard = WRITE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());

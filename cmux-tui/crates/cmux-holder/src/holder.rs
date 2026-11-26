@@ -53,8 +53,6 @@ pub const UNSENT_HIGH_WATER: usize = 256 * 1024;
 const READ_PER_TURN: usize = 256 * 1024;
 /// How long a new connection may take to authenticate.
 const HANDSHAKE: Duration = Duration::from_secs(5);
-/// Connections waiting to authenticate at once; the oldest goes first.
-const MAX_PENDING: usize = 8;
 /// A holder with no terminal and no daemon link exits after this long: it
 /// keeps nothing, and the next daemon starts a holder of its own build.
 pub const IDLE_EXIT: Duration = Duration::from_secs(30);
@@ -734,9 +732,8 @@ impl Holder {
                 continue;
             }
             wire::tune_socket(stream.as_raw_fd());
-            if self.pending.len() >= MAX_PENDING {
-                self.pending.remove(0);
-            }
+            // Every connection waits its HANDSHAKE: one descriptor each, on a socket only
+            // this user reaches. A cap that dropped the oldest lost a daemon behind slow ones.
             self.pending.push(Pending {
                 stream,
                 reader: wire::Reader::default(),
@@ -1750,25 +1747,5 @@ fn peer_uid(fd: RawFd) -> Option<libc::uid_t> {
 }
 
 #[cfg(test)]
-mod orphan_since_tests {
-    use super::*;
-
-    /// A holder orphaned for a week of wall time, most of it asleep, still
-    /// counts the week (cmuxterm-hq#8377).
-    #[test]
-    fn an_orphan_wait_counts_the_time_the_mac_slept() {
-        let since = OrphanSince::at(Instant::now());
-        let awake_hour = since.awake + Duration::from_secs(60 * 60);
-        let wall_week = since.wall + crate::ABANDONED_GRACE;
-        assert!(since.elapsed_at(awake_hour, wall_week) >= crate::ABANDONED_GRACE);
-    }
-
-    /// A wall clock set back counts nothing; the awake time still counts.
-    #[test]
-    fn a_wall_clock_set_back_keeps_the_awake_time() {
-        let since = OrphanSince::at(Instant::now());
-        let awake_day = since.awake + Duration::from_secs(24 * 60 * 60);
-        let wall_back = since.wall - Duration::from_secs(30 * 24 * 60 * 60);
-        assert_eq!(since.elapsed_at(awake_day, wall_back), Duration::from_secs(24 * 60 * 60));
-    }
-}
+#[path = "holder_orphan_since_tests.rs"]
+mod orphan_since_tests;

@@ -11,8 +11,28 @@ export const trayFoldHeadLook = defineExperiment({
   id: "subagent-tray-fold-head",
   title: "Running tray folded header",
   description:
-    "What the running tray's header says: each kind's mark and count (hover a kind for its names), the newest two by name, the newest one, or only counts.",
+    "What the running tray's header says: one plain line (10 subagents working, 2 background commands running), two groups (subagents, background) in words that shrink, a summary in words that shrinks with the width, each kind's mark and count (hover a kind for its names), the newest two by name, the newest one, or only counts.",
   arms: {
+    line: {
+      label: "One line: what runs, in plain words",
+      description:
+        "One muted line, as Claude Code's: 10 subagents working, 2 background commands running. A part at 0 is left out; waiting and failed follow; with nothing running, what just finished. No marks, no time, no chevron. A click or Return opens the list of what runs (name, state, time, Stop); a click again or Esc tucks it.",
+    },
+    groups: {
+      label: "Groups: subagents and background, in words that shrink",
+      description:
+        "Two kinds only: subagents, and everything else backgrounded (commands, waits, monitors). 3 subagents · 2 tasks in background, then 3 subagents · 2 tasks, then each group's mark and number. A lone item reads its name; waiting and failed follow only when they need you. The lines keep each item's own mark.",
+    },
+    "group-marks": {
+      label: "Groups: two marks and their numbers",
+      description:
+        "The same two groups as marks and numbers at every width (a lone item still reads its name); hover a group for its names.",
+    },
+    summary: {
+      label: "Summary: words that shrink step by step",
+      description:
+        "One line that says what runs in words (2 subagents running · 1 command running) when there is room, then short words (2 subagents · 1 command), then each kind's mark and number, then +N for the kinds past the edge. Every kind takes the same step; a lone item reads its name. The time and the controls never move.",
+    },
     tally: {
       label: "Tally: a mark and a count per kind",
       description:
@@ -46,5 +66,24 @@ export const trayFoldHeadLook = defineExperiment({
   // commands with their own symbols"; ""running" doesn't need text. it can usually just be. you can
   // put symbols for state. and state can fucking only be relevant when you may need to
   // investigate/take action").
-  defaultArm: "tally",
+  // Then the tally's lone number read as too little, so the line says it in words while there is room
+  // and gives them up step by step (Leo, 2026-11-23, on a hat that read the Claude mark and "2": "this 2
+  // is too bare. it being alone, it's just bad. ... we need to have it meaningful even when there's
+  // only 1 thing ... like just im saying x subagents running y commands running etc with full text
+  // when you have space and it gradually shrinks when there is none... and have it not shift too
+  // much"). traySummaryFit.ts picks the step.
+  // Then two groups, not a kind per command (Leo, 2026-11-24 00:18Z: "the background command type
+  // delineation was my doing anyways. the simplest view is just... subagents. other background things.
+  // boom. waits, etc, they're just normal tool calls that are backgrounded instead of dozesns of
+  // possible different buttons. we can obviously keep the icons the stuff but... we can group them up
+  // more"). trayHeadKinds.ts `trayHeadGroups` counts them.
+  // Then one plain line, as Claude Code tucks it after the latest message, with no tall bar around a
+  // few marks (Leo, 2026-11-25: "did we not finish the composer hat improvements? there's tons of
+  // unnecessary space to the point where it's just... not great" / "like claude code just has this and
+  // they tuck it at the very bottom of the transcript after the latest message"). trayHeadKinds.ts
+  // `trayHeadLine` writes it.
+  defaultArm: "line",
 });
+
+/// One of the folded header's arms.
+export type TrayFoldHeadArm = keyof typeof trayFoldHeadLook.arms;

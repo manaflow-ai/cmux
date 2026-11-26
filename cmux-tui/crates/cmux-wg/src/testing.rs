@@ -17,6 +17,14 @@ use crate::config::{Endpoint, InterfaceAddress, WgConfig};
 pub mod sim;
 pub mod tcp_oracle;
 
+/// Make every tunnel this process starts from now on use the loss-based
+/// controller (Cubic) instead of the default BBR, as `CMUX_WG_ULTRA_CC=cubic`
+/// does, for a test whose subject is a window that loss cuts. Unlike setting
+/// the variable, it is safe while other test threads run.
+pub fn pin_loss_based_congestion() {
+    crate::ultra::CUBIC_PINNED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// A fresh Curve25519 keypair as `(private, public)`.
 #[allow(
     clippy::expect_used,
@@ -138,6 +146,9 @@ pub enum Received<'a> {
     /// The tunnel's own control packets: an ultra hello, an off-path note
     /// or a path probe.
     TunnelControl(&'static str),
+    /// An ultra-mode parity datagram, consumed by the repair layer before
+    /// WireGuard sees it.
+    Parity,
     /// An IP packet for the overlay (TCP, UDP), as decrypted.
     Packet(&'a [u8]),
 }

@@ -29,6 +29,8 @@ impl Hub {
         }
         self.watch_orphans();
         self.store_load.ready.send_replace(true);
+        // Chats read now get the synced winners kept for them (`synced.rs`).
+        self.synced_after_start();
         // Chats with no agent may leave memory (`evict.rs`): the reaper runs for them too.
         if self.evicted.after().is_some() {
             self.wake_idle_reaper();

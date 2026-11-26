@@ -171,7 +171,7 @@ fn a_refused_chat_says_its_fix_and_is_not_started_again_until_it_changes() {
     assert!(is_unenforceable(&e), "{e:?}");
     assert_eq!(
         e.message,
-        "Harness chief cannot ask before tools, so a chat on it runs only under permission policy approve-all, and this one's is ask: set its policy to approve-all with `acpmux set chief-1 policy=approve-all`."
+        "Harness chief cannot ask before tools, so a chat on it runs only under permission policy approve-all, and this one's is ask: only you can set its policy to approve-all, in the cmux app (`acpmux set chief-1 policy=approve-all` from an agent or a script is refused)."
     );
     let data = e.data.clone().unwrap();
     assert_eq!(data["fix"], "acpmux set chief-1 policy=approve-all");
@@ -188,7 +188,7 @@ fn a_refused_chat_says_its_fix_and_is_not_started_again_until_it_changes() {
     let e = unenforceable(&refused, "it does not run in its mode that asks (default)");
     assert_eq!(
         e.message,
-        "Harness chief keeps permission policy ask only in its mode default, and its agent stayed in bypassPermissions: set its policy to approve-all with `acpmux set chief-1 policy=approve-all`."
+        "Harness chief keeps permission policy ask only in its mode default, and its agent stayed in bypassPermissions: only you can set its policy to approve-all, in the cmux app (`acpmux set chief-1 policy=approve-all` from an agent or a script is refused)."
     );
     meta.modes = None;
 

@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(AppKit)
 public import AppKit
+#endif
 
 /// Where an action's shortcut sits in the key routing order
 /// (plans/cmux-next/focus.md section 5). Lower tiers run first.
@@ -67,6 +70,7 @@ public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
     }
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// The effective tier of `id`: the user's `cmux.json` override, else the
     /// catalog default. Runtime actions without a descriptor are navigation.
@@ -97,3 +101,4 @@ extension ActionRegistry {
         return nil
     }
 }
+#endif

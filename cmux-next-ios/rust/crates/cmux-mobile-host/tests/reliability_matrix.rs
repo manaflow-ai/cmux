@@ -347,6 +347,7 @@ impl Rig {
             chief_socket: None,
             browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
             surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+            viewport_sync: None,
         });
         let (phone_stream, mac_stream, toxic) = toxic_pipe(toxics, 0x5eed);
         let phone = Link::new(phone_stream, Role::Phone, LinkConfig::default(), None);
@@ -364,6 +365,7 @@ impl Rig {
                         session_exposure: None,
                         route: None,
                         path: None,
+                        viewport: None,
                     },
                     Arc::new(LinkAuth::default()),
                     incoming,
@@ -928,4 +930,711 @@ async fn cell_chat_prompt_behind_bulk_downstream() {
         prompt_ms.is_some_and(|value| value < 300.0),
         "prompt took {prompt_ms:?} ms to reach acpmux behind bulk output (bound 300 ms)"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Reliable link: 100 seeded carrier cuts under terminal, chat and list
+// ---------------------------------------------------------------------------
+
+/// One carrier between phone and Mac the test can pause (a stall: bytes held,
+/// not lost) and cut (a dropped path: whatever is in flight is gone). It moves
+/// at most one 16 KB chunk per millisecond (about 16 MB/s), so a cut always
+/// lands with bytes in flight. Counts the bytes it delivers each way.
+struct Carrier {
+    pumps: Vec<tokio::task::JoinHandle<()>>,
+    offline: watch::Sender<bool>,
+}
+
+impl Carrier {
+    fn cut(self) {
+        for pump in self.pumps {
+            pump.abort();
+        }
+    }
+}
+
+/// `[down (Mac to phone), up]` bytes delivered.
+type Wire = Arc<[std::sync::atomic::AtomicU64; 2]>;
+
+fn carrier(wire: &Wire) -> (DuplexStream, DuplexStream, Carrier) {
+    let (phone, phone_inner) = tokio::io::duplex(64 * 1024);
+    let (mac_inner, mac) = tokio::io::duplex(64 * 1024);
+    let (offline, offline_rx) = watch::channel(false);
+    let (phone_read, phone_write) = tokio::io::split(phone_inner);
+    let (mac_read, mac_write) = tokio::io::split(mac_inner);
+    let pumps = vec![
+        tokio::spawn(carrier_pump(phone_read, mac_write, offline_rx.clone(), Arc::clone(wire), 1)),
+        tokio::spawn(carrier_pump(mac_read, phone_write, offline_rx, Arc::clone(wire), 0)),
+    ];
+    (phone, mac, Carrier { pumps, offline })
+}
+
+async fn carrier_pump<R, W>(
+    mut read: R,
+    mut write: W,
+    mut offline: watch::Receiver<bool>,
+    wire: Wire,
+    way: usize,
+) where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut buffer = vec![0u8; 16 * 1024];
+    loop {
+        let n = match read.read(&mut buffer).await {
+            Ok(0) | Err(_) => return,
+            Ok(n) => n,
+        };
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        while *offline.borrow() {
+            if offline.changed().await.is_err() {
+                return;
+            }
+        }
+        if write.write_all(&buffer[..n]).await.is_err() {
+            return;
+        }
+        wire[way].fetch_add(n as u64, Ordering::Relaxed);
+    }
+}
+
+/// A stand-in acpmux that answers a global request (`_acpmux/models`, one
+/// the host forwards with no session) by streaming `n` chunk notifications
+/// (an agent's reply as it is written), then the reply.
+async fn streaming_acpmux() -> String {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}/", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let Ok(socket) = tokio_tungstenite::accept_async(stream).await else { return };
+                let (mut sink, mut source) = socket.split();
+                while let Some(Ok(message)) = source.next().await {
+                    let Message::Text(text) = message else { continue };
+                    let Ok(request) = serde_json::from_str::<Value>(&text) else { continue };
+                    if request["method"] != "_acpmux/models" {
+                        continue;
+                    }
+                    let count = request["params"]["n"].as_u64().unwrap_or(0);
+                    let pad = "c".repeat(request["params"]["pad"].as_u64().unwrap_or(0) as usize);
+                    for seq in 0..count {
+                        let chunk = json!({"jsonrpc": "2.0", "method": "matrix/chunk", "params": {"id": request["id"], "seq": seq, "text": pad}});
+                        if sink.send(Message::Text(chunk.to_string().into())).await.is_err() {
+                            return;
+                        }
+                    }
+                    let done = json!({"jsonrpc": "2.0", "id": request["id"], "result": {"n": count}});
+                    if sink.send(Message::Text(done.to_string().into())).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    url
+}
+
+const SURFACES: [&str; 3] = ["terminal", "chat", "list"];
+const PHASES: [&str; 4] = ["reconnect", "addr-change", "stall3s", "blackout30s"];
+
+/// What one surface received in a round: each item (event or reply) by key,
+/// with how often it came.
+#[derive(Default)]
+struct Got {
+    items: std::collections::HashMap<String, u64>,
+    order_ok: bool,
+    last: std::collections::HashMap<String, i64>,
+    bytes: u64,
+    done: bool,
+}
+
+impl Got {
+    fn new() -> Self {
+        Self { order_ok: true, ..Self::default() }
+    }
+
+    /// `stream`/`seq`: an item in an ordered stream (must arrive in order).
+    fn item(&mut self, key: String, stream: &str, seq: Option<u64>) {
+        *self.items.entry(key).or_default() += 1;
+        if let Some(seq) = seq {
+            let last = self.last.entry(stream.to_owned()).or_insert(-1);
+            if seq as i64 != *last + 1 {
+                self.order_ok = false;
+            }
+            *last = seq as i64;
+        }
+    }
+}
+
+/// One round's requests, from its seed.
+#[derive(Clone, Copy)]
+struct Ask {
+    seed: u64,
+    terminal_lines: u64,
+    chat_chunks: u64,
+    workspaces: usize,
+}
+
+impl Ask {
+    fn expected(&self, surface: &str) -> Vec<String> {
+        let s = self.seed;
+        match surface {
+            "terminal" => (0..self.terminal_lines)
+                .map(|i| format!("t{s}:{i}"))
+                .chain([format!("reply:t{s}"), format!("reply:e{s}")])
+                .collect(),
+            "chat" => {
+                (0..self.chat_chunks).map(|i| format!("c{s}:{i}")).chain([format!("reply:c{s}")]).collect()
+            }
+            _ => vec![format!("reply:l{s}")],
+        }
+    }
+}
+
+struct Surfaces {
+    terminal: Channel,
+    chat: Channel,
+    list: Channel,
+}
+
+impl Surfaces {
+    async fn open(phone: &Link) -> Self {
+        Self {
+            terminal: phone.open_on("daemon", json!({}), Lane::Bulk).await.expect("open terminal"),
+            chat: phone.open("acpmux", json!({})).await.expect("open chat"),
+            list: phone.open_on("daemon", json!({}), Lane::Bulk).await.expect("open list"),
+        }
+    }
+
+    fn id(&self, surface: &str) -> u32 {
+        match surface {
+            "terminal" => self.terminal.id(),
+            "chat" => self.chat.id(),
+            _ => self.list.id(),
+        }
+    }
+
+    /// Sends the round's requests, only those of surfaces in `which`.
+    async fn ask(&self, ask: &Ask, which: &[&str]) {
+        let s = ask.seed;
+        if which.contains(&"terminal") {
+            let flood = format!("FLOOD:{}:512:0", ask.terminal_lines);
+            send_line(
+                &self.terminal,
+                &json!({"id": format!("t{s}"), "cmd": "send", "surface": 13, "text": flood}),
+            )
+            .await;
+            // Upstream: a keystroke-sized write, answered once.
+            send_line(
+                &self.terminal,
+                &json!({"id": format!("e{s}"), "cmd": "send", "surface": 13, "text": format!("echo-{s}")}),
+            )
+            .await;
+        }
+        if which.contains(&"chat") {
+            let request = json!({"jsonrpc": "2.0", "id": format!("c{s}"), "method": "_acpmux/models", "params": {"n": ask.chat_chunks, "pad": 200}});
+            self.chat.send(Bytes::from(request.to_string())).await.expect("send chat");
+        }
+        if which.contains(&"list") {
+            send_line(&self.list, &json!({"id": format!("l{s}"), "cmd": "list-workspaces"})).await;
+        }
+    }
+}
+
+/// Reads one surface until its round is whole or the channel ends. Returns
+/// whether the channel closed.
+async fn collect(
+    surface: &'static str,
+    mut channel: Channel,
+    ask: Ask,
+    mut got: Got,
+) -> (Channel, Got, bool) {
+    let s = ask.seed;
+    let mut buffered: Vec<u8> = Vec::new();
+    let mut waiting: std::collections::HashSet<String> = match surface {
+        "terminal" => [format!("t{s}"), format!("e{s}")].into(),
+        "chat" => [format!("c{s}")].into(),
+        _ => [format!("l{s}")].into(),
+    };
+    for key in got.items.keys() {
+        if let Some(id) = key.strip_prefix("reply:") {
+            waiting.remove(id);
+        }
+    }
+    while !waiting.is_empty() {
+        let bytes = match channel.recv().await {
+            Some(ChannelEvent::Data(bytes)) => bytes,
+            _ => return (channel, got, true),
+        };
+        got.bytes += bytes.len() as u64;
+        buffered.extend_from_slice(&bytes);
+        // Daemon lines end in a newline; acpmux messages are back to back.
+        let mut stream = serde_json::Deserializer::from_slice(&buffered).into_iter::<Value>();
+        let mut used = 0;
+        let mut values = Vec::new();
+        while let Some(next) = stream.next() {
+            match next {
+                Ok(value) => {
+                    used = stream.byte_offset();
+                    values.push(value);
+                }
+                Err(error) if error.is_eof() => break,
+                Err(error) => panic!("{surface}: bad message: {error}"),
+            }
+        }
+        buffered.drain(..used);
+        for value in values {
+            if let Some(seq) = value["seq"].as_u64().filter(|_| value["event"] == "output") {
+                got.item(format!("t{s}:{seq}"), "t", Some(seq));
+            } else if value["method"] == "matrix/chunk" {
+                let seq = value["params"]["seq"].as_u64().unwrap_or(u64::MAX);
+                got.item(format!("c{s}:{seq}"), "c", Some(seq));
+            } else if let Some(id) = value["id"].as_str() {
+                if surface == "list" {
+                    let count = value["data"]["workspaces"].as_array().map(Vec::len).unwrap_or_default();
+                    assert_eq!(count, ask.workspaces, "list {id}: {count} workspaces");
+                }
+                if id == format!("e{s}") {
+                    assert_eq!(
+                        value["data"]["text"],
+                        format!("echo-{s}"),
+                        "the upstream write came back changed"
+                    );
+                }
+                got.item(format!("reply:{id}"), "reply", None);
+                waiting.remove(id);
+            }
+        }
+    }
+    got.done = true;
+    (channel, got, false)
+}
+
+/// Totals per (surface, phase).
+#[derive(Default, Clone, Copy)]
+struct Tally {
+    dups: u64,
+    holes: u64,
+    resume_bytes: u64,
+    unacked_at_drop_bytes: u64,
+    resume_round_trips: u64,
+    resumes: u64,
+    round_trips: u64,
+    reattaches: u64,
+    rounds: u64,
+}
+
+struct LinkRig {
+    _dir: tempfile::TempDir,
+    _daemon: FakeDaemon,
+    phone: Link,
+    reliable: bool,
+    carrier: Option<Carrier>,
+    macs: mpsc::UnboundedSender<DuplexStream>,
+    mac: Arc<std::sync::Mutex<Option<Link>>>,
+    wire: Wire,
+    host: tokio::task::JoinHandle<()>,
+}
+
+impl LinkRig {
+    async fn start(reliable: bool, workspaces: usize) -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        let daemon = FakeDaemon::start(dir.path(), workspaces);
+        let config = Arc::new(ServiceConfig {
+            tui_socket_dir: dir.path().to_owned(),
+            default_session: "main".into(),
+            default_socket: None,
+            file_roots: vec![],
+            acpmux: AcpmuxTarget::Fixed { url: streaming_acpmux().await, token: Some("acp-token".into()) },
+            pairing: None,
+            agent_tab_host: None,
+            uploads_dir: dir.path().join("uploads"),
+            chief_socket: None,
+            browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
+            surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+            viewport_sync: None,
+        });
+        let registry = Arc::new(cmux_mobile_link::ResumeRegistry::default());
+        let mac_config = link_config(reliable, Some(registry));
+        let (macs, mut mac_streams) = mpsc::unbounded_channel::<DuplexStream>();
+        let mac = Arc::new(std::sync::Mutex::new(None::<Link>));
+        let published = Arc::clone(&mac);
+        let host = tokio::spawn(async move {
+            let mut links = tokio::task::JoinSet::new();
+            while let Some(stream) = mac_streams.recv().await {
+                let link = if reliable {
+                    match Link::accept_reliable(stream, mac_config.clone(), None).await {
+                        Ok(cmux_mobile_link::Accepted::New(link)) => link,
+                        Ok(cmux_mobile_link::Accepted::Resumed(_)) => continue,
+                        Err(error) => panic!("the Mac refused a carrier: {error}"),
+                    }
+                } else {
+                    Link::new(stream, Role::Mac, mac_config.clone(), None)
+                };
+                *published.lock().unwrap() = Some(link.clone());
+                let config = Arc::clone(&config);
+                links.spawn(async move {
+                    let mut services = tokio::task::JoinSet::new();
+                    while let Some(incoming) = link.accept().await {
+                        services.spawn(serve(
+                            Arc::clone(&config),
+                            Peer {
+                                device_id: "matrix-phone".into(),
+                                session_id: "matrix-session".into(),
+                                video: None,
+                                session_exposure: None,
+                                route: None,
+                                path: None,
+                                viewport: None,
+                            },
+                            Arc::new(LinkAuth::default()),
+                            incoming,
+                        ));
+                    }
+                    services.shutdown().await;
+                });
+            }
+            links.shutdown().await;
+        });
+        let wire: Wire = Arc::new(Default::default());
+        let (phone_stream, mac_stream, carrier) = carrier(&wire);
+        let _ = macs.send(mac_stream);
+        let phone = Link::new(phone_stream, Role::Phone, link_config(reliable, None), None);
+        // The Mac takes the link once the phone's hello is in.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while mac.lock().unwrap().is_none() {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("the Mac accepted the link");
+        Self { _dir: dir, _daemon: daemon, phone, reliable, carrier: Some(carrier), macs, mac, wire, host }
+    }
+
+    fn mac(&self) -> Link {
+        self.mac.lock().unwrap().clone().expect("the Mac accepted the link")
+    }
+
+    /// A new carrier: the reliable phone resumes over it (returns the round
+    /// trips); today's phone dials a new link (returns None).
+    async fn new_carrier(&mut self) -> Option<u64> {
+        let (phone_stream, mac_stream, carrier) = carrier(&self.wire);
+        self.carrier = Some(carrier);
+        let _ = self.macs.send(mac_stream);
+        if self.reliable {
+            let report = self.phone.resume_carrier(phone_stream, None).await.expect("the link resumed");
+            Some(report.round_trips)
+        } else {
+            self.phone = Link::new(phone_stream, Role::Phone, link_config(false, None), None);
+            None
+        }
+    }
+
+    async fn finish(self) {
+        self.phone.close("matrix done");
+        self.host.abort();
+        let _ = self.host.await;
+    }
+}
+
+fn link_config(reliable: bool, registry: Option<Arc<cmux_mobile_link::ResumeRegistry>>) -> LinkConfig {
+    LinkConfig {
+        // The phone's resume is driven by the test, as the app's supervisor
+        // drives it on a stall; the keepalive would only race it.
+        keepalive: None,
+        reliable: reliable.then(|| cmux_mobile_link::ReliableConfig { registry, ..Default::default() }),
+        ..LinkConfig::default()
+    }
+}
+
+/// Seeded rounds over persistent terminal, chat and list channels; each round
+/// cuts the carrier once mid-stream in one of four ways, then gets it back.
+/// Durations are scaled down so 100 rounds fit a test: the stall holds the
+/// path 300 ms (for 3 s), the blackout lasts 1 s (for 30 s), the address change
+/// is a cut with a new carrier at once, the reconnect a cut and 50 ms. A
+/// carrier is cut, not only paused, in every phase: what was in flight is
+/// gone, as on a real path change.
+async fn reliable_rounds(
+    reliable: bool,
+    seeds: u64,
+) -> std::collections::BTreeMap<(&'static str, &'static str), Tally> {
+    let workspaces = 20;
+    let mut rig = LinkRig::start(reliable, workspaces).await;
+    let mut surfaces = Some(Surfaces::open(&rig.phone).await);
+    let mut tallies = std::collections::BTreeMap::<(&'static str, &'static str), Tally>::new();
+    let mut rng: u64 = 7;
+    let mut next = move || {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng
+    };
+    let resumed = |link: &Link, id: u32| link.channel_resume(id).unwrap_or_default();
+    for seed in 0..seeds {
+        let phase = PHASES[(seed % 4) as usize];
+        let ask = Ask { seed, terminal_lines: 50 + next() % 400, chat_chunks: 20 + next() % 200, workspaces };
+        let open = surfaces.take().expect("surfaces");
+        let ids: Vec<u32> = SURFACES.iter().map(|surface| open.id(surface)).collect();
+        let before_stats: Vec<_> = if reliable {
+            ids.iter().map(|id| (resumed(&rig.phone, *id), resumed(&rig.mac(), *id))).collect()
+        } else {
+            Vec::new()
+        };
+        open.ask(&ask, &SURFACES).await;
+        let Surfaces { terminal, chat, list } = open;
+        let tasks = [
+            tokio::spawn(collect("terminal", terminal, ask, Got::new())),
+            tokio::spawn(collect("chat", chat, ask, Got::new())),
+            tokio::spawn(collect("list", list, ask, Got::new())),
+        ];
+        // The cut lands mid-stream, at a seeded moment.
+        tokio::time::sleep(Duration::from_millis(2 + next() % 20)).await;
+        let carrier = rig.carrier.take().expect("carrier");
+        match phase {
+            "stall3s" => {
+                let _ = carrier.offline.send(true);
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                carrier.cut();
+            }
+            "blackout30s" => {
+                carrier.cut();
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            "reconnect" => {
+                carrier.cut();
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            _ => carrier.cut(),
+        }
+        let mut gots = Vec::new();
+        let round_trips = if reliable {
+            let trips = rig.new_carrier().await;
+            for task in tasks {
+                let (channel, got, closed) = tokio::time::timeout(Duration::from_secs(30), task)
+                    .await
+                    .expect("round within 30 s")
+                    .unwrap();
+                assert!(!closed, "seed {seed} {phase}: a channel closed on a reliable link");
+                gots.push((channel, got));
+            }
+            trips
+        } else {
+            // Today: the link is gone; every channel ends. The app redials,
+            // reopens each channel and asks again for what had not arrived.
+            for task in tasks {
+                let (channel, got, _) = tokio::time::timeout(Duration::from_secs(30), task)
+                    .await
+                    .expect("old channels end")
+                    .unwrap();
+                gots.push((channel, got));
+            }
+            None
+        };
+        let mut refetch: Vec<&str> = Vec::new();
+        if !reliable {
+            tokio::time::timeout(Duration::from_secs(10), rig.phone.closed())
+                .await
+                .expect("today's link closes with its carrier");
+            rig.new_carrier().await;
+            let fresh = Surfaces::open(&rig.phone).await;
+            refetch = SURFACES
+                .iter()
+                .zip(&gots)
+                .filter(|(_, (_, got))| !got.done)
+                .map(|(surface, _)| *surface)
+                .collect();
+            // Holes: what the cut lost before the refetch.
+            for (surface, (_, got)) in SURFACES.iter().zip(&gots) {
+                let tally = tallies.entry((surface, phase)).or_default();
+                tally.holes +=
+                    ask.expected(surface).iter().filter(|key| !got.items.contains_key(*key)).count() as u64;
+                tally.reattaches += 1;
+            }
+            fresh.ask(&ask, &refetch).await;
+            let Surfaces { terminal, chat, list } = fresh;
+            let mut again = Vec::new();
+            for ((surface, channel), (_, got)) in SURFACES.iter().zip([terminal, chat, list]).zip(gots) {
+                let got = if refetch.contains(surface) {
+                    let (channel, got, closed) = tokio::time::timeout(
+                        Duration::from_secs(30),
+                        collect(surface, channel, ask, Got { done: false, ..got }),
+                    )
+                    .await
+                    .expect("refetch within 30 s");
+                    assert!(!closed);
+                    again.push(channel);
+                    got
+                } else {
+                    again.push(channel);
+                    got
+                };
+                again_got(&mut tallies, surface, phase, &ask, &got, false);
+            }
+            let mut again = again.into_iter();
+            surfaces = Some(Surfaces {
+                terminal: again.next().unwrap(),
+                chat: again.next().unwrap(),
+                list: again.next().unwrap(),
+            });
+        } else {
+            let mut channels = Vec::new();
+            for (index, (surface, (channel, got))) in SURFACES.iter().zip(gots).enumerate() {
+                again_got(&mut tallies, surface, phase, &ask, &got, true);
+                let (phone_before, mac_before) = before_stats[index];
+                let (phone_now, mac_now) = (resumed(&rig.phone, ids[index]), resumed(&rig.mac(), ids[index]));
+                let replayed = phone_now.replayed_bytes - phone_before.replayed_bytes
+                    + mac_now.replayed_bytes
+                    - mac_before.replayed_bytes;
+                let unacked = phone_now.unacked_at_drop_bytes - phone_before.unacked_at_drop_bytes
+                    + mac_now.unacked_at_drop_bytes
+                    - mac_before.unacked_at_drop_bytes;
+                assert!(
+                    replayed <= unacked,
+                    "seed {seed} {surface}: replayed {replayed} of {unacked} unacked"
+                );
+                let tally = tallies.entry((surface, phase)).or_default();
+                tally.resume_bytes += replayed;
+                tally.unacked_at_drop_bytes += unacked;
+                tally.resume_round_trips += round_trips.unwrap_or_default();
+                tally.resumes += 1;
+                channels.push(channel);
+            }
+            let mut channels = channels.into_iter();
+            surfaces = Some(Surfaces {
+                terminal: channels.next().unwrap(),
+                chat: channels.next().unwrap(),
+                list: channels.next().unwrap(),
+            });
+        }
+        for surface in &refetch {
+            tallies.entry((surface, phase)).or_default().round_trips += 1;
+        }
+    }
+    if reliable {
+        for (side, link) in [("phone", rig.phone.clone()), ("mac", rig.mac())] {
+            let stats = link.reliable_stats().expect("reliable stats");
+            println!("reliable {side} {stats:?}");
+            assert_eq!(stats.duplicates_dropped, 0, "{side}: only what the peer lacked was replayed");
+            assert!(stats.replayed_bytes <= stats.unacked_at_drop_bytes, "{side}: {stats:?}");
+        }
+        assert!(!rig.phone.is_closed(), "the reliable link never closed");
+    }
+    let wire = [rig.wire[0].load(Ordering::Relaxed), rig.wire[1].load(Ordering::Relaxed)];
+    println!("wire {} down {} up {}", if reliable { "after" } else { "before" }, wire[0], wire[1]);
+    rig.finish().await;
+    tallies.entry(("all", "all")).or_default().resume_bytes = wire[0];
+    tallies.entry(("all", "all")).or_default().unacked_at_drop_bytes = wire[1];
+    tallies
+}
+
+/// Dups and holes of one surface's round once it is whole, and the reliable
+/// oracle: every item exactly once, in order.
+fn again_got(
+    tallies: &mut std::collections::BTreeMap<(&'static str, &'static str), Tally>,
+    surface: &'static str,
+    phase: &'static str,
+    ask: &Ask,
+    got: &Got,
+    strict: bool,
+) {
+    let expected = ask.expected(surface);
+    let holes = expected.iter().filter(|key| !got.items.contains_key(*key)).count() as u64;
+    let dups: u64 = got.items.values().map(|count| count.saturating_sub(1)).sum();
+    let unexpected = got.items.keys().filter(|key| !expected.contains(key)).count();
+    let tally = tallies.entry((surface, phase)).or_default();
+    tally.dups += dups;
+    tally.rounds += 1;
+    if strict {
+        tally.holes += holes;
+        if holes > 0 {
+            let missing: Vec<&String> = expected.iter().filter(|key| !got.items.contains_key(*key)).collect();
+            eprintln!(
+                "seed {} {surface}: missing {:?}..{:?} of {}, got {} bytes",
+                ask.seed,
+                missing.first(),
+                missing.last(),
+                expected.len(),
+                got.bytes
+            );
+        }
+        assert_eq!(
+            (dups, holes, unexpected),
+            (0, 0, 0),
+            "seed {} {surface} {phase}: dups, holes, strays",
+            ask.seed
+        );
+        assert!(got.order_ok, "seed {} {surface} {phase}: out of order", ask.seed);
+    }
+}
+
+fn netcond(prefix: &str, surface: &str, phase: &str, metric: &str, value: Option<f64>) {
+    let line = json!({
+        "surface": surface, "profile": "matrix-cut@1", "phase": phase, "scale": "1x",
+        "metric": metric, "value": value, "run": 0, "seed": 7,
+    });
+    println!("{prefix} NETCOND {line}");
+}
+
+/// The reliable link under 100 seeded carrier cuts (stall, address change,
+/// blackout, reconnect) while terminal output, an agent's streamed reply and
+/// the session list flow, against today's link in the same rounds. AFTER:
+/// every channel's items arrive exactly once and in order, both ways, with no
+/// channel closed and no reattach; only unacked bytes are replayed, in one
+/// round trip. BEFORE: the link and every channel close, the phone reattaches
+/// and asks again (holes until it does, duplicates of what it had).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "iOS reliability matrix cell: timed, run alone in release by ios-reliability-matrix.yml (--ignored)"]
+async fn cell_reliable_link_resumes_every_channel_across_cuts() {
+    let seeds = std::env::var("MATRIX_SEEDS").ok().and_then(|s| s.parse().ok()).unwrap_or(100);
+    let before = reliable_rounds(false, seeds).await;
+    let after = reliable_rounds(true, seeds).await;
+    for (prefix, tallies) in [("before", &before), ("after", &after)] {
+        for ((surface, phase), tally) in tallies.iter() {
+            if *surface == "all" {
+                netcond(prefix, "terminal", "reconnect", "bytes_down", Some(tally.resume_bytes as f64));
+                netcond(
+                    prefix,
+                    "terminal",
+                    "reconnect",
+                    "bytes_up",
+                    Some(tally.unacked_at_drop_bytes as f64),
+                );
+                continue;
+            }
+            let reliable = prefix == "after";
+            netcond(prefix, surface, phase, "dups", Some(tally.dups as f64));
+            netcond(prefix, surface, phase, "holes", Some(tally.holes as f64));
+            netcond(prefix, surface, phase, "reattaches", Some(tally.reattaches as f64));
+            netcond(prefix, surface, phase, "round_trips", Some(tally.round_trips as f64));
+            netcond(prefix, surface, phase, "resume_bytes", reliable.then_some(tally.resume_bytes as f64));
+            netcond(
+                prefix,
+                surface,
+                phase,
+                "unacked_at_drop_bytes",
+                reliable.then_some(tally.unacked_at_drop_bytes as f64),
+            );
+            netcond(
+                prefix,
+                surface,
+                phase,
+                "resume_round_trips",
+                (reliable && tally.resumes > 0)
+                    .then(|| tally.resume_round_trips as f64 / tally.resumes as f64),
+            );
+            report(
+                "reliable_link_resumes_every_channel_across_cuts",
+                &format!("{prefix}-{surface}-{phase}"),
+                json!({"rounds": tally.rounds, "dups": tally.dups, "holes": tally.holes, "reattaches": tally.reattaches,
+                       "resume_bytes": tally.resume_bytes, "unacked_at_drop_bytes": tally.unacked_at_drop_bytes}),
+            );
+        }
+    }
+    for ((surface, _), tally) in &after {
+        if *surface != "all" {
+            assert_eq!((tally.dups, tally.holes, tally.reattaches), (0, 0, 0));
+        }
+    }
 }

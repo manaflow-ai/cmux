@@ -210,7 +210,7 @@ pub(crate) fn text<'a>(v: &'a Value, key: &str) -> Option<&'a str> {
 
 /// The program's identity for the cache: its real path, size and
 /// modification time. Unset when the program cannot be read.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CacheKey {
     pub program: PathBuf,
     pub len: u64,
@@ -252,8 +252,8 @@ impl Cache {
         cache_path(&self.dir, harness)
     }
 
-    /// Every cached list whose program is unchanged, by harness.
-    pub fn load_all(&self) -> BTreeMap<String, Vec<LiveModel>> {
+    /// Every cached list whose program is unchanged, by harness, with that program's identity.
+    pub fn load_all(&self) -> BTreeMap<String, (Vec<LiveModel>, CacheKey)> {
         let mut out = BTreeMap::new();
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return out };
         for entry in entries.flatten() {
@@ -265,32 +265,24 @@ impl Cache {
             else {
                 continue;
             };
-            if let Some(models) = self.load(harness, None) {
-                out.insert(harness.to_owned(), models);
+            if let Some(listed) = self.load(harness, None) {
+                out.insert(harness.to_owned(), listed);
             }
         }
         out
     }
 
     /// The cached list for `harness` when its program is unchanged (and is
-    /// `program`, when given).
-    pub fn load(&self, harness: &str, program: Option<&Path>) -> Option<Vec<LiveModel>> {
+    /// `program`, when given), with the identity it was read under.
+    pub fn load(
+        &self,
+        harness: &str,
+        program: Option<&Path>,
+    ) -> Option<(Vec<LiveModel>, CacheKey)> {
         let file: CacheFile<Vec<LiveModel>> =
             serde_json::from_slice(&std::fs::read(self.path(harness)).ok()?).ok()?;
         let current = CacheKey::of(program.unwrap_or(&file.key.program))?;
-        (current == file.key && !file.models.is_empty()).then_some(file.models)
-    }
-
-    /// When `harness`'s cached list was kept (its file's modification time).
-    pub fn stored_at(&self, harness: &str) -> Option<std::time::SystemTime> {
-        std::fs::metadata(self.path(harness)).and_then(|m| m.modified()).ok()
-    }
-
-    /// The program `harness`'s cached list was listed by, as kept.
-    pub fn key_of(&self, harness: &str) -> Option<CacheKey> {
-        let file: CacheFile<serde::de::IgnoredAny> =
-            serde_json::from_slice(&std::fs::read(self.path(harness)).ok()?).ok()?;
-        Some(file.key)
+        (current == file.key && !file.models.is_empty()).then_some((file.models, current))
     }
 
     /// Keeps `models` for `harness` (write to a temporary file, then rename).
@@ -327,25 +319,6 @@ fn cache_path(dir: &Path, harness: &str) -> PathBuf {
 struct AcpCacheFile {
     profile: String,
     models: Vec<AcpModel>,
-    /// What the probe's `session/new` answered about a new chat's choices (`modes`,
-    /// `configOptions`): kept so a restarted daemon serves them without probing again.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    choices: Option<AcpChoices>,
-}
-
-/// A probe's `modes` and `configOptions`, as sent (`Hub::probed_choices`).
-pub type AcpChoices = (Option<Value>, Option<Value>);
-
-/// One harness's cached ACP list as [`AcpCache::load_entries`] reads it.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AcpCached {
-    /// The profile key it was probed under ([`AcpCache::profile_key`]).
-    pub profile: String,
-    pub models: Vec<(String, String)>,
-    /// The probe's choices, when the file kept them (files written before had none).
-    pub choices: Option<AcpChoices>,
-    /// When the probe that wrote it answered (the file's modification time).
-    pub stored_at: Option<std::time::SystemTime>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -384,11 +357,6 @@ impl AcpCache {
     /// Every cached list, by harness: `(profile key, models)`. Matched to the profiles later
     /// ([`AcpCache::profile_key`]), since a profile may appear only after the login environment.
     pub fn load_all(&self) -> BTreeMap<String, (String, Vec<(String, String)>)> {
-        self.load_entries().into_iter().map(|(h, c)| (h, (c.profile, c.models))).collect()
-    }
-
-    /// Every cached list, by harness, with the probe's choices and when it was kept.
-    pub fn load_entries(&self) -> BTreeMap<String, AcpCached> {
         let mut out = BTreeMap::new();
         let Ok(entries) = std::fs::read_dir(&self.dir) else { return out };
         for entry in entries.flatten() {
@@ -409,12 +377,8 @@ impl AcpCache {
             if file.models.is_empty() {
                 continue;
             }
-            let stored_at = entry.metadata().ok().and_then(|m| m.modified().ok());
             let models = file.models.into_iter().map(|m| (m.id, m.name)).collect();
-            out.insert(
-                harness.to_owned(),
-                AcpCached { profile: file.profile, models, choices: file.choices, stored_at },
-            );
+            out.insert(harness.to_owned(), (file.profile, models));
         }
         out
     }
@@ -426,17 +390,6 @@ impl AcpCache {
         harness: &str,
         profile_key: &str,
         models: &[(String, String)],
-    ) -> std::io::Result<()> {
-        self.store_with_choices(harness, profile_key, models, None)
-    }
-
-    /// [`AcpCache::store`] with the probe's choices kept beside the list.
-    pub fn store_with_choices(
-        &self,
-        harness: &str,
-        profile_key: &str,
-        models: &[(String, String)],
-        choices: Option<&AcpChoices>,
     ) -> std::io::Result<()> {
         // A probe that ends after the home was lost never makes it again (`config::mark_home_lost`).
         // Through the folder this daemon holds (`home_fs`), as `Cache::store`.
@@ -450,7 +403,6 @@ impl AcpCache {
                 .iter()
                 .map(|(id, name)| AcpModel { id: id.clone(), name: name.clone() })
                 .collect(),
-            choices: choices.cloned(),
         };
         crate::home_fs::write_synced(&tmp, &serde_json::to_vec(&file)?)?;
         crate::home_fs::rename(&tmp, &path)

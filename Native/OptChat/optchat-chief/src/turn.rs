@@ -221,7 +221,7 @@ fn acpmux_forced_end(answer: &Value) -> bool {
 }
 
 /// Everything a turn needs, decided by the brain.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct TurnStart {
     /// The reply's idempotency key: `turn:optchat:<first new message id>`.
     pub key: String,
@@ -257,6 +257,11 @@ pub struct TurnStart {
     /// (`engine::permission_mode`, cmux#37392; Manual runs under `ask`);
     /// None (a turn that carries another person's text): the session's own.
     pub permission_mode: Option<String>,
+    /// Shared endpoint health, so a refused primary start contributes to the
+    /// gateway-wide threshold rather than only this turn's retry loop.
+    pub gateway: Option<std::sync::Arc<crate::gateway::GatewayHealth>>,
+    /// A gateway outage may run this turn on the direct Messages API engine.
+    pub engine_override: Option<crate::brain::Engine>,
 }
 
 /// A turn's cost limit and the rates that price its tokens as they come.
@@ -515,6 +520,7 @@ pub fn is_transient_session_failure(error: &str) -> bool {
 fn new_session_with_retry(
     agents: &dyn AgentPort,
     spec: &SessionSpec,
+    gateway: Option<&crate::gateway::GatewayHealth>,
     interrupt: &Interrupt,
     deadline: Option<Instant>,
     keep_waiting: &mut dyn FnMut(Duration) -> bool,
@@ -535,6 +541,10 @@ fn new_session_with_retry(
         {
             return Err(error);
         }
+        let wait = gateway.map_or(wait, |gateway| {
+            gateway.record_refusal(&spec.name, &error);
+            gateway.retry_wait().max(wait)
+        });
         note(&error, wait);
         // A bounded wait that a stop request ends early (never a poll).
         if interrupt.wait(wait) {
@@ -689,6 +699,7 @@ pub fn run_with_drafts(
             let created = new_session_with_retry(
                 agents,
                 &spec,
+                start.gateway.as_deref(),
                 interrupt,
                 deadline,
                 &mut keep_waiting,
@@ -727,6 +738,15 @@ pub fn run_with_drafts(
             }
         }
     };
+    if spec.harness.starts_with("claude")
+        && start
+            .gateway
+            .as_ref()
+            .is_some_and(|gateway| matches!(gateway.route(), crate::gateway::GatewayRoute::Primary))
+        && let Some(gateway) = &start.gateway
+    {
+        gateway.mark_healthy();
+    }
     // A kept session's earlier turns are in the log already.
     let after = reused.map_or(0, |r| r.kept.after);
     let mut fold = TurnFold::after(after);
@@ -876,27 +896,11 @@ pub fn run_with_drafts(
         };
     }
     let over_budget: std::cell::Cell<Option<f64>> = std::cell::Cell::new(None);
-    let natural_end = std::cell::Cell::new(false);
     let fetch = |fold: &mut TurnFold| -> Result<(), String> {
         let before = fold.seq();
-        let carries_before = fold.carries();
         let mut entries = Vec::new();
         for event in agents.events(&session, fold.seq())? {
             entries.extend(fold.apply(&event));
-        }
-        if fold.carries() > carries_before {
-            natural_end.set(false);
-        }
-        if !fold.expects_carry()
-            && fold.take_natural_end()
-            && !natural_end.replace(true)
-            && !interrupt.is_set()
-        {
-            // A completed plain response is already the reply. Cancel the
-            // prompt's idle wait so it does not need a second `stop` request.
-            if let Err(e) = agents.cancel(&session) {
-                log(&format!("turn {}: ending a plain reply: {e}", start.key));
-            }
         }
         crate::trace::tools(trace, &scope, fold.take_tool_traces());
         if fold.seq() != before {
@@ -1090,8 +1094,8 @@ pub fn run_with_drafts(
             }
             TurnSignal::Done(answer) => {
                 answered = true;
-                answer_failed = answer.is_err() && !natural_end.get();
-                forced_end |= !natural_end.get() && answer.as_ref().is_ok_and(acpmux_forced_end);
+                answer_failed = answer.is_err();
+                forced_end |= answer.as_ref().is_ok_and(acpmux_forced_end);
                 if answer.as_ref().is_ok_and(carried) {
                     // The prompt's answer came at the end of its first turn;
                     // the carried turn sends none: its own `turn_end` (and
@@ -1116,22 +1120,14 @@ pub fn run_with_drafts(
                 }
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
-                let stopped = (!natural_end.get())
-                    .then(|| {
-                        answer
-                            .as_ref()
-                            .ok()
-                            .and_then(|v| v.get("stopReason"))
-                            .and_then(Value::as_str)
-                            .and_then(stop_error)
-                    })
-                    .flatten();
+                let stopped = answer
+                    .as_ref()
+                    .ok()
+                    .and_then(|v| v.get("stopReason"))
+                    .and_then(Value::as_str)
+                    .and_then(stop_error);
                 let fetched = fetch(&mut fold);
-                let error = answer
-                    .err()
-                    .filter(|_| !natural_end.get())
-                    .or_else(|| fetched.err())
-                    .or(stopped);
+                let error = answer.err().or_else(|| fetched.err()).or(stopped);
                 let seq = fold.seq();
                 append_at(fold.finish(error), seq);
                 break;
@@ -1173,10 +1169,10 @@ pub fn run_with_drafts(
         match rx.recv_timeout(until.saturating_duration_since(Instant::now())) {
             Ok(TurnSignal::Changed | TurnSignal::Noted | TurnSignal::Streamed) => {}
             Ok(TurnSignal::Done(answer)) => {
-                forced_end |= !natural_end.get() && answer.as_ref().is_ok_and(acpmux_forced_end);
+                forced_end |= answer.as_ref().is_ok_and(acpmux_forced_end);
                 totals = answer.as_ref().ok().and_then(answer_usage);
                 cost = answer.as_ref().ok().and_then(answer_cost);
-                answer_failed = answer.is_err() && !natural_end.get();
+                answer_failed = answer.is_err();
                 answered = true;
             }
             Ok(TurnSignal::Lost) | Err(_) => {

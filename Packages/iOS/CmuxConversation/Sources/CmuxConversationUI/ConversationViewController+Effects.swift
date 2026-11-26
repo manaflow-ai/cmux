@@ -85,7 +85,7 @@ extension ConversationViewController: ConversationEffectReplayHandling {
             }
         }
         picker.onCancel = { close {} }
-        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        ConversationHaptics.impact(.medium)
         host.present(picker, animated: true)
     }
 
@@ -170,7 +170,7 @@ extension ConversationViewController: ConversationEffectReplayHandling {
             shake.isAdditive = true
             cell.layer.add(shake, forKey: "effect.slamShake")
         }
-        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+        ConversationHaptics.impact(.heavy)
     }
 }
 

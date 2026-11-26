@@ -36,6 +36,12 @@
 //! reachable, a timeout, an error reply); a cut surface's cursor does not move, and the
 //! phone asks again next wake. `cutWhy` says why each was cut.
 //!
+//! Relay heads: with the relay feed on (`relay_feed.rs`, `LINK_RELAY_CACHE=on`), `relay`
+//! maps each answered surface the Mac publishes (`workspaces`, `chat-list`,
+//! `chat/<sessionId>`) to `{epoch, seq}`, its newest delta on the relay cache, read before
+//! the fan-out: the phone resumes from the relay past it, never skipping a change this
+//! reply did not carry. Absent while the feed is off.
+//!
 //! One-shot, as `cloud-directory`: the open's args are the request; one reply frame, then
 //! the channel closes.
 
@@ -165,7 +171,7 @@ impl Request {
                 "listEpoch" if value.is_string() => drop(chat_list.insert(key, value)),
                 "afterSeq" if value.is_u64() => drop(chat_list.insert(key, value)),
                 "limit" if value.is_u64() => {
-                    drop(chat_list.insert(key, json!(value.as_u64().unwrap_or(0).min(LIST_ROWS_MAX))))
+                    drop(chat_list.insert(key, json!(value.as_u64().unwrap_or(0).min(LIST_ROWS_MAX))));
                 }
                 _ => return Err(bad(format!("chatList.{key} is not understood"))),
             }
@@ -235,15 +241,21 @@ pub(crate) async fn serve(
     args: &Value,
     sender: &ChannelSender,
 ) -> Result<(), Refusal> {
-    let request = Request::parse(args)?;
-    if !exposure_available(peer) {
-        return Err(Refusal::new("forbidden", "session exposure state is unavailable"));
-    }
-    let reply = answer(config, peer, &request).await?;
+    let reply = answer_args(config, peer, args).await?;
     sender
         .send(Bytes::from(reply.to_string()))
         .await
         .map_err(|_| Refusal::new("closed", "phone channel closed"))
+}
+
+/// The reply `catch-up` sends for `args`, as one object (the relay feed reads its own copy of
+/// each surface through this, under the same checks: `relay_feed.rs`).
+pub async fn answer_args(config: &ServiceConfig, peer: &Peer, args: &Value) -> Result<Value, Refusal> {
+    let request = Request::parse(args)?;
+    if !exposure_available(peer) {
+        return Err(Refusal::new("forbidden", "session exposure state is unavailable"));
+    }
+    answer(config, peer, &request).await
 }
 
 fn exposure_available(peer: &Peer) -> bool {
@@ -252,6 +264,10 @@ fn exposure_available(peer: &Peer) -> bool {
 
 /// The reply: what the daemon and acpmux answered, in one object.
 async fn answer(config: &ServiceConfig, peer: &Peer, request: &Request) -> Result<Value, Refusal> {
+    // Where the relay feed stood before anything here was read: every delta at or before a head
+    // was read before this reply, so the reply is at least as new, and the phone resumes from the
+    // relay after it (`cmux-mobile-core` `catch_up::relay`, `Floors::set_from_mac`).
+    let heads = config.pairing.as_ref().map(|pairing| pairing.relay_heads.now()).unwrap_or_default();
     let (workspaces, acpmux) = tokio::join!(workspaces(config, peer, request), acpmux(config, peer, request));
     let mut cut = Vec::<String>::new();
     let mut why = Map::new();
@@ -304,6 +320,30 @@ async fn answer(config: &ServiceConfig, peer: &Peer, request: &Request) -> Resul
     }
     for session in &request.over {
         leave_out(format!("chats:{session}"), "too many chats".into(), &mut cut);
+    }
+    if !heads.is_empty() {
+        let mut answered = Vec::new();
+        if reply.contains_key("workspaces") {
+            answered.push(crate::relay_feed::WORKSPACES.to_owned());
+        }
+        if reply.contains_key("chatList") {
+            answered.push(crate::relay_feed::CHAT_LIST.to_owned());
+        }
+        for entry in &entries {
+            if let Some(session) = entry.get("sessionId").and_then(Value::as_str) {
+                answered.push(crate::relay_feed::chat_surface(session));
+            }
+        }
+        let relay: Map<String, Value> = answered
+            .into_iter()
+            .filter_map(|surface| {
+                let head = heads.get(&surface)?;
+                Some((surface, json!({"epoch": head.epoch, "seq": head.seq})))
+            })
+            .collect();
+        if !relay.is_empty() {
+            reply.insert("relay".into(), Value::Object(relay));
+        }
     }
     reply.insert("chats".into(), Value::Array(entries));
     reply.insert("cut".into(), json!(cut));

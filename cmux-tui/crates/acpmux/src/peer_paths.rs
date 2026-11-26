@@ -430,6 +430,7 @@ impl Paths {
     pub fn failed(&mut self, via: Via, now: u64) -> Option<Option<Via>> {
         let answering = self.answering(via)?;
         self.stats.failed(via, answering);
+        self.stats.attempt_failed(via, now);
         let path = self.find_mut(via)?;
         let id = path.id;
         if path.dead_at.is_none() {
@@ -515,6 +516,12 @@ impl Paths {
             // file's doubt (`in_doubt`).
             SelectorState::Suspect => Health::Doubt,
         })
+    }
+
+    /// When `via` falls in doubt unless a pong comes first: the first millisecond past
+    /// [`DOUBT_AFTER`] since its last pong. None when it never answered.
+    pub fn doubt_at(&self, via: Via) -> Option<u64> {
+        self.find(via)?.last_pong.map(|at| at.saturating_add(millis(DOUBT_AFTER) + 1))
     }
 
     /// Whether the active path is in doubt (or there is none): the moment a sender would use

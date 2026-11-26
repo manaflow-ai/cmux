@@ -31,11 +31,6 @@ pub fn coalesce(entries: &mut Vec<OutboxEntry>) -> Vec<(String, String)> {
             // A message in a voice and a turn's reply stay two messages (voice.rs).
             && crate::voice::of(&entries[i].idempotency_key)
                 == crate::voice::of(&entries[i + 1].idempotency_key)
-            // A length-split reply is already intentionally several chat
-            // messages. Rejoining its `:part-N` entries would undo the
-            // short-message contract before delivery.
-            && !is_split_part(&entries[i].idempotency_key)
-            && !is_split_part(&entries[i + 1].idempotency_key)
             && plain_text(&entries[i].op).is_some()
             && plain_text(&entries[i + 1].op).is_some();
         if !mergeable {
@@ -83,13 +78,6 @@ pub fn coalesce(entries: &mut Vec<OutboxEntry>) -> Vec<(String, String)> {
         }
     }
     merged
-}
-
-fn is_split_part(key: &str) -> bool {
-    let Some((_, suffix)) = key.rsplit_once(":part-") else {
-        return false;
-    };
-    !suffix.is_empty() && suffix.chars().all(|ch| ch.is_ascii_digit())
 }
 
 /// The text of a one-part, plain-text `message.send` without a reply target.

@@ -26515,7 +26515,7 @@
           "cmd"
         ]
       },
-      "description" : null,
+      "description" : "Opens a Screen Sharing tab. --device takes one of your devices by name (its Computer Name, matched without case; `mac-mini` also finds \"Mac Mini\") or by device id; an unknown or ambiguous name fails with your devices listed as name (id). Without --device it opens the Screen Sharing home page. From the CLI or an agent the tab waits at its Connect button: only a person's click connects.",
       "focuses" : false,
       "group" : "TabActionCatalog",
       "hint" : null,
@@ -34005,6 +34005,419 @@
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "chief",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "localChiefs"
+          },
+          "title" : "Chief"
+        }
+      ],
+      "category" : "window",
+      "cliName" : "action home-edit-chief",
+      "computed" : {
+        "canonical_action_id" : "home.editChief",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "HomeActionCatalog",
+      "hint" : null,
+      "id" : "home.editChief",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "home",
+        "chief",
+        "edit",
+        "profile",
+        "role",
+        "personality",
+        "instructions",
+        "tools",
+        "backend",
+        "lock"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "pencil",
+      "targets" : [
+
+      ],
+      "title" : "Edit Chief…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "chief",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "localChiefs"
+          },
+          "title" : "Chief"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "model",
+          "suggestions" : null,
+          "title" : "Model"
+        }
+      ],
+      "category" : "window",
+      "cliName" : "action home-set-chief-model",
+      "computed" : {
+        "canonical_action_id" : "home.setChiefModel",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "HomeActionCatalog",
+      "hint" : null,
+      "id" : "home.setChiefModel",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "home",
+        "chief",
+        "engine",
+        "model",
+        "backend",
+        "llm"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "cpu",
+      "targets" : [
+
+      ],
+      "title" : "Set Chief Model…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "chief",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "localChiefs"
+          },
+          "title" : "Chief"
+        },
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : {
+            "enumeration" : [
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Low",
+                "value" : "low"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Medium",
+                "value" : "medium"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "High",
+                "value" : "high"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Extra High",
+                "value" : "xhigh"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Max",
+                "value" : "max"
+              },
+              {
+                "subtitle" : null,
+                "symbol" : null,
+                "title" : "Default",
+                "value" : "default"
+              }
+            ]
+          },
+          "name" : "effort",
+          "suggestions" : null,
+          "title" : "Effort"
+        }
+      ],
+      "category" : "window",
+      "cliName" : "action home-set-chief-effort",
+      "computed" : {
+        "canonical_action_id" : "home.setChiefEffort",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "HomeActionCatalog",
+      "hint" : null,
+      "id" : "home.setChiefEffort",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "home",
+        "chief",
+        "engine",
+        "effort",
+        "reasoning",
+        "thinking"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "gauge.with.dots.needle.50percent",
+      "targets" : [
+
+      ],
+      "title" : "Set Chief Effort…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : false,
+          "kind" : "string",
+          "name" : "agent",
+          "suggestions" : {
+            "allowsMultiple" : false,
+            "otherTitle" : null,
+            "pinned" : [
+
+            ],
+            "source" : "adoptableAgents"
+          },
+          "title" : "Agent"
+        }
+      ],
+      "category" : "window",
+      "cliName" : "action home-adopt-chief",
+      "computed" : {
+        "canonical_action_id" : "home.adoptChief",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "HomeActionCatalog",
+      "hint" : null,
+      "id" : "home.adoptChief",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : true,
+      "keywords" : [
+        "home",
+        "chief",
+        "adopt",
+        "agent",
+        "promote",
+        "make"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "noTargetSurface",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard"
+      ],
+      "symbol" : "person.badge.plus",
+      "targets" : [
+
+      ],
+      "title" : "Make Agent a Chief…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
     },
     {
       "arguments" : [
@@ -71041,6 +71454,86 @@
       "arguments" : [
         {
           "isAskedInPalette" : false,
+          "isRequired" : true,
+          "isSuppliedByTarget" : false,
+          "isTargetDescription" : false,
+          "isTargetName" : true,
+          "kind" : "string",
+          "name" : "name",
+          "suggestions" : null,
+          "title" : "Name"
+        }
+      ],
+      "category" : "agents",
+      "cliName" : "action agent-chat-rename-session",
+      "computed" : {
+        "canonical_action_id" : "agentChat.renameSession",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : false,
+      "group" : "AgentActionCatalog",
+      "hint" : null,
+      "id" : "agentChat.renameSession",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "rename",
+        "session",
+        "agent",
+        "chat",
+        "name",
+        "handle",
+        "title"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+        "agentPaneFocused"
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "ownerVerb"
+        },
+        "contextMenuExemption" : "guiOnly",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "pencil",
+      "targets" : [
+        "pane"
+      ],
+      "title" : "Rename Agent Session…",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+        {
+          "isAskedInPalette" : false,
           "isRequired" : false,
           "isSuppliedByTarget" : false,
           "isTargetDescription" : false,
@@ -93227,6 +93720,77 @@
 
       ],
       "category" : "settings",
+      "cliName" : "settings update-status",
+      "computed" : {
+        "canonical_action_id" : "updates.status",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : "Reads the running build, the staged update (if any) and relaunch readiness (ready, held and why, installing, or nothing staged). Changes nothing.",
+      "focuses" : false,
+      "group" : "SettingsActionCatalog",
+      "hint" : "The running build, the staged update and whether a relaunch installs it now.",
+      "id" : "updates.status",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "update",
+        "status",
+        "version",
+        "build",
+        "staged",
+        "relaunch",
+        "restart",
+        "ready",
+        "idle",
+        "nightly"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : "noObject",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette"
+      ],
+      "symbol" : "info.circle",
+      "targets" : [
+
+      ],
+      "title" : "Update Status",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : true
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "settings",
       "cliName" : "settings whats-new",
       "computed" : {
         "canonical_action_id" : "updates.whatsNew",
@@ -110564,6 +111128,79 @@
 
       ],
       "title" : "Go to Last Location",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "window",
+      "cliName" : "history back-session",
+      "computed" : {
+        "canonical_action_id" : "focusHistoryBackSession",
+        "cli" : false,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : null,
+      "description" : null,
+      "focuses" : true,
+      "group" : "HistoryActionCatalog",
+      "hint" : null,
+      "id" : "focusHistoryBackSession",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "history",
+        "previous",
+        "session",
+        "chat",
+        "agent",
+        "back",
+        "last",
+        "toggle"
+      ],
+      "mainMenu" : "window",
+      "opensWorkspaceContent" : false,
+      "paletteTarget" : null,
+      "paletteTargetSource" : null,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : {
+          "exempt" : "focusMove"
+        },
+        "contextMenuExemption" : "focusMove",
+        "contextMenus" : [
+
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "menu"
+      ],
+      "symbol" : "bubble.left.and.text.bubble.right",
+      "targets" : [
+
+      ],
+      "title" : "Go Back One Session",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false

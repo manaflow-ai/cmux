@@ -107,11 +107,13 @@ def helper_exe(root: str, name: str) -> str:
 
 
 HELPER = {"Contents/Resources/bin/cmux", "Contents/Resources/bin/cmux-diff-sidecar"}
-JIT = {helper_exe(FW, "cmux NEXT DEV Helper"), helper_exe(FW, "cmux NEXT DEV Helper (GPU)"),
-       helper_exe(FW, "cmux NEXT DEV Helper (Renderer)"),
-       helper_exe(RBH + "Frameworks/", "cmux-remote-browser-host Helper"),
-       helper_exe(RBH + "Frameworks/", "cmux-remote-browser-host Helper (GPU)"),
-       helper_exe(RBH + "Frameworks/", "cmux-remote-browser-host Helper (Renderer)")}
+# The plain helpers host the Widevine CDM (signed by Google's team), so they also skip library validation.
+CDM_HOSTS = {helper_exe(FW, "cmux NEXT DEV Helper"),
+             helper_exe(RBH + "Frameworks/", "cmux-remote-browser-host Helper")}
+JIT_ONLY = {helper_exe(FW, "cmux NEXT DEV Helper (GPU)"), helper_exe(FW, "cmux NEXT DEV Helper (Renderer)"),
+            helper_exe(RBH + "Frameworks/", "cmux-remote-browser-host Helper (GPU)"),
+            helper_exe(RBH + "Frameworks/", "cmux-remote-browser-host Helper (Renderer)")}
+JIT = CDM_HOSTS | JIT_ONLY
 # Signed without entitlements, and their build signature has some: cleared.
 CLEARED = {"Contents/Resources/libexec/cmux-server-helper", FW + "Sparkle.framework/Versions/B/Autoupdate",
            RBH + "MacOS/cmux-remote-browser-host",
@@ -244,7 +246,9 @@ class SignAppTest(unittest.TestCase):
         self.assertEqual(plistlib.loads(ents.pop("").encode()), plistlib.loads(APP_ENTITLEMENTS.read_bytes()))
         jit = {"com.apple.security.cs.allow-jit": True}
         self.assertEqual({rel: text for rel, text in ents.items() if rel in HELPER}, dict.fromkeys(HELPER, HELPER_TEXT))
-        self.assertEqual({rel: plistlib.loads(ents[rel].encode()) for rel in JIT}, dict.fromkeys(JIT, jit))
+        cdm = {**jit, "com.apple.security.cs.disable-library-validation": True}
+        self.assertEqual({rel: plistlib.loads(ents[rel].encode()) for rel in JIT_ONLY}, dict.fromkeys(JIT_ONLY, jit))
+        self.assertEqual({rel: plistlib.loads(ents[rel].encode()) for rel in CDM_HOSTS}, dict.fromkeys(CDM_HOSTS, cdm))
         self.assertEqual({rel: plistlib.loads(ents[rel].encode()) for rel in CLEARED}, dict.fromkeys(CLEARED, {}))
         self.assertEqual(set(ents), HELPER | JIT | CLEARED)
         self.assertEqual(options(argv, "--binary-identifier"),

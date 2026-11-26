@@ -4,14 +4,14 @@ import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-11-20: "tooltips everywhere needs to be redesigned to be better and consistent",
-/// on the composer's "Select effort ⌃⇧M": one line of regular text, then the shortcut's keys on a
-/// small keycap plate. Every native tooltip draws ``TooltipContentView`` on the one panel, a page's
+/// on the composer's "Select effort ⌃⇧M": one line of regular text, then the shortcut's keys as plain
+/// glyphs, no plate (Leo 2026-11-22: "a bullshit looking fucking command icon"). Every native tooltip draws ``TooltipContentView`` on the one panel, a page's
 /// tooltip past its window's edge included (before: a menu row, 13 pt, its keys as plain text), in
 /// one height whether it has keys or not, with corners that nest, and it shows and goes in one frame.
 @MainActor @Suite(.closesItsWindows, .serialized) struct TooltipDesignTests {
     static var scale: CGFloat { Typography.userScale }
 
-    @Test func aShortcutSitsOnAKeycapAfterTheTextWithNestedCorners() throws {
+    @Test func aShortcutIsPlainGlyphsAfterTheText() throws {
         let content = TooltipContentView()
         content.set(text: "Select effort", shortcut: "⌃⇧M")
         let size = content.fittingSurfaceSize()
@@ -19,21 +19,19 @@ import Testing
         content.layoutSubtreeIfNeeded()
         let keycap = try #require(content.keycap, "the shortcut has no keycap")
         #expect(keycap.label.stringValue == "⌃⇧M")
-        #expect(keycap.style == .linearKbd, "the tooltip's keycap is not the dialogs' Linear keycap")
-        let inset = TooltipMetrics.keycapInset * Self.scale
-        // The plate is inset the same from the top, the bottom and the end (content is flipped).
+        #expect(keycap.style == .plainGlyph, "the tooltip's keys sit on a plate")
+        #expect(!keycap.style.hasPlate)
+        // The keys end at the inline padding.
+        let inset = TooltipMetrics.paddingInline * Self.scale
         #expect(abs(keycap.frame.maxX - (size.width - inset)) < 0.5, "keycap at \(keycap.frame), surface \(size)")
-        #expect(abs(keycap.frame.minY - inset) < 0.5)
-        #expect(abs((size.height - keycap.frame.maxY) - inset) < 0.5)
-        #expect(keycap.frame.height == TooltipMetrics.keycapHeight * Self.scale)
         // After the text, with the gap between them, and centred on its line. The label's frame holds 2 pt of line
         // padding each side of its glyphs; its alignment rect is the glyphs' box, which starts at the inline padding.
         let glyphs = content.text.alignmentRect(forFrame: content.text.frame)
         #expect(abs(glyphs.minX - TooltipMetrics.paddingInline * Self.scale) < 0.5, "text starts at \(glyphs.minX)")
         #expect(glyphs.maxX + TooltipMetrics.keycapGap * Self.scale <= keycap.frame.minX + 0.5, "text \(glyphs) keycap \(keycap.frame)")
         #expect(abs(glyphs.midY - keycap.frame.midY) <= 0.5, "text \(glyphs) keycap \(keycap.frame)")
-        // Its corner nests in the tooltip's: the tooltip's radius less the inset.
-        #expect(keycap.layer?.cornerRadius == (TooltipMetrics.radius - TooltipMetrics.keycapInset) * Self.scale)
+        // No plate: no fill, no corner.
+        #expect(keycap.layer?.cornerRadius ?? 0 == 0)
         // Regular text at the detail size, never the old bold caption.
         let font = try #require(content.text.font)
         #expect(font.pointSize == TooltipMetrics.fontSize * Self.scale)

@@ -75,6 +75,8 @@ import Testing
         for _ in 0..<2000 where !until() { await Task.yield() }
     }
 
+    // The hold is the Rust prompt outbox's (`ChatPromptOutbox`), in the iOS build only.
+    #if canImport(CmuxMobileLinkFFI)
     @Test func messagesSentDuringABlipGoInOrderOnceTheLinkIsBack() async throws {
         let mac = Mac()
         let (hub, link, source, store) = try await openChat(mac)
@@ -115,6 +117,7 @@ import Testing
         for _ in 0..<300 { await Task.yield() }
         #expect(mac.prompts.isEmpty)
     }
+    #endif
 
     /// Leo's lanes run in Bypass permissions, and his phone's Full-access setting was off: a
     /// message to one is refused, truly. The draft comes back with what to change; a reconnect
