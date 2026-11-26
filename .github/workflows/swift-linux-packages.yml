@@ -89,6 +89,8 @@ jobs:
           - group: ios-kit
             packages: cmux-next-ios/CmuxMobileKit
           # Whole packages that pass on Linux; CmuxIrohTransport's Apple-gated tests still run on the Mac lane.
+          - group: CmuxAgentBrands
+            packages: Packages/Shared/CmuxAgentBrands
           - group: CmuxChiefList
             packages: Packages/Shared/CmuxChiefList
           - group: CmuxConnectivityTelemetry

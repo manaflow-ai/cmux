@@ -1,4 +1,4 @@
-import CoreGraphics
+import Foundation // CGFloat (CoreGraphics on Apple platforms, Foundation on Linux)
 
 /// A terminal agent's rounded square (Claude Code, Codex in a terminal tab), the one rule the Mac's tabs and
 /// sidebar and the iPhone's avatars draw it by; a GUI agent chat keeps a bare mark (Mac) or a circle (iPhone).
