@@ -9,14 +9,15 @@ import ObjectiveC
 /// to a runtime subclass named `<class>_CmuxViews` and puts Views' content view in the window's ``ViewsWindowSlotView``.
 /// Each page is then a `views::WebView` of that widget at its container's rect, not a subview of the container: the
 /// fork names the container on the page's `WebContentsViewCocoa`, and ``viewsContainer(of:)`` reads it back for the
-/// window's focus rules. The switch is on for a dev build tagged `views-window…` or with `CMUX_NEXT_VIEWS_WINDOW=1`, and it
+/// window's focus rules. The switch is on for a dev build tagged `views-window…` (or `…-views-window…`) or with `CMUX_NEXT_VIEWS_WINDOW=1`, and it
 /// implies in-tree pages (``decide(fileOverride:tag:environment:)``).
 extension InTreePages {
     /// The fork's browser-process switch.
     public nonisolated static let viewsWindowSwitch = "cmux-views-window"
     /// The environment variable that turns the mode on (`1`) or off (`0`) for this launch.
     public nonisolated static let viewsWindowEnvironmentKey = "CMUX_NEXT_VIEWS_WINDOW"
-    /// A dev build whose tag starts with this runs in the mode.
+    /// A dev build whose tag starts with this, or has it after a dash (the measurement's `itp-rs-views-window`, a bench
+    /// build), runs in the mode.
     public nonisolated static let viewsWindowTagPrefix = "views-window"
     /// The identifier of the slot the fork puts Views' content view in.
     public nonisolated static let viewsWindowSlotIdentifier = "cmux-views-slot"
@@ -28,7 +29,7 @@ extension InTreePages {
         switch environment[viewsWindowEnvironmentKey] {
         case "1", "true", "on": return true
         case "0", "false", "off": return false
-        default: return tag?.hasPrefix(viewsWindowTagPrefix) == true
+        default: return tag.map { $0.hasPrefix(viewsWindowTagPrefix) || $0.contains("-" + viewsWindowTagPrefix) } ?? false
         }
     }
 

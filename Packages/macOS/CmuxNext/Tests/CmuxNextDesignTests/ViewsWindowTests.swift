@@ -109,6 +109,8 @@ import Testing
         (nil as String?, [:] as [String: String], false),
         ("views-window", [:], true),
         ("views-window-2", [:], true),
+        ("itp-rs-views-window", [:], true),
+        ("itp-rs-bench", [:], false),
         ("in-tree-pages", [:], false),
         ("views-window", ["CMUX_NEXT_VIEWS_WINDOW": "0"], false),
         (nil, ["CMUX_NEXT_VIEWS_WINDOW": "1"], true),
