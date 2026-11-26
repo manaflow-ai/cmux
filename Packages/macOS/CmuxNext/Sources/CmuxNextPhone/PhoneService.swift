@@ -119,7 +119,8 @@ public final class PhoneService {
 
     /// The shell line that streams `id`'s log, for a terminal tab.
     public func logShellLine(_ id: PhoneDeviceID) async throws -> String {
-        try PhoneRules.decode(String.self, "line", "shell_line", ["argv": try await backend.logCommand(id)], what: "the log command")
+        let argv = try await backend.logCommand(id)
+        return try PhoneRules.decode(String.self, "line", "shell_line", ["argv": argv], what: "the log command")
     }
 
     /// Turns the phone a quarter turn (Android emulators; iOS rotation comes later).
