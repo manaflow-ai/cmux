@@ -242,6 +242,34 @@ impl Public {
         })
     }
 
+    /// A published manifest's bytes, checked against `id`.
+    pub fn manifest_bytes(&self, id: &Id) -> Result<Vec<u8>> {
+        let bytes = std::fs::read(self.manifest_path(id))?;
+        Manifest::from_bytes(&bytes, id)?;
+        Ok(bytes)
+    }
+
+    /// Takes in an entry fetched from peers or the floor ([`crate::seed::fetch`]): `manifest`
+    /// must be the entry's id and every chunk it names must be held and read back, so the tier
+    /// then serves it like one it published. `entry` must come from an index the caller trusts.
+    pub fn adopt(&self, entry: &Entry, manifest: &[u8]) -> Result<()> {
+        let parsed = Manifest::from_bytes(manifest, &entry.manifest)?;
+        for c in parsed.distinct_chunks() {
+            self.store.get(&c.id)?;
+        }
+        let dir = self.root.join("manifests");
+        std::fs::create_dir_all(&dir)?;
+        let path = self.manifest_path(&entry.manifest);
+        write_atomic(&dir, &path, manifest)?;
+        Manifest::from_bytes(&std::fs::read(&path)?, &entry.manifest)?;
+        let mut entries = self.entries()?;
+        if !entries.contains(entry) {
+            entries.push(entry.clone());
+            write_atomic(&self.root, &self.index_path(), &serde_json::to_vec_pretty(&entries)?)?;
+        }
+        Ok(())
+    }
+
     /// The lookup the cold pass uses.
     pub fn index(&self) -> Result<PublicIndex> {
         let mut chunks = HashSet::new();
@@ -296,20 +324,22 @@ impl PublicIndex {
 fn unpack(archive: &[u8], strip: usize) -> Result<BTreeMap<String, (Vec<u8>, bool)>> {
     let xz = archive.starts_with(&[0xfd, b'7', b'z', b'X', b'Z', 0]);
     if xz {
-        let mut child = std::process::Command::new("xz")
+        let mut child = cmux_process::Command::new("xz")
             .args(["-dc"])
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
+            .stdin(cmux_process::Stdio::piped())
+            .stdout(cmux_process::Stdio::piped())
             .spawn()?;
         let mut stdin = child.stdin.take().ok_or("xz has no stdin")?;
-        let data = archive.to_vec();
-        let feeder = std::thread::spawn(move || {
-            use std::io::Write as _;
-            stdin.write_all(&data)
-        });
         let stdout = child.stdout.take().ok_or("xz has no stdout")?;
-        let out = read_tar(stdout, strip);
-        feeder.join().map_err(|_| "xz feeder panicked")??;
+        let (out, fed) = std::thread::scope(|s| {
+            let feeder = s.spawn(move || {
+                use std::io::Write as _;
+                stdin.write_all(archive)
+            });
+            let out = read_tar(stdout, strip);
+            (out, feeder.join())
+        });
+        fed.map_err(|_| "xz feeder panicked")??;
         let status = child.wait()?;
         if !status.success() {
             return Err("xz could not decompress the archive".into());

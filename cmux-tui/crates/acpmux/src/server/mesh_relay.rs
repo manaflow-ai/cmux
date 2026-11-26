@@ -66,6 +66,9 @@ pub struct RelayOptions {
     /// Called when the hub takes a heartbeat again after failing ones (the joined relay states
     /// the machine's capabilities then, `cli/cloud_join/self_capabilities.rs`).
     pub on_reconnect: Option<fn()>,
+    /// A joined machine's capacity report to its team's placement, this often
+    /// (`joined_capacity.rs`); none for any other relay.
+    pub capacity_every: Option<Duration>,
 }
 
 impl Default for RelayOptions {
@@ -79,6 +82,7 @@ impl Default for RelayOptions {
             refused_retry: Duration::from_secs(60),
             max_in_flight: 32,
             on_reconnect: None,
+            capacity_every: None,
         }
     }
 }
@@ -113,6 +117,24 @@ impl MeshRelay {
             refusals.clone(),
             stopped.clone(),
         );
+        // A joined machine's capacity reports run beside its heartbeat, on the heartbeat's task:
+        // both end as the relay does.
+        let reports = options.capacity_every.map(|every| {
+            capacity_reports(
+                Arc::downgrade(hub),
+                client.clone(),
+                options.clone(),
+                every,
+                stopped.clone(),
+            )
+        });
+        let beats = async move {
+            tokio::join!(beats, async {
+                if let Some(reports) = reports {
+                    reports.await;
+                }
+            });
+        };
         let inbox =
             inbox(Arc::downgrade(hub), client, control, options, own, beat, refusals, stopped);
         let tasks = vec![tokio::spawn(beats), tokio::spawn(inbox)];
@@ -225,7 +247,9 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     // them then, too.
     let on_reconnect =
         joined.then_some(crate::cli::cloud_join::state_capabilities_on_reconnect as fn());
-    let options = RelayOptions { on_reconnect, ..RelayOptions::default() };
+    // A joined machine is capacity for its team's placement (RFD 0004 step 3).
+    let capacity_every = joined.then_some(super::joined_capacity::EVERY);
+    let options = RelayOptions { on_reconnect, capacity_every, ..RelayOptions::default() };
     Some(MeshRelay::start(hub, client, control, options))
 }
 
@@ -453,6 +477,69 @@ async fn heartbeats(
     let last = Heartbeat { host, sessions: Vec::new(), leaving: true };
     // timeout: the leaving heartbeat is best effort; the relay must still end.
     let _ = tokio::time::timeout(Duration::from_secs(5), client.heartbeat(&last)).await;
+}
+
+/// Reports this joined machine's free capacity every `every` (`joined_capacity.rs`), from the
+/// daemon's startup until the relay ends. A refusal (an older hub, a registry that is off) is
+/// logged once and asked again every [`super::joined_capacity::REFUSED_RETRY`]; no answer backs
+/// off as the other loops do. It never ends or pauses the relay: the heartbeat speaks for the
+/// credential. Nothing is sent at the end: the hub drops the machine two minutes after its last.
+async fn capacity_reports(
+    hub: Weak<Hub>,
+    client: Arc<dyn MeshHub>,
+    options: Arc<RelayOptions>,
+    every: Duration,
+    mut stop: watch::Receiver<bool>,
+) {
+    use super::joined_capacity::{REFUSED_RETRY, capacity_now};
+    if !started(&hub, &mut stop).await {
+        return;
+    }
+    let host = crate::pairing::machine_name();
+    let mut backoff = Backoff::new(options.backoff_first, options.backoff_cap);
+    let (mut failing, mut refused) = (false, false);
+    loop {
+        let report = match hub.upgrade() {
+            Some(hub) if !hub.is_stopping() => capacity_now(&hub, &host).await,
+            _ => break,
+        };
+        let Some(report) = report else {
+            tracing::info!("joined capacity: this platform reports none");
+            return;
+        };
+        let wait = tokio::select! {
+            r = client.capacity(&report) => match r {
+                Ok(()) => {
+                    if std::mem::take(&mut failing) | std::mem::take(&mut refused) {
+                        tracing::info!("joined capacity: the hub takes reports again");
+                    }
+                    backoff.reset();
+                    every
+                }
+                Err(e) if e.refused && e.retry_after.is_none() => {
+                    if !std::mem::replace(&mut refused, true) {
+                        tracing::warn!(
+                            "joined capacity: the hub refused the report ({e}); asking again every {}s",
+                            REFUSED_RETRY.as_secs()
+                        );
+                    }
+                    backoff.reset();
+                    REFUSED_RETRY.max(every)
+                }
+                Err(e) => {
+                    if !std::mem::replace(&mut failing, true) {
+                        tracing::warn!("joined capacity: report failed ({e}); retrying with backoff");
+                    }
+                    after_failure(&mut backoff, &e).min(every).max(options.min_poll_gap)
+                }
+            },
+            () = ended(&mut stop, &hub) => break,
+        };
+        tokio::select! {
+            () = tokio::time::sleep(wait) => {}
+            () = ended(&mut stop, &hub) => break,
+        }
+    }
 }
 
 async fn inbox(
@@ -749,7 +836,7 @@ impl ControlHook for MeshControlHook {
             // A read changes nothing, so it needs no ledger: a repeat runs again and answers
             // the session as it is then.
             if op == "read" {
-                // A rename or retry through the hub is a change: only a sender trusted with a lifecycle op
+                // A rename, retry, hold or tag through the hub is a change: only a sender trusted with a lifecycle op
                 // here may make one (`read::WRITE_METHODS`), never one granted `read` alone.
                 let writes = ["start", "resume", "stop"].iter().any(|op| {
                     self.allowed

@@ -3763,8 +3763,14 @@ Above `[[ "$GITHUB_REF" == refs/heads/feat-cmux-next ]] || {` in `.github/workfl
 
 The dispatcher (main's cmux-next-dev-daily-dispatch.yml) asks for
 the feat-cmux-next tip it saw. A merge that lands before this run
-starts moves github.sha: fail without building, and the next tick
-asks for the new tip. No snapshot ref: creating a ref at a
+starts moves github.sha: the run is superseded, not broken. Path
+routing prints a notice, sets `superseded=true` and every tier false,
+and exits 0, so no job builds and the run ends green; a failed exit
+paged the incident desk as a feat-cmux-next base red (run
+45753471212). The dispatcher counts a run only at the SHA it asked
+for and publish needs an app-producer job to succeed, so a green
+superseded run neither blocks nor stands in for the new tip, and the
+next tick asks for it. No snapshot ref: creating a ref at a
 feat-cmux-next commit needs the workflows permission (HTTP 403).
 
 ## note-392
@@ -5141,6 +5147,34 @@ An ideal input-based routing would save about 7% of minutes and almost no wall; 
 affected check (and queue and reruns), not unaffected work. Lower bound: routers, placement, comment and
 PR-metadata jobs and unknown checks count as affected, and CI plumbing paths are an input of every check.
 
+## note-stall-step-bounds
+
+Above the bounded checkout, setup and cache steps: `web-bundles` and `fast-tier-cargo` in
+`.github/workflows/cmux-next.yml`, `agent-pane-real-acpmux` in `ci-web.yml`, the Bun cache restore in
+`cmux-next-web-lint.yml`, `workflow-guard-history` in `ci-guards.yml` and backend.yml's `test` job.
+
+Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." On 2026-11-23, pull request jobs
+cancelled after they started cost 148,161 runner-min (130 per merged PR, 1,139 merged). The check-run annotations of
+80 of them, sampled by minutes, read: 70 "The job has exceeded the maximum execution time", 8 "Canceling since a higher
+priority waiting request ... exists" (a newer push), 2 cancelled by a person or bot. Of 30 timed-out jobs read step by
+step, 13 had stalled in a checkout, toolchain setup or cache step (actions/checkout up to 29 min, Set up pinned Rust
+10 to 13 min, setup-node 34 min, a Bun cache restore 7 to 11 min), on the self-hosted Linux pools (`fsr-*`,
+`cmux-runner-pool-*`); healthy, they take seconds to about a minute. The job then held its runner for its whole limit
+(15 to 55 min) before going red.
+
+Healthy durations (26 successful runs, 2026-11-23): every checkout step 261 samples, p50 1 s, p99 123 s, max
+193 s (the full-tree checkouts in these jobs p50 about 70 s, max 81 s); Set up pinned Rust max 2 s on a warm runner;
+a Bun cache restore max 46 s. The bounds are a few times those: checkout 6 min, Set up pinned Rust 8 min (room for a
+fresh runner's rustup install), setup-node and setup-python 5 min, Bun and web-bundle cache restores 4 min. A
+stalled checkout or setup now fails its job in minutes instead of its full limit; it is still a red job to re-run,
+as before, only sooner. A cache step that passes its bound continues (`continue-on-error`): the job runs on as on a
+cache miss, so the bound never fails a job that would have passed. No step that runs code is bounded here, and no
+job limit changes.
+
+Stalls these bounds cannot reach: a job that hangs in the runner's own `Set up runner` or `Complete runner` (5 of the
+30), before or after every workflow step. Those are the runner pools' to fix (goal-linux-pool for cmux-runner-pool,
+freestyle-ci-first-class for fsr), or a shorter job `timeout-minutes` on the light jobs they hit.
+
 ## note-558
 
 Above `fleet_queue_p90()` and its check in `fleet_gateway()` in `scripts/ci/side_lane_placement.py`
@@ -5162,7 +5196,7 @@ gateway job still runs nothing but the client. An unreadable status lists the jo
 ## note-head-fail-fast
 
 Above each `*-fail-fast:` job in `.github/workflows/cmux-next.yml` (and the same callers in
-`cmux-next-fast-gates.yml`, `cmux-next-guards.yml`, and `pr-router.yml`'s `pipeline-fail-fast`, which watches its `pipeline` call of `pr-pipeline.yml`: pr-pipeline.yml takes only ci/steps.toml jobs).
+`cmux-next-fast-gates.yml`, `cmux-next-guards.yml`, and `pr-router.yml`'s `pipeline-fail-fast`, which watches its `pipeline` call of `pr-pipeline.yml`: pr-pipeline.yml takes only ci/steps.toml jobs). Since 11-26 pr-router.yml calls cmux-next-fast-gates.yml too, so its fail-fast job runs inside the router's run: it reads that run's failed jobs and, never cancelling its own run, cancels only the other HEAVY runs of the head; a fast gates run is no longer a HEAVY target of the others (its path is pr-router.yml, about two minutes on Linux).
 
 Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." Over 2026-11-23T20..2026-11-24T20Z
 (controller timing feed, manaflow-ai/cmux pull request jobs), once a non-advisory job of a head had failed, the
@@ -5223,8 +5257,8 @@ compile-checks phase `scheme-debug` with the job id of the app zip.
 - Parity: heads whose sha ends in `0` (1 in 16; `vars.CI_SCHEME_FLEET_PARITY=always` for every head) still compile on
   the Mac and compare file lists, Info.plist and Mach-O link lists (`scripts/ci/app_bundle_parity.py`); a difference
   is a `fleet parity` warning with the table in the step summary.
-- Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head. DEV Release
-  (`dev_daily`) compiles are unchanged.
+- Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head and says so
+  (2026-11-25-fleet-fallback.md); unset is null and null != '0' is false, so the `if` reads `(vars.CI_SCHEME_COMPILE_FLEET || '1') != '0'`. DEV Release (`dev_daily`) compiles are unchanged.
 
 ## note-canary-linux-read
 
@@ -5294,3 +5328,31 @@ Three changes, the check unchanged:
 
 Not changed here: backend.yml's journey-staging, cloud-resume-matrix.yml and migrate-journey-pr.yml run the same
 uncached build.
+
+## note-cheap-gate
+
+Above the gated callers in `.github/workflows/pr-router.yml` (`machine-channel-pr-head`, `screen-share-drop-gate`,
+`swift-linux-packages`, `ios-link-ffi-linux`, `pipeline`) and above `release-compile` and `compile-status` in
+`.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." The heavy jobs now start only after a
+cheap job has said the head is not red.
+
+- pr-router.yml: since 11-26 the router calls cmux-next-fast-gates.yml as a callee, so fast gates run in the same run
+  as the heavy callees. Fast-gates-fail-fast never cancels its own run (note-head-fail-fast), so a red fast gates
+  head still paid for the whole pipeline, the machine channel build, Swift packages on Linux and the screen share
+  gate. Over 2026-11-25T14Z..11-26T14Z (controller timing feed) those callees spent 43,244 runner-min on runs whose
+  fast gates failed: pipeline 19.1k, machine channel 12.7k, Swift on Linux 9.8k, screen share 1.1k. Each of these
+  callers now `needs: [route, fast-gates]` and starts only when fast gates did not fail (success, skipped or not
+  routed). They skip the gate in the same cases fail-fast does: on a fork, with `full-ci`, outside pull_request, or
+  with `vars.CI_HEAD_FAIL_FAST` set to `0`. The size budget and the classic API guard are left ungated: an edit
+  re-judges them with no new push. The cost is one fast gates wall time (about 4 min) before the heavy callees
+  start on a head.
+- cmux-next.yml: #54731 started macos-placement and app-compile-placement only after `fast-tier-cargo` is not red.
+  release-compile still started then: app-compile-fleet is skipped, its verdict is empty, and the Release compile
+  takes the head. compile-status (the fleet Release compile) never waited at all. Both now take the same
+  condition. On runs where cargo failed they spent about 6 to 9k runner-min a day. Cargo skips itself when it is
+  red on the base (path_route base_red_jobs), so a red base does not hold them.
+
+Rerunning the failed fast gates or cargo job (`gh run rerun ID --failed`) reruns the jobs it skipped.
+Tests: tests/test_ci_head_fail_fast.py CheapGateTests.

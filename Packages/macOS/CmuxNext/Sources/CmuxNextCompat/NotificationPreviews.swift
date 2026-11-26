@@ -1,4 +1,6 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 
 /// When a banner shows what the agent said (its last message), named like macOS's own Show
 /// Previews: `notifications.showPreviews` in cmux.json. Shared by the settings that store it, the
@@ -11,9 +13,11 @@ public enum NotificationPreviews: String, Hashable, Sendable, CaseIterable {
     /// Never: the banner says where and what state, not what was said.
     case never
 
+    #if canImport(CoreGraphics)
     /// Whether the login session's screen is locked now, as the window server reports it.
     public static var screenIsLocked: Bool {
         let session = CGSessionCopyCurrentDictionary() as? [String: Any]
         return session?["CGSSessionScreenIsLocked"] as? Bool ?? false
     }
+    #endif
 }

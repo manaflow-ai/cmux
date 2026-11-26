@@ -61,6 +61,16 @@ class LandTierStatusPost(unittest.TestCase):
             lines = calls.read_text().splitlines() if calls.exists() else []
         return done.returncode, lines, done.stdout + done.stderr
 
+    def test_the_description_fits_githubs_140_character_limit(self) -> None:
+        # the regression: run 45839458055 posted a 145-character success description; GitHub refused it on both
+        # tokens ("Description is too long (maximum is 140 characters)") and cmux/land-tier stayed unposted
+        for state in ("success", "pending"):
+            code, calls, _ = self.run_post("app", fail="", state=state)
+            self.assertEqual(code, 0)
+            desc = calls[0].split("description=", 1)[1].rsplit(" -f target_url=", 1)[0]
+            self.assertLessEqual(len(desc), 140, (state, desc))
+            self.assertTrue(desc, state)
+
     def test_the_app_token_posts_first(self) -> None:
         code, calls, _ = self.run_post("app", fail="")
         self.assertEqual(code, 0)
@@ -90,6 +100,14 @@ class LandTierStatusPost(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(len(calls), 6)  # three rounds of both tokens
         self.assertIn("::warning::cmux/land-tier (pending) was not posted", said)
+
+    def test_every_description_fits_githubs_140_characters(self) -> None:
+        # GitHub refuses a longer one ("Description is too long (maximum is 140 characters)", run 45827285472).
+        for state in ("success", "pending"):
+            code, lines, out = self.run_post("app", "", state=state)
+            self.assertEqual(code, 0, out)
+            desc = lines[0].split("description=", 1)[1].split(" -f target_url=", 1)[0]
+            self.assertLessEqual(len(desc), 140, desc)
 
     def test_the_token_is_minted_with_statuses_write_for_same_repo_heads_only(self) -> None:
         mint = step("Mint the land tier status token")
