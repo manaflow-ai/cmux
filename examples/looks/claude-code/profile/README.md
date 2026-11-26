@@ -76,7 +76,7 @@ sent to the customization lead. Gap letters are the lines sent.
 | [Copy the conversation](https://code.claude.com/docs/en/desktop) | status | matched | cmd+j x agentChat.copyConversation |
 | [Account switching](https://code.claude.com/docs/en/desktop) | account_switching | gap | gap (m): no setting places an account switcher; switching never captured |
 | [Settings page](https://code.claude.com/docs/en/desktop) | settings | gap | gap (n): a look cannot restyle cmux Settings |
-| [Proportions: transcript, preview, terminal and tasks panels split side by side](https://code.claude.com/docs/en/desktop) | proportions | gap | 800 pt transcript at 14 pt and a 284 pt sidebar; gap (j): no setting arranges panes, and cmux-next does not read workspace layouts (`commands`), so the profile cannot open the split |
+| [Proportions: transcript, preview, terminal and tasks panels split side by side](https://code.claude.com/docs/en/desktop) | proportions | gap | 800 pt transcript at 14 pt, a 284 pt sidebar with 13 pt chrome type (appearance.metrics.chromeFontSize); gap (j): no setting arranges panes, and cmux-next does not read workspace layouts (`commands`), so the profile cannot open the split |
 
 | Motion | Reference | Status | How, or the gap |
 | --- | --- | --- | --- |
