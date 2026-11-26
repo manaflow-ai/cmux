@@ -3466,8 +3466,13 @@ open(out, 'w').write(json.dumps(seen))
   // request again in a few seconds", and the start gave up as @@nostart. It sends again now, and still stops on a
   // refusal that is not retryable.
   const FAKE_ACPMUX_RESTARTING = String.raw`
-import json, os, socket, sys
+import json, os, socket, sys, time
 path, out, mode = sys.argv[1], sys.argv[2], sys.argv[3]
+if mode == 'late':
+    # acpmux mid-restart: a socket file nobody listens on (ECONNREFUSED, run 45882763507), then the new daemon.
+    stale = socket.socket(socket.AF_UNIX); stale.bind(path); stale.close()
+    time.sleep(1.5)
+    os.unlink(path)
 srv = socket.socket(socket.AF_UNIX); srv.bind(path); srv.listen(4)
 seen = []
 news = 0
@@ -3479,7 +3484,7 @@ while True:
         m = json.loads(line); seen.append(m['method'])
         if m['method'] == 'session/new':
             news += 1
-            if news == 1:
+            if news == 1 and mode != 'late':
                 data = {'errorKind': 'daemon.restarting', 'retryable': True} if mode == 'retryable' else {'errorKind': 'refused', 'retryable': False}
                 send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': data}})
                 done = mode != 'retryable'
@@ -3493,7 +3498,7 @@ while True:
         break
 open(out, 'w').write(json.dumps(seen))
 `;
-  const runRestarting = (mode: "retryable" | "refused") => {
+  const runRestarting = (mode: "retryable" | "refused" | "late") => {
     const home = mkdtempSync("/tmp/jr-");
     try {
       mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
@@ -3521,10 +3526,21 @@ open(out, 'w').write(json.dumps(seen))
     expect(r.status).toBe(1);
     expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
   });
-  test("no acpmux socket is a failed start that names the paths it tried", () => {
+  // Run 45882763507 (own-host microVM, 2026-11-26): the socket refused the connection while acpmux restarted, and the
+  // start gave up as @@nostart. A refused connect or a missing socket cannot have made a session; it is sent again.
+  test("a socket that refuses while acpmux restarts is tried again and starts", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("late");
+    expect(r.stdout).toContain("@@retry ");
+    expect(r.stdout).toContain("Connection refused");
+    expect(r.stdout).toContain("@@session s-2");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(1);
+  });
+  test("no acpmux socket is a failed start that names the paths it tried, after the retry window", { timeout: 30_000 }, () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
     try {
-      const r = spawnSync("bash", ["-c", launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x")], { env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8" });
+      const r = spawnSync("bash", ["-c", launchCredentialStartProgram("s", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-x")], { env: { PATH: process.env.PATH, HOME: home, CMUX_JOURNEY_START_RETRY_S: "3" }, encoding: "utf8" });
+      expect(r.stdout).toContain("@@retry no acpmux socket at");
       expect(r.status).toBe(1);
       expect(r.stdout).toContain("@@nostart no acpmux socket at");
     } finally {

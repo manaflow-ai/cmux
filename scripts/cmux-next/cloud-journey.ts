@@ -3654,8 +3654,9 @@ def call(f, s, i, method, p):
 class Retryable(RuntimeError):
     pass
 # acpmux answers a start cut by its own restart with data.retryable (daemon.restarting: "Send the request again in a
-# few seconds"); the start sends it again for up to RETRY_S, as the app does, and gives up on anything else.
-RETRY_S = 45
+# few seconds"), and while it restarts its socket refuses connections or is not there yet. Neither can have made a
+# session, so the start sends it again for up to RETRY_S, as the app does, and gives up on anything else.
+RETRY_S = float(os.environ.get('CMUX_JOURNEY_START_RETRY_S') or 45)
 deadline = time.monotonic() + RETRY_S
 while True:
     errors = []
@@ -3667,7 +3668,10 @@ while True:
         try:
             s = socket.socket(socket.AF_UNIX)
             s.settimeout(110)
-            s.connect(path)
+            try:
+                s.connect(path)
+            except (ConnectionRefusedError, FileNotFoundError) as e:
+                raise Retryable('connect: ' + str(e))
             f = s.makefile('r')
             call(f, s, 1, 'initialize', {'protocolVersion': 1, 'clientCapabilities': {}, 'clientInfo': {'name': 'cloud-journey', 'version': '1'}})
             r = call(f, s, 2, 'session/new', params)
@@ -3679,6 +3683,9 @@ while True:
             retry = True
         except Exception as e:
             errors.append(path + ': ' + str(e))
+    if not errors and sid is None:
+        retry = True
+        errors.append('no acpmux socket at ' + ', '.join(paths))
     if sid is not None or not retry or time.monotonic() >= deadline:
         break
     print('@@retry ' + '; '.join(errors)[:400], flush=True)
