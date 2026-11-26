@@ -10,7 +10,9 @@ differ by arch and are stable; the Swift job runs check-release-compile.sh with 
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -103,10 +105,26 @@ class Keys(unittest.TestCase):
         self.assertEqual(first, npb.keys("HEAD"))
 
     def test_source_head_can_predate_the_merge_ref_recipe(self) -> None:
-        # This is the first Nightly PR-build commit. Its parent has neither the reusable workflow
-        # nor the driver, which reproduces an already-open PR at the merge-ref workflow boundary.
-        source = npb.git("rev-parse", "ec6b044036a^")
-        keys = npb.keys(source, recipe_rev="HEAD")
+        # Keep this fixture independent of the checkout depth. The source commit has neither the
+        # reusable workflow nor the driver, while the merge-ref recipe adds both.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for args in (("git", "init", "-q"), ("git", "config", "user.email", "test@example.com"),
+                         ("git", "config", "user.name", "Nightly test")):
+                subprocess.run([*args, str(root)] if args[1] == "init" else [*args], cwd=root,
+                               check=True, capture_output=True)
+            (root / "README").write_text("source\n")
+            subprocess.run(["git", "add", "README"], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-qm", "source"], cwd=root, check=True, capture_output=True)
+            source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+            (root / ".github/workflows").mkdir(parents=True)
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / ".github/workflows/nightly-pr-build.yml").write_text("on: workflow_call\n")
+            (root / "scripts/ci/nightly_pr_build.py").write_text("# trusted recipe\n")
+            subprocess.run(["git", "add", "."], cwd=root, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-qm", "recipe"], cwd=root, check=True, capture_output=True)
+            recipe = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+            keys = npb.keys(source, root, recipe_rev=recipe)
         self.assertEqual(sorted(keys), sorted([*npb.ARCHS, "helpers"]))
         self.assertTrue(all(keys.values()))
 

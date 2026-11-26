@@ -136,6 +136,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           submodules: false
       - name: Use the merge ref's Nightly driver for the source checkout
+        if: ${{ steps.cache.outputs.cache-hit != 'true' }}
         env:
           RECIPE_SHA: ${{ github.sha }}
         run: |
