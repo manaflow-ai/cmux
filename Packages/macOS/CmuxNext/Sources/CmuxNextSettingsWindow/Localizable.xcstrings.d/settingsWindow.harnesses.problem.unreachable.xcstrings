@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.harnesses.problem.unreachable" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux did not answer. Open an agent chat to start it, then click Refresh."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم يستجب cmux. افتح محادثة وكيل لتشغيله، ثم انقر تحديث."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux nije odgovorio. Otvorite razgovor s agentom da ga pokrenete, pa kliknite Osvježi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux svarede ikke. Åbn en agentchat for at starte den, og klik så Opdater."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux hat nicht geantwortet. Öffnen Sie einen Agenten-Chat, um es zu starten, und klicken Sie dann auf Aktualisieren."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux no respondió. Abre un chat de agente para iniciarlo y luego haz clic en Actualizar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux n'a pas répondu. Ouvrez une discussion d'agent pour le lancer, puis cliquez sur Actualiser."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux non ha risposto. Apri una chat con un agente per avviarlo, poi fai clic su Aggiorna."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux が応答しませんでした。エージェントチャットを開いて起動してから、「更新」をクリックしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux មិនបានឆ្លើយទេ។ បើកការជជែកភ្នាក់ងារដើម្បីចាប់ផ្ដើម បន្ទាប់មកចុច ផ្ទុកឡើងវិញ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 응답하지 않았습니다. 에이전트 채팅을 열어 시작한 다음 새로 고침을 클릭하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux svarte ikke. Åpne en agentchat for å starte den, og klikk deretter Oppdater."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux nie odpowiedział. Otwórz czat z agentem, aby go uruchomić, a potem kliknij Odśwież."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O cmux não respondeu. Abra um chat de agente para iniciá-lo e clique em Atualizar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux не ответил. Откройте чат с агентом, чтобы запустить его, затем нажмите «Обновить»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ไม่ตอบสนอง เปิดแชตเอเจนต์เพื่อเริ่ม แล้วคลิกรีเฟรช"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux yanıt vermedi. Başlatmak için bir ajan sohbeti açın, sonra Yenile'ye tıklayın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux не відповів. Відкрийте чат з агентом, щоб запустити його, потім натисніть «Оновити»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux không phản hồi. Mở một cuộc trò chuyện với tác nhân để khởi động, rồi bấm Làm mới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 没有响应。打开一个代理聊天来启动它，然后点击“刷新”。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 沒有回應。開啟一個代理聊天來啟動它，然後點按「重新整理」。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

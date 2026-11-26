@@ -101,6 +101,21 @@ impl Hub {
             && self.peer_down_for(target).is_none()
     }
 
+    /// Whether `target` is `HOST/KEY` on a machine only the mesh hub reaches: neither a peer of
+    /// this daemon nor this machine, with nothing here or on a peer naming it
+    /// ([`Self::mesh_may_route`]). A chat that moved there over the hub is one: the outbox follows
+    /// its move to `HOST/ID` (`server/outbox.rs` `follow_move`), and this daemon's own lookup of
+    /// that key can only say "no session HOST/ID on" this machine.
+    pub fn mesh_only_host(&self, target: &str) -> bool {
+        target.split_once('/').is_some_and(|(host, key)| {
+            !host.is_empty()
+                && !key.is_empty()
+                && self.peer(host).is_none()
+                && !is_own_host(host)
+                && !super::own_host::is_own_machine_name(host)
+        }) && self.mesh_may_route(target)
+    }
+
     /// Whether a relayed message is for this daemon: refused when it names another host, or a
     /// daemon id other than `own_daemon` (this daemon's id at the hub, once the hub has told it;
     /// with none known, any daemon id is refused). Every relayed message, control ones included,
