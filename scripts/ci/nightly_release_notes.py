@@ -230,7 +230,13 @@ def metadata_fallback(repo: str, base: str | None, head: str) -> tuple[str, str]
 ALL_FEEDS = ("appcast-arm64.xml", "appcast-x86_64.xml", "appcast-universal.xml", "appcast.xml")
 
 
-def update_appcasts(directory: Path, build: str, summary: str, feeds: tuple[str, ...] = ALL_FEEDS) -> None:
+CMUX = "https://cmux.com/xml-namespaces/cmux"
+
+
+def update_appcasts(directory: Path, build: str, summary: str, feeds: tuple[str, ...] = ALL_FEEDS,
+                    since: str | None = None, pull_requests: list[int] | None = None) -> None:
+    """Writes the build's item's <description>, and with `since`, its PR list: <cmux:sinceCommit> (the commit the
+    build's span starts after, the previous feed item's source) and <cmux:pullRequests> (numbers, newest first)."""
     expected = set(feeds)
     found = sorted(directory.glob("appcast*.xml"))
     if {feed.name for feed in found} != expected:
@@ -254,6 +260,15 @@ def update_appcasts(directory: Path, build: str, summary: str, feeds: tuple[str,
         description = doc.createElement("description")
         description.appendChild(doc.createTextNode(summary))
         item.appendChild(description)
+        if since:
+            for tag in ("sinceCommit", "pullRequests"):
+                for old in list(item.getElementsByTagNameNS(CMUX, tag)):
+                    item.removeChild(old)
+            for tag, text in (("sinceCommit", since), ("pullRequests", " ".join(str(n) for n in pull_requests or []))):
+                element = doc.createElementNS(CMUX, f"cmux:{tag}")
+                element.setAttribute("xmlns:cmux", CMUX)  # bound on the item: items move between feeds as bytes
+                element.appendChild(doc.createTextNode(text))
+                item.appendChild(element)
         replacements.append((feed, doc.toxml(encoding="utf-8")))
     for feed, xml in replacements:
         feed.write_bytes(xml)
