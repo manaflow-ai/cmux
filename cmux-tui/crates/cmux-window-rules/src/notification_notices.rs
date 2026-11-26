@@ -29,7 +29,7 @@ pub const ATTENTION_TAB_LIMIT: usize = 256;
 /// A banner title longer than this many characters is cut, with an ellipsis.
 pub const TITLE_LIMIT: usize = 120;
 /// What a cut title keeps before its ellipsis.
-const TITLE_KEEP: usize = TITLE_LIMIT - 1;
+const TITLE_KEEP: usize = 119;
 /// How much of a hand-off's summary its banner shows, in characters.
 pub const DETAIL_LIMIT: usize = 240;
 /// The key prefix of the entries `cmux status run` writes (`run:<pid>`).
@@ -723,9 +723,7 @@ pub fn run_notifies(
     when_visible: bool,
     visibility: Visibility,
 ) -> bool {
-    // The f64 of a u64: exact up to 2^53 ms, ample for a run's duration.
-    #[allow(clippy::cast_precision_loss)]
-    let seconds = duration_ms.unwrap_or(0) as f64 / 1000.0;
+    let seconds = std::time::Duration::from_millis(duration_ms.unwrap_or(0)).as_secs_f64();
     seconds >= minimum_seconds && (when_visible || !visibility.is_visible())
 }
 
