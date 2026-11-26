@@ -65,7 +65,7 @@ fn choices_of(key: &str) -> (Vec<String>, Option<Value>, Vec<String>) {
             Some(json!("off")),
             key_path(key),
         ),
-        None => panic!("schema has {key}"),
+        None => (Vec::new(), None, key_path(key)),
     }
 }
 
@@ -99,7 +99,7 @@ fn choice(
 
 fn contrast(root: &Value, out: &mut Map<String, Value>, notes: &mut Vec<Value>) {
     let key = "appearance.titleAreaContrast";
-    let row = Schema::embedded().row(key).expect("schema has titleAreaContrast");
+    let Some(row) = Schema::embedded().row(key) else { return };
     let Kind::Number(range) = &row.kind else { return };
     let fallback = row.default.clone().unwrap_or(json!(1.0));
     let Some(value) = value_at(root, &row.path) else {
