@@ -24,6 +24,8 @@ extension InternalPageID {
 extension NewTabPage {
     /// Panes whose New Tab page opening runs in this main-actor turn.
     private static var openingPanes: Set<ObjectIdentifier> = []
+    /// The Cloud chat each native New Tab page was opened from (cmux#57249); the web page's handler keeps its own.
+    private static var cloudChats: [String: AgentTabKey] = [:]
     /// The New Tab page in `pane`, adopting the window's prewarmed spare when it has one
     /// (NewTabSparePool), else loading cold. A static of the page, not the pane (the godfile
     /// limit counts PaneController's extensions). Everything happens in this one main-actor
@@ -66,8 +68,11 @@ extension NewTabPage {
         // opened its pick in the pane it left, or nowhere once that pane closed. Its folder stays
         // the one the page shows (`page.cwd`), as a split's page does.
         let machineID = pane.daemon.machineID
+        // Opened from a Cloud chat: its Terminal and Browser picks open on the chat's machine (cmux#57249).
+        let cloud = CloudFrontedChats.cloudChat(shownBy: pane.selectedTab, services: services)
         var handler = Self.handler(services, cwd: cwd) { [weak pane, weak services] key, request in
             guard let target = services.flatMap({ Self.hosting(key, $0, onMachine: machineID) }) ?? pane else { return }
+            if let cloud, Self.opensOnCloud(request, chat: cloud, services: target.services, close: closingPage(key, in: target)) { return }
             BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: target) }
         }
         handler.inputReady = { [weak pane] _, token in
@@ -276,8 +281,10 @@ extension NewTabPage {
             services.pages.register(WebPageTab(.nativeNewTab, symbol: "square.grid.2x2", title: Strings.untitledBrowser,
                                                view: { [weak services] key in services?.paneController(showingTab: key).map { nativeView(key, in: $0) } }))
         }
+        let cloud = CloudFrontedChats.cloudChat(shownBy: pane.selectedTab, services: services)
         let opened = services.pages.open(.nativeNewTab, in: pane.pane.id, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                                          window: services.windowController(showing: pane))
+        cloudChats[opened] = cloud // its picks open on that chat's machine (cmux#57249)
         // The prepared page, if one is parked (NewTabSparePool.warmNative); the pane's view for `opened` adopts it.
         let spare = services.newTabSpares.takeNative(for: opened)
         pane.apply(pane.snapshot())
@@ -327,6 +334,9 @@ extension NewTabPage {
     private static func nativeActions(_ key: String, cwd: String?, pane: PaneController, list: NativeNewTabList) -> NativeNewTabActions {
         NativeNewTabActions(
             submit: { [weak pane] text, kind, search, event in
+                if let pane, let cloud = cloudChats[key], let request = NewTabSubmit.nativeRequest(text: text.trimmingCharacters(in: .whitespacesAndNewlines), kind: kind, search: search, cwd: cwd,
+                                                                                                   resolver: pane.services.cache.suggestionEngine.resolver),
+                   opensOnCloud(request, chat: cloud, services: pane.services, close: closingPage(key, in: pane)) { cloudChats[key] = nil; return }
                 if let pane, submitNative(text, kind: kind, search: search, cwd: cwd, in: pane, page: key, event: event) { closingPage(key, in: pane)() }
             },
             jump: { [weak pane] target, id in if let services = pane?.services { jump(target, id: id, services: services) } },
@@ -385,4 +395,25 @@ extension NewTabPage {
 /// A focused pane gives the native New Tab page's field the keyboard (``InternalPageView/focusTarget``).
 extension NativeNewTabHostingView: InternalPageFocusing {
     var focusTarget: NSView { fieldView ?? self }
+}
+
+extension NewTabPage {
+    /// A New Tab page opened from Cloud chat `chat`: its Terminal pick (typing or running what was typed) and its
+    /// Browser pick with no address open on the chat's machine, as the chat header's tools do, then the page closes. A
+    /// browser pick with an address opens it here: the machine's desktop takes none. False to pick as before.
+    static func opensOnCloud(_ request: AgentPaneOpenTab, chat: AgentTabKey, services: AppServices, close: @MainActor () -> Void) -> Bool {
+        let typing: String?
+        switch request.kind {
+        case .terminal:
+            if request.run { guard case .some(let command) = command(request.text) else { return false }; typing = command } else { typing = request.text.isEmpty ? nil : request.text }
+        case .browser where request.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty:
+            typing = nil
+        default:
+            return false
+        }
+        // The page's folder is this Mac's: the chat's folder on its machine instead.
+        guard CloudFrontedChats.openOnCloud(request.kind == .terminal ? .terminal : .browser, chat: chat, typing: typing, services: services) else { return false }
+        if !request.keep { close() }
+        return true
+    }
 }

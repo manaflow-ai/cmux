@@ -35,6 +35,9 @@ final class CloudFrontedChats {
     /// Draws Mac tab `mac` again (its panes' `showSelected`) once Cloud tab `cloud`, the chat it showed, went.
     @ObservationIgnored var reshow: @MainActor (_ mac: AgentTabKey, _ cloud: AgentTabKey) -> Void = { _, _ in }
 
+    /// Opens a tool on a Cloud chat's machine (``openTool(_:chat:cwd:typing:services:)``); a test records the opens here.
+    @ObservationIgnored var openToolOverride: (@MainActor (_ kind: RightColumnPlacement.Kind, _ chat: AgentTabKey, _ cwd: String?, _ typing: String?) -> Bool?)?
+
     var isEmpty: Bool { fronts.isEmpty && making.isEmpty }
 
     /// The Cloud workspaces no window may take: each front's, and each one a start is making for a Mac tab.
@@ -160,8 +163,9 @@ extension CloudStartChat {
 /// A Cloud chat's Terminal and Browser on its Cloud machine (``CloudChatToolRoute``, cmux#55413).
 extension CloudFrontedChats {
     /// Opens tool `kind` of chat tab `chat` on its Cloud machine: true once routed there (a refusal says why), nil
-    /// for a chat that is not a Cloud machine's or a tool its own pane opens on the machine already.
-    static func openTool(_ kind: RightColumnPlacement.Kind, chat: AgentTabKey, cwd: String?, services: AppServices) -> Bool? {
+    /// for a chat that is not a Cloud machine's or a tool its own pane opens on the machine already. `typing`: text the
+    /// terminal types once made (a New Tab page's `!command`).
+    static func openTool(_ kind: RightColumnPlacement.Kind, chat: AgentTabKey, cwd: String?, typing: String? = nil, services: AppServices) -> Bool? {
         guard let session = services.machines.session(chat.machine) else { return nil }
         let fronts = services.agentTabs.frontedChats, mac = fronts.mac(showing: chat), context = AppActionContext(services: services)
         switch CloudChatToolRoute.resolve(kind == .browser ? .browser : kind == .terminal ? .terminal : .other, onCloud: true, shownOnThisMac: mac != nil) {
@@ -186,6 +190,7 @@ extension CloudFrontedChats {
                 guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
                 let created = try await connection.newTab(in: anchor.pane.handle, options: SpawnOptions(cwd: cwd, workspace: anchor.key))
                 CloudHandlers.reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context)
+                if let typing, !typing.isEmpty { _ = try await connection.request(SendInputRequest(surface: created.surface, text: typing)) }
             }
         }
         return true

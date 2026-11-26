@@ -30,3 +30,45 @@ public nonisolated enum CloudChatToolRoute: Equatable, Sendable {
         }
     }
 }
+
+/// Which Cloud chat a person's new terminal or browser belongs to when it names no other place (cmux#57249): the pane
+/// toolbar's Terminal and Browser, their keys, the palette and menu bar, Split Right / Split Down (Cmd-D, Cmd-Shift-D),
+/// Split Browser and the New Tab page's picks. User, 2026-11-25: "if we click these buttons or are focused on a cloud
+/// chat it should go into the cloud terminal and cloud browser". Every such path asks this one rule, then opens through
+/// ``CloudChatToolRoute`` as the chat header's tools do, so none of them opens on this Mac again.
+public nonisolated enum CloudChatFocus: Equatable, Sendable {
+    /// Open as before: no Cloud chat is focused, or the open names its own place.
+    case asBefore
+    /// Open on the Cloud machine of chat tab `key` of machine `machine`.
+    case cloudChat(machine: String, key: String)
+
+    /// A tab a pane shows, as this rule needs it.
+    public struct Shown: Equatable, Sendable {
+        /// The tab's machine and id.
+        public var machine: String, key: String
+        /// The Cloud chat a Mac tab shows in place (``CloudFrontedChats``), as (machine, tab id).
+        public var fronts: (machine: String, key: String)?
+        /// The tab's machine is a Cloud machine.
+        public var onCloud: Bool
+        /// The tab is an agent chat.
+        public var isChat: Bool
+
+        public init(machine: String, key: String, fronts: (machine: String, key: String)? = nil, onCloud: Bool, isChat: Bool) {
+            (self.machine, self.key, self.fronts, self.onCloud, self.isChat) = (machine, key, fronts, onCloud, isChat)
+        }
+
+        public static func == (a: Self, b: Self) -> Bool {
+            a.machine == b.machine && a.key == b.key && a.fronts?.machine == b.fronts?.machine && a.fronts?.key == b.fronts?.key
+                && a.onCloud == b.onCloud && a.isChat == b.isChat
+        }
+    }
+
+    /// `byPerson`: a person's own open (a click, key, menu or palette), not a script's. `namesPlace`: the open names its
+    /// own place (beside an agent's caller, a divider's Insert New, an explicit tab of another pane). `shown`: the tab the
+    /// pane shows.
+    public static func resolve(byPerson: Bool, namesPlace: Bool, shown: Shown?) -> Self {
+        guard byPerson, !namesPlace, let shown else { return .asBefore }
+        if let front = shown.fronts { return .cloudChat(machine: front.machine, key: front.key) }
+        return shown.onCloud && shown.isChat ? .cloudChat(machine: shown.machine, key: shown.key) : .asBefore
+    }
+}

@@ -17,3 +17,27 @@ struct CloudChatToolRouteTests {
         #expect(CloudChatToolRoute.resolve(tool, onCloud: false, shownOnThisMac: shown) == .asLocal)
     }
 }
+
+/// One rule decides which Cloud chat a person's new terminal or browser goes to (cmux#57249).
+struct CloudChatFocusTests {
+    @Test func aMacTabShowingACloudChatSendsItsToolsToThatChatsMachine() {
+        let mac = CloudChatFocus.Shown(machine: "mac", key: "mac-1", fronts: ("vm-1", "chat-1"), onCloud: false, isChat: true)
+        #expect(CloudChatFocus.resolve(byPerson: true, namesPlace: false, shown: mac) == .cloudChat(machine: "vm-1", key: "chat-1"))
+    }
+
+    @Test func aCloudMachinesOwnChatSendsItsToolsThere() {
+        let chat = CloudChatFocus.Shown(machine: "vm-1", key: "chat-1", onCloud: true, isChat: true)
+        #expect(CloudChatFocus.resolve(byPerson: true, namesPlace: false, shown: chat) == .cloudChat(machine: "vm-1", key: "chat-1"))
+    }
+
+    @Test func otherTabsScriptsAndPlacedOpensAreUnchanged() {
+        let localChat = CloudChatFocus.Shown(machine: "mac", key: "c", onCloud: false, isChat: true)
+        let cloudTerminal = CloudChatFocus.Shown(machine: "vm-1", key: "t", onCloud: true, isChat: false)
+        let fronted = CloudChatFocus.Shown(machine: "mac", key: "m", fronts: ("vm-1", "chat-1"), onCloud: false, isChat: true)
+        #expect(CloudChatFocus.resolve(byPerson: true, namesPlace: false, shown: localChat) == .asBefore)
+        #expect(CloudChatFocus.resolve(byPerson: true, namesPlace: false, shown: cloudTerminal) == .asBefore)
+        #expect(CloudChatFocus.resolve(byPerson: true, namesPlace: false, shown: nil) == .asBefore)
+        #expect(CloudChatFocus.resolve(byPerson: false, namesPlace: false, shown: fronted) == .asBefore, "a script keeps its target")
+        #expect(CloudChatFocus.resolve(byPerson: true, namesPlace: true, shown: fronted) == .asBefore, "an open that names its place keeps it")
+    }
+}

@@ -24,6 +24,8 @@ enum TabLifecycle {
         #endif
         guard let focused = ctx.daemonPane(invocation) else { return }
         let cwd = invocation["cwd"]?.stringValue
+        // A person's terminal from a Cloud chat runs on its machine (the pane toolbar's, keys, palette, menu bar: cmux#57249).
+        if CloudFrontedChats.openOnCloud(.terminal, pane: focused, invocation: invocation, cwd: cwd, services: ctx.services) { return }
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
         let keep = invocation["keep"]?.boolValue == true ? true : nil
         let opensWorkspace = NewTerminalWorkspaceSetting.resolves(
@@ -236,6 +238,9 @@ enum TabLifecycle {
         }
         guard let invoked = ctx.daemonPane(invocation) else { return }
         let engine = plan.engine
+        // A person's browser from a Cloud chat is its machine's desktop (cmux#57249); one with an address opens it here,
+        // as the desktop takes none.
+        if url == nil, CloudFrontedChats.openOnCloud(.browser, pane: invoked, invocation: invocation, services: ctx.services) { return }
         if openBrowserFromDock(ctx, invocation, pane: invoked, url: url, engine: engine, profile: profileRequest) { return }
         // From the docked agent chat, a tab in the strip (ChatColumnPlacement); the header's Preview as an agent's. A lone chat's New Browser Tab (Shift-Cmd-L, menus, palette) stays a tab in its pane, never docks (#49625).
         let pane: PaneModel
