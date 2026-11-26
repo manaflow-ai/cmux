@@ -134,6 +134,7 @@ nonisolated extension AcpmuxPaneMethods {
         // unix socket only. `op`: on, off, status, read (`after`, `limit`, `waitMs`), snapshot, budgets, or report (the
         // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`), frames, or tally (frameTally.ts: `bucketMs`, `gaps`).
         "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes", "bucketMs", "gaps"], []),
+        "_acpmux/host_overload": ([], []),
         "_acpmux/trace/spans": (["process", "pid", "spans"], []),
         "_acpmux/trace/status": ([], []),
         // Placement names are local display labels; the optional source lets the page filter
