@@ -3245,6 +3245,7 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_INFO => info::info(hub, conn, &params).await,
         method::MUX_SESSION_RESYNC => super::session_patch::resync(hub, conn, &params),
+        method::MUX_PAUSED_FILES => super::paused_files::handle(hub, conn, &params).await,
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;
             let s = hub.resolve(session_key(&params)?)?;
