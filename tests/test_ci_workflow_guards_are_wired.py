@@ -345,28 +345,45 @@ def workflow_guards() -> set[str]:
     return found
 
 
-def invoked_by_workflows() -> set[str]:
+def _registry_validator():
     sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-    import workload_entrypoints
+    import validate_test_execution_registry
 
-    invoked = set()
-    for workflow in sorted(WORKFLOW_DIR.glob("*.yml")):
-        text = workflow.read_text(encoding="utf-8")
-        invoked.update(INVOKED_PATH.findall(text))
-        # A workload profile step runs everything its entrypoint names.
-        for _, script in workload_entrypoints.entrypoints(text, ROOT):
-            invoked.update(INVOKED_PATH.findall(script))
+    return validate_test_execution_registry
+
+
+def invoked_by_workflows() -> set[str]:
+    """What CI runs, read the way the execution registry's validator reads it: every workflow, the step table
+    pr-pipeline.yml runs through `ci/run` (ci/steps.toml), each workload profile's entrypoint and the shared recipe,
+    plus every registry entry whose lane a workflow's run_python_test_lane.py step runs."""
+    validator = _registry_validator()
+    workflows = ROOT / ".github" / "workflows"
+    invoked = set(INVOKED_PATH.findall(validator.all_workflow_text(workflows)))
+    live_lanes = validator.runner_lanes(workflows)
+    for entry in validator.load_tree(ROOT):
+        if entry.get("lane") in live_lanes and isinstance(entry.get("path"), str):
+            invoked.add(entry["path"])
     return invoked
 
 
+def registered_manual() -> set[str]:
+    """Tests the execution registry (tests/test-execution.d/*.toml) gives lane = "manual" with a reason: the
+    registry is where a knowingly unwired test says why and how to run it, so it needs no second entry here."""
+    return {
+        entry["path"]
+        for entry in _registry_validator().load_tree(ROOT)
+        if entry.get("lane") == "manual" and str(entry.get("reason") or "").strip() and isinstance(entry.get("path"), str)
+    }
+
+
 def test_every_workflow_guard_is_run_by_a_workflow() -> None:
-    unwired = sorted(workflow_guards() - invoked_by_workflows() - UNWIRED)
+    unwired = sorted(workflow_guards() - invoked_by_workflows() - UNWIRED - registered_manual())
     assert not unwired, (
         "these tests read .github/workflows/ but no workflow runs them, so the "
         "invariants they assert are not enforced:\n  "
         + "\n  ".join(unwired)
-        + "\n\nAdd a step to .github/workflows/ci-guards.yml, or add an "
-        "entry to UNWIRED in this file explaining why not."
+        + "\n\nAdd a step to ci/steps.toml or .github/workflows/ci-guards.yml, or register it in "
+        "tests/test-execution.d/ with lane = \"manual\" and a reason (or add it to UNWIRED here) explaining why not."
     )
 
 
