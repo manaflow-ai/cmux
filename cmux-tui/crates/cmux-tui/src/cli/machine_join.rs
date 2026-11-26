@@ -82,16 +82,24 @@ const USAGE: &str = "usage: cmux machine add [--name NAME] [--ttl 10m] [--wait|-
        cmux machine revoke ID|NAME [--yes]
        cmux machine rotate ID|NAME
        cmux machine vault set|rm NAME, cmux machine vault ls, cmux machine vault grant|revoke MACHINE
+       cmux machine placement on|off|status
   each takes --platform URL (or CMUX_PLATFORM_ORIGIN, alias CMUX_PLATFORM_URL; default the production platform)
-  and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN.
+  and --cloud-token-file PATH, --cloud-token-stdin or CMUX_CLOUD_ACCESS_TOKEN; with none of them, the signed-in
+  app's session (--app-session asks for it on a plain add instead of the Add Machine card).
+  cmux machine placement on|off sets whether the team's new machines book its own joined machines first (owner or admin).
   cmux machine add HOST (without --vault or --bootstrap) opens the app's Add Machine card for an ssh host.";
 const SIGN_IN: &str = "sign in: pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN), or use Add Machine in the app";
+/// A signed-in app that could not hand over its session (none answers, or it is signed out).
+const APP_SIGN_IN: &str = "sign in to the cmux app (cmux login), or pass --cloud-token-file PATH (or set CMUX_CLOUD_ACCESS_TOKEN)";
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Auth {
     pub platform: Option<String>,
     pub token_file: Option<PathBuf>,
     pub token_stdin: bool,
+    /// Sign in with the app's session (`auth.token`, the token `cmux auth token` prints) even on a
+    /// plain `machine add`, which otherwise opens the app's Add Machine card.
+    pub app_session: bool,
 }
 
 /// `machine add`'s words.
@@ -122,9 +130,37 @@ impl AddArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Verb {
     Add(AddArgs),
-    Revoke { machine: String, yes: bool },
-    Rotate { machine: String },
+    Revoke {
+        machine: String,
+        yes: bool,
+    },
+    Rotate {
+        machine: String,
+    },
     Vault(vault::VaultVerb),
+    /// `machine placement on|off|status`: `Some(enabled)` sets the team's joined placement,
+    /// `None` reads it.
+    Placement(Option<bool>),
+}
+
+/// Where a verb's sign-in comes from when no flag or variable names a credential.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum NoCredential {
+    /// A plain `machine add`: the app's Add Machine card, as before joining existed.
+    Card,
+    /// The signed-in app's session (`auth.token`): no token passes through the caller.
+    AppSession,
+}
+
+impl Command {
+    /// What a run with no credential does: the card for a plain `machine add` (unless it asks for
+    /// `--app-session`), the app's session for every other verb.
+    pub(super) fn without_credential(&self) -> NoCredential {
+        match &self.verb {
+            Verb::Add(add) if add.plain() && !self.auth.app_session => NoCredential::Card,
+            _ => NoCredential::AppSession,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,26 +209,46 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         Err(error) => return Some(fail(Failure::usage(error.0))),
     };
     let env = |key: &str| std::env::var(key).ok();
-    let credential = match read_credential(&command.auth, &env, &mut std::io::stdin().lock()) {
-        Ok(Some(credential)) => credential,
-        Ok(None) => {
+    let given = if command.auth.app_session {
+        Ok(None)
+    } else {
+        read_credential(&command.auth, &env, &mut std::io::stdin().lock())
+    };
+    let (credential, team, app_origin) = match given {
+        Ok(Some(credential)) => (credential, None, None),
+        Ok(None) => match command.without_credential() {
             // With no credential, `machine add` stays the app's Add Machine card wherever an
             // app answers, as it was before joining existed.
-            if matches!(&command.verb, Verb::Add(add) if add.plain())
-                && let Some(code) = super::app_commands::run_app_action_fallback(args)
-            {
-                return Some(code);
+            NoCredential::Card => {
+                if let Some(code) = super::app_commands::run_app_action_fallback(args) {
+                    return Some(code);
+                }
+                return Some(fail(Failure::usage(SIGN_IN)));
             }
-            return Some(fail(Failure::usage(SIGN_IN)));
-        }
+            // The app's own session, minted for its current team the way `cmux auth token` asks
+            // for one: the token goes from the app's socket straight into the call, never to
+            // the caller's terminal, environment or logs.
+            NoCredential::AppSession => match super::auth_token::app_token_in(None) {
+                Ok(token) => (token.token.to_string(), Some(token.team), Some(token.api_origin)),
+                Err(why) => {
+                    return Some(fail(Failure::new(
+                        "machine_join.signed_out",
+                        format!("the cmux app gave no session ({why}): {APP_SIGN_IN}"),
+                    )));
+                }
+            },
+        },
         Err(message) => return Some(fail(Failure::usage(message))),
     };
-    let origin = match platform_origin(command.auth.platform.as_deref(), &env) {
+    // An explicit `--platform` wins; else the API the app's token came from; else the usual
+    // variables and production.
+    let flag = command.auth.platform.as_deref().or(app_origin.as_deref());
+    let origin = match platform_origin(flag, &env) {
         Ok(origin) => origin,
         Err(message) => return Some(fail(Failure::usage(message))),
     };
     let platform = match Platform::new(origin, credential, REQUEST_TIMEOUT) {
-        Ok(platform) => platform,
+        Ok(platform) => platform.with_team(team),
         Err(failure) => return Some(fail(failure)),
     };
     let interactive = std::io::stdout().is_terminal() && std::io::stdin().is_terminal();
@@ -224,7 +280,7 @@ pub(super) fn verb_help(args: &[String]) -> Option<String> {
         rest.iter().take_while(|w| *w != "--").any(|w| matches!(w.as_str(), "-h" | "--help"));
     if scope != "machine"
         || !asks
-        || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault")
+        || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault" | "placement")
     {
         return None;
     }
@@ -261,7 +317,9 @@ pub(super) fn verb_help(args: &[String]) -> Option<String> {
 /// `None` for another module (`machine list`, `machine add HOST`).
 pub(super) fn parse(args: &[String]) -> Option<Result<Command, UsageError>> {
     let [scope, verb, rest @ ..] = args else { return None };
-    if scope != "machine" || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault") {
+    if scope != "machine"
+        || !matches!(verb.as_str(), "add" | "revoke" | "rotate" | "vault" | "placement")
+    {
         return None;
     }
     // `machine add HOST` stays the app's ssh card unless it asks for the one-command join.
@@ -283,11 +341,18 @@ pub(super) fn parse(args: &[String]) -> Option<Result<Command, UsageError>> {
 pub(super) fn own_switch(command: &[String], flag: &str) -> bool {
     let ours = matches!(
         command.get(..2),
-        Some([scope, verb]) if scope == "machine" && matches!(verb.as_str(), "add" | "vault")
+        Some([scope, verb])
+            if scope == "machine" && matches!(verb.as_str(), "add" | "vault" | "placement")
     );
     ours && matches!(
         flag,
-        "--vault" | "--bootstrap" | "--yes" | "--wait" | "--no-wait" | "--cloud-token-stdin"
+        "--vault"
+            | "--bootstrap"
+            | "--yes"
+            | "--wait"
+            | "--no-wait"
+            | "--cloud-token-stdin"
+            | "--app-session"
     )
 }
 
@@ -362,12 +427,18 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
             (_, "platform") => auth.platform = value,
             (_, "cloud-token-file") => auth.token_file = value.map(PathBuf::from),
             (_, "cloud-token-stdin") => auth.token_stdin = true,
+            (_, "app-session") => auth.app_session = true,
             _ => return Err(usage()),
         }
     }
-    if auth.token_stdin && auth.token_file.is_some() {
+    if [auth.token_stdin, auth.token_file.is_some(), auth.app_session]
+        .iter()
+        .filter(|given| **given)
+        .count()
+        > 1
+    {
         return Err(UsageError::new(
-            "give the credential one way: --cloud-token-file or --cloud-token-stdin",
+            "give the credential one way: --cloud-token-file, --cloud-token-stdin or --app-session",
         ));
     }
     let verb = match (verb, positional.as_slice()) {
@@ -385,6 +456,15 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
         }
         ("revoke", [machine]) => Verb::Revoke { machine: machine.clone(), yes },
         ("rotate", [machine]) => Verb::Rotate { machine: machine.clone() },
+        ("placement", [state]) => match state.as_str() {
+            "on" => Verb::Placement(Some(true)),
+            "off" => Verb::Placement(Some(false)),
+            "status" => Verb::Placement(None),
+            _ => return Err(UsageError::new("usage: cmux machine placement on|off|status")),
+        },
+        ("placement", _) => {
+            return Err(UsageError::new("usage: cmux machine placement on|off|status"));
+        }
         _ => return Err(usage()),
     };
     Ok(Command { verb, auth })
@@ -923,7 +1003,61 @@ pub(super) fn run(
         }
         Verb::Rotate { machine } => rotate(platform, machine, output, out),
         Verb::Vault(verb) => vault::run(verb, platform, output, out, hooks),
+        Verb::Placement(set) => placement(platform, *set, output, out),
     }
+}
+
+/// `machine placement on|off|status`: PUT or GET `/v1/machines/joined/placement`. On, the team's
+/// new machines book a free slot on one of its own joined machines before a new VM is made
+/// (cmux-platform's `setJoinedPlacement`); only a team owner or admin, as a person, sets it.
+fn placement(
+    platform: &Platform,
+    set: Option<bool>,
+    output: OutputMode,
+    out: &mut dyn Write,
+) -> Result<i32, Failure> {
+    let path = "/v1/machines/joined/placement";
+    let answer = match set {
+        Some(enabled) => {
+            platform.request(reqwest::Method::PUT, path, Some(json!({ "enabled": enabled })))
+        }
+        None => platform.request(reqwest::Method::GET, path, None),
+    }
+    .map_err(|error| match error {
+        CallError::Status { status: 404, .. } => Failure::new(
+            "machine_join.unavailable",
+            "joined placement isn't available on this server (it answered 404)",
+        ),
+        CallError::Status { status: 403, code, .. } => Failure::new(
+            "machine_join.forbidden",
+            format!(
+                "only a team owner or admin, signed in as a person, turns joined placement on or off ({})",
+                format!("403 {code}").trim_end()
+            ),
+        ),
+        error => error.failure(if set.is_some() { "the placement change" } else { "the placement read" }),
+    })?;
+    let Some(enabled) = answer.get("enabled").and_then(Value::as_bool) else {
+        return Err(Failure::new(
+            "machine_join.unreadable",
+            "the cmux platform's placement answer has no enabled field",
+        ));
+    };
+    let updated_at = answer.get("updated_at").and_then(Value::as_u64).unwrap_or(0);
+    let io = |e: std::io::Error| Failure::new("io", e.to_string());
+    match output {
+        OutputMode::Human => {
+            let state = if enabled { "on" } else { "off" };
+            let when = if updated_at == 0 { " (never set)" } else { "" };
+            writeln!(out, "joined placement: {state}{when}").map_err(io)?;
+        }
+        OutputMode::Json | OutputMode::JsonLines => {
+            writeln!(out, "{}", json!({ "enabled": enabled, "updated_at": updated_at }))
+                .map_err(io)?;
+        }
+        OutputMode::Quiet => {}
+    }
+    Ok(0)
 }
 
 pub(super) struct Add<'a> {
@@ -1470,7 +1604,7 @@ pub(crate) fn device_credential(
     token_file: Option<PathBuf>,
     token_stdin: bool,
 ) -> Result<Option<String>, String> {
-    let auth = Auth { platform: None, token_file, token_stdin };
+    let auth = Auth { platform: None, token_file, token_stdin, app_session: false };
     read_credential(&auth, &|key: &str| std::env::var(key).ok(), &mut std::io::stdin().lock())
 }
 
