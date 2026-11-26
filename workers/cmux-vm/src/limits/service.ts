@@ -17,6 +17,7 @@ import {
   memoryLedgerStorage,
   RateDecision,
   ReserveDecision,
+  RetainedCreationSlot,
   TenantLedger,
   type IdempotencyProgress,
   type LedgerStorage,
@@ -33,6 +34,8 @@ export interface TenantLimitsService {
   readonly snapshotCapture: (tenantId: TenantId, command: SnapshotCaptureCommand) => Effect.Effect<SnapshotCaptureResult, LimitsUnavailable>;
   readonly beginCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<boolean, LimitsUnavailable>;
   readonly settleAbsentCancellation: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<boolean, LimitsUnavailable>;
+  /** Unfinished creates by `createdBy` that still hold a retained VM slot, oldest first (ledger.retainedCreations). */
+  readonly retainedCreations: (tenantId: TenantId, createdBy: string, limit: number) => Effect.Effect<ReadonlyArray<RetainedCreationSlot>, LimitsUnavailable>;
   readonly readmitCreation: (tenantId: TenantId, key: string, vmId: string, limit: number, liveCount: number) => Effect.Effect<"readmitted" | "over_quota" | "none", LimitsUnavailable>;
   readonly rejectCreateSend: (tenantId: TenantId, key: string, vmId: string, token: string) => Effect.Effect<void, LimitsUnavailable>;
   readonly creationActive: (tenantId: TenantId, key: string, vmId: string) => Effect.Effect<boolean, LimitsUnavailable>;
@@ -78,6 +81,7 @@ interface LedgerHandle {
   snapshotCapture(command: SnapshotCaptureCommand, nowMs: number): Promise<SnapshotCaptureResult>;
   beginCreateSend(key: string, vmId: string, token: string, nowMs: number): Promise<boolean>;
   settleAbsentCancellation(key: string, vmId: string, nowMs: number): Promise<boolean>;
+  retainedCreations(createdBy: string, limit: number): Promise<ReadonlyArray<RetainedCreationSlot>>;
   readmitCreation(key: string, vmId: string, limit: number, liveCount: number, nowMs: number): Promise<"readmitted" | "over_quota" | "none">;
   rejectCreateSend(key: string, vmId: string, token: string): Promise<boolean>;
   creationActive(key: string, vmId: string): Promise<boolean>;
@@ -119,6 +123,7 @@ const makeService = (ledgerFor: (tenantId: TenantId) => LedgerHandle): TenantLim
     snapshotCapture: (tenantId, command) => call((ledger, now) => ledger.snapshotCapture(command, now))(tenantId),
     beginCreateSend: (tenantId, key, vmId, token) => call((ledger, now) => ledger.beginCreateSend(key, vmId, token, now))(tenantId),
     settleAbsentCancellation: (tenantId, key, vmId) => call((ledger, now) => ledger.settleAbsentCancellation(key, vmId, now))(tenantId),
+    retainedCreations: (tenantId, createdBy, limit) => call((ledger) => ledger.retainedCreations(createdBy, limit))(tenantId),
     readmitCreation: (tenantId, key, vmId, limit, liveCount) => call((ledger, now) => ledger.readmitCreation(key, vmId, limit, liveCount, now))(tenantId),
     rejectCreateSend: (tenantId, key, vmId, token) => call((ledger) => ledger.rejectCreateSend(key, vmId, token))(tenantId).pipe(Effect.flatMap(confirmed)),
     creationActive: (tenantId, key, vmId) => call((ledger) => ledger.creationActive(key, vmId))(tenantId),
@@ -169,6 +174,7 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         snapshotCapture: (command, nowMs) => decoded(SnapshotCaptureResult)(stub.snapshotCapture(command, nowMs)),
         beginCreateSend: (key, vmId, token, nowMs) => decoded(Schema.Boolean)(stub.beginCreateSend(key, vmId, token, nowMs)),
         settleAbsentCancellation: (key, vmId, nowMs) => decoded(Schema.Boolean)(stub.settleAbsentCancellation(key, vmId, nowMs)),
+        retainedCreations: (createdBy, limit) => decoded(Schema.Array(RetainedCreationSlot))(stub.retainedCreations(createdBy, limit)),
         readmitCreation: (key, vmId, limit, liveCount, nowMs) => decoded(Schema.Literal("readmitted", "over_quota", "none"))(stub.readmitCreation(key, vmId, limit, liveCount, nowMs)),
         rejectCreateSend: (key, vmId, token) => decoded(Schema.Boolean)(stub.rejectCreateSend(key, vmId, token)),
         creationActive: (key, vmId) => decoded(Schema.Boolean)(stub.creationActive(key, vmId)),
