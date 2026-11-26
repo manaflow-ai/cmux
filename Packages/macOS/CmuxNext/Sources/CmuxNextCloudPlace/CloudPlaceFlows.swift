@@ -114,6 +114,8 @@ public final class CloudPlaceFlows {
     @ObservationIgnored private let clock: @Sendable () -> UInt64
     /// How long a landed move's card stays in the header after its work ended (the page's own linger, `MoveProgress.tsx`).
     @ObservationIgnored private let liveLinger: Duration
+    /// Each chat's pending linger (``finished(_:)``); dropped once it fires.
+    @ObservationIgnored private var lingers: [String: DemandTimer] = [:]
 
     public init(defaults: UserDefaults = .standard, key: String = "cmux.cloud.placeModes", core: Core? = nil, clock: (@Sendable () -> UInt64)? = nil,
                 liveLinger: Duration = .milliseconds(2500)) {
@@ -273,11 +275,13 @@ public final class CloudPlaceFlows {
         started[session] = nil
         cancelled.remove(session)
         guard state(of: session) == "live" else { return }
-        let linger = liveLinger
-        // task-owner: one linger; it settles the card unless the chat's next move runs (or failed) by then.
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: linger)
-            guard let self, self.state(of: session) == "live" else { return }
+        // One linger per chat: it settles the card unless the chat's next move runs (or failed) by then.
+        let linger = lingers[session] ?? DemandTimer(owner: "cloudPlace.liveLinger")
+        lingers[session] = linger
+        linger.schedule(after: liveLinger) { @MainActor [weak self] in
+            guard let self else { return }
+            self.lingers[session] = nil
+            guard self.state(of: session) == "live" else { return }
             self.settled.insert(session)
         }
     }
