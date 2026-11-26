@@ -14,13 +14,18 @@ import OSLog
 /// uploads afresh if the early upload failed.
 @MainActor
 final class AttachmentPrestager {
-    typealias Upload = @Sendable (LinkUpload.Payload, String) async throws -> String
+    enum Result: Sendable, Equatable {
+        case path(String)
+        case prompt(uploadID: String, fileName: String)
+    }
+
+    typealias Upload = @Sendable (LinkUpload.Payload, String) async throws -> Result
 
     static let log = Logger(subsystem: "dev.cmux.mobile", category: "upload")
 
     /// An early upload: its task and when the file was picked.
     struct Entry {
-        let task: Task<String, any Error>
+        let task: Task<Result, any Error>
         let started: ContinuousClock.Instant
         let directory: String?
     }
@@ -58,9 +63,9 @@ final class AttachmentPrestager {
             let started = ContinuousClock.now
             let task = Task<String, any Error> {
                 do {
-                    let path = try await upload(payload, name)
+                    let result = try await upload(payload, name)
                     Self.log.info("prestage ms=\(Self.ms(ContinuousClock.now - started)) bytes=\(bytes) ok=true")
-                    return path
+                    return result
                 } catch {
                     Self.log.info("prestage ms=\(Self.ms(ContinuousClock.now - started)) bytes=\(bytes) ok=false")
                     throw error
