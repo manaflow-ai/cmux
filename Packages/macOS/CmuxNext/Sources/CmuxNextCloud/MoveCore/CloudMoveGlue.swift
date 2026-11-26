@@ -132,22 +132,18 @@ public struct CloudTryAnotherApproach: Sendable {
     public typealias ForkMachine = @MainActor @Sendable (_ plan: Plan) async throws -> CloudOwnerAPIClient.ForkRunChild
     public typealias ForkTranscript = @MainActor @Sendable (_ plan: Plan, _ childMachine: String) async throws -> String
     public typealias OpenChild = @MainActor @Sendable (_ plan: Plan, _ childMachine: String, _ session: String) async throws -> String
-    /// Drops what the copy left behind once the child chat is open (``copyMachine``'s snapshot); best effort, never fails the fork.
-    public typealias DropCopy = @MainActor @Sendable (_ plan: Plan, _ child: CloudOwnerAPIClient.ForkRunChild) async -> Void
 
     private let prepare: Prepare
     private let forkMachine: ForkMachine
     private let forkTranscript: ForkTranscript
     private let openChild: OpenChild
-    private let dropCopy: DropCopy?
 
     public init(prepare: @escaping Prepare, forkMachine: @escaping ForkMachine,
-                forkTranscript: @escaping ForkTranscript, openChild: @escaping OpenChild, dropCopy: DropCopy? = nil) {
+                forkTranscript: @escaping ForkTranscript, openChild: @escaping OpenChild) {
         self.prepare = prepare
         self.forkMachine = forkMachine
         self.forkTranscript = forkTranscript
         self.openChild = openChild
-        self.dropCopy = dropCopy
     }
 
     /// One Cloud op (`op` with the single argument `arg` = `value`) answering the id of its record `answers`, sent with
@@ -174,15 +170,6 @@ public struct CloudTryAnotherApproach: Sendable {
                      error: machine == nil ? "the restore answered no machine" : nil)
     }
 
-    /// Deletes ``copyMachine``'s snapshot (the child's `id`) once the child is up: every saved snapshot counts against
-    /// the plan's `max_saved`, so a kept one per click would make Try another approach fail `cloud.quota.exceeded` after
-    /// a few turns. Keyed like the copy, so a retry is the same delete; an error (already gone, still busy) is ignored.
-    @MainActor
-    public static func dropSnapshot(_ plan: Plan, _ child: CloudOwnerAPIClient.ForkRunChild, change: MachineChange) async {
-        guard !child.id.isEmpty else { return }
-        _ = try? await change("cloud.snapshot.delete", "snapshot", child.id, "", "\(plan.clientKey):drop")
-    }
-
     @MainActor
     public func run(chat: String, throughSeq: Int) async throws -> Result {
         let plan = try prepare(chat, throughSeq)
@@ -195,7 +182,6 @@ public struct CloudTryAnotherApproach: Sendable {
         }
         let childSession = try await forkTranscript(plan, childMachine)
         let childTab = try await openChild(plan, childMachine, childSession)
-        await dropCopy?(plan, child)
         return Result(childMachine: childMachine, childSession: childSession, childTab: childTab,
                       parentLabel: plan.parentLabel, throughSeq: throughSeq)
     }

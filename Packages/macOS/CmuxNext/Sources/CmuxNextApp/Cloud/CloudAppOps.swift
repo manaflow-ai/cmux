@@ -57,9 +57,6 @@ extension AppServices {
 @MainActor
 func cloudTryAnotherApproach(chat key: String, session expected: String, throughSeq: Int, services: AppServices) async throws -> [String: Any] {
     let opener = CloudTryAnotherApproachChildOpener()
-    let change: CloudTryAnotherApproach.MachineChange = { op, arg, value, answers, key in
-        try await services.cloud.machineChange(op, [arg: .string(value)], answers: answers.isEmpty ? nil : answers, key: key, allow: { true })
-    }
     let fork = CloudTryAnotherApproach(
         prepare: { chat, seq in
             guard seq > 0, let place = cloudChatPlace(chat: chat, session: expected, services: services),
@@ -72,7 +69,9 @@ func cloudTryAnotherApproach(chat key: String, session expected: String, through
                          parentLabel: "Try another approach · \(place.workspaceName)")
         },
         forkMachine: { plan in
-            try await CloudTryAnotherApproach.copyMachine(plan, change: change)
+            try await CloudTryAnotherApproach.copyMachine(plan) { op, arg, value, answers, key in
+                try await services.cloud.machineChange(op, [arg: .string(value)], answers: answers, key: key, allow: { true })
+            }
         },
         forkTranscript: { plan, childMachine in
             let ready = await CloudWait.holds(tries: 60, each: .seconds(3),
@@ -115,9 +114,6 @@ func cloudTryAnotherApproach(chat key: String, session expected: String, through
         openChild: { plan, _, session in
             guard let open = opener.open else { throw cloudTryAnotherApproachFailure("Child chat is unavailable") }
             return try await open(plan, session)
-        },
-        dropCopy: { plan, child in
-            Task { await CloudTryAnotherApproach.dropSnapshot(plan, child, change: change) } // off the click's answer
         })
     let result = try await fork.run(chat: key, throughSeq: throughSeq)
     return ["childMachine": result.childMachine, "childSession": result.childSession, "childTab": result.childTab,

@@ -67,34 +67,4 @@ struct CloudTryAnotherApproachCopyTests {
         #expect(ops == ["cloud.snapshot.create"])
         #expect(child.machineId == nil)
     }
-
-    /// A saved snapshot counts against the plan's `max_saved`: the fork drops the copy's snapshot once the child chat is
-    /// open, so repeated clicks do not fail `cloud.quota.exceeded`. RED before: every click kept its snapshot.
-    @Test func theCopysSnapshotIsDroppedOnceTheChildIsOpen() async throws {
-        var calls: [String] = []
-        let change: CloudTryAnotherApproach.MachineChange = { op, _, value, _, key in
-            calls.append("\(op) \(value) \(key)")
-            return op == "cloud.snapshot.create" ? "snap_1" : op == "cloud.snapshot.restore" ? "vm_child000000000000000" : nil
-        }
-        let fork = CloudTryAnotherApproach(
-            prepare: { [plan] _, _ in plan },
-            forkMachine: { plan in try await CloudTryAnotherApproach.copyMachine(plan, change: change) },
-            forkTranscript: { _, _ in "child-session" },
-            openChild: { _, _, _ in "child-tab" },
-            dropCopy: { plan, child in await CloudTryAnotherApproach.dropSnapshot(plan, child, change: change) })
-        let result = try await fork.run(chat: "parent-chat", throughSeq: 4)
-        #expect(result.childMachine == "vm_child000000000000000")
-        #expect(calls.last == "cloud.snapshot.delete snap_1 try-parent-session-4:drop")
-    }
-
-    @Test func aFailedDropDoesNotFailTheFork() async throws {
-        await CloudTryAnotherApproach.dropSnapshot(plan, .init(id: "snap_1", harness: "codex", state: "ready", machineId: "vm_c", error: nil)) { _, _, _, _, _ in
-            throw NSError(domain: "cloud", code: 1)
-        }
-        var called = false
-        await CloudTryAnotherApproach.dropSnapshot(plan, .init(id: "", harness: "codex", state: "failed", machineId: nil, error: nil)) { _, _, _, _, _ in
-            called = true; return nil
-        }
-        #expect(!called)
-    }
 }
