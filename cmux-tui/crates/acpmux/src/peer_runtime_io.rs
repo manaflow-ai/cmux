@@ -643,6 +643,18 @@ impl Peer {
         // answers first wins: a frame here drops the dial, the dial opening first moves the link
         // to it (`LinkEnd::Switching`, no outage). The link drops as before when the dial fails,
         // or at twice the budget.
+        //
+        // A frame is not an answer: the first frames after a blackout are the backlog the peer
+        // wrote into it, and everything sent after them (the content the person waits for) sits
+        // behind them on that ladder. At duress (a chat streaming 20 chunks each 250 ms, a 5 s
+        // blackout) the first one came 1.2 s after the blackout, the content B sent at its end
+        // 3.0 s (direct) to 3.9 s (relay) after it, while a replacement opened and replayed by
+        // 1.3 s (job ce049556). So only a pong for a ping sent after the dial began drops it:
+        // the peer wrote that pong after everything before it, so the link is current again.
+        // On the std clock: a ping's stamp (`carriers::ping_stamp`) is, and its pong carries it.
+        let mut replacing_since: Option<std::time::Instant> = None;
+        // A frame came on this link while its replacement dialed: a dial that fails then keeps it.
+        let mut heard_while_replacing = false;
         let mut replacing: Option<
             std::pin::Pin<
                 Box<
@@ -663,6 +675,8 @@ impl Peer {
                     tracing::info!(peer = %self.name, "silent {}ms, past its {}s budget; dialing a replacement while this link still reads", silent.as_millis(), silence.as_secs());
                     let gate = crate::peer_dial_gate::global();
                     replacing = Some(Box::pin(gate.pass(self.is_wanted(), crate::peer_link::jitter(), self.open_first())));
+                    replacing_since = Some(std::time::Instant::now());
+                    heard_while_replacing = false;
                 }
                 if replacing.is_some() && silent < cap {
                     silence_due = Some(now + (cap - silent));
@@ -976,6 +990,12 @@ impl Peer {
                             *self.replacement.lock_or_recover() = Some(opened);
                             break Ok(LinkEnd::Switching);
                         }
+                        Err(e) if heard_while_replacing => {
+                            tracing::info!(peer = %self.name, "a replacement did not open ({e}); the link answers again, so it stays");
+                            replacing = None;
+                            replacing_since = None;
+                            silence_due = None;
+                        }
                         Err(e) => {
                             let now = tokio::time::Instant::now();
                             self.with_silence(|b| b.dropped(now));
@@ -1043,10 +1063,7 @@ impl Peer {
                     }
                     frame_gap = frame_gap.max(last_frame.elapsed());
                     last_frame = tokio::time::Instant::now();
-                    if replacing.take().is_some() {
-                        tracing::info!(peer = %self.name, "the silent link answered again; its replacement dial is dropped");
-                        silence_due = None;
-                    }
+                    heard_while_replacing |= replacing.is_some();
                     wake_probe = None;
                     request_probe = false;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
@@ -1079,12 +1096,21 @@ impl Peer {
                                 let now = tokio::time::Instant::now();
                                 self.with_silence(|b| b.answered_in(now.saturating_duration_since(at), now));
                             }
+                            if let (Some(rtt), Some(since)) = (rtt, replacing_since)
+                                && rtt <= since.elapsed()
+                                && replacing.take().is_some()
+                            {
+                                tracing::info!(peer = %self.name, "the silent link answered a ping sent after its replacement dial began; the dial is dropped");
+                                replacing_since = None;
+                                silence_due = None;
+                            }
                             continue;
                         }
                         _ => continue,
                     };
                     // A v2 frame of the peer's list stream goes to this link's mirror.
                     if crate::link_v2::is_frame_line(&text) {
+                        self.received.add_kind("list", text.len());
                         self.mirror_frame(link, text);
                         continue;
                     }
@@ -1096,6 +1122,19 @@ impl Peer {
                         Err(e) if compressed => break Err(format!("a compressed frame is not a JSON-RPC message: {e}")),
                         Err(_) => continue,
                     };
+                    self.received.add_kind(match &msg {
+                        Message::Notification { method, .. } => method.as_str(),
+                        Message::Response { .. } => "reply",
+                        Message::Request { .. } => "request",
+                    }, text.len());
+                    // A large row patch, by the fields it carries (three levels): which part of a
+                    // row a backed-up link spends its bytes on. Small patches are not walked.
+                    if text.len() > 4096
+                        && let Message::Notification { method: m, params: Some(p) } = &msg
+                        && m == method::MUX_SESSION_PATCH
+                    {
+                        self.received.add_patch_fields(&p["patch"]);
+                    }
                     match msg {
                         Message::Response { id, result, error } => {
                             let key = id.to_string();
@@ -1150,6 +1189,7 @@ impl Peer {
                                     && let Some(high) = highwater.get_mut(id)
                                 {
                                     *high = (*high).max(seq);
+                                    self.received.add_gated(text.len());
                                     continue;
                                 }
                                 drop(highwater);

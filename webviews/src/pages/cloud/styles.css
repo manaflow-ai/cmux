@@ -153,7 +153,7 @@ select {
 }
 
 .cloud-loading,
-.cloud-disconnected,
+.cloud-still-trying,
 .cloud-signed-out {
   flex: 1;
 }
@@ -1418,4 +1418,87 @@ select {
 .cloud-create-waiting {
   display: block;
   margin: 8px 0;
+}
+
+/* The plan's hours and the spend limit past them (PoolPanel.tsx, RFD 0081). */
+.cloud-pool-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--cloud-separator);
+  overflow: hidden;
+}
+
+.cloud-pool-fill {
+  display: block;
+  height: 100%;
+  background: var(--cloud-text-2);
+}
+
+.cloud-pool[data-state="near"] .cloud-pool-fill,
+.cloud-pool[data-state="overage"] .cloud-pool-fill {
+  background: var(--cloud-warn);
+}
+
+.cloud-pool[data-state="paused"] .cloud-pool-fill {
+  background: var(--cloud-bad);
+}
+
+.cloud-pool-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--cloud-text-2);
+  opacity: 0.5;
+}
+
+.cloud-pool-used {
+  margin: 6px 0 0;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-pool-alert {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--cloud-warn);
+  font-size: 12px;
+}
+
+.cloud-pool-alert strong {
+  color: var(--cloud-warn);
+  font-weight: 600;
+}
+
+.cloud-pool-alert-bad {
+  border-color: var(--cloud-bad);
+}
+
+.cloud-pool-alert-bad strong {
+  color: var(--cloud-bad);
+}
+
+.cloud-pool-limit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cloud-pool-currency {
+  color: var(--cloud-text-2);
+}
+
+.cloud-pool-input {
+  flex: 1 1 auto;
+  width: 90px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-pool-hint {
+  margin: 6px 0 0;
 }
