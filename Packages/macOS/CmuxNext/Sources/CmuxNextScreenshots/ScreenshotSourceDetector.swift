@@ -1,4 +1,4 @@
-import CCmuxScreenshotsFFI
+import CCmuxScreenshots
 public import Foundation
 
 /// Finds the folders the Screenshots pane lists: macOS's screenshot folder,

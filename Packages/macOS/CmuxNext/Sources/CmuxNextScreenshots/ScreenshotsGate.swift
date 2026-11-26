@@ -1,4 +1,4 @@
-import CCmuxScreenshotsFFI
+import CCmuxScreenshots
 public import Foundation
 
 /// Which Screenshots tabs the person has unlocked with Show Screenshots, by tab key, and whether the person

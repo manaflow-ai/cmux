@@ -1,4 +1,4 @@
-import CCmuxScreenshotsFFI
+import CCmuxScreenshots
 public import Foundation
 
 /// `cmux://screenshots`: the address of the Screenshots pane. The pane is a

@@ -1,4 +1,4 @@
-import CCmuxScreenshotsFFI
+import CCmuxScreenshots
 import CmuxNextFileGrid
 import CmuxNextFiles
 import Foundation

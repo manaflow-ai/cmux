@@ -1,5 +1,5 @@
 public import AppKit
-import CCmuxScreenshotsFFI
+import CCmuxScreenshots
 public import CmuxNextFileGrid
 public import CmuxNextFiles
 
