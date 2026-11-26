@@ -159,7 +159,7 @@ jobs:
           # The tree the judge step restores, by the same command.
           git restore --source="$base" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
           cd webviews
-          bun install --frozen-lockfile
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
           # A base is only replayed to excuse the head's reds: a translation the base lacked (one a later
           # push added) must not stop its build, or no red is excused (2026-11-21, base 22d99c7425).
           CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
@@ -266,6 +266,26 @@ jobs:
         with:
           node-version: "24.22.1"
 
+      - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-gallery-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'scripts/gallery-matrix/bun.lock') }}
+          restore-keys: |
+            bun-gallery-${{ runner.os }}-${{ runner.arch }}-
+      - name: Cache Bun package cache (restore only off base branches)
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-gallery-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'scripts/gallery-matrix/bun.lock') }}
+          restore-keys: |
+            bun-gallery-${{ runner.os }}-${{ runner.arch }}-
       - name: Choose the entries to render
         id: entries
         env:
@@ -278,7 +298,7 @@ jobs:
           # alone (~1.5 s on Linux) explain little of it (2026-11-11). Find the cost before cutting it.
           cd webviews
           echo "::group::bun install"
-          bun install --frozen-lockfile
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
           echo "::endgroup::"
           echo "::group::changed files"
           if [ "$EVENT" = pull_request ]; then
@@ -502,7 +522,7 @@ jobs:
       - name: Install the webviews packages
         id: install
         working-directory: webviews
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       # Merge-time signal for the job's own time (cmuxterm-hq docs/handbook/fast-job-outgrows-its-budget.md):
       # the gallery grows a few cases with most pull requests, and at a fixed shard count each shard's
@@ -539,7 +559,7 @@ jobs:
         working-directory: scripts/gallery-matrix
         run: |
           set -euo pipefail
-          bun install --frozen-lockfile
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
           # The UI font is the macOS system font (SF Pro), which Linux lacks: without the pin the stack
           # falls to DejaVu Sans, a much wider face, so every stage wraps and sizes text unlike the Mac.
@@ -641,7 +661,7 @@ jobs:
           cd webviews
           # Each part in its own log group, so the replay's time is attributed (job-groups) before it is cut.
           echo "::group::base bun install"
-          bun install --frozen-lockfile
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
           echo "::endgroup::"
           bun scripts/gallery/manifest.ts --frame component --entries "$entries" --out "$RUNNER_TEMP/base-entries.json"
           # Every case (theme, width) of each red state, and nothing else. A state the base does not have

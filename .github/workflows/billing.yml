@@ -413,7 +413,7 @@ jobs:
       - name: Install dependencies
         if: ${{ steps.route.outputs.web == 'true' }}
         working-directory: web
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       # The selector's exit status is checked through the file, and an empty
       # list stops here: `bun test` with no paths would run the whole suite.

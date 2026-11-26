@@ -349,7 +349,7 @@ jobs:
         run: |
           set -euo pipefail
           cd scripts/gallery-matrix
-          bun install --frozen-lockfile
+          bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
           # The bundled Chromium; a runner without it uses its installed Chrome (cloud-flows.ts falls back).
           bunx playwright install chromium || echo "::warning::no bundled Chromium; the installed Chrome is used"
           # The video needs Playwright's own ffmpeg; without it the flow runs with stills only.

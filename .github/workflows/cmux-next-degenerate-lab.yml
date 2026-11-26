@@ -120,7 +120,7 @@ jobs:
       - name: Install webviews dependencies
         if: matrix.part == 'webview'
         working-directory: webviews
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Install system Chrome
         if: matrix.part == 'webview'

@@ -133,7 +133,27 @@ jobs:
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
-      - run: bun install --frozen-lockfile
+      - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            bun-web-${{ runner.os }}-${{ runner.arch }}-
+      - name: Cache Bun package cache (restore only off base branches)
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            bun-web-${{ runner.os }}-${{ runner.arch }}-
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: Vercel production build
         env:
           # Valid fixtures, no production credentials or validation bypasses.
@@ -169,7 +189,27 @@ jobs:
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
-      - run: bun install --frozen-lockfile
+      - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            bun-web-${{ runner.os }}-${{ runner.arch }}-
+      - name: Cache Bun package cache (restore only off base branches)
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            bun-web-${{ runner.os }}-${{ runner.arch }}-
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       # The type check reports its red and keeps going, so the tests and builds after it still run on a
       # tree with a type error; the last step fails the job on it (Leo, 2026-11-19: "the CI doesn't
       # necessarily have to fail and like give up").
@@ -229,7 +269,27 @@ jobs:
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
-      - run: bun install --frozen-lockfile
+      - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            bun-web-${{ runner.os }}-${{ runner.arch }}-
+      - name: Cache Bun package cache (restore only off base branches)
+        timeout-minutes: 3
+        continue-on-error: true
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          restore-keys: |
+            bun-web-${{ runner.os }}-${{ runner.arch }}-
+      - run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: Apply migrations, including an idempotent second pass
         run: |
           bun scripts/db-migrate.mjs

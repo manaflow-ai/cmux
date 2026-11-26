@@ -101,7 +101,7 @@ jobs:
 
       - name: Install webviews packages
         working-directory: webviews
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       # The patched headless Chrome the tests use. The helper writes CMUX_CHROME_HEADLESS_SHELL to
       # $GITHUB_ENV when it fetched one; otherwise the runner falls back to system Chrome. Playwright's

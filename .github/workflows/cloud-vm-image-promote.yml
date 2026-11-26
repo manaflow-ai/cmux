@@ -150,7 +150,7 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       # Only a feat-cmux-next dispatch of the bake workflow writes a candidate this job takes.
       - name: Check the bake run

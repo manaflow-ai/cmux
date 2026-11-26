@@ -256,7 +256,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$HIT" != true ]]; then
-            (cd webviews && bun install --frozen-lockfile >/dev/null)
+            (cd webviews && bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile >/dev/null)
             ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
           fi
           # An assignment, not an echo argument: set -e then stops on a missing output (exit 2).
@@ -350,7 +350,7 @@ jobs:
             entry_js=true
           fi
           if [[ "$WEB_BUNDLE_HIT" != true ]]; then
-            (cd webviews && bun install --frozen-lockfile >/dev/null)
+            (cd webviews && bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile >/dev/null)
             ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
           else
             echo "web bundles: reused source-keyed cache ${{ steps.web-bundle-key.outputs.key }}"
