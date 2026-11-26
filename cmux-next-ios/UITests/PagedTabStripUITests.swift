@@ -115,6 +115,12 @@ final class PagedTabStripUITests: XCTestCase {
             pause(0.9)
             print("CMUX_STRIP_TRACE_FLING \(expected) \(strip.value as? String ?? "-") active=\(activeID(app) ?? "-")")
             assertActive(app, expected, "each fling pages one chip")
+            if expected == "t-strip-docs" {
+                // A web page: the chips stay on top and its search field sits at the bottom.
+                XCTAssertTrue(app.descendants(matching: .any)["browser.bottomSearch"].waitForExistence(timeout: 5),
+                              "a browser tab's search field is at the bottom")
+                shot(app, "\(a)-07b-browser-bottom-search")
+            }
         }
         shot(app, "\(a)-07-long-title")
         assertActive(app, "t-strip-long", "three flings reach the last tab")
