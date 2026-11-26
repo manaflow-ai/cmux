@@ -1,5 +1,10 @@
 # path	lines that spawn a task or process with no owner (check-spawn-owner.py; rows only go down:
 # move a site to Scope::spawn or cmux_process::Child, then lower its row with --update)
+cmux-tui/crates/acpmux-tui/src/actions.rs	3
+cmux-tui/crates/acpmux-tui/src/lib.rs	6
+cmux-tui/crates/acpmux-tui/src/links.rs	3
+cmux-tui/crates/acpmux-tui/src/run.rs	2
+cmux-tui/crates/acpmux-tui/src/session_ops.rs	6
 cmux-tui/crates/acpmux/src/agent_host/host.rs	11
 cmux-tui/crates/acpmux/src/agent_host/host/orphan.rs	4
 cmux-tui/crates/acpmux/src/agent_host/link.rs	5
@@ -165,11 +170,6 @@ cmux-tui/crates/acpmux/src/supervise.rs	2
 cmux-tui/crates/acpmux/src/tailnet.rs	3
 cmux-tui/crates/acpmux/src/tailnet/embedded.rs	2
 cmux-tui/crates/acpmux/src/tailnet/embedded_service.rs	3
-cmux-tui/crates/acpmux-tui/src/actions.rs	3
-cmux-tui/crates/acpmux-tui/src/links.rs	3
-cmux-tui/crates/acpmux-tui/src/lib.rs	6
-cmux-tui/crates/acpmux-tui/src/run.rs	2
-cmux-tui/crates/acpmux-tui/src/session_ops.rs	6
 cmux-tui/crates/acpmux/src/vault.rs	1
 cmux-tui/crates/acpmux/src/vault/store.rs	3
 cmux-tui/crates/acpmux/src/wireguard.rs	2

@@ -225,7 +225,32 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
 }
 
 pub(crate) fn which(bin: &str) -> Option<String> {
-    which_in(&crate::login_env::path().unwrap_or_default(), bin).or_else(|| native_install(bin))
+    which_in(&crate::login_env::path().unwrap_or_default(), bin)
+        .or_else(|| native_install(bin))
+        .or_else(|| image_install(bin))
+}
+
+/// Where a Cloud machine's image puts its harnesses (`claude`, `codex`, ...): only a login shell
+/// lists it on PATH, and the daemon's unit PATH does not. When the 3 s login-shell read timed out
+/// on a just-booted machine, the daemon found no `claude`, and the start was refused as
+/// `agent_session.harness_missing`: "Claude (`claude`) isn't installed on that machine"
+/// (production probe 2026-11-26T15:20:44Z, vm_a6cbc8f2cc82f6433bcc). Checking the image's own
+/// directory makes discovery stop depending on that read.
+const IMAGE_BIN_DIR: &str = "/opt/cmux/current/bin";
+
+/// `bin` in the Cloud image's harness directory ([`IMAGE_BIN_DIR`]), if it can run there.
+fn image_install(bin: &str) -> Option<String> {
+    image_install_in(std::path::Path::new(IMAGE_BIN_DIR), bin)
+}
+
+/// [`image_install`] under `dir`.
+fn image_install_in(dir: &std::path::Path, bin: &str) -> Option<String> {
+    if bin.is_empty() || bin.contains('/') {
+        return None;
+    }
+    let candidate = dir.join(bin);
+    crate::harness_install::is_executable(&candidate)
+        .then(|| candidate.to_string_lossy().into_owned())
 }
 
 /// A program the daemon runs from config or a fleet tool by bare name (`sendRelay.argv`'s
@@ -337,6 +362,26 @@ mod tests {
         assert_eq!(super::native_install_in(home.path(), "opencode"), None);
         let empty = tempfile::tempdir().unwrap();
         assert_eq!(super::native_install_in(empty.path(), "codex"), None);
+    }
+
+    /// A Cloud image keeps `claude` in `/opt/cmux/current/bin`, which only a login shell lists on
+    /// PATH: with the login-shell read timed out, a just-booted machine refused the start as "Claude
+    /// (`claude`) isn't installed on that machine" (production probe 2026-11-26T15:20:44Z). The
+    /// image directory finds it; a file that cannot run, or a name with a slash, does not.
+    #[test]
+    fn a_harness_in_the_cloud_image_dir_is_found_without_the_login_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("claude");
+        std::fs::write(&file, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            super::image_install_in(dir.path(), "claude"),
+            Some(file.to_string_lossy().into_owned())
+        );
+        std::fs::write(dir.path().join("codex"), "").unwrap();
+        assert_eq!(super::image_install_in(dir.path(), "codex"), None);
+        assert_eq!(super::image_install_in(dir.path(), "../claude"), None);
+        assert_eq!(super::image_install_in(dir.path(), "opencode"), None);
     }
 }
 

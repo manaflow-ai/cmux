@@ -242,6 +242,7 @@ dependencies = [
  "acpmux",
  "anyhow",
  "base64",
+ "chrono",
  "cmux-bounded",
  "cmux-json",
  "cmux-scope",
@@ -1641,6 +1642,7 @@ dependencies = [
  "cmux-process",
  "cmux-signed-envelope",
  "flate2",
+ "libc",
  "ring",
  "serde",
  "serde_json",
@@ -3766,6 +3768,14 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-update-prewarm-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
