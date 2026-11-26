@@ -35,7 +35,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { commandLine, commandSaid, scriptNoun } from "./commandActions";
+import { scriptNoun, commandLine, commandSaid } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -532,11 +532,13 @@ const retainVisibleReplies = (
   const firstAt = changedRows[0]?.at ?? Number.POSITIVE_INFINITY;
   let start = 0;
   let high = previous.length;
+  // ends: binary search: each pass halves high - start
   while (start < high) {
     const middle = (start + high) >> 1;
     if (previous[middle]!.at < firstAt) start = middle + 1;
     else high = middle;
   }
+  // ends: `start` falls by one each pass, to 0 at most
   while (start > 0 && previous[start - 1]!.kind !== "user") start -= 1;
   const relevant = previous.slice(start);
   const previousById = new Map(relevant.map((row) => [row.id, row]));
@@ -699,6 +701,7 @@ export function turnViewFrom(
       const from = keptPrefix(shared, rows);
       // The turns that start before it (`starts` ascends): a long chat holds thousands.
       let high = previous.starts.length;
+      // ends: binary search: each pass halves high - reuse
       while (reuse < high) {
         const middle = (reuse + high) >> 1;
         if (previous.starts[middle]! < from) reuse = middle + 1;
@@ -741,6 +744,7 @@ export function turnViewFrom(
     index = 0;
     // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are,
     // a quiet turn the agent ran on its own folded to its line (backgroundTurns.ts).
+    // ends: `index` rises by one each pass, to rows.length
     while (index < rows.length && rows[index]!.kind !== "user") {
       const row = rows[index++]!;
       if (!isVisiblyEmptyMessage(row)) out.push(row);
@@ -784,9 +788,11 @@ export function turnViewFrom(
   // and neither ends the turn nor folds into it. A steer goes on with the turn it went into
   // (``continuesTurn``). Indexes, not arrays: a long chat's snapshot only copies the rows of a
   // turn that changed (shapedTurn).
+  // ends: each pass takes `index` up by one at least (`start = index++`), to rows.length
   while (index < rows.length) {
     const start = index++;
     let answerAt: number | undefined;
+    // ends: `index` rises by one each pass, to rows.length
     while (
       index < rows.length &&
       (rows[index]!.kind !== "user" || isUnsent(rows[index]!) || continuesTurn(rows[index]!))
@@ -959,6 +965,7 @@ export function turnViewFrom(
   // From the last kept card, back over the cards still waiting on the person or answered out of
   // order: a click on an older pinned card settles it, so the waiting run is settled again.
   let settleFrom = Math.max(0, keptCards - 1);
+  // ends: `settleFrom` falls by one each pass, to 0 at most
   while (settleFrom > 0 && (!nextSteps[settleFrom - 1]!.spoke || nextSteps[settleFrom - 1]!.outOfOrder))
     settleFrom -= 1;
   reusedRows = Math.min(reusedRows, settleNextSteps(out, nextSteps, settleFrom));
@@ -1503,6 +1510,7 @@ function shapedTurn(
     // turn. The marker is consumed by the row estimator and CSS only for this terminal row.
     if (last && !live && held.length === 0 && !turn.some((row) => row.kind === "turnSummary")) {
       let final = shaped.length - 1;
+      // ends: `final` falls by one each pass, to -1 at most
       while (final >= 0 && (shaped[final]!.kind === DATE || shaped[final]!.kind === "user")) final -= 1;
       if (final >= 0) shaped[final] = { ...shaped[final]!, lastTurn: true };
     }
@@ -3344,7 +3352,11 @@ function liveTurn(
   foldsPrompt = false,
   workOpen = false,
 ): AcpmuxRow[] {
-  return withRetry(turn, shapeLiveTurn(user, turn, clockOffset, trayAgents, turnStartedAtMs, foldsPrompt, workOpen));
+  return withRetry(
+    turn,
+    shapeLiveTurn(user, turn, clockOffset, trayAgents, turnStartedAtMs, foldsPrompt, workOpen),
+    clockOffset,
+  );
 }
 
 /// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
@@ -3352,8 +3364,9 @@ function liveTurn(
 /// never "Thinking" (Leo, 2026-11-03, on "Thinking 7m 49s" for a chat whose model gateway was down:
 /// "i feel like this mac session just keeps "thinking""). Once the model answers, the time the
 /// retries took leaves the line's "Thinking" clock, which before the first output times the turn
-/// from its prompt. A fresh line object, so the memoized row draws again.
-export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): AcpmuxRow[] {
+/// from its prompt. The line keeps when the retries began (`retryAt`), so "Can't reach the model"
+/// waits out the shared bound from then (Thinking.tsx). A fresh line object, so the memoized row draws again.
+export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[], clockOffset = 0): AcpmuxRow[] {
   const retryRow = turn.find((row) => row.id === TURN_RETRY);
   if (!retryRow?.retry && !retryRow?.retriedMs) return shaped;
   const at = shaped.length - 1;
@@ -3362,7 +3375,7 @@ export function withRetry(turn: readonly AcpmuxRow[], shaped: AcpmuxRow[]): Acpm
   const timedFromPrompt = line.doing === undefined && line.liveState === undefined && !line.turnTotal;
   const next: AcpmuxRow = {
     ...line,
-    ...(retryRow.retry && { retry: retryRow.retry }),
+    ...(retryRow.retry && { retry: retryRow.retry, retryAt: retryRow.at + clockOffset }),
     ...(!retryRow.retry && retryRow.retriedMs && timedFromPrompt && { at: line.at + retryRow.retriedMs }),
   };
   return [...shaped.slice(0, at), next];
@@ -3455,6 +3468,7 @@ function liveWrapUp(rows: readonly AcpmuxRow[]): LiveWrapUp | undefined {
     // The newest call: a thought after it is no call.
     const items = row.items ?? [];
     let index = items.length - 1;
+    // ends: `index` falls by one each pass and stops below 0
     while (index >= 0 && !items[index]!.tool) index -= 1;
     if (index < 0) continue;
     const tool = items[index]!.tool;
@@ -3993,6 +4007,7 @@ export function liveClock(
 /// (runningTray.ts), where the line counts it already.
 export function trayWaitAgents(rows: readonly AcpmuxRow[]): number {
   let from = rows.length;
+  // ends: `from` falls by one each pass, to 0 at most
   while (from > 0 && !(opensTurn(rows[from - 1]!) && !isUnsent(rows[from - 1]!))) from -= 1;
   return from === 0 ? 0 : foregroundAgents(rows.slice(from).filter((row) => !isRunGroup(row)));
 }
@@ -4240,6 +4255,7 @@ function codexRuns(
 ): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
+  // ends: `latest` falls by one each pass, to 0 at most
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
   let ended = -1;
   if (lineOnly || open)
@@ -4442,6 +4458,7 @@ export function mergeShortNotes(
     const row = rows[index]!;
     const previous = out.at(-1);
     let to = index;
+    // ends: `to` rises by one each pass, and drawsNothing is false past the last row
     while (drawsNothing(rows[to])) to += 1;
     const note = joinNotes && to === index && isShortNote(row) && !keep?.has(row.id);
     if (note) to += 1;
@@ -4545,11 +4562,13 @@ function foldSpan(rows: readonly AcpmuxRow[], start: number): { from: number; en
   // A turn the agent ran on its own folds its rows up to the next one (`foldTailTurns`).
   if (anchor?.kind === BACKGROUND_TURN) {
     let next = start + 1;
+    // ends: `next` moves up by one each pass, to `end` at most
     while (next < end && rows[next]!.kind !== BACKGROUND_TURN) next += 1;
     return { from: start + 1, end: next };
   }
   if (!anchor || !foldsInOrder()) return { from: start + 1, end };
   let prompt = start;
+  // ends: `prompt` falls by one each pass, to 0 at most
   while (prompt > 0 && !(opensTurn(rows[prompt]!) && !isUnsent(rows[prompt]!))) prompt -= 1;
   const next = foldStarts(rows, prompt, end).find((index) => index > start);
   return { from: prompt !== start && !isOwnSteer(anchor) ? start : start + 1, end: next ?? end };
@@ -4725,6 +4744,7 @@ function turnFoldOpensOpen(rows: readonly AcpmuxRow[], id: string): boolean {
   const start = rows.findIndex((row) => `${WORKED}-${row.id}` === id);
   if (start < 0) return false;
   let end = start + 1;
+  // ends: `end` rises by one each pass, to rows.length
   while (end < rows.length && !(opensTurn(rows[end]!) && !isUnsent(rows[end]!))) end += 1;
   const turn = rows.slice(start + 1, end);
   const summary = turn.find(
