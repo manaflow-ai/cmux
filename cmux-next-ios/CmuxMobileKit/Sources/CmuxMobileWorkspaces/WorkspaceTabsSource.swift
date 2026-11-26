@@ -27,7 +27,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Schedules work for the next main-actor turn. Tests inject a queue so
     /// they can drain the exact deferred callback instead of guessing at
     /// scheduler order with an unrelated task.
-    public typealias MainActorEnqueuer = @MainActor (_ work: @escaping @MainActor () -> Void) -> Void
+    typealias MainActorEnqueuer = @MainActor (_ work: @escaping @MainActor () -> Void) -> Void
 
     public let workspaceID: String
     /// The tab chosen on this screen. When it disappears (a new workspace
@@ -107,13 +107,20 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// vanished (a new workspace's first tab, once the Mac creates it; `refreshTabs`).
     @ObservationIgnored private var hasAppeared = false
 
-    public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
-                sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
-                native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
-                clock: any Clock<Duration> = ContinuousClock(),
-                enqueueMainActor: @escaping MainActorEnqueuer = { work in
-                    Task { @MainActor in work() }
-                }) {
+    public convenience init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
+                            sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
+                            native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
+                            clock: any Clock<Duration> = ContinuousClock()) {
+        self.init(store: store, workspaceID: workspaceID, terminal: terminal, sessions: sessions, creator: creator,
+                  native: native, streamed: streamed, clock: clock,
+                  enqueueMainActor: { work in Task { @MainActor in work() } })
+    }
+
+    init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
+         sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
+         native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
+         clock: any Clock<Duration> = ContinuousClock(),
+         enqueueMainActor: @escaping MainActorEnqueuer) {
         self.store = store
         self.clock = clock
         self.enqueueMainActor = enqueueMainActor

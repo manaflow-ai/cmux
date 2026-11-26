@@ -30,22 +30,13 @@ import SwiftUI
         }
     }
 
-    static func source(_ store: AppStore, enqueueMainActor: @escaping WorkspaceTabsSource.MainActorEnqueuer = { work in
-        Task { @MainActor in work() }
-    }) -> WorkspaceTabsSource {
-        WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory(),
-                            enqueueMainActor: enqueueMainActor)
+    static func source(_ store: AppStore) -> WorkspaceTabsSource {
+        WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory())
     }
 
-    /// A deferred tab refresh is scheduled on the main actor. Wait for the
-    /// value the test reads, with a wall-clock bound, instead of assuming a
-    /// number of scheduler turns is enough under load.
-    static func waitForKitTabBuilds(_ source: WorkspaceTabsSource, _ expected: Int) async throws {
-        try await waitUntil("kit tab builds to reach \(expected)") {
-            source.kitTabBuilds >= expected
-        }
-        try #require(source.kitTabBuilds == expected,
-                     "kit tab builds reached " + String(expected) + " within 30 s")
+    static func source(_ store: AppStore, enqueueMainActor: @escaping WorkspaceTabsSource.MainActorEnqueuer) -> WorkspaceTabsSource {
+        WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory(),
+                            enqueueMainActor: enqueueMainActor)
     }
 
     /// Waits for a streamed value and the state derived from it, with a bound
@@ -195,7 +186,7 @@ import SwiftUI
     /// Review finding 1: an agent tab's title comes from its chat store; a
     /// store made after the tab was built (in a page or card body) rebuilds
     /// that tab once, after the update, so its title is not frozen.
-    @Test func chatStoreAppearingRebuildsItsTab() async throws {
+    @Test func chatStoreAppearingRebuildsItsTab() throws {
         let store = AppStore.mock(tabMemory: .inMemory())
         let queue = DeferredQueue()
         let source = Self.source(store, enqueueMainActor: queue.scheduler)
@@ -240,7 +231,7 @@ import SwiftUI
 
     /// A chat made while the grid scrolls holds its tab's title change until
     /// the grid rests (one list publish then, not one grid body per card).
-    @Test func titleChangesWaitForTheGridToRest() async throws {
+    @Test func titleChangesWaitForTheGridToRest() throws {
         let store = AppStore.mock(tabMemory: .inMemory())
         let queue = DeferredQueue()
         let source = Self.source(store, enqueueMainActor: queue.scheduler)
@@ -304,9 +295,17 @@ import SwiftUI
         chat.send(prompt: "go")
         // The short mock turn completes after many streamed changes. The card
         // becomes stale on the first change, but copies none of the stream.
+        var goTurnID: String?
         try await Self.waitUntil("streamed chat turn completion") {
-            chat.turns != before && chat.turns.last?.status == .completed
+            guard let goTurn = chat.turns.last(where: { $0.prompt == "go" }) else { return false }
+            goTurnID = goTurn.id
+            return goTurn.status == .completed
         }
+        let completedGoTurnID = try #require(goTurnID)
+        let completedGoTurn = try #require(chat.turns.first { $0.id == completedGoTurnID })
+        #expect(completedGoTurn.prompt == "go")
+        #expect(completedGoTurn.status == .completed)
+        #expect(chat.turns != before)
         #expect(feed.pulls == start)
         #expect(feed.stale)
         feed.catchUp()
