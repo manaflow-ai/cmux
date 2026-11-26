@@ -683,7 +683,7 @@ fn larger_than_chat(size: Option<&str>) -> bool {
 
 /// The credential a workspace machine's ensure sends: the install token (a cmux access token with a
 /// team claim, what the platform's machine route verifies), else the session's for an App that sent none.
-fn ensure_credential((session, install): (&str, &str)) -> &str {
+fn ensure_credential<'a>((session, install): (&'a str, &'a str)) -> &'a str {
     match install.trim() {
         "" => session,
         token => token,
