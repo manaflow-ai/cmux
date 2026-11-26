@@ -106,7 +106,7 @@ const LOOK_PREFIXES: [&str; 8] = [
 /// Info; and the transcript look and its tokens
 /// (docs/cmux-next/transcript-customization.md); and Markdown's reading
 /// face. Keep in step with Swift `ThemeFileOverlay.lookKeys`.
-const LOOK_KEYS: [&str; 46] = [
+const LOOK_KEYS: [&str; 48] = [
     "terminal.fontFamily",
     "agentPane.display.code.family",
     "terminal.fontSize",
@@ -153,6 +153,8 @@ const LOOK_KEYS: [&str; 46] = [
     "agentPane.display.senderIcon.corner",
     "agentPane.display.trayHandle",
     "markdown.font.preset",
+    "terminal.cursorStyle",
+    "terminal.cursorBlink",
 ];
 /// The workspace row's own keys (`sidebar.workspaceRow.<name>`: which
 /// elements show, their order, where the status mark sits, the row layout).
@@ -563,6 +565,10 @@ impl<'a> Reader<'a> {
             Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
         ) {
             self.picture(written)
+        } else if let (Validation::Domain(DomainKind::BackdropPictures), Value::Array(items)) =
+            (&row.validation, written)
+        {
+            Value::Array(items.iter().map(|item| self.picture(item)).collect())
         } else if row.key == crate::font_faces::SETTING_KEY {
             // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
             match written {

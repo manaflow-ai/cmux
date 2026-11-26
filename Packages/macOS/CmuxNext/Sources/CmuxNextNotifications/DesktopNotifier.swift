@@ -415,13 +415,25 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         let approved = AgentApprovalBanners.decision(response.actionIdentifier)
         let always = AgentApprovalBanners.isAlways(response.actionIdentifier)
-        Task { @MainActor [weak self] in
+        let handle: @MainActor () -> Void = { [weak self] in
             if isDefault { self?.open(id: id, surface: surface) }
             if let replied { self?.reply(id: id, surface: surface, text: replied) }
             if let approved { self?.approve(id: id, surface: surface, allow: approved) }
             if always { self?.approve(id: id, surface: surface, allow: true, always: true) }
             if markRead { self?.markRead(id: id, surface: surface) }
         }
+        // macOS 14+ activation is cooperative: the click's grant to come forward lasts only while this callback runs,
+        // so the raise runs here, before completionHandler, not in a later Task (activation research, 2026-11-25).
+        BannerClickMain.run(handle)
         completionHandler()
+    }
+}
+
+/// Runs a banner click's handling on the main thread now when the delegate is called there (AppKit delivers
+/// didReceive on main), so the raise happens while the click's activation grant lasts; a later Task otherwise.
+nonisolated enum BannerClickMain {
+    static func run(_ body: @escaping @MainActor () -> Void) {
+        guard Thread.isMainThread else { Task { @MainActor in body() }; return }
+        MainActor.assumeIsolated { body() } // main-proof: checked Thread.isMainThread just above
     }
 }
