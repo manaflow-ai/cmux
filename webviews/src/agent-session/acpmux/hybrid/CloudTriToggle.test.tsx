@@ -144,8 +144,8 @@ test("blocked, each segment's accessible name is the blocked action, not its mod
   // The chosen mode is still the one marked.
   expect(segments(container).map((segment) => segment.getAttribute("aria-checked"))).toEqual([
     "false",
-    "true",
     "false",
+    "true",
   ]);
 });
 
@@ -153,11 +153,11 @@ test("not blocked, segments keep their mode names and a pick changes the mode", 
   const { calls, props } = recorder();
   const container = await draw(<CloudTriToggle pin="auto" {...props} />);
   expect(segments(container).map((segment) => segment.getAttribute("aria-label"))).toEqual([
+    translate("hybrid.pin.local"),
     translate("hybrid.mode.hybrid"),
     translate("hybrid.pin.cloud"),
-    translate("hybrid.pin.local"),
   ]);
-  await click(segments(container)[1]!);
+  await click(segments(container)[2]!);
   expect(calls.change).toEqual(["cloud"]);
   expect(calls.blocked).toEqual([]);
 });

@@ -14,6 +14,7 @@ import type { NativeInfoRect } from "./model";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl } from "./links";
 import { SCREEN_SHARING_LABELS, type ScreenSharingKind } from "../screenSharing";
+import { RUNS_ON_ORDER } from "../../runsOnOrder";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
@@ -187,7 +188,7 @@ export function environmentSection(
       symbol: "cloud",
       title: t("hybrid.pin"),
       trailing: t(names[cloud.view.pin]),
-      menu: (["auto", "cloud", "local"] as const).map((pin) => ({
+      menu: RUNS_ON_ORDER.map((pin) => ({
         label: t(names[pin]),
         action: actions.add(`environment.runsOn:${pin}`, () => cloud.setPin(pin)),
       })),

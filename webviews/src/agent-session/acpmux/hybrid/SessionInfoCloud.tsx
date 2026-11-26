@@ -12,6 +12,7 @@ import { WithFacts } from "../chips/FactsHoverCard";
 import { CloudToggle } from "./CloudToggle";
 import type { HybridLook, HybridPin, HybridView } from "./hybridModel";
 import "./cloudToggle.css";
+import { RUNS_ON_ORDER } from "../runsOnOrder";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -26,7 +27,7 @@ export type SessionInfoCloudControl = {
   setPin(pin: HybridPin): void;
 };
 
-const PINS = ["auto", "cloud", "local"] as const;
+const PINS = RUNS_ON_ORDER;
 const PIN_KEYS = { auto: "hybrid.mode.hybrid", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
 
 export function SessionInfoCloudRows({
