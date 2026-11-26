@@ -66,8 +66,12 @@ const NOT_CARRIED: &[&str] = &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, m
 /// finds the first's turn under way (`retry.busy`) or the turn no longer failed
 /// (`retry.nothing_failed`), so it sends nothing twice. 2026-11-24: `acpmux retry HOST/NAME` of
 /// a lane only the hub reaches, cut by the SR2 pool's 503, answered "the mesh hub does not carry
-/// _acpmux/retry", so nothing could resume it from here.
-const WRITE_METHODS: &[&str] = &[method::MUX_RENAME, method::MUX_RETRY];
+/// _acpmux/retry", so nothing could resume it from here. A chat's hold too
+/// (`_acpmux/session_hold {held}`, `hub/session_hold.rs`): holding or releasing it twice leaves it
+/// held or released once. 2026-11-26: `acpmux session release HOST/ID` of lanes only the hub
+/// reaches answered that the hub does not carry `_acpmux/session_hold`, so a fleet pause's lift
+/// left 47 of 145 held lanes asleep.
+const WRITE_METHODS: &[&str] = &[method::MUX_RENAME, method::MUX_RETRY, method::MUX_SESSION_HOLD];
 
 /// Whether `m` reads a page of events, so its params cross and its budget halves.
 fn pages(m: &str) -> bool {
@@ -87,6 +91,8 @@ fn crossing(m: &str) -> &'static [&'static str] {
         method::MUX_SESSION_SEARCH => &["query", "role", "sinceMs", "limit", "withTurnTime"],
         method::MUX_RENAME => &["newName", "to", "newHandle"],
         method::MUX_RETRY => &["subagentId"],
+        // Without `held` the far side would read a release as a hold (`held` defaults to true).
+        method::MUX_SESSION_HOLD => &["held"],
         _ => &[],
     }
 }
