@@ -51,7 +51,7 @@ on:
         default: false
         type: boolean
       build_only:
-        description: Measure the unsigned universal build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.
+        description: Measure the unsigned arm64 nightly build only. Never builds the helper, signs, notarizes, uploads dSYMs, or publishes.
         required: false
         default: false
         type: boolean
@@ -235,7 +235,7 @@ jobs:
             if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
             const forceBuild = process.env.FORCE_BUILD === 'true';
             const seedOnly = process.env.SEED_ONLY === 'true';
-            // A build-only run measures the unsigned universal app build (cold
+            // A build-only run measures the unsigned arm64 app build (cold
             // or warm cache) and stops there: no helper, signing, notarization,
             // dSYM upload, or publication, so it is safe to dispatch from a
             // branch. It always builds the production workload, so the fast
@@ -243,15 +243,18 @@ jobs:
             const buildOnly = process.env.BUILD_ONLY === 'true';
             const coldCache = buildOnly && process.env.COLD_CACHE === 'true';
             const fastBuild = !buildOnly && process.env.FAST_BUILD === 'true';
-            // Nightly ships one universal DMG for downloads plus one thin DMG per
-            // architecture for updates. Browsers cannot tell Apple silicon from
-            // Intel, so `cmux-nightly-macos.dmg` and the legacy `appcast.xml`
-            // feed stay universal; the app's feed resolver moves every install
-            // onto its architecture's feed at the first update check.
-            // A manually dispatched fast build is a branch-dogfood artifact only.
-            // It deliberately produces one Apple silicon DMG and never publishes
-            // to the shared NIGHTLY release or feed.
-            const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];
+            // Nightly builds and publishes Apple silicon (arm64) only. Intel
+            // (x86_64) and universal builds ship from the stable release
+            // (release.yml) only. The x86_64, universal and legacy `appcast.xml`
+            // feeds, and the `cmux-nightly-{x86_64,universal}-macos.dmg` and
+            // `cmux-nightly-macos.dmg` aliases, are frozen at the last build
+            // that had them: publish never rewrites them, and the asset prune
+            // keeps the builds they point at. The app's feed resolver moves
+            // every install onto its own architecture's feed, so an Intel Mac
+            // reads only the frozen x86_64 feed and is never offered an arm64
+            // build. A manually dispatched fast build is a branch-dogfood
+            // artifact only and never publishes to the shared NIGHTLY release.
+            const variants = ['arm64'];
             core.setOutput('variants', JSON.stringify(variants));
             core.setOutput('legacy_variant', 'universal');
             core.setOutput('fast_build', fastBuild ? 'true' : 'false');
@@ -1059,7 +1062,7 @@ jobs:
           go-version: '1.26.x'
           cache: false
 
-      - name: Refresh universal nightly compilation cache
+      - name: Refresh nightly compilation cache (arm64)
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
@@ -1068,7 +1071,7 @@ jobs:
             -clonedSourcePackagesDirPath .spm-cache \
             -packageCachePath "$PWD/.spm-cache/.package-cache" \
             -showBuildTimingSummary \
-            ARCHS="arm64 x86_64" \
+            ARCHS="arm64" \
             ONLY_ACTIVE_ARCH=NO \
             COMPILATION_CACHE_ENABLE_CACHING=YES \
             COMPILATION_CACHE_LIMIT_SIZE=3221225472 \
@@ -1375,13 +1378,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p nightly-helper
-          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
-            ./scripts/build-ghostty-cli-helper.sh --target aarch64-macos --output nightly-helper/ghostty
-            lipo nightly-helper/ghostty -verify_arch arm64
-          else
-            ./scripts/build-ghostty-cli-helper.sh --universal --output nightly-helper/ghostty
-            lipo nightly-helper/ghostty -verify_arch arm64 x86_64
-          fi
+          # Nightly ships arm64 only; the universal helper is a stable-release build.
+          ./scripts/build-ghostty-cli-helper.sh --target aarch64-macos --output nightly-helper/ghostty
+          lipo nightly-helper/ghostty -verify_arch arm64
 
       - name: Upload Ghostty CLI helper
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1671,11 +1670,13 @@ jobs:
       - name: Build nightly app (Release)
         run: |
           set -euo pipefail
+          # Nightly ships arm64 only (Intel and universal ship from the stable
+          # release). ONLY_ACTIVE_ARCH stays NO on the full build so the arm64
+          # slice builds even on a runner whose active arch differs.
+          archs="arm64"
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
-            archs="arm64"
             only_active="YES"
           else
-            archs="arm64 x86_64"
             only_active="NO"
           fi
           # Let xcodebuild fan out across the host. The two whole-module Swift
@@ -3220,20 +3221,12 @@ jobs:
           set -euo pipefail
           cd nightly-out
           ls -l
-          for variant in arm64 x86_64; do
-            [ -f "${CHANNEL_DMG_PREFIX}-${variant}.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-${variant}.dmg" >&2; exit 1; }
-            [ -f "appcast-${variant}.xml" ] || { echo "missing appcast-${variant}.xml" >&2; exit 1; }
-          done
-          # `cmux-nightly-macos.dmg` and `appcast.xml` are the download and feed
-          # every pre-existing link and install uses. They stay universal: the
-          # universal variant generates appcast.xml itself, and installs move to
-          # their architecture's feed on the next update check.
-          [ "$NIGHTLY_LEGACY_VARIANT" = "universal" ] || { echo "unexpected legacy variant: $NIGHTLY_LEGACY_VARIANT" >&2; exit 1; }
-          [ -f "${CHANNEL_DMG_PREFIX}-universal.dmg" ] || { echo "universal variant DMG missing" >&2; exit 1; }
-          [ -f appcast.xml ] || { echo "universal variant appcast.xml missing" >&2; exit 1; }
-          cp "${CHANNEL_DMG_PREFIX}-universal.dmg" "${CHANNEL_DMG_PREFIX}.dmg"
-          # Compatibility feed for nightlies older than the unified appcast.
-          cp appcast.xml appcast-universal.xml
+          # Nightly builds arm64 only. `cmux-nightly-macos.dmg`, `appcast.xml`,
+          # `appcast-universal.xml` and the x86_64 DMG and feed are frozen at the
+          # last build that produced them (stable ships Intel and universal), so
+          # nothing here writes them.
+          [ -f "${CHANNEL_DMG_PREFIX}-arm64.dmg" ] || { echo "missing ${CHANNEL_DMG_PREFIX}-arm64.dmg" >&2; exit 1; }
+          [ -f "appcast-arm64.xml" ] || { echo "missing appcast-arm64.xml" >&2; exit 1; }
           ls -l
 
       - name: Prepare nightly release notes and appcast summaries
@@ -3251,8 +3244,7 @@ jobs:
           Published commit: \`${NOTES_HEAD}\`.
           **${NOTES_APP_NAME}** ships one app per architecture (bundle ID \`${NOTES_BUNDLE_ID}\`):
           - [Apple silicon: ${CHANNEL_DMG_PREFIX}-arm64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-arm64.dmg), feed \`appcast-arm64.xml\`
-          - [Intel: ${CHANNEL_DMG_PREFIX}-x86_64.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}-x86_64.dmg), feed \`appcast-x86_64.xml\`
-          - [Universal (any Mac): ${CHANNEL_DMG_PREFIX}.dmg](https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/${CHANNEL_DMG_PREFIX}.dmg), feed \`appcast.xml\`; the app switches to its architecture's feed on the first update check
+          - Intel and universal builds ship from the stable release; the Intel and universal nightly downloads and feeds stay at their last build.
           EOF
           # Read the live completed publication under the channel writer lock,
           # rather than the decide job's baseline from before the build started.
@@ -3303,8 +3295,6 @@ jobs:
           python3 .gh-tooling/scripts/ci/publish-release-assets.py \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
             --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-arm64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64-${NIGHTLY_BUILD}.dmg" \
-            --immutable "nightly-out/${CHANNEL_DMG_PREFIX}-universal-${NIGHTLY_BUILD}.dmg" \
             --immutable "nightly-out/cmuxd-remote-linux-arm64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-linux-amd64-${NIGHTLY_BUILD}" \
             --immutable "nightly-out/cmuxd-remote-darwin-arm64-${NIGHTLY_BUILD}" \
@@ -3312,15 +3302,9 @@ jobs:
             --immutable "nightly-out/cmuxd-remote-checksums-${NIGHTLY_BUILD}.txt" \
             --immutable "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --alias "nightly-out/${CHANNEL_DMG_PREFIX}-arm64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-x86_64.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}-universal.dmg" \
-            --alias "nightly-out/${CHANNEL_DMG_PREFIX}.dmg" \
             --github-output "$GITHUB_OUTPUT" \
             --replace-feeds \
-            --feed nightly-out/appcast-arm64.xml \
-            --feed nightly-out/appcast-x86_64.xml \
-            --feed nightly-out/appcast-universal.xml \
-            --feed nightly-out/appcast.xml
+            --feed nightly-out/appcast-arm64.xml
 
       - name: Publish verified nightly release metadata
         if: needs.decide.outputs.should_publish == 'true'
@@ -3356,7 +3340,9 @@ jobs:
           # either the old version or the new one, never missing. Thin feeds go
           # first: the app rewrites the legacy feed URL to a thin feed, so those
           # must already be current when the legacy feed changes.
-          for appcast in appcast-arm64.xml appcast-x86_64.xml appcast-universal.xml appcast.xml; do
+          # Nightly is arm64 only: the x86_64, universal and legacy feeds keep
+          # their last build and are never rewritten here.
+          for appcast in appcast-arm64.xml; do
             python3 scripts/ci/upload-r2-object.py \
               --file "nightly-out/$appcast" \
               --endpoint-url "$R2_ENDPOINT" \
