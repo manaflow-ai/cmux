@@ -134,7 +134,7 @@ when it names our own runner, as portable-placement does), else a 2 vCPU Blacksm
 only reports that job's verdict: every other step is off (CMUX_FAST_TIER_FLEET, or it reads a
 step that is). fast_runner is empty then: placement lists only a tier no idle runner took.
 When the client hands the tier back (verdict `queued`: a fleet step still queued past its wait),
-the tier runs in full, with 35 minutes, where fast-tier-handback-placement's fresh reading sends it
+the tier runs in full, with 60 minutes (note-39), where fast-tier-handback-placement's fresh reading sends it
 (an idle owned Mac, else Blacksmith 6 vCPU unless excluded, else the owned route), else on
 Blacksmith 6 vCPU.
 

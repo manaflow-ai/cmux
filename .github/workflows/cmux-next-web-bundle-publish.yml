@@ -84,6 +84,7 @@ on:
       - "schemas/surface-roles/surface-roles.json"
       - "schemas/type-scale/scene-type.json"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift"
+      - "schemas/composer-status/peek-pin.json"
   workflow_dispatch:
     inputs:
       pr:
