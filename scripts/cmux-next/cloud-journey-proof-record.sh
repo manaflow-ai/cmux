@@ -43,9 +43,25 @@ file="proofs/${env_name}.json"
 entry="$(jq -nc --arg sha "$sha" --arg result "$result" --arg at "$at" --arg run "$run" \
   --arg url "${server}/${repo}/actions/runs/${run}" \
   '{commit: $sha, result: $result, at: $at, run: ($run | tonumber), run_url: $url}')"
-for attempt in 1 2 3 4 5; do
-  if git -C "$work" fetch -q --depth 1 origin "refs/heads/${branch}" 2> /dev/null; then
-    git -C "$work" checkout -q -B "$branch" FETCH_HEAD
+attempts="${CMUX_JOURNEY_PROOF_ATTEMPTS:-8}"
+for attempt in $(seq 1 "$attempts"); do
+  if [ "$attempt" -gt 1 ]; then
+    # Staging, production and cmux-vm append to the same branch within seconds of each other: back off with
+    # jitter so the writers stop colliding (2026-11-26 00:24Z: five back-to-back attempts in 2 s all lost).
+    sleep "$(( attempt + RANDOM % (attempt * 2) ))"
+  fi
+  # ls-remote tells "no branch yet" apart from a failed fetch. A fetch failure used to read as the first proof
+  # ever, start an orphan and lose every push as non-fast-forward.
+  if ! heads="$(git -C "$work" ls-remote --heads origin "refs/heads/${branch}")"; then
+    echo "cloud journey proof: could not read ${branch} (attempt ${attempt})"
+    continue
+  fi
+  if [ -n "$heads" ]; then
+    if ! git -C "$work" fetch -q --depth 1 origin "refs/heads/${branch}"; then
+      echo "cloud journey proof: fetch of ${branch} failed (attempt ${attempt})"
+      continue
+    fi
+    git -C "$work" checkout -q -f -B "$branch" FETCH_HEAD
   else
     # The first proof ever: the branch starts as an orphan with only proofs on it.
     git -C "$work" checkout -q --orphan "$branch"
@@ -64,5 +80,5 @@ for attempt in 1 2 3 4 5; do
   fi
   echo "cloud journey proof: the proof branch moved; appending again (attempt ${attempt})"
 done
-echo "cloud-journey-proof-record: the proof branch kept moving; ${file} was not written" >&2
+echo "cloud-journey-proof-record: ${file} was not written after ${attempts} attempts (the branch kept moving or could not be read)" >&2
 exit 1
