@@ -40,7 +40,7 @@ on:
         type: string
         default: ""
       only:
-        description: "The one job id to run (a bisect probe): compile. Empty: every job."
+        description: "The one job id to run (a bisect probe): compile-fleet (the gateway admits a job id ending in -fleet from any workflow, so a workflow_call from cmux-next-post-merge.yml runs it; compile, the old id, still selects it). Empty: every job."
         type: string
         default: ""
   workflow_dispatch:
@@ -127,9 +127,9 @@ jobs:
   compile-fleet:
     name: tip test-compile (fleet, background)
     needs: plan
-    if: ${{ (inputs.only == '' || inputs.only == 'compile') && (needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '')) }}
+    if: ${{ (inputs.only == '' || inputs.only == 'compile-fleet' || inputs.only == 'compile') && (needs.plan.outputs.needed == 'true' && (vars.CI_TIP_TEST_COMPILE_GATEWAY != '' || vars.CI_COMPILE_CHECK_GATEWAY != '')) }}
     # One gateway runner at most (the concurrency group); its own label when set.
-    runs-on: ${{ vars.CI_TIP_TEST_COMPILE_GATEWAY || vars.CI_COMPILE_CHECK_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_TIP_TEST_COMPILE_GATEWAY/CI_COMPILE_CHECK_GATEWAY (cmux#54437)
     permissions:
       contents: read
       actions: read
