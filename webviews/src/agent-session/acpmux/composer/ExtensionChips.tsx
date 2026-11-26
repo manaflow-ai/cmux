@@ -1,7 +1,7 @@
-// The row of extension context chips over the prompt (composer/extensionChips.ts). It draws only
+// The row of extension context chips over the prompt (composer/extensionChipModel.ts). It draws only
 // when an installed extension offers a chip, so with none the composer is unchanged.
 import { memo } from "react";
-import type { ExtensionChip } from "./extensionChips";
+import type { ExtensionChip } from "./extensionChipModel";
 
 export const ExtensionChips = memo(function ExtensionChips({
   chips,

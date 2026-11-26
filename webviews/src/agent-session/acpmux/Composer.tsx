@@ -68,7 +68,7 @@ import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { handleVimKey, VIM_INITIAL, type VimMode, type VimState } from "./composer/vimKeys";
 import { MentionMenu } from "./MentionMenu";
 import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
-import { type ExtensionChip, useExtensionChips, withChipText } from "./composer/extensionChips";
+import { type ExtensionChip, useExtensionChips, withChipText } from "./composer/extensionChipModel";
 import { ExtensionChips } from "./composer/ExtensionChips";
 import { markdownOffset, mentionResults, useMentionSearch } from "./mentionMenuModel";
 import {
@@ -2406,7 +2406,7 @@ function ComposerFrame({
   useInsertionEffect(() => {
     submitNow.current = send;
   });
-  // Installed extensions' context chips (cmux.composer.chip/1, composer/extensionChips.ts): a click
+  // Installed extensions' context chips (cmux.composer.chip/1, composer/extensionChipModel.ts): a click
   // writes the chip's text at the caret.
   const extensionChips = useExtensionChips();
   const pickChip = (chip: ExtensionChip) => {

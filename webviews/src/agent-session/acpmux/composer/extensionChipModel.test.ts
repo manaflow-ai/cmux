@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { extensionChipsFrom, withChipText } from "./extensionChips";
+import { extensionChipsFrom, withChipText } from "./extensionChipModel";
 
 describe("extension chips", () => {
   test("reads the chips of an apps.composer.list reply", () => {
