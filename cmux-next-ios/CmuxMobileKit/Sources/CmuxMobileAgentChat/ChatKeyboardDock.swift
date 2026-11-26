@@ -1401,7 +1401,7 @@ struct ChatTranscriptRepresentable: UIViewControllerRepresentable {
         // Read here so SwiftUI calls update when the chat's Text and Width change.
         controller.applyDisplay(ChatDisplayPreferences.shared.settings(for: store.summary))
         // Read here so SwiftUI calls update when the Mac's chat look changes.
-        controller.applyChatLook(CmuxMobileMacTheme.shared.chatLook)
+        controller.applyChatLook(CmuxMobileChatLook.current)
     }
 }
 
