@@ -223,6 +223,20 @@ impl Terminal {
         }
     }
 
+    /// About how many bytes the model holds: its rows' cells (history,
+    /// both screens) and the grapheme table. A warm terminal keeps one
+    /// of these per phone page (Aziz, cmux#42219, "Memory"); the bound is
+    /// pinned by `tests/projection.rs` `a_full_history_stays_within_its_memory_bound`.
+    pub fn footprint(&self) -> usize {
+        let row = |r: &Row| size_of::<Row>() + r.cells.capacity() * size_of::<Cell>();
+        size_of::<Terminal>()
+            + self.history.iter().map(row).sum::<usize>()
+            + self.history.capacity().saturating_sub(self.history.len()) * size_of::<Row>()
+            + self.primary.iter().map(row).sum::<usize>()
+            + self.alt.iter().map(row).sum::<usize>()
+            + self.graphemes.footprint()
+    }
+
     pub fn is_alternate(&self) -> bool {
         self.alt_active
     }

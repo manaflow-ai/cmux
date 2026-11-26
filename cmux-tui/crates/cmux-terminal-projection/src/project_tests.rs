@@ -100,6 +100,29 @@ fn a_cursor_after_a_line_that_fills_the_phone_row_is_on_the_next_row() {
 }
 
 #[test]
+fn one_pass_cell_places_match_wrap_line_per_cell() {
+    // Every host cell (glyphs, wide glyphs, trailing blanks, cells past
+    // the line) lands where a per-cell `wrap_line` puts the cursor.
+    let mut term = Terminal::new(12, 4, 100);
+    for &b in "ab世界cdefghij界klmno  pq \x1b[11G".as_bytes() {
+        term.advance(b);
+    }
+    let n = term.primary_rows().iter().take_while(|r| r.wrapped).count() + 1;
+    let rows: Vec<&Row> = term.primary_rows()[..n].iter().collect();
+    let cells: Vec<(usize, usize)> =
+        (0..n).flat_map(|k| (0..12).map(move |x| (k, x))).collect();
+    for compact in [false, true] {
+        for cols in [3, 4, 5, 7, 12, 30] {
+            let places = wrap_line_cells(&term, &rows, 12, cols, compact, &cells);
+            for (&(k, x), at) in cells.iter().zip(places) {
+                let want = wrap_line(&term, &rows, 12, cols, Some((k, x)), compact).cursor;
+                assert_eq!(at, want, "cell ({k}, {x}) at {cols} columns, compact {compact}");
+            }
+        }
+    }
+}
+
+#[test]
 fn a_wide_glyph_never_splits() {
     let mut term = Terminal::new(10, 3, 100);
     for &b in "ab世界".as_bytes() {
