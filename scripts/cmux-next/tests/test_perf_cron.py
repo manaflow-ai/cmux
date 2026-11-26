@@ -1767,11 +1767,12 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual((len(got["rounds"]), got["stopped"]), (cron.GOD_PAIRED_MIN_ROUNDS, "settled"))
         self.assertEqual(len(got["rounds"][0]["rows"]), 6)
         now[0] = 0.0
-        run, calls = run_with([1.0, 1.5, 0.9, 1.6, 1.0, 1.4, 0.8, 1.7, 1.1, 1.3, 0.9, 1.6], 300)
+        run, calls = run_with([1.0, 1.5, 0.9, 1.6, 1.0, 1.4, 0.8, 1.7, 1.1, 1.3, 0.9, 1.6], 600)
         with contextlib.redirect_stdout(io.StringIO()):
-            got = cron.run_paired_rounds(["bun"], "/r", {"PAIRED": "1"}, -900.0, clock=clock, run=run)
+            got = cron.run_paired_rounds(["bun"], "/r", {"PAIRED": "1"}, 0.0, clock=clock, run=run)
         self.assertEqual(got["stopped"], "deadline", "a noisy run stops at the deadline, inside the job's cap")
-        self.assertLessEqual(900 + 300 * len(got["rounds"]), cron.GOD_PAIRED_DEADLINE_S)
+        self.assertLessEqual(600 * len(got["rounds"]), cron.GOD_PAIRED_DEADLINE_S)
+        self.assertGreaterEqual(len(got["rounds"]), cron.GOD_PAIRED_MIN_ROUNDS, "600 s rounds still reach MIN")
 
     def test_a_regression_of_a_webui_row(self):
         name = "webui.chat_switch.unread.latest@linux"
