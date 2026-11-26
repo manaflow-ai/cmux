@@ -6,6 +6,7 @@ import {
   use,
   useCallback,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentProps,
@@ -15,7 +16,6 @@ import {
   type PointerEvent,
   type ReactNode,
   type RefObject,
-  useMemo,
 } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvider";
@@ -23,6 +23,7 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
+import { KeyHint } from "./KeyHint";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { usePointerMenuPosition } from "./pointerMenuPosition";
@@ -615,7 +616,10 @@ export interface MenuItemProps {
   /** Why a disabled row is disabled, one amber line under its label ("Needs sign-in"); drawn under
    *  the menu-row-states experiment. */
   reason?: string;
-  shortcut?: ReactNode;
+  /** The row's keyboard shortcut ("⌘C", "↩"), drawn with the one key hint (ui/KeyHint). */
+  shortcut?: string | undefined;
+  /** Text in the shortcut's column that is not a key (a count). */
+  trailing?: ReactNode;
   /** A second, quieter line under the row's title (`children`, the title's text). */
   subtitle?: ReactNode;
   onPointerMove?(event: PointerEvent<HTMLElement>): void;
@@ -651,6 +655,7 @@ export function MenuItem({
   disabled,
   reason,
   shortcut,
+  trailing,
   subtitle,
   onPointerMove,
   onPointerEnter,
@@ -762,7 +767,9 @@ export function MenuItem({
           children
         )}
       </RowLabel>
-      {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
+      {shortcut || trailing != null ? (
+        <span className="ui-menu-shortcut">{shortcut ? <KeyHint keys={shortcut} /> : trailing}</span>
+      ) : null}
       {/* The async row's trailing slot, reserved from the start so its spinner moves nothing. */}
       {waits ? (
         <span className="ui-menu-async" aria-hidden="true">
@@ -842,6 +849,7 @@ export function MenuRadioItem({
   disabled,
   reason,
   shortcut,
+  trailing,
   closeOnClick,
   label,
   title,
@@ -882,7 +890,9 @@ export function MenuRadioItem({
       <RowLabel disabled={disabled} reason={reason}>
         {children}
       </RowLabel>
-      {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}
+      {shortcut || trailing != null ? (
+        <span className="ui-menu-shortcut">{shortcut ? <KeyHint keys={shortcut} /> : trailing}</span>
+      ) : null}
     </BaseMenu.RadioItem>
   );
 }
