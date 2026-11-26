@@ -411,20 +411,24 @@ pub fn parse(exit_code: i64, stdout: &str) -> Outcome {
         (IdentityStatus::Failed, GitHubStatus::Failed, None::<String>, false);
     for line in stdout.split(is_newline).filter(|line| !line.is_empty()) {
         let words: Vec<&str> = line.split(' ').filter(|word| !word.is_empty()).collect();
-        if words.len() < 2 {
+        let [key, status, rest @ ..] = words.as_slice() else {
             continue;
-        }
-        match words[0] {
-            "cmux-app:" => not_on_machine = not_on_machine || words[1] == "unavailable",
+        };
+        match *key {
+            "cmux-app:" => not_on_machine = not_on_machine || *status == "unavailable",
             "cmux-git:" => {
-                identity = IdentityStatus::from_raw(words[1]).unwrap_or(IdentityStatus::Failed)
+                identity = IdentityStatus::from_raw(status).unwrap_or(IdentityStatus::Failed);
             }
             "cmux-gh:" => {
-                git_hub = GitHubStatus::from_raw(words[1]).unwrap_or(GitHubStatus::Failed);
-                code = (git_hub == GitHubStatus::Pending
-                    && words.len() == 3
-                    && is_device_code(words[2]))
-                .then(|| words[2].to_owned());
+                git_hub = GitHubStatus::from_raw(status).unwrap_or(GitHubStatus::Failed);
+                code = match rest {
+                    [device_code]
+                        if git_hub == GitHubStatus::Pending && is_device_code(device_code) =>
+                    {
+                        Some((*device_code).to_owned())
+                    }
+                    _ => None,
+                };
                 if git_hub == GitHubStatus::Pending && code.is_none() {
                     git_hub = GitHubStatus::Failed;
                 }
