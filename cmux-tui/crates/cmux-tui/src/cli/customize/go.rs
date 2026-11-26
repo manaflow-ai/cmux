@@ -70,11 +70,11 @@ pub(super) fn go_with(customize: &Customize, pr: u64, gh: &mut Gh<'_>) -> Result
     .map_err(|why| failure(format!("could not read pr:{pr} from GitHub: {why}")))?;
     let pull: Value = serde_json::from_str(said.trim())
         .map_err(|_| failure(format!("GitHub's answer for pr:{pr} did not read")))?;
-    let head = pull["head"].as_str().unwrap_or_default().to_owned();
-    if pull["merged"].as_bool() == Some(true) {
+    let head = pull.get("head").and_then(Value::as_str).unwrap_or_default().to_owned();
+    if pull.get("merged").and_then(Value::as_bool) == Some(true) {
         return Err(failure(format!("pr:{pr} is merged already")));
     }
-    if pull["state"].as_str() != Some("open") {
+    if pull.get("state").and_then(Value::as_str) != Some("open") {
         return Err(failure(format!("pr:{pr} is closed")));
     }
     if head != tried {
@@ -93,8 +93,13 @@ pub(super) fn go_with(customize: &Customize, pr: u64, gh: &mut Gh<'_>) -> Result
         add.extend(["-f".to_owned(), format!("labels[]={label}")]);
     }
     gh(&add).map_err(|why| failure(format!("could not mark pr:{pr} merge-ready: {why}")))?;
-    let labels: Vec<&str> =
-        pull["labels"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let labels: Vec<&str> = pull
+        .get("labels")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
     let mut lifted = false;
     if labels.iter().any(|label| label.eq_ignore_ascii_case(LOOK_LABEL)) {
         let name = LOOK_LABEL.replace(' ', "%20");
@@ -122,7 +127,7 @@ pub(super) fn go_with(customize: &Customize, pr: u64, gh: &mut Gh<'_>) -> Result
         &format!("body={body}"),
     ]))
     .is_ok();
-    let draft = pull["draft"].as_bool() == Some(true);
+    let draft = pull.get("draft").and_then(Value::as_bool) == Some(true);
     let mut human = format!(
         "Go: pr:{pr} is merge-ready at {} ({}), it lands once CI is green\n",
         short(&head),
@@ -145,7 +150,7 @@ pub(super) fn go_with(customize: &Customize, pr: u64, gh: &mut Gh<'_>) -> Result
             "pr": pr,
             "repo": REPO,
             "head": head,
-            "title": pull["title"],
+            "title": pull.get("title"),
             "labels": GO_LABELS,
             "lifted": lifted,
             "commented": commented,
