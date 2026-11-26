@@ -12,8 +12,8 @@ public actor AndroidPhoneBackend: PhoneBackend {
     private let runner: any PhoneCommandRunning
     /// AVD name or USB serial (the id's raw value) -> adb serial, from the last list.
     private var serials: [String: String] = [:]
-    /// adb serial -> pixels per dp.
-    private var densities: [String: Double] = [:]
+    /// adb serial -> pixels per dp, and the `wm density` output it was read from.
+    private var densities: [String: (scale: Double, output: String)] = [:]
 
     /// - Parameters:
     ///   - sdk: the SDK whose tools run.
@@ -25,8 +25,8 @@ public actor AndroidPhoneBackend: PhoneBackend {
 
     public func devices() async throws -> [PhoneDevice] {
         let avds = try await checked([sdk.emulator, "-list-avds"], name: "emulator -list-avds").stdout
-        let names = String(decoding: avds, as: UTF8.self).split(whereSeparator: \.isNewline).map(String.init)
-            .filter { !$0.isEmpty && !$0.hasPrefix("INFO") }
+        let names = (try? PhoneRules.decode([String].self, "names", "avd_names", ["output": PhoneRules.text(avds)],
+                                            what: "the AVD list")) ?? []
         let attached = AndroidDeviceList().parse(try await checked([sdk.adb, "devices", "-l"], name: "adb devices").stdout)
         var running: [PhoneDevice] = [], usb: [PhoneDevice] = []
         var found: [String: String] = [:]
@@ -40,7 +40,7 @@ public actor AndroidPhoneBackend: PhoneBackend {
                                            model: entry.model ?? Self.displayName(avd), osVersion: version, state: .ready))
             } else {
                 found[entry.serial] = entry.serial
-                let model = entry.model.map { $0.replacingOccurrences(of: "_", with: " ") } ?? entry.serial
+                let model = Self.usbModel(entry)
                 usb.append(PhoneDevice(id: PhoneDeviceID(mode: .androidDevice, raw: entry.serial), name: model,
                                        model: model, osVersion: version, state: .ready, transport: "usb"))
             }
@@ -64,8 +64,8 @@ public actor AndroidPhoneBackend: PhoneBackend {
         guard id.mode == .emulator else { throw PhoneError.unsupported(mode: id.mode, what: "boot") }
         if (try? await serial(id)) != nil { return }
         // Each emulator takes an even console port; adb names it emulator-<port>.
-        let taken = Set(serials.values.compactMap { $0.hasPrefix("emulator-") ? Int($0.dropFirst(9)) : nil })
-        guard let port = stride(from: 5554, through: 5682, by: 2).first(where: { !taken.contains($0) }) else {
+        guard let port = try? PhoneRules.decode(Int?.self, "port", "free_emulator_port", ["serials": Array(serials.values)],
+                                                what: "the emulator ports"), let port else {
             throw PhoneError.unsupported(mode: id.mode, what: "more than 64 running emulators")
         }
         // Headless: the phone tab draws the screen, so no emulator window opens.
@@ -112,39 +112,22 @@ public actor AndroidPhoneBackend: PhoneBackend {
 
     public func send(_ input: PhoneInput, to id: PhoneDeviceID) async throws {
         let serial = try await serial(id)
+        // Pixels per dp matter to taps and swipes only; reading them costs a shell call.
+        var scale = 1.0
         switch input {
-        case .tap(let point):
-            let scale = try await density(serial)
-            try await run(serial, ["shell", "input", "tap", px(point.x, scale), px(point.y, scale)], "adb input tap")
-        case .swipe(let from, let to, let seconds):
-            let scale = try await density(serial)
-            try await run(serial, ["shell", "input", "swipe", px(from.x, scale), px(from.y, scale), px(to.x, scale), px(to.y, scale),
-                                   String(Int((seconds * 1000).rounded()))], "adb input swipe")
-        case .text(let text):
-            // `input text` reads %s as a space; the device shell parses the one quoted argument.
-            try await run(serial, ["shell", "input text " + Self.quoted(text.replacingOccurrences(of: " ", with: "%s"))], "adb input text")
-        case .button(let button):
-            try await run(serial, ["shell", "input", "keyevent", Self.keycode(button)], "adb input keyevent")
-        case .openURL(let url):
-            try await run(serial, ["shell", "am start -a android.intent.action.VIEW -d " + Self.quoted(url.absoluteString)], "adb am start")
-        case .pasteboard, .softwareKeyboard:
+        case .tap, .swipe: scale = try await density(serial)
+        default: break
+        }
+        let calls: [AdbCall]
+        do {
+            calls = try PhoneRules.decode([AdbCall].self, "calls", "android_input_calls",
+                                          ["input": Self.wire(input), "emulator": id.mode == .emulator, "scale": scale],
+                                          what: "the adb calls")
+        } catch let refusal as PhoneRules.Refusal where refusal.kind == "unsupported" {
             throw PhoneError.unsupported(mode: id.mode, what: input.kind)
-        case .appearance(let appearance):
-            try await run(serial, ["shell", "cmd", "uimode", "night", appearance == .dark ? "yes" : "no"], "adb cmd uimode")
-        case .location(let latitude, let longitude):
-            guard id.mode == .emulator else { throw PhoneError.unsupported(mode: id.mode, what: input.kind) }
-            try await run(serial, ["emu", "geo", "fix", String(longitude), String(latitude)], "adb emu geo fix")
-        case .locale(let identifier):
-            // Emulator images allow adb root; restarting zygote applies the locale to every app.
-            guard id.mode == .emulator else { throw PhoneError.unsupported(mode: id.mode, what: input.kind) }
-            let tag = identifier.replacingOccurrences(of: "_", with: "-")
-            try await run(serial, ["root"], "adb root")
-            try await run(serial, ["shell", "setprop persist.sys.locale " + Self.quoted(tag) + " && setprop ctl.restart zygote"],
-                          "adb setprop locale")
-        case .install(let apk):
-            try await run(serial, ["install", "-r", apk.path], "adb install", deadline: .seconds(300))
-        case .launch(let package):
-            try await run(serial, ["shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"], "adb monkey")
+        }
+        for call in calls {
+            try await run(serial, call.args, call.name, deadline: .seconds(call.deadlineSeconds))
         }
     }
 
@@ -157,15 +140,15 @@ public actor AndroidPhoneBackend: PhoneBackend {
     public func screenPoints(_ id: PhoneDeviceID) async throws -> PhonePoint {
         let serial = try await serial(id)
         // "Physical size: 1080x2400" (an "Override size" line follows when set; the last wins).
-        let text = try await shell(serial, ["wm", "size"])
-        let dims = text.split(whereSeparator: \.isNewline).last?.split(separator: ":").last?
-            .split(separator: "x").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) } ?? []
-        guard dims.count == 2 else { throw PhoneError.unreadable(what: "the screen size") }
-        let scale = try await density(serial)
+        let size = try await shell(serial, ["wm", "size"])
+        _ = try await density(serial)
         // wm size is the natural (portrait) size; screencap and taps follow the rotation.
-        let rotation = (try? await shell(serial, ["settings", "get", "system", "user_rotation"])).flatMap { Int($0) } ?? 0
-        let (w, h) = rotation % 2 == 1 ? (dims[1], dims[0]) : (dims[0], dims[1])
-        return PhonePoint(x: w / scale, y: h / scale)
+        let rotation = try? await shell(serial, ["settings", "get", "system", "user_rotation"])
+        var fields: [String: Any] = ["size_output": size, "density_output": densities[serial]?.output ?? ""]
+        if let rotation { fields["rotation"] = rotation }
+        let points = try PhoneRules.reply([String: Double].self, "screen_points", fields, what: "the screen size")
+        guard let width = points["width"], let height = points["height"] else { throw PhoneError.unreadable(what: "the screen size") }
+        return PhonePoint(x: width, y: height)
     }
 
     public func logCommand(_ id: PhoneDeviceID) async throws -> [String] {
@@ -194,7 +177,8 @@ public actor AndroidPhoneBackend: PhoneBackend {
     /// Whether night mode is on (`cmd uimode night` answers "Night mode: yes|no|auto"; auto reads as light).
     public func appearance(_ id: PhoneDeviceID) async throws -> PhoneAppearance {
         let text = try await shell(try await serial(id), ["cmd", "uimode", "night"])
-        return text.lowercased().hasSuffix("yes") ? .dark : .light
+        let dark = try PhoneRules.decode(Bool.self, "dark", "night_mode", ["output": text], what: "the night mode")
+        return dark ? .dark : .light
     }
 
     // MARK: - Helpers
@@ -210,21 +194,21 @@ public actor AndroidPhoneBackend: PhoneBackend {
     }
 
     private func density(_ serial: String) async throws -> Double {
-        if let known = densities[serial] { return known }
-        let text = try await shell(serial, ["wm", "density"])
+        if let known = densities[serial] { return known.scale }
         // "Physical density: 420" (and "Override density: 360" after it when set; the last line wins).
-        guard let dpi = text.split(whereSeparator: \.isNewline).last?.split(separator: ":").last
-            .flatMap({ Double($0.trimmingCharacters(in: .whitespaces)) }), dpi > 0 else {
+        let text = try await shell(serial, ["wm", "density"])
+        guard let scale = try PhoneRules.decode(Double?.self, "pixels_per_dp", "pixels_per_dp", ["output": text],
+                                                what: "the screen density") else {
             throw PhoneError.unreadable(what: "the screen density")
         }
-        densities[serial] = dpi / 160
-        return dpi / 160
+        densities[serial] = (scale, text)
+        return scale
     }
 
     private func avdName(_ serial: String) async throws -> String {
         let out = try await checked([sdk.adb, "-s", serial, "emu", "avd", "name"], name: "adb emu avd name").stdout
-        guard let name = String(decoding: out, as: UTF8.self).split(whereSeparator: \.isNewline)
-            .map({ $0.trimmingCharacters(in: .whitespaces) }).first(where: { !$0.isEmpty && $0 != "OK" }) else {
+        guard let name = try PhoneRules.decode(String?.self, "name", "avd_name", ["output": PhoneRules.text(out)],
+                                               what: "the emulator's AVD name") else {
             throw PhoneError.unreadable(what: "the emulator's AVD name")
         }
         return name
@@ -245,27 +229,46 @@ public actor AndroidPhoneBackend: PhoneBackend {
         return result
     }
 
-    private nonisolated func px(_ points: Double, _ scale: Double) -> String {
-        String(Int((points * scale).rounded()))
-    }
-
     /// `Pixel_8_API_35` -> "Pixel 8 API 35".
-    static func displayName(_ avd: String) -> String { avd.replacingOccurrences(of: "_", with: " ") }
-
-    /// One single-quoted word for the device's `sh`.
-    static func quoted(_ text: String) -> String {
-        "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    static func displayName(_ avd: String) -> String {
+        (try? PhoneRules.decode(String.self, "name", "avd_display_name", ["avd": avd], what: "the AVD name")) ?? avd
     }
 
-    static func keycode(_ button: PhoneButton) -> String {
-        switch button {
-        case .home: "KEYCODE_HOME"
-        case .lock: "KEYCODE_POWER"
-        case .volumeUp: "KEYCODE_VOLUME_UP"
-        case .volumeDown: "KEYCODE_VOLUME_DOWN"
-        case .siri: "KEYCODE_ASSIST"
-        case .back: "KEYCODE_BACK"
-        case .appSwitch: "KEYCODE_APP_SWITCH"
+    /// A USB phone's name: adb's model with spaces, else its serial.
+    static func usbModel(_ entry: AndroidDeviceList.Entry) -> String {
+        var wire: [String: Any] = ["serial": entry.serial, "state": entry.state]
+        if let model = entry.model { wire["model"] = model }
+        return (try? PhoneRules.decode(String.self, "model", "usb_model", ["entry": wire], what: "the phone model")) ?? entry.serial
+    }
+
+    /// One `adb -s SERIAL` call an input runs.
+    private struct AdbCall: Decodable {
+        let args: [String]
+        let name: String
+        let deadlineSeconds: Int64
+
+        enum CodingKeys: String, CodingKey {
+            case args, name
+            case deadlineSeconds = "deadline_seconds"
+        }
+    }
+
+    /// `input` as `cmux-phone-core`'s `AndroidInput` reads it.
+    static func wire(_ input: PhoneInput) -> [String: Any] {
+        switch input {
+        case .tap(let point): ["kind": "tap", "x": point.x, "y": point.y]
+        case .swipe(let from, let to, let seconds):
+            ["kind": "swipe", "from_x": from.x, "from_y": from.y, "to_x": to.x, "to_y": to.y, "seconds": seconds]
+        case .text(let text): ["kind": "text", "text": text]
+        case .button(let button): ["kind": "button", "button": button.rawValue]
+        case .openURL(let url): ["kind": "open_url", "url": url.absoluteString]
+        case .pasteboard: ["kind": "pasteboard"]
+        case .appearance(let appearance): ["kind": "appearance", "dark": appearance == .dark]
+        case .location(let latitude, let longitude): ["kind": "location", "latitude": latitude, "longitude": longitude]
+        case .locale(let identifier): ["kind": "locale", "identifier": identifier]
+        case .install(let apk): ["kind": "install", "path": apk.path]
+        case .launch(let package): ["kind": "launch", "package": package]
+        case .softwareKeyboard: ["kind": "software_keyboard"]
         }
     }
 }
