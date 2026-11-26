@@ -2109,6 +2109,7 @@ async fn connect_relay_tcp(
         Ok(socket)
     };
     super::proxied::connect(host, port, endpoint.scheme() == "wss", proxy, direct)
+        .await
         .map_err(WebSocketError::Io)
 }
 
