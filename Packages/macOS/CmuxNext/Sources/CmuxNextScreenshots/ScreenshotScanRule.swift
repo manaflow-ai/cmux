@@ -24,7 +24,7 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
     public let depth: Int
     /// When set, only subfolders whose names start with this are entered.
     public let folderPrefix: String?
-    private let handle: Handle
+    private let handle: RustHandle
 
     /// Makes a rule.
     ///
@@ -45,7 +45,9 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
         var json: [String: Any] = ["kinds": mask, "extraImageExtensions": extraImageExtensions.sorted(),
                                    "namePrefixes": namePrefixes, "depth": self.depth]
         if let folderPrefix { json["folderPrefix"] = folderPrefix }
-        handle = Handle(ScreenshotsFFI.bytes(ScreenshotsFFI.json(json)) { cmux_screenshots_rule_new($0, $1) })
+        handle = RustHandle(ScreenshotsFFI.bytes(ScreenshotsFFI.json(json)) { cmux_screenshots_rule_new($0, $1) }) {
+            cmux_screenshots_rule_free($0)
+        }
     }
 
     /// The rule a source's JSON from `cmux_screenshots_detect` names.
@@ -67,33 +69,11 @@ public nonisolated struct ScreenshotScanRule: Sendable, Hashable {
     /// The kind a directory entry is listed as, nil when the rule leaves it out.
     func kind(entryKind: UInt32, hidden: Bool, name: String) -> FileGridMediaKind? {
         let system = ScreenshotsFFI.systemKind(ofFileNamed: name)
-        return ScreenshotsFFI.kind(ScreenshotsFFI.bytes(name) { cmux_screenshots_rule_item_kind(handle.rule, entryKind, hidden, $0, $1, system) })
+        return ScreenshotsFFI.kind(ScreenshotsFFI.bytes(name) { cmux_screenshots_rule_item_kind(handle.pointer, entryKind, hidden, $0, $1, system) })
     }
 
     /// Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
     func enters(entryKind: UInt32, hidden: Bool, name: String, depth: Int) -> Bool {
-        ScreenshotsFFI.bytes(name) { cmux_screenshots_rule_enters(handle.rule, entryKind, hidden, $0, $1, depth) }
-    }
-
-    public static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.kinds == rhs.kinds && lhs.extraImageExtensions == rhs.extraImageExtensions && lhs.namePrefixes == rhs.namePrefixes
-            && lhs.depth == rhs.depth && lhs.folderPrefix == rhs.folderPrefix
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(kinds)
-        hasher.combine(extraImageExtensions)
-        hasher.combine(namePrefixes)
-        hasher.combine(depth)
-        hasher.combine(folderPrefix)
-    }
-
-    /// The Rust rule, freed with the last copy.
-    private nonisolated final class Handle: Sendable {
-        /// The rule's address (0: none), a plain value, so the handle is Sendable; the rule never changes.
-        private let address: UInt
-        var rule: OpaquePointer? { OpaquePointer(bitPattern: address) }
-        init(_ rule: OpaquePointer?) { address = UInt(bitPattern: rule) }
-        deinit { cmux_screenshots_rule_free(rule) }
+        ScreenshotsFFI.bytes(name) { cmux_screenshots_rule_enters(handle.pointer, entryKind, hidden, $0, $1, depth) }
     }
 }
