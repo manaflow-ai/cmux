@@ -1,5 +1,5 @@
 use super::*;
-use crate::cli::command::{flatten, Cli, Command};
+use crate::cli::command::{Cli, Command, flatten};
 use clap::Parser;
 
 fn parse(args: &[&str]) -> Value {
