@@ -13291,3 +13291,4 @@ CmuxUpdater	func	networkError	0	MIXED	60	0	Packages/macOS/CmuxUpdater/Sources/Cm
 CmuxUpdater	class	UpdateStateModel	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateStateModel.swift	state/decision code: 74 branch lines, 16 funcs, 0 of 271 lines framework
 CmuxUpdater	enum	UpdateTiming	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateTiming.swift	tuning constants: 4 lines, no branches, no funcs
 CmuxUpdater	let	installWatchdogTimeout	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateTiming.swift	tuning constants: 1 lines, no branches, no funcs
+CmuxNextMacScreen	enum	RdUI	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMacScreen/RdUI.swift	FFI glue: serializes one op to cmux_rd_ui_call (cmux-rd-ffi ui/) and parses its answer; no rule in Swift
