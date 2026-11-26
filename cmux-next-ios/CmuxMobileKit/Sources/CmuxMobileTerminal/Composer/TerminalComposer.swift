@@ -690,16 +690,34 @@ struct AttachmentStrip: View {
 struct AttachmentUploadBadge: View {
     let attachment: ComposerAttachment
     let progress: UploadProgress?
+    @State private var waitingGate = QuietStatusGate()
 
     var body: some View {
+        badge
+            .onChange(of: isWaitingForMac, initial: true) { _, waiting in
+                waitingGate.update(down: waiting)
+            }
+            .onDisappear { waitingGate.update(down: false) }
+    }
+
+    private var isWaitingForMac: Bool {
+        !attachment.isLoading && progress?.stage == .waitingForMac
+    }
+
+    @ViewBuilder private var badge: some View {
         if attachment.isLoading {
             scrim { CmuxSpinner(tint: .white).controlSize(.small) }
                 .accessibilityLabel("Loading \(attachment.name)")
         } else if let progress {
             switch progress.stage {
-            case .compressing, .waitingForMac:
+            case .compressing:
                 scrim { CmuxSpinner(tint: .white).controlSize(.small) }
-                    .accessibilityLabel(progress.stage == .compressing ? "Compressing" : "Waiting for the Mac")
+                    .accessibilityLabel("Compressing")
+            case .waitingForMac:
+                if waitingGate.isShown {
+                    scrim { CmuxSpinner(tint: .white).controlSize(.small) }
+                        .accessibilityLabel("Waiting for the Mac")
+                }
             case .uploading, .finishing:
                 scrim {
                     ZStack {
