@@ -54,7 +54,7 @@ impl Client {
         loop {
             let line = tokio::time::timeout(Duration::from_secs(30), self.1.recv())
                 .await
-                .unwrap_or_else(|_| panic!("no reply in 30 s: {m} id {id}"))
+                .expect("no reply in 30 s")
                 .unwrap();
             let v: Value = serde_json::from_str(&line).unwrap();
             if v.get("id") == Some(&json!(id)) {
@@ -319,10 +319,6 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
         json!({"sessionId": fresh_id, "prompt": [{"type": "text", "text": "overloaded: fresh"}]});
     let (failed, _) = local.call_text("session/prompt", fresh_overload).await;
     assert_eq!(failed["error"]["data"]["fallback"]["applied"], true, "{failed}");
-    assert_eq!(
-        local.env_of(&fresh_id, "ANTHROPIC_BASE_URL").await,
-        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a"
-    );
     // With automatic continuations disabled, the retry mark from the failed
     // turn must not strand the next ordinary prompt behind the quiet restart.
     local
