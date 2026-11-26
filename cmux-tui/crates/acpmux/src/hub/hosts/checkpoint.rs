@@ -170,8 +170,15 @@ impl Hub {
         incarnation: &str,
         inputs: &FoldInputs,
     ) -> Option<Checkpoint> {
+        let probe_t = std::time::Instant::now();
         let bytes = self.store.adoption_checkpoint(&session.id)?;
+        let probe_len = bytes.len();
         let mut point: Checkpoint = serde_json::from_slice(&bytes).ok()?;
+        tracing::warn!(
+            "PROBE adoption_checkpoint read+parse bytes={probe_len} took {:?} thread={:?}",
+            probe_t.elapsed(),
+            std::thread::current().name()
+        );
         if point.incarnation != incarnation {
             // Another host's: its folds before any start of this one are this one's.
             let unstarted = point.unstarted.clone()?;
@@ -282,7 +289,9 @@ impl Hub {
                 tracing::debug!(session = %session.id, "adoption checkpoint not saved: {error:#}");
             }
         };
+        let probe_t = std::time::Instant::now();
         save(&mut point);
+        tracing::warn!("PROBE save_adoption_checkpoint took {:?}", probe_t.elapsed());
         point.processes
     }
 }

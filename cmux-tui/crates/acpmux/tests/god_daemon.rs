@@ -2539,7 +2539,17 @@ fn size_run(label: &str, bytes: u64) -> Value {
     rpc.notes.clear();
     let second_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
     let _ = rpc.call("_acpmux/perf", json!({"op": "on"}));
+    let probe_ms =
+        || std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+    let t0 = probe_ms();
     let second_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted twice"));
+    let t1 = probe_ms();
+    let second_again = send_first_token(&mut rpc, &id, &format!("size {label} twice again"));
+    std::thread::sleep(Duration::from_secs(3));
+    let second_idle = send_first_token(&mut rpc, &id, &format!("size {label} twice idle"));
+    eprintln!(
+        "PROBE-SENDS2 {label} sendAtMs={t0} doneAtMs={t1} first={second_send:?} again={second_again:?} idle={second_idle:?}"
+    );
     let snap = rpc
         .call("_acpmux/perf", json!({"op": "snapshot"}))
         .map(|v| v.to_string())
