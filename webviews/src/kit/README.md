@@ -215,6 +215,24 @@ CMUX_CAPTURE_BUILD=1 bun scripts/gallery/capture-states.mjs scripts/gallery/kit.
   customize scene node's `.glass(level)` match.
 - Icons: [`agent-session/acpmux/icons/README.md`](../agent-session/acpmux/icons/README.md).
 
+### Swift counterpart
+
+Native surfaces use the same Instrument roles and tokens through `CmuxNextDesign`:
+`CardSurfaceView` is the shared card glass, `CardMaterial` resolves a theme's card fill and rim,
+and `HoverCardStyle.shared` supplies the card's padding, spacing, radius, type and ink. A caller
+supplies content through `HoverCardBody` and registers its `HoverCardSource` with the shared
+`HoverCardCoordinator`.
+
+```swift
+let style = HoverCardStyle.shared
+let body = HoverCardBody(view: preview, placement: .below, themeAnchor: anchor,
+                         cornerRadius: style.cornerRadius) {}
+coordinator.presentOwned(targetID, body: body, anchor: targetFrame, parent: window, ended: {})
+```
+
+The app-owned `HoverCardPanel` remains the coordinator's renderer. Customizations provide a body
+and read the shared style instead of creating another floating panel or choosing a new material.
+
 ### Which kit do I use
 
 Choose the API for the host that will render the view:
