@@ -280,6 +280,22 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(cron.part_order(state, ["build", "motion", "stress", "fresh"], t),
                          ["build", "fresh", "motion", "stress"])
 
+    def test_a_due_part_with_a_goal_goes_before_the_other_due_parts(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"chat-anim": {"at": cron.iso(at(1))}, "motion": {"at": cron.iso(T0)}}
+        t = at(cron.PART_STALE_HOURS + 2)
+        self.assertEqual(cron.PART_BY_NAME["chat-anim"].get("goal"), "typing-latency")
+        state["last"] = {"rows": {"sidebar.400.scroll.frame@host": {"p95": 1}}}  # sidebar: no stored rows, a row read
+        self.assertEqual(cron.part_order(state, ["build", "motion", "sidebar", "fresh", "chat-anim"], t),
+                         ["build", "fresh", "chat-anim", "sidebar", "motion"],
+                         "only a part with no row anywhere goes before the goal's part")
+
+    def test_a_part_with_a_goal_that_is_not_due_keeps_its_place(self):
+        state = cron.empty_state(T0)
+        t = at(1)
+        state["part_stored"] = {"chat-anim": {"at": cron.iso(t)}, "motion": {"at": cron.iso(t)}}
+        self.assertEqual(cron.part_order(state, ["build", "motion", "chat-anim"], t), ["build", "motion", "chat-anim"])
+
     def test_a_part_with_no_stored_rows_that_failed_last_time_goes_after_the_stale_ones(self):
         state = cron.empty_state(T0)
         state["part_stored"] = {"web-ui-god": {"at": cron.iso(T0)}}
