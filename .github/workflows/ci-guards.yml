@@ -1423,6 +1423,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
 
+      - name: Validate no workflow repeats a key
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflows_have_no_repeated_keys.py
+
       - name: Validate every push- or PR-started workflow has a concurrency group
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_concurrency.py

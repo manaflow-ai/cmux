@@ -1085,6 +1085,10 @@ path = "tests/test_ci_workflow_concurrency.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_workflows_have_no_repeated_keys.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_file_size.py"
 lane = "linux-guard"
 
