@@ -22,19 +22,24 @@ use super::*;
 /// local link; the measured number is printed, this is only the bound that fails the test.
 const CROSS: Duration = Duration::from_secs(15);
 
-/// The value daemon `rpc`'s replica holds for `key` (None: never written or deleted).
+/// The value daemon `rpc`'s replica holds for `key` (None: never written or deleted). A pull from
+/// nothing carries every edit the replica keeps, so a key edited twice appears twice: the winner is
+/// the one with the latest stamp (ms, then n, then actor, as `cmux_sync::Stamp` orders them).
 async fn replica_value(rpc: &mut Rpc, key: &str) -> Option<Value> {
     let pulled = rpc.call("_acpmux/sync/pull", json!({"vv": null})).await;
-    // A delta's entries: `[key, {value, ...}]` pairs or objects naming `key`; read either.
     let entries = pulled["delta"]["entries"].as_array().cloned().unwrap_or_default();
-    entries.iter().find_map(|e| {
-        let (k, body) = match e {
-            Value::Array(pair) if pair.len() == 2 => (pair[0].as_str()?, &pair[1]),
-            Value::Object(o) => (o.get("key")?.as_str()?, e),
-            _ => return None,
-        };
-        (k == key).then(|| body.get("value").cloned().filter(|v| !v.is_null()))?
-    })
+    let stamp = |body: &Value| {
+        let s = &body["stamp"];
+        (s["ms"].as_u64(), s["n"].as_u64(), s["actor"].as_str().map(str::to_owned))
+    };
+    entries
+        .iter()
+        .filter_map(|e| match e {
+            Value::Array(pair) if pair.len() == 2 && pair[0] == key => Some(pair[1].clone()),
+            _ => None,
+        })
+        .max_by_key(|body| stamp(body))
+        .and_then(|body| body.get("value").cloned().filter(|v| !v.is_null()))
 }
 
 /// What one poll reads on a daemon.
@@ -162,12 +167,5 @@ async fn a_pin_title_and_draft_set_on_one_live_daemon_are_read_on_the_other() {
     let what = "a pin on the machine reaches the Mac's replica";
     until(&mut src, what, json!(true), Read::Replica(&pin_key)).await;
     let what = "a draft on the machine reaches the Mac's replica";
-    for _ in 0..300 {
-        if replica_value(&mut src, &draft_key).await == Some(json!("after the release")) { break; }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    let d = dst.call("_acpmux/sync/pull", json!({"vv": null})).await;
-    let s2 = src.call("_acpmux/sync/pull", json!({"vv": null})).await;
-    println!("DBG machine: {d}\nDBG mac: {s2}");
     until(&mut src, what, json!("after the release"), Read::Replica(&draft_key)).await;
 }
