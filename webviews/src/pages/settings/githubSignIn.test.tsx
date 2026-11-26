@@ -6,6 +6,8 @@ import { afterAll, expect, test } from "bun:test";
 import type { GitHubConnectionState } from "./ops";
 import { installDom } from "./testDom";
 import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
+import type { ActiveSignIn } from "../shared/signIn/AccountSwitcher";
+import { shouldShowGitHubSignIn } from "./components/GitHubAccountsCard";
 
 const restore = installDom();
 afterAll(() => restore());
@@ -96,6 +98,22 @@ test("the personal CLI login falls back to a terminal on an older host", async (
   expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "accountAdd", family: "github", way: "new" });
   expect(page.container.querySelector(".signin")).toBeNull();
   page.unmount();
+});
+
+test("a GitHub challenge stays visible while its new row is delayed", async () => {
+  const running: ActiveSignIn = {
+    family: "github",
+    account: "github-2",
+    view: {
+      state: "waiting",
+      way: { kind: "code", code: "WDJB-MJHT" },
+      copied: true,
+      url: "https://github.com/login/device",
+    },
+  };
+  const rows = ACCOUNT_LISTS.oneEach;
+  expect(shouldShowGitHubSignIn(running, rows)).toBe(true);
+  expect(shouldShowGitHubSignIn(running, [...rows, { ...rows[0]!, id: "github-2", family: "github" }])).toBe(false);
 });
 
 // #46018: a connected GitHub in Settings can be disconnected and reconfigured (its installation's page
