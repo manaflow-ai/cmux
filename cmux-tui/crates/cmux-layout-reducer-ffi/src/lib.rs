@@ -18,6 +18,8 @@
 //! are discarded or are kept),
 //! `cmux-browser-rules`' browser pane rules (`browser_rules_*`: where a clicked or page-requested
 //! link opens, and the one decision for every window Chromium wants to open),
+//! `cmux-app-closed-tabs`' closed tabs feed rules (`closed_tabs_*`: the closed history's
+//! listing, Cmd-Shift-T's pick, the closed rows, reopen/delete/clear steps and the undo toast),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
@@ -83,6 +85,7 @@ pub mod agent_cursor;
 mod browser_rules;
 pub mod close_focus;
 pub mod close_selection;
+mod closed_tabs;
 pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
@@ -640,6 +643,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if browser_rules::handles(operation) => {
                 browser_rules::respond(operation, request)?
+            }
+            operation if closed_tabs::handles(operation) => {
+                closed_tabs::respond(operation, request)?
             }
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
