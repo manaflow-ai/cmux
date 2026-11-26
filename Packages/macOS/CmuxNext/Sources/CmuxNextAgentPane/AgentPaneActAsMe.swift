@@ -32,6 +32,15 @@ import Security
         "_acpmux/queue_approve",
     ]
 
+    /// The methods a posted gesture may grant only while an administrator's profile holds the grant
+    /// (policy.json `act_as_me_managed_covers`): saving a Cloud environment. A machine an admin profile owns
+    /// is already that admin's; the person's own grant (the consent card) never reaches these, because an
+    /// environment's save changes the setup script later machines run and the hosts a secret is sent to.
+    public nonisolated static let managedCovers: Set<String> = [
+        "cloud.environment.update",
+        "cloud.environment.create",
+    ]
+
     /// The managed policy key (docs/mdm).
     public nonisolated static let managedKey = "ComputerUseActsAsPerson"
 
@@ -193,7 +202,9 @@ import Security
 
     /// Whether a posted gesture may grant a frame of `method` now.
     public func lets(_ method: String) -> Holder? {
-        Self.covers.contains(method) ? holder : nil
+        guard let holder else { return nil }
+        if Self.covers.contains(method) { return holder }
+        return holder == .managed && Self.managedCovers.contains(method) ? holder : nil
     }
 
     /// Logs a frame the grant let through, with the driver's identity. The bundle id is read off main.
