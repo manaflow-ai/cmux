@@ -481,7 +481,7 @@ class Placement(unittest.TestCase):
     def test_the_fallback_is_named_where_one_runs(self):
         fallback = next(step for step in job()["steps"] if "run" in step)["env"]["FALLBACK"]
         for needle in ("needs.push-head-preflight.outputs.current == 'true'", "github.event_name == 'push'",
-                       "contains(github.event.pull_request.labels.*.name, 'full-ci')",
+                       "contains(needs.path_route.outputs.labels, ',full-ci,')",
                        "needs.path_route.outputs.mac_release == 'true'"):
             self.assertIn(needle, fallback)
         self.assertEqual(job()["needs"], ["path_route", "push-head-preflight", "pure-checks-coalesce"])
@@ -489,7 +489,7 @@ class Placement(unittest.TestCase):
         # The fallback's own conditions: release-compile runs for a push (when release-compile-fast has no verdict)
         # and for a full-ci or mac_release same-repository pull request.
         release = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile"]["if"]
-        for needle in ("github.event_name != 'pull_request'", "contains(github.event.pull_request.labels.*.name, 'full-ci')",
+        for needle in ("github.event_name != 'pull_request'", "contains(needs.path_route.outputs.labels, ',full-ci,')",
                        "needs.path_route.outputs.mac_release == 'true'", "needs.push-head-preflight.outputs.current == 'true'"):
             self.assertIn(needle, release)
 
