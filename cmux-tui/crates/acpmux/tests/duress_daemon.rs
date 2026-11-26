@@ -2085,6 +2085,7 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
         if stress.disk && home_log.exists() { log_findings(&home_log) } else { vec![] };
     drop(rpc);
     drop(daemon);
+    let heap = heap_sites();
     for p in &proxies {
         p.cut(false);
     }
@@ -2158,7 +2159,72 @@ async fn leg(name: &str, k: &Knobs) -> LegOut {
     let _ = external.kill();
     let _ = external.wait();
     drop(scratch_dir);
+    if let Some(h) = heap {
+        row["heap"] = h;
+    }
     LegOut { row, removal_errors }
+}
+
+/// The newest dhat profile in `ACPMUX_DURESS_DHAT_DIR` (a `dhat-heap` build), by site: the
+/// bytes each held at the heap's peak, grouped by its first three frames in acpmux's own source.
+fn heap_sites() -> Option<Value> {
+    let dir = std::env::var_os("ACPMUX_DURESS_DHAT_DIR")?;
+    let newest = std::fs::read_dir(&dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("dhat-"))
+        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())?
+        .path();
+    let doc: Value = serde_json::from_str(&std::fs::read_to_string(&newest).ok()?).ok()?;
+    let ftbl: Vec<&str> =
+        doc["ftbl"].as_array()?.iter().map(|f| f.as_str().unwrap_or("")).collect();
+    let mut sites: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
+    let mut peak = 0u64;
+    for pp in doc["pps"].as_array()? {
+        let frames: Vec<&str> = pp["fs"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|i| ftbl.get(i.as_u64()? as usize).copied()).collect())
+            .unwrap_or_default();
+        let own: Vec<String> = frames
+            .iter()
+            .filter(|f| {
+                f.contains("acpmux/src/")
+                    && !f.contains("src/main.rs")
+                    && !f.contains("heap_profile")
+            })
+            .take(3)
+            .map(|f| {
+                let f = f.split_once(": ").map_or(*f, |(_, r)| r);
+                let (name, file) = f.rsplit_once(" (").unwrap_or((f, ""));
+                let name = name.split("::h").next().unwrap_or(name);
+                let name: Vec<&str> =
+                    name.split('<').next().unwrap_or(name).rsplit("::").take(2).collect();
+                let file = file.trim_end_matches(')').rsplit("acpmux/src/").next().unwrap_or(file);
+                format!("{} ({file})", name.into_iter().rev().collect::<Vec<_>>().join("::"))
+            })
+            .collect();
+        let key = if own.is_empty() { "[outside acpmux]".to_owned() } else { own.join(" < ") };
+        let gb = pp["gb"].as_u64().unwrap_or(0);
+        let e = sites.entry(key).or_default();
+        e.0 += gb;
+        e.1 += pp["eb"].as_u64().unwrap_or(0);
+        e.2 += pp["gbk"].as_u64().unwrap_or(0);
+        peak += gb;
+    }
+    let mut rows: Vec<_> = sites.into_iter().collect();
+    rows.sort_by_key(|(_, (gb, _, _))| std::cmp::Reverse(*gb));
+    for (site, (gb, eb, blocks)) in rows.iter().take(40) {
+        eprintln!(
+            "DURESS-HEAP peak {:>8} KiB end {:>8} KiB blocks {blocks:>8} {site}",
+            gb >> 10,
+            eb >> 10
+        );
+    }
+    Some(json!({
+        "profile": newest.display().to_string(),
+        "peakBytes": peak,
+        "byPeak": rows.iter().take(40).map(|(s, (gb, eb, n))| json!({"site": s, "peakBytes": gb, "endBytes": eb, "peakBlocks": n})).collect::<Vec<_>>(),
+    }))
 }
 
 /// The binary under test, copied once into a folder this run owns. On a shared runner another
