@@ -35,16 +35,17 @@ These tables cover common props from the component definitions (`Row.tsx`, `List
 
 `Row`
 
-| Prop       | Type                         | Default     | What it does                                                                |
-| ---------- | ---------------------------- | ----------- | --------------------------------------------------------------------------- |
-| `title`    | node, required               |             | The row's text.                                                             |
-| `subtitle` | node                         |             | A second line in the secondary color.                                       |
-| `leading`  | node                         |             | The leading column: an `Icon`, a `StatusGlyph`, a `Spinner` or an `Avatar`. |
-| `trailing` | node                         |             | The trailing column: a `Pill`, a count or a small `Button`.                 |
-| `selected` | boolean                      | `false`     | The selection fill and `aria-current`.                                      |
-| `density`  | `"compact"`, `"comfortable"` | `"compact"` | 28 or 32 tall.                                                              |
-| `label`    | string                       |             | What assistive tech reads for the whole row.                                |
-| `onSelect` | `() => void`                 |             | Makes the whole row one button; without it the row is static.               |
+| Prop           | Type                         | Default     | What it does                                                                |
+| -------------- | ---------------------------- | ----------- | --------------------------------------------------------------------------- |
+| `title`        | node, required               |             | The row's text.                                                             |
+| `subtitle`     | node                         |             | A second line in the secondary color.                                       |
+| `leading`      | node                         |             | The leading column: an `Icon`, a `StatusGlyph`, a `Spinner` or an `Avatar`. |
+| `trailing`     | node                         |             | Always-visible content such as a `Pill` or a count.                         |
+| `hoverActions` | node                         |             | Secondary controls shown on hover or keyboard focus, and always on touch.   |
+| `selected`     | boolean                      | `false`     | The selection fill and `aria-current`.                                      |
+| `density`      | `"compact"`, `"comfortable"` | `"compact"` | 28 or 32 tall.                                                              |
+| `label`        | string                       |             | What assistive tech reads for the whole row.                                |
+| `onSelect`     | `() => void`                 |             | Makes the whole row one button; without it the row is static.               |
 
 `List`
 
