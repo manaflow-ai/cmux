@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, Weak};
 use std::time::{Duration, Instant};
@@ -1323,23 +1324,24 @@ impl ClientConnection {
             }
             None => None,
         };
-        let recovery_deadline = match (policy_deadline, caller_deadline) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        };
         let recovery_auth_excluded_at_start = self
             .reconnect_groups
             .as_ref()
             .map_or(Duration::ZERO, |source| source.resolution_time_excluded());
         let effective_recovery_deadline = || {
-            recovery_deadline.map(|deadline| {
-                let excluded = self
-                    .reconnect_groups
-                    .as_ref()
-                    .map_or(Duration::ZERO, |source| source.resolution_time_excluded())
-                    .saturating_sub(recovery_auth_excluded_at_start);
-                deadline.checked_add(excluded).unwrap_or(deadline)
-            })
+            let excluded = self
+                .reconnect_groups
+                .as_ref()
+                .map_or(Duration::ZERO, |source| source.resolution_time_excluded())
+                .saturating_sub(recovery_auth_excluded_at_start);
+            let policy_deadline = policy_deadline
+                .and_then(|deadline| deadline.checked_add(excluded).or(Some(deadline)));
+            match (policy_deadline, caller_deadline) {
+                (Some(policy), Some(caller)) => Some(policy.min(caller)),
+                (Some(policy), None) => Some(policy),
+                (None, Some(caller)) => Some(caller),
+                (None, None) => None,
+            }
         };
         let remaining = |bound: Duration| {
             effective_recovery_deadline()
@@ -1522,7 +1524,12 @@ impl ClientConnection {
                                     Some(deadline) => {
                                         resolve_reconnect_group_until(source.as_ref(), deadline, discovery).await
                                     }
-                                    None => discovery.await,
+                                    None => {
+                                        let deadline = tokio::time::Instant::now()
+                                            .checked_add(policy.attempt_timeout)
+                                            .unwrap_or_else(tokio::time::Instant::now);
+                                        resolve_reconnect_group_until(source.as_ref(), deadline, discovery).await
+                                    }
                                 }
                             } => next,
                         };
@@ -1707,7 +1714,7 @@ async fn resolve_reconnect_group_until<F, T>(
     future: F,
 ) -> Option<T>
 where
-    F: std::future::Future<Output = Option<T>>,
+    F: Future<Output = Option<T>>,
 {
     const AUTH_WAIT_SLICE: Duration = Duration::from_millis(100);
     let excluded_at_start = source.resolution_time_excluded();

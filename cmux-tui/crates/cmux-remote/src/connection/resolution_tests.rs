@@ -72,7 +72,9 @@ async fn outer_recovery_deadline_excludes_authentication() {
     };
     let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
     assert!(
-        resolve_reconnect_group_until(&source, deadline, std::future::pending()).await.is_none()
+        resolve_reconnect_group_until(&source, deadline, std::future::pending::<Option<()>>(),)
+            .await
+            .is_none()
     );
     assert_eq!(source.started.elapsed(), Duration::from_secs(4));
 }
