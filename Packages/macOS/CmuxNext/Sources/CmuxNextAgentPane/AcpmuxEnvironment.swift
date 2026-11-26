@@ -27,9 +27,6 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public var daemonArguments: [String]
     /// Variables the daemon and the status client must agree on.
     public var childEnvironment: [String: String]
-    /// Non-secret Computer Use launch configuration for this daemon. The v2
-    /// endpoint directory is allowed; legacy socket tokens are withheld.
-    public var computerUse: [String: String] = [:]
     /// Whether the daemon this app spawns gets ``offerToolsKey`` `1` rather than `0`: its local sessions then get
     /// the cmux-sessions MCP server (`offer_session`), whatever the harness. On while suggested tasks
     /// are on (``AgentPaneSuggestedTasks``); ``AcpmuxHost`` reads it at each daemon start, so a running
@@ -52,9 +49,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// This build's own home while attached (``logPath``); nil otherwise.
     public var ownHome: URL?
 
-    /// The Computer Use variables (AgentActivitySocketSource.Configuration).
-    /// The spawn environment drops all three when inherited and takes only
-    /// the first two from `computerUse`: the host token never leaves the app.
+    /// The retired cmux-cua socket variables: the spawn environment drops them when inherited, so
+    /// no old credential reaches acpmux (Computer Use's endpoint comes from the cmux-tui daemon).
     public static let computerUseKeys = ["CMUX_NEXT_CUA_SOCKET", "CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN"]
     public static let computerUseHostKey = "CMUX_NEXT_CUA_SOCKET_HOST_AUTH_TOKEN"
     /// acpmux `agent_tools::OFFER_TOOLS_ENV`: `1` gives sessions `offer_session`.
@@ -73,6 +69,10 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// one on the app; `childEnvironment` passes it to every acpmux daemon,
     /// router and Chief host the app starts.
     public static let agentLaunchKeys = ["ACPMUX_AGENT_LAUNCH", "CMUX_AGENTS_DISABLED"]
+
+    /// Passed to every acpmux daemon the app starts when the app's launch set them: `CMUX_TRACE_FILE`, the
+    /// daemon's Chrome trace of each user action (perf_trace.rs, cmux#55505).
+    public static let traceKeys = ["CMUX_TRACE_FILE"]
 
     /// Whether `environment` turns agent launches off (`ACPMUX_AGENT_LAUNCH=deny`
     /// or `CMUX_AGENTS_DISABLED=1`, the same test as acpmux's launch_policy.rs).

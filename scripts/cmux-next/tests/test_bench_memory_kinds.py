@@ -90,5 +90,50 @@ class BareNamedProcesses(unittest.TestCase):
         self.assertEqual(sorted(counts(found).values()), [1, 1, 1, 1, 1, 1, 1, 2])
 
 
+# An earlier run's terminal hosts, their daemon gone (RFD 0062, cmux#46732: 99 hosts "at launch"): a bare
+# argv[0], launchd's children, found only by their executable inside the bundle.
+OLD_HOST1, OLD_HOST2 = 200, 201
+LEFTOVER_TABLE = [
+    (OLD_HOST1, 1, "cmux-tui __terminal-host --session cmux-dev --owner com.cmuxterm.app.debug:-@42"),
+    (OLD_HOST2, 1, "cmux-tui __terminal-host --session cmux-dev --owner com.cmuxterm.app.debug:-@42"),
+    (STRANGER, 1, "cmux-tui __terminal-host --session other --owner com.other:-@999"),
+]
+LEFTOVER_EXE = {OLD_HOST1: BIN + "/cmux-tui", OLD_HOST2: BIN + "/cmux-tui", STRANGER: "/opt/other/cmux-tui"}
+
+
+class Leftovers(unittest.TestCase):
+    def test_a_launch_ends_an_earlier_runs_hosts_before_it_counts(self):
+        ended = []
+        with mock.patch.object(bm, "process_table", return_value=LEFTOVER_TABLE), \
+             mock.patch.object(bm, "exe_path", side_effect=lambda pid: LEFTOVER_EXE.get(pid), create=True), \
+             mock.patch.object(bm, "usage", return_value=(0, 2 * 1048576, 0, 0, 0)), \
+             mock.patch.object(bm, "end_processes", side_effect=lambda pids, *a, **k: ended.append(set(pids))), \
+             mock.patch.object(bm, "still_running", return_value=set()), \
+             mock.patch("builtins.print"):
+            info = bm.end_leftovers(BUNDLE)
+        self.assertEqual(info["n"], 2)
+        self.assertEqual(info["kinds"], {"terminal-host": 2})
+        self.assertEqual(info["footprint_mb"], 4.0)
+        self.assertEqual(ended, [{OLD_HOST1, OLD_HOST2}])  # never another install's host
+
+    def test_a_clean_launch_ends_nothing(self):
+        with mock.patch.object(bm, "process_table", return_value=[LEFTOVER_TABLE[2]]), \
+             mock.patch.object(bm, "exe_path", side_effect=lambda pid: LEFTOVER_EXE.get(pid), create=True), \
+             mock.patch.object(bm, "end_processes") as end, mock.patch("builtins.print"):
+            self.assertEqual(bm.end_leftovers(BUNDLE)["n"], 0)
+        end.assert_not_called()
+
+    def test_the_teardown_ends_the_bare_hosts_and_the_holder(self):
+        ended = set()
+        with mock.patch.object(bm, "process_table", return_value=TABLE), \
+             mock.patch.object(bm, "exe_path", side_effect=lambda pid: EXE.get(pid), create=True), \
+             mock.patch.object(bm, "end_processes", side_effect=lambda pids, *a, **k: ended.update(pids)), \
+             mock.patch.object(bm, "still_running", return_value=set()):
+            bm.end_bundle(BUNDLE)
+        self.assertTrue({HOLDER, HOST1, HOST2, DAEMON, APP} <= ended)
+        self.assertNotIn(STRANGER, ended)
+        self.assertNotIn(SHELL, ended)
+
+
 if __name__ == "__main__":
     unittest.main()

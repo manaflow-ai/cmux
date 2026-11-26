@@ -194,6 +194,7 @@ impl AuthDatabase {
             route_hints,
             relay_access,
             approval_required: bound_device.is_none(),
+            via_machine: None,
         };
         invitation.to_uri()?;
         let mut state = self.state.lock().await;
@@ -379,9 +380,11 @@ impl AuthDatabase {
             .map_err(PersistenceFailure::into_identity_error)
     }
 
-    pub async fn revoke(&self, device_id: &str) -> Result<(), IdentityError> {
+    /// Revoke an enrolled device; returns its record, now marked revoked, so
+    /// the owner can be told which device it was.
+    pub async fn revoke(&self, device_id: &str) -> Result<DeviceRecord, IdentityError> {
         let now = unix_time()?;
-        let (generation, persistence) = {
+        let (generation, persistence, record) = {
             let mut state = self.state.lock().await;
             state.ensure_open()?;
             let device = state
@@ -389,6 +392,7 @@ impl AuthDatabase {
                 .get_mut(device_id)
                 .ok_or_else(|| IdentityError::UnknownDevice(device_id.into()))?;
             device.revoked_at_unix = Some(now);
+            let record = device.clone();
             // An invitation bound to the revoked key was the owner's approval
             // of it ahead of time; revocation withdraws that approval too, so
             // a spare one cannot enroll the device again. Persisted with the
@@ -407,12 +411,12 @@ impl AuthDatabase {
                 .ok_or_else(|| IdentityError::Invalid("revocation generation exhausted".into()))?;
             let generation = state.revocation_generation;
             let persistence = self.submit_mutation_locked(&mut state)?;
-            (generation, persistence)
+            (generation, persistence, record)
         };
         // Revocation takes effect in memory immediately. Durability still
         // gates the method's successful return.
         let _ = self.revocation_tx.send(generation);
-        persistence.wait().await
+        persistence.wait().await.map(|()| record)
     }
 
     /// The daemon registered the new session a grant's link group formed
@@ -709,7 +713,7 @@ impl ServerAuthenticator for AuthDatabase {
                     ),
                     daemon_name: self.daemon_name.clone(),
                     revocation_generation: *self.revocation_tx.borrow(),
-                    authority: crate::crypto::ServiceAuthority::legacy_full(),
+                    authority: crate::crypto::ServiceAuthority::legacy_full().same_owner(),
                 })
             }
             AuthKind::Carrier => Err("trusted carrier access is disabled or unavailable".into()),

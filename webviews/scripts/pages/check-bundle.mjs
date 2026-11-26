@@ -33,21 +33,19 @@ const expectedPages = new Set([
   "chief-views",
   "cloud",
   "cloud-progress",
-  "coderouter",
   "cookie-import",
   "debug-settings",
   "feed",
   "files",
+  "forum",
   "github",
+  "glass-parity",
   "group-editor",
   "history",
   "home-channels",
-  "home-messages",
   "icon-picker",
-  "import-history",
   "keybindings",
   "machines",
-  "mobile-pairing",
   "onboarding",
   "passwords",
   "server-cards",
@@ -72,10 +70,10 @@ const hostStates = {
   "site-data": siteData,
   certificate: certificateChain,
   "cookie-import": {
-    title: "Import Cookies",
+    title: "Import sign-ins from Google Chrome",
     importTitle: "Import…",
-    notNowTitle: "Not Now",
-    neverTitle: "Don't Show Again",
+    notNowTitle: "Not now",
+    neverTitle: "Never for Chrome",
   },
 };
 try {
@@ -149,7 +147,7 @@ try {
     const openStart = performance.now();
     let openMs = null;
     try {
-      const route = name === "server-cards" ? "#/pair-invite" : "";
+      const route = name === "server-cards" ? "#/server-panel" : "";
       await page.goto(`http://${name}.pages.test${mode === "daemon" ? `/pages/${name}/` : "/"}?mock${route}`, {
         waitUntil: "load",
         timeout: 30_000,

@@ -3,14 +3,24 @@
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
 import { Input } from "../../../ui/Input";
 import { Button } from "../../../ui/Button";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
+import { useKeptItems } from "../keptItems";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
-import type { BrowserProfile, DevicesHostState, HostListRow, HostLists, WireError } from "../ops";
+import type {
+  BrowserProfile,
+  DeviceRow as DeviceHostRow,
+  DevicesHostState,
+  HostListRow,
+  HostLists,
+  WireError,
+} from "../ops";
 import { rowsByKey } from "../schema";
 import { t, text } from "../strings";
 import { graphemePrefix } from "../../../ui/initials";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
+import { MACHINE_COLORS_KEY, SPACE_ROWS, useSeveralSpaces } from "../cardRows";
 
 const ASSET_ICON = /^(image|svg):sha256-[0-9a-f]{64}$/;
 
@@ -26,30 +36,71 @@ function IconMark({ icon, name }: { icon: string | null | undefined; name: strin
   return <>{graphemePrefix(name, 1).toUpperCase() || "?"}</>;
 }
 
+/** A machine row's color, from the whole map of picks: what its well shows and offers. */
+type MachinePick = {
+  /** The pick for this machine's color key, if any ("My-VM " and "my-vm" are the same key). */
+  pick: string | undefined;
+  disabled: boolean;
+  /** Writes this machine's pick (null: Automatic), keeping every other machine's. */
+  onPick: (key: string, color: string | null) => void;
+};
+
 function ListRows({
   rows,
   empty,
   marks = false,
-  trailing,
-  below,
+  machines,
 }: {
   rows: HostListRow[];
   empty: string;
   marks?: boolean;
-  /** Controls at the row's end (a machine's color). */
-  trailing?: (row: HostListRow) => ReactNode;
-  /** More of the row, under its title (a Cloud machine's switch). */
-  below?: (row: HostListRow) => ReactNode;
+  /** Machines (Machines card): each row has its color and, for a Cloud machine, its switch. */
+  machines?: { picks: Record<string, string>; disabled: boolean; onPick: MachinePick["onPick"] };
 }) {
-  if (rows.length === 0) {
+  // The host sends its lists whole on every change: a row that did not change keeps its object.
+  const kept = useKeptItems(rows, (row) => row.id);
+  if (kept.length === 0) {
     return (
       <div className="row">
         <div className="empty">{empty}</div>
       </div>
     );
   }
-  return rows.map((row) => (
-    <div className="row" key={row.id} data-host-row={row.id}>
+  return kept.map((row) => (
+    <HostRow
+      key={row.id}
+      row={row}
+      marks={marks}
+      machine={machines !== undefined}
+      pick={machines && row.color_key ? pickOf(machines.picks, row.color_key) : undefined}
+      disabled={machines?.disabled ?? false}
+      onPick={machines?.onPick}
+    />
+  ));
+}
+
+/**
+ * One space or machine, a memo row: its own host row (a host change that left it alone keeps the
+ * object), its own color pick and one stable `onPick`, so a host change or another machine's pick
+ * draws only the rows it changed.
+ */
+const HostRow = memo(function HostRow({
+  row,
+  marks,
+  machine,
+  pick,
+  disabled,
+  onPick,
+}: {
+  row: HostListRow;
+  marks: boolean;
+  machine: boolean;
+  pick: string | undefined;
+  disabled: boolean;
+  onPick?: MachinePick["onPick"];
+}) {
+  return (
+    <div className="row" data-host-row={row.id}>
       <div className="row-main">
         {marks && (
           <span className="host-avatar" aria-hidden="true">
@@ -61,30 +112,38 @@ function ListRows({
           {row.subtitle && <div className="row-help">{row.subtitle}</div>}
         </div>
         {row.active && <span className="host-active" aria-hidden="true" />}
-        {trailing?.(row)}
+        {machine && onPick && <MachineColor row={row} pick={pick} disabled={disabled} onPick={onPick} />}
       </div>
-      {below?.(row)}
+      {machine && <MachineVmHost row={row} />}
+      {machine && <MachineAutoCloud row={row} />}
     </div>
-  ));
+  );
+});
+
+/** The pick for a color key: cmux.json may spell the machine another way ("My-VM "); the app reads
+ * the first in key order. */
+function pickOf(picks: Record<string, string>, key: string): string | undefined {
+  const own = Object.keys(picks)
+    .filter((name) => name.trim().toLowerCase() === key)
+    .sort();
+  return own.length > 0 ? picks[own[0]!] : undefined;
 }
 
-/** Spaces (General): the active window's spaces, or why the host has none. */
+/**
+ * Spaces (Sidebar): the active window's spaces, from the second space on. With one space (or a host
+ * without spaces) no part of cmux names spaces (Hide Spaces, 2026-11-20), so the card is not drawn.
+ */
 export function SpacesSection() {
   const { host } = useSettingsState();
+  const rooms = host?.rooms ?? [];
   // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
-  const fade = useLoadFade(Boolean(host));
-  if (!host) return null;
+  const fade = useLoadFade(rooms.length > 1);
+  if (rooms.length < 2) return null;
   return (
     <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="rooms">
       <h3 className="group-title">{t("settingsPage.group.spaces")}</h3>
       <div className="rows">
-        {host.rooms ? (
-          <ListRows rows={host.rooms} empty={t("settingsWindow.roomsEmpty")} marks />
-        ) : (
-          <div className="row">
-            <div className="empty">{t("settingsWindow.roomsUnavailable")}</div>
-          </div>
-        )}
+        <ListRows rows={rooms} empty={t("settingsWindow.roomsEmpty")} marks />
       </div>
     </section>
   );
@@ -103,6 +162,14 @@ export function MachinesSection({ title, reveal = false }: { title: string; reve
   const { host } = useSettingsState();
   const store = useStore();
   const colors = useRowState(MACHINE_COLORS_KEY);
+  const picks = useMemo(() => stringMap(colors.value), [colors.value]);
+  // Each change writes the whole map, keeping every other machine's pick (every spelling of this one goes).
+  const { onPick } = useStableHandlers({
+    onPick: (key: string, color: string | null) => {
+      const rest = Object.fromEntries(Object.entries(picks).filter(([name]) => name.trim().toLowerCase() !== key));
+      void store.set(MACHINE_COLORS_KEY, color === null ? rest : { ...rest, [key]: color });
+    },
+  });
   const card = useRef<HTMLElement>(null);
   const drawn = host !== null;
   useLayoutEffect(() => {
@@ -111,7 +178,6 @@ export function MachinesSection({ title, reveal = false }: { title: string; reve
   // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
   const fade = useLoadFade(Boolean(host));
   if (!host) return null;
-  const picks = stringMap(colors.value);
   return (
     <>
       <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="machines" ref={card}>
@@ -121,15 +187,7 @@ export function MachinesSection({ title, reveal = false }: { title: string; reve
             rows={host.machines}
             empty={t("settingsWindow.machinesEmpty")}
             marks
-            trailing={(row) => (
-              <MachineColor
-                row={row}
-                picks={picks}
-                disabled={!colors.connected || !colors.readable || colors.managed !== null}
-                write={(next) => void store.set(MACHINE_COLORS_KEY, next)}
-              />
-            )}
-            below={(row) => <MachineVmHost row={row} />}
+            machines={{ picks, disabled: !colors.connected || !colors.readable || colors.managed !== null, onPick }}
           />
         </div>
         <div className="host-footer">
@@ -169,6 +227,22 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
       else next.delete(id);
       return next;
     });
+  const deviceRows = useKeptItems(devices.rows, (row) => row.id);
+  const { onRemove, onRemoveBlur, onFullAccess } = useStableHandlers({
+    onRemove: (id: string) => {
+      if (confirming !== id) return setConfirming(id);
+      setConfirming(null);
+      void store.removeDevice(id);
+    },
+    onRemoveBlur: (id: string) => setConfirming((current) => (current === id ? null : current)),
+    onFullAccess: (id: string, on: boolean) => {
+      markSetting(id, true);
+      void store
+        .setDeviceFullAccess(id, on)
+        .finally(() => markSetting(id, false))
+        .catch(() => undefined);
+    },
+  });
   return (
     <section className="group" data-card="devices">
       <h3 className="group-title">{devices.title}</h3>
@@ -181,56 +255,20 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
             <div className="empty">{devices.empty}</div>
           </div>
         ) : (
-          devices.rows.map((row) => (
-            <div className="row" key={row.id} data-device-row={row.id} data-device-state={row.state}>
-              <div className="row-main">
-                <div className="row-label">
-                  <div className="row-title">{row.title}</div>
-                  <div className="row-help">{row.subtitle}</div>
-                  {row.detail && <div className="row-help">{row.detail}</div>}
-                  {confirming === row.id && <div className="row-help">{devices.remove_help}</div>}
-                </div>
-                {row.removable && (
-                  <Button
-                    type="button"
-                    className="button"
-                    data-remove-device={row.id}
-                    onClick={() => {
-                      if (confirming !== row.id) return setConfirming(row.id);
-                      setConfirming(null);
-                      void store.removeDevice(row.id);
-                    }}
-                    onBlur={() => setConfirming((current) => (current === row.id ? null : current))}
-                  >
-                    {confirming === row.id ? devices.remove_confirm_title : devices.remove_title}
-                  </Button>
-                )}
-              </div>
-              {typeof row.full_access === "boolean" && (
-                <div className="row-main device-full-access" data-device-full-access={row.id}>
-                  <div className="row-label">
-                    <div className="row-title" id={`device-full-access-${row.id}`}>
-                      {devices.full_access_title}
-                    </div>
-                    {row.full_access_help && <div className="row-help">{row.full_access_help}</div>}
-                  </div>
-                  <div className="row-control">
-                    <Switch
-                      checked={row.full_access}
-                      disabled={setting.has(row.id)}
-                      labelId={`device-full-access-${row.id}`}
-                      onToggle={(on) => {
-                        markSetting(row.id, true);
-                        void store
-                          .setDeviceFullAccess(row.id, on)
-                          .finally(() => markSetting(row.id, false))
-                          .catch(() => undefined);
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+          deviceRows.map((row) => (
+            <DeviceRow
+              key={row.id}
+              row={row}
+              removeHelp={devices.remove_help}
+              removeTitle={devices.remove_title}
+              removeConfirmTitle={devices.remove_confirm_title}
+              fullAccessTitle={devices.full_access_title}
+              confirming={confirming === row.id}
+              setting={setting.has(row.id)}
+              onRemove={onRemove}
+              onRemoveBlur={onRemoveBlur}
+              onFullAccess={onFullAccess}
+            />
           ))
         )}
         {devices.error && (
@@ -245,22 +283,124 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
         <>
           <h3 className="group-title">{devices.activity_title}</h3>
           <div className="rows" data-device-activity="">
-            {devices.activity.map((entry, index) => (
-              <div className="row" key={`${entry.time}-${index}`}>
-                <div className="row-label">
-                  <div className="row-title">
-                    {entry.what} {entry.subject}
-                  </div>
-                  <div className="row-help">{new Date(entry.time).toLocaleString()}</div>
-                </div>
-              </div>
-            ))}
+            {activityKeys(devices.activity).map((key, index) => {
+              const entry = devices.activity[index]!;
+              return <ActivityRow key={key} time={entry.time} what={entry.what} subject={entry.subject} />;
+            })}
           </div>
         </>
       )}
     </section>
   );
 }
+
+/**
+ * One device, a memo row: its own host row, the card's words for it,
+ * whether its Remove asks again and whether its Full access request is out, and stable handlers,
+ * so another row's Remove or Full access, or a host change that left it alone, does not draw it.
+ */
+const DeviceRow = memo(function DeviceRow({
+  row,
+  removeHelp,
+  removeTitle,
+  removeConfirmTitle,
+  fullAccessTitle,
+  confirming,
+  setting,
+  onRemove,
+  onRemoveBlur,
+  onFullAccess,
+}: {
+  row: DeviceHostRow;
+  removeHelp: string;
+  removeTitle: string;
+  removeConfirmTitle: string;
+  fullAccessTitle: string;
+  confirming: boolean;
+  setting: boolean;
+  onRemove: (id: string) => void;
+  onRemoveBlur: (id: string) => void;
+  onFullAccess: (id: string, on: boolean) => void;
+}) {
+  return (
+    <div className="row" data-device-row={row.id} data-device-state={row.state}>
+      <div className="row-main">
+        <div className="row-label">
+          <div className="row-title">{row.title}</div>
+          <div className="row-help">{row.subtitle}</div>
+          {row.detail && <div className="row-help">{row.detail}</div>}
+          {confirming && <div className="row-help">{removeHelp}</div>}
+        </div>
+        {row.removable && (
+          <Button
+            type="button"
+            className="button"
+            data-remove-device={row.id}
+            onClick={() => onRemove(row.id)}
+            onBlur={() => onRemoveBlur(row.id)}
+          >
+            {confirming ? removeConfirmTitle : removeTitle}
+          </Button>
+        )}
+      </div>
+      {typeof row.full_access === "boolean" && (
+        <div className="row-main device-full-access" data-device-full-access={row.id}>
+          <div className="row-label">
+            <div className="row-title" id={`device-full-access-${row.id}`}>
+              {fullAccessTitle}
+            </div>
+            {row.full_access_help && <div className="row-help">{row.full_access_help}</div>}
+          </div>
+          <div className="row-control">
+            <Switch
+              checked={row.full_access}
+              disabled={setting}
+              labelId={`device-full-access-${row.id}`}
+              onToggle={(on) => onFullAccess(row.id, on)}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
+/**
+ * Each activity line's key: what it says, with a count for a repeat. The host sends the last 8 lines
+ * (DeviceDirectory's `device audit --limit 8`), so a new line drops the oldest and shifts the
+ * others' indexes; a key from the content keeps the lines already drawn mounted.
+ */
+function activityKeys(activity: DevicesHostState["activity"]): string[] {
+  const seen = new Map<string, number>();
+  return activity.map((entry) => {
+    const base = `${entry.time}\u0000${entry.what}\u0000${entry.subject}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count === 0 ? base : `${base}\u0000${count}`;
+  });
+}
+
+/** One activity line. Its props are strings, so a host change or a device row's gesture skips it. */
+const ActivityRow = memo(function ActivityRow({
+  time,
+  what,
+  subject,
+}: {
+  time: string;
+  what: string;
+  subject: string;
+}) {
+  return (
+    <div className="row">
+      <div className="row-label">
+        <div className="row-title">
+          {what} {subject}
+        </div>
+        <div className="row-help">{new Date(time).toLocaleString()}</div>
+      </div>
+    </div>
+  );
+});
 
 /**
  * A Cloud machine's "Dedicated agent machine" switch (acpmux vmHost): on (the default), the machine
@@ -302,8 +442,78 @@ function MachineVmHost({ row }: { row: HostListRow }) {
   );
 }
 
-/** `appearance.machineColors`: a machine's color, keyed by its color key. The card draws it, not a map row. */
-export const MACHINE_COLORS_KEY = "appearance.machineColors";
+/** The capability badges AutoCloud matches work against, in the order a person scans them, and
+ * each one's label. */
+const AUTOCLOUD_CAPS: ReadonlyArray<readonly [string, string]> = [
+  ["macos", "settingsWindow.autoCloudCap.macos"],
+  ["xcode", "settingsWindow.autoCloudCap.xcode"],
+  ["ios-simulator", "settingsWindow.autoCloudCap.ios-simulator"],
+  ["gpu-metal", "settingsWindow.autoCloudCap.gpu-metal"],
+  ["linux", "settingsWindow.autoCloudCap.linux"],
+  ["gpu-nvidia", "settingsWindow.autoCloudCap.gpu-nvidia"],
+];
+
+/**
+ * A Remote machine's AutoCloud enrollment (acpmux `_acpmux/autocloud_enroll` on that machine, its
+ * `health.autoCloud`): on, AutoCloud may place work there after this Mac and before the cloud
+ * pool, only while its owner is away; the owner's own use always wins. Only the owner's own client
+ * turns it on, so this row reads it: the policy, whether it takes work now, and what it can run.
+ */
+function MachineAutoCloud({ row }: { row: HostListRow }) {
+  const ac = row.autocloud;
+  if (!ac) return null;
+  const policy = ac.policy;
+  const teams = policy?.teams ?? [];
+  const parts = [teams.length === 0 ? t("settingsWindow.autoCloudOwnerOnly") : teams.join(", ")];
+  if (policy?.agents.length) parts.push(policy.agents.join(", "));
+  if (policy?.hours)
+    parts.push(t("settingsWindow.autoCloudHours", hourText(policy.hours.from), hourText(policy.hours.to)));
+  const status = !ac.on
+    ? t("settingsWindow.autoCloudOff")
+    : ac.accepting
+      ? t("settingsWindow.autoCloudAccepting")
+      : ac.owner_idle === false
+        ? t("settingsWindow.autoCloudOwnerActive")
+        : t("settingsWindow.autoCloudPaused");
+  const caps = AUTOCLOUD_CAPS.filter(([cap]) => ac.caps?.includes(cap));
+  return (
+    <div className="row-main device-full-access" data-machine-autocloud={row.id} data-autocloud-on={ac.on}>
+      <div className="row-label">
+        <div className="row-title">{t("settingsWindow.autoCloudEnroll")}</div>
+        <div className="row-help" data-autocloud-status>
+          {status}
+        </div>
+        {ac.on && (
+          <div className="row-help" data-autocloud-policy>
+            {parts.join(" · ")}
+          </div>
+        )}
+        {ac.on && caps.length > 0 && (
+          <div className="autocloud-caps" data-autocloud-caps>
+            {caps.map(([cap, key]) => (
+              <span key={cap} className="autocloud-cap">
+                {t(key)}
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="row-help">{t("settingsWindow.autoCloudEnrollHelp")}</div>
+        {ac.error && (
+          <div className="row-help" role="alert">
+            {ac.error}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "9:00" for 9, local hours as acpmux keeps them. */
+function hourText(h: number): string {
+  return `${Math.floor(h)}:00`;
+}
+
+export { MACHINE_COLORS_KEY, SPACE_ROWS, useSeveralSpaces };
 
 function stringMap(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
@@ -320,28 +530,23 @@ function stringMap(value: unknown): Record<string, string> {
  */
 function MachineColor({
   row,
-  picks,
+  pick,
   disabled,
-  write,
+  onPick,
 }: {
   row: HostListRow;
-  picks: Record<string, string>;
+  pick: string | undefined;
   disabled: boolean;
-  write: (next: Record<string, string>) => void;
+  onPick: MachinePick["onPick"];
 }) {
   const key = row.color_key;
   if (!key || !row.color) return null;
-  // cmux.json may spell the machine another way ("Big-Red "); the app reads the first in key order.
-  const own = Object.keys(picks).filter((name) => name.trim().toLowerCase() === key);
-  own.sort();
-  const rest = Object.fromEntries(Object.entries(picks).filter(([name]) => !own.includes(name)));
-  const pick = own.length > 0 ? picks[own[0]!] : undefined;
   // An accent pick ("cyan") has no hex here; the host's color is that accent in the theme.
   const shown = (pick?.startsWith("#") ? pick : row.color).toLowerCase();
   const label = `${text(rowsByKey.get(MACHINE_COLORS_KEY)?.title)} ${row.title}`;
   const wellRef = (well: HTMLInputElement | null) => {
     if (!well) return;
-    const onChange = () => write({ ...rest, [key]: well.value.toLowerCase() });
+    const onChange = () => onPick(key, well.value.toLowerCase());
     well.addEventListener("change", onChange);
     return () => well.removeEventListener("change", onChange);
   };
@@ -363,7 +568,7 @@ function MachineColor({
           className="button"
           data-machine-color-reset=""
           disabled={disabled}
-          onClick={() => write(rest)}
+          onClick={() => onPick(key, null)}
         >
           {t("settingsPage.automatic")}
         </Button>

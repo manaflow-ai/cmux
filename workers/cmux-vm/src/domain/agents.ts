@@ -26,7 +26,46 @@ export const AGENT_LIMITS = {
 export interface AgentBudget {
   readonly maxVms: number;
   readonly maxUsdPerHour: number;
+  /** Who holds the budget, as an over-cap refusal names it ("team key tk-lanes"); absent: "agent key". */
+  readonly holder?: string;
+  /**
+   * Optional caps a team key's row may set (RFD 0016 "Keys and caps"); absent means no limit. Checked on every create
+   * and every start or resume: how many of its VMs may run at once (paused and stopped ones do not count), and its
+   * estimated spend in the current UTC day and calendar month (`estimatedSpendUsd`).
+   */
+  readonly maxRunningVms?: number;
+  readonly maxUsdPerDay?: number;
+  readonly maxUsdPerMonth?: number;
 }
+
+/** One VM's stretch of time, for the spend estimate: from its create to its delete, or to its pause when paused now. */
+export interface SpendSpan {
+  readonly usdPerHour: number;
+  readonly fromMs: number;
+  /** Null while it may still be running. */
+  readonly toMs: number | null;
+}
+
+/** The start of the UTC day and of the UTC calendar month that hold `nowMs`. */
+export const spendWindows = (nowMs: number): { readonly dayStartMs: number; readonly monthStartMs: number } => {
+  const now = new Date(nowMs);
+  return {
+    dayStartMs: Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    monthStartMs: Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  };
+};
+
+/**
+ * The estimated USD the spans cost between `sinceMs` and `nowMs`: each one's list price per hour times its overlap
+ * with that window. A paused stretch before the VM's latest pause still counts, so the estimate errs high (a cap
+ * refuses a little early, never late).
+ */
+export const estimatedSpendUsd = (spans: ReadonlyArray<SpendSpan>, sinceMs: number, nowMs: number): number =>
+  spans.reduce((sum, span) => {
+    const from = Math.max(span.fromMs, sinceMs);
+    const to = Math.min(span.toMs ?? nowMs, nowMs);
+    return to > from ? sum + (span.usdPerHour * (to - from)) / 3_600_000 : sum;
+  }, 0);
 
 /**
  * The estimate the $/h budget counts: the provider's list price is about

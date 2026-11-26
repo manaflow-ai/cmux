@@ -25,7 +25,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "playwright";
-import { COMPOSER_EDITOR, MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 import {
   chipValues,
   installWireLog,
@@ -63,8 +63,23 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
       console.log(line);
     };
 
-    /** The chips once the page has drawn every value the daemon sent: two painted frames later. */
+    /**
+     * The chips once the page has drawn every value the daemon sent. The page paints its chips
+     * before its acpmux link is up (a guess from the bundled catalog: Opus 5.5 on a Linux runner),
+     * so first wait for the link (model.ts linkUp: not "disconnected", not "connecting…") and
+     * for acpmux's harness list in the composer, then for painted frames.
+     */
     async function settled(page: Page) {
+      await page.waitForFunction(
+        () => {
+          const state = (window as any).cmuxAcpmuxDebug?.chatState?.();
+          const connection = String(state?.connection ?? "disconnected");
+          const up = connection !== "disconnected" && !connection.startsWith("connecting");
+          return up && (state?.composerInputs?.catalog?.length ?? 0) > 0;
+        },
+        undefined,
+        { timeout: 60_000 },
+      );
       for (let frame = 0; frame < 30; frame++) await page.evaluate(() => window.cmuxPaintFrame());
       return chipValues(page);
     }
@@ -157,6 +172,10 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           await page.goto(paneUrl(lane.base, lane.daemon));
           await page.locator(".nt-field").waitFor();
           await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
+          // The page draws a start before it has connected to acpmux (its own catalog's first
+          // harness, Claude Code); the New Tab under test is the one acpmux names: its default
+          // harness (Codex) on Codex's default model.
+          await page.locator(MODEL_PICKER).filter({ hasText: "GPT-6 Astra" }).first().waitFor({ timeout: 90_000 });
           const start = await settled(page);
           note(`new tab: ${JSON.stringify(start)}`);
           await startValueSampler(page);

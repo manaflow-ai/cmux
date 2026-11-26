@@ -9,6 +9,10 @@ import CmuxNextCompat
 /// marks are kept with their time until then.
 public final class DaemonLaunchTimings: Sendable {
     public static let shared = DaemonLaunchTimings()
+    /// The launch's daemon owner was started for it (`server ensure` said `started`): the spawn is in this launch's time.
+    public static let spawned = "daemon.spawned"
+    /// The launch connected to an owner already running (`server status`, `ensure` said `running`, or a remembered socket).
+    public static let reused = "daemon.reused"
     private struct State {
         var sink: (@Sendable (String, Date) -> Void)?
         var early: [(String, Date)] = []
@@ -16,6 +20,8 @@ public final class DaemonLaunchTimings: Sendable {
 
     private let state = Mutex(State())
     private let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
+    /// The first-interaction marks' progress (``inputSent()``, ``outputDecoded()``).
+    let inputStage = Atomic<UInt8>(0)
 
     /// Installs the receiver of marks (once, at launch) and hands it the
     /// marks made before.

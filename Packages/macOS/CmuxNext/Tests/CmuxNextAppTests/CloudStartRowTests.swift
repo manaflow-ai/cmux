@@ -45,20 +45,39 @@ struct CloudStartRowTests {
         #expect(strip.title(chat) == "Cloud row names")
     }
 
-    /// A row of this Mac whose page is starting a Cloud chat draws the cloud mark and VoiceOver says Cloud; it names
-    /// no machine. Another row of this Mac draws none.
-    @Test func aStartingRowOfThisMacHasTheCloudMark() throws {
-        let mac = SidebarMachine(id: .local, name: "This Mac", kind: .local)
-        var starting = SidebarWorkspace(id: WorkspaceID("ws-6"), machineID: mac.id, title: "Fix the flaky login test")
-        starting.startsInCloud = true
-        let plain = SidebarWorkspace(id: WorkspaceID("ws-7"), machineID: mac.id, title: "api")
-        let model = SidebarModel(sections: [SidebarRowSection(kind: .machine(mac), nodes: [.workspace(starting), .workspace(plain)])])
-        let layout = SidebarLayout.make(sections: model.sections, metrics: .standard, options: model.listOptions())
-        let content = { (id: String) in layout.rows.first { $0.key == .workspace(WorkspaceID(id)) }?.content }
-        let row = try #require(content("ws-6"))
-        #expect(row.runsInCloud && row.machine == nil, "the row of a starting Cloud chat drew no cloud mark")
-        #expect(try #require(content("ws-7")).runsInCloud == false)
-        let label = WorkspaceRowView.accessibilityText(starting, content: row, tabCount: nil, presence: [])
-        #expect(label.contains("Cloud") && !label.contains("This Mac"), "\(label)")
+    /// cmux#55540: the Mac tab that shows its Cloud chat in place read "Agent" (the chat's record's title on its machine) or
+    /// its workspace's name once the start handed off. It reads as the start's prompt until the chat has a title of its own.
+    @Test func aMacTabShowingItsCloudChatInPlaceReadsAsTheStart() throws {
+        let titles = AgentCloudStartTitles(), mac = try Self.page(DaemonStore(), surface: 64)
+        var chatSnapshot = TabSnapshot(surface: SurfaceID(rawValue: 65), kind: .conversation, title: AgentPaneModel.tabTitle, url: "about:blank")
+        chatSnapshot.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:cloud", session: nil, harness: "claude"))
+        let cloud = DaemonStore()
+        cloud.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 7, key: nil, name: "workspace-7", screens: [
+            ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chatSnapshot])])])]))
+        let chat = try #require(cloud.tab(surface: SurfaceID(rawValue: 65)))
+        var strip = TabTitleResolver(newTabPages: [])
+        strip.cloudStarts = titles
+        strip.workspaceName = "workspace-6"
+        strip.chatTitle = { _ in AgentPaneModel.tabTitle }
+        strip.fronted = { $0 === mac ? chat : nil }
+        #expect(strip.title(mac) != "List the folder", "fixture: the chat has no title of its own")
+        titles.begin(mac, task: "List the folder", untitled: AgentPaneModel.tabTitle)
+        titles.hand(from: mac, to: chat)
+        titles.opened(mac)
+        titles.end(mac)
+        #expect(strip.title(mac) == "List the folder", "the tab read \(AgentPaneModel.tabTitle) or workspace-6")
+    }
+
+    /// cmux#45947: New Cloud Chat opens a workspace of its own whose chat tab reads as Cloud from the click, before any Send
+    /// (``AgentCloudStartTitles/marksCloud(_:workspace:)``), and as this Mac's again once its start ended. Its sidebar row never
+    /// draws a cloud (cmux#55668).
+    @Test func newCloudChatsWorkspaceReadsAsCloudFromTheClickUntilItsStartEnds() {
+        let titles = AgentCloudStartTitles()
+        #expect(!titles.startsInCloud(workspace: "ws-new"))
+        titles.beginWorkspace("ws-new")
+        #expect(titles.startsInCloud(workspace: "ws-new") && !titles.startsInCloud(workspace: "ws-other"))
+        titles.endWorkspace("ws-new")
+        #expect(!titles.startsInCloud(workspace: "ws-new"), "a start that ended left its tab drawn as Cloud")
+        titles.endWorkspace(nil)
     }
 }

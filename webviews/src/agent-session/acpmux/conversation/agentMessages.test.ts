@@ -100,6 +100,10 @@ test("a send's delivery: sending, sent, queued, delivered or failed, from its st
   // acpmux send --no-wait, plain and --json.
   expect(messageDelivery(done("queued\n"))).toBe("queued");
   expect(messageDelivery(done("steered\n"))).toBe("delivered");
+  expect(messageDelivery(done("sent queued id=d1 to=lane\nqueued for delivery d1"))).toBe("queued");
+  expect(messageDelivery(done("sent held id=d1 to=lane\nheld in its inbox: …"))).toBe("queued");
+  expect(messageDelivery(done("sent delivered id=d1 to=undelivered\nqueued (delivery d1)"))).toBe("delivered");
+  expect(messageDelivery(done("sent steered id=d1 to=lane\nsteered (delivery d1)"))).toBe("delivered");
   expect(messageDelivery(done('{"sessionId":"x","queued":true,"steered":false}'))).toBe("queued");
   expect(messageDelivery(done('{"sessionId":"x","queued":false,"steered":true}'))).toBe("delivered");
   // tell-coordinator's receipt.
@@ -243,4 +247,56 @@ test("Chief tell keeps the entire message and only recognizes its own tool", () 
   });
   expect(agentMessage(call("mcp__other__tell", { id: "a1", message }))).toBeUndefined();
   expect(agentMessage(call("tell", { message }))).toBeUndefined();
+});
+
+// Leo, 2026-11-22, after a reload: "Sent to a6c31b7e". The page held no row of that helper's Agent
+// call, so nothing on it named the id. The daemon names it on the SendMessage itself
+// (`_meta.acpmux.recipient`, acpmux subagents.rs), and both the v1 record and the v2 tool row
+// carry that name to the row.
+test("a SendMessage names the subagent the daemon named, with no Agent call on the page", async () => {
+  const { mergeToolItem, withRecipient } = await import("../direct/toolItems");
+  const { adaptRow } = await import("../rows/adapter");
+  const { recipientName, shortId } = await import("./agentNames");
+  const update = {
+    sessionUpdate: "tool_call",
+    toolCallId: "toolu_send",
+    title: "SendMessage",
+    kind: "other",
+    status: "pending",
+    _meta: { claude: { tool: "SendMessage" } },
+    rawInput: { to: "a6c31b7ee45d67550", message: "Your cmux-ci run for lane--beyer-worked is queued." },
+  };
+  const params = { sessionId: "s1", _meta: { acpmux: { recipient: "Watch the cmux-ci run" } }, update };
+  const names = new Map<string, string>();
+  const reads = (tool: Parameters<typeof agentMessage>[0]) => {
+    const message = agentMessage(tool)!;
+    return recipientName(message.to!, names) ?? message.toName ?? shortId(message.to!);
+  };
+  // v1: the name is on the record's params, not on the update; a later update naming nothing keeps it.
+  const v1 = mergeToolItem(undefined, withRecipient(update, params), "toolu_send", "", 1);
+  const done = mergeToolItem(v1, { toolCallId: "toolu_send", status: "completed" }, "toolu_send", "", 2);
+  expect(reads(done.tool!)).toBe("Watch the cmux-ci run");
+  // Without the daemon's name, the row reads the bare id: the line Leo saw.
+  expect(reads(mergeToolItem(undefined, update, "toolu_send", "", 1).tool!)).toBe("a6c31b7e");
+  // A name the page has (an Agent call in its window) still comes first.
+  names.set("a6c31b7ee45d67550", "Watch the run (page)");
+  expect(reads(done.tool!)).toBe("Watch the run (page)");
+  names.clear();
+  // v2: the tool row's `recipient` field.
+  const [v2] = adaptRow(
+    {
+      row: {
+        id: 7,
+        rev: 1,
+        kind: "tool",
+        at: 1794480726,
+        open: false,
+        est: 1,
+        body: { ...update, callId: "toolu_send", recipient: "Watch the cmux-ci run" },
+      },
+    } as any,
+    new Map(),
+    {} as any,
+  );
+  expect(reads(v2!.items![0]!.tool!)).toBe("Watch the cmux-ci run");
 });

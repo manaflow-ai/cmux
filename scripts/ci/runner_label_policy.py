@@ -21,6 +21,7 @@ two cannot drift apart.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 from functools import cache
@@ -384,11 +385,36 @@ def forbidden_reason(label: str) -> str | None:
 NO_HOSTED_MAC_VARIABLES = frozenset({
     "CI_CONTROL_RUNNER", "CI_IOS_INTERNAL_RUNNER", "CI_NIGHTLY_NEXT_BUILD_RUNNER", "CI_SIDE_LANE_RUNNER",
     "LINUX_RUNNER", "CI_NIGHTLY_ONLY_RUNNER", "CI_NIGHTLY_ONLY_BUILDER_RUNNER", "CI_NIGHTLY_SIGN_RUNNER",
-    "CI_NIGHTLY_MINI", "CI_NIGHTLY_MINI_BUILDER",
+    "CI_NIGHTLY_MINI", "CI_NIGHTLY_MINI_BUILDER", "CI_FORK_LINUX_RUNNER",
     "RUNNER_POOLS",
     "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
 })
 HOSTED_MAC_LABEL = re.compile(r"macos-(?:latest|\d+)(?:-[a-z0-9]+)*")
+# Any GitHub-hosted image label. On 2026-11-18/19 GitHub-hosted Ubuntu started no manaflow-ai/cmux job for hours:
+# the jobs a RUNNER_POOLS value of `ubuntu-24.04` had routed sat queued 444 min, holding the webview verdict on
+# PRs and three nightly jobs (Leo: "just dont use github for private"). Only a pool .github/runners.json declares
+# `"hosted": true` (with its `hosted_why`) may name one; every runner variable and every other pool takes owned
+# labels, then Blacksmith.
+HOSTED_LABEL = re.compile(r"(?:ubuntu|windows|macos)-(?:latest|\d+(?:\.\d+)?)(?:-[a-z0-9]+)*")
+
+
+@cache
+def declared_hosted_pools() -> frozenset[str]:
+    """Pools .github/runners.json marks `"hosted": true`: the only ones that may hold a GitHub-hosted label."""
+    try:
+        pools = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8")).get("pools") or {}
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(name for name, pool in pools.items() if isinstance(pool, dict) and pool.get("hosted") is True)
+
+
+def _iso_time(value: str) -> bool:
+    """VALUE is an ISO 8601 time with a zone, as RUNNER_POOLS' timestamps are ("2026-11-21T00:02:24Z")."""
+    try:
+        moment = dt.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return moment.tzinfo is not None
 
 
 def runner_pools_reason(value: str) -> str | None:
@@ -413,8 +439,13 @@ def runner_pools_reason(value: str) -> str | None:
             if not value.strip():
                 return None
             original = value.strip()
+            if pool in declared_hosted_pools():
+                return None  # declared hosted in .github/runners.json, with its reason
             if HOSTED_MAC_LABEL.fullmatch(original.lower()):
                 return f"pool `{pool}` names a GitHub-hosted Mac `{original}`"
+            if HOSTED_LABEL.fullmatch(original.lower()):
+                return (f"pool `{pool}` names the GitHub-hosted runner `{original}`; only a pool .github/runners.json "
+                        "declares hosted may, the rest take owned labels, then Blacksmith")
             reason = forbidden_reason(original)
             return f"pool `{pool}` {reason}" if reason is not None else None
         if isinstance(value, dict):
@@ -434,7 +465,29 @@ def runner_pools_reason(value: str) -> str | None:
         return f"pool `{pool}` is not a string runner label"
 
     for pool, label in pools.items():
-        if pool == "_dead":
+        if pool in ("_dead", "_admission", "_updated"):
+            # Metadata: label -> time, the expected-wait verdict (scripts/ci/expected_wait.py: label -> counts),
+            # and when the routing last changed. No runs-on reads any of them as a label.
+            continue
+        if pool in ("_spill", "_raw_home"):
+            # pool -> {from, to, since, running} (scripts/ci/linux_pool_spill.py) and variable -> {home, to}
+            # (main's runner_pools.py): only the labels in them are routing, so only those are checked.
+            if not isinstance(label, dict):
+                return f"`{pool}` is not an object"
+            for name, entry in label.items():
+                if not isinstance(entry, dict):
+                    return f"`{pool}.{name}` is not an object"
+                for key in ("from", "to", "home"):
+                    if key in entry:
+                        reason = check(f"{pool}.{name}.{key}", entry[key])
+                        if reason is not None:
+                            return reason
+            continue
+        if pool == "hosted_saturated":
+            # true/false (expected_wait.py), or the time the earlier hosted-first valve (#45861) marked it.
+            if not isinstance(label, bool) and not (isinstance(label, str) and _iso_time(label)):
+                return ("`hosted_saturated` is not true, false or an ISO time "
+                        "(scripts/ci/expected_wait.py)")
             continue
         reason = check(pool, label)
         if reason is not None:
@@ -461,6 +514,11 @@ def drifted_runner_variables(
             continue
         if name in NO_HOSTED_MAC_VARIABLES and HOSTED_MAC_LABEL.fullmatch(value.strip().lower()):
             drifted.append((name, value.strip(), "names a GitHub-hosted Mac; the nightly path takes the fleet, then Blacksmith"))
+            continue
+        if HOSTED_LABEL.fullmatch(value.strip().lower()):
+            drifted.append((name, value.strip(), "names a GitHub-hosted runner, which can sit queued for hours; "
+                            f"set an owned label or Blacksmith (gh variable set {name} --body blacksmith-2vcpu-ubuntu-2404 "
+                            "for a Linux one)"))
             continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())

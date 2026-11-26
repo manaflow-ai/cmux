@@ -34,7 +34,11 @@
 //               reopen          the page is built in the warm renderer (one renderer per site, another chat page open
 //                               in it, as the app's other chats are), served the copy its hide wrote and the kept tail;
 //               reopen-no-copy  the same with no copy and no tail: a page built from nothing.
-//             Not in MODE=all: MODE=reopen (or reopen-no-copy) runs them; the rounds' p50 and p95 are printed too.
+//               reopen-spare    the prewarmed spare page (a connected New Tab page in the warm renderer) takes the
+//                               chat (AgentPaneView.adoptSession's `acpmux-session-adopt`, carrying the kept tail and
+//                               the place); timed from that event, not from the spare's own load.
+//             Not in MODE=all: MODE=reopen (or reopen-no-copy, reopen-spare) runs one; MODE=reopen-both runs reopen
+//             and reopen-no-copy, MODE=reopen-all all three; the rounds' p50 and p95 are printed too.
 //             refused and refused-no-copy are not in MODE=all either: MODE=refused, refused-no-copy or nightly.
 // What a NIGHTLY restart has that the default rounds do not (Leo, 2026-11-16, cosmic-gray: "the chat appeared
 // in 3 seconds and then it said something went wrong with a retry button just above the composer ... and then
@@ -50,10 +54,28 @@
 // or the bottom-most row in view moved, or that row was replaced), when the final state first painted,
 // when content first painted; and the layout-shift entries' sum.
 //   [MODE=all|nightly|down|slow-init|native-ready|native-ready-tail|refused|refused-no-copy] [RUNNING=1]
-//     [CONTENT=rich] [HEIGHT_DELTA=28] [PAGES=6] [CPU=4] [ENGINE=webkit] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] \
+//     [CONTENT=rich] [HEIGHT_DELTA=28] [PAGES=6] [CPU=4] [ENGINE=webkit] [ROUNDS=3] [TURNS=120] [ACPMUX_DOWN_MS=3000] [GATE=1] [TRACE=1] [SOURCES=1] \
 //     bun bench/first-load-after-restart.bench.ts
 // GATE=1 fails if content takes over 2 s, blanks, shifts, or never becomes live. TRACE=1 prints each
-// mode's worst round frame by frame. One `FIRST_LOAD_JSON {...}` line carries every number.
+// mode's worst round frame by frame. SOURCES=1 prints each round's layout-shift entries with the boxes
+// that moved (from and to: x, y, width, height). One `FIRST_LOAD_JSON {...}` line carries every number.
+// Restart to settled (Leo, 2026-11-22: "you guys need to be able to simulate the update/restart and the connection
+// speed and what is actually displayed"): LINK=local|rtt50|rtt200|throttled (bench/link-profiles.json) puts the
+// bridge's socket on a simulated link (bench/linkModel.ts: the connect costs a round trip, each frame waits for its
+// pipe and half a round trip); the copy and the kept tail are the app's own and do not cross it. Each mode then
+// prints `RESTART_SETTLED_JSON {...}` (bench/restartSettled.ts): first content, settled (the live chat showing the
+// newest answer with nothing in view moving after), shifts after first content and how far they moved, and the
+// bytes the daemon sent. scripts/measure/restart-settled-linux.sh runs it per link beside the terminal's reattach.
+// FIXTURE=replay REPLAY=FILE serves a recorded (sanitized) chat instead, a coordinator's notices and all.
+// FIXTURE=work gives every turn its work (thoughts, tool calls, notices), which a finished turn folds: the
+// settled line then also counts rows that showed and are gone by the last frame (goneRows, goneFrames).
+// NO_TAIL=1 serves no kept tail; NO_COPY=1 no saved copy (with NO_TAIL=1, an update's revive: nothing kept); WIRE_TRACE=1 prints each daemon request as it arrives (ms from the round's start).
+// ROWS_WINDOW=FILE puts the page on the row store (v2): the daemon advertises attach-hold-v1 and the host answers
+// `chat.rows.open` with this window (acpmux-core's `bench_first_window` writes it for the same REPLAY), one link round
+// trip after the open. The settled line's rowStore says every round drew from it. A chat on the store keeps no
+// host tail (direct.ts `rememberCurrentTail`), so none is served. ROWS_ENDED=FILE is the same chat's window once
+// its open turn ended, sent ROWS_ENDED_MS (1000) after the first in its place: the rows the reload drew that the
+// ended turn folds away are then goneRows.
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -76,23 +98,38 @@ import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
+import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
+import { goneRows, liveTurnLine, restartSettled } from "./restartSettled";
+import { longRun } from "../src/agent-session/acpmux/sim/scenarios";
+import { parseRecords } from "../src/agent-session/acpmux/sim/sanitize";
+import { hostTailOf, keptEvents } from "../src/agent-session/acpmux/tailCache";
+import type { EventRecord } from "../src/agent-session/acpmux/direct";
 
 const MODES_ALL = ["down", "slow-init", "native-ready", "native-ready-tail"] as const;
-const REOPEN_MODES = ["reopen", "reopen-no-copy"] as const;
+const REOPEN_MODES = ["reopen", "reopen-no-copy", "reopen-spare"] as const;
 const REFUSED_MODES = ["refused", "refused-no-copy"] as const;
 type Mode = (typeof MODES_ALL)[number] | (typeof REOPEN_MODES)[number] | (typeof REFUSED_MODES)[number];
 const MODE = process.env.MODE ?? "all";
 const NIGHTLY_MODES: readonly Mode[] = ["down", ...REFUSED_MODES];
-const NAMED: readonly string[] = [...MODES_ALL, ...REOPEN_MODES, ...REFUSED_MODES, "reopen-both", "nightly"];
+const NAMED: readonly string[] = [
+  ...MODES_ALL,
+  ...REOPEN_MODES,
+  ...REFUSED_MODES,
+  "reopen-both",
+  "reopen-all",
+  "nightly",
+];
 if (MODE !== "all" && !NAMED.includes(MODE)) throw new Error(`MODE must be all, ${NAMED.join(" or ")}`);
 const MODES: readonly Mode[] =
   MODE === "all"
     ? MODES_ALL
     : MODE === "reopen-both"
-      ? REOPEN_MODES
-      : MODE === "nightly"
-        ? NIGHTLY_MODES
-        : [MODE as Mode];
+      ? ["reopen", "reopen-no-copy"]
+      : MODE === "reopen-all"
+        ? REOPEN_MODES
+        : MODE === "nightly"
+          ? NIGHTLY_MODES
+          : [MODE as Mode];
 const isRefused = (mode: Mode) => (REFUSED_MODES as readonly string[]).includes(mode);
 const isReopen = (mode: Mode) => (REOPEN_MODES as readonly string[]).includes(mode);
 const ROUNDS = Number(process.env.ROUNDS ?? 3);
@@ -104,9 +141,21 @@ for (const [name, value] of [
   ["ACPMUX_DOWN_MS", DOWN_MS],
 ] as const)
   if (!Number.isFinite(value) || value < 0) throw new Error(`${name} must be a non-negative number`);
+/// LINK=local|rtt50|rtt200|throttled (bench/link-profiles.json): the link between the app and the daemon. The
+/// bridge's socket goes through it (bench/linkModel.ts): its connect costs a round trip, and every frame each way
+/// waits for the pipe and half a round trip. The copy and the kept tail are the app's own, so they do not cross it.
+const LINK_NAME = process.env.LINK ?? "local";
+const NO_TAIL = process.env.NO_TAIL === "1";
+/// NO_COPY=1 serves no saved copy in any mode: an update's relaunch, whose copy another build wrote, so the page
+/// refuses it. With NO_TAIL=1 that is a revive after an update: nothing of the chat is in the page or the host.
+const NO_COPY = process.env.NO_COPY === "1";
+const WIRE_TRACE = process.env.WIRE_TRACE === "1";
+const LINK = linkProfile(LINK_NAME);
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
 /// 2 s apart while it recovers, hostRetry.ts `nextRetryDelay`), the attach and the settle after it.
-const RECORD_MS = DOWN_MS + 4000;
+/// A slow LINK adds its round trips and the attach's bytes on the wire: ten round trips and 6 s more on a
+/// throttled one.
+const RECORD_MS = DOWN_MS + 4000 + 10 * LINK.rttMs + (LINK.bps > 0 ? 6000 : 0);
 /// A refused handshake backs off to 30 s (hostRetry.ts `REFUSED_RETRY_MAX_MS`): 250 ms doubling with jitter,
 /// so the ask after DOWN_MS can come up to that long again later.
 const recordMs = (mode: Mode) => (isRefused(mode) ? 2 * DOWN_MS + 5000 : RECORD_MS);
@@ -121,8 +170,18 @@ const SETTLE_QUIET_MS = 600;
 const TRANSPORT = process.env.TRANSPORT ?? "bridge";
 if (TRANSPORT !== "bridge" && TRANSPORT !== "websocket") throw new Error("TRANSPORT must be bridge or websocket");
 const BRIDGE = TRANSPORT === "bridge";
+if (!BRIDGE && (LINK.rttMs > 0 || LINK.bps > 0)) throw new Error("LINK needs TRANSPORT=bridge");
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
+/// PROFILE=1 (MODE=reopen-spare): a CPU profile of each adopt, from the event to the newest answer drawn,
+/// printed as the functions with the most self time over all rounds (an unminified build).
+const PROFILE = process.env.PROFILE === "1";
+/// BOUND=1: each round also times its settled page drawn from scratch in the same page (the DOM copied, the scroll
+/// offset restored, to the next painted frame; median of BOUND_DRAWS draws) as `boundMs`, the settled-page bench's
+/// derived bound for open_recent and restart (settled-page.bench.ts `fromRestartBench`).
+const BOUND = process.env.BOUND === "1";
+const BOUND_DRAWS = Number(process.env.BOUND_DRAWS ?? 3);
+const SOURCES = process.env.SOURCES === "1";
 /// The theme key the copy is written under and the host says the page gets now (shared.ts `misfit`):
 /// the bench's host sends the page no theme, so any fixed key is the same theme on both loads.
 const THEME = "bench-theme";
@@ -136,7 +195,76 @@ const RELAUNCH_VIEWPORT = { width: VIEWPORT.width, height: VIEWPORT.height - HEI
 /// workspace's chats (1, the default, is the recorded page alone).
 const PAGES = Number(process.env.PAGES ?? 1);
 if (!Number.isInteger(PAGES) || PAGES < 1) throw new Error("PAGES must be a whole number of at least 1");
-const LATEST = `Answer ${TURNS}:`;
+/// FIXTURE=work: each finished turn works first, as an agent's does (the chat simulator's long run,
+/// src/agent-session/acpmux/sim/scenarios.ts `longRun`): thoughts, 2-6 tool calls, a progress message,
+/// background shells, notices from another lane and a compaction now and then, then a one-line reply. Every
+/// finished turn folds under its "Worked for" line. plain (the default) is papercutChat's one-reply turns.
+/// FIXTURE=replay REPLAY=FILE: a recorded chat's records (an NDJSON file, `.gz` too, as `chat-sim.ts --sanitize`
+/// writes one), served as the daemon would; TURNS is then only a label.
+const FIXTURE = process.env.FIXTURE ?? "plain";
+if (FIXTURE !== "plain" && FIXTURE !== "work" && FIXTURE !== "replay")
+  throw new Error("FIXTURE must be plain, work or replay");
+const replayed =
+  FIXTURE === "replay"
+    ? (() => {
+        const file = process.env.REPLAY;
+        if (!file) throw new Error("FIXTURE=replay needs REPLAY=FILE");
+        const bytes = fs.readFileSync(file);
+        // gunzipSync gives a Uint8Array, whose toString is its bytes as numbers.
+        const text = new TextDecoder().decode(file.endsWith(".gz") ? Bun.gunzipSync(bytes) : bytes);
+        return parseRecords(text);
+      })()
+    : [];
+/// The newest reply's first words, which a replayed chat's frames wait for as the others wait for `Answer N:`.
+function replayLatest(records: readonly { kind: string; msg: unknown }[]): string {
+  let at = -1;
+  records.forEach((record, index) => {
+    if (record.kind === "user_message") at = index;
+  });
+  // The turn's last message, which stays drawn: the ones before it can fold under its "Worked for".
+  let text = "";
+  let message: unknown;
+  for (const record of records.slice(at + 1)) {
+    if (record.kind !== "agent_message_chunk") continue;
+    const params = (record.msg as { params?: { _meta?: { acpmux?: { subagent?: string } }; update?: any } }).params;
+    if (params?._meta?.acpmux?.subagent) continue;
+    if (params?.update?.messageId !== message) text = "";
+    message = params?.update?.messageId;
+    text += String(params?.update?.content?.text ?? "");
+  }
+  const words = text
+    .trim()
+    .split("\n")[0]!
+    .replace(/[*_`#>]/g, "")
+    .trim()
+    .slice(0, 24)
+    .trim();
+  if (!words) throw new Error("the replayed chat's last turn has no reply to wait for");
+  return words;
+}
+/// ROWS_WINDOW=FILE: the store's first window for the replayed chat (a `ChatWindow`'s JSON, `.gz` too), whose
+/// `sid` the host sets to the page's own at each open.
+const ROWS_WINDOW = (() => {
+  const file = process.env.ROWS_WINDOW;
+  if (!file) return null;
+  const bytes = fs.readFileSync(file);
+  const text = new TextDecoder().decode(file.endsWith(".gz") ? Bun.gunzipSync(bytes) : bytes);
+  const window = JSON.parse(text) as { sid: string; rows: unknown[]; open: unknown[] };
+  if (window.sid !== "bench") throw new Error("ROWS_WINDOW is not a bench_first_window window");
+  console.log(`rows window: ${window.rows.length} settled rows, ${window.open.length} open, ${text.length} bytes`);
+  return text;
+})();
+/// ROWS_ENDED=FILE: the window once the chat's open turn ended (same ids: a recording cut before its
+/// `turn_end`, and the whole one), and how long after the first window it comes.
+const ROWS_ENDED = (() => {
+  const file = process.env.ROWS_ENDED;
+  if (!file) return null;
+  const bytes = fs.readFileSync(file);
+  return new TextDecoder().decode(file.endsWith(".gz") ? Bun.gunzipSync(bytes) : bytes);
+})();
+const ROWS_ENDED_MS = Number(process.env.ROWS_ENDED_MS ?? 1000);
+const LATEST =
+  FIXTURE === "work" ? `Turn ${TURNS} done.` : FIXTURE === "replay" ? replayLatest(replayed) : `Answer ${TURNS}:`;
 const webviews = path.resolve(import.meta.dir, "..");
 const chatSnapshotSource = path.join(webviews, "src/agent-session/acpmux/chatSnapshot");
 
@@ -178,42 +306,159 @@ const richAnswer = (n: number): string => {
       return `${head} the checks on the merged head are green.`;
   }
 };
-const { events, session } = papercutEvents({
+/// The chat's summary names its model and its effort, as acpmux's does (`configOptions`, attach-config-current
+/// test): until a summary comes, the composer draws the effort this harness's chats last showed (chipMemory.ts),
+/// and a summary with no effort took that away 200 ms after the first frame (reopen-no-copy: layout shift
+/// 0.0003, the model chip 163 to 107 px), a shift no chat acpmux reports would have. High, not the Medium a
+/// first chat remembers, so a guess that outlived the summary would show.
+const REPORTED = {
+  model: "claude-sonnet-4-5",
+  configOptions: [
+    {
+      id: "effort",
+      name: "Reasoning",
+      category: "thought_level",
+      type: "select",
+      currentValue: "high",
+      options: ["low", "medium", "high"].map((level) => ({ value: level, name: level })),
+    },
+  ],
+};
+const plain = papercutEvents({
   turns: TURNS,
   running: RUNNING,
+  session: REPORTED,
   ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
 });
+if (FIXTURE !== "plain" && (RUNNING || CONTENT !== "plain"))
+  throw new Error(`FIXTURE=${FIXTURE} takes no RUNNING or CONTENT`);
+/// OPEN=1 (FIXTURE=work): the last turn never ended, as a coordinator's that keeps working does: its records stop
+/// before its `turn_end`, and the chat is running. A reload of it on the v1 attach (no ROWS_WINDOW) then draws the
+/// turn as a watcher sees it (liveTurnWork `open`: every finished call in sight until the turn ends), and goneRows
+/// counts any row the reload drew that the still-open turn no longer draws. The turn then ends OPEN_ENDS_MS (1500;
+/// 0 never) after the relaunched page's attach is answered, as a running turn the reload caught does: its
+/// end records (turn_end on) and the session back to ready, pushed live. goneRows then also counts every row the reload drew
+/// that the ended turn's fold took away (Leo: "i see this rush and barrage of tool calls and message on a sort of
+/// "renewed-load" of chats. but they get folded/hidden anyways").
+const OPEN = process.env.OPEN === "1";
+if (OPEN && FIXTURE !== "work") throw new Error("OPEN=1 needs FIXTURE=work");
+const OPEN_ENDS_MS = OPEN ? Number(process.env.OPEN_ENDS_MS ?? 1500) : 0;
+const [workRecords, openEnd] = (() => {
+  const all = longRun(TURNS).events;
+  if (!OPEN) return [all, null] as const;
+  let end = all.length;
+  while (end > 0 && all[end - 1]!.kind !== "turn_end") end -= 1;
+  if (end === 0) throw new Error("OPEN=1: the work fixture has no turn_end");
+  // The end is the turn's own records from its `turn_end` on (turn_end, turn_result, status ready, ...).
+  return [all.slice(0, end - 1), all.slice(end - 1)] as const;
+})();
+/// The open turn's ids (OPEN=1), from its `turn_started`, for the session's `turn`.
+const openTurn = (() => {
+  if (!OPEN) return null;
+  const started = [...workRecords].reverse().find((event: EventRecord) => event.kind === "turn_started");
+  const msg = (started?.msg ?? {}) as { turnId?: string; promptId?: string };
+  return {
+    turnId: msg.turnId ?? `turn-${TURNS}`,
+    promptId: msg.promptId ?? "",
+    startedAt: started?.at ?? 0,
+    prompt: "",
+  };
+})();
+const worked = (FIXTURE === "work" ? workRecords : FIXTURE === "replay" ? replayed : []).map((event) => ({
+  ...event,
+  sessionId: PAPERCUT_CHAT,
+}));
+const events = FIXTURE === "plain" ? plain.events : worked;
+const session =
+  FIXTURE !== "plain"
+    ? {
+        ...plain.session,
+        status: OPEN ? "running" : "ready",
+        ...(OPEN ? { turn: openTurn } : {}),
+        turnCount: TURNS,
+        updatedAt: worked.at(-1)?.at ?? plain.session.updatedAt,
+        lastSeq: worked.length,
+      }
+    : plain.session;
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
-const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown) =>
-  newestPage(events, { limit, beforeSeq, maxBytes });
+const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown, kinds?: unknown) =>
+  newestPage(Array.isArray(kinds) ? events.filter((event) => kinds.includes(event.kind)) : events, {
+    limit,
+    beforeSeq,
+    maxBytes,
+  });
+/// A turn's prompt as acpmux reads it (server/requests/turn_opener.rs `starts_turn`): not a steer.
+const startsTurn = (event: { dir?: string; kind?: string; msg?: unknown }) =>
+  event.dir === "mux" && event.kind === "user_message" && (event.msg as { steer?: unknown })?.steer !== true;
+/// The prompt of the turn an attach page starts inside (turn_opener.rs `turn_opener`): the attach
+/// answers it with the page, so a page that starts mid-turn draws under its prompt from the first frame.
+function turnOpener(page: readonly (typeof events)[number][], hasMore: boolean): unknown {
+  const first = page[0];
+  if (!hasMore || !first || first.seq <= 1 || startsTurn(first)) return null;
+  for (let at = events.length - 1; at >= 0; at -= 1) {
+    const event = events[at]!;
+    if (event.seq < first.seq && startsTurn(event)) return event;
+  }
+  return null;
+}
 /// What the app host keeps for this chat and answers `chat.tail.get` with (tailCache.ts `KeptTail`, read
-/// back by `tailFromHost`): the newest KEPT_EVENTS (400) records, as the page hands them over
-/// (direct.ts `currentTail`), and the chat's summary. A finished chat whose kept page starts at a prompt
-/// needs no turn opener.
-const KEPT_EVENTS = 400;
-const keptTail = {
-  events: newest(KEPT_EVENTS).page,
-  summary: session,
-  historyExhausted: events.length <= KEPT_EVENTS,
-  queue: [],
-  configSeq: 0,
-  usageFromSeq: 0,
-};
+/// back by `tailFromHost`), made the way the page makes it: the attach page it read (the newest records
+/// within `OPEN_PAGE_BYTES`, direct.ts `sendAttach`), its newest `KEPT_EVENTS` messages (`keptEvents`),
+/// the prompt of the turn the kept page starts inside (direct.ts `currentTail`), and the host's byte
+/// bound (`hostTailOf`). A kept page without that prompt draws its turn's work unfolded, which the
+/// real page never does, so a stand-in without it measures a reload that does not happen.
+const OPEN_PAGE_BYTES = 128 * 1024;
+const keptTail = (() => {
+  const opened = newest(400, Infinity, OPEN_PAGE_BYTES);
+  const kept = keptEvents(opened.page as EventRecord[]);
+  const first = kept[0];
+  const opener =
+    first && !startsTurn(first)
+      ? ((kept.length < opened.page.length
+          ? opened.page
+              .slice(0, opened.page.length - kept.length)
+              .reverse()
+              .find(startsTurn)
+          : undefined) ?? turnOpener(opened.page, opened.hasMore))
+      : undefined;
+  return hostTailOf({
+    events: kept,
+    summary: session,
+    turnOpener: (opener ?? undefined) as EventRecord | undefined,
+    historyExhausted: !opened.hasMore && kept.length === opened.page.length,
+    queue: [],
+    configSeq: 0,
+    usageFromSeq: 0,
+  });
+})();
 
 const answer = (method: string, params: Record<string, unknown> = {}): unknown => {
   switch (method) {
     case "initialize":
       return {
         protocolVersion: 1,
-        _meta: { acpmux: { origin: "local", extensions: [], operations: [] } },
+        _meta: {
+          acpmux: {
+            origin: "local",
+            extensions: [],
+            operations: [],
+            ...(ROWS_WINDOW ? { capabilities: ["attach-hold-v1"] } : {}),
+          },
+        },
       };
     case "_acpmux/watch":
       return { sessions: [session] };
     case "_acpmux/attach": {
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
       const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
-      return { session, lastSeq: events.at(-1)?.seq ?? 0, events: page, hasMore };
+      return {
+        session,
+        lastSeq: events.at(-1)?.seq ?? 0,
+        events: page,
+        hasMore,
+        turnOpener: turnOpener(page, hasMore),
+      };
     }
     case "_acpmux/events": {
       // The prompt index (hub/paging.rs prompt_index): every prompt before `beforeSeq`, each cut to its text.
@@ -225,7 +470,13 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         return { events: prompts, hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       if (params.beforeSeq !== undefined) {
-        const { page, hasMore } = newest(Number(params.limit ?? 400), Number(params.beforeSeq), params.maxBytes);
+        // `kinds` as acpmux reads it (paging.rs EventFilter): the pane's own opener read asks for prompts alone.
+        const { page, hasMore } = newest(
+          Number(params.limit ?? 400),
+          Number(params.beforeSeq),
+          params.maxBytes,
+          params.kinds,
+        );
         return { events: page, hasMore, lastSeq: events.at(-1)?.seq ?? 0 };
       }
       return { events: [], hasMore: false, lastSeq: events.at(-1)?.seq ?? 0 };
@@ -242,10 +493,13 @@ type Painted = FrameRecord & {
   /// The live root was held clear (opacity 0) with no copy over it: nothing of the chat showed.
   rootHidden: boolean;
 };
+type LayoutShiftSeen = { at: number; value: number; moved: { node: string; from: number[]; to: number[] }[] };
 type Recording = {
   frames: Painted[];
   /// The layout-shift entries' sum over the recording (none with recent input).
   layoutShift: number;
+  /// Each of those entries: when (ms from navigation), its value, and each box that moved (`SOURCES=1`).
+  shifts: LayoutShiftSeen[];
   latestAt: number;
   /// When the live page itself (no copy over it) first showed the newest answer, else 0.
   liveLatestAt: number;
@@ -255,9 +509,20 @@ type Recording = {
 };
 type BenchWindow = {
   __firstLoad: Recording;
-  __benchHost: { tailAskedAt: number; tailCalls: number; readyAnsweredAt: number; asks: number[] };
+  __benchHost: {
+    tailAskedAt: number;
+    tailCalls: number;
+    readyAnsweredAt: number;
+    asks: number[];
+    rowsOpens: number;
+    rowsTaken: number;
+  };
   __cmuxChatSnapshotMiss?: string;
-  __cmuxChatSnapshotShown?: { at: number; swappedAt?: number };
+  __cmuxChatSnapshotShown?: {
+    at: number;
+    swappedAt?: number;
+    hold?: { by: string; at: number; differs?: string };
+  };
   captureSnapshot: (doc: Document, theme: string) => ChatSnapshot | undefined;
   captureMiss: () => string;
 };
@@ -272,15 +537,18 @@ function installHost({
   readyDelayMs,
   refuseUntilMs,
   bridge,
+  rows,
 }: {
   tail: unknown;
   readyDelayMs: number;
   refuseUntilMs: number;
   bridge: boolean;
+  /// ROWS_WINDOW: the store's first window (its JSON) and how long after an open it comes.
+  rows: { window: string; delayMs: number; ended: string | null; endedMs: number } | null;
 }) {
   /// `asks`: when the page asked for a socket to acpmux (ms from navigation): each `transport.open` over
   /// the bridge, each `new WebSocket` to it on the dev slot's transport.
-  const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0, asks: [] as number[] };
+  const asked = { tailAskedAt: 0, tailCalls: 0, readyAnsweredAt: 0, asks: [] as number[], rowsOpens: 0, rowsTaken: 0 };
   (window as unknown as { __benchHost: typeof asked }).__benchHost = asked;
   if (!bridge) {
     const Native = window.WebSocket;
@@ -300,6 +568,27 @@ function installHost({
       .__benchTransport;
     return call(method, params ?? {});
   };
+  /// The app host's row store (AgentPaneChatRows.swift), for ROWS_WINDOW: an open is answered with its sid at once
+  /// and its first window comes `delayMs` later as one batch; the window is the chat's whole state (an
+  /// offline chat: nothing comes after it). A page, blob or close is taken and answered with nothing.
+  let batch = 0;
+  const rowsCall = (method: string, params: Record<string, unknown> | undefined): Promise<Own> | undefined => {
+    if (!rows || !method.startsWith("chat.rows.")) return undefined;
+    if (method === "chat.rows.taken") asked.rowsTaken += 1;
+    if (method !== "chat.rows.open") return Promise.resolve({ ok: true, value: null });
+    asked.rowsOpens += 1;
+    const sid = String(params?.sid ?? "");
+    const send = (text: string, at: number) => {
+      const change = `{"kind":"chatWindow","replaces":true,"window":${text.replace('"sid":"bench"', `"sid":${JSON.stringify(sid)}`)}}`;
+      setTimeout(() => {
+        const receiver = (window as unknown as { cmuxChatRows?: { receive(event: unknown): void } }).cmuxChatRows;
+        receiver?.receive({ batch: (batch += 1), changes: [change] });
+      }, at);
+    };
+    send(rows.window, rows.delayMs);
+    if (rows.ended && asked.rowsOpens === 1) send(rows.ended, rows.delayMs + rows.endedMs);
+    return Promise.resolve({ ok: true, value: { sid } });
+  };
   // Wrap the dev host's real ready answer, withholding it just as a daemon handoff does; over the bridge
   // it names the app's transport (no endpoint, no token), and the socket calls go to this process.
   let webkit: unknown;
@@ -309,7 +598,7 @@ function installHost({
     set: (next) => {
       for (const name of ["agentSession", "cmuxPage"]) {
         const handler = next?.messageHandlers?.[name];
-        if (!handler || (readyDelayMs <= 0 && refuseUntilMs <= 0 && !bridge)) continue;
+        if (!handler || (readyDelayMs <= 0 && refuseUntilMs <= 0 && !bridge && !rows)) continue;
         const post = handler.postMessage.bind(handler);
         const envelope = name === "cmuxPage";
         handler.postMessage = async (request: {
@@ -321,7 +610,7 @@ function installHost({
         }) => {
           if (envelope && request.t !== "call") return post(request);
           const method = (request.method ?? request.op ?? "").replace(/^cmux\.agent\./, "");
-          const own = transport(method, request.params);
+          const own = rowsCall(method, request.params) ?? transport(method, request.params);
           if (own) {
             const reply = await own;
             if (envelope)
@@ -399,6 +688,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   const recording = {
     frames: [] as Frame[],
     layoutShift: 0,
+    shifts: [] as LayoutShiftSeen[],
     latestAt: 0,
     liveLatestAt: 0,
     changedAt: 0,
@@ -409,15 +699,40 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     },
   };
   (window as unknown as { __firstLoad: typeof recording }).__firstLoad = recording;
+  type Source = { node?: Node | null; previousRect: DOMRectReadOnly; currentRect: DOMRectReadOnly };
+  /// A box by its class names and its parent's first one ("acpmux-main > div.acpmux-dock").
+  const named = (node: Node | null | undefined): string => {
+    if (!(node instanceof Element)) return node?.nodeName ?? "?";
+    const classes = (element: Element) => [...element.classList].map((name) => `.${name}`).join("");
+    const parent = node.parentElement;
+    return `${parent ? `${parent.classList[0] ?? parent.tagName.toLowerCase()} > ` : ""}${node.tagName.toLowerCase()}${classes(node)}`;
+  };
+  const box = (rect: DOMRectReadOnly) => [rect.x, rect.y, rect.width, rect.height].map(Math.round);
   new PerformanceObserver((list) => {
-    for (const entry of list.getEntries() as unknown as { value: number; hadRecentInput: boolean; startTime: number }[])
-      if (!entry.hadRecentInput && entry.startTime <= windowMs) recording.layoutShift += entry.value;
+    for (const entry of list.getEntries() as unknown as {
+      value: number;
+      hadRecentInput: boolean;
+      startTime: number;
+      sources?: Source[];
+    }[]) {
+      if (entry.hadRecentInput || entry.startTime > windowMs) continue;
+      recording.layoutShift += entry.value;
+      recording.shifts.push({
+        at: Math.round(entry.startTime),
+        value: Number(entry.value.toFixed(5)),
+        moved: (entry.sources ?? []).map((source) => ({
+          node: named(source.node),
+          from: box(source.previousRect),
+          to: box(source.currentRect),
+        })),
+      });
+    }
   }).observe({ type: "layout-shift", buffered: true });
   let signature = "";
   const read = (): Frame => {
     // A copy still waiting for its sheets is laid out hidden (paint.ts) and paints nothing: not on top.
     const drawn = document.querySelector<HTMLElement>(hostTag);
-    const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
+    const host = drawn && drawn.style.visibility !== "hidden" && drawn.style.opacity !== "0" ? drawn : null;
     const scope: ParentNode = host?.shadowRoot ?? document;
     // Under a copy the live root is held clear until the swap (chatSnapshot/paint.ts); with no copy over
     // it, a clear root shows nothing of the chat.
@@ -444,7 +759,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     return {
       t: performance.now(),
       copyShown: !!host,
-      rows: rows.map(({ id, top }) => ({ id, top })),
+      rows: rows.map(({ id, top, text }) => ({ id, top, text: text.trim().replace(/\s+/g, " ").slice(0, 200) })),
       composer: composer ? { top: composer.top, height: composer.height } : null,
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
       bottomText: (rows.at(-1)?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 48),
@@ -453,7 +768,7 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   };
   window.cmuxAfterPaint(() => {
     if (stopped) return false;
-    if (performance.now() > windowMs) {
+    if (performance.now() > ((window as unknown as { __firstLoadUntil?: number }).__firstLoadUntil ?? windowMs)) {
       recording.stop();
       return false;
     }
@@ -472,6 +787,82 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
   });
 }
 
+type CpuProfile = {
+  nodes: { id: number; callFrame: { functionName: string; url: string; lineNumber: number }; children?: number[] }[];
+  samples: number[];
+  timeDeltas: number[];
+};
+/// PROFILE=1: self ms per function over every round's adopt, and how many adopts were profiled.
+const selfMs = new Map<string, number>();
+/// Inclusive ms: each function counted once per sample it is on the stack of.
+const totalMs = new Map<string, number>();
+/// A built-in's (no url: style reads, layout, DOM calls) self ms by the nearest bundle function that called it.
+const nativeByCaller = new Map<string, number>();
+let profiled = 0;
+/// MODE=reopen-spare: how long each adopt event's own task ran (ms), the synchronous React pass
+/// `useSessionAdoption` flushes inside the event, before the browser can paint anything.
+const adoptSyncMs: number[] = [];
+/// MODE=reopen-spare: the parked spare's own footprint before its adopt, after a full GC: the page's JS
+/// heap (MB) and its DOM nodes (CDP Performance.getMetrics). The renderer's other memory is shared.
+const spareHeapMb: number[] = [];
+const spareNodes: number[] = [];
+const OUTSIDE = new Set(["(idle)", "(program)", "(root)"]);
+type ProfileNode = CpuProfile["nodes"][number];
+const nodeKey = (frame: ProfileNode["callFrame"]) =>
+  `${frame.functionName || "(anonymous)"} ${frame.url.split("/").pop() ?? ""}:${frame.lineNumber + 1}`;
+const bump = (map: Map<string, number>, key: string, ms: number) => map.set(key, (map.get(key) ?? 0) + ms);
+/// Adds the samples of one adopt: from its first busy sample (the event's own turn, right after the
+/// profiler started) for the time it took to the newest answer drawn (`untilMs - atMs`), plus a frame.
+function addProfile(profile: CpuProfile, atMs: number, untilMs: number): void {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  let t = 0;
+  let from: number | undefined;
+  const span = untilMs - atMs + 17;
+  profile.samples.forEach((id, index) => {
+    const ms = profile.timeDeltas[index] / 1000;
+    t += ms;
+    const node = byId.get(id);
+    if (!node) return;
+    const frame = node.callFrame;
+    if (from === undefined) {
+      if (OUTSIDE.has(frame.functionName)) return;
+      from = t;
+    }
+    if (t - from > span || frame.functionName === "(idle)") return;
+    bump(selfMs, nodeKey(frame), ms);
+    const seen = new Set<string>();
+    let caller: string | undefined;
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const up = byId.get(at);
+      if (!up || up.callFrame.functionName === "(root)") break;
+      const key = nodeKey(up.callFrame);
+      if (!seen.has(key)) bump(totalMs, key, ms);
+      seen.add(key);
+      if (caller === undefined && at !== id && up.callFrame.url) caller = key;
+    }
+    if (!frame.url && caller) bump(nativeByCaller, `${frame.functionName} <- ${caller}`, ms);
+  });
+  profiled += 1;
+}
+function printProfile(): void {
+  if (!profiled) return;
+  const total = [...selfMs.values()].reduce((a, b) => a + b, 0);
+  const top = (title: string, map: Map<string, number>, count: number) => {
+    console.log(title);
+    for (const [key, ms] of [...map].sort((a, b) => b[1] - a[1]).slice(0, count))
+      console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}`);
+  };
+  top(
+    `reopen-spare adopt profile: ${(total / profiled).toFixed(1)} ms busy per adopt (n=${profiled}), top self time:`,
+    selfMs,
+    30,
+  );
+  top("reopen-spare adopt profile, inclusive:", totalMs, Number(process.env.PROFILE_TOP ?? 45));
+  top("reopen-spare adopt profile, built-ins by caller:", nativeByCaller, 20);
+}
+
 type Round = {
   mode: Mode;
   metrics: FrameMetrics;
@@ -480,9 +871,15 @@ type Round = {
   /// else null: a round whose copy never gave way to the read chat has not loaded.
   liveLatestMs: number | null;
   layoutShift: number;
+  /// The layout-shift entries that sum to it, with the boxes that moved (printed with SOURCES=1).
+  layoutShifts: LayoutShiftSeen[];
   /// When the copy drew and when the live page took over (chatSnapshot/paint.ts, live.ts), ms from navigation.
   copyShownMs: number | null;
   swapMs: number | null;
+  /// How the copy's wait for the chat's draft ran out (draftSettleHold.ts): the composer showed the
+  /// copy's when the rows came in (`shown`) or later (`match`), the 2 s cap (`cap`, with what still
+  /// differed), or the draft read answered first (`read`); null with no copy.
+  hold: { by: string; atMs: number | null; differs: string | null } | null;
   /// Why no copy drew (boot.ts), or null when one did.
   copyMiss: string | null;
   tailAskedMs: number | null;
@@ -494,11 +891,58 @@ type Round = {
   socketOpenedMs: number | null;
   initializeAnsweredMs: number | null;
   attachAnsweredMs: number | null;
+  /// BOUND=1: the settled page drawn from scratch, ms (median of BOUND_DRAWS draws); else null.
+  boundMs: number | null;
   /// How many times the page asked for a socket, and when it made the ask that opened one (ms from
   /// navigation): the relink is the wait for that ask after acpmux came back, then the ask to the open.
   asks: number;
   lastAskMs: number | null;
+  /// Bytes the daemon sent the page over the link this round.
+  bytesDown: number;
+  /// ROWS_WINDOW: the row store's batches the page took (0: it drew the chat by v1).
+  rowsTaken: number;
 };
+
+/** The settled page served as a static page (BOUND=1): the settled DOM, scripts removed, at the app's own origin
+ *  (its stylesheets, fonts), the scroll offset restored by an inline script before the first paint; ms from navigation
+ *  to its first contentful paint, the median of BOUND_DRAWS loads in fresh pages of the same context. No restart can
+ *  show the settled page sooner than its own HTML loads and paints. */
+async function drawBound(page: Page): Promise<number> {
+  const html = await page.evaluate(() => {
+    const clone = document.documentElement.cloneNode(true) as HTMLElement;
+    for (const node of clone.querySelectorAll("script")) node.remove();
+    const scrollTop = document.querySelector<HTMLElement>(".acpmux-scroll")?.scrollTop ?? 0;
+    const restore = document.createElement("script");
+    restore.textContent = `{const s=document.querySelector(".acpmux-scroll");if(s)s.scrollTop=${scrollTop}}`;
+    clone.querySelector("body")?.append(restore);
+    return `<!doctype html>${clone.outerHTML}`;
+  });
+  const at = new URL("/__settled-bound.html", page.url()).href;
+  const draws: number[] = [];
+  for (let draw = 0; draw < Math.max(1, BOUND_DRAWS); draw += 1) {
+    const one = await page.context().newPage();
+    await one.setViewportSize(page.viewportSize() ?? RELAUNCH_VIEWPORT);
+    try {
+      await one.route(at, (route) => route.fulfill({ contentType: "text/html", body: html }));
+      await one.goto(at, { waitUntil: "load" });
+      draws.push(
+        await one.evaluate(
+          () =>
+            new Promise<number>((resolve) => {
+              const paint = () =>
+                performance.getEntriesByName("first-contentful-paint")[0]?.startTime ??
+                performance.getEntriesByType("paint").at(-1)?.startTime;
+              requestAnimationFrame(() => setTimeout(() => resolve(paint() ?? performance.now()), 0));
+            }),
+        ),
+      );
+    } finally {
+      await one.close();
+    }
+  }
+  draws.sort((a, b) => a - b);
+  return draws[Math.floor(draws.length / 2)]!;
+}
 
 const releases: [string, () => unknown][] = [];
 const release = async () => {
@@ -509,8 +953,14 @@ try {
   /// acpmux is unavailable until `downUntil` (epoch ms) in `downMode`; up otherwise.
   let downMode: Mode | undefined;
   let downUntil = 0;
+  let wireT0 = 0;
   /// This relaunch's socket timeline (epoch ms).
-  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0 };
+  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+  /// TRACE: the daemon calls a spare page made before its adopt event.
+  const spareCalls: string[] = [];
+  let servingSpare = false;
+  /// OPEN_ENDS_MS: the relaunched page's attach starts the clock to the open turn's end.
+  let endOpenTurn = false;
   const delayedReplies = new Set<ReturnType<typeof setTimeout>>();
   const daemon = Bun.serve({
     port: 0,
@@ -530,10 +980,42 @@ try {
       message(ws, raw) {
         const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
         if (message.id === undefined) return;
+        if (servingSpare)
+          spareCalls.push(
+            `${message.method}${message.params?.sessionId ? ` ${String(message.params.sessionId)}` : ""}`,
+          );
+        if (WIRE_TRACE)
+          console.log(
+            `wire ${Date.now() - wireT0} ms ${message.method} ${JSON.stringify(message.params ?? {}).slice(0, 160)}`,
+          );
         const result = answer(message.method, message.params);
         const reply = () => {
           if (message.method === "initialize") load.initializeAnsweredAt ||= Date.now();
           if (message.method === "_acpmux/attach") load.attachAnsweredAt ||= Date.now();
+          if (message.method === "_acpmux/attach" && endOpenTurn && openEnd) {
+            endOpenTurn = false;
+            // fixed-wait: when the open turn ends is the condition OPEN_ENDS_MS sets; stops with the run.
+            const timer = setTimeout(() => {
+              delayedReplies.delete(timer);
+              const at = Date.now();
+              const seq = openEnd.at(-1)!.seq;
+              const notify = (method: string, params: unknown) => {
+                try {
+                  ws.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+                } catch {
+                  // Closed: the round is over.
+                }
+              };
+              if (WIRE_TRACE) console.log(`wire ${at - wireT0} ms -> the turn's end through seq ${seq}, session ready`);
+              for (const record of openEnd) notify("_acpmux/event", { ...record, sessionId: PAPERCUT_CHAT, at });
+              const { turn: _turn, ...ended } = session as typeof session & { turn?: unknown };
+              notify("_acpmux/session_changed", {
+                kind: "updated",
+                session: { ...ended, status: "ready", updatedAt: at, lastSeq: seq },
+              });
+            }, OPEN_ENDS_MS);
+            delayedReplies.add(timer);
+          }
           // A socket the page gave up on meanwhile takes nothing.
           try {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
@@ -572,25 +1054,54 @@ try {
   // Only these presentation sources differ; the page host, daemon fixture and frame recorder stay fixed.
   const sourceRef = process.env.PANE_SOURCE_REF;
   const priorSources = new Map<string, string>();
-  if (sourceRef)
-    for (const file of ["App.tsx", "direct.ts", "hostRetry.ts"])
+  // Every pane source under src/agent-session that differs from the ref is read at the ref (a file the
+  // ref lacks stays, unread by the ref's sources), so one run builds the before of a whole change.
+  if (sourceRef) {
+    const changed = execFileSync(
+      "git",
+      ["diff", "--name-only", "--diff-filter=MD", sourceRef, "--", "src/agent-session", "src/ui"],
+      { cwd: webviews, encoding: "utf8" },
+    )
+      .split("\n")
+      .filter(Boolean);
+    const top = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: webviews, encoding: "utf8" }).trim();
+    for (const file of changed)
       priorSources.set(
-        path.join(webviews, "src/agent-session/acpmux", file),
-        execFileSync("git", ["show", `${sourceRef}:webviews/src/agent-session/acpmux/${file}`], {
+        path.join(top, file),
+        execFileSync("git", ["show", `${sourceRef}:${file}`], {
           cwd: webviews,
           encoding: "utf8",
           maxBuffer: 8 * 1024 * 1024,
         }),
       );
+    console.log(`pane sources read at ${sourceRef}: ${changed.join(", ") || "none"}`);
+  }
   console.log(`pane source: ${sourceRef ?? "worktree"}`);
   await build({
     plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true },
+    // PROFILE=1 keeps names, so the adopt profile names the pane's own functions.
+    build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
     logLevel: "error",
   });
   const bundle = async (entry: string): Promise<string> => {
-    const built = await Bun.build({ entrypoints: [entry], format: "iife", target: "browser" });
+    // At PANE_SOURCE_REF too: the boot script is a pane source like the bundle's.
+    const built = await Bun.build({
+      entrypoints: [entry],
+      format: "iife",
+      target: "browser",
+      plugins: [
+        {
+          name: "immutable-pane-baseline",
+          setup: (builder) => {
+            builder.onLoad({ filter: /\.tsx?$/ }, (args) => {
+              const contents = priorSources.get(args.path);
+              return contents === undefined ? undefined : { contents, loader: args.path.endsWith("x") ? "tsx" : "ts" };
+            });
+          },
+        },
+      ],
+    });
     if (!built.success) throw new Error(built.logs.map(String).join("\n"));
     return await built.outputs[0]!.text();
   };
@@ -604,6 +1115,17 @@ try {
       "Object.assign(globalThis, { captureMiss, captureSnapshot });\n",
   );
   const captureScript = await bundle(captureEntry);
+  // The app's host is there before any page script runs (its WebKit handlers, or the page host's): the
+  // dev host stands in for it from the document's start here, not from the bundle's dev entry (dev.tsx,
+  // which installs it only when the bundle ran and leaves one already there), so a page script that
+  // asks the host first (boot.ts) is answered as in the app.
+  const hostEntry = path.join(work, "host-entry.ts");
+  fs.writeFileSync(
+    hostEntry,
+    `import { devHostParams, installDevHost } from ${JSON.stringify(path.join(webviews, "src/dev-host/host.ts"))};\n` +
+      "const params = devHostParams(location.hash);\nif (params) installDevHost(params);\n",
+  );
+  const hostScript = await bundle(hostEntry);
 
   // The page as the app serves it (build-agent-pane-web.sh): every sheet in one linked `pane.css`
   // (id cmux-pane-styles), which the writer leaves out of the copy and whose rules the copy draws under
@@ -660,6 +1182,7 @@ try {
 
   /// The copy the host serves this load (`__snapshot/chat.js`): null on the warm load, as with none kept.
   let servedCopy: ChatSnapshot | null = null;
+  // A spare New Tab page's load (`servingSpare`) is served no restored chat: it is no chat's page until adopted.
   const script = (body: string) =>
     new Response(body, { headers: { "Content-Type": "text/javascript", "Cache-Control": "no-store" } });
   const statics = Bun.serve({
@@ -670,6 +1193,8 @@ try {
       if (pathname === "/" || pathname === "/index.html")
         return new Response(index, { headers: { "Content-Type": "text/html", "Cache-Control": "no-store" } });
       // As the page host answers it (AgentPageResources.swift): the globals, then the boot if it ran first.
+      if (pathname === "/__snapshot/chat.js" && servingSpare)
+        return script(`self.${SNAPSHOT_GLOBAL}=null;self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};`);
       if (pathname === "/__snapshot/chat.js")
         return script(
           `self.${SNAPSHOT_GLOBAL}=${JSON.stringify(servedCopy)};self.${SNAPSHOT_THEME_GLOBAL}=${JSON.stringify(THEME)};self.__cmuxRestoredChat=${JSON.stringify(PAPERCUT_CHAT)};self.dispatchEvent(new Event('cmux-restored-chat'));self.${SNAPSHOT_BOOT_GLOBAL}?.();`,
@@ -680,7 +1205,9 @@ try {
     },
   });
   releases.push(["static server", () => statics.stop(true)]);
-  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+  const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
+  /// The prewarmed spare: a New Tab page with no chat yet (dev-host `newtab`; `new`: a new chat, not the latest one).
+  const spareUrl = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&newtab&new`;
   const browser: Browser =
     ENGINE === "webkit"
       ? await webkit.launch({ headless: true })
@@ -696,10 +1223,15 @@ try {
     warmContext = await browser.newContext({ viewport: VIEWPORT });
     const other = await warmContext.newPage();
     await other.goto(url);
-    await other.waitForFunction((text) => document.body.textContent?.includes(text) ?? false, LATEST, {
-      timeout: 120_000,
-      polling: 200,
-    });
+    // A chat whose last turn never ended (ROWS_ENDED) streams its last message on this page, which has no
+    // host of the bench's, so it may never draw it whole: a drawn row is enough to keep the renderer warm.
+    await other.waitForFunction(
+      ({ text, anyRow }) =>
+        (document.body.textContent?.includes(text) ?? false) ||
+        (anyRow && document.querySelector(".acpmux-row[data-row-id]") !== null),
+      { text: LATEST, anyRow: !!ROWS_ENDED },
+      { timeout: 120_000, polling: 200 },
+    );
   }
 
   /// The app host's side of the bridge (Swift AgentPaneTransport) for `page`: `transport.open` opens a
@@ -708,6 +1240,7 @@ try {
   /// `cmuxAcpmuxTransport.receive`, in order.
   const serveBridge = async (page: Page) => {
     const sockets = new Map<number, WebSocket>();
+    const pipes = new Map<number, { up: LinkPipe; down: LinkPipe }>();
     let next = 0;
     let delivery = Promise.resolve();
     const push = (event: { connection: number; frames?: string[]; closed?: { code: number; reason: string } }) => {
@@ -722,12 +1255,19 @@ try {
         .catch(() => undefined);
     };
     page.on("close", () => {
+      for (const { up, down } of pipes.values()) {
+        up.close();
+        down.close();
+      }
+      pipes.clear();
       for (const socket of sockets.values()) socket.close();
       sockets.clear();
     });
     await page.exposeFunction("__benchTransport", async (method: string, params: Record<string, unknown>) => {
       if (method === "transport.open") {
         const connection = (next += 1);
+        // LINK: the socket's connect costs one round trip of the simulated link before the daemon sees it.
+        await connectDelay(LINK);
         const socket = new WebSocket(`ws://127.0.0.1:${daemon.port}/`);
         const opened = await new Promise<boolean>((resolve) => {
           socket.addEventListener("open", () => resolve(true), { once: true });
@@ -736,29 +1276,69 @@ try {
         });
         if (!opened) return { ok: false, code: "transport.connect_failed", message: "acpmux refused the socket" };
         sockets.set(connection, socket);
-        socket.addEventListener("message", (event) => push({ connection, frames: [String(event.data)] }));
+        // LINK: daemon to page and page to daemon each go through one pipe of the simulated link, in order.
+        const down = new LinkPipe(LINK);
+        const up = new LinkPipe(LINK);
+        pipes.set(connection, { up, down });
+        socket.addEventListener("message", (event) => {
+          const frame = String(event.data);
+          load.bytesDown += Buffer.byteLength(frame);
+          down.send(frame, (arrived) => push({ connection, frames: [arrived] }));
+        });
         socket.addEventListener("close", (event) => {
           if (!sockets.delete(connection)) return;
-          push({ connection, closed: { code: event.code, reason: event.reason } });
+          // The close is the last thing down the pipe; then the pipe stops.
+          down.send("", () => {
+            push({ connection, closed: { code: event.code, reason: event.reason } });
+            down.close();
+            up.close();
+          });
+          pipes.delete(connection);
         });
         return { ok: true, value: { connection } };
       }
       const socket = sockets.get(Number(params.connection));
       if (method === "transport.send") {
         if (!socket) return { ok: false, code: "transport.closed", message: "closed" };
-        for (const frame of (params.frames as string[] | undefined) ?? []) socket.send(frame);
+        const pipe = pipes.get(Number(params.connection));
+        for (const frame of (params.frames as string[] | undefined) ?? [])
+          if (pipe) pipe.up.send(frame, (sent) => socket.readyState === WebSocket.OPEN && socket.send(sent));
+          else socket.send(frame);
         return { ok: true, value: null };
       }
       sockets.delete(Number(params.connection));
+      const pipe = pipes.get(Number(params.connection));
+      pipes.delete(Number(params.connection));
+      pipe?.up.close();
+      pipe?.down.close();
       socket?.close();
       return { ok: true, value: null };
     });
   };
 
-  const prepare = async (page: Page, tail: unknown, windowMs: number, readyDelayMs = 0, refuseUntilMs = 0) => {
+  /// `ends`: the relaunch's page, which gets ROWS_ENDED; the page the copy is taken from does not (its turn ran
+  /// when the app went away).
+  const prepare = async (
+    page: Page,
+    tail: unknown,
+    windowMs: number,
+    readyDelayMs = 0,
+    refuseUntilMs = 0,
+    ends = false,
+  ) => {
     await installPaintedFrames(page);
     if (BRIDGE) await serveBridge(page);
-    await page.addInitScript(installHost, { tail, readyDelayMs, refuseUntilMs, bridge: BRIDGE });
+    await page.addInitScript(installHost, {
+      tail,
+      readyDelayMs,
+      refuseUntilMs,
+      bridge: BRIDGE,
+      rows: ROWS_WINDOW
+        ? { window: ROWS_WINDOW, delayMs: LINK.rttMs, ended: ends ? ROWS_ENDED : null, endedMs: ROWS_ENDED_MS }
+        : null,
+    });
+    // After installHost, whose setter wraps the handlers it installs.
+    await page.addInitScript({ content: hostScript });
     await page.addInitScript(recordFrames, { windowMs, latest: LATEST, hostTag: SNAPSHOT_HOST_TAG });
   };
 
@@ -807,6 +1387,17 @@ try {
         return { snapshot: snapshot ?? null, miss: snapshot ? "" : w.captureMiss() };
       }, THEME);
       if (TRACE) console.log(`warm bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
+      if (TRACE)
+        console.log(
+          `warm rows at the copy: ${(
+            await page.evaluate(() =>
+              Array.from(document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
+                .map((row) => [row.dataset.rowId, row.getBoundingClientRect()] as const)
+                .filter(([, box]) => box.bottom > 0 && box.top < innerHeight)
+                .map(([id, box]) => `${id}@${box.top.toFixed(0)}+${box.height.toFixed(0)}`),
+            )
+          ).join(" ")}`,
+        );
       if (!written.snapshot) throw new Error(`the settled page wrote no copy: ${written.miss}`);
       return written.snapshot;
     } finally {
@@ -816,8 +1407,150 @@ try {
 
   /// The load after the restart: a cold context, the copy and the kept tail served, acpmux unavailable
   /// for DOWN_MS from navigation in `mode`.
-  const relaunch = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
-    servedCopy = ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
+  const relaunch = async (mode: Mode, copy: ChatSnapshot): Promise<Round> =>
+    mode === "reopen-spare" ? adoptSpare() : openPage(mode, copy);
+
+  /// MODE=reopen-spare: a spare New Tab page loads and settles in the warm renderer (as the app keeps one
+  /// prewarmed), then takes the chat with the event the host sends (AgentPaneView.adoptSession), carrying the
+  /// kept tail and the place (none kept: the newest message). Every number is ms from that event.
+  const adoptSpare = async (): Promise<Round> => {
+    if (!warmContext) throw new Error("reopen-spare needs the warm renderer");
+    const page = await warmContext.newPage();
+    servingSpare = true;
+    try {
+      if (CPU > 1) await (await warmContext.newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
+      await page.setViewportSize(RELAUNCH_VIEWPORT);
+      await prepare(page, null, 600_000);
+      // PARK=visible: the spare parks its chat view drawn but invisible (App SPARE_PARK_VISIBLE).
+      if (process.env.PARK)
+        await page.addInitScript((park) => Object.assign(window, { __cmuxSparePark: park }), process.env.PARK);
+      await page.goto(spareUrl);
+      await page.waitForFunction(
+        (quietMs) => {
+          const recording = (window as unknown as BenchWindow).__firstLoad;
+          // Settled once it told the host it drew (`pane.painted`, as the app's spare does before it parks) and
+          // nothing in view changed since.
+          const painted = (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt;
+          return painted !== undefined && performance.now() - Math.max(painted, recording.changedAt) > quietMs;
+        },
+        SETTLE_QUIET_MS,
+        { timeout: 120_000, polling: 100 },
+      );
+      if (TRACE) console.log(`reopen-spare daemon calls before its adopt event: ${spareCalls.splice(0).join(", ")}`);
+      if (TRACE)
+        console.log(
+          `reopen-spare before its adopt event: ${JSON.stringify(
+            await page.evaluate(() => ({
+              rows: document.querySelectorAll(".acpmux-row[data-row-id]").length,
+              liveLatestAt: (window as unknown as BenchWindow).__firstLoad.liveLatestAt,
+              now: performance.now(),
+              text: (document.getElementById("root")?.textContent ?? "").replace(/\s+/g, " ").slice(0, 160),
+            })),
+          )}`,
+        );
+      {
+        const metrics = await page.context().newCDPSession(page);
+        await metrics.send("HeapProfiler.collectGarbage");
+        await metrics.send("Performance.enable");
+        const { metrics: read } = (await metrics.send("Performance.getMetrics")) as {
+          metrics: { name: string; value: number }[];
+        };
+        const metric = (name: string) => read.find((entry) => entry.name === name)?.value ?? 0;
+        spareHeapMb.push(metric("JSHeapUsedSize") / 1048576);
+        spareNodes.push(metric("Nodes"));
+        await metrics.send("Performance.disable");
+        await metrics.detach();
+      }
+      const cdp = PROFILE ? await page.context().newCDPSession(page) : null;
+      if (cdp) {
+        await cdp.send("Profiler.enable");
+        await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+        await cdp.send("Profiler.start");
+      }
+      const start = await page.evaluate(
+        ({ session, tail, recordMs }) => {
+          const w = window as unknown as BenchWindow & { __firstLoadUntil?: number };
+          const at = performance.now();
+          const shift = w.__firstLoad.layoutShift;
+          w.__firstLoadUntil = at + recordMs;
+          window.dispatchEvent(
+            new CustomEvent("acpmux-session-adopt", { detail: { sessionId: session, tail, scrollAnchor: null } }),
+          );
+          return { at, shift, syncMs: performance.now() - at };
+        },
+        { session: PAPERCUT_CHAT, tail: keptTail, recordMs: RECORD_MS },
+      );
+      adoptSyncMs.push(start.syncMs);
+      await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
+        timeout: RECORD_MS + 60_000,
+        polling: 250,
+      });
+      const got = await page.evaluate(() => {
+        const w = window as unknown as BenchWindow;
+        return {
+          frames: w.__firstLoad.frames,
+          layoutShift: w.__firstLoad.layoutShift,
+          layoutShifts: w.__firstLoad.shifts,
+          live: w.__firstLoad.liveLatestAt,
+        };
+      });
+      if (cdp) {
+        const { profile } = (await cdp.send("Profiler.stop")) as { profile: CpuProfile };
+        await cdp.detach();
+        addProfile(profile, start.at, got.live > start.at ? got.live : start.at + RECORD_MS);
+      }
+      if (TRACE)
+        console.log(
+          `reopen-spare rows in view at the end:\n  ${(
+            await page.evaluate(() =>
+              Array.from(document.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))
+                .slice(-14)
+                .map(
+                  (row) =>
+                    `${row.dataset.rowId} ${row.getBoundingClientRect().top.toFixed(0)}+${row.getBoundingClientRect().height.toFixed(0)} "${(row.textContent ?? "").trim().slice(0, 60)}"`,
+                ),
+            )
+          ).join("\n  ")}`,
+        );
+      const frames = got.frames
+        .filter((frame) => frame.t >= start.at)
+        .map((frame) => ({ ...frame, t: frame.t - start.at }));
+      return {
+        mode: "reopen-spare",
+        metrics: classifyFrames(frames),
+        frames,
+        liveLatestMs: got.live > start.at ? got.live - start.at : null,
+        layoutShift: got.layoutShift - start.shift,
+        // Only the entries from the adopt event on, timed from it like the frames.
+        layoutShifts: got.layoutShifts
+          .filter((shift) => shift.at >= start.at)
+          .map((shift) => ({ ...shift, at: shift.at - start.at })),
+        copyShownMs: null,
+        swapMs: null,
+        hold: null,
+        copyMiss: "none: the spare draws the carried tail",
+        tailAskedMs: null,
+        readyAnsweredMs: null,
+        acpmuxUpMs: 0,
+        refused: 0,
+        socketOpenedMs: null,
+        initializeAnsweredMs: null,
+        attachAnsweredMs: null,
+        boundMs: null,
+        // The spare connected before its adopt event: no socket ask is timed from the event.
+        asks: 0,
+        lastAskMs: null,
+        bytesDown: 0,
+        rowsTaken: 0,
+      };
+    } finally {
+      servingSpare = false;
+      await page.close();
+    }
+  };
+
+  const openPage = async (mode: Mode, copy: ChatSnapshot): Promise<Round> => {
+    servedCopy = NO_COPY || ["native-ready-tail", "reopen-no-copy", "refused-no-copy"].includes(mode) ? null : copy;
     // A reopen builds its page in the warm renderer; a relaunch in a cold context.
     const context =
       isReopen(mode) && warmContext ? warmContext : await browser.newContext({ viewport: RELAUNCH_VIEWPORT });
@@ -831,28 +1564,66 @@ try {
         if (CPU > 1) await (await context.newCDPSession(one)).send("Emulation.setCPUThrottlingRate", { rate: CPU });
         await prepare(
           one,
-          mode === "reopen-no-copy" ? null : keptTail,
+          mode === "reopen-no-copy" || NO_TAIL || ROWS_WINDOW ? null : keptTail,
           windowMs,
           mode.startsWith("native-ready") ? DOWN_MS : 0,
           isRefused(mode) ? DOWN_MS : 0,
+          true,
         );
       }
-      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0 };
+      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
       // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
+      wireT0 = Date.now();
+      endOpenTurn = OPEN_ENDS_MS > 0;
+      // PROFILE=1: the relaunched page's main thread from navigation to its newest answer drawn.
+      const relaunchCdp = PROFILE ? await page.context().newCDPSession(page) : null;
+      if (relaunchCdp) {
+        await relaunchCdp.send("Profiler.enable");
+        await relaunchCdp.send("Profiler.setSamplingInterval", { interval: 100 });
+        await relaunchCdp.send("Profiler.start");
+      }
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: windowMs + 60_000,
         polling: 250,
       });
       if (TRACE) console.log(`${mode} relaunch bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
+      if (WIRE_TRACE) {
+        // The page's own launch marks (perf.ts `launchTimeline`), on the same clock as the wire lines.
+        const launch = await page.evaluate(
+          () =>
+            (
+              window as unknown as { cmuxAcpmuxDebug?: { perfStats(): { launch: Record<string, number> } } }
+            ).cmuxAcpmuxDebug?.perfStats().launch ?? {},
+        );
+        const marks = Object.entries(launch)
+          .filter(([name]) => name.endsWith("_epoch_ms"))
+          .map(([name, at]) => `${name.replace(/_epoch_ms$/, "")} ${at - wireT0}`)
+          .join(", ");
+        console.log(`wire page marks (ms from the round's start): ${marks}`);
+      }
+      if (process.env.RES_TRACE === "1")
+        console.log(
+          "RES " +
+            (await page.evaluate(() =>
+              [
+                ...(performance.getEntriesByType("resource") as PerformanceResourceTiming[]).map(
+                  (e) => `${e.name.split("/").pop()} ${e.startTime.toFixed(0)}-${e.responseEnd.toFixed(0)}`,
+                ),
+                ...performance.getEntriesByType("mark").map((e) => `mark:${e.name} ${e.startTime.toFixed(0)}`),
+                `dcl ${(performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming).domContentLoadedEventStart.toFixed(0)}`,
+              ].join("\n  "),
+            )),
+        );
       const got = await page.evaluate(() => {
         const w = window as unknown as BenchWindow;
         return {
           frames: w.__firstLoad.frames,
           layoutShift: w.__firstLoad.layoutShift,
+          layoutShifts: w.__firstLoad.shifts,
           origin: performance.timeOrigin,
           miss: w.__cmuxChatSnapshotMiss ?? null,
           shown: w.__cmuxChatSnapshotShown ?? null,
@@ -860,19 +1631,34 @@ try {
           readyAnsweredAt: w.__benchHost.readyAnsweredAt,
           liveLatestAt: w.__firstLoad.liveLatestAt,
           asks: w.__benchHost.asks,
+          rowsTaken: w.__benchHost.rowsTaken,
         };
       });
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
+      if (relaunchCdp) {
+        const { profile } = (await relaunchCdp.send("Profiler.stop")) as { profile: CpuProfile };
+        await relaunchCdp.detach();
+        addProfile(profile, 0, got.liveLatestAt || windowMs);
+      }
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
+      const boundMs = BOUND ? await drawBound(page) : null;
       return {
         mode,
         metrics: classifyFrames(got.frames),
         frames: got.frames,
         liveLatestMs: got.liveLatestAt || null,
         layoutShift: got.layoutShift,
+        layoutShifts: got.layoutShifts,
         copyShownMs: got.shown?.at ?? null,
         swapMs: got.shown?.swappedAt ?? null,
+        hold: got.shown
+          ? {
+              by: got.shown.hold?.by ?? "read",
+              atMs: got.shown.hold?.at ?? null,
+              differs: got.shown.hold?.differs ?? null,
+            }
+          : null,
         copyMiss: got.miss,
         tailAskedMs: got.tailAskedAt || null,
         readyAnsweredMs: got.readyAnsweredAt || null,
@@ -881,7 +1667,10 @@ try {
         socketOpenedMs: since(load.socketOpenedAt),
         initializeAnsweredMs: since(load.initializeAnsweredAt),
         attachAnsweredMs: since(load.attachAnsweredAt),
+        boundMs,
         asks: got.asks.length,
+        bytesDown: load.bytesDown,
+        rowsTaken: got.rowsTaken,
         lastAskMs: (() => {
           const opened = since(load.socketOpenedAt);
           const before = opened === null ? [] : got.asks.filter((at) => at <= opened);
@@ -919,7 +1708,8 @@ try {
     layoutShift: (r: Round) => r.layoutShift,
     frames: (r: Round) => r.metrics.frames,
   } as const;
-  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, recordMs: RECORD_MS, rounds: ROUNDS };
+  // How long each round recorded is its mode's (`recordMs`: a refused mode records longer), so it goes with the mode.
+  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, rounds: ROUNDS };
   let failed = false;
   for (const [mode, rounds] of byMode) {
     console.log(
@@ -950,6 +1740,15 @@ try {
         ].join(" | "),
       ),
     );
+    if (SOURCES)
+      rounds.forEach((r, at) => {
+        for (const shift of r.layoutShifts)
+          console.log(
+            `  round ${at + 1} layout shift at ${shift.at} ms, ${shift.value}: ${shift.moved
+              .map((moved) => `${moved.node} ${moved.from.join(",")} -> ${moved.to.join(",")}`)
+              .join("; ")}`,
+          );
+      });
     const summary = (of: (values: number[]) => number | null) =>
       Object.fromEntries(Object.entries(PICKS).map(([key, pick]) => [key, of(numbers(rounds, pick))]));
     const medians = summary(median);
@@ -1023,6 +1822,46 @@ try {
       `restart split [${mode}] (medians, ms from navigation): daemon ready ${ms(split.daemonReady)}, socket open ${ms(split.socket)}, attach answered ${ms(split.attach)}, first content ${ms(split.firstContent)}, live ${ms(split.live)}`,
     );
     json[`${mode}.split`] = split;
+    // Restart to settled (bench/restartSettled.ts), what scripts/measure/restart-settled-linux.sh sets beside the
+    // terminal's reattach under the same LINK: medians over the rounds.
+    const settled = rounds.map((r) => restartSettled(r.frames, r.metrics, r.liveLatestMs, OPEN_ENDS_MS > 0));
+    const settledRow = {
+      link: LINK_NAME,
+      mode,
+      downMs: DOWN_MS,
+      turns: TURNS,
+      engine: ENGINE,
+      rounds: rounds.length,
+      firstContentMs: median(settled.map((one) => one.firstContentMs).filter((v): v is number => v !== null)),
+      settledMs: median(settled.map((one) => one.settledMs).filter((v): v is number => v !== null)),
+      notSettled: settled.filter((one) => one.settledMs === null).length,
+      liveMs: split.live,
+      attachMs: split.attach,
+      shifts: median(settled.map((one) => one.shifts)),
+      shiftPxMax: max(settled.map((one) => one.shiftPxMax)),
+      fixture: FIXTURE,
+      open: OPEN,
+      openEndsMs: OPEN_ENDS_MS,
+      cpu: CPU,
+      goneRows: median(settled.map((one) => one.goneRows)),
+      goneFrames: median(settled.map((one) => one.goneFrames)),
+      goneRowsMax: max(settled.map((one) => one.goneRows)),
+      bytesDown: median(rounds.map((r) => r.bytesDown)),
+      rowStore: rounds.every((r) => r.rowsTaken > 0),
+      settledEach: settled.map((one) => one.settledMs),
+    };
+    console.log(`RESTART_SETTLED_JSON ${JSON.stringify(settledRow)}`);
+    json[`${mode}.settled`] = settledRow;
+    // How each round's wait for the draft ran out: a composer that never matches the copy's holds the
+    // copy to the 2 s cap, the wait cmux#45669 removed (cmux#45994 review).
+    const holds: Record<string, number> = { shown: 0, match: 0, read: 0, cap: 0 };
+    for (const r of rounds) if (r.hold) holds[r.hold.by] = (holds[r.hold.by] ?? 0) + 1;
+    const differs = [...new Set(rounds.flatMap((r) => (r.hold?.differs ? [r.hold.differs] : [])))];
+    const counts = Object.entries(holds).map(([by, count]) => `${by} ${count}`);
+    console.log(
+      `draft wait [${mode}]: ${counts.join(", ")}${differs.length ? `; at the cap: ${differs.join(" | ")}` : ""}`,
+    );
+    json[`${mode}.hold`] = holds;
     for (const r of rounds) if (r.copyShownMs === null) console.log(`  warning: a round drew no copy (${r.copyMiss})`);
     // A round that never handed over to the live chat proves nothing: a copy held over the whole
     // recording paints no blank and no shift.
@@ -1046,7 +1885,9 @@ try {
         console.log(`trace of the worst ${mode} round (ms from navigation; B blank after content, S shift):`);
         const shifts = new Map(worst.metrics.shiftAt.map(({ index, why }) => [index, why]));
         const blanks = new Set(worst.metrics.blankAt);
+        const final = new Set((worst.frames.at(-1)?.rows ?? []).map((row) => row.id));
         worst.frames.forEach((frame, at) => {
+          const gone = frame.rows.filter((row) => !final.has(row.id) && !(OPEN_ENDS_MS > 0 && liveTurnLine(row.id)));
           const bottom = frame.rows.at(-1);
           const layer = frame.copyShown ? "copy" : frame.rootHidden ? "hid " : "live";
           const marks = `${blanks.has(at) ? "B" : " "}${shifts.has(at) ? "S" : " "}`;
@@ -1059,10 +1900,30 @@ try {
               `bottom ${bottom ? `${bottom.id}@${bottom.top.toFixed(1)}` : "-"} "${frame.bottomText}"`,
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
+              ...(gone.length
+                ? [
+                    `gone later ${gone.length}: ${gone
+                      .map((row) => row.id)
+                      .slice(0, 6)
+                      .join(" ")}`,
+                  ]
+                : []),
               ...(shifts.has(at) ? [shifts.get(at)!] : []),
+              // A shift names every row in view on both sides of it, so the row that came, went or moved shows.
+              ...(shifts.has(at) && at > 0
+                ? [
+                    `was ${worst.frames[at - 1]!.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                    `now ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(0)}`).join(" ")}`,
+                  ]
+                : []),
             ].join(" | "),
           );
         });
+        console.log(
+          `  final rows in view:\n    ${(worst.frames.at(-1)?.rows ?? [])
+            .map((row) => `${row.id}@${row.top.toFixed(0)} "${(row.text ?? "").trim().slice(0, 50)}"`)
+            .join("\n    ")}`,
+        );
       }
     }
     if (isReopen(mode)) {
@@ -1094,6 +1955,7 @@ try {
       });
     }
     json[mode] = {
+      recordMs: recordMs(mode),
       rounds: rounds.map(({ frames: _frames, metrics: { blankAt: _blankAt, shiftAt, ...metrics }, ...rest }) => ({
         ...rest,
         ...metrics,
@@ -1101,6 +1963,8 @@ try {
       })),
       median: medians,
       max: maxima,
+      // Rows a frame showed that the settled chat does not (restartSettled.ts `goneRows`), per round.
+      gone: rounds.map((r) => goneRows(r.frames, OPEN_ENDS_MS > 0)),
     };
     const row = mode.replace("-", "_");
     for (const [metric, key, unit] of [
@@ -1115,7 +1979,21 @@ try {
         unit,
       });
   }
+  if (adoptSyncMs.length) {
+    const sorted = [...adoptSyncMs].sort((a, b) => a - b);
+    const at = (share: number) => sorted[Math.min(sorted.length - 1, Math.floor(share * sorted.length))]!;
+    console.log(
+      `reopen-spare adopt event's own task: p50 ${at(0.5).toFixed(1)} ms, p95 ${at(0.95).toFixed(1)} ms, max ${sorted.at(-1)!.toFixed(1)} ms (n=${sorted.length}${PROFILE ? ", profiled" : ""})`,
+    );
+    json.adoptSync = { p50: at(0.5), p95: at(0.95), max: sorted.at(-1), n: sorted.length };
+    const middle = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? 0;
+    console.log(
+      `reopen-spare parked spare before its adopt: JS heap p50 ${middle(spareHeapMb).toFixed(2)} MB, DOM nodes p50 ${middle(spareNodes)}`,
+    );
+    json.spare = { heapMbP50: middle(spareHeapMb), nodesP50: middle(spareNodes) };
+  }
   console.log(`FIRST_LOAD_JSON ${JSON.stringify(json)}`);
+  printProfile();
   if (GATE && failed) {
     console.error(
       "first-load-after-restart: a round exceeded 2000 ms to transcript, blanked after content, moved it, or never drew live content (GATE=1)",

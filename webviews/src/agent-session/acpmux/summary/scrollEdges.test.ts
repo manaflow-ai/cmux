@@ -288,3 +288,133 @@ test("new children of a boxless wrapper are watched and released with that wrapp
   expect(unobserved).toBe(2);
   stop();
 });
+
+// A page with frames: edits and scrolls ask for the coming frame, which `flush` runs.
+function installFrames() {
+  for (const key of ["requestAnimationFrame", "cancelAnimationFrame"]) saved.set(key, scope[key]);
+  const pending = new Map<number, () => void>();
+  let next = 0;
+  Object.assign(scope, {
+    requestAnimationFrame: (callback: () => void) => {
+      next += 1;
+      pending.set(next, callback);
+      return next;
+    },
+    cancelAnimationFrame: (id: number) => pending.delete(id),
+  });
+  return {
+    pending: () => pending.size,
+    flush: () => {
+      const callbacks = [...pending.values()];
+      pending.clear();
+      for (const callback of callbacks) callback();
+    },
+  };
+}
+
+// Counts the edge reads: each one is a forced layout when it runs outside a frame.
+function counted(node: HTMLElement) {
+  let height = node.scrollHeight;
+  let reads = 0;
+  Object.defineProperty(node, "scrollHeight", {
+    get: () => {
+      reads += 1;
+      return height;
+    },
+    set: (value: number) => {
+      height = value;
+    },
+  });
+  return { reads: () => reads };
+}
+
+test("a burst of content edits in one task reads the edges once, at the coming frame", () => {
+  installDom();
+  const frames = installFrames();
+  const { node, attributes } = scroller();
+  const wrapper = element(node);
+  node.children.push(wrapper);
+  const { reads } = counted(node);
+  const stop = followScrollEdges(node);
+  expect(reads()).toBe(1);
+  Object.assign(node, { scrollHeight: 180 });
+  for (let edit = 0; edit < 50; edit += 1) {
+    mutate({ nodeType: 3, parentNode: wrapper } as unknown as Node, [], [], "characterData");
+    mutate(wrapper, [element(wrapper)]);
+  }
+  expect(reads()).toBe(1);
+  expect(frames.pending()).toBe(1);
+  frames.flush();
+  expect(reads()).toBe(2);
+  expect([...attributes]).toEqual(["data-fade-bottom"]);
+  stop();
+});
+
+test("scrolls in one frame read the edges once, and the marks follow the scroll there", () => {
+  installDom();
+  const frames = installFrames();
+  const { node, attributes, scroll } = scroller();
+  Object.assign(node, { scrollHeight: 300 });
+  const { reads } = counted(node);
+  const stop = followScrollEdges(node);
+  expect([...attributes]).toEqual(["data-fade-bottom"]);
+  for (const offset of [20, 60, 100]) {
+    node.scrollTop = offset;
+    scroll();
+  }
+  expect(reads()).toBe(1);
+  frames.flush();
+  expect(reads()).toBe(2);
+  expect([...attributes].sort()).toEqual(["data-fade-bottom", "data-fade-top"]);
+  node.scrollTop = 200;
+  scroll();
+  frames.flush();
+  expect([...attributes]).toEqual(["data-fade-top"]);
+  stop();
+});
+
+test("a resize marks at once and takes the place of a pending frame read", () => {
+  installDom();
+  const frames = installFrames();
+  const { node, attributes } = scroller();
+  const wrapper = element(node);
+  node.children.push(wrapper);
+  const { reads } = counted(node);
+  const stop = followScrollEdges(node);
+  Object.assign(node, { scrollHeight: 180 });
+  mutate(wrapper, [element(wrapper)]);
+  resizes[0]!.callback();
+  expect(reads()).toBe(2);
+  expect([...attributes]).toEqual(["data-fade-bottom"]);
+  expect(frames.pending()).toBe(0);
+  stop();
+});
+
+test("the quiet attribute still clears and restores the marks at once, and stop drops a pending read", () => {
+  installDom();
+  const frames = installFrames();
+  const { node, attributes } = scroller();
+  const flags = new Set<string>();
+  Object.assign(node, {
+    scrollHeight: 300,
+    hasAttribute: (name: string) => flags.has(name),
+    removeAttribute: (name: string) => attributes.delete(name),
+  });
+  const stop = followScrollEdges(node, "y", { quietWhile: "data-settling" });
+  expect([...attributes]).toEqual(["data-fade-bottom"]);
+  const flip = () =>
+    mutations[0]!.callback([
+      { type: "attributes", target: node, addedNodes: [], removedNodes: [] } as unknown as MutationRecord,
+    ]);
+  flags.add("data-settling");
+  flip();
+  expect([...attributes]).toEqual([]);
+  flags.delete("data-settling");
+  flip();
+  expect([...attributes]).toEqual(["data-fade-bottom"]);
+  expect(frames.pending()).toBe(0);
+  mutate(node, [element(node)]);
+  expect(frames.pending()).toBe(1);
+  stop();
+  expect(frames.pending()).toBe(0);
+});

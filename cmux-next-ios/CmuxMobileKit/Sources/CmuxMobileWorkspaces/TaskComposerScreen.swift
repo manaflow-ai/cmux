@@ -64,8 +64,14 @@ struct TaskComposerScreen: View {
             canvas
                 .safeAreaInset(edge: .bottom, spacing: 0) { accessory }
                 .background(theme.colors.bg.color.ignoresSafeArea())
-                .navigationTitle(navigationTitle)
+                .navigationTitle(titleBinding)
+                .navigationSubtitle(subtitle)
                 .navigationBarTitleDisplayMode(.inline)
+                // The title's menu: rename the task in place.
+                .toolbarTitleMenu {
+                    RenameButton()
+                        .disabled(sent != nil)
+                }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button(action: leave) {
@@ -149,11 +155,21 @@ struct TaskComposerScreen: View {
         folder.map { "Describe a coding task in \(NewWorkspaceButton.folderName($0))" } ?? "Describe a task"
     }
 
-    /// The name, else the folder's, else New Task (classic's title).
-    private var navigationTitle: String {
-        let typed = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !typed.isEmpty { return typed }
-        return folder.map(NewWorkspaceButton.folderName) ?? "New Task"
+    /// The task's name as its workspace gets it: the typed name, else the prompt's first line,
+    /// else New Task. Renamed in place from the title's menu (an unchanged rename keeps it
+    /// following the prompt).
+    private var titleBinding: Binding<String> {
+        Binding(get: { draft.title }, set: { name in
+            guard sent == nil else { return }
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard trimmed != draft.title else { return }
+            creator.taskDraft.name = trimmed
+        })
+    }
+
+    /// Where the task opens and in which folder: "Terminal · cmux".
+    private var subtitle: String {
+        [draft.launch.title, folder.map(NewWorkspaceButton.folderName)].compactMap { $0 }.joined(separator: " · ")
     }
 
     private var macName: String { mac.map { sameNames.displayName($0) } ?? "the Mac" }
@@ -174,21 +190,28 @@ struct TaskComposerScreen: View {
             if !draft.images.isEmpty || !draft.files.isEmpty || loadingPhotos > 0 || fileRefusal != nil {
                 attachments
             }
-            HStack(spacing: 0) {
+            // One row, so the prompt keeps the height: Task Options and attach, then the agent and
+            // each of its settings as pills (they scroll between the buttons), then Start.
+            HStack(spacing: 4) {
                 optionsButton
                 attachMenu
-                // One row that fits a phone (live run 16: a separate model pill ran under Start and
-                // pushed Open in off screen): the agents pill names the agent and its model and
-                // takes what room is left; Open in is an icon pill. The spacer only gets what the
-                // pill doesn't need (captures 2026-11-14: "Claude C… +2" beside empty room).
-                HStack(spacing: 8) {
-                    agentsPill
-                    launchPill
-                        .fixedSize()
-                    Spacer(minLength: 0)
-                        .layoutPriority(-1)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        agentsPill
+                        settingsPills
+                    }
+                    .padding(.horizontal, 4)
                 }
-                .padding(.horizontal, 6)
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                // The pills fade at both ends where they slide under the buttons.
+                .mask {
+                    HStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing).frame(width: 8)
+                        Color.black
+                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing).frame(width: 8)
+                    }
+                }
+                .accessibilityIdentifier("taskComposer.settingsRow")
                 startButton
             }
             .frame(height: 44)
@@ -250,7 +273,7 @@ struct TaskComposerScreen: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .disabled(sent != nil)
         .accessibilityLabel("Task Options")
         .accessibilityValue([mac.map { sameNames.displayName($0) }, folder.map(NewWorkspaceButton.folderName)]
@@ -310,27 +333,11 @@ struct TaskComposerScreen: View {
                         AgentBrandMark(agent: first.family, size: 16, style: .brand)
                             .frame(width: 18, height: 18)
                             .accessibilityHidden(true)
-                        // One agent: "Claude Code · Opus" when both fit, else the agent's name (its
-                        // model is in the menu). Several: the first's name, then "+N", which never
-                        // shortens (live run 17: the name shrank to a sliver beside the model).
-                        if shown.count > 1 {
-                            HStack(spacing: 4) {
-                                Text(first.name).truncationMode(.tail)
-                                Text("+\(shown.count - 1)").fixedSize().layoutPriority(1)
-                            }
-                        } else {
-                            ViewThatFits(in: .horizontal) {
-                                if let model = modelName(first, catalog) {
-                                    HStack(spacing: 4) {
-                                        Text(first.name)
-                                        Text("·").foregroundStyle(theme.colors.label2.color)
-                                        Text(model).foregroundStyle(theme.colors.label2.color)
-                                    }
-                                    .fixedSize()
-                                }
-                                Text(first.name).fixedSize()
-                                Text(first.name).truncationMode(.tail)
-                            }
+                        // The agent's name (its model, effort and mode have their own pills); with
+                        // several, the first's name, then "+N", which never shortens.
+                        HStack(spacing: 4) {
+                            Text(first.name).fixedSize()
+                            if shown.count > 1 { Text("+\(shown.count - 1)").fixedSize() }
                         }
                     } else {
                         Image(systemName: "person.crop.circle.badge.exclamationmark").accessibilityHidden(true)
@@ -355,6 +362,7 @@ struct TaskComposerScreen: View {
     @ViewBuilder private var agentsMenu: some View {
         switch phase {
         case .loading:
+            // placeholder-ok: this Mac has never supplied an agent catalog to this phone.
             Button("Loading agents…") {}
                 .disabled(true)
                 .accessibilityIdentifier("taskComposer.agents.loading")
@@ -379,14 +387,6 @@ struct TaskComposerScreen: View {
             Section(draft.picks.count > 1 ? "Each gets its own workspace · up to \(TaskDraft.agentLimit)" : "Pick several to run it on each") {
                 ForEach(catalog.harnesses) { harness in
                     agentItem(harness, catalog: catalog)
-                }
-            }
-            let picked = shownAgents(catalog).filter { !$0.models.isEmpty }
-            if !picked.isEmpty {
-                Section(picked.count > 1 ? "Each agent's model" : "Model") {
-                    ForEach(picked) { harness in
-                        TaskComposerModelMenu(creator: creator, harness: harness, catalog: catalog, style: .submenu)
-                    }
                 }
             }
         }
@@ -445,46 +445,61 @@ struct TaskComposerScreen: View {
     /// The model `harness` runs: the one picked, else its default (the Mac's last pick for it).
     private func modelName(_ harness: AgentHarnessChoice, _ catalog: AgentCatalog) -> String? {
         guard !harness.models.isEmpty else { return nil }
-        let id = draft.picks.first { $0.harness == harness.id }?.model ?? TaskComposerPhase.defaultModel(harness, catalog)
-        return id.map { id in harness.models.first { $0.id == id }?.name ?? id }
+        let picked = draft.picks.first { $0.harness == harness.id } ?? TaskAgentPick(harness: harness.id)
+        let id = creator.settled(picked, harness: harness, catalog: catalog).model
+        return id.map { id in harness.model(id)?.displayName ?? id }
     }
 
-    /// Where the task runs: an agent chat, or the agent's CLI in a terminal (classic's tasks).
-    /// The choice carries to the next task.
-    private var launchPill: some View {
-        Menu {
-            Picker("Open in", selection: Binding(get: { draft.launch }, set: { if sent == nil { creator.taskDraft.launch = $0 } })) {
-                ForEach(TaskLaunch.allCases, id: \.self) { launch in
-                    Label(launch.title, systemImage: launch.systemImage).tag(launch)
+    /// One agent: its Model, Effort, Mode and other options, each a pill. Several: one pill whose
+    /// menu has a submenu per agent (each agent keeps its own settings).
+    @ViewBuilder private var settingsPills: some View {
+        if let catalog {
+            let shown = shownAgents(catalog)
+            if shown.count == 1, let harness = shown.first {
+                TaskComposerSettingsMenus(creator: creator, harness: harness, catalog: catalog, style: .pills)
+                    .disabled(sent != nil)
+            } else if shown.count > 1 {
+                Menu {
+                    ForEach(shown) { harness in
+                        Menu {
+                            TaskComposerSettingsMenus(creator: creator, harness: harness, catalog: catalog)
+                        } label: {
+                            Text(harness.name)
+                            Text(TaskComposerSettingsMenus.summary(creator: creator, harness: harness, catalog: catalog))
+                        }
+                        .accessibilityIdentifier("taskComposer.settings.\(harness.id)")
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "slider.horizontal.below.rectangle").foregroundStyle(theme.colors.label2.color)
+                        Text("Each agent's settings")
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(theme.colors.label2.color)
+                            .accessibilityHidden(true)
+                    }
+                    .fixedSize()
+                    .modifier(TaskComposerPillLabel(isError: false))
                 }
+                .menuOrder(.fixed)
+                .disabled(sent != nil)
+                .accessibilityIdentifier("taskComposer.settings")
             }
-        } label: {
-            // The symbol alone (a chat bubble or a terminal): the menu says the words.
-            HStack(spacing: 5) {
-                Image(systemName: draft.launch.systemImage).accessibilityHidden(true)
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(theme.colors.label2.color)
-                    .accessibilityHidden(true)
-            }
-            .modifier(TaskComposerPillLabel(isError: false))
         }
-        .menuOrder(.fixed)
-        .disabled(sent != nil)
-        .accessibilityLabel("Open in")
-        .accessibilityValue(draft.launch.title)
-        .accessibilityIdentifier("taskComposer.launch")
     }
 
+    /// Start: where it opens is the subtitle's (chosen in Task Options).
     private var startButton: some View {
         let count = max(1, draft.picks.count)
         let enabled = blocker == nil && loadingPhotos == 0 && loadingFiles == 0 && sent == nil
+        let tinted = enabled
+        // The send arrow (where it opens is the subtitle's, chosen in Task Options).
         return Button(action: start) {
             Image(systemName: "arrow.up")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(enabled ? theme.colors.onAccent.color : theme.colors.label3.color)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(tinted ? theme.colors.onAccent.color : theme.colors.label3.color)
                 .frame(width: 38, height: 38)
-                .glassEffect(enabled ? .regular.tint(theme.colors.accent.color).interactive() : .regular, in: .circle)
+                .glassEffect(tinted ? .regular.tint(theme.colors.accent.color).interactive() : .regular, in: .circle)
                 .overlay(alignment: .topTrailing) {
                     if count > 1 {
                         Text("\(count)")
@@ -498,12 +513,14 @@ struct TaskComposerScreen: View {
                             .accessibilityHidden(true)
                     }
                 }
-                .frame(width: 44, height: 44)
+                .frame(minHeight: 44)
+                .fixedSize()
                 .contentShape(.rect)
         }
-        .buttonStyle(.cmuxPressFill)
+        .buttonStyle(.cmuxPressGlass)
         .disabled(!enabled)
         .accessibilityLabel(count > 1 ? "Start \(count)" : "Start")
+        .accessibilityValue("in \(draft.launch.title)")
         .accessibilityHint(blocker?.message ?? (count > 1 ? "Starts the task on \(count) agents, one workspace each" : ""))
         .accessibilityIdentifier("taskComposer.start")
     }
@@ -535,14 +552,13 @@ struct TaskComposerScreen: View {
         if task.picks.isEmpty, let harness = TaskComposerPhase.defaultHarness(catalog) {
             task.picks = [TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)]
         }
-        // Each agent's model by name: the one its menu shows, so the Mac runs what the phone said.
+        // Each agent's model, effort, mode and options by name: what its pickers show, so the Mac
+        // runs what the phone said.
         task.picks = task.picks.map { pick in
-            var pick = pick
-            if let harness = catalog.harness(pick.harness) {
-                if pick.model == nil { pick.model = TaskComposerPhase.defaultModel(harness, catalog) }
-                // Its CLI for a terminal launch (a pick saved before families were kept has none).
-                if pick.family == nil { pick.family = harness.family }
-            }
+            guard let harness = catalog.harness(pick.harness) else { return pick }
+            var pick = creator.settled(pick, harness: harness, catalog: catalog)
+            // Its CLI for a terminal launch (a pick saved before families were kept has none).
+            if pick.family == nil { pick.family = harness.family }
             return pick
         }
         sent = draft
@@ -562,7 +578,13 @@ struct TaskComposerScreen: View {
             phase = .failed(TaskStartBlocker.noMac.message)
             return
         }
-        phase = .loading
+        let cache = AgentCatalogCache.shared
+        let cached = cache.load(macID: mac.id)
+        if let cached {
+            phase = .loaded(cached)
+        } else {
+            phase = .loading
+        }
         do {
             let catalog = try await creator.agentCatalog(on: mac.id)
             // A Mac switched meanwhile: its own load answers.
@@ -570,8 +592,13 @@ struct TaskComposerScreen: View {
             // Picks the Mac no longer offers (or a phone can't start) are dropped.
             creator.taskDraft.picks = creator.taskDraft.picks.filter { catalog.harness($0.harness)?.canStart == true }
             phase = .loaded(catalog)
+            cache.save(catalog, for: mac.id)
         } catch {
             guard !Task.isCancelled else { return }
+            if let cached {
+                phase = .loaded(cached)
+                return
+            }
             phase = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
         }
     }
@@ -639,10 +666,6 @@ enum TaskComposerPhase: Equatable {
         catalog.resolve(.macDefault)?.harness ?? catalog.defaultChoice
     }
 
-    /// The model `harness` runs with no model chosen: the Mac's last pick for it, else its default.
-    static func defaultModel(_ harness: AgentHarnessChoice, _ catalog: AgentCatalog) -> String? {
-        catalog.resolve(AgentChatStart(harness: harness.id))?.model ?? harness.offeredDefaultModel
-    }
 }
 
 /// Classic's dock pill: caption semibold on a 38 pt capsule of the label color at a low
@@ -752,48 +775,141 @@ struct TaskComposerBanner: View {
     }
 }
 
-/// An agent's model: a pill above the keyboard (one agent) or a submenu of the agents menu
-/// (several, one per agent).
-struct TaskComposerModelMenu: View {
-    enum Style { case submenu }
+/// One agent's settings for New Task, each its own picker on what the Mac lists for it: Model,
+/// Effort (the model's levels), Mode (the modes a phone may start a chat in) and each of the
+/// agent's other options (Fast mode, its own settings). A picker starts on the person's last pick
+/// for the agent (`WorkspaceCreator.settled`); one the Mac lists nothing for is left out.
+struct TaskComposerSettingsMenus: View {
+    /// Rows of a menu (several agents: inside each agent's submenu), or pills in the row above
+    /// the keyboard (one agent: each setting its own pill).
+    enum Style { case rows, pills }
 
     @Bindable var creator: WorkspaceCreator
     let harness: AgentHarnessChoice
     let catalog: AgentCatalog
-    let style: Style
+    var style: Style = .rows
+
+    private var pick: TaskAgentPick {
+        let picked = creator.taskDraft.picks.first { $0.harness == harness.id }
+            ?? TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)
+        return creator.settled(picked, harness: harness, catalog: catalog)
+    }
+
+    /// "Opus · High · Plan": the agent's settings in one line (a several-agents submenu's subtitle).
+    static func summary(creator: WorkspaceCreator, harness: AgentHarnessChoice, catalog: AgentCatalog) -> String {
+        let menus = TaskComposerSettingsMenus(creator: creator, harness: harness, catalog: catalog)
+        let pick = menus.pick
+        return [pick.model.flatMap { id in harness.model(id)?.displayName },
+                pick.effort.flatMap { id in harness.efforts(model: pick.model).first { $0.id == id }?.name },
+                pick.mode.flatMap { id in harness.modes.first { $0.id == id }?.name }]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
 
     var body: some View {
-        let current = creator.taskDraft.picks.first { $0.harness == harness.id }?.model
-        let defaultName = TaskComposerPhase.defaultModel(harness, catalog).map { id in harness.models.first { $0.id == id }?.name ?? id }
-        let label = current.map { id in harness.models.first { $0.id == id }?.name ?? id } ?? defaultName ?? "Default"
-        Menu {
-            Picker("Model", selection: Binding(get: { current ?? "" }, set: { setModel($0.isEmpty ? nil : $0) })) {
-                Text(defaultName.map { "Default (\($0))" } ?? "Default").tag("")
-                ForEach(harness.models.filter { $0.id != "default" }) { model in
-                    if let reason = model.unavailableReason {
-                        Text("\(model.name) — \(reason)").tag(model.id).selectionDisabled()
+        let pick = pick
+        if !harness.models.isEmpty {
+            // Each release by its version ("Opus 5.5", "Opus 5"), the agent's current ones first
+            // and the older ones in their own section, as the Mac's picker lists them. Aliases
+            // (`opus`) are not rows: they name a release that is.
+            let releases = harness.models.filter { model in
+                model.id != "default" && !harness.models.contains { $0.id != model.id && $0.aliases.contains(model.id) }
+            }
+            let choice = { (m: AgentModelChoice) in AgentSettingChoice(id: m.id, name: m.displayName, detail: m.unavailableReason) }
+            picker("Model", id: "model", current: harness.model(pick.model)?.id ?? pick.model,
+                   choices: releases.filter(\.isCurrent).map(choice),
+                   older: releases.filter { !$0.isCurrent }.map(choice),
+                   disabled: Set(releases.filter { $0.unavailableReason != nil }.map(\.id))) { value in
+                update { $0.model = value; $0.effort = nil }
+            }
+        }
+        let efforts = harness.efforts(model: pick.model)
+        if !efforts.isEmpty {
+            picker("Effort", id: "effort", current: pick.effort, choices: efforts) { value in update { $0.effort = value } }
+        }
+        if harness.modes.count > 1 {
+            picker("Mode", id: "mode", current: pick.mode, choices: harness.modes) { value in update { $0.mode = value } }
+        }
+        // A terminal launch passes the model, effort and mode on the CLI's command line, not the
+        // agent's other options: their pickers show only for a chat.
+        ForEach(creator.taskDraft.launch == .chat ? harness.configOptions : []) { option in
+            picker(option.name, id: "option.\(option.id)", current: pick.options?[option.id], choices: option.choices,
+                   namesSetting: true) { value in
+                update { pick in
+                    var options = pick.options ?? [:]
+                    options[option.id] = value
+                    pick.options = options
+                }
+            }
+        }
+    }
+
+    /// A submenu row naming the setting and its pick; inside, the choices with a checkmark.
+    /// `namesSetting`: the pill says the setting too ("Fast mode: On"), since its value alone
+    /// ("On") says nothing.
+    /// `older`: choices listed after the rest, under "Older" (older model releases).
+    private func picker(_ title: String, id: String, current: String?, choices: [AgentSettingChoice],
+                        older: [AgentSettingChoice] = [], disabled: Set<String> = [], namesSetting: Bool = false,
+                        set: @escaping (String) -> Void) -> some View {
+        let currentName = current.flatMap { value in (choices + older).first { $0.id == value }?.name } ?? "Default"
+        return Menu {
+            Picker(title, selection: Binding(get: { current ?? "" }, set: { if !$0.isEmpty { set($0) } })) {
+                if current == nil { Text("Default").tag("") }
+                ForEach(choices) { choice in
+                    if disabled.contains(choice.id) {
+                        Text("\(choice.name) — \(choice.detail ?? "Unavailable")").tag(choice.id).selectionDisabled()
+                    } else if let detail = choice.detail {
+                        // A menu row's title and subtitle: the mode, then what it does.
+                        VStack {
+                            Text(choice.name)
+                            Text(detail)
+                        }
+                        .tag(choice.id)
                     } else {
-                        Text(model.name).tag(model.id)
+                        Text(choice.name).tag(choice.id)
+                    }
+                }
+                if !older.isEmpty {
+                    Section("Older") {
+                        ForEach(older) { choice in
+                            if disabled.contains(choice.id) {
+                                Text("\(choice.name) — \(choice.detail ?? "Unavailable")").tag(choice.id).selectionDisabled()
+                            } else {
+                                Text(choice.name).tag(choice.id)
+                            }
+                        }
                     }
                 }
             }
         } label: {
             switch style {
-            case .submenu:
-                // A menu row: the agent, its model as the subtitle.
-                Text(harness.name)
-                Text(label)
+            case .rows:
+                Text(title)
+                Text(currentName)
+            case .pills:
+                HStack(spacing: 5) {
+                    Text(namesSetting ? "\(title): \(currentName)" : currentName)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(theme.colors.label2.color)
+                        .accessibilityHidden(true)
+                }
+                .fixedSize()
+                .modifier(TaskComposerPillLabel(isError: false))
             }
         }
-        .accessibilityLabel("\(harness.name) model, \(label)")
-        .accessibilityIdentifier("taskComposer.model.\(harness.id)")
+        .menuOrder(.fixed)
+        .accessibilityLabel("\(harness.name) \(title.lowercased()), \(currentName)")
+        .accessibilityIdentifier("taskComposer.\(id).\(harness.id)")
     }
 
-    private func setModel(_ model: String?) {
+    /// Changes this agent's pick (picking it first when the Mac's default agent was shown).
+    private func update(_ change: (inout TaskAgentPick) -> Void) {
         var picks = creator.taskDraft.picks
         if picks.isEmpty { picks = [TaskAgentPick(harness: harness.id, name: harness.name, family: harness.family)] }
         guard let index = picks.firstIndex(where: { $0.harness == harness.id }) else { return }
-        picks[index].model = model
+        var pick = creator.settled(picks[index], harness: harness, catalog: catalog)
+        change(&pick)
+        picks[index] = pick
         creator.taskDraft.picks = picks
     }
 }

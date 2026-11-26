@@ -22,12 +22,7 @@ use super::LOOPBACK_FORWARD_CAPABILITY;
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
 use super::OutboundStream;
-use super::RESOURCE_STREAMS_PER_CLIENT_CAPACITY;
-use super::RESOURCE_STREAMS_SERVER_CAPACITY;
-use super::RESOURCE_WAITS_PER_CLIENT_CAPACITY;
-use super::RESOURCE_WAITS_SERVER_CAPACITY;
 use super::ResourceWorkerAdmission;
-use super::ResourceWorkerAdmissionError;
 use super::ResourceWorkerPermit;
 use super::SHARED_SIZING_CAPABILITY;
 use super::SIZING_VIEW_DETACH_CAPABILITY;
@@ -270,34 +265,12 @@ pub(super) enum ResourceWaitCancel {
 pub(super) enum ResourceStreamInstallError {
     UnknownClient,
     Duplicate,
-    ClientCapacity,
-    ServerCapacity,
-}
-
-impl From<ResourceWorkerAdmissionError> for ResourceStreamInstallError {
-    fn from(error: ResourceWorkerAdmissionError) -> Self {
-        match error {
-            ResourceWorkerAdmissionError::ClientCapacity => Self::ClientCapacity,
-            ResourceWorkerAdmissionError::ServerCapacity => Self::ServerCapacity,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ResourceWaitInstallError {
     UnknownClient,
     Duplicate,
-    ClientCapacity,
-    ServerCapacity,
-}
-
-impl From<ResourceWorkerAdmissionError> for ResourceWaitInstallError {
-    fn from(error: ResourceWorkerAdmissionError) -> Self {
-        match error {
-            ResourceWorkerAdmissionError::ClientCapacity => Self::ClientCapacity,
-            ResourceWorkerAdmissionError::ServerCapacity => Self::ServerCapacity,
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -368,6 +341,10 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(crate) remote_host: crate::remote_host::RemoteHostSupervisor,
+    /// Agent tickets and the agent share's auto-off (remote_host/agent_share.rs).
+    pub(crate) remote_agents: Arc<crate::remote_host::agent_share::AgentShare>,
+    /// The Linux and Windows Computer Use worker (computer_use_host.rs).
+    pub(crate) computer_use: crate::computer_use_host::ComputerUseHost,
     pub(super) app_trust: app_trust::AppTrust,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
@@ -447,16 +424,12 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             remote_host: Default::default(),
+            remote_agents: Default::default(),
+            computer_use: Default::default(),
             app_trust: app_trust::AppTrust::default(),
             page_listener: Mutex::new(None),
-            resource_stream_admission: ResourceWorkerAdmission::new(
-                RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
-                RESOURCE_STREAMS_SERVER_CAPACITY,
-            ),
-            resource_wait_admission: ResourceWorkerAdmission::new(
-                RESOURCE_WAITS_PER_CLIENT_CAPACITY,
-                RESOURCE_WAITS_SERVER_CAPACITY,
-            ),
+            resource_stream_admission: ResourceWorkerAdmission::counting(),
+            resource_wait_admission: ResourceWorkerAdmission::counting(),
             git_lane: Default::default(),
             event_subscription_admission: ResourceWorkerAdmission::new(
                 EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY,
@@ -587,7 +560,7 @@ impl ClientRegistry {
         if record.resource_streams.contains_key(stream_id.as_str()) {
             return Err(ResourceStreamInstallError::Duplicate);
         }
-        let worker_permit = self.resource_stream_admission.try_reserve(client)?;
+        let worker_permit = self.resource_stream_admission.reserve(client);
         let canceled = Arc::new(AtomicBool::new(false));
         record.resource_streams.insert(
             stream_id.to_string(),
@@ -643,7 +616,7 @@ impl ClientRegistry {
         if record.resource_waits.contains_key(request_id) {
             return Err(ResourceWaitInstallError::Duplicate);
         }
-        let worker_permit = self.resource_wait_admission.try_reserve(client)?;
+        let worker_permit = self.resource_wait_admission.reserve(client);
         let canceled = Arc::new(ResourceWaitCancellation::default());
         record.resource_waits.insert(
             request_id.clone(),
@@ -758,12 +731,15 @@ impl ClientRegistry {
                     || capability == OPEN_DEVICE_KINDS_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
+                    || capability == super::TERMINAL_RESUME_CAPABILITY
+                    || capability == super::TERMINAL_RESUME_BOUNDED_CAPABILITY
                     // `output` at most once per frame (server/attach_output_coalesce.rs).
                     || capability == super::ATTACH_OUTPUT_COALESCE_CAPABILITY
                     // Agent CLI terminals as cell deltas (server/agent_cli_hybrid.rs).
                     || capability == super::AGENT_CLI_HYBRID_CAPABILITY
                     || capability == super::AGENT_CLI_HYBRID_LEAN_CAPABILITY
                     || capability == super::TERMINAL_SHELL_LINES_CAPABILITY
+                    || capability == super::TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY
                     || capability == super::ATTACH_REPLAY_HISTORY_WINDOW_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
                     || capability == super::TERMINAL_PUBLIC_IDS_CAPABILITY
@@ -1082,6 +1058,28 @@ impl ClientRegistry {
         Ok(owner)
     }
 
+    /// Every connected client except `requesting_client` and this owner's
+    /// own journal plugin (the bundled screen detector, which connects back
+    /// at start and stays: no person uses the daemon through it, as
+    /// [`Self::user_client_count`] counts), oldest first (`shutdown-daemon`
+    /// with `if_idle`, stop_if_idle.rs).
+    pub(super) fn other_clients(
+        &self,
+        requesting_client: u64,
+    ) -> Vec<super::stop_if_idle::BusyClient> {
+        let state = self.state.lock().recover_poison();
+        state
+            .clients
+            .iter()
+            .filter(|(client, record)| **client != requesting_client && !record.owner_plugin)
+            .map(|(client, record)| super::stop_if_idle::BusyClient {
+                client: *client,
+                name: record.name.clone(),
+                kind: record.kind.clone(),
+            })
+            .collect()
+    }
+
     pub(crate) fn begin_daemon_handoff(
         &self,
         requesting_client: u64,
@@ -1129,12 +1127,32 @@ impl ClientRegistry {
         }
     }
 
-    pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) {
+    /// Releases `requesting_client`'s pending reservation. True when it
+    /// held one.
+    pub(crate) fn cancel_daemon_handoff(&self, requesting_client: u64) -> bool {
         let mut state = self.state.lock().recover_poison();
         if state.daemon_handoff == Some(DaemonHandoffReservation::Pending(requesting_client)) {
             state.daemon_handoff = None;
             state.daemon_handoff_restart = None;
+            return true;
         }
+        false
+    }
+
+    /// Whether `client` holds the pending daemon handoff reservation.
+    pub(crate) fn daemon_handoff_pending_for(&self, client: u64) -> bool {
+        self.state.lock().recover_poison().daemon_handoff
+            == Some(DaemonHandoffReservation::Pending(client))
+    }
+
+    /// Whether `client` holds the daemon handoff reservation, pending or
+    /// committed.
+    pub(crate) fn daemon_handoff_held_by(&self, client: u64) -> bool {
+        matches!(
+            self.state.lock().recover_poison().daemon_handoff,
+            Some(DaemonHandoffReservation::Pending(c) | DaemonHandoffReservation::Committed(c))
+                if c == client
+        )
     }
 
     /// Records whether a replacement follows the handoff `requesting_client`
@@ -1193,12 +1211,14 @@ impl ClientRegistry {
     }
 }
 
-/// An attached agent session's presence (`agent-session-presence`), which only a unix host serves,
-/// as it alone attaches agent sessions.
+/// An attached agent session's presence (`agent-session-presence`) and its shares' changes
+/// (`agent-session-share-changed`), which only a unix host serves, as it alone attaches agent
+/// sessions.
 fn agent_session_presence(capability: &str) -> bool {
     #[cfg(unix)]
     {
         capability == agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY
+            || capability == agent_session_attach::AGENT_SESSION_SHARE_EVENTS_CAPABILITY
     }
     #[cfg(not(unix))]
     {

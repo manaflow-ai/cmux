@@ -7,14 +7,15 @@
 #   cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 \
 #     --script scripts/measure/pane-motion-films.sh --ref <sha> --arg=--config=bench --arg=--vdisplay=120 \
 #     [--arg=--films=kinds] [--arg=--workspaces=N] [--arg=--live-shells=K] [--arg=--step-seconds=S] [--arg=--no-gate] \
-#     --artifact pane-motion-films.tar
+#     [--arg=--window-look=KEY=VALUE,KEY=VALUE] --artifact pane-motion-films.tar
 # --config=<debug|release|bench> picks reload.sh's build configuration (the recorder and the debug keys are in debug
 # and bench builds), --vdisplay=HZ a virtual main display at HZ (as held-new-tab.sh; it is 1x), --step-seconds=S the
 # step's own bound (a film with no time left before it is `not_run` in films.json, and the films so far still come
 # back), --no-gate exit 0 when some films are made and some are not (an artifact comes back only from a passing step;
 # a failed preflight and a run with no film stay exit 1); every other argument goes to pane-motion-films.py (its
-# --launch-form picks how the app is launched and how the keys go). The artifact: films.json, build-flags.json, each
-# <id>.mov and its <id>.mov.frames.json.
+# --launch-form picks how the app is launched and how the keys go; its --window-look the look of the films' window,
+# which that script checks only after the build: a word it refuses ends the step then, exit 3). The artifact:
+# films.json, build-flags.json, each <id>.mov and its <id>.mov.frames.json (with a look: <id>-<the look's kind>).
 # films.json's `build` and build-flags.json say the form of the app's build, from the reload's own log
 # (scripts/measure/build-flags.py): the reload's `bench configuration` line, the optimization settings of the build's
 # command line, and the count of the Swift compiler's command lines with -Onone, with -O and with -Osize. The step's
@@ -88,7 +89,18 @@ if [[ -n "$vdisplay_hz" ]]; then
     done
     display="$(grep -m1 '^ready\|^error' "$vd/out" 2>/dev/null || echo 'the virtual display never reported')"
     echo "pane-motion-films: display: $display"
-    sleep 2  # WindowServer settles the new main display before the app opens on it
+    # Until a new process sees the virtual display as its main display (what the app opens on), 15 s.
+    # Only when the helper's ready line says it made the display main (main=ID).
+    vd_id="$(sed -n 's/^ready \([0-9]*\) [0-9.]* main=\1 .*/\1/p' "$vd/out" 2>/dev/null | head -1 || true)"
+    if [[ -n "$vd_id" ]]; then
+      vd_main="" vd_deadline=$((SECONDS + 15))
+      while (( SECONDS < vd_deadline )); do
+        vd_main="$("$vd/VDisplay.app/Contents/MacOS/VDisplay" probe 2>/dev/null | awk '$1 == "main" {print $2}' || true)"
+        [[ "$vd_main" == "$vd_id" ]] && break
+        sleep 0.2
+      done
+      [[ "$vd_main" == "$vd_id" ]] || echo "warning: a new process still sees display ${vd_main:-?} as main, not the virtual display $vd_id, after 15 s" >&2
+    fi
   else
     echo "pane-motion-films: the virtual display helper did not compile; the films are of the real display"
   fi

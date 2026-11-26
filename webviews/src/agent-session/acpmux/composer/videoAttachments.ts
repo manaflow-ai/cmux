@@ -82,14 +82,16 @@ export function parseVideoInfo(value: unknown): VideoInfo | undefined {
 
 /// The reads out now, by chip id (each read its own token), so a chip draws its busy tile wherever it
 /// shows; a read that ends clears only its own token, never a later read of the same chip. `info` is
-/// the video's own read (`video.info`, the tile spins); `frames` its picked frames' (`video.frames`)
-/// and `transcript` its speech's (`video.transcript`, videoTranscript.ts), which the send waits for
-/// too but which draw nothing.
-type Kind = "info" | "frames" | "transcript";
+/// the video's own read (`video.info`, the tile spins until its poster comes); `probes` the key frames
+/// and probes that follow the poster (`video.probes`, when the answer says `more`); `frames` its
+/// picked frames' (`video.frames`) and `transcript` its speech's (`video.transcript`,
+/// videoTranscript.ts), which the send waits for too but which draw nothing.
+type Kind = "info" | "probes" | "frames" | "transcript";
 let busy: Readonly<Record<Kind, ReadonlyMap<string, symbol>>> = {
   info: new Map(),
   frames: new Map(),
   transcript: new Map(),
+  probes: new Map(),
 };
 const listeners = new Set<() => void>();
 function setBusy(kind: Kind, id: string, token: symbol, on: boolean) {
@@ -170,12 +172,23 @@ export function withPickedFrames(
   return next;
 }
 
+/// The poster's answer (`video.info` with `more`) with the key frames that follow it (`video.probes`);
+/// still that answer for a transcript, as a picked video is. The answer itself when none came.
+export function withKeyFrames(video: VideoInfo, answer: unknown): VideoInfo {
+  const raw = (answer as { frames?: unknown } | null | undefined)?.frames;
+  const next = parseVideoInfo({ ...video, picked: undefined, frames: raw });
+  if (!next?.frames.length) return video;
+  pickedFrom.set(next, answerOf(video));
+  return next;
+}
+
 /// Whether read `read` may still land: its chip (for picked frames or a transcript, the chip holding
-/// the answer they follow) is staged.
+/// the answer they follow, or that video itself) is staged.
 function stillStaged(read: Read, staged: ReadonlySet<ComposerAttachment>) {
   if (read.kind === "info") return staged.has(read.chip);
   for (const chip of staged)
-    if (chip.id === read.chip.id && chip.video && answerOf(chip.video) === read.video) return true;
+    if (chip.id === read.chip.id && chip.video && (chip.video === read.video || answerOf(chip.video) === read.video))
+      return true;
   return false;
 }
 
@@ -203,6 +216,9 @@ export function useVideoInfo(
   const picks = useRef(new WeakMap<VideoInfo, ReturnType<typeof pickFrameTimes>>());
   const framed = useRef(new WeakSet<VideoInfo>());
   const heard = useRef(new WeakSet<VideoInfo>());
+  /// The poster answers whose key frames and probes follow (`more`), and those asked for them.
+  const partial = useRef(new WeakSet<VideoInfo>());
+  const probed = useRef(new WeakSet<VideoInfo>());
   const since = useRef(new Map<string, number>());
   const out = useRef(new Map<symbol, Read>());
   const shown = useSyncExternalStore(subscribe, busyNow, busyNow);
@@ -213,12 +229,13 @@ export function useVideoInfo(
     const requested = asked.current;
     const asking = framed.current;
     const listened = heard.current;
+    const probing = probed.current;
     return () => {
       // Activity can tear down effects while retaining this hook's state. Retry only reads that
       // were interrupted; a settled response has already left `reads` and remains marked asked.
       for (const [token, { kind, chip, video }] of reads) {
         if (!video) requested.delete(chip);
-        else (kind === "frames" ? asking : listened).delete(video);
+        else (kind === "frames" ? asking : kind === "probes" ? probing : listened).delete(video);
         drop(reads, token);
       }
     };
@@ -230,7 +247,8 @@ export function useVideoInfo(
       if (stillStaged(read, staged)) continue;
       drop(reads, token);
       // Asked again if it comes back (the chat back on this Mac).
-      if (read.video) (read.kind === "frames" ? framed : heard).current.delete(read.video);
+      if (read.video)
+        (read.kind === "frames" ? framed : read.kind === "probes" ? probed : heard).current.delete(read.video);
       else asked.current.delete(read.chip);
     }
     if (!enabled) return;
@@ -240,6 +258,35 @@ export function useVideoInfo(
       // A chip that comes with its video (rebuilt for Retry or Edit after a reload) starts its
       // deadline now, so the send still waits for its speech.
       if (video && !since.current.has(chip.id)) since.current.set(chip.id, Date.now());
+      if (video && partial.current.has(video) && !probed.current.has(video)) {
+        // The poster is on the chip: its key frames and probes, within what is left of its deadline.
+        probed.current.add(video);
+        const token = Symbol(chip.id);
+        const wait = left(chip.id);
+        const read: Read = { kind: "probes", chip, video };
+        if (wait > 0) {
+          setBusy("probes", chip.id, token, true);
+          read.deadline = setTimeout(() => settle(reads, token), wait);
+        }
+        reads.set(token, read);
+        void callChipHost("video.probes", { src: chip.path }).then(
+          (answer) => {
+            if (!reads.has(token)) return;
+            drop(reads, token);
+            const next = withKeyFrames(video, answer);
+            if (next === video) return;
+            const probes = parseProbes(answer);
+            if (probes?.length) picks.current.set(next, pickFrameTimes(next.durationMs, probes));
+            setAttachments((current) =>
+              current.map((staged) =>
+                staged.id === chip.id && staged.video === video ? { ...staged, video: next } : staged,
+              ),
+            );
+          },
+          // A refusal: the video goes with its poster only.
+          () => drop(reads, token),
+        );
+      }
       const times = video ? picks.current.get(video) : undefined;
       if (video && times?.length && !video.picked && !framed.current.has(video)) {
         // The answer is on the chip: its picked frames, within what is left of its deadline.
@@ -290,6 +337,8 @@ export function useVideoInfo(
           drop(reads, token);
           const video = parseVideoInfo(answer);
           if (!video) return;
+          // The poster first: its key frames and probes follow (`video.probes`).
+          if ((answer as { more?: unknown } | null | undefined)?.more === true) partial.current.add(video);
           const probes = parseProbes(answer);
           if (probes?.length) picks.current.set(video, pickFrameTimes(video.durationMs, probes));
           setAttachments((current) =>
@@ -338,13 +387,20 @@ export function useVideoInfo(
   // continuation can send before the store update from that effect causes another render; and a video
   // whose read just answered is about to be heard.
   return attachments.filter((chip) => {
-    if (shown.info.has(chip.id) || shown.frames.has(chip.id) || shown.transcript.has(chip.id)) return true;
+    if (
+      shown.info.has(chip.id) ||
+      shown.probes.has(chip.id) ||
+      shown.frames.has(chip.id) ||
+      shown.transcript.has(chip.id)
+    )
+      return true;
     if (!enabled || !isVideoAttachment(chip)) return false;
     if (!chip.video) return !asked.current.has(chip);
     if (left(chip.id) <= 0) return false;
     const framing =
       !chip.video.picked && Boolean(picks.current.get(chip.video)?.length) && !framed.current.has(chip.video);
     const hearing = !chip.transcript && !heard.current.has(answerOf(chip.video));
-    return framing || hearing;
+    const probing = partial.current.has(chip.video) && !probed.current.has(chip.video);
+    return probing || framing || hearing;
   }).length;
 }

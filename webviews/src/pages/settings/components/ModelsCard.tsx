@@ -11,9 +11,13 @@
 // form until it is sent, then is cleared; the app moves it into the Keychain and the page never sees it
 // again. A Mac login Cloud threads cannot use (servesCloud false) says This Mac only (Revision 2), with
 // Set Up for Cloud, which opens Settings > Cloud on the row that sets one up (CloudModelsCard.tsx).
+// A Claude login's Sign In Again, on a host that signs in in place, shows the sign-in card under the
+// row (logins done right; Leo, 2026-11-22: "this is simply logins, done righr."): the CLI's own login
+// when it is signed out, else a new Claude account, as the host's `connectClaude` picks; a daemon
+// without the in-place sign-in, or a host without it, keeps `connectClaude` (its terminal sign-in).
 import { useEffect, useId, useRef, useState, type DragEvent } from "react";
 import { AgentMark } from "../../../agent-session/shared/AgentMark";
-import { isClaudeToken } from "../../../agent-session/shared/claudeSetupToken";
+import { isClaudeToken, normalizeClaudeToken } from "../../../agent-session/shared/claudeSetupToken";
 import { Button } from "../../../ui/Button";
 import { Dialog } from "../../../ui/Dialog";
 import { Input } from "../../../ui/Input";
@@ -23,10 +27,21 @@ import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { planName } from "../harnesses";
 import { Icon } from "../icons";
-import { SETTINGS_SENTENCES, type ModelConnection, type ModelProvider, type ModelsRun, type ModelsState } from "../ops";
+import {
+  SETTINGS_SENTENCES,
+  type ClaudeTokenPhase,
+  type ClaudeTokenState,
+  type ModelConnection,
+  type ModelProvider,
+  type ModelsRun,
+  type ModelsState,
+} from "../ops";
 import { sectionHref } from "../router";
 import { t } from "../strings";
 import { userMessage } from "../../shared/userMessage";
+import { DeviceSignInCard } from "../../shared/signIn/DeviceSignInCard";
+import { parseAccountRow } from "../../shared/signIn/accountSignIn";
+import { useSettingsSignIn } from "./useSettingsSignIn";
 
 /** The route focus that opens Add a Connection (cmux://settings/models/add). */
 export const MODELS_ADD_FOCUS = "models.add";
@@ -69,7 +84,7 @@ export function connectionAuthText(connection: ModelConnection): string {
 /** A ChatGPT sign-in's failure code in plain words. */
 export function chatgptErrorText(code: string): string {
   if (code === "access_denied") return t("settingsWindow.models.chatgpt.errorDenied");
-  if (code === "no_plan_scope") return t("settingsWindow.models.chatgpt.errorNoPlan");
+  if (code === "no_chatgpt_account") return t("settingsWindow.models.chatgpt.errorNoPlan");
   return t("settingsWindow.models.chatgpt.errorOther");
 }
 
@@ -115,12 +130,17 @@ export function cloudFocusOf(connection: Pick<ModelConnection, "kind" | "familie
 }
 
 export function ModelsCard({ focus }: { focus: string | null }) {
+  const store = useStore();
   const models = useSettingsState().models;
   const { busy, error, run } = useModelsRun();
   const [adding, setAdding] = useState(focus === MODELS_ADD_FOCUS);
   useEffect(() => {
     if (focus === MODELS_ADD_FOCUS) setAdding(true);
   }, [focus]);
+  // Whether the host signs in in place (its sign-in accounts), for a Claude login's Sign In Again.
+  useEffect(() => {
+    void store.refreshAccounts();
+  }, [store]);
   if (!models) return null;
   return (
     <div className="models" data-card="models" aria-busy={busy}>
@@ -180,7 +200,7 @@ export function ChatGPTStatus({ chatgpt, busy, run }: { chatgpt: ModelsState["ch
   if (chatgpt.attempt) {
     return (
       <output className="models-chatgpt" data-chatgpt="pending">
-        <span className="row-help">{t("settingsWindow.models.chatgpt.waiting")}</span>
+        <span className="row-help">{t("connect.codex.signingIn")}</span>
         <Button
           type="button"
           className="button"
@@ -213,6 +233,60 @@ export function ChatGPTStatus({ chatgpt, busy, run }: { chatgpt: ModelsState["ch
   }
   return null;
 }
+
+/** No Connect Claude run: what a host that omits `claudeToken` reads as. */
+const CLAUDE_IDLE: ClaudeTokenState = { attempt: null, phase: null, error: null };
+
+/** Connect Claude's progress line per phase (the one-click run, ops.ts `claudeToken`). */
+const CLAUDE_PHASES: Record<ClaudeTokenPhase, string> = {
+  starting: "connect.claude.starting",
+  signing_in: "connect.claude.signingIn",
+  saving: "connect.saving",
+};
+
+/** Connect Claude's run, under its button: the phase's line with Cancel, or the last run's error with
+ * Try Again. Nothing once it is saved: the new connection's row says so. */
+export function ClaudeTokenStatus({ claude, busy, run }: { claude: ClaudeTokenState; busy: boolean; run: Run }) {
+  if (claude.attempt) {
+    const phase = claude.phase ?? "starting";
+    return (
+      <output className="models-chatgpt" data-claude-token={phase} aria-busy="true">
+        <span className="row-help">{t(CLAUDE_PHASES[phase])}</span>
+        <Button
+          type="button"
+          className="button"
+          data-models-action="cancelClaudeToken"
+          disabled={busy}
+          onClick={() => void run({ action: "cancelClaudeToken" })}
+        >
+          {t("settingsWindow.cancel")}
+        </Button>
+      </output>
+    );
+  }
+  if (claude.error) {
+    return (
+      <div className="models-chatgpt" data-claude-token="error">
+        <span className="row-error" role="alert">
+          {claude.error}
+        </span>
+        <Button
+          type="button"
+          className="button"
+          data-models-action="retryClaudeToken"
+          disabled={busy}
+          onClick={() => void run({ action: "connectClaudeToken" })}
+        >
+          {t("settingsWindow.models.tryAgain")}
+        </Button>
+      </div>
+    );
+  }
+  return null;
+}
+
+/** The page's Connect Claude run: `models.claudeToken`, idle on a host that omits it. */
+export const claudeTokenOf = (models: ModelsState): ClaudeTokenState => models.claudeToken ?? CLAUDE_IDLE;
 
 function PersonalSection({
   models,
@@ -326,6 +400,10 @@ function ConnectionRow({
   const nameId = useId();
   const router = useSettingsRouter();
   const [confirming, setConfirming] = useState(false);
+  const listed = useSettingsState().accounts?.signInAccounts;
+  const store = useStore();
+  // A finished sign-in reads Models again, so the row shows the login signed in.
+  const signIn = useSettingsSignIn(() => void store.refreshModels());
   const builtin = connection.kind === "codex-login" || connection.kind === "claude-login";
   const plan = connection.kind === "chatgpt-plan";
   const reauth: ModelsRun | null = plan
@@ -431,7 +509,17 @@ function ConnectionRow({
                 {t("settingsWindow.models.moveDown")}
               </MenuItem>
               {reauth && (
-                <MenuItem data-value="signInAgain" onSelect={() => void run(reauth)}>
+                <MenuItem
+                  data-value="signInAgain"
+                  onSelect={() => {
+                    if (reauth.action !== "connectClaude" || !signIn.inPlace) return void run(reauth);
+                    // The CLI's own Claude login when it is signed out, else a new Claude account.
+                    const own = (listed ?? [])
+                      .flatMap((raw) => parseAccountRow(raw) ?? [])
+                      .find((row) => row.family === "claude" && row.builtin);
+                    signIn.begin("claude", own && !own.signedIn ? own.id : null, () => void run(reauth));
+                  }}
+                >
                   {t("settingsWindow.models.signInAgain")}
                 </MenuItem>
               )}
@@ -444,6 +532,11 @@ function ConnectionRow({
           </Menu>
         </div>
       </div>
+      {signIn.running && (
+        <div className="harness-sign-in" data-connection-sign-in={connection.id}>
+          <DeviceSignInCard family={signIn.running.family} view={signIn.running.view} look="inline" {...signIn.card} />
+        </div>
+      )}
       {confirming && (
         <div className="accounts-body">
           <div className="accounts-form" role="alertdialog" aria-labelledby={nameId} data-connection-remove="">
@@ -910,7 +1003,15 @@ export function AddConnectionSheet({
             )}
           </div>
         )}
-        {picked?.kind === "claude" && <ClaudeTokenForm busy={busy} run={run} onDone={onClose} />}
+        {picked?.kind === "claude" && (
+          <ClaudeConnectForm
+            claude={claudeTokenOf(models)}
+            pasteOpen={start === "claude"}
+            busy={busy}
+            run={run}
+            onDone={onClose}
+          />
+        )}
         {picked?.kind === "key" && <KeyForm provider={picked.provider} busy={busy} run={run} onDone={onClose} />}
       </div>
     </Dialog>
@@ -1003,14 +1104,67 @@ function KeyForm({
 /** Whether `token` reads as a Claude setup token; shared with the chat's model picker. */
 export { isClaudeToken };
 
-/** Add a Connection > Claude Code: step 1 opens a cmux terminal tab running `claude setup-token`,
- * step 2 takes the token it prints. The token leaves the page's state before it is sent. */
+/** Add a Connection > Claude Code: one click. Connect Claude has the app run `claude setup-token`
+ * itself, open the sign-in page in cmux's browser and save the token it prints (`connectClaudeToken`),
+ * with the run's progress line beneath; the sheet closes once a run it started ends saved. Pasting a
+ * token by hand stays behind a collapsed Paste a token instead. */
+function ClaudeConnectForm({
+  claude,
+  pasteOpen = false,
+  busy,
+  run,
+  onDone,
+}: {
+  claude: ClaudeTokenState;
+  /// Opened on the paste: the sheet started on Claude Code (Settings > Cloud's Paste a token instead,
+  /// a token's Replace).
+  pasteOpen?: boolean;
+  busy: boolean;
+  run: Run;
+  onDone(): void;
+}) {
+  const running = claude.attempt !== null;
+  // Done: a run this form saw ended with its token saved (the host's `saved`; a Cancel is not).
+  const [seen, setSeen] = useState(false);
+  if (running && !seen) setSeen(true);
+  const saved = seen && !running && claude.error === null && claude.saved === true;
+  useEffect(() => {
+    if (saved) onDone();
+  }, [saved, onDone]);
+  return (
+    <div className="accounts-form" data-models-way="claude" data-models-claude-form="">
+      <p className="row-help">{t("settingsWindow.models.claude.help")}</p>
+      {running || claude.error ? (
+        <ClaudeTokenStatus claude={claude} busy={busy} run={run} />
+      ) : (
+        <div className="accounts-buttons">
+          <Button
+            type="button"
+            className="button"
+            variant="solid"
+            data-models-action="connectClaudeToken"
+            disabled={busy}
+            onClick={() => void run({ action: "connectClaudeToken" })}
+          >
+            {t("connect.claude.button")}
+          </Button>
+        </div>
+      )}
+      <details className="models-claude-paste" data-models-claude-paste="" open={pasteOpen}>
+        <summary className="row-help">{t("connect.pasteToken")}</summary>
+        <ClaudeTokenForm busy={busy || running} run={run} onDone={onDone} />
+      </details>
+    </div>
+  );
+}
+
+/** Paste a token instead: the token `claude setup-token` prints, with an optional label. The token
+ * leaves the page's state before it is sent. */
 function ClaudeTokenForm({ busy, run, onDone }: { busy: boolean; run: Run; onDone(): void }) {
-  const tokenId = useId();
   const labelId = useId();
   const [token, setToken] = useState("");
   const [label, setLabel] = useState("");
-  const pasted = token.trim();
+  const pasted = normalizeClaudeToken(token);
   const valid = isClaudeToken(pasted);
   const send = () => {
     if (!valid || busy) return;
@@ -1023,39 +1177,22 @@ function ClaudeTokenForm({ busy, run, onDone }: { busy: boolean; run: Run; onDon
   return (
     <form
       className="accounts-form"
-      data-models-way="claude"
-      data-models-claude-form=""
+      data-models-claude-paste-form=""
       onSubmit={(event) => {
         event.preventDefault();
         send();
       }}
     >
-      <p className="row-help">{t("settingsWindow.models.claude.help")}</p>
-      <div className="row-title">{t("settingsWindow.models.claude.step1")}</div>
-      <div className="accounts-buttons">
-        <Button
-          type="button"
-          className="button"
-          data-models-action="claudeSetupToken"
-          disabled={busy}
-          onClick={() => void run({ action: "claudeSetupToken" })}
-        >
-          {t("settingsWindow.models.claude.openTerminal")}
-        </Button>
-      </div>
-      <label className="row-title" id={tokenId}>
-        {t("settingsWindow.models.claude.step2")}
-      </label>
       <Input
         className="field"
         type="password"
-        aria-labelledby={tokenId}
+        aria-label={t("connect.pasteToken")}
         autoComplete="off"
         spellCheck={false}
         maxLength={4096}
         value={token}
         disabled={busy}
-        onChange={(event) => setToken(event.target.value)}
+        onChange={(event) => setToken(normalizeClaudeToken(event.target.value))}
       />
       {pasted !== "" && !valid && (
         <p className="row-error" role="alert" data-claude-token-invalid="">

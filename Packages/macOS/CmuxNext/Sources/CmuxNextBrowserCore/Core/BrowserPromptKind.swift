@@ -5,6 +5,8 @@ public nonisolated enum BrowserPermissionKind: Hashable, Sendable {
     case camera
     case microphone
     case cameraAndMicrophone
+    /// The page's screen share (getDisplayMedia): asked every time, never remembered.
+    case screenShare
     /// A second download without a fresh user gesture
     /// (`AutomaticDownloadPolicy`): Allow or Block, remembered for the site.
     case automaticDownloads

@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from cmux import cmux, cmuxError
+from cmux import cmux, cmuxError, wait_until
 
 
 def _panes(c: cmux) -> list:
@@ -29,7 +29,7 @@ def _panes(c: cmux) -> list:
         except cmuxError as error:
             if "rate_limited" not in str(error):
                 raise
-            time.sleep(0.3)
+            time.sleep(0.3)  # keep: back-off the socket's rate limit asks for
     return c.list_panes()
 
 
@@ -47,25 +47,16 @@ def _focused(c: cmux) -> str:
 def _split_new_pane(c: cmux, direction: str) -> str:
     before = set(_pane_ids(c))
     c.new_split(direction)
-    deadline = time.time() + 5.0
-    while time.time() < deadline:
-        added = [pid for pid in _pane_ids(c) if pid not in before]
-        if added:
-            return added[0]
-        time.sleep(0.3)
+    added = wait_until(lambda: [pid for pid in _pane_ids(c) if pid not in before], 5.0, 0.3)
+    if added:
+        return added[0]
     raise cmuxError(f"split {direction} made no pane")
 
 
 def _press(c: cmux, combo: str, expected: str, timeout: float = 3.0) -> str:
     c.simulate_shortcut(combo)
-    deadline = time.time() + timeout
-    current = _focused(c)
-    while time.time() < deadline:
-        current = _focused(c)
-        if current == expected:
-            break
-        time.sleep(0.3)
-    return current
+    wait_until(lambda: _focused(c) == expected, timeout, 0.3)
+    return _focused(c)
 
 
 def main() -> int:
@@ -74,11 +65,10 @@ def main() -> int:
     if not c.ping():
         raise cmuxError("socket ping failed")
     c.activate_app()
-    time.sleep(0.3)
 
     workspace = c.new_workspace()
     c.select_workspace(workspace)
-    time.sleep(0.5)
+    wait_until(lambda: c.current_workspace() == workspace and _pane_ids(c), 3.0, 0.3)
 
     # Layout: left | (top-right / bottom-right); spatial order left, top, bottom.
     left = _pane_ids(c)[0]
@@ -86,7 +76,7 @@ def main() -> int:
     c.focus_pane(top_right)
     bottom_right = _split_new_pane(c, "down")
     c.focus_pane(left)
-    time.sleep(0.3)
+    wait_until(lambda: _focused(c) == left, 3.0, 0.3)
 
     # Unbound by default (a person binds it in Settings > Shortcuts).
     c.set_shortcut("pane_digits", "ctrl+cmd+1")

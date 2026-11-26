@@ -5,14 +5,14 @@
     "snapshot": "freestyle/ubuntu-sm",
     "fingerprint": {
       "kernelRelease": "6.1.102",
-      "dpkgListSha256": "815053cdba81366878fda45596bf3ce5f4d095c334848513be2517d817857b22",
+      "dpkgListSha256": "7f7f87283969d8d2c24c5874c25b942e4ce407a74f3cd51466260351bd3d8838",
       "dpkgPackageCount": 419,
-      "recordedAt": "2026-10-31T10:51:59Z"
+      "recordedAt": "2026-11-22T13:06:24Z"
     },
     "runtimes": {
-      "node": "v26.13.0",
+      "node": "v26.13.1",
       "npm": "11.20.0",
-      "bun": "1.4.4",
+      "bun": "1.4.5",
       "python3": "Python 3.12.3",
       "uv": "uv 0.12.5",
       "docker": "Docker version 29.1.3, build 29.1.3-0ubuntu3~24.04.2"
@@ -24,17 +24,17 @@
       "git": "1:2.43.0-1ubuntu7.4",
       "curl": "8.5.0-2ubuntu10.16",
       "jq": "1.7.1-3ubuntu0.24.04.2",
-      "ca-certificates": "20260816ubuntu0.24.04.1",
+      "ca-certificates": "20260816ubuntu0.24.04.2",
       "wireguard-tools": "1.0.20210914-1ubuntu4",
       "openssh-server": "1:9.6p1-3ubuntu13.20",
       "tmux": "3.4-1ubuntu0.2",
-      "perl": "5.38.2-3.2ubuntu0.6"
+      "perl": "5.38.2-3.2ubuntu0.7"
     },
     "npmGlobals": {
       "keep": {
         "corepack": "0.36.0",
         "npm": "11.20.0",
-        "typescript-language-server": "6.0.2"
+        "typescript-language-server": "6.1.0"
       },
       "strip": [
         "openclaw",
@@ -50,8 +50,8 @@
   },
   "apt": {
     "ubuntu": {
-      "uri": "https://snapshot.ubuntu.com/ubuntu/20261104T000000Z/",
-      "snapshot": "20261104T000000Z",
+      "uri": "https://snapshot.ubuntu.com/ubuntu/20261122T000000Z/",
+      "snapshot": "20261122T000000Z",
       "suites": ["noble", "noble-updates", "noble-backports", "noble-security"],
       "components": ["main", "restricted", "universe", "multiverse"],
       "signedBy": "/usr/share/keyrings/ubuntu-archive-keyring.gpg",
@@ -60,11 +60,12 @@
         "arping": "2.24-1build2",
         "at-spi2-common": "2.52.0-1build1",
         "at-spi2-core": "2.52.0-1build1",
+        "bc": "1.07.1-3ubuntu4",
         "bind9-dnsutils": "1:9.18.39-0ubuntu0.24.04.9",
         "bind9-host": "1:9.18.39-0ubuntu0.24.04.9",
         "bind9-libs": "1:9.18.39-0ubuntu0.24.04.9",
         "bubblewrap": "0.9.0-1ubuntu0.3",
-        "ca-certificates": "20260816ubuntu0.24.04.1",
+        "ca-certificates": "20260816ubuntu0.24.04.2",
         "curl": "8.5.0-2ubuntu10.16",
         "dconf-gsettings-backend": "0.40.0-4ubuntu0.1",
         "dconf-service": "0.40.0-4ubuntu0.1",
@@ -85,14 +86,14 @@
         "libllvm19": "1:19.1.1-1ubuntu1~24.04.2",
         "liblzma5": "5.6.1+really5.4.5-1ubuntu0.4",
         "libnet1": "1.1.6+dfsg-3.2build1",
-        "libnss-systemd": "255.4-1ubuntu8.18",
-        "libpam-systemd": "255.4-1ubuntu8.18",
+        "libnss-systemd": "255.4-1ubuntu8.19",
+        "libpam-systemd": "255.4-1ubuntu8.19",
         "libpixman-1-0": "0.42.2-1build1",
         "libpng16-16t64": "1.6.43-5ubuntu0.7",
         "libsm6": "2:1.2.3-1build3",
-        "libsystemd-shared": "255.4-1ubuntu8.18",
-        "libsystemd0": "255.4-1ubuntu8.18",
-        "libudev1": "255.4-1ubuntu8.18",
+        "libsystemd-shared": "255.4-1ubuntu8.19",
+        "libsystemd0": "255.4-1ubuntu8.19",
+        "libudev1": "255.4-1ubuntu8.19",
         "libx11-6": "2:1.8.7-1ubuntu0.1",
         "libx11-data": "2:1.8.7-1ubuntu0.1",
         "libx11-xcb1": "2:1.8.7-1ubuntu0.1",
@@ -115,13 +116,13 @@
         "ripgrep": "14.1.0-1",
         "session-migration": "0.3.9build1",
         "ssl-cert": "1.1.2ubuntu1",
-        "systemd": "255.4-1ubuntu8.18",
-        "systemd-dev": "255.4-1ubuntu8.18",
-        "systemd-resolved": "255.4-1ubuntu8.18",
-        "systemd-sysv": "255.4-1ubuntu8.18",
-        "systemd-timesyncd": "255.4-1ubuntu8.18",
+        "systemd": "255.4-1ubuntu8.19",
+        "systemd-dev": "255.4-1ubuntu8.19",
+        "systemd-resolved": "255.4-1ubuntu8.19",
+        "systemd-sysv": "255.4-1ubuntu8.19",
+        "systemd-timesyncd": "255.4-1ubuntu8.19",
         "tzdata": "2026e-0ubuntu0.24.04.1",
-        "udev": "255.4-1ubuntu8.18",
+        "udev": "255.4-1ubuntu8.19",
         "x11-common": "1:7.7+23ubuntu3",
         "x11-xkb-utils": "7.7+8build2",
         "xauth": "1:1.1.2-1build1",
@@ -371,11 +372,12 @@
         "arping=2.24-1build2": { "path": "pool/universe/a/arping/arping_2.24-1build2_amd64.deb", "sha256": "ede568517727d4393f466e3c7708d582042b8d1280cc6e33b828d7068f893659", "size": 32678 },
         "at-spi2-common=2.52.0-1build1": { "path": "pool/main/a/at-spi2-core/at-spi2-common_2.52.0-1build1_all.deb", "sha256": "7e05959b067031468f21ae46c6653a6813f1dccd994ef12a0b5f75de0ed346b6", "size": 8674 },
         "at-spi2-core=2.52.0-1build1": { "path": "pool/main/a/at-spi2-core/at-spi2-core_2.52.0-1build1_amd64.deb", "sha256": "ea2d24a3219ba639f72dadf92b896fe31dd2ffd8659432e0cee2362726b63ff4", "size": 56650 },
+        "bc=1.07.1-3ubuntu4": { "path": "pool/main/b/bc/bc_1.07.1-3ubuntu4_amd64.deb", "sha256": "cb85d5929476088533b3c5e1db2de5ab4593a69fa54243710f762197dbaea60d", "size": 85264 },
         "bind9-dnsutils=1:9.18.39-0ubuntu0.24.04.9": { "path": "pool/main/b/bind9/bind9-dnsutils_9.18.39-0ubuntu0.24.04.9_amd64.deb", "sha256": "edb46901460a673ebb73c8d6742a2c0243fee673dff70a53f6ade420ba260f09", "size": 155980 },
         "bind9-host=1:9.18.39-0ubuntu0.24.04.9": { "path": "pool/main/b/bind9/bind9-host_9.18.39-0ubuntu0.24.04.9_amd64.deb", "sha256": "6230d7e1f6d7a5b356fc1dde8afb3e65574a760ffec4c51018dcfad79a1bc98e", "size": 50472 },
         "bind9-libs=1:9.18.39-0ubuntu0.24.04.9": { "path": "pool/main/b/bind9/bind9-libs_9.18.39-0ubuntu0.24.04.9_amd64.deb", "sha256": "8398995816db0090f7320717b6fade84f4c7ea353a04282fd4b29d1183b5b2b9", "size": 1263158 },
         "bubblewrap=0.9.0-1ubuntu0.3": { "path": "pool/main/b/bubblewrap/bubblewrap_0.9.0-1ubuntu0.3_amd64.deb", "sha256": "2461f1beee9cb04c8942739fe1a2b37e7b7c2a3d518f0779dc75f9245baa3094", "size": 50436 },
-        "ca-certificates=20260816ubuntu0.24.04.1": { "path": "pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.24.04.1_all.deb", "sha256": "8a0a754aaafed72cc8efb8c1731808133284a84fbfc76a4fcc73fce9e01b4187", "size": 138884 },
+        "ca-certificates=20260816ubuntu0.24.04.2": { "path": "pool/main/c/ca-certificates/ca-certificates_20260816ubuntu0.24.04.2_all.deb", "sha256": "f9fbacd417b515450b831032cc39d18059e9874e67525679a43c16071dabf9a0", "size": 140064 },
         "curl=8.5.0-2ubuntu10.16": { "path": "pool/main/c/curl/curl_8.5.0-2ubuntu10.16_amd64.deb", "sha256": "3c5ca6af64370cfb0fac85876d8025563005cbd399fcaf7e34bbde9051058ae0", "size": 226386 },
         "dconf-gsettings-backend=0.40.0-4ubuntu0.1": { "path": "pool/main/d/dconf/dconf-gsettings-backend_0.40.0-4ubuntu0.1_amd64.deb", "sha256": "2e6801f955d5960380b6240be3886162343e770b1c17c919674cbcb3d13be732", "size": 22074 },
         "dconf-service=0.40.0-4ubuntu0.1": { "path": "pool/main/d/dconf/dconf-service_0.40.0-4ubuntu0.1_amd64.deb", "sha256": "49bf5473474228d48373da639bbe3e77157b03d4467bfa2deb56168c2c03cd81", "size": 27576 },
@@ -482,7 +484,7 @@
         "libnet1=1.1.6+dfsg-3.2build1": { "path": "pool/main/libn/libnet/libnet1_1.1.6+dfsg-3.2build1_amd64.deb", "sha256": "86bbaba89b99841235e0196d21cd2121d6a9b69b122a6b926ae7c0ae8bb3365c", "size": 44508 },
         "libnorm1t64=1.5.9+dfsg-3.1build1": { "path": "pool/universe/n/norm/libnorm1t64_1.5.9+dfsg-3.1build1_amd64.deb", "sha256": "0ff2047ae4ccf2d1b5f338922f98a8652344ee1c0f18dc80a419753d06582cc6", "size": 153694 },
         "libnspr4=2:4.35-1.1build1": { "path": "pool/main/n/nspr/libnspr4_4.35-1.1build1_amd64.deb", "sha256": "e579e72d091f6c7a13f5a756c31065b15aae5b81840d61b069355aa2283c07b4", "size": 117398 },
-        "libnss-systemd=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/libnss-systemd_255.4-1ubuntu8.18_amd64.deb", "sha256": "81295714c4611b0f912448ff2816c1f1663515e1e0f3ba83467367ea9433bd6e", "size": 159366 },
+        "libnss-systemd=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/libnss-systemd_255.4-1ubuntu8.19_amd64.deb", "sha256": "fb0106d37696f379c1013d34eaafd28a6ebbe0549d8efb9c613a8783f0df364a", "size": 159394 },
         "libnss3=2:3.98-1ubuntu0.3": { "path": "pool/main/n/nss/libnss3_3.98-1ubuntu0.3_amd64.deb", "sha256": "e11fdf8c09a068d0f0c3fd90ed971253dfed7227cc20d3d487fd615d4771f1bb", "size": 1444912 },
         "libnuma1=2.0.18-1ubuntu0.24.04.1": { "path": "pool/main/n/numactl/libnuma1_2.0.18-1ubuntu0.24.04.1_amd64.deb", "sha256": "f333b8edf6f0b705c19f2a67008194df66f7aab0fa2350dc98510569a033ff29", "size": 23396 },
         "libobjc-13-dev=13.3.0-6ubuntu2~24.04.1": { "path": "pool/universe/g/gcc-13/libobjc-13-dev_13.3.0-6ubuntu2~24.04.1_amd64.deb", "sha256": "6757dc7e223f69c6c41f9aba133f0b54fe4babc8f38a9e1a51d9b03a9a28e8a6", "size": 193650 },
@@ -495,7 +497,7 @@
         "libopenjp2-7=2.5.0-2ubuntu0.5": { "path": "pool/main/o/openjpeg2/libopenjp2-7_2.5.0-2ubuntu0.5_amd64.deb", "sha256": "24b92ce9c4b306f5370e768024d35ec565792001678b510f0d40b6395b43524f", "size": 173572 },
         "libopenmpt0t64=0.7.3-1.1build3": { "path": "pool/universe/libo/libopenmpt/libopenmpt0t64_0.7.3-1.1build3_amd64.deb", "sha256": "512814f1ebdf8fe31b8185826ba08f7933998b7a7ac1599fac39717dbaaae6ff", "size": 647356 },
         "libopus0=1.4-1build1": { "path": "pool/main/o/opus/libopus0_1.4-1build1_amd64.deb", "sha256": "6d8da32a832e655c9603543b47a0bc90c6f60bdee0c00fe7499bd50acad566cf", "size": 208122 },
-        "libpam-systemd=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/libpam-systemd_255.4-1ubuntu8.18_amd64.deb", "sha256": "fb189407aefa51b5ac3ffde8d8e391826312067633bf8f5bb7a93e0c6f63ef6a", "size": 235370 },
+        "libpam-systemd=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/libpam-systemd_255.4-1ubuntu8.19_amd64.deb", "sha256": "13502b9312806056236adc9dee09be60f2d4cb47582a8f48d9389ad0848f551e", "size": 235460 },
         "libpango-1.0-0=1.52.1+ds-1build1": { "path": "pool/main/p/pango1.0/libpango-1.0-0_1.52.1+ds-1build1_amd64.deb", "sha256": "09dfa5c881ab273ec6bc1830adcefdc407fcd619316e68fb26ca3a23d0fc9f54", "size": 230606 },
         "libpangocairo-1.0-0=1.52.1+ds-1build1": { "path": "pool/main/p/pango1.0/libpangocairo-1.0-0_1.52.1+ds-1build1_amd64.deb", "sha256": "98cf5fc9076c2911fe20dfc1e41cd8f686a2bb5d539b1105fab18105b0db1376", "size": 28828 },
         "libpangoft2-1.0-0=1.52.1+ds-1build1": { "path": "pool/main/p/pango1.0/libpangoft2-1.0-0_1.52.1+ds-1build1_amd64.deb", "sha256": "cc6bc9d86ef5f329edacaa4895232d8a9b8f95c5cbc77c3c460a3f64cecc213d", "size": 42532 },
@@ -535,14 +537,14 @@
         "libsvtav1enc1d1=1.7.0+dfsg-2build1": { "path": "pool/universe/s/svt-av1/libsvtav1enc1d1_1.7.0+dfsg-2build1_amd64.deb", "sha256": "bac5f768bff928e85cecb39da8e37276a579639ef884692b089ed2de6c1cd2ad", "size": 2424900 },
         "libswresample4=7:6.1.1-3ubuntu5": { "path": "pool/universe/f/ffmpeg/libswresample4_6.1.1-3ubuntu5_amd64.deb", "sha256": "d55afe23e07b02b2def1647181a727dfad996001f72b5172da8a99691c3fa208", "size": 63782 },
         "libswscale7=7:6.1.1-3ubuntu5": { "path": "pool/universe/f/ffmpeg/libswscale7_6.1.1-3ubuntu5_amd64.deb", "sha256": "2c17ae58b35112aace5179d7deea51faa20e82e04847b257f339376b11744e22", "size": 192938 },
-        "libsystemd-shared=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/libsystemd-shared_255.4-1ubuntu8.18_amd64.deb", "sha256": "20210e06618cfc824b19ebc0e2163d72cd57509d947fa71aad8d53d78b808caa", "size": 2077180 },
-        "libsystemd0=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/libsystemd0_255.4-1ubuntu8.18_amd64.deb", "sha256": "2da3fa28302cf007075e89cdc3aabe6973916afcd62c3884b86f67b77c73a5b4", "size": 436342 },
+        "libsystemd-shared=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/libsystemd-shared_255.4-1ubuntu8.19_amd64.deb", "sha256": "f1da40ee32321000740cabe5cb4fe339350b8e83f2e98d0568695011fd4ec3eb", "size": 2078218 },
+        "libsystemd0=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/libsystemd0_255.4-1ubuntu8.19_amd64.deb", "sha256": "341983d7034366a9c2f34c2288805404802f2011032ffcdbcadb3194edbf161e", "size": 436534 },
         "libthai-data=0.1.29-2build1": { "path": "pool/main/libt/libthai/libthai-data_0.1.29-2build1_all.deb", "sha256": "6035d4a714290b97816bed7f3bf64921c6358ddb84d1dacdddccdc1cf39bffb7", "size": 158016 },
         "libthai0=0.1.29-2build1": { "path": "pool/main/libt/libthai/libthai0_0.1.29-2build1_amd64.deb", "sha256": "5ada7045c5f84a4b774e6449151800aa6470e8d01dc9d6124ef4a44ae6af5508", "size": 18914 },
         "libtheora0=1.1.1+dfsg.1-16.1build3": { "path": "pool/main/libt/libtheora/libtheora0_1.1.1+dfsg.1-16.1build3_amd64.deb", "sha256": "8514bf3bb1496516b3bd0b2a5fc3ac9ea061e36360dcdfde52d51fa01c437b05", "size": 211470 },
         "libtiff6=4.5.1+git230720-4ubuntu2.5": { "path": "pool/main/t/tiff/libtiff6_4.5.1+git230720-4ubuntu2.5_amd64.deb", "sha256": "564cdf59dda5e1a826c51b5868ee2785fffa26ee5a7bad95bc5e8c8224c931b8", "size": 199612 },
         "libtwolame0=0.4.0-2build3": { "path": "pool/main/t/twolame/libtwolame0_0.4.0-2build3_amd64.deb", "sha256": "0dc3f4ae19623d92eb2c7a131737355cc385047fb8891a6ae380e4884e3442c0", "size": 52338 },
-        "libudev1=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/libudev1_255.4-1ubuntu8.18_amd64.deb", "sha256": "6de7321adcc37068f8702fe6826473662df73c36377e00f07f7acfeca2e40d4a", "size": 177836 },
+        "libudev1=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/libudev1_255.4-1ubuntu8.19_amd64.deb", "sha256": "bab9dc308d71f6a5d7b91a50503ff3de70d49bcdad5e3aacfcbf951c88bb9260", "size": 178270 },
         "libudfread0=1.1.2-1build1": { "path": "pool/universe/libu/libudfread/libudfread0_1.1.2-1build1_amd64.deb", "sha256": "9340c4bdb5954ed98a81eb7979c25187d0c4d95b633cac29eefe1f5b31c05162", "size": 18980 },
         "libunibreak5=5.1-2build1": { "path": "pool/universe/libu/libunibreak/libunibreak5_5.1-2build1_amd64.deb", "sha256": "62576c95652b6c0a02e3d0fe9e2da6d0666c375d71c43da9d884c77417956ae4", "size": 25012 },
         "libusb-1.0-0=2:1.0.27-1": { "path": "pool/main/libu/libusb-1.0/libusb-1.0-0_1.0.27-1_amd64.deb", "sha256": "d59e679a82ee2b724c556397e831e879936adbe8a007705872b65a5e1ec887b5", "size": 54008 },
@@ -607,13 +609,13 @@
         "ripgrep=14.1.0-1": { "path": "pool/universe/r/rust-ripgrep/ripgrep_14.1.0-1_amd64.deb", "sha256": "c5ae63c7bee915b1cfc9f0bd07c55b4ce7f2bcd1133cba4da56719aac26101a4", "size": 1551362 },
         "session-migration=0.3.9build1": { "path": "pool/main/s/session-migration/session-migration_0.3.9build1_amd64.deb", "sha256": "b8be9382fba445a345d8d311240f68d7772deea6a7f6a57c2a04db8492617728", "size": 9034 },
         "ssl-cert=1.1.2ubuntu1": { "path": "pool/main/s/ssl-cert/ssl-cert_1.1.2ubuntu1_all.deb", "sha256": "99654cc8dd7e2cd4cc907504f7564c0055d8cb06e1bf5aa93f822f007981d271", "size": 17826 },
-        "systemd-dev=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/systemd-dev_255.4-1ubuntu8.18_all.deb", "sha256": "08a19c4b503e54945510fac8db363782095b7cd68f017ffc60e758f24d4c82d3", "size": 107102 },
-        "systemd-resolved=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/systemd-resolved_255.4-1ubuntu8.18_amd64.deb", "sha256": "8edd8ae2bd440ff9e04dd201a1bfed87ec789a1184fa0377769f3ae73371fbb9", "size": 296494 },
-        "systemd-sysv=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/systemd-sysv_255.4-1ubuntu8.18_amd64.deb", "sha256": "6e16b759af4f32dfca76f20ce69f70a8bddf9078ad7ffb1f3469b95d93ac379c", "size": 11892 },
-        "systemd-timesyncd=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/systemd-timesyncd_255.4-1ubuntu8.18_amd64.deb", "sha256": "5b993b5377bd4d1a842b1f3870eb1452331c8a2e93395f930f0538b0ba603cdf", "size": 35286 },
-        "systemd=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/systemd_255.4-1ubuntu8.18_amd64.deb", "sha256": "ba37e7dc1e33690d94a1063543d27f9b17c013a20791c3315b2423fbf9e7ae7b", "size": 3474856 },
+        "systemd-dev=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/systemd-dev_255.4-1ubuntu8.19_all.deb", "sha256": "f476e942684b1dc5a17ddfc5f375047bcdfe50f9ef57a43dcd74a18c93906622", "size": 107504 },
+        "systemd-resolved=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/systemd-resolved_255.4-1ubuntu8.19_amd64.deb", "sha256": "e6ac142564cd98835daa6cf939152347e18e4bab326f14aa91e5d890b31b2ea0", "size": 296544 },
+        "systemd-sysv=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/systemd-sysv_255.4-1ubuntu8.19_amd64.deb", "sha256": "c6da1bf58ab2999ffd3d244204c85bdbc0f996e5a2fa4c2b03147d6641c5aac4", "size": 11880 },
+        "systemd-timesyncd=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/systemd-timesyncd_255.4-1ubuntu8.19_amd64.deb", "sha256": "508b24a137909f7f10f180030c92672e564da9f0ae5d2510263e8e551686c9a4", "size": 35304 },
+        "systemd=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/systemd_255.4-1ubuntu8.19_amd64.deb", "sha256": "40d77b8e62d3d2524ca1c4a9dbcfcd946c11ee730d859207d290b988952bcce7", "size": 3475692 },
         "tzdata=2026e-0ubuntu0.24.04.1": { "path": "pool/main/t/tzdata/tzdata_2026e-0ubuntu0.24.04.1_all.deb", "sha256": "2f6794a7f31753fc947d9ac02ff03ea46510f34864f9d132a93d7b105e3c4447", "size": 282136 },
-        "udev=255.4-1ubuntu8.18": { "path": "pool/main/s/systemd/udev_255.4-1ubuntu8.18_amd64.deb", "sha256": "1d7cadb0638e46995c1320d9c14fde7f776803e1a189d9fc4e896b30c169c15c", "size": 1875008 },
+        "udev=255.4-1ubuntu8.19": { "path": "pool/main/s/systemd/udev_255.4-1ubuntu8.19_amd64.deb", "sha256": "4300b4ffb8e6143afa65b3cccaaad8ceb01ac4306238ec65a17237dd61f947c9", "size": 1875048 },
         "x11-common=1:7.7+23ubuntu3": { "path": "pool/main/x/xorg/x11-common_7.7+23ubuntu3_all.deb", "sha256": "b545fa5196dd7467ba3770d6ce575abcd7941071961ea9f7535a319d9d20fd46", "size": 21748 },
         "x11-xkb-utils=7.7+8build2": { "path": "pool/main/x/x11-xkb-utils/x11-xkb-utils_7.7+8build2_amd64.deb", "sha256": "69df4191e165f8b89d067f6234fcce89a4923d27d1e66dd92e6d63d6da93cdb0", "size": 170314 },
         "xauth=1:1.1.2-1build1": { "path": "pool/main/x/xauth/xauth_1.1.2-1build1_amd64.deb", "sha256": "037e70571f39384e28c4ad0db07b44de11f0911ee6c02445560979b417012650", "size": 25594 },
@@ -645,27 +647,40 @@
   "programs": [
     {
       "name": "cmux-tui",
-      "version": "ee7b4aa38c53c4de2bef7a7171da5bad35b0fc16",
-      "url": "https://files.cmux.com/cmux-tui/ee7b4aa38c53c4de2bef7a7171da5bad35b0fc16/cmux-tui-x86_64-unknown-linux-musl",
-      "sha256": "bcdb48fd4f9c00bbb9c50e51ea68aac872184242d88bb2339a203b60f8b03733",
-      "size": 161115520,
+      "version": "368c5b2390bc9735dbac9e55f7c7ab4caeb80511",
+      "url": "https://files.cmux.com/cmux-tui/368c5b2390bc9735dbac9e55f7c7ab4caeb80511/cmux-tui-x86_64-unknown-linux-musl",
+      "sha256": "4614c6c4429a88f652a99d3a7b4eb0196071548096c47b9753ff0c74942765aa",
+      "size": 170136624,
       "format": "raw",
       "fileName": "cmux-tui",
       "bin": { "acpmux": "cmux-tui", "cmux": "cmux-tui", "cmux-tui": "cmux-tui" },
       "versionArgs": ["--version"],
-      "source": "https://files.cmux.com/cmux-tui/ee7b4aa38c53c4de2bef7a7171da5bad35b0fc16/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/44223233076; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/368c5b2390bc9735dbac9e55f7c7ab4caeb80511/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45713426585; pinned by images/cmux-vm/pin-cmux-tui.ts)"
     },
     {
       "name": "cmux-tui-hook",
-      "version": "ee7b4aa38c53c4de2bef7a7171da5bad35b0fc16",
-      "url": "https://files.cmux.com/cmux-tui/ee7b4aa38c53c4de2bef7a7171da5bad35b0fc16/cmux-tui-hook-x86_64-unknown-linux-musl",
-      "sha256": "05a0d8f26822f15859540401ef84e2d09bbd0b0dab833d5502bef69054087bfa",
-      "size": 4883712,
+      "version": "368c5b2390bc9735dbac9e55f7c7ab4caeb80511",
+      "url": "https://files.cmux.com/cmux-tui/368c5b2390bc9735dbac9e55f7c7ab4caeb80511/cmux-tui-hook-x86_64-unknown-linux-musl",
+      "sha256": "1f04458165da793deba95f005784f3359b3b7114d870dbcb61548a8110f85042",
+      "size": 4971536,
       "format": "raw",
       "fileName": "cmux-tui-hook",
       "bin": { "cmux-tui-hook": "cmux-tui-hook" },
       "versionArgs": [],
-      "source": "https://files.cmux.com/cmux-tui/ee7b4aa38c53c4de2bef7a7171da5bad35b0fc16/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/44223233076; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+      "source": "https://files.cmux.com/cmux-tui/368c5b2390bc9735dbac9e55f7c7ab4caeb80511/manifest.json (https://github.com/manaflow-ai/cmux/actions/runs/45713426585; pinned by images/cmux-vm/pin-cmux-tui.ts)"
+    },
+    {
+      "name": "optchat-chief",
+      "version": "b45ce4c71f2096ca25f006da5488f2b7ad5e6534",
+      "url": "https://files.cmux.com/optchat-chief/b45ce4c71f2096ca25f006da5488f2b7ad5e6534/optchat-chief-x86_64-unknown-linux-musl",
+      "sha256": "fcdbc61e00f1e92064b4a23f447d350c486fcc11257913b2dd5883cf9f081e2b",
+      "size": 17984424,
+      "format": "raw",
+      "fileName": "optchat-chief",
+      "bin": { "optchat-chief": "optchat-chief" },
+      "versionArgs": ["--version"],
+      "expect": "b45ce4c71f2096ca25f006da5488f2b7ad5e6534",
+      "source": "https://files.cmux.com/optchat-chief/b45ce4c71f2096ca25f006da5488f2b7ad5e6534/manifest.json (the Cloud Chief host build, published by .github/workflows/cloud-chief-machine.yml)"
     },
     {
       "name": "coderouter",
@@ -696,11 +711,12 @@
     {
       "name": "codex",
       "version": "0.160.0",
-      "url": "https://github.com/openai/codex/releases/download/rust-v0.160.0/codex-x86_64-unknown-linux-musl.tar.gz",
-      "sha256": "306865417d4ee7a927785852910a527f41e1e159add390ac5ae3accb67d44a13",
-      "size": 109304578,
+      "url": "https://github.com/openai/codex/releases/download/rust-v0.160.0/codex-package-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "4fcc47ab57f52ff75363951a8761146cd10c8288bd86fed45487dbb204a16b71",
+      "size": 160727443,
       "format": "tar.gz",
-      "bin": { "codex": "codex-x86_64-unknown-linux-musl" },
+      "bin": { "codex": "bin/codex" },
+      "companions": ["bin/codex-code-mode-host"],
       "versionArgs": ["--version"],
       "expect": "0.160.0"
     },
@@ -761,6 +777,25 @@
       "expect": "1.0.77"
     },
     {
+      "name": "agy",
+      "version": "1.5.17",
+      "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17-4823843970351104/linux-x64/cli_linux_x64.tar.gz",
+      "sha256": "6304b4f592ae97e59231cfb1b365ee29c155750c9a881f0cc8efe5f5281077cf",
+      "size": 102886235,
+      "format": "tar.gz",
+      "bin": { "agy": "antigravity" },
+      "versionArgs": ["--version"],
+      "expect": "1.5.17",
+      "otherArches": {
+        "aarch64": {
+          "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17-4823843970351104/linux-arm/cli_linux_arm64.tar.gz",
+          "sha256": "d6d2b88493e6e02854da478b215cd1dd98fd8cf985b6be37829dacadea4ffc07",
+          "size": 93662528
+        }
+      },
+      "source": "Antigravity CLI 1.5.17 from the official installer's release manifests (https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json and linux_arm64.json, read 2026-11-25). Each archive holds one file, `antigravity`, linked here as `agy`. The manifests' sha512 values matched the downloads: x64 71a967aa16e0ab5d87196bcd6772130bdab55b2fd768cd24d21b1da401ff9f60280b976cad3dc14a2d646233b0eaf8caf87c490eed73044d54550cbb3d8d67d2, arm64 e4f086d0730b325cfd438ea90396ee78eb23a3110ef7f792824c8817b8d0432462b7b5f91b3d933fc1932a6f4ba73de505e2e96f44448c9fb2427292ead716f7. The sha256 values and sizes are those downloads'. `agy install`, which edits shell profiles, is never run."
+    },
+    {
       "name": "workerd",
       "version": "1.20260924.1",
       "url": "https://registry.npmjs.org/@cloudflare/workerd-linux-64/-/workerd-linux-64-1.20260924.1.tgz",
@@ -773,14 +808,14 @@
     },
     {
       "name": "gh",
-      "version": "2.101.0",
-      "url": "https://github.com/cli/cli/releases/download/v2.101.0/gh_2.101.0_linux_amd64.tar.gz",
-      "sha256": "9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8",
-      "size": 15282175,
+      "version": "2.105.0",
+      "url": "https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_amd64.tar.gz",
+      "sha256": "79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f",
+      "size": 15050573,
       "format": "tar.gz",
-      "bin": { "gh": "gh_2.101.0_linux_amd64/bin/gh" },
+      "bin": { "gh": "gh_2.105.0_linux_amd64/bin/gh" },
       "versionArgs": ["--version"],
-      "expect": "2.101.0"
+      "expect": "2.105.0"
     },
     {
       "name": "juicefs",
@@ -792,6 +827,19 @@
       "bin": { "juicefs": "juicefs" },
       "versionArgs": ["version"],
       "expect": "1.4.1"
+    },
+    {
+      "name": "sccache",
+      "version": "0.20.0",
+      "url": "https://github.com/mozilla/sccache/releases/download/v0.20.0/sccache-v0.20.0-x86_64-unknown-linux-musl.tar.gz",
+      "sha256": "c3c5db9cd7e3be12b7bab350d8fe8ae7dcfb7269d5432b269e0dffa1a87c6ed2",
+      "size": 10547998,
+      "format": "tar.gz",
+      "bin": { "sccache": "sccache-v0.20.0-x86_64-unknown-linux-musl/sccache" },
+      "versionArgs": ["--version"],
+      "expect": "sccache 0.20.0",
+      "notices": ["sccache-v0.20.0-x86_64-unknown-linux-musl/LICENSE"],
+      "source": "mozilla/sccache release v0.20.0 (2026-11-23, Apache-2.0). The compiler cache a person's machines share through an object store (RFD 0068, what to build next item 6). Installed only: the image sets no RUSTC_WRAPPER; a machine gets the cache's environment from the platform, and only when the cache is configured. sha256 and size from the release's .sha256 file and asset digest; the archive holds LICENSE, README.md and the static musl binary."
     },
     {
       "name": "cmux-cua",
@@ -872,17 +920,17 @@
     },
     {
       "name": "cmux-rd",
-      "version": "0.2.3",
-      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.3/cmux-rd-0.2.3-x86_64-unknown-linux-gnu.tar.gz",
-      "sha256": "06549da6bf9a54d991e01c4d6489517718676a2575d1cb7bdcbfaa5d2d4357b8",
-      "size": 7186170,
+      "version": "0.2.9",
+      "url": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.9/cmux-rd-0.2.9-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "09e4120d8428b2e7ce626e14dbbbb74e29f0a36c2ce5b4080c958fca4496305e",
+      "size": 10234313,
       "format": "tar.gz",
       "bin": {
         "cmux-rd": "bin/cmux-rd"
       },
       "versionArgs": [],
-      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.3/checksums.txt",
-      "checksumsName": "cmux-rd-0.2.3-x86_64-unknown-linux-gnu.tar.gz",
+      "checksumsUrl": "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.9/checksums.txt",
+      "checksumsName": "cmux-rd-0.2.9-x86_64-unknown-linux-gnu.tar.gz",
       "roles": [
         "desktop"
       ],
@@ -890,7 +938,7 @@
         "LICENSE",
         "THIRD_PARTY_LICENSES.md"
       ],
-      "source": "manaflow-ai/cmux release cmux-rd-v0.2.3 (2026-11-09; tag on fd8a53265837, feat-cmux-next after #39099 and #39159; release run 42567226980). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py), with the UDP datagram link (cap link.udp, --link-stun). sha256 and size from checksums.txt, the release asset digest and the download. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
+      "source": "manaflow-ai/cmux release cmux-rd-v0.2.9 (2026-11-23; tag on d601762bb060, feat-cmux-next at #50463; release run 45160613949). The cmux.rd/1 Linux host (cmux-tui/crates/cmux-rd-host, scripts/release.py), the crate version: since the previous release, a Linux share host on its own display (#51580, #50463). sha256 and size from checksums.txt and the release asset digest. Archive: LICENSE (GPL-3.0-or-later), THIRD_PARTY_LICENSES.md, bin/cmux-rd. OpenH264 is not in it: cmux-rd openh264-install fetches Cisco's binary on the machine."
     }
   ],
   "roles": {
@@ -909,6 +957,10 @@
     "repo": "https://github.com/manaflow-ai/cmux.git",
     "branch": "feat-cmux-next",
     "dir": "/home/cmux/cmux",
+    "bundleLists": [
+      "https://ci-cache-next.cmux.com/v1/any/git-bundle/cmux-blobless-rolling.list",
+      "https://ci-cache-next.cmux.com/v1/any/git-bundle/cmux-blobless.list"
+    ],
     "submodules": ["ghostty-next"],
     "aptRoots": ["libclang-dev"],
     "apt": {

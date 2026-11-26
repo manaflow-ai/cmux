@@ -139,7 +139,6 @@ function extraProps(
     extraFolders: {
       draft: { machine, folders },
       onChange: () => undefined,
-      ...(machine === "local" ? { onBrowse: () => undefined } : {}),
     },
   };
 }
@@ -149,17 +148,10 @@ const openFolderMenu: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-extra-folders"));
 };
 
-/// An experiment arm's wording for the extra-folder row, drawn over the shipped menu.
-const openFolderMenuWithExtraWords =
-  (words: string): Play =>
-  async (ctx) => {
-    await openFolderMenu(ctx);
-    const row = [...ctx.document.querySelectorAll(".acpmux-folder-popover .acpmux-location-action")].find(
-      (node) => node.textContent === "Add another folder…",
-    );
-    const label = row?.querySelector(".acpmux-menu-label");
-    if (label) label.textContent = words;
-  };
+const openExtraSources: Play = async (ctx) => {
+  await openFolderMenu(ctx);
+  await ctx.click({ role: "option", name: "Add project…" });
+};
 
 const openFolder: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Folder" });
@@ -283,7 +275,7 @@ const repoProps = {
   summary: {
     sessionId: "",
     harness: "claude",
-    cwd: repoProjects[0]!.cwd,
+    cwd: "/Users/you/src/cmux",
     host: "This Mac",
     hostKind: "local" as const,
   },
@@ -615,7 +607,7 @@ const sleepVariants = {
 // Other devices (Austin, 2026-11-12, after another product's "Run on" menu: "Cloud ✓", "Other
 // devices 1 ›"): a new chat's one control lists This Mac, Cloud and Other devices, with the count of
 // the person's machines a chat can start on now; the row opens them in place, each with its online
-// dot and how it connects, the ones still connecting greyed, then Add Machine….
+// dot and how it connects, the ones still connecting drawn the same (a pick), then Add Machine….
 const otherDevicesMachines = {
   ...stripMachines,
   stripLayout: "combined" as const,
@@ -640,13 +632,13 @@ const openOtherDevices: Play = async (ctx) => {
 const otherDevicesVariants = {
   "other-devices-row": {
     height: 260,
-    note: "A new chat's control open: This Mac, Cloud, then Other devices with 2 (studio-mini and gpu-box can take a chat; laptop is still connecting and the Cloud machine is Cloud's) and a chevron.",
+    note: "A new chat's control open: This Mac, Cloud, then Other devices with 3 (studio-mini, gpu-box and laptop, still connecting, can take a chat; the Cloud machine is Cloud's) and a chevron.",
     props: otherDevicesMachines,
     play: openCombined,
   },
   "other-devices-list": {
     height: 320,
-    note: "Other devices open: its heading, the ready machines first with a green dot and SSH under the name, laptop greyed saying it is connecting, Add Machine… last. No Cloud machine.",
+    note: "Other devices open: its heading, the ready machines first with a green dot and SSH under the name, then laptop, still connecting, drawn the same with no state word and a pick; Add Machine… last. No Cloud machine.",
     props: otherDevicesMachines,
     play: openOtherDevices,
   },
@@ -658,7 +650,7 @@ const otherDevicesVariants = {
   },
   "where-other-devices-list": {
     height: 320,
-    note: "The shipped strip's Where menu, Other devices open: studio-mini and gpu-box ready with the green dot and SSH under the name, laptop greyed saying it is connecting, Add Machine… last; no Cloud machine.",
+    note: "The shipped strip's Where menu, Other devices open: studio-mini and gpu-box ready with the green dot and SSH under the name, laptop still connecting drawn the same and a pick, Add Machine… last; no Cloud machine.",
     props: { ...otherDevicesMachines, stripLayout: "where-machine" as const },
     play: openWhereDevices,
   },
@@ -756,7 +748,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
     },
     "folder-menu": {
-      note: "Search, the recent folders (paths on hover, the current one checked), then the actions under them with their glyphs.",
+      note: "Search, recent folders with the current one checked, and Add project… below the list.",
       props: folderMenuProps,
       play: openFolder,
     },
@@ -792,7 +784,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openEnvironmentWithInsetArm("compact"),
     },
     "folder-pinned-search": {
-      note: "Typing a project keeps its row active while the actions stay pinned above it.",
+      note: "Typing a project keeps its row active while Add project… stays pinned below the results.",
       props: {
         ...baseProps,
         onProject: (cwd) => {
@@ -807,35 +799,8 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
       play: openFolder,
     },
-    "folder-short-note": {
-      note: "A short pane with a private-folder explanation keeps project rows visible.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "New chats in this workspace start in a private folder.",
-      },
-      play: openFolder,
-    },
-    "folder-short-note-de": {
-      note: "A two-line German private-folder explanation in a short pane.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "Neue Chats in diesem Arbeitsbereich starten in einem privaten Ordner.",
-      },
-      play: openFolder,
-    },
-    "folder-short-note-fr": {
-      note: "A two-line French private-folder explanation in a short pane.",
-      props: {
-        ...repoProps,
-        summary: { ...repoProps.summary, cwd: "" },
-        folderNote: "Les nouvelles discussions de cet espace de travail démarrent dans un dossier privé.",
-      },
-      play: openFolder,
-    },
     "folder-long-list": {
-      note: "The actions stay under the list while a long folder list scrolls; the thumb stays inside the right edge.",
+      note: "Add project… stays below the scrolling folder list.",
       props: {
         ...baseProps,
         projectChoices: Array.from({ length: 40 }, (_, index) => ({
@@ -847,13 +812,13 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openFolder,
     },
     "folder-favicons": {
-      note: "Projects with a favicon (public/, app/, the folder itself) show it in their tile; cmux has none and draws a plain folder.",
+      note: "The folder chip shows the selected project's icon, and folder rows use aligned text.",
       props: baseProps,
       chipHost: { projectIcons },
       play: openFolder,
     },
     "framework-marks": {
-      note: "With no favicon, each project shows its framework or language (from package.json dependencies, Package.swift, Cargo.toml…) in its brand color; a folder with no manifest shows a folder.",
+      note: "The folder chip can show a framework icon. The list shows project names without icons.",
       props: frameworkProps,
       chipHost: frameworkHost,
       play: openFolder,
@@ -879,8 +844,14 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       },
     },
     "repo-worktrees": {
-      note: "Worktrees fold under their repository: one cmux row (the current worktree's branch dimmed, its other worktrees counted), avatars and framework glyphs, else a plain folder.",
+      note: "The main checkout is selected. Hover or highlight the cmux row to see its worktree count.",
       props: repoProps,
+      chipHost: repoHost,
+      play: openFolder,
+    },
+    "repo-worktrees-current": {
+      note: "The current worktree is checked under its expanded repository row.",
+      props: { ...repoProps, summary: { ...repoProps.summary, cwd: repoProjects[0]!.cwd } },
       chipHost: repoHost,
       play: openFolder,
     },
@@ -1335,7 +1306,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker-fleet": {
       height: 760,
-      note: "Machines…: every machine acpmux lists (21, from `host ls`): This Mac, then the person's own machines and the Cloud and VM pools with no headers, and a search field (8 or more machines); in each group the machines a chat can start on come first, in number order, and the rest are greyed with their state (Offline, Reconnecting, Connecting) and are no pick.",
+      note: "Machines…: every machine acpmux lists (21, from `host ls`): This Mac, then the person's own machines and the Cloud and VM pools with no headers, and a search field (8 or more machines); in each group the connected machines come first, in number order, then the ones still connecting (drawn the same, a pick, no Connecting or Reconnecting word), and only machines down for 5 minutes are greyed, under Unavailable.",
       props: { ...fleetProps, environments: true },
       play: async (ctx) => {
         await openMachineList(ctx);
@@ -1451,7 +1422,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     // this Mac with two Cloud machines, a Cloud chat moved from this Mac (This Mac and another
     // machine), a Cloud chat that started there (only other machines), and a target greyed with why.
     "started-move-to-menu": {
-      note: "Preview, a started chat on this Mac with two Cloud machines: Move to… opens a list of them.",
+      note: "Preview, a started chat on this Mac with two Cloud machines: Move to… opens on This Mac, checked, then the two.",
       props: {
         ...baseProps,
         environments: true,
@@ -1513,6 +1484,28 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         },
       },
       play: openMachineCardMoves,
+    },
+    "started-move-to-many": {
+      note: "Preview, a started chat on this Mac with five Cloud machines: Move to… opens on This Mac, checked, then the machines.",
+      props: {
+        ...baseProps,
+        environments: true,
+        started: true,
+        onOffload: () => undefined,
+        offloads: ["move"],
+        moveTargets: ["dev-box", "gpu-box", "docs-box", "ci-box", "a-machine-with-a-very-long-name-for-one-row"].map(
+          (label) => ({ id: `vm-${label}`, label, kind: "cloud" as const }),
+        ),
+        onMoveTo: () => undefined,
+        summary: {
+          sessionId: "gallery-move-many",
+          harness: "claude",
+          cwd: projects[0]!.cwd,
+          host: "This Mac",
+          hostKind: "local",
+        },
+      },
+      play: openMoveTo,
     },
     "started-move-to-refused": {
       note: "Preview, Move to… with one machine that cannot take the chat now: greyed, with why under its name.",
@@ -1611,41 +1604,19 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       }),
       play: openFolderMenu,
     },
-    "extra-folders-adding": {
-      note: "Add another folder… turns the menu into a pick of one more folder: its search says Add a folder, the project and the folders already added are not offered, Add folder… opens this Mac's panel.",
-      props: extraProps("local", ["/Users/you/src/relay"], {
-        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
-      }),
-      play: async (ctx) => {
-        await openFolderMenu(ctx);
-        await ctx.click({ role: "option", name: "Add another folder…" });
-        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-folder-popover input[placeholder="Add a folder"]'));
-      },
-    },
-    // Leo, 2026-11-06, on the old menu's Do not work in a project, Add project, Choose folder… and
-    // Add folder…: "what even is the deal with add project? what is that? and add folder? why not
-    // just add fodler? what's special about project?". One concept: a folder. These arms differ only
-    // in how the one row that is not about the chat's own folder reads.
     "folder-one-concept": {
-      note: "Shipped (Leo: \"it's just folder\"): search, the recent folders with their icons and the current one checked, then Add folder… (this Mac's folder panel), Add another folder… (one more folder the chat also sees) and No folder, each with its glyph.",
+      note: "The current folder has a check, No folder clears it, and Add project… opens the sources.",
       props: extraProps("local", ["/Users/you/notes"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),
       play: openFolderMenu,
     },
-    "folder-one-concept-also-show": {
-      note: "Experiment arm: the extra row as Also show a folder…; rejected, it reads as a view filter, not a folder the agent can read and edit.",
+    "folder-project-sources": {
+      note: "Add project sources for a chat that already sees an extra folder.",
       props: extraProps("local", ["/Users/you/notes"], {
         summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
       }),
-      play: openFolderMenuWithExtraWords("Also show a folder…"),
-    },
-    "folder-one-concept-let-see": {
-      note: "Experiment arm: the extra row as Let it see another folder…; rejected, the longest row in the menu, and nothing in the menu names the 'it'.",
-      props: extraProps("local", ["/Users/you/notes"], {
-        summary: { sessionId: "", harness: "claude", cwd: projects[0]!.cwd, host: "This Mac", hostKind: "local" },
-      }),
-      play: openFolderMenuWithExtraWords("Let it see another folder…"),
+      play: openExtraSources,
     },
     "extra-folders-peer": {
       note: "A new chat on an SSH machine: its folders are that machine's (its own folder list or a typed path, never this Mac's panel); two of them sit beside its project.",

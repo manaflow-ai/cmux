@@ -3,8 +3,9 @@
 //! full tool list (daemon operations, browser host, agents, app actions)
 //! stays the API: `cmux_docs` searches it and a `cmux_exec` script calls
 //! it through the same `Server::call` path, so a script has exactly the
-//! rights of a direct tool call and nothing else. 638 tool schemas were
-//! about 208k tokens in every agent turn; these two are about 1k.
+//! rights of a direct tool call and nothing else. When code mode came in,
+//! 638 tool schemas (well over a thousand now) were about 208k tokens in
+//! every agent turn; these two are about 1k.
 //!
 //! A script runs in an embedded QuickJS engine on its own thread. The engine
 //! has no file system, network, process or timer access: its only host
@@ -23,6 +24,7 @@ use cmux_json::JsonSet as _;
 use rquickjs::{CatchResultExt, Context, Function, Object, Persistent, Runtime};
 use serde_json::{Map, Value, json};
 
+pub(super) mod computer_use;
 mod workflow;
 
 pub(super) const DOCS: &str = "cmux_docs";
@@ -57,8 +59,6 @@ impl Default for Limits {
     }
 }
 
-/// Calls and docs searches in one script.
-const MAX_CALLS: usize = 2_000;
 /// Calls a result lists one by one; the rest are only counted.
 const MAX_CALL_RECORDS: usize = 200;
 /// The longest tool name a script may call (the longest real one is under 60).
@@ -91,21 +91,16 @@ const BOILERPLATE: [&str; 4] = [
 
 pub(super) const INSTRUCTIONS: &str = acpmux::agent_tools::prompt_sources::CODE_MODE_INSTRUCTIONS;
 
-/// The tool family of the computer use server (`cmux-cua` folds as `cua_*`).
-pub(super) const COMPUTER_USE_FAMILY: &str = "cua";
-/// What `cmux_exec` says when the chat has computer use.
-pub(super) const COMPUTER_USE_NOTE: &str = " It includes cmux Computer Use: the cua_* tools see \
-    and operate the apps on the person's Mac (screenshots, clicks, typing). Use them for any \
-    task in a desktop app, never osascript or AppleScript keystrokes; `cmux.docs(\"cua\")` \
-    lists them with their rules. Never type into a terminal or script tool, never copy app \
-    data out of the app unless the person asked, and stop before a payment, a password, \
-    sending a message or deleting that they did not ask for, and say what is left.";
-
+/// The tool family of the computer use server (`cmux-computer-use` folds as `cu_*`).
+pub(super) const COMPUTER_USE_FAMILY: &str = acpmux::computer_use::tools::TOOL_PREFIX;
 /// The one tool `serve` lists in code mode, `cmux_exec` (Lawrence 2026-10-23:
 /// an agent sees no other cmux tool name; a script searches with
 /// `cmux.docs`, and `cmux_docs` stays callable for older prompts). `tools`
 /// is the full list, for the family summary in its description.
-pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
+pub(super) fn descriptors(tools: &[Value], computer_use_only: bool) -> Vec<Value> {
+    if computer_use_only {
+        return vec![computer_use::only_descriptor(tools)];
+    }
     // A chat with acpmux's background tasks (acpmux `acpmux_mcp_bg.rs`) is told to use them in
     // the one description every turn shows: in code mode a server's own instructions reach the
     // agent only through `cmux.docs`, and a Codex chat has no hook to steer its shell.
@@ -129,8 +124,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     let grouped = families(tools);
     // A harness that shows one tool must still find computer use in it: a
     // chat asked to "open Calculator" used osascript (2026-10-27).
-    let computer_use =
-        if grouped.contains_key(COMPUTER_USE_FAMILY) { COMPUTER_USE_NOTE } else { "" };
+    let cu_note = computer_use::exec_note(tools, grouped.contains_key(COMPUTER_USE_FAMILY));
     // Names only, no counts: `cmux_exec` is always loaded, so its description sits in the tools
     // block at the front of the prompt cache, and a count moved with every app action the
     // catalog gained or lost (`action.catalog.changed` re-lists tools mid-chat). One changed
@@ -143,7 +137,7 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
             "Run JavaScript that calls cmux tools and return its result. This chat runs in \
              cmux: a terminal, tab or workspace the person asks for is a cmux one, made here, \
              not in your own shell, and \"this workspace\" is the cmux workspace this chat is \
-             in (workspace: \"current\"), never the folder.{computer_use} An async \
+             in (workspace: \"current\"), never the folder.{cu_note} An async \
              function \
              body, `await cmux.<tool>({{...}})` per call, `return` a JSON value. Do related \
              steps in one script: look up, act and check together. No file system, network or \
@@ -359,6 +353,9 @@ fn lookup(tools: &[Value], arguments: &Map<String, Value>) -> Result<Value, Stri
     let Some(query) = query else {
         return Ok(json!({"families": families(tools)}));
     };
+    if let Some(answer) = computer_use::family_docs(tools, &query, limit, arguments) {
+        return Ok(answer);
+    }
     // A query of exact tool names (`cmux.docs("tab_create_browser")`, or several) answers
     // those tools only; the rest of the search goes in `more` by name. A full search put
     // 8 schemas (11k characters) in front of the model for one name (tests/tool-evals r13a).
@@ -803,6 +800,39 @@ const PRELUDE: &str = r#"
       });
     },
   });
+  // `cu.click({...})` is `cmux.cu_click({...})`: cmux Computer Use as a namespace, so a
+  // script reads like the steps it takes. camelCase works too (`cu.listWindows`).
+  // `cu.elements(tree)` flattens a get_ui_tree result (or element) depth first, and
+  // `cu.find(tree, {role, name, value})` answers the first match (a string is equal, a
+  // RegExp tests; a function is a predicate), `cu.findAll` every one; no calls.
+  const elements = (tree) => {
+    const out = [];
+    const stack = [tree && tree.root ? tree.root : tree];
+    while (stack.length) {
+      const element = stack.pop();
+      if (!element || typeof element !== "object") continue;
+      out.push(element);
+      const children = Array.isArray(element.children) ? element.children : [];
+      for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+    }
+    return out;
+  };
+  const matches = (match) => typeof match === "function" ? match : (element) =>
+    Object.entries(match ?? {}).every(([key, want]) => want instanceof RegExp
+      ? want.test(String(element[key] ?? "")) : element[key] === want);
+  const helpers = {
+    elements,
+    find: (tree, match) => elements(tree).find(matches(match)),
+    findAll: (tree, match) => elements(tree).filter(matches(match)),
+  };
+  globalThis.cu = new Proxy(helpers, {
+    get(target, key) {
+      if (key in target) return target[key];
+      if (typeof key !== "string" || key === "then") return undefined;
+      const tool = "cu_" + key.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase());
+      return (args) => globalThis.cmux[tool](args);
+    },
+  });
   // The usual cause: an array method on a list's answer, which is {items: [...]} (8 of 1,100
   // sampled cmux_exec calls, 2026-11-09 audit). QuickJS's message names no method.
   const notAFunction = (message) => /not a function/.test(message)
@@ -810,6 +840,7 @@ const PRELUDE: &str = r#"
     : message;
   // `({cmux}) => {...}` takes the object a function script is called with: cmux itself.
   base.cmux = globalThis.cmux;
+  base.cu = globalThis.cu;
   globalThis.__cmuxFinish = (promise) => promise.then(
     (value) => native.done(true, encode(value)),
     (error) => native.done(false, encode({
@@ -952,26 +983,16 @@ fn run_script(
         Ok(context) => context,
         Err(error) => return failed(format!("engine: {error}")),
     };
-    let calls = Rc::new(RefCell::new(0usize));
     let mut workflow_poll: Option<Persistent<Function<'static>>> = None;
     let evaluated = context.with(|ctx| -> Result<(), String> {
         let native = Object::new(ctx.clone()).map_err(|e| e.to_string())?;
-        let count = calls.clone();
         let request = {
             let to_server = to_server.clone();
             let progress = progress.clone();
             move |request: Request| -> String {
-                let mut used = count.borrow_mut();
-                // The workflow journal counts fresh activities after replay
-                // lookup. Its budget resets per resume; only internal waits are free.
-                if !workflow_mode && *used >= MAX_CALLS {
-                    return failure(
-                        "script.too_many_calls",
-                        &format!("a script makes at most {MAX_CALLS} calls and docs searches"),
-                    );
-                }
-                *used += 1;
-                drop(used);
+                // No count limit: a call waits for its answer before the next, so the
+                // script's time and memory limits bound it, and past MAX_CALL_RECORDS a
+                // call is only counted.
                 if !workflow_mode && started.elapsed() > limits.total {
                     return failure(
                         "script.timeout",
@@ -1194,6 +1215,10 @@ fn closed() -> Value {
 /// total base64 bytes.
 const MAX_IMAGES: usize = super::video_tools::MAX_FRAMES;
 const MAX_IMAGE_BYTES: usize = 8 << 20;
+/// Images a running script's calls may hold until it returns, so a loop of
+/// screenshots can still return its last one.
+const MAX_KEPT_IMAGES: usize = 200;
+const MAX_KEPT_IMAGE_BYTES: usize = 48 << 20;
 
 /// A tool result as a script sees it. A result without structured content
 /// (another server's tool) becomes its JSON text, or `{content}`; its
@@ -1243,6 +1268,30 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
     {
         return value;
     }
+    // A JSON text body next to images (a Computer Use screenshot or state): the
+    // body as the value, its images as placeholders in `images`. An error's JSON
+    // body (`{error, code}`) gives the message and code.
+    let json_body = blocks.first().and_then(|block| {
+        (block["type"] == "text")
+            .then(|| block["text"].as_str())
+            .flatten()
+            .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            .filter(Value::is_object)
+    });
+    if failed && let Some(body) = &json_body {
+        let message = body["error"]
+            .as_str()
+            .or_else(|| body.pointer("/error/message").and_then(Value::as_str))
+            .or_else(|| body["message"].as_str());
+        if let Some(message) = message {
+            let mut error = json!({"message": message});
+            let text_at = |pointer: &str| body.pointer(pointer).and_then(Value::as_str);
+            if let Some(code) = text_at("/code").or_else(|| text_at("/error/code")) {
+                error.set("code", json!(code));
+            }
+            return json!({"error": error, "body": body});
+        }
+    }
     let message =
         blocks.iter().find_map(|block| block["text"].as_str()).unwrap_or_default().to_owned();
     let used = |images: &Vec<Value>| -> usize {
@@ -1255,7 +1304,7 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
                 return block;
             }
             let size = block["data"].as_str().map_or(0, str::len);
-            if images.len() >= MAX_IMAGES || used(images) + size > MAX_IMAGE_BYTES {
+            if images.len() >= MAX_KEPT_IMAGES || used(images) + size > MAX_KEPT_IMAGE_BYTES {
                 return json!({"type": "image", "dropped": true, "mimeType": block["mimeType"]});
             }
             images.push(block.clone());
@@ -1265,143 +1314,67 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
     if failed {
         return json!({"content": blocks, "error": {"message": message}});
     }
+    // A JSON body, then Computer Use outlines (text blocks marked with where
+    // they were in the result) and images: each outline back in its place, the
+    // images in `images`.
+    let outline = |block: &Value| -> Option<String> {
+        block
+            .get("_meta")
+            .and_then(|meta| meta.get(acpmux::computer_use::OUTLINE_META))
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    if let Some(mut body) = json_body
+        && blocks.len() > 1
+        && blocks.iter().skip(1).all(|block| block["type"] == "image" || outline(block).is_some())
+        && body.get("images").is_none()
+    {
+        let mut images = Vec::new();
+        for block in blocks.into_iter().skip(1) {
+            match (outline(&block), block.get("text").and_then(Value::as_str)) {
+                (Some(place), Some(text)) => match place.as_str() {
+                    "state.tree" if body.get("state").is_some_and(Value::is_object) => {
+                        body.set_path(&["state", "tree"], json!(text));
+                    }
+                    _ => {
+                        body.set("tree", json!(text));
+                    }
+                },
+                _ => images.push(block),
+            }
+        }
+        if !images.is_empty() {
+            body.set("images", Value::Array(images));
+        }
+        return body;
+    }
     json!({"content": blocks})
 }
 
 #[cfg(test)]
-mod bg_steer_tests {
-    use super::*;
-
-    /// A chat whose tools include acpmux's `bg_start` is told in `cmux_exec`'s own description
-    /// to run long commands there; one without it is not (acpmux docs/hibernation.md).
-    #[test]
-    fn the_exec_description_steers_long_commands_to_bg_start_only_where_it_is() {
-        let with = descriptors(&[json!({"name": BG_START}), json!({"name": "pane_split"})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.acpmux_bg_start({command, cwd})"), "{text}");
-        assert!(text.contains("hibernates after 2 idle minutes"), "{text}");
-        // The parallel-work rule is the first-turn context's (`CONCURRENT_WORK_RULE`), sent once
-        // per chat; the tool description does not say it a second time.
-        assert!(!text.contains("one batch of independent tool calls"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_bg_start"));
-    }
-}
+#[path = "code_mode_bg_steer_tests.rs"]
+mod bg_steer_tests;
 
 #[cfg(test)]
-mod stable_description_tests {
-    use super::*;
-
-    /// `cmux_exec` is always loaded, so its description is part of every turn's cached prefix:
-    /// an app action added or removed mid-chat (`action.catalog.changed` re-lists the tools) must
-    /// leave it byte for byte the same, or the next turn writes the whole prompt to the cache
-    /// again. A family that appears or goes away still shows.
-    #[test]
-    fn the_exec_description_does_not_move_when_a_family_gains_a_tool() {
-        let before = descriptors(&[json!({"name": "app_new_tab"}), json!({"name": "pane_split"})]);
-        let after = descriptors(&[
-            json!({"name": "app_new_tab"}),
-            json!({"name": "app_close_tab"}),
-            json!({"name": "pane_split"}),
-        ]);
-        assert_eq!(before[0]["description"], after[0]["description"]);
-        let text = before[0]["description"].as_str().unwrap();
-        assert!(text.contains("Families: app, pane."), "{text}");
-        let fewer = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(fewer[0]["description"].as_str().unwrap().contains("Families: pane."));
-    }
-}
+#[path = "code_mode_stable_description_tests.rs"]
+mod stable_description_tests;
 
 #[cfg(test)]
-mod github_steer_tests {
-    use super::*;
-
-    /// A chat with acpmux's `github_status` is told when to call it in `cmux_exec`'s own
-    /// description; one without it is not.
-    #[test]
-    fn the_exec_description_names_github_status_only_where_it_is() {
-        let with = descriptors(&[json!({"name": GITHUB_STATUS})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.acpmux_github_status({})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("github_status"));
-    }
-}
+#[path = "code_mode_github_steer_tests.rs"]
+mod github_steer_tests;
 
 #[cfg(test)]
-mod send_steer_tests {
-    use super::*;
-
-    /// A chat with acpmux's `send` folded in is told in `cmux_exec`'s description to message
-    /// other sessions with it, not the CLI in a shell; one without it is not.
-    #[test]
-    fn the_exec_description_names_the_send_tool_only_where_it_is() {
-        let with = descriptors(&[json!({"name": SEND}), json!({"name": "acpmux_inbox_reply"})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.acpmux_send({to, text})"), "{text}");
-        assert!(text.contains("not `acpmux send` in a shell"), "{text}");
-        assert!(text.contains("cmux.acpmux_inbox_reply({thread, text})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("acpmux_send"));
-    }
-}
+#[path = "code_mode_send_steer_tests.rs"]
+mod send_steer_tests;
 
 #[cfg(test)]
-mod wrap_up_steer_tests {
-    use super::*;
-
-    /// A chat with acpmux's `wrap_up` is told to end a turn with it in `cmux_exec`'s own
-    /// description, since code mode shows no other tool; one without it is not.
-    #[test]
-    fn the_exec_description_names_wrap_up_only_where_it_is() {
-        let with = descriptors(&[json!({"name": WRAP_UP})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.acpmux_wrap_up({recap, ask, actions})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("wrap_up"));
-    }
-
-    /// A chat with the cmux-sessions server folded in is told to suggest side work as a new chat
-    /// (`sessions_offer_session`) in `cmux_exec`'s description; one without it is not.
-    #[test]
-    fn the_exec_description_names_the_session_offer_only_where_it_is() {
-        let with =
-            descriptors(&[json!({"name": OFFER}), json!({"name": "sessions_suggest_tasks"})]);
-        let text = with[0]["description"].as_str().unwrap();
-        assert!(text.contains("cmux.sessions_offer_session({title, prompt, worktree?})"), "{text}");
-        let without = descriptors(&[json!({"name": "pane_split"})]);
-        assert!(!without[0]["description"].as_str().unwrap().contains("offer_session"));
-    }
-}
+#[path = "code_mode_wrap_up_steer_tests.rs"]
+mod wrap_up_steer_tests;
 
 #[cfg(test)]
-mod block_end_tests {
-    use super::*;
+#[path = "code_mode_block_end_tests.rs"]
+mod block_end_tests;
 
-    /// Braces inside strings, template literals and comments are skipped; a block that never
-    /// closes, or a string, escape or comment cut off at the end, is `None`, not a panic.
-    #[test]
-    fn block_end_skips_quoted_and_commented_braces_and_stops_at_the_end() {
-        let script = "{ \"}\" '}' `}` /* } */ // }\n }";
-        assert_eq!(block_end(script, 0), Some(script.len() - 1));
-        for cut in ["{ \"open", "{ 'a\\", "{ /* never closed", "{ // to the end", "{ {", "{ /"] {
-            assert_eq!(block_end(cut, 0), None, "{cut:?}");
-        }
-    }
-
-    /// Only the descriptor's own reads change: a cmux tool keeps its required list,
-    /// read-only and destructive hints in the compact form.
-    #[test]
-    fn compact_keeps_required_and_hints() {
-        let tool = json!({
-            "name": "pane_close",
-            "description": "Close a pane (cmux.protocol/2 `pane.close`).",
-            "inputSchema": {"type": "object", "properties": {"pane": {"type": "string"}}, "required": ["pane"]},
-            "annotations": {"readOnlyHint": false, "destructiveHint": true},
-        });
-        let out = compact(&tool);
-        assert_eq!(out["inputSchema"]["required"], json!(["pane"]));
-        assert_eq!(out.get("destructive"), Some(&json!(true)));
-        assert_eq!(out.get("readOnly"), None);
-    }
-}
+#[cfg(test)]
+#[path = "code_mode_outline_tests.rs"]
+mod outline_tests;
