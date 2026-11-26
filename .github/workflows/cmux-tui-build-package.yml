@@ -1342,6 +1342,52 @@ jobs:
           path: dist-tests/cmux-tui-core-tests.exe
           if-no-files-found: error
 
+  # The same binaries under Wine on Linux, one job per binary (scripts/ci/wine-smoke.sh;
+  # docs/windows-wine-smoke.md says what Wine can and cannot verify). It adds to build-windows
+  # and replaces none of it: ConPTY, PowerShell and the install-key handoff stay on Windows.
+  wine-smoke-windows:
+    name: wine smoke ${{ matrix.binary }} (Linux)
+    needs: cross-build-windows
+    if: inputs.include_windows && needs.cross-build-windows.result == 'success'
+    continue-on-error: ${{ inputs.windows_optional }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        binary: [cmux-tui, cmux-tui-hook, cmux-tui-host, cmux-relay, chatmux-relay]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller or requested ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci
+            cmux-tui/scripts
+          sparse-checkout-cone-mode: true
+
+      - name: Download Windows binaries
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: dist
+
+      - name: Download the Windows test binary
+        if: matrix.binary == 'cmux-tui'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-core-tests-x86_64-pc-windows-gnu
+          path: dist-tests
+
+      - name: Wine prefix, Windows Python and pywinpty (pinned)
+        run: bash scripts/ci/wine-smoke.sh setup
+
+      - name: Run ${{ matrix.binary }} under Wine
+        run: bash scripts/ci/wine-smoke.sh "${{ matrix.binary }}" dist dist-tests
+
   # The Windows-only checks of the Linux-built daemon. No Rust, Zig or MinGW here: it
   # runs the binaries cross-build-windows uploaded. Its `built` output is the workflow's
   # windows_built, set only when every check passed.
