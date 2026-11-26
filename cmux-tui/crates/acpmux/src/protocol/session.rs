@@ -452,8 +452,14 @@ pub struct UsageStats {
     pub tokens24h: Option<u64>,
     #[serde(rename = "tokensByModel1h")]
     pub tokens_by_model1h: Option<BTreeMap<String, u64>>,
+    /// Cache-read prompt tokens by call model in the rolling last hour.
+    #[serde(rename = "cacheReadByModel1h")]
+    pub cache_read_by_model1h: Option<BTreeMap<String, u64>>,
     /// Tokens per call model in the completed UTC hour preceding the hour of updatedAt.
     pub tokens_by_model_previous_utc_hour: Option<BTreeMap<String, u64>>,
+    /// Cache-read prompt tokens by call model in the completed UTC hour preceding updatedAt.
+    #[serde(rename = "cacheReadByModelPreviousUtcHour")]
+    pub cache_read_by_model_previous_utc_hour: Option<BTreeMap<String, u64>>,
     /// Those tokens at the model catalog's list prices, USD; null when no model
     /// they ran on has a price, or when `tokens24h` is null.
     #[serde(rename = "costUsd24h")]
