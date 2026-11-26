@@ -33,7 +33,7 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # ready-to-land: a ready head into feat-cmux-next runs the cheap tier until it is handed off to land
     # (scripts/ci/head_tier.py land rule), so adding the label runs the full tier at the same head.
     "ci.yml": ("full-ci", "dev-build", "ready-to-land"),
-    "cmux-vm.yml": ("cmux-vm-breaking-change-ok",),
+    "cmux-vm.yml": ("cmux-vm-breaking-change-ok", "full-ci", "ready-to-land"),
     # Cheap one-step checks, but each label event still queued a runner on a saturated pool: bots set
     # and clear risk, hold and landing labels on hundreds of open pull requests.
     "merge-freeze.yml": ("freeze-ok",),
@@ -49,7 +49,19 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # and, in the PR's shared group, replaced the push's pending run (a new PR gets three labels at once).
     # Routes only the land handoff (scripts/ci/head_tier.py land rule): a ready-to-land head runs the full tier.
     "pr-router.yml": ("ready-to-land",),
-    "backend-migrations.yml": ("backend:apply-migrations", "full-ci"),
+    "backend-migrations.yml": ("backend:apply-migrations", "full-ci", "ready-to-land"),
+    # The land tier (tests/test_head_tier.py LAND_GATED): each runs its jobs only at the head handed to land, so
+    # adding ready-to-land (or full-ci) re-runs it there; no other label starts a run.
+    **{name: ("full-ci", "ready-to-land") for name in (
+        "app-store-shelf.yml", "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
+        "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml",
+        "cloudflare-relay.yml", "cmux-cloud-cli.yml", "cmux-next-car-guards.yml",
+        "cmux-next-fast-gates.yml", "cmux-next-guards.yml", "cmux-next-hot-verify.yml",
+        "cmux-next-pr-autofix.yml", "cmux-next-shell-integration.yml",
+        "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vnc.yml", "ios-e2e.yml",
+        "iroh-v2.yml", "measure-swift-typecheck.yml", "relay-tls.yml", "release-rails.yml",
+        "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml",
+        "rust-workspaces.yml", "cmux-tui-spec.yml")},
 }
 
 # GUARDED workflows whose label events arrive as pull_request_target.
@@ -71,6 +83,8 @@ REACTS: dict[str, str] = {
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",
+    "cloud-resume-matrix.yml": "its plan job runs only for the resume-matrix labels (or the body marker on a "
+    "non-label event); every other job needs plan",
 }
 
 
@@ -122,6 +136,10 @@ def reachable_by_label_event(body: dict, condition: str, event: str = "pull_requ
     status function skips with them, one gated on push or dispatch never runs on a pull request, and nor
     does one gated on a branch ref (pull_request only)."""
     if NOT_ON_PULL_REQUEST.match(condition):
+        return False
+    # `github.event_name != 'pull_request' && ...` with no top-level || never runs on a pull_request event.
+    if event == "pull_request" and condition.startswith("github.event_name != 'pull_request' &&") \
+            and not top_level_or(condition):
         return False
     if event == "pull_request" and ON_BRANCH_REF.match(" ".join(condition.split())) and not top_level_or(condition):
         return False

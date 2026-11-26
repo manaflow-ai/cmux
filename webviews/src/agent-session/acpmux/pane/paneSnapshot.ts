@@ -66,6 +66,9 @@ import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
+import { liveThought, thoughtOnly } from "../liveThought";
+import { liveSummary, usageOnly } from "../liveSummary";
+import { pageLanes } from "../schedule/lanes";
 import type { ComposerHandle, ComposerWake } from "../Composer";
 import { composerReadback, takeExternalInto } from "../composer/externalAttach";
 import type { FolderContinuation } from "../folderContinuation";
@@ -143,18 +146,18 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   type HostRestoring,
-  hostRetryStep,
-  HOST_WAKE_EVENTS,
-  hostWakeAsks,
   jitteredDelay,
   lostRetryDelay,
-  lostRetryStep,
   nextRetryDelay,
   offersAcpmuxRestart,
+  hostPlannedRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
-  hostPlannedRestart,
+  hostRetryStep,
+  HOST_WAKE_EVENTS,
+  hostWakeAsks,
+  lostRetryStep,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
 import { revealedSubagent } from "../subagents/subagentPanes";
@@ -168,6 +171,7 @@ import { holdCloudAgentPick } from "../cloudAgentPick";
 import { askPermissionFocus } from "../permissions/focusRequest";
 import type { PermissionDecision } from "../permissions/protocol";
 import { planBuildTarget } from "../permissions/planBuild";
+import { forkFirstOffer } from "../direct/permissions";
 import { type PaneSurface, readSurface } from "../paneSurface";
 import { designSelectionChips, designSelectionRemovals } from "../designSelection";
 import { setFloatingState } from "../floatingState";
@@ -179,7 +183,6 @@ import { offerPicks } from "../offer/offerChoice";
 import { offerWorktree } from "../offer/offerWorktree";
 import { setLinkPlaces, updateLinkPlaces } from "../chips/cmuxLinkPlaces";
 import { setExperimentSwitches } from "../../../experiments/switches";
-import { setSessionStatus } from "../sessionStatus";
 import { pageEditHold, pageReleaseHold } from "../../../pages/shared/webSwap";
 import type { SandboxTab } from "../sandboxRun";
 import { callNative } from "../callNative";
@@ -206,6 +209,32 @@ import {
 import { fetchScrollAnchor, postScrollAnchor } from "./scrollAnchorHost";
 import { readWake } from "./wake";
 import { togglePlace, togglePromptRow } from "../conversation/togglePlace";
+
+/// What the chat-list stores read of a snapshot (newtab/chatStore.ts `publishSessions`,
+/// newtab/warmSnapshot.ts `publishWarmNewTab`, newtab/recentProject.ts `rememberRecentFolders`), and
+/// whether this page shows New Tab: a snapshot whose fields here are the same objects changes none
+/// of them, so the listener skips all three (a streamed chunk keeps every one).
+type ListInput = Pick<AcpmuxSnapshot, "sessions" | "listedSessions" | "sessionsWindowed" | "connection" | "origin"> & {
+  readonly showsNewTab: boolean;
+};
+
+const listInputOf = (snapshot: AcpmuxSnapshot, showsNewTab: boolean): ListInput => ({
+  sessions: snapshot.sessions,
+  listedSessions: snapshot.listedSessions,
+  sessionsWindowed: snapshot.sessionsWindowed,
+  connection: snapshot.connection,
+  origin: snapshot.origin,
+  showsNewTab,
+});
+
+const sameListInput = (a: ListInput | undefined, b: ListInput): boolean =>
+  a !== undefined &&
+  a.sessions === b.sessions &&
+  a.listedSessions === b.listedSessions &&
+  a.sessionsWindowed === b.sessionsWindowed &&
+  a.connection === b.connection &&
+  a.origin === b.origin &&
+  a.showsNewTab === b.showsNewTab;
 
 /** What AcpmuxPane's snapshot effect reads from the pane (App.tsx): its state, setters, refs and callbacks. */
 export type PaneSnapshotArgs = {
@@ -339,6 +368,8 @@ export type PaneSnapshotArgs = {
   drawnSnapshot: React.RefObject<AcpmuxSnapshot | undefined>;
   receivedSnapshot: React.RefObject<AcpmuxSnapshot | undefined>;
   toolOutputEpoch: React.RefObject<number>;
+  /// The draw (liveThought.ts `redraw`) of the snapshot the pane set last.
+  thoughtEpoch: React.RefObject<number>;
   pendingPaneDraw: PendingPaneDraw;
   snapshotRef: React.RefObject<AcpmuxSnapshot | undefined>;
   /// Whether a prompt naming `@computer-use` waits for Computer Use setup (App.tsx
@@ -495,6 +526,7 @@ export function paneSnapshotEffect({
   drawnSnapshot,
   receivedSnapshot,
   toolOutputEpoch,
+  thoughtEpoch,
   pendingPaneDraw,
   snapshotRef,
   holdsForComputerUseSetupRef,
@@ -730,9 +762,6 @@ export function paneSnapshotEffect({
     applySidebarPreviewVariant(variant) {
       configureNativeSidebarPreviewVariant(variant);
     },
-    applySessionStatus(on) {
-      setSessionStatus(on === true);
-    },
     applyExperiments(value) {
       setExperimentSwitches(value);
     },
@@ -909,6 +938,11 @@ export function paneSnapshotEffect({
   /// Sessions a switch started whose first summary has not arrived: it names the model a new
   /// chat on that harness starts on.
   const startedSessions = new Set<string>();
+  /// The summary the harness profiles last observed, and what the chat-list stores were last
+  /// handed (`listInputOf`): a snapshot that keeps both runs neither.
+  let observedSummary: AcpmuxSnapshot["summary"] | null = null;
+  let publishedList: ListInput | undefined;
+  const lanes = pageLanes();
   /// Prompts a failed or cancelled switch held go back into the composer with their
   /// attachments, before what was typed since; while no composer is mounted they wait for one.
   /// The gesture of a send acpmux held for the folder trust answer (heldPrompt.ts).
@@ -1213,20 +1247,45 @@ export function paneSnapshotEffect({
               sessionId: next.sessionId,
             };
           // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
+          // Only when the summary changed: a streamed chunk keeps it, and each observation
+          // serializes and stores every harness's profile. In the idle lane (schedule/), never in a
+          // key's or a frame's task, the latest summary winning; durable, so a page that hides
+          // writes it then. A switch's first summary (once per switch) is observed at once: it
+          // names its harness's start model, which a later summary must not take over.
           const summary = next.summary;
-          const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
-          harnessProfiles.observe(summary, started);
+          const started = summary?.model !== undefined && startedSessions.has(summary.sessionId);
+          if (started) {
+            observedSummary = summary;
+            startedSessions.delete(summary!.sessionId);
+            // An older summary still waiting would land after it: it is dropped.
+            lanes.idle("pane:harness-profiles", () => {});
+            harnessProfiles.observe(summary, true);
+          } else if (summary !== observedSummary) {
+            observedSummary = summary;
+            lanes.idle("pane:harness-profiles", () => harnessProfiles.observe(summary, false), { durable: true });
+          }
           // The next New Tab page names the project used last on its first frame
-          // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
-          if (!mock) {
-            rememberRecentFolders(next);
-            // Every page's New Tab lists one chat store (newtab/chatStore.ts).
-            publishSessions(next);
-            // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
-            publishWarmNewTab(
-              next,
-              (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
-              showsNewTabRef.current,
+          // (newtab/recentProject.ts); the mock daemon's chats are not the app's. Each reads the
+          // chat list alone, which a streamed chunk keeps: compared by object first, then run in
+          // the idle lane with the latest list.
+          const listInput = listInputOf(next, showsNewTabRef.current);
+          if (!mock && !sameListInput(publishedList, listInput)) {
+            publishedList = listInput;
+            const at = Date.now();
+            lanes.idle(
+              "pane:chat-list",
+              () => {
+                rememberRecentFolders(next);
+                // Every page's New Tab lists one chat store (newtab/chatStore.ts).
+                publishSessions(next, at);
+                // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
+                publishWarmNewTab(
+                  next,
+                  (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
+                  listInput.showsNewTab,
+                );
+              },
+              { durable: true },
             );
           }
           // Only the streaming reply's text grew: its row draws it (streamingRow.ts); the pane,
@@ -1250,8 +1309,25 @@ export function paneSnapshotEffect({
             liveToolOutput.set(call.id, call.output, call.before);
             return;
           }
+          // Only a thought grew: the row that draws it reads it (liveThought.ts).
+          const thought =
+            drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+              ? thoughtOnly(received, next)
+              : undefined;
+          if (thought) {
+            liveThought.set(thought.id, thought.before, thought.after);
+            return;
+          }
+          // Only the usage numbers moved (the context count, usage, time breakdown): the parts that
+          // draw them read them (liveSummary.ts); the pane, transcript and header keep what they drew.
+          if (drawn && !pendingPaneDraw.pending && usageOnly(drawn, next)) {
+            liveSummary.set(drawn.summary!, next.summary!);
+            return;
+          }
           streamingRow.clear();
+          liveSummary.clear();
           toolOutputEpoch.current = liveToolOutput.redraw();
+          thoughtEpoch.current = liveThought.redraw();
           // A redraw of the whole pane is a transition a key can go before, unless it answers what
           // the person just did or opens another chat (paneSnapshotLane.ts).
           const drewBefore = drawnSnapshot.current;
@@ -1827,7 +1903,7 @@ export function paneSnapshotEffect({
             typeof value === "string" ? value : undefined,
             typeof keepAs === "string" ? keepAs : undefined,
           ),
-        "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
+        "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId, forkFirst }) =>
           client.permission(
             String(permissionId),
             optionId === undefined || optionId === null ? undefined : String(optionId),
@@ -1835,6 +1911,7 @@ export function paneSnapshotEffect({
             // The Needs you list answers asks of other chats too.
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
             annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
+            forkFirstOffer(forkFirst),
           ),
         "chat.plan.build": ({ permissionId, target, sessionId, plan }) =>
           client.planBuild(
