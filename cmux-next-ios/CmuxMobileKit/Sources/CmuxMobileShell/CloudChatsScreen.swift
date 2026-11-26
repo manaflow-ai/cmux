@@ -313,6 +313,7 @@ private struct CloudMachineChatsScreen: View {
     @State private var startedFirst = false
     /// The started chat the first message waits on: the machine lists a new chat after it answers.
     @State private var unsentFirst: String?
+    @Environment(\.scenePhase) private var scenePhase
     @State private var relay: CloudChatRelay?
     @State private var selectedSession: String?
     @State private var error: String?
@@ -462,6 +463,12 @@ private struct CloudMachineChatsScreen: View {
         }
         .onChange(of: unsentFirst.flatMap { relay?.hub.sessions[$0] } != nil) { _, listed in
             if listed { sendFirst() }
+        }
+        // Wake on intent: the app became active (the phone unlocked) with this machine's chats in
+        // front, so a paused machine starts waking before the first key (`CloudWakeOnIntent`).
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            Task { await CloudWakeOnIntent.shared.hint(machine, signal: "unlock") }
         }
         // The preferred chat opens once it is listed: with the first page, or with a later one.
         .onChange(of: relay?.hub.isReady == true && preferredSession.flatMap { relay?.hub.sessions[$0] } != nil, initial: true) { _, ready in

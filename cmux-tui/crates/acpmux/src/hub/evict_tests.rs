@@ -177,5 +177,105 @@ async fn a_kept_chat_past_its_deadline_is_retried_later_not_at_once() {
     let next = hub.next_evict_deadline().expect("a candidate");
     assert!(next > now, "a kept chat's retry is in the future: {next:?} <= {now:?}");
     drop(held);
+    // Tried and kept: it waits out one idle period before the next try.
+    std::thread::sleep(after * 2);
     assert_eq!(hub.evict_idle_chats(), 1);
+}
+
+/// More kept chats than one pass takes (n=1,000 bench: 98.8% CPU, 374 wakeups/s idle): a pass
+/// whose chats all stayed must not ask for another at once, and the next pass reaches the chats
+/// behind them instead of trying the same kept ones again.
+#[tokio::test]
+async fn a_full_batch_of_kept_chats_neither_spins_the_reaper_nor_starves_the_rest() {
+    let n = EVICT_AT_ONCE + 40;
+    let hub = hub_with(n);
+    let after = std::time::Duration::from_millis(50);
+    hub.evicted.set_after(Some(after));
+    std::thread::sleep(after * 2);
+    // Every chat is held but the last 40, which the first pass may never reach.
+    let mut ids: Vec<String> = hub.session_handles().iter().map(|s| s.id.clone()).collect();
+    ids.sort();
+    let held: Vec<_> =
+        ids.iter().take(EVICT_AT_ONCE).map(|id| hub.session_get(id).unwrap()).collect();
+    let first = hub.evict_idle_chats();
+    assert!(
+        !hub.evicted.more_due.load(Ordering::Relaxed),
+        "a pass that left chats behind is not 'more due'"
+    );
+    let now = std::time::Duration::from_nanos(hub.clock_now());
+    let next = hub.next_evict_deadline().expect("candidates");
+    assert!(next > now, "no deadline in the past: {next:?} <= {now:?}");
+    // The next pass comes after the held chats are due again (a slow host): the chats it never
+    // tried still go first.
+    std::thread::sleep(after * 2);
+    let second = hub.evict_idle_chats();
+    assert_eq!(first + second, 40, "the unheld chats all leave within two passes");
+    assert_eq!(hub.eviction_counts().0, 40);
+    drop(held);
+}
+
+/// An idle chat's inbound loop runs as long as the chat (it ends at a close): it held two strong
+/// handles, so no idle chat that ever started could leave ("held elsewhere (4 handles)" for every
+/// chat at n=1,000). It holds the chat weakly between items now, and ends once the chat leaves.
+#[tokio::test]
+async fn an_idle_chat_with_its_inbound_loop_running_leaves_memory() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    hub.evicted.set_after(Some(std::time::Duration::from_nanos(1)));
+    let mut meta = meta("s0", "chat-0", 10);
+    meta.status = serde_json::from_value(json!("idle")).unwrap();
+    hub.store.save(&meta).unwrap();
+    let session = hub.insert_test_session(meta);
+    session.hibernated_at.store(1, Ordering::SeqCst);
+    hub.spawn_inbound_loop(&session).await;
+    // Let the loop start and park on its receiver.
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(session.inbound_rx().lock().await.is_none(), "the loop holds the receiver");
+    let weak = Arc::downgrade(&session);
+    drop(session);
+    hub.warm_list_order_for_test();
+    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    assert_eq!(hub.evict_now_for_test("s0"), None, "the inbound loop does not keep it");
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(weak.upgrade().is_none(), "nothing holds the evicted session, its loop ended");
+    let back = hub.session_get("s0").expect("rehydrated");
+    assert!(back.inbound_rx().lock().await.is_some(), "a new start spawns its loop again");
+}
+
+/// An item queued for the inbound loop keeps its chat: it is still to be handled.
+#[tokio::test]
+async fn a_chat_with_an_inbound_item_queued_stays() {
+    let hub = hub_with(1);
+    let session = hub.session_get("s0").unwrap();
+    let extra = session.inbound_tx().clone();
+    drop(session);
+    assert_eq!(hub.kept_for_test("s0"), Some("inbound"), "a second sender is a producer");
+    drop(extra);
+    assert_eq!(hub.kept_for_test("s0"), None);
+}
+
+/// An evicted chat holds its keys and its rows packed against a shared row, not its metadata
+/// and two whole rows: at n=1,000 that came to 27 kB a chat, about what its session held.
+#[tokio::test]
+async fn an_evicted_row_holds_a_fraction_of_its_rows_and_reads_back_whole() {
+    let hub = hub_with(20);
+    let texts: Vec<(Arc<str>, Arc<str>)> = (0..20)
+        .map(|i| {
+            let session = hub.session_get(&format!("s{i}")).unwrap();
+            (hub.own_row_text(&session, false), hub.own_row_text(&session, true))
+        })
+        .collect();
+    std::thread::sleep(std::time::Duration::from_millis(2));
+    assert_eq!(hub.evict_idle_chats(), 20);
+    for (i, (list, full)) in texts.iter().enumerate() {
+        let row = hub.evicted.get(&format!("s{i}")).unwrap();
+        assert_eq!(row.row_text(false), *list, "s{i}'s list row reads back whole");
+        assert_eq!(row.row_text(true), *full, "s{i}'s full row reads back whole");
+        assert_eq!(row.keys.name, format!("chat-{i}"));
+        let whole = list.len() + full.len();
+        assert!(row.rows_held() * 4 < whole, "s{i} holds {} of {whole} bytes", row.rows_held());
+    }
 }
