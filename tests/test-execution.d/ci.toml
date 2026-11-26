@@ -1065,6 +1065,10 @@ path = "tests/test_ci_workflow_guards_are_wired.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_iroh_apple_suites_have_mac_home.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_hashfiles_in_workspace.py"
 lane = "linux-guard"
 
