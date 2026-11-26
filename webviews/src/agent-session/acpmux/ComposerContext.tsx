@@ -33,7 +33,6 @@ import {
 } from "./cloudMachines";
 import {
   environmentReady,
-  environmentPickable,
   environmentSections,
   knownMachines,
   orderEnvironments,
@@ -43,12 +42,13 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
+  environmentPickable,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover, isGitHubLocation } from "./FolderPopover";
 import { cloudRepositoryPick, cloudSourceFolders, type CloudFolder } from "./sourcePickerModel";
-import { GitHubGlyph } from "./GitHubIcons";
+import { GitHubGlyph, GitHubMark } from "./GitHubIcons";
 import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
@@ -1139,7 +1139,7 @@ export function ComposerContext({
                     // GitHub's mark only for a repository picked as one (FolderPopover isGitHubLocation): a folder of
                     // this Mac picked here that Cloud starts as its repository stays a folder (cmux#53226).
                     isGitHubLocation(currentFolder) && !isGitHubCheckoutPick ? (
-                      <GitHubGlyph />
+                      <GitHubMark chip />
                     ) : isGitHubCheckoutPick ? (
                       <FolderIcon />
                     ) : currentLocation ? (

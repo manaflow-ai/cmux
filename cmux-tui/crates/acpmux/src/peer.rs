@@ -546,6 +546,9 @@ pub struct Peer {
     /// How long this peer's links may stay silent: longer for one that answers late. Made from
     /// `timings` at the first link, so a test can set them first.
     silence: StdMutex<Option<SilenceBudget>>,
+    /// A link dialed while the last one sat silent past its budget, and opened first
+    /// (`Peer::serve_heard`): the next connect serves it instead of dialing.
+    replacement: StdMutex<Option<(crate::peer_paths::Via, carriers::Opened)>>,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
     /// The last successful cache write still records an outage that Connected must clear.
@@ -599,6 +602,9 @@ pub struct Peer {
     /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
     /// text (more when the peer compresses them, `frame_compress.rs`).
     received: ReceivedBytes,
+    /// The current link's transport read progress (`Heard::read`), from its open: a read
+    /// forwarded on it waits while bytes keep arriving (`Peer::link_read`).
+    link_read: StdMutex<cmux_deadline::Progress>,
 }
 
 /// What a link received: frame bytes and JSON text bytes, from its open.
