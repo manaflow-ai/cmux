@@ -48,13 +48,6 @@ public struct ScreenCursorShape: Codable, Sendable, Equatable {
     /// at 0.45 alpha, blur 2, offset 0, -1 (one point down).
     public static let shadow = (opacity: 0.45, blur: 2.0, offsetDown: 1.0)
 
-        for byte in png { mix(byte) }
-        for value in [hotspot.x, hotspot.y] {
-            withUnsafeBytes(of: Double(value).bitPattern.littleEndian) { $0.forEach(mix) }
-        }
-        return String(hash, radix: 16)
-    }
-
     /// Whether the sizes and hotspot are ones a viewer can draw.
     public var isDrawable: Bool {
         let fractions = [w, h]

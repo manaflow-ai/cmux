@@ -761,11 +761,12 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// second, only when one moved, on the unordered `pointer` channel
     /// (latest wins; the ordered channel for a viewer without one).
     private func startTelepointers(_ session: Session) {
+        let rules = rules
         let task = Task { [weak self] in
             var last: (ScreenHostMessage.Pointer?, ScreenHostMessage.Pointer?, String?)?
             var lastSent = DispatchTime.now()
             // The Mac's cursor image, for a viewer that draws it (cursor-shape).
-            var shapes = ShapeSender(rules: self.rules)
+            var shapes = ShapeSender(rules: rules)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(16)) // telepointer sampling period (60 Hz)
                 guard let self else { return }
