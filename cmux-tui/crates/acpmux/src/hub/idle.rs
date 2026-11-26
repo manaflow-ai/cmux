@@ -142,6 +142,17 @@ impl Hub {
         self.eligible(session, false, true)
     }
 
+    /// A retry mark can briefly outlive its scheduler when automatic retries are disabled. The
+    /// mark is settled by that scheduler and cannot fire a continuation, so it must not keep a
+    /// required quiet restart from hibernating the old environment.
+    fn retries_disabled(&self) -> bool {
+        self.config
+            .try_read()
+            .ok()
+            .and_then(|config| config.auto_resume_delays_ms.clone())
+            .is_some_and(|delays| super::auto_resume::effective_delays(Some(delays)).is_empty())
+    }
+
     fn eligible(&self, session: &Session, far_resume_sleeps: bool, firing_retry: bool) -> bool {
         // A chat its rate limit holds past its idle period sleeps through the hold, its queue
         // and its waiting continuation kept: the hold's own timer wakes it (`rate_hold.rs`
@@ -161,6 +172,7 @@ impl Hub {
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
             && (firing_retry
                 || !self.continuation_pending(session)
+                || self.retries_disabled()
                 || sleeps_held
                 || (far_resume_sleeps
                     && self.continuation_waits_far(session, super::idle_governor::FAR_RESUME)))

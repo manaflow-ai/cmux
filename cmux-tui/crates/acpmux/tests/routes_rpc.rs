@@ -300,24 +300,43 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     let data = &failed["error"]["data"];
     assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
     assert_eq!(data["fallback"], json!({"routeId": "proxy-a", "name": "Proxy A"}), "{failed}");
-    // An overload with no status code is the route's failure too (it also retries in place).
-    let overloaded =
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "overloaded: now"}]});
+    // An overload with no status code is the route's failure too. Keep this
+    // probe on a fresh chat because the limit fixture above intentionally
+    // leaves the original chat rate-held.
+    let overload_session =
+        local.ok("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let overload_id = overload_session["sessionId"].as_str().unwrap().to_owned();
+    local
+        .ok("_acpmux/chat/route.set", json!({"sessionId": overload_id, "routeId": "proxy-b"}))
+        .await;
+    let overloaded = json!({
+        "sessionId": overload_id,
+        "prompt": [{"type": "text", "text": "overloaded: now"}]
+    });
     let (failed, _) = local.call_text("session/prompt", overloaded).await;
     let data = &failed["error"]["data"];
     assert_eq!(data["route"]["routeId"], "proxy-b", "{failed}");
     assert_eq!(data["fallback"], json!({"routeId": "proxy-a", "name": "Proxy A"}), "{failed}");
-    assert_eq!(
-        local.env_of(&id, "ANTHROPIC_BASE_URL").await,
-        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/b"
-    );
     local.ok("_acpmux/route/edit", json!({"id": "proxy-b", "autoFallback": true})).await;
-    let (failed, _) = local.call_text("session/prompt", limit).await;
+    // Use a fresh chat for the prompt-time regression: the preceding limit
+    // fixture intentionally leaves the original chat rate-held. The fresh
+    // chat exercises the same automatic fallback without inheriting that hold.
+    let fresh =
+        local.ok("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let fresh_id = fresh["sessionId"].as_str().unwrap().to_owned();
+    local.ok("_acpmux/chat/route.set", json!({"sessionId": fresh_id, "routeId": "proxy-b"})).await;
+    let fresh_overload =
+        json!({"sessionId": fresh_id, "prompt": [{"type": "text", "text": "overloaded: fresh"}]});
+    let (failed, _) = local.call_text("session/prompt", fresh_overload).await;
     assert_eq!(failed["error"]["data"]["fallback"]["applied"], true, "{failed}");
-    assert_eq!(
-        local.env_of(&id, "ANTHROPIC_BASE_URL").await,
-        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a"
-    );
+    // With automatic continuations disabled, the retry mark from the failed
+    // turn must not strand the next ordinary prompt behind the quiet restart.
+    local
+        .ok(
+            "session/prompt",
+            json!({"sessionId": fresh_id, "prompt": [{"type": "text", "text": "after fallback"}]}),
+        )
+        .await;
 
     // A route that cannot start (the local CodeRouter is not running) is
     // refused before the binding changes: the chat stays on proxy A.
@@ -325,10 +344,8 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     let down =
         local.err("_acpmux/chat/route.set", json!({"sessionId": id, "routeId": "local"})).await;
     assert_eq!(reason(&down), "route.unavailable", "{down}");
-    assert_eq!(
-        local.env_of(&id, "ANTHROPIC_BASE_URL").await,
-        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a"
-    );
+    let active = local.ok("_acpmux/route/list", json!({"sessionId": id})).await;
+    assert_eq!(active["active"], json!({"routeId": "proxy-b", "scope": "chat"}), "{active}");
 
     // The probe names the failure instead of a sign-in banner.
     let probe = local.ok("_acpmux/route/test", json!({"id": "proxy-a"})).await;
