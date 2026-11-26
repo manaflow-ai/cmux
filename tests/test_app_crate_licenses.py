@@ -130,6 +130,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-pane-pictures",
                     # The agent chat transcript's markdown parser (cmux-chat-markdown).
                     "cmux-chat-markdown",
+                    # The remote chat wire (cmux-acpmux-remote-wire).
+                    "cmux-acpmux-remote-wire",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",

@@ -33,6 +33,8 @@
 //! include/cmux_chat_markdown.h): the parsed document as bytes; the app renders it.
 //! `pane_pictures` is when a pane's live thumbnail is captured again (cmux-pane-pictures,
 //! include/cmux_pane_pictures.h).
+//! `acpmux_remote_wire` is the remote chat's page wire as effects (cmux-acpmux-remote-wire,
+//! include/cmux_acpmux_remote_wire.h).
 //! `screenshots` is the Screenshots pane's rules: what a source lists, the newest-first listing,
 //! the sources and where tools save, the page address and the gate (cmux-screenshots,
 //! include/cmux_screenshots.h).
@@ -84,6 +86,7 @@ pub mod terminal_selection;
 pub mod wallpaper;
 
 pub use acpmux_client::ffi as agent_client;
+pub use cmux_acpmux_remote_wire::ffi as acpmux_remote_wire;
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
 pub use cmux_background_ready::ffi as background_ready;
