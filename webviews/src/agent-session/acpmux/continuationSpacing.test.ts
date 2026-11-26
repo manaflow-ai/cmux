@@ -1,6 +1,7 @@
 // l10n-allow-file: transcript geometry fixtures.
 import { ROW_METRIC } from "./rowMetric";
 import { expect, test } from "bun:test";
+import { setExperimentSwitches } from "../../experiments/switches";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { SUBAGENT_DONE } from "./subagents/subagentRows";
 import {
@@ -170,9 +171,11 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
   }
 });
 
-// Review at b1de39a: row estimates built from grid lengths (the action row, a tool row) scale with
-// the Interface Size like the CSS tokens, so first placement does not jump when rows are measured.
-test("estimated grid rows follow the Interface Size", () => {
+// Review at b1de39a: row estimates built from grid lengths (the action row) scale with the Interface Size
+// like the CSS tokens, so first placement does not jump when rows are measured. A one-line tool row does
+// not: `--cv-tool-row-height` is 22px at every Interface Size, and Chromium and WebKit draw a run of two
+// shell calls as two 22 px rows at Interface Size 1 and at 1.25 alike (review of #46650).
+test("estimated grid rows follow the Interface Size; tool rows keep their drawn line height", () => {
   const g = globalThis as { document?: unknown; getComputedStyle?: unknown };
   const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
   let scale = "1";
@@ -184,7 +187,7 @@ test("estimated grid rows follow the Interface Size", () => {
     const received = [
       { id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} },
     ] as unknown as AcpmuxRow[];
-    // Two shell calls: two tool rows and the block gap between them, all grid lengths.
+    // Two shell calls: two one-line tool rows, flush.
     const run = [
       {
         id: "run",
@@ -197,15 +200,26 @@ test("estimated grid rows follow the Interface Size", () => {
         ],
       },
     ] as unknown as AcpmuxRow[];
-    for (const rows of [received, run]) {
+    setExperimentSwitches({ expandedEditsEstimate: true });
+    for (const [rows, factor] of [
+      [received, 1.25],
+      [run, 1],
+    ] as const) {
       scale = "1";
       const atOne = layoutConversation(rows, 720).heights[0]!;
       scale = "1.25";
       const atLarger = layoutConversation(rows, 720).heights[0]!;
       expect(atOne).toBeGreaterThan(0);
-      expect(atLarger).toBeCloseTo(atOne * 1.25, 5);
+      expect(atLarger).toBeCloseTo(atOne * factor, 5);
     }
+    setExperimentSwitches({});
+    scale = "1.25";
+    // Expanded Edits Estimate off (the default): tool rows scale with the grid, as before.
+    expect(layoutConversation(run, 720).heights[0]).toBeCloseTo(2 * TRANSCRIPT_LINE_ROW * 1.25, 5);
+    setExperimentSwitches({ expandedEditsEstimate: true });
+    expect(layoutConversation(run, 720).heights[0]).toBe(2 * TRANSCRIPT_LINE_ROW);
   } finally {
+    setExperimentSwitches({});
     if (saved.document === undefined) delete g.document;
     else g.document = saved.document;
     if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
