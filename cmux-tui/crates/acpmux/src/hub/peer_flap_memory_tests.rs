@@ -2,8 +2,8 @@
 //! after a few: the hub's per-peer state (rows, outage bookkeeping, tombstones, the event ring,
 //! the caches) is bounded by the peers and their rows, never by how often they reconnected.
 //!
-//! 2026-11-26: cosmic-gray's daemon (3.9 GB RSS, 10.9 h up) had applied 16,600 `Disconnected`
-//! notices against 1,816 `Connected` and dialed 26,490 links; gcp-agent-lane-2's (4.1 GB) far
+//! 2026-11-26: a developer Mac's daemon (3.9 GB RSS, 10.9 h up) had applied 16,600 `Disconnected`
+//! notices against 1,816 `Connected` and dialed 26,490 links; a lane VM's (4.1 GB) far
 //! fewer. This measures the flap path alone, on one thread, with the test allocator: the bytes
 //! still held after `WARM` cycles and after `WARM + CYCLES`, so the table and the caches cancel
 //! out and only what grows per cycle is left.

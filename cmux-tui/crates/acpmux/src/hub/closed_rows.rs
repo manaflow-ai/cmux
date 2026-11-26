@@ -8,7 +8,7 @@
 //!
 //! The bytes kept are bounded ([`KEPT_BYTES`]), the least recently read form going first: a full
 //! form carries the chat's time breakdown and tools, and with eviction off (`evict.rs`) every
-//! closed chat's stayed. gcp-agent-lane-2's daemon held 1,612 closed chats and about 2,100 rows'
+//! closed chat's stayed. A fleet lane VM's daemon held 1,612 closed chats and about 2,100 rows'
 //! `timeBreakdown` text in a 4 GB heap (2026-11-26). A form let go is built again at its next read,
 //! as a moved stamp's is. `gauges.memory.closedRows` counts them.
 
