@@ -2772,7 +2772,7 @@ button.menu-disclosure {
 }
 
 .app-update-prs li {
-  padding: 2px 0;
+  padding: var(--grid-half-step) 0;
 }
 
 .app-update-progress {
