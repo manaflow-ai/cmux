@@ -1,7 +1,0 @@
-[bindings.swift]
-# Swift module of the generated wrapper; the C module is CmuxMobileFFIFFI.
-module_name = "CmuxMobileFFI"
-
-[bindings.kotlin]
-package_name = "com.cmuxterm.mobile.ffi"
-cdylib_name = "cmux_mobile_ffi"

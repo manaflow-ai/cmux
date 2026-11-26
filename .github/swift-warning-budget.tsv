@@ -1,3 +1,0 @@
-# cmux-owned Swift warning budget.
-# Format: count<TAB>relative path<TAB>warning message
-# Reduce counts when warnings are fixed. CI fails if new warnings exceed this budget.
