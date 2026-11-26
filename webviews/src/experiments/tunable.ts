@@ -45,28 +45,15 @@ declare global {
   var cmuxTunables: TunableOverrides | undefined;
 }
 
-/// The debug key's text and what it parsed to, as experiment.ts keeps its own: a lookup parses only
-/// text it has not seen.
-let storedNow: { text: string | null | undefined; overrides: TunableOverrides } | undefined;
-
 function storedOverrides(): TunableOverrides {
-  let text: string | null | undefined;
   try {
-    text = globalThis.localStorage?.getItem(TUNABLES_STORAGE_KEY);
+    const text = globalThis.localStorage?.getItem(TUNABLES_STORAGE_KEY);
+    const parsed: unknown = text ? JSON.parse(text) : undefined;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as TunableOverrides) : {};
   } catch {
-    // No storage (a sandboxed page): no override.
+    // No storage (a sandboxed page) or a malformed value: no override.
     return {};
   }
-  if (storedNow?.text === text) return storedNow.overrides;
-  let overrides: TunableOverrides = {};
-  try {
-    const parsed: unknown = text ? JSON.parse(text) : undefined;
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) overrides = parsed as TunableOverrides;
-  } catch {
-    // A malformed value: no override.
-  }
-  storedNow = { text, overrides };
-  return overrides;
 }
 
 const parse = (value: unknown) => (typeof value === "string" ? parseBezier(value) : undefined);

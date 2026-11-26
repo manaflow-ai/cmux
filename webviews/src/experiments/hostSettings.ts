@@ -9,7 +9,7 @@
 //
 // A switch that picks an arm: its row in schemas/settings/source/experiments.json and one entry in
 // SETTING_ARMS.
-import { experimentSwitchOff, experimentSwitchOn, setExperimentSwitches, experimentSwitchesNow } from "./switches";
+import { experimentSwitchOff, experimentSwitchOn, setExperimentSwitches } from "./switches";
 
 type SettingArm = { experiment: string; arm: string };
 type SettingArmEntry = SettingArm | readonly SettingArm[];
@@ -61,18 +61,6 @@ export function settingArms(
     for (const arm of armsFor(entry)) arms[arm.experiment] = arm.arm;
   }
   return arms;
-}
-
-/// The arms of the switches now, built again only when they change: experimentArm asks on every
-/// lookup, many a render (a chat switch's render asked ~1 ms of them; settled page, Leo 2026-11-21:
-/// "workspace switch, opening a recent workspace, chat switch and restart reach a settled page (zero
-/// layout shift after first paint, streaming included) within 2x of a derived bound").
-let armsNow: { switches: object; arms: Readonly<Record<string, string>> } | undefined;
-
-export function currentSettingArms(): Readonly<Record<string, string>> {
-  const switches = experimentSwitchesNow();
-  if (armsNow?.switches !== switches) armsNow = { switches, arms: settingArms() };
-  return armsNow.arms;
 }
 
 /** The switch that picks an arm of `experimentId`, if any. */

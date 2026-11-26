@@ -16,7 +16,7 @@
 //   4. the experiment's `defaultArm`.
 // An unknown arm id anywhere falls through to the next source, so a stale key never breaks a page.
 
-import { currentSettingArms } from "./hostSettings";
+import { settingArms } from "./hostSettings";
 
 export type ExperimentArm = {
   /** Short name for the gallery cell header (English: the gallery is a developer tool). */
@@ -53,29 +53,13 @@ declare global {
   var cmuxExperiments: ArmOverrides | undefined;
 }
 
-/// The debug key's text and what it parsed to: experimentArm asks on every lookup, and the key
-/// changes only by hand, so a lookup parses only text it has not seen.
-let storedNow: { text: string | null | undefined; overrides: ArmOverrides } | undefined;
-
 function storedOverrides(): ArmOverrides {
-  let text: string | null | undefined;
   try {
-    text = globalThis.localStorage?.getItem(EXPERIMENTS_STORAGE_KEY);
-  } catch {
-    // No storage (a sandboxed page): no override.
-    return {};
-  }
-  if (storedNow?.text === text) return storedNow.overrides;
-  storedNow = { text, overrides: parseOverrides(text) };
-  return storedNow.overrides;
-}
-
-function parseOverrides(text: string | null | undefined): ArmOverrides {
-  try {
+    const text = globalThis.localStorage?.getItem(EXPERIMENTS_STORAGE_KEY);
     const parsed: unknown = text ? JSON.parse(text) : undefined;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as ArmOverrides) : {};
   } catch {
-    // A malformed value: no override.
+    // No storage (a sandboxed page) or a malformed value: no override.
     return {};
   }
 }
@@ -96,7 +80,7 @@ export function experimentArm<Arm extends string>(
 ): Arm {
   const overrides = sources.overrides ?? globalThis.cmuxExperiments ?? {};
   if (isArm(experiment, overrides[experiment.id])) return overrides[experiment.id] as Arm;
-  const settings = sources.settings ?? currentSettingArms();
+  const settings = sources.settings ?? settingArms();
   if (isArm(experiment, settings[experiment.id])) return settings[experiment.id] as Arm;
   const stored = sources.stored ?? storedOverrides();
   if (isArm(experiment, stored[experiment.id])) return stored[experiment.id] as Arm;

@@ -28,11 +28,6 @@ export function setExperimentSwitches(value: unknown): void {
   for (const listener of listeners) listener();
 }
 
-/// The switches now: a new object after each change, so a reader can key what it derives on it.
-export function experimentSwitchesNow(): ExperimentSwitches {
-  return current;
-}
-
 /// Whether switch `name` (`glassToolbarGroups` for `experiments.glassToolbarGroups`) is on now.
 export function experimentSwitchOn(name: string): boolean {
   return current[name] === true;

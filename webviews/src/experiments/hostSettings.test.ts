@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, test, spyOn } from "bun:test";
-import { experimentArm, EXPERIMENTS_STORAGE_KEY } from "./experiment";
-import { settingArms, switchFor, currentSettingArms } from "./hostSettings";
+import { afterEach, describe, expect, test } from "bun:test";
+import { experimentArm } from "./experiment";
+import { settingArms, switchFor } from "./hostSettings";
 import { setExperimentSwitches } from "./switches";
 import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
@@ -51,37 +51,5 @@ describe("Settings switches pick experiment arms", () => {
     expect(switchFor("menu-row-states")).toBe("menuRowStates");
     expect(switchFor("subagent-tray-fold-head")).toBe("composerHatGroups");
     expect(switchFor("glass-toolbar")).toBeUndefined();
-  });
-
-  test("a lookup builds the arms and parses the debug key only when they change", () => {
-    // Before: every experimentArm call built the switches' arms and parsed the localStorage key
-    // again, many a render (settled page, Leo 2026-11-21: "workspace switch, opening a recent
-    // workspace, chat switch and restart reach a settled page (zero layout shift after first paint,
-    // streaming included) within 2x of a derived bound").
-    const saved = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
-    let text: string | null = JSON.stringify({ "menu-row-states": "on" });
-    Object.defineProperty(globalThis, "localStorage", {
-      configurable: true,
-      value: { getItem: (key: string) => (key === EXPERIMENTS_STORAGE_KEY ? text : null) },
-    });
-    const parse = spyOn(JSON, "parse");
-    try {
-      const arms = currentSettingArms();
-      for (let i = 0; i < 100; i += 1) {
-        expect(experimentArm(menuRowStates, { overrides: {} })).toBe("on");
-        expect(currentSettingArms()).toBe(arms);
-      }
-      expect(parse).toHaveBeenCalledTimes(1);
-      // A changed key and changed switches are read at once.
-      text = JSON.stringify({ "menu-row-states": "off" });
-      expect(experimentArm(menuRowStates, { overrides: {} })).toBe("off");
-      setExperimentSwitches({ menuStyleV2: true });
-      expect(currentSettingArms()).not.toBe(arms);
-      expect(experimentArm(menuStyleV2, { overrides: {} })).toBe("v2");
-    } finally {
-      parse.mockRestore();
-      if (saved) Object.defineProperty(globalThis, "localStorage", saved);
-      else delete (globalThis as { localStorage?: unknown }).localStorage;
-    }
   });
 });
