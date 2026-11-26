@@ -10,8 +10,8 @@
 # its probe (unless --viewer-ip), starts both halves at once and waits for both. RUN_ARGs go to the host half
 # (mode=run, partner= and partner-ip= are set here). Logs and report.tgz land in $OUT (default
 # artifacts/screen-share-vs-pair-launch/<key>/): host.log, viewer.log, probe.log.
-# Through the broker (a lane VM), cmux-ci run runs the open PR of this checkout's branch at its head, and the
-# worker runs screen-share-vs-pair.sh only when its bytes match feat-cmux-next's, so the branch must not change it.
+# The controller runs an unlisted scripts/measure script only at a commit on feat-cmux-next or main, so --ref
+# defaults to this checkout's merge-base with origin/feat-cmux-next (a PR head is refused with HTTP 400).
 # Exit: the host half's exit (0 measured, 1 failed, 3 unreachable), 2 bad arguments, 4 no viewer address.
 set -uo pipefail
 [[ $# -ge 2 ]] || { sed -n '3,4p' "$0" >&2; exit 2; }
@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 cd "$(git rev-parse --show-toplevel)"
-ref=${ref:-$(git rev-parse HEAD)}
+ref=${ref:-$(git merge-base HEAD origin/feat-cmux-next 2>/dev/null || git merge-base HEAD origin/main)}
 key="ssvp-$(date -u +%m%d%H%M)-$(openssl rand -hex 3)"
 token=$(openssl rand -hex 32)
 out=${OUT:-artifacts/screen-share-vs-pair-launch/$key}
