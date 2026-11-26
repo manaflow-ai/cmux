@@ -845,8 +845,8 @@ note "- xcodegen: $xcodegen_version (pinned, sha256 verified)"
 t0=$SECONDS
 # The FFI comes from the worker's source-keyed cache when an earlier step built the same
 # inputs with the same toolchain (scripts/ci/ios_ffi_cache.py: key, verified restore). A
-# miss builds it as before, and a build of landed inputs (the same trees as feat-cmux-next's
-# tip, probed beside the build) is published for the next step. The cache never fails the
+# miss builds it and publishes it under its own key for the next step with the same inputs,
+# a branch's build as well as a landed one (the probe beside the build only records which). The cache never fails the
 # step: a miss or no key builds. Everything else (a key command that failed, a failed probe or
 # store, a helper error) is a warning in the log and SUMMARY.md, then the step builds.
 ffi_cache=(python3 -I scripts/ci/ios_ffi_cache.py)
@@ -893,12 +893,12 @@ if [[ -z "$ffi_how" ]]; then
     ffi_how="built, cache miss ${ffi_key:0:12}"
     ffi_rc=0
     wait "$ffi_probe" || ffi_rc=$?
-    if [[ $ffi_rc -eq 0 ]]; then
-      "${ffi_cache[@]}" store "$root" "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 || {
-        ffi_rc=$?; ffi_warn "store failed" "$ffi_rc"; }
-    else
-      ffi_warn "probe of the feat-cmux-next tip failed, nothing stored" "$ffi_rc"
+    if [[ $ffi_rc -ne 0 ]]; then
+      ffi_warn "probe of the feat-cmux-next tip failed, stored as a branch build" "$ffi_rc"
+      rm -f "$work/ffi-tip.json"
     fi
+    "${ffi_cache[@]}" store "$root" "$work/ffi-inputs.json" "$work/ffi-tip.json" >>"$ffi_log" 2>&1 || {
+      ffi_rc=$?; ffi_warn "store failed" "$ffi_rc"; }
   fi
 fi
 grep -h '^ios-ffi cache:' "$ffi_log" || true
