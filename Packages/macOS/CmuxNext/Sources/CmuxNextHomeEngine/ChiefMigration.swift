@@ -42,6 +42,9 @@ public nonisolated enum ChiefMigration {
         return nil
     }
 
+    private struct StepRequest: Encodable { let isolated, recordExists: Bool; let blocking: [String] }
+    private struct StepReply: Decodable { let step: String }
+
     /// The rules' `migration::Old`.
     private struct WireOld: Codable {
         var tag: String
@@ -77,8 +80,6 @@ public nonisolated enum ChiefMigration {
     /// `<home>/migration.json`, and the owner skips what it already holds.
     @concurrent public static func run(home: ChiefHome, owner: some ChiefMigrationOwner, olds: [Old], tool: (any ChiefMemoryTool)? = nil) async throws -> Outcome {
         let record = home.root.appendingPathComponent(recordName)
-        struct StepRequest: Encodable { let isolated, recordExists: Bool; let blocking: [String] }
-        struct StepReply: Decodable { let step: String }
         func step(_ blocking: [String]) throws -> String {
             let reply: StepReply = try ChiefHomeRules().call("migration_run_step", StepRequest(
                 isolated: home.isolated, recordExists: FileManager.default.fileExists(atPath: record.path), blocking: blocking))

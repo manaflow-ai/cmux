@@ -34,7 +34,7 @@ extension ChiefMigration {
                                     hostConversation: hostConversation)
     }
 
-    private struct CursorRequest: Encodable {
+    nonisolated private struct CursorRequest: Encodable {
         let state: [String: String]?
         let hostJson: String?
     }

@@ -70,7 +70,7 @@ public struct HomeArchivedChiefs {
         guard !ids.isEmpty else { return [] }
         struct Reply: Decodable { let hidden: [String] }
         let reply: Reply? = try? ChiefHomeRules().call("archived_hidden", request(rows: rows))
-        return reply?.hidden.map(ConversationID.init) ?? []
+        return reply?.hidden.map { ConversationID(rawValue: $0) } ?? []
     }
 
     /// `chief` (the preferred Chief's conversation), unless Archive Chief or Delete Chief hid it: the
