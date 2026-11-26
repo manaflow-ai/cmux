@@ -379,7 +379,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     }
     try project("CmuxMobileLive", directory: "Sources/CmuxMobileLive", sources: [
         "ClockInstants.swift", "LinkConnectivityEvents.swift", "LinkController.swift", "LinkMachine.swift",
-        "LinkPairingRetry.swift", "LinkServiceFailure.swift", "ReliabilityLinuxShims.swift",
+        "LinkPairingRetry.swift", "LinkServiceFailure.swift", "PresenceTiming.swift", "ReliabilityLinuxShims.swift",
     ], dependencies: [
         "CmuxMobileModel", "CmuxMobileTransport",
         .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
