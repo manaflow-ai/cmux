@@ -2513,6 +2513,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let restart_attach_ms = ms(daemon.spawned);
     rpc.notes.clear();
     let restart_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
+    let restart_all_logs_at = ms(daemon.spawned);
     let adopted = rpc
         .call(
             "_acpmux/events",
@@ -2522,9 +2523,18 @@ fn size_run(label: &str, bytes: u64) -> Value {
         .and_then(|p| oldest_seq(&p))
         .zip(last_before_restart)
         .is_some_and(|(seq, before)| seq > before);
+    let restart_adopted_at = ms(daemon.spawned);
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
+    let restart_sent_at = ms(daemon.spawned);
     let (restart_rss, restart_peak_rss) = daemon.rss();
     let restart_peak = restart_sampler.stop();
+    // When each step of the restart returned, in ms after spawn, and the daemon's own startup
+    // phases (`gauges.rs`): where `restartPeak`'s steps fall.
+    let restart_timeline = json!({
+        "attach": restart_attach_ms, "allLogs": restart_all_logs_at,
+        "adoptedQuery": restart_adopted_at, "sent": restart_sent_at,
+        "startup": rpc.call("_acpmux/status", json!({})).ok().map(|s| s["gauges"]["startup"].clone()),
+    });
     drop(rpc);
     daemon.stop();
     let restart_heap = restart_profile.as_deref().map(attribute);
@@ -2579,7 +2589,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss, "restartHeap": restart_heap,
-        "restartPeak": restart_peak,
+        "restartPeak": restart_peak, "restartTimeline": restart_timeline,
         "secondRestartAttachMs": second_attach_ms,
         "secondRestartAttachError": second_attach.as_ref().err(),
         "secondRestartAllLogsMs": second_all_logs.as_ref().ok(),
