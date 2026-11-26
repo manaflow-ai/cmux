@@ -22,6 +22,7 @@ set -euo pipefail
 sizes="${1:-1M,100M,1G,4G}"
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 out_dir="${FAST_CHECKS_OUT:-${TMPDIR:-/tmp}}"
+mkdir -p "$out_dir"
 log="$out_dir/chat-size-sweep.log"
 [ -n "${FAST_CHECKS_OUT:-}" ] && exec > >(tee -a "$log") 2>&1
 head_sha="$(git -C "$root" rev-parse HEAD)"
