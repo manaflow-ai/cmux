@@ -256,7 +256,7 @@ test("a failed draft read waits for the saved chips before it writes a new paste
   host.chats.set("chat-a", [screenshot(1)]);
   let offline = true;
   const store: KeptAttachments = {
-    read: (id) => offline ? Promise.reject(new Error("disconnected")) : host.read(id),
+    read: (id) => (offline ? Promise.reject(new Error("disconnected")) : host.read(id)),
     write: (id, chips) => host.write(id, chips),
   };
   const page = await openPage("chat-a", store);
@@ -267,7 +267,33 @@ test("a failed draft read waits for the saved chips before it writes a new paste
   await act(async () => void jest.advanceTimersByTime(5_000));
   await settle();
   expect(shown(page).map((chip) => chip.id)).toEqual(["shot-1", "shot-2"]);
-  expect(await host.read("chat-a")).toEqual([screenshot(1), screenshot(2)]);
+  expect((await host.read("chat-a")).map((chip) => chip.data)).toEqual([screenshot(1).data, screenshot(2).data]);
+});
+
+test("a paste during a refused read stays with its chat through another switch", async () => {
+  const host = new Host();
+  host.chats.set("chat-a", [screenshot(1)]);
+  host.chats.set("chat-b", [screenshot(2)]);
+  let offline = true;
+  const store: KeptAttachments = {
+    read: async (id) => {
+      if (id === "chat-b" && offline) throw new Error("disconnected");
+      return host.read(id);
+    },
+    write: (id, chips) => host.write(id, chips),
+  };
+  await openPage("chat-a", store);
+  const b = await openPage("chat-b", store);
+  expect(shown(b)).toEqual([]);
+  await act(async () => b.current!.attach(screenshot(3)));
+  const a = await openPage("chat-a", store);
+  expect(shown(a).map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(host.writes).toEqual([]);
+  offline = false;
+  await act(async () => void jest.advanceTimersByTime(5_000));
+  const restored = await openPage("chat-b", store);
+  expect(shown(restored).map((chip) => chip.data)).toEqual([screenshot(2).data, screenshot(3).data]);
+  expect(await host.read("chat-a")).toEqual([screenshot(1)]);
 });
 
 test("a chip's contents go to the host once; later writes name it without them", async () => {

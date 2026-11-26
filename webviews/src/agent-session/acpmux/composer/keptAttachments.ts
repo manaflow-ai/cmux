@@ -101,8 +101,13 @@ export function useKeptAttachments(
   const sequence = useRef(0);
   const carry = useRef(carrying);
   carry.current = carrying;
-  /// A chat was read on this page before: the page's first chat keeps what it was opened with.
-  const readOne = useRef(false);
+  const previousChat = useRef<string | undefined>(undefined);
+  // Picks made before the chat's read completes still belong to it if the user navigates away.
+  const restoring = useRef<{
+    sessionId: string;
+    inherited?: ComposerAttachment[];
+    picks: ComposerAttachment[];
+  } | undefined>(undefined);
   /// Writes sent and not answered yet.
   const inFlight = useRef(0);
   /// Each chat's newest write, and the chats whose newest write the host refused (with what it held).
@@ -162,11 +167,19 @@ export function useKeptAttachments(
     if (!sessionId || !store) return;
     // The last chat's chips reach the host before this chat's are read.
     flush();
-    const keepHeld = carry.current();
+    const switching = previousChat.current !== undefined && previousChat.current !== sessionId && !carry.current();
+    previousChat.current = sessionId;
+    const initial = shown.current.attachments;
+    const draft = { sessionId, inherited: switching ? initial : undefined, picks: switching ? [] : initial };
+    restoring.current = draft;
+    if (switching && initial.length) setAttachments(() => []);
     // Not read until this read answers: a chat shown again reads its chips again.
     setReadFor(undefined);
     let current = true;
     const cancel = retryDraftOperation(async () => {
+      const earlier = handoffs.get(sessionId);
+      if (earlier) await earlier;
+      if (!current) return;
       const kept = await store.read(sessionId);
       if (!current) return;
       const read = Array.isArray(kept) ? kept : [];
@@ -176,10 +189,9 @@ export function useKeptAttachments(
       const unkept = refused.current.get(sessionId);
       const back = unkept ? [...read, ...unkept.filter((chip) => !read.some((k) => k.id === chip.id))] : read;
       if (unkept) written.current.ids = "\u0000refused";
-      const keep = keepHeld || !readOne.current;
-      readOne.current = true;
+      restoring.current = undefined;
       setAttachments((held) => {
-        const others = keep ? held.filter((chip) => !back.some((k) => k.id === chip.id)) : [];
+        const others = held.filter((chip) => !back.some((k) => k.id === chip.id));
         return back.length || others.length !== held.length ? [...back, ...others] : held;
       });
       setReadFor(sessionId);
@@ -187,12 +199,19 @@ export function useKeptAttachments(
     return () => {
       current = false;
       cancel();
+      if (restoring.current === draft) {
+        restoring.current = undefined;
+        const picks = keptChips(draft.picks);
+        if (picks.length) void keepElsewhere(store, sessionId, picks);
+      }
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- flush only sends what rests; a chat is read once per session.
   }, [sessionId, store, setAttachments]);
 
   useEffect(() => {
-    if (!sessionId || !store || readFor !== sessionId) return;
+    const draft = restoring.current;
+    if (draft && draft.sessionId === sessionId && attachments !== draft.inherited) draft.picks = attachments;
+    if (!sessionId || !store || readFor !== sessionId || draft) return;
     const chips = keptChips(attachments);
     // Back to what the host has (a chip pasted and sent or removed before it rested): a write still
     // resting would put back what is gone, so it is dropped.
