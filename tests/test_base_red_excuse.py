@@ -170,6 +170,8 @@ class FakeGitHub:
                                     for job in self.jobs.values() if job["head_sha"] == HEAD]}]
         if "/actions/jobs/" in route:
             return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+        if re.search(r"/check-runs/\d+/annotations$", route):
+            return []  # a lost runner's annotations (lost_runner_log's worker_crash): none, unless a test says so
         if route.endswith("/annotations?per_page=100"):
             # A job's check-run annotations (fixed_on_base_by_step's rollup reds): one per `##[error]` line, as the
             # runner makes them.
@@ -7825,6 +7827,30 @@ class LostRunnerIsInfra(unittest.TestCase):
         github.log = lambda repo, job: self.fail("a lost runner's log is never read")
         with self.assertRaisesRegex(excuse.Infra, "infra, not a verdict .*still in_progress.*needs a re-run"):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def worker_crash(self, job_id):
+        github = FakeGitHub()
+        real = json.loads((self.FIXTURES / f"runner-enospc-job-{job_id}.json").read_text())
+        notes = json.loads((self.FIXTURES / f"runner-enospc-annotations-{job_id}.json").read_text())
+        github.jobs[1] = dict(real, id=1, run_id=10, head_sha=HEAD)
+        plain = github.json
+
+        def json_(route, *, paginate=False):
+            if route == f"repos/{REPO}/check-runs/1/annotations":
+                return notes
+            return plain(route, paginate=paginate)
+        github.json = json_
+        github.log = lambda repo, job: self.fail("a crashed worker's log is never read")
+        return github
+
+    def test_a_runner_worker_crash_on_a_full_disk_is_rerun_never_the_prs_own_red(self):
+        # cmux#50809 (job 139341128013) and cmux#50827 (job 139340766008): react-apps-base-check's runner filled its
+        # disk and its worker died mid-step; glaeda-gh reruns "was refused at setup by its runner" once per (head, run).
+        for job_id in ("139341128013", "139340766008"):
+            with self.assertRaisesRegex(excuse.Refused, r"^'web / react-apps-base-check' was refused at setup by its "
+                                                        r"runner \(job 1: its runner's worker crashed \(No space left "
+                                                        r"on device .*/_diag/Worker_.*it gets re-run, never excused$"):
+                excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.worker_crash(job_id))
 
     def test_an_unstored_log_reads_the_annotations(self):
         github = self.lost()
@@ -18338,11 +18364,13 @@ class OtherPrPeerVerdict(unittest.TestCase):
     NOW = OtherPrSetupRed.NOW
     REFUSED = "no feat-cmux-next run of its workflow has a verdict"
 
-    def peer(self, index, *, number=None, changed=(), related="diverged", step="Join tailnet", base="feat-cmux-next"):
+    def peer(self, index, *, number=None, changed=(), related="diverged", step="Join tailnet", base="feat-cmux-next",
+             conclusion="failure"):
         """One other PR's run of iOS E2E: its 'backend' failed at STEP (None: no step failed), its head changes
         CHANGED, compares with this head as RELATED (shares_commits), into BASE."""
         return {"index": index, "number": 44000 + index if number is None else number, "sha": f"{index:x}" * 40
-                if index < 16 else f"{index:040x}", "changed": changed, "related": related, "step": step, "base": base}
+                if index < 16 else f"{index:040x}", "changed": changed, "related": related, "step": step, "base": base,
+                "conclusion": conclusion}
 
     def github(self, peers, *, changed=(), event="pull_request"):
         """EVENT: the pull-request event every run of the workflow has, and the one its `on:` names."""
@@ -18355,7 +18383,7 @@ class OtherPrPeerVerdict(unittest.TestCase):
         jobs, logs, runs = {head_job["id"]: head_job}, {head_job["id"]: head_log}, {}
         runs[self.HEAD_RUN] = {"id": self.HEAD_RUN, "head_sha": self.HEAD_SHA, "head_branch": "lane/chat-output-scroll-box",
                                "pull_requests": [{"number": 41892, "base": {"ref": "feat-cmux-next"}}],
-                               "created_at": "2026-11-15T16:52:56Z"}
+                               "created_at": "2026-11-15T16:52:56Z", "conclusion": "failure"}
         by_sha = {}
         for peer in peers:
             run_id, job_id = 50000 + peer["index"], 60000 + peer["index"]
@@ -18368,7 +18396,8 @@ class OtherPrPeerVerdict(unittest.TestCase):
             jobs[job_id], logs[job_id] = job, peer_log
             runs[run_id] = {"id": run_id, "head_sha": peer["sha"], "head_branch": f"lane/peer-{peer['index']}",
                             "pull_requests": [{"number": peer["number"], "base": {"ref": peer["base"]}}],
-                            "created_at": f"2026-11-15T16:{59 - peer['index']:02d}:00Z"}
+                            "created_at": f"2026-11-15T16:{59 - peer['index']:02d}:00Z",
+                            "conclusion": peer["conclusion"]}
             by_sha[peer["sha"]] = peer
 
         class Fake:
@@ -18393,10 +18422,11 @@ class OtherPrPeerVerdict(unittest.TestCase):
                     if f"event={event}&" not in route:
                         return {"workflow_runs": []}  # it never runs on feat-cmux-next, nor on the other PR event
                     return {"workflow_runs": [
-                        {"event": event, "status": "completed", "conclusion": "failure", "path": case.PATH,
+                        {"event": event, "status": "completed", "path": case.PATH,
                          "workflow_id": case.WORKFLOW, "updated_at": "2026-11-15T17:17:00Z",
                          "html_url": f"https://github.com/{REPO}/actions/runs/{run['id']}", **run}
-                        for run in runs.values()]}
+                        for run in runs.values()
+                        if "status=failure" not in route or run["conclusion"] == "failure"]}  # GitHub's filter
                 if "/actions/runs/" in route and "/jobs?" in route:
                     run = int(route.split("/actions/runs/", 1)[1].split("/", 1)[0])
                     return [{"jobs": [copy.deepcopy(job) for job in jobs.values() if job["run_id"] == run]}]
@@ -18435,6 +18465,21 @@ class OtherPrPeerVerdict(unittest.TestCase):
         with unittest.mock.patch.object(excuse, "datetime", wraps=excuse.datetime) as clock:
             clock.now.return_value = excuse.datetime.fromisoformat(self.NOW)
             return "\n".join(excuse.judge(REPO, "feat-cmux-next", self.HEAD_SHA, [], github, checks=["backend"]))
+
+    def test_skipped_and_cancelled_runs_spend_no_read_and_hide_no_pr(self):
+        # pr-router.yml, 2026-11-26: 17 of its 30 newest completed pull_request runs were skipped (a label or edit
+        # event its `if:` turns away); each spent one of PR_ONLY_PEER_READS, so three failed peers behind ten of them
+        # were never read and cmux#58408's shared 'pr pipeline / linux' red was refused.
+        noise = [self.peer(i, step=None, conclusion=("skipped", "cancelled")[i % 2]) for i in range(1, 11)]
+        # #44011's newest run is a skipped one: its older failed run must still stand for it
+        noise.append(self.peer(11, number=44013, step=None, conclusion="skipped"))
+        github = self.github(noise + [self.peer(i) for i in (12, 13, 14)])
+        said = self.judge(github)
+        self.assertIn("excused 'backend': not this PR (its workflow's red on other PRs)", said)
+        self.assertIn(f"#44012 at {'c' * 12}, #44013 at {'d' * 12}, #44014 at {'e' * 12}", said)
+        self.assertFalse([route for route in github.routes if re.search(r"/actions/runs/5000\d/jobs", route)
+                          or "/actions/runs/50010/jobs" in route or "/actions/runs/50011/jobs" in route],
+                         github.routes)
 
     def test_three_matching_peers_excuse_it(self):
         said = self.judge(self.github([self.peer(i) for i in (1, 2, 3)]))
