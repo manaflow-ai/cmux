@@ -174,7 +174,11 @@ public struct LinkMachine: Sendable {
     /// network for a failure it did not cause.
     private var networkBlockGeneration: Int?
     /// Retry delays in seconds after the silent retries; the last one repeats.
-    public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
+    /// About the first 75 s of an outage retries every 5 s or sooner (an elevator,
+    /// a tunnel, Wi-Fi coming back with no path change iOS reports), then relaxes
+    /// to the old 10, 15, 30. Leo, 11-25: "I feel like iOS doesn't retry
+    /// connections aggressively enough." (`network_flaps` in the reliability matrix.)
+    public var backoff: [Int] = [1, 2, 2, 3, 3] + Array(repeating: 5, count: 13) + [10, 15, 30]
     /// A background shorter than this keeps the link: a quick probe, no redial.
     public static let shortSuspend: Duration = .seconds(30)
     /// Failed dials retried at once, before any failure shows.
@@ -392,6 +396,8 @@ public struct LinkMachine: Sendable {
             case .connecting(_, let attempt): return dial(attempt: attempt, closing: false)
             default: return []
             }
+        // A new path, or the cmux service reachable again (the presence socket's
+        // hello after an outage, which covers Wi-Fi back with no path event).
         case .networkChanged:
             switch phase {
             case .waiting(_, let attempt, _, _): return dial(attempt: attempt + 1, closing: false)
