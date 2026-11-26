@@ -81,3 +81,24 @@ fn forget_and_restore_say_so() {
     assert!(restore_command().contains("tailscaled"));
     assert!(restore_command().ends_with("echo cmux-tailnet-restored"));
 }
+
+#[test]
+fn snapshot_reads_state_without_stopping() {
+    let cmd = snapshot_command();
+    assert!(!cmd.contains("pkill"), "a snapshot never stops the node");
+    assert!(!cmd.contains("systemctl"), "a snapshot never stops the node");
+    assert!(cmd.contains("test -L"), "refuses a symlinked state");
+    let out = format!("cmux-tailnet-state {STATE}\ncmux-tailnet-snapshot\n");
+    assert_eq!(parse_snapshot(&out).expect("snapshot").expose(), STATE);
+    assert!(parse_snapshot(&format!("cmux-tailnet-state {STATE}\n")).is_err(), "no end line");
+    assert!(parse_snapshot("cmux-tailnet-state a;b\ncmux-tailnet-snapshot\n").is_err());
+}
+
+#[test]
+fn check_state_bounds_what_the_vault_hands_back() {
+    assert!(check_state(STATE).is_ok());
+    assert!(check_state("").is_err());
+    assert!(check_state("not base64!").is_err());
+    assert!(check_state(&"A".repeat(MAX_STATE_BYTES + 1)).is_err());
+    assert_eq!(staged_contents(&Secret::new(STATE)), format!("{STATE}\n"));
+}

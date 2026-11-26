@@ -799,6 +799,9 @@ const KNOWN_CODES: [&str; 62] = [
     "vault.no_entry",
     "vault.invalid_hosts",
     "vault.model_key_proxy_only",
+    // The tailnet node the vault keeps (`cmux vm tailnet keep|adopt`, RFD 0169).
+    "vault.tailnet_node_missing",
+    "vault.tailnet_node_conflict",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",
