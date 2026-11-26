@@ -3,7 +3,7 @@
 //! (`/v1/sync/*`) and a fake daemon (the real `FsService` and
 //! `BlobFetchService`) count what crosses each wire, so the same harness
 //! measures the direct link copy and the store path:
-//! `cargo test -p cmux-tui --test link_sync_store -- --nocapture`.
+//! `cargo test -p cmux-tui --test it -- link_sync_store:: --nocapture`.
 #![cfg(unix)]
 
 use std::collections::HashMap;
