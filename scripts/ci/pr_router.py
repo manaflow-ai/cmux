@@ -60,9 +60,11 @@ import head_tier  # noqa: E402
 import workflow_paths_cover_inputs as filters  # noqa: E402
 
 ROOT = HERE.parents[1]
-# The step table's jobs that run only on a full-tier head (head_tier.py): a draft, or a base merge into an idle pull
-# request, routes them nowhere, as cmux-next.yml's path_route turned every Mac tier off for one.
-FULL_TIER_JOBS = ("mac",)
+# The step table's jobs that run only on a full-tier head (head_tier.py): a cheap head (a draft, a ready head before
+# `ready-to-land` or `full-ci`, a base merge into an idle pull request) routes them nowhere, so pr-pipeline.yml does not
+# start on it at all. mac alone was here until 11-25, so linux, web-browser and ios ran on every cheap push: about 50k
+# runner-minutes a day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
+FULL_TIER_JOBS = ("linux", "web-browser", "mac", "ios")
 MANIFEST = HERE / "pr_router.json"
 ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
@@ -181,6 +183,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = ("draft: starts when marked ready for review (or with full-ci)" if pr.get("draft") is not False
                          else tier_reason)
             continue
+        # A callee whose every table job is full-tier-only starts on no cheap head (a fast-track head is full tier).
+        if tier != "full" and config.get("table_jobs") and set(config["table_jobs"]) <= set(FULL_TIER_JOBS):
+            why[name] = "cheap tier: starts when ready-to-land or full-ci is added (or the draft is marked ready)"
+            continue
         if files is None:
             start.append(name)
             why[name] = "changed files unknown: starts"
@@ -259,10 +265,11 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
 
 def land_status(event: dict, decided: tuple[str, str]) -> str:
     """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
-    it on the cheap tier (or idle), `success` once it runs the full tier, empty where the land rule does not apply."""
+    it on the cheap tier (or idle), `success` once it runs the full tier or the land carry rule carries its previous
+    head's success (head_tier.carried), empty where the land rule does not apply."""
     if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
         return ""
-    return "success" if decided[0] == "full" else "pending"
+    return "success" if decided[0] == "full" or head_tier.carried(decided) else "pending"
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,

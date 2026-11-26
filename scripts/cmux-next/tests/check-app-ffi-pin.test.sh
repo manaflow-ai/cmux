@@ -306,5 +306,26 @@ if out="$(cd "$shallow" && CMUX_APP_FFI_PIN_NOW="$((behind_at + 4000))" bash scr
   fail "a shallow checkout passed an overdue pin: $out"
 fi
 [[ "$out" == *"error: the pin has been behind for 66 min"* ]] || fail "a shallow checkout lost the first commit: $out"
+# A treeless clone (app-ffi-repin.yml, filter: tree:0) reads each commit's tree lazily while it dates the pin, and
+# one lazy fetch that stalls failed the whole read: the pin was judged stale and the base pin refused (re-pin run
+# 45714815881, 2026-11-25: "could not fetch ... from promisor remote"). The read is retried before it is given up.
+flaky="$tmp/flaky-bin"
+mkdir -p "$flaky"
+real_git="$(command -v git)"
+cat >"$flaky/git" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == log && " \$* " == *" --reverse "* && ! -e "$flaky/failed" ]]; then
+  : >"$flaky/failed"
+  echo "fatal: could not fetch 5d58acab2bbe84b0b25fd83d3eb80838d35f5c32 from promisor remote" >&2
+  exit 128
+fi
+exec "$real_git" "\$@"
+EOF
+chmod +x "$flaky/git"
+out="$(cd "$repo" && PATH="$flaky:$PATH" CMUX_APP_FFI_PIN_NOW="$((behind_at + 600))" CMUX_APP_FFI_PIN_RETRY_SLEEP=0 \
+  bash scripts/cmux-next/check-app-ffi-pin.sh --stale-grace 3600 2>&1)" \
+  || fail "one failed lazy fetch while dating the pin judged it stale: $out"
+[[ -e "$flaky/failed" ]] || fail "the flaky git shim never ran"
+[[ "$out" == *"note: the pin is behind: the app FFI sources changed 10 min ago"* ]] || fail "the retried read dated the pin wrong: $out"
 
 echo "check-app-ffi-pin.test.sh: ok"
