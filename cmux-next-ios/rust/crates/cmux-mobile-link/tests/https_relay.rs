@@ -325,7 +325,10 @@ async fn a_mac_without_the_relay_is_named_as_the_reason() {
     let DialError::Blocked(failures) = error else { panic!("not blocked: {error}") };
     assert_eq!(failures.relay.as_deref(), Some("peer_cannot"));
     assert!(started.elapsed() < Duration::from_secs(5));
-    assert_eq!(rig.server.relay_joins(), 0);
+    // A phone with no other path joins on its early ticket before the Mac's
+    // answer says it cannot relay (PROTOCOL.md "Early relay ticket"); that
+    // join is aborted, never more than the one.
+    assert!(rig.server.relay_joins() <= 1, "{}", rig.server.relay_joins());
 }
 
 /// Plain UDP is lost on both sides (this test's switch); `drop_udp_to`
@@ -687,4 +690,47 @@ async fn met_on_the_relay_goes_direct(old_peer: bool, cell: &str) {
         up.elapsed().as_secs_f64() * 1000.0
     );
     connected.link.close("done");
+}
+
+/// PROTOCOL.md "Early relay ticket", new and old hub: a phone with no path but
+/// the relay asks for its ticket in its `wg-init`; a hub that answers
+/// (`wg-ticket`) lets its join run while a slow Mac answers, and the session
+/// takes that join (one join per side). A hub that never answers leaves the
+/// phone joining after `wg-resp`, as before. Prints both dial times.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_early_ticket_joins_while_the_mac_answers_and_an_older_hub_still_works() {
+    let mut took = Vec::new();
+    for old_hub in [false, true] {
+        let fake = FakeOptions {
+            no_early_ticket: old_hub,
+            answer_delay: Duration::from_millis(600),
+            relay_join_delay: Duration::from_millis(400),
+            ..FakeOptions::default()
+        };
+        let rig = rig(fake, options(), true).await;
+        let phone = DialOptions { force_relay: true, relay: relay(&rig.server, &rig.phone_id), ..options() };
+        let started = std::time::Instant::now();
+        let connected =
+            dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+                .await
+                .expect("dial through the relay");
+        echo(&connected.link, 2).await;
+        took.push(started.elapsed());
+        assert_eq!(*connected.path.borrow(), LinkPath::HttpsRelay);
+        let session = rig.server.sessions_with("wg-init").remove(0);
+        let resp = rig.server.forwarded_at(&session, "wg-resp").expect("wg-resp forwarded");
+        let joins = rig.server.relay_joins_of(&rig.phone_id);
+        assert_eq!(joins.len(), 1, "old hub {old_hub}: the phone joined once: {joins:?}");
+        if old_hub {
+            assert!(joins[0] > resp, "an older hub: the phone joins after wg-resp");
+        } else {
+            assert!(joins[0] < resp, "the early ticket's join ran before wg-resp");
+        }
+        connected.link.close("done");
+    }
+    eprintln!(
+        "relay-only dial with a 600 ms Mac answer: early ticket {:?}, older hub {:?}",
+        took[0], took[1]
+    );
+    assert!(took[0] < took[1], "{took:?}");
 }

@@ -23,6 +23,7 @@ pub(crate) mod turn;
 pub use dpi::dropped_wireguard_datagrams;
 /// Measurement support (cmux-mobile-path-probe).
 pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
+pub use wireguard::EarlyTurn;
 pub mod webrtc;
 pub mod wireguard;
 
@@ -709,6 +710,26 @@ pub async fn connect(
     connect_on(signaling, mac, kind, options, link_config, None).await
 }
 
+/// Phone side, [`connect`] taking `early`, the TURN allocation a cold dial
+/// started as soon as `/v1/ice` answered, beside the signaling socket's open
+/// ([`EarlyTurn::for_dial`] on these `options`): its round trips (behind a
+/// proxy: a `CONNECT`, TLS through it, then the allocation) overlap the
+/// socket's instead of following them. `None` is [`connect`]. An allocation
+/// the dial never takes (it was refused, or this future was dropped) is
+/// released at once.
+pub async fn connect_with_early_turn(
+    signaling: &SignalingClient,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+    early: Option<EarlyTurn>,
+) -> Result<Connected, DialError> {
+    refuse_unreachable(kind, options)?;
+    connect_on(signaling, mac, kind, options, link_config, early.filter(|_| kind == TransportKind::WireGuard))
+        .await
+}
+
 /// Phone side, a redial: `signaling` is the signaling reconnect, and the
 /// dial ([`connect`]) follows it on the client it gives. A WireGuard dial's
 /// TURN allocation starts now, beside the reconnect, instead of after it:
@@ -726,7 +747,7 @@ pub async fn connect_after<E: std::fmt::Display>(
     link_config: LinkConfig,
 ) -> Result<(SignalingClient, Connected), DialError> {
     refuse_unreachable(kind, options)?;
-    let early = (kind == TransportKind::WireGuard).then(|| wireguard::EarlyTurn::start(options));
+    let early = EarlyTurn::for_dial(kind, options);
     let signaling = signaling.await.map_err(|error| DialError::Signaling(error.to_string()))?;
     options.timeline.mark("signaling_connected");
     let connected = connect_on(&signaling, mac, kind, options, link_config, early).await?;
