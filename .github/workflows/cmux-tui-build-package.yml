@@ -1238,7 +1238,11 @@ jobs:
     timeout-minutes: 60
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
-      # See build-windows: public keys compiled into the `cmux` binary.
+      # The cmux server's release public keys (decision SV-R1), compiled into
+      # the `cmux` binary with option_env!; the binary never reads them at run
+      # time. Public keys, so a repository variable, not a secret. Unset means
+      # a build that trusts no manifest (`cmux server install` exits 7); a
+      # malformed value fails the build.
       CMUX_SERVER_RELEASE_KEYS: ${{ vars.CMUX_SERVER_RELEASE_KEYS }}
     permissions:
       contents: read
