@@ -259,6 +259,14 @@ function build(): Component[] {
   function addOutside(d: ts.Node, sym: ts.Symbol, name: string) {
     const sf = d.getSourceFile();
     const file = rel(sf.fileName);
+    // A kit barrel can export an in-tree component under a second name, for
+    // example `Surface as Panel` or `AnchoredCard as Card`. Reuse the source
+    // record so the alias keeps its props and gallery entries.
+    const inherited = found.get(`${file}#${sym.name}`);
+    if (inherited) {
+      found.set(`${file}#${name}`, { ...inherited, name, tier: "kit", kitExport: true });
+      return;
+    }
     const stmt = ts.findAncestor(d, (n) => ts.isVariableStatement(n) || ts.isFunctionDeclaration(n)) ?? d;
     const attrs = new Set<string>();
     const scan = (n: ts.Node) => {
