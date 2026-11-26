@@ -22,7 +22,7 @@ use crate::wire::AssignmentKind;
 
 /// The chat is not this machine's any more.
 fn leave(out: &mut Out) {
-    out.chat.declined = false;
+    give::forget(out);
     out.chat.needs_run = false;
     out.chat.told_needs_run = false;
     out.chat.copy = CopyState::Stored;
@@ -54,7 +54,7 @@ fn lost(out: &mut Out) {
 fn take(out: &mut Out, kind: AssignmentKind, epoch: u64, now: u64) {
     let reason = ImportReason::from(kind);
     out.rest();
-    out.chat.declined = false;
+    give::forget(out);
     out.chat.needs_run = false;
     out.chat.told_needs_run = false;
     out.chat.copy = CopyState::Stored;
@@ -101,7 +101,7 @@ fn served(out: &mut Out, answer: Answer, now: u64) {
     let epoch = answer.epoch;
     out.to(State::Serving { epoch });
     // The person moved the chat: it is given, and whoever gets it takes the inbox.
-    if let Some(to) = give::wanted(out, answer.wish) {
+    if let Some(to) = give::wanted(out, answer.wish, answer.wish_at) {
         return give::begin(out, epoch, to);
     }
     if answer.inbox_pending {
@@ -199,14 +199,10 @@ pub(super) fn taking(
 pub(super) fn serving(out: &mut Out, epoch: u64, event: Event, now: u64) {
     match event {
         Event::Assigned { kind, epoch: at } => assigned_while_running(out, epoch, kind, at, now),
-        // An idle chat whose last copy failed is copied again: until the store has it, the
-        // chat cannot go home.
+        // The machine needs a replica during a silent turn too, not only at turn end.
         Event::Tick => {
             if out.due(now) {
-                let failed = out.chat.copy == CopyState::Failed;
-                if failed && !out.chat.needs_run && !out.chat.too_large {
-                    out.copy(now);
-                }
+                out.checkpoint(now);
                 out.renew(now);
             }
         }
@@ -233,10 +229,19 @@ pub(super) fn serving(out: &mut Out, epoch: u64, event: Event, now: u64) {
         }
         Event::SnapshotFailed { copy, too_large } => out.failed(copy, too_large),
         Event::Closed { .. } => gone(out),
-        Event::Wished { to } => {
-            out.chat.declined = false;
-            if let Some(to) = give::wanted(out, Some(to)) {
+        Event::Wished { to, at } => {
+            give::forget(out);
+            if let Some(to) = give::wanted(out, Some(to), at) {
                 give::begin(out, epoch, to);
+            }
+        }
+        // A give this machine asked before the move was taken back, answered only now. The
+        // store's answer is true whenever it arrives: past this machine's epoch the chat is
+        // another holder's, as a renewal answered "lost" says. At that epoch or below, the
+        // answer is to a give from before this machine got the chat.
+        Event::Gave { epoch: at } => {
+            if at > epoch {
+                lost(out);
             }
         }
         Event::AutoOn
@@ -244,7 +249,6 @@ pub(super) fn serving(out: &mut Out, epoch: u64, event: Event, now: u64) {
         | Event::ImportDone { .. }
         | Event::ImportFailed { .. }
         | Event::TurnStopped
-        | Event::Gave { .. }
         | Event::GiveFailed { .. } => {}
     }
 }
@@ -280,7 +284,10 @@ pub(super) fn returning(
                     // it waited too long: the chat goes on here. A wish goes on as the store
                     // tells it now: its epoch, and where the chat goes.
                     Verdict::Holder => match answer.wish {
-                        Some(to) => out.to(State::Returning { epoch: answer.epoch, step, to }),
+                        Some(to) => {
+                            give::told(out, answer.wish_at);
+                            out.to(State::Returning { epoch: answer.epoch, step, to });
+                        }
                         None => {
                             out.push(Effect::Stay);
                             served(out, answer, now);
@@ -300,13 +307,23 @@ pub(super) fn returning(
         Event::SnapshotFailed { copy, too_large } => {
             give::copy_failed(out, epoch, to, copy, too_large);
         }
-        Event::Gave { .. } => match step {
-            GiveStep::Asking => {
-                out.push(Effect::KillTree);
-                leave(out);
+        // Past this machine's epoch the chat is another holder's, at any step. The store took
+        // a give only with a copy that covered the chat's last event, so a machine that asked
+        // with its newest copy keeps nothing. Before that step the answer is to an earlier
+        // give of this chat, asked before the move was taken back: what ran here since is
+        // kept. At this machine's epoch or below, the answer is to a give from before this
+        // machine got the chat.
+        Event::Gave { epoch: at } => {
+            if at > epoch {
+                match step {
+                    GiveStep::Asking => {
+                        out.push(Effect::KillTree);
+                        leave(out);
+                    }
+                    GiveStep::Stopping | GiveStep::Copying => gone(out),
+                }
             }
-            GiveStep::Stopping | GiveStep::Copying => {}
-        },
+        }
         Event::GiveFailed { why } => give::failed(out, epoch, step, to, why, now),
         Event::Closed { .. } => gone(out),
         Event::AutoOn

@@ -14,7 +14,6 @@ public struct EmptyState: View {
     let primaryTitle: LocalizedStringKey?
     let isPrimaryLoading: Bool
     let primary: (() -> Void)?
-    let retry: (@MainActor () async -> Void)?
     let secondaryTitle: LocalizedStringKey?
     let secondary: (() -> Void)?
 
@@ -25,7 +24,6 @@ public struct EmptyState: View {
         primaryTitle: LocalizedStringKey? = nil,
         isPrimaryLoading: Bool = false,
         primary: (() -> Void)? = nil,
-        retry: (@MainActor () async -> Void)? = nil,
         secondaryTitle: LocalizedStringKey? = nil,
         secondary: (() -> Void)? = nil
     ) {
@@ -35,7 +33,6 @@ public struct EmptyState: View {
         self.primaryTitle = primaryTitle
         self.isPrimaryLoading = isPrimaryLoading
         self.primary = primary
-        self.retry = retry
         self.secondaryTitle = secondaryTitle
         self.secondary = secondary
     }
@@ -62,9 +59,7 @@ public struct EmptyState: View {
                 PrimaryCapsule(primaryTitle, size: .inline, isLoading: isPrimaryLoading, action: primary)
                     .padding(.top, 20)
             }
-            if let retry {
-                RetryButton(action: retry).padding(.top, 20)
-            }
+            // No Retry: a failed load retries on its own (`AutoRetry`); the state says why.
             if let secondaryTitle, let secondary {
                 TextCTA(secondaryTitle, action: secondary)
                     .padding(.top, primaryTitle == nil ? 20 : 12)
@@ -294,7 +289,8 @@ public struct SkeletonList: View {
 }
 
 /// Inline failure card (SPEC 7.3): `bg` with a 1 pt `separator` stroke, radius
-/// 20, symbol + title + body, then a large primary capsule.
+/// 20, symbol + title + body, then a large primary capsule. The capsule is a step the person
+/// takes (sign in, choose); a reload is never one: loads retry on their own (`AutoRetry`).
 public struct FailureCard: View {
     let symbol: String
     let title: LocalizedStringKey
@@ -303,7 +299,7 @@ public struct FailureCard: View {
     let isLoading: Bool
     let action: () -> Void
 
-    public init(symbol: String = "exclamationmark.triangle", title: LocalizedStringKey, message: LocalizedStringKey, actionTitle: LocalizedStringKey = "Retry", isLoading: Bool = false, action: @escaping () -> Void) {
+    public init(symbol: String = "exclamationmark.triangle", title: LocalizedStringKey, message: LocalizedStringKey, actionTitle: LocalizedStringKey, isLoading: Bool = false, action: @escaping () -> Void) {
         self.symbol = symbol
         self.title = title
         self.message = message
