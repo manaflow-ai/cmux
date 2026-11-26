@@ -961,7 +961,7 @@ mod tests {
                 "-c",
                 "agents.max_depth=16",
                 "-c",
-                "tools.update_plan.enabled=true",
+                "tools.update_plan.enabled=false",
                 "app-server",
             ]),
         ] {
