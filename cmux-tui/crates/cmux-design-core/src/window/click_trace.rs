@@ -149,10 +149,11 @@ impl ClickTrace {
         if !is_press(press.kind) {
             return;
         }
-        if let Some(open) = self.open {
-            if open.timestamp == press.timestamp && open.timestamp != 0.0 {
-                return;
-            }
+        if let Some(open) = self.open
+            && open.timestamp == press.timestamp
+            && open.timestamp != 0.0
+        {
+            return;
         }
         let (window, window_number) = match &press.window {
             Some(w) => (w.name.clone(), w.number),
@@ -302,17 +303,17 @@ impl ClickTrace {
         match step {
             Step::Press { press, uptime, at } => self.press(press, *uptime, at),
             Step::OverlayTook { press, panel, uptime, at } => {
-                self.overlay_took(press, panel, *uptime, at)
+                self.overlay_took(press, panel, *uptime, at);
             }
             Step::Forwarded { kind, timestamp, target } => {
-                self.forwarded(*kind, *timestamp, target)
+                self.forwarded(*kind, *timestamp, target);
             }
             Step::PageGrant { tab, outcome, uptime } => self.page_grant(tab, outcome, *uptime),
             Step::Dispatched { kind, timestamp, key_window } => {
-                self.dispatched(*kind, *timestamp, key_window.as_ref())
+                self.dispatched(*kind, *timestamp, key_window.as_ref());
             }
             Step::Settled { timestamp, key_window } => {
-                self.settled(*timestamp, key_window.as_ref())
+                self.settled(*timestamp, key_window.as_ref());
             }
         }
     }

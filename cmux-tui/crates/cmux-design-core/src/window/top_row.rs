@@ -448,8 +448,8 @@ impl WindowedTrafficLights {
         self.place = Some(WindowedPlace {
             x: lights.min_x(),
             from_top: window_height - lights.max_y(),
-            width: lights.width.abs(),
-            height: lights.height.abs(),
+            width: lights.width,
+            height: lights.height,
         });
     }
 

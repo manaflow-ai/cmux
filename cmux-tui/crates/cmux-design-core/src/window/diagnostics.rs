@@ -312,10 +312,10 @@ pub fn top_alignment(
         if let Some(key) = view.identifier.as_deref().and_then(band_key) {
             out.insert(key.into(), json!(rect_box(&view.bounds)));
         }
-        if let Some(kind) = view.kind.as_deref() {
-            if prefers(&view.bounds, best.get(kind).map(|b| b.0)) {
-                best.insert(kind, (&view.bounds, &view.frames));
-            }
+        if let Some(kind) = view.kind.as_deref()
+            && prefers(&view.bounds, best.get(kind).map(|b| b.0))
+        {
+            best.insert(kind, (&view.bounds, &view.frames));
         }
     }
     for (kind, (anchor, frames)) in best {

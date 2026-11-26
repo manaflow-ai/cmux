@@ -82,10 +82,10 @@ impl SettleTally {
         self.changed_frames += 1;
         self.last_change_ms = Some(ms);
         self.last_changed = change.to_string();
-        if let Some(mv) = mv {
-            if mv.points > self.largest.as_ref().map_or(0.0, |l| l.points) {
-                self.largest = Some(mv);
-            }
+        if let Some(mv) = mv
+            && mv.points > self.largest.as_ref().map_or(0.0, |l| l.points)
+        {
+            self.largest = Some(mv);
         }
     }
 
@@ -109,10 +109,10 @@ impl SettleTally {
         if self.last_change_ms.is_some() {
             marks.push((format!("layout.last.{}", self.last_changed), settle));
         }
-        if let Some(last) = self.last_change_ms {
-            if last - first > CAP_MS - QUIET_MS {
-                marks.push(("layout.capped".to_string(), settle));
-            }
+        if let Some(last) = self.last_change_ms
+            && last - first > CAP_MS - QUIET_MS
+        {
+            marks.push(("layout.capped".to_string(), settle));
         }
         marks
     }
@@ -154,7 +154,7 @@ pub fn record_request(arguments: &[String], home: &str) -> Option<RecordRequest>
         .and_then(|s| s.parse::<f64>().ok());
     Some(RecordRequest {
         dir: expand_tilde(dir, home),
-        seconds: asked.unwrap_or(6.0).max(0.1).min(12.0),
+        seconds: asked.unwrap_or(6.0).clamp(0.1, 12.0),
     })
 }
 
