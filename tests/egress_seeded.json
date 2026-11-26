@@ -146,9 +146,6 @@
   "cmux_tui::cloud_conversations_backend": {
    "todo": true
   },
-  "cmux_tui::coderouter_usage": {
-   "todo": true
-  },
   "cmux_tui::devices::setup::verbs": {
    "todo": true
   },
