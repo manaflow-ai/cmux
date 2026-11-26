@@ -106,11 +106,6 @@ export function OverviewView({ read, locale, t }: { read: AuditRead; locale: str
       {status && (
         <div className="cst-status" aria-live="polite">
           {status}
-          {read.result?.kind === "failed" && (
-            <button type="button" className="cst-link" onClick={read.retry}>
-              {t("ledger.retry")}
-            </button>
-          )}
         </div>
       )}
     </div>
@@ -233,11 +228,6 @@ function PerPrTable({ title, read, locale, t }: { title: StringKey; read: AuditR
       {status && (
         <div className="cst-status" aria-live="polite">
           {status}
-          {read.result?.kind === "failed" && (
-            <button type="button" className="cst-link" onClick={read.retry}>
-              {t("ledger.retry")}
-            </button>
-          )}
         </div>
       )}
     </section>
