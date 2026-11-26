@@ -26,7 +26,7 @@ cp "$t/good.zip" "\$out"
 STUB
 chmod +x "$t/bin/curl" "$t/bin/gh"
 fail() { echo "FAIL: $*" >&2; exit 1; }
-run() { PATH="$t/bin:$PATH" CMUX_CI_CACHE="$t/cache" HOME="$t/home" env -u GITHUB_TOKEN -u GH_TOKEN "$@" bash "$helper" 2.46.0 "$good" "$t/dest"; }
+run() { CMUX_FLEET_TOOLS="${FLEET:-$t/nofleet}" PATH="$t/bin:$PATH" CMUX_CI_CACHE="$t/cache" HOME="$t/home" env -u GITHUB_TOKEN -u GH_TOKEN "$@" bash "$helper" 2.46.0 "$good" "$t/dest"; }
 
 # 1. token: Bearer header, then cached
 : >"$t/curl.log"
@@ -47,4 +47,14 @@ rm -rf "$t/cache" "$t/dest"; echo junk >"$t/bad.zip"
 if run env STUB_ZIP="$t/bad.zip" GITHUB_TOKEN=tok >"$t/o" 2>"$t/e"; then fail "mismatch accepted"; fi
 grep -q "expected $good" "$t/e" || fail "no mismatch message"
 [[ ! -e "$t/cache/xcodegen/2.46.0/xcodegen.zip" ]] || fail "bad zip cached"
+# 5. fleet tools copy wins, no network; a wrong-version copy is skipped
+rm -rf "$t/cache" "$t/dest"; : >"$t/curl.log"
+mkdir -p "$t/fleet/xcodegen-2.46.0/bin" "$t/fleet/xcodegen-2.46.0/share/xcodegen"
+printf '#!/bin/sh\necho "Version: 2.46.0"\n' >"$t/fleet/xcodegen-2.46.0/bin/xcodegen"; chmod +x "$t/fleet/xcodegen-2.46.0/bin/xcodegen"
+out="$(FLEET="$t/fleet" run env FLEET="$t/fleet")" || fail "fleet tools"
+[[ "$out" == "$t/dest/xcodegen/bin/xcodegen" && -d "$t/dest/xcodegen/share/xcodegen" ]] || fail "fleet copy $out"
+[[ ! -s "$t/curl.log" ]] || fail "fleet copy touched the network"
+printf '#!/bin/sh\necho "Version: 2.40.0"\n' >"$t/fleet/xcodegen-2.46.0/bin/xcodegen"; rm -rf "$t/dest"
+FLEET="$t/fleet" run env FLEET="$t/fleet" >/dev/null || fail "wrong-version fleet copy"
+[[ -s "$t/curl.log" ]] || fail "wrong-version fleet copy was used"
 echo "ok"

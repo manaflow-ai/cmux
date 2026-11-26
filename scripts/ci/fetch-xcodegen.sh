@@ -5,6 +5,9 @@
 #
 # GitHub answers the fleet Macs' anonymous release downloads with 403 (hq#27705: retrying does not
 # help), so one helper owns the fetch for every iOS script. Order:
+#   0. the fleet's own tool install ($CMUX_FLEET_TOOLS, default /Users/Shared/cmux-build-fleet/tools:
+#      xcodegen-VERSION/ as fleet-tools.py lays it out, or xcodegen/VERSION/), used when its binary
+#      reports VERSION; no download at all;
 #   1. the per-host cache ${CMUX_CI_CACHE:-$HOME/Library/Caches/cmux-ci}/xcodegen/VERSION/xcodegen.zip
 #      (kept only after its sha256 matches), so a host downloads at most once;
 #   2. curl with "Authorization: Bearer $GITHUB_TOKEN" (or $GH_TOKEN) when either is set;
@@ -21,6 +24,19 @@ cached="$cache_dir/xcodegen.zip"
 url="https://github.com/yonaskolb/XcodeGen/releases/download/$version/xcodegen.zip"
 
 sha_of() { shasum -a 256 "$1" | awk '{ print $1 }'; }
+
+# The fleet's install: copy its whole tree (the binary needs ../share/xcodegen), never run it in place.
+fleet_tools="${CMUX_FLEET_TOOLS:-/Users/Shared/cmux-build-fleet/tools}"
+for tree in "$fleet_tools/xcodegen-$version" "$fleet_tools/xcodegen/$version"; do
+  [[ -x "$tree/bin/xcodegen" ]] || continue
+  if [[ "$("$tree/bin/xcodegen" --version 2>/dev/null | head -1)" == *"$version" ]]; then
+    mkdir -p "$dest/xcodegen" && cp -R "$tree/." "$dest/xcodegen/" &&
+      [[ -x "$dest/xcodegen/bin/xcodegen" ]] || continue
+    echo "fetch-xcodegen: $version from the fleet tools $tree" >&2
+    echo "$dest/xcodegen/bin/xcodegen"
+    exit 0
+  fi
+done
 
 mkdir -p "$dest"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/fetch-xcodegen.XXXXXX")"
