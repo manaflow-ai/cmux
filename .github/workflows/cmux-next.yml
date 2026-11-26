@@ -877,6 +877,8 @@ jobs:
       actions: read
       contents: read
       pull-requests: read
+      # head_tier.py's land carry rule reads the previous head's cmux/land-tier status.
+      statuses: read
     outputs:
       native: ${{ steps.route.outputs.native }}
       app_compile_pr: ${{ steps.route.outputs.app_compile_pr }}
@@ -995,6 +997,9 @@ jobs:
           GENERATED_LINUX: ${{ format('{0}', vars.CI_GENERATED_FILES_LINUX) != '0' }}
           # Why: 2026-11-24-path_route-2.md
           CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}
+          # A ready-to-land head that only merges the base onto a head whose full tier passed runs the cheap tier and
+          # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
+          CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
       # Why: 2026-11-24-path_route-3.md
       - name: Jobs red on the base right now
