@@ -171,6 +171,7 @@ import { holdCloudAgentPick } from "../cloudAgentPick";
 import { askPermissionFocus } from "../permissions/focusRequest";
 import type { PermissionDecision } from "../permissions/protocol";
 import { planBuildTarget } from "../permissions/planBuild";
+import { forkFirstOffer } from "../direct/permissions";
 import { type PaneSurface, readSurface } from "../paneSurface";
 import { designSelectionChips, designSelectionRemovals } from "../designSelection";
 import { setFloatingState } from "../floatingState";
@@ -182,7 +183,6 @@ import { offerPicks } from "../offer/offerChoice";
 import { offerWorktree } from "../offer/offerWorktree";
 import { setLinkPlaces, updateLinkPlaces } from "../chips/cmuxLinkPlaces";
 import { setExperimentSwitches } from "../../../experiments/switches";
-import { setSessionStatus } from "../sessionStatus";
 import { pageEditHold, pageReleaseHold } from "../../../pages/shared/webSwap";
 import type { SandboxTab } from "../sandboxRun";
 import { callNative } from "../callNative";
@@ -761,9 +761,6 @@ export function paneSnapshotEffect({
     },
     applySidebarPreviewVariant(variant) {
       configureNativeSidebarPreviewVariant(variant);
-    },
-    applySessionStatus(on) {
-      setSessionStatus(on === true);
     },
     applyExperiments(value) {
       setExperimentSwitches(value);
@@ -1906,7 +1903,7 @@ export function paneSnapshotEffect({
             typeof value === "string" ? value : undefined,
             typeof keepAs === "string" ? keepAs : undefined,
           ),
-        "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
+        "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId, forkFirst }) =>
           client.permission(
             String(permissionId),
             optionId === undefined || optionId === null ? undefined : String(optionId),
@@ -1914,6 +1911,7 @@ export function paneSnapshotEffect({
             // The Needs you list answers asks of other chats too.
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
             annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
+            forkFirstOffer(forkFirst),
           ),
         "chat.plan.build": ({ permissionId, target, sessionId, plan }) =>
           client.planBuild(

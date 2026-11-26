@@ -128,6 +128,9 @@ public final class AgentPaneModel {
     /// (``AgentPaneCloudRepick``): the App moves the chat there and sends its first prompt again.
     @ObservationIgnored public var onCloudRepickChat: (@MainActor (AgentPaneCloudRepick) async -> [String: Any])?
     @ObservationIgnored public var onCloudHandoffTurn: (@MainActor (_ sessionId: String) async -> [String: Any])?
+    /// "Fork first" on a risky step (``AgentPaneForkFirst``): the App forks the chat's Cloud machine with the
+    /// person's token and answers `{fork, forkMs}` or a refusal. Nil: no Fork first in this app.
+    @ObservationIgnored public var onCloudForkFirst: (@MainActor (AgentPaneForkFirst) async -> [String: Any])?
     /// The session a pane with no chat yet asked hand-off turns for (`cloud.handoffTurn`).
     @ObservationIgnored private var handoffSession: String?
     /// Shared web owns each compose's warm request; native only forwards it to Rust.
@@ -867,6 +870,7 @@ public final class AgentPaneModel {
             }
             if sessionId == nil { handoffSession = session }
             return await onCloudHandoffTurn(session)
+        case .cloudForkFirst(let fork): return await forkFirst(fork)
         case .cloudMachine(let request): return await request.reply(cloudMachines, gestures: transport.gestures)
         case .cloudRepository(let request):
             return await request.reply(remoteChat: remoteChat, sessionID: sessionId,
