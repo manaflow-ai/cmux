@@ -30,11 +30,11 @@ pub use contract::{
 pub use error::CloudError;
 pub use host_replica::{
     CLOUD_HOST_REPLICA_CAPABILITY, HostOpRefusal, HostReplica, HostReplicaOptions,
-    HostReplicaParams, HostSource, valid_host_id,
+    HostReplicaParams, HostSource, ReplicaSeal, valid_host_id,
 };
 pub use service::{
     CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply,
-    INBOX_ALL_BUDGET, MAX_INBOX_PAGES, OwnerWire, OwnerWireError, PutBody, RangeReply,
+    INBOX_ALL_BUDGET, LeaseBearer, MAX_INBOX_PAGES, OwnerWire, OwnerWireError, PutBody, RangeReply,
     RequestPermit, ServiceOptions, TransportError, WireInterrupt, WireRecv,
 };
 pub use session::SessionParams;
@@ -54,5 +54,5 @@ pub const CLOUD_ATTACHMENTS_CAPABILITY: &str = "cloud-attachments-v1";
 /// only, no Authorization header) and `cloud-selfhost-info`.
 pub const CLOUD_SELFHOST_CAPABILITY: &str = "cloud-selfhost-v1";
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 pub mod testing;

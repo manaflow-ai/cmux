@@ -285,10 +285,13 @@ closed with 4001 `moved`.
     from peers that never send relay frames and confirm routes with an
     in-tunnel `reach` message (below). `relay` (0.17.0, optional) says the
     sender can join the session's WebSocket relay ("WebSocket relay"
-    below): `"ready"` (when nothing else reaches the peer) or `"now"` (it
-    has no other path: no plain UDP and no TURN allocation, so the peer
-    joins at once too); absent from older peers, which never join, and
-    then neither does this side. A roam's endpoint announcement
+    below): `"ready"` (when nothing else reaches the peer), `"first"`
+    (relay first: it joins as its dial starts, beside the direct
+    race, and so does a peer that said `"first"` too; a peer that reads
+    it as `"ready"` keeps the older rule) or `"now"` (it has no other
+    path: no plain UDP and no TURN allocation, so the peer joins at once
+    too); absent from older peers, which never join, and then neither
+    does this side. A roam's endpoint announcement
     (`{"t":"endpoints", generation, endpoints, relayed?, relayedTls?, mapped?, mappedBy?}`)
     carries a new allocation's address the same way. Older peers omit all
     of these, and the label stays `direct`.
@@ -598,7 +601,25 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   vectors), kind `datagrams` only: one or more `[u16 length][datagram]`
   records, as many ready datagrams as fit in one message. The relay sends
   each frame to the other party's socket with `peer` set to the sender's
-  device id (the UUID's 16 bytes) and never reads the payload. Malformed
+  device id (the UUID's 16 bytes) and never reads the payload. Kind 4
+  `tagged-datagrams` (same frame version 1) carries hop/1 DATA records
+  (`docs/cmux-next/relay-pop-hop.md`: `[u8 class][u8 flags][u32 key, u32
+  key_seq if flags&1][u16 len > 0][bytes]`, tiling the payload exactly; golden
+  vectors `relay-tagged-frames.json`) so one record means the same on the UDP
+  PoP and here. The relay forwards it like `datagrams`, coalescing the tagged
+  records that reach one target socket in the same event-loop turn into
+  fewer frames and dropping a class-1 record when a newer one of the same key
+  is queued with it; it never drops or reorders other classes, and sends a
+  plain `datagrams` frame only after the records queued before it. Workers'
+  WebSocket has no `bufferedAmount` or drain signal, so it cannot see a send
+  backlog: this is coalescing of what it already holds, not backpressure.
+  An older relay answers kind 4 with `bad_frame:kind` and a sender then
+  falls back to `datagrams` (`RelaySender`). A client's text `stats`
+  is answered `{"type":"stats","leg":{...},"peer":{...}|null}` with in-memory
+  per-leg counters (frames, bytes, records, superseded, refused, notices).
+  The Rust client of this WebSocket relay is not built yet (the dial the app
+  uses today has none on `feat-cmux-next`), so `RelaySender` is not wired into
+  any sender and nothing sends kind 4 yet. Malformed
   frames, other kinds and frames past the per-socket limit (1500 frames and
   8 MiB a second) are dropped; the sender hears `{"type":"error","code":...}`
   at most every 5 s. What a socket relays is first granted by the user's
@@ -632,7 +653,13 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   client's `ping` is answered `pong` without waking the object.
 - **When a side joins** (`cmux-mobile-link` `relay.rs`, `wireguard_roam.rs`):
   only when both sides offered `relay`. At once when either has no other
-  path (`relay: "now"`); else when nothing from the peer authenticated 3 s
+  path (`relay: "now"`); as the dial starts when both said `"first"` (the
+  Mac on the phone's `wg-init`, the phone as its tunnel starts on the
+  Mac's `wg-resp`, beside the direct race and TURN; the phone's pending
+  handshake initiation goes through the relay as it joins, the same
+  message, so a direct answer in flight still completes it; neither asks
+  the other with `wg-relay`, and a join that finds the peer already heard
+  is dropped unused, as below); else when nothing from the peer authenticated 3 s
   after its tunnel started or after it roamed (TURN over TLS is already
   open by then: the dial races it from the start), when the phone's link
   heard nothing for 16 s in the foreground, when its relay socket dies while
@@ -667,6 +694,28 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   allocation, the relay at once, never left; without the relay the dial
   fails at once. `CMUX_MOBILE_DEV_NO_RELAY=1` dials without it, and
   `CMUX_MOBILE_RELAY=0` turns it off for `cmux-mobile-host`.
+
+### Early relay ticket
+
+A dialer whose gather left it no path but the relay (`relay: "now"`) used to
+learn its ticket only from the Mac's `wg-resp`, so its join (TCP, TLS and the
+upgrade, about three round trips to the edge) waited behind the Mac's gather
+and answer. Now it asks for the ticket at once:
+
+- **Ask:** the dialer's `wg-init` carries `ticketEarly: true`, only when it
+  sends `relay: "now"`. Absent means false; an older Mac ignores the field.
+- **Answer:** a hub that forwarded that `wg-init` sends the dialer, on its
+  own signaling socket, `{"type":"signal","to":<dialer>,"from":<mac>,
+  "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
+  dialer's ticket>}`. Only the service sends `wg-ticket`: it is not in the
+  kinds a client may send, so a client's is refused `unknown payload kind`.
+- **Join:** the dialer starts its relay join when `wg-ticket` arrives
+  (timeline `relay_early_join`) and keeps waiting for `wg-resp`; the relay
+  watch's first join takes that carrier instead of starting its own. A plan
+  that ends with no relay (the Mac offered none) aborts it.
+- **Old and new:** an older dialer never asks and never gets `wg-ticket`; a
+  new dialer with an older hub gets no `wg-ticket` and joins after `wg-resp`
+  as before. The ticket is the one `wg-resp` carries too.
 
 ### Relay placement
 
@@ -1425,9 +1474,10 @@ Phone opens odd channel ids, Mac even. Services exposed by `cmux-mobile-host`
   string, so it lasts one daemon run. Revs of different epochs are unrelated. `epoch` names
   the host process and the daemon run its tab ids came from: it is new at each hostd start
   and each time hostd reconnects to the daemon (taken as a new run), and a new one drops
-  every row, order and held picture of the old, so a phone gets a manifest. A tab naming
-  an agent session the phone's chat exposure blocks is hidden, and every tab is while the
-  exposure is unavailable. Browser favicons and thumbnails come from the Mac app on its
+  every row, order and held picture of the old, so a phone gets a manifest. Remote Control
+  is one app-wide switch (`mobile.allowIPhoneConnections`, which runs or stops hostd), so no
+  chat's tab is hidden for exposure; the filter keeps the rule that a tab naming an agent
+  session the exposure blocks is hidden, and every tab is while it is unavailable. Browser favicons and thumbnails come from the Mac app on its
   stdin line `{"type":"tab_picture","surface": <daemon surface u64>, "part": "thumb" |
   "favicon", "path", "w"?, "h"?, "captured_at_ms"?}`: `path` is an absolute regular file
   (not a link) in the app's caches (`phone-tab-pictures`) of 1 byte to 2 MiB, JPEG or PNG
@@ -2347,10 +2397,12 @@ Mac keeps the reply mailbox above as it is.
   `full`). An outcome stays readable 10 minutes past its item's expiry.
 - Delivery: `mailbox` items add `seq` (absent from an older hub). The hub
   sends a Mac's queued items ordered by phone, then `seq`, at most 32 in one
-  frame, each once per socket; after each `mailbox_ack` it sends the next
-  page. An item posted while the socket is open goes at once unless 32 sent
-  items still wait for their ack on it. Items not acked are sent again on the
-  next socket.
+  frame, each once per socket, frame after frame until each phone has 32
+  sent items waiting for their ack on it (a phone whose items the Mac holds
+  never keeps another phone's items back); after each `mailbox_ack` it sends
+  what then fits. An item posted while the socket is open goes at once
+  unless its phone has 32 sent items still waiting for their ack on it.
+  Items not acked are sent again on the next socket.
 - `GET /v1/devices/:macId/mailbox/:id` adds `seq` and `expiresAt` for an item
   that has them; `expired` is reported once `expiresAt` passed unsettled.
 
@@ -2398,8 +2450,10 @@ required for both):
   index?}` (`text` for `update`, `index` from 0 for `move`), applied as
   `_acpmux/queue_edit` (`queue_remove` for `remove`). `text` (1 to 4096
   bytes, not blank) is read only for `update` and `index` only for `move`. A
-  queued prompt that is gone (`_acpmux/info` fails, or the answer is
-  `{ok:false}` or `{removed:false}`) is `not_pending`. A `send` whose `steer`
+  queued prompt that is gone (`_acpmux/info` answers an error, or the answer
+  is `{ok:false}` or `{removed:false}`) is `not_pending`; an acpmux that does
+  not answer (no socket, closed, timed out) is `unavailable`, so the item is
+  kept and tried again. A `send` whose `steer`
   is not a bool is refused; absent or null is true.
 - Their lifetime is up to 24 hours: `expiresAt` at most 86400 s after
   `issuedAt` and at most 86460 s after the Mac's clock. Every other kind keeps
