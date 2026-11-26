@@ -99,6 +99,13 @@ pub enum SignalPayload {
         /// which never join.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         relay: Option<String>,
+        /// The dialer asks the service for its own relay ticket now, as a
+        /// `wg-ticket` back to it (PROTOCOL.md "Early relay ticket"), so it
+        /// can join the relay while the answer is still on its way. Set only
+        /// by a dialer that will join at once (its only path is the relay);
+        /// absent from older phones. Older services and Macs ignore it.
+        #[serde(rename = "ticketEarly", default, skip_serializing_if = "std::ops::Not::not")]
+        ticket_early: bool,
     },
     #[serde(rename = "wg-resp")]
     WgResp {
@@ -156,6 +163,12 @@ pub enum SignalPayload {
     /// relay (`relay` in its `wg-init` / `wg-resp`).
     #[serde(rename = "wg-relay")]
     WgRelay {},
+    /// From the service, never from a peer: the dialer's own relay ticket
+    /// (`relayTicket` on the envelope), sent back the moment the service
+    /// forwards a `wg-init` that set `ticketEarly` (PROTOCOL.md "Early relay
+    /// ticket"). Only a dialer that asked gets it.
+    #[serde(rename = "wg-ticket")]
+    WgTicket {},
     #[serde(rename = "bye")]
     Bye {
         #[serde(default)]
@@ -487,6 +500,8 @@ async fn open_socket(
     request: tokio_tungstenite::tungstenite::handshake::client::Request,
     egress: crate::egress::Egress,
 ) -> Result<Socket, SignalingError> {
+    // Through the egress gate (docs/privacy.md) before any dial, proxy or direct.
+    let request = cmux_egress::ws::checked(request, "cmux_mobile_link::signaling").map_err(connect_error)?;
     let uri = request.uri().clone();
     let secure = uri.scheme_str() == Some("wss");
     let host = uri.host().ok_or_else(|| SignalingError::BadUrl(uri.to_string()))?;
@@ -1134,6 +1149,38 @@ mod tests {
             serde_json::json!({"type":"mailbox_ack","results":[{"id":"r1","applied":true,"sig":"ab"},
                 {"id":"r2","applied":false,"reason":"replayed"}]})
         );
+    }
+
+    /// Early relay ticket, both ways: an older phone's `wg-init` (no
+    /// `ticketEarly`) reads as not asking, a new one that does not ask writes
+    /// no field an older service or Mac could trip on, and only an asking one
+    /// writes `ticketEarly: true`. `wg-ticket` carries nothing but its kind.
+    #[test]
+    fn early_ticket_is_asked_only_by_a_new_dialer() {
+        let old: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-init","publicKey":"k","endpoints":[],"overlayIP":"10.77.0.2","relay":"now"}))
+        .unwrap();
+        assert!(matches!(old, SignalPayload::WgInit { ticket_early: false, .. }));
+        let init = |ticket_early| SignalPayload::WgInit {
+            public_key: "k".into(),
+            endpoints: Vec::new(),
+            overlay_ip: "10.77.0.2".into(),
+            lanes: Vec::new(),
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+            version: 0,
+            relay: Some(RELAY_NOW.into()),
+            ticket_early,
+        };
+        let quiet = serde_json::to_value(init(false)).unwrap();
+        assert!(quiet.get("ticketEarly").is_none(), "{quiet}");
+        let asking = serde_json::to_value(init(true)).unwrap();
+        assert_eq!(asking["ticketEarly"], serde_json::json!(true));
+        let ticket: SignalEnvelope = serde_json::from_value(serde_json::json!(
+            {"to":"phone","from":"mac","sessionId":"s","payload":{"kind":"wg-ticket"},"relayTicket":"t"}))
+        .unwrap();
+        assert!(matches!(ticket.payload, SignalPayload::WgTicket {}));
+        assert_eq!(ticket.relay_ticket.as_deref(), Some("t"));
     }
 
     #[test]

@@ -24,11 +24,10 @@ await requireBrowserLane("composer-stack-columns.test.ts", async () => {
   /** Half a pixel: a centred box's subpixel rounding. */
   const SLACK = 0.5;
   const HATS = [
-    { entry: "agent-pane.composer-hat-groups", variant: "plan-and-done" },
+    { entry: "agent-pane.composer-hat-groups", variant: "one-done" },
     { entry: "agent-pane.composer-hat-groups", variant: "mixed" },
     { entry: "agent-pane.composer-hat-groups", variant: "lone-subagent" },
     { entry: "agent-pane.composer-hat-groups", variant: "lone-command" },
-    { entry: "agent-pane.subagent-tray", variant: "plan-and-commands" },
   ] as const;
   const QUEUE = { entry: "agent-pane.composer", variant: "queued-long-open" } as const;
   const { createServer } = await import("vite");

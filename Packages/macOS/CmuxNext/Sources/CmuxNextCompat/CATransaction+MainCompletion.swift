@@ -1,3 +1,4 @@
+#if canImport(QuartzCore)
 public import QuartzCore
 
 extension CATransaction {
@@ -23,3 +24,4 @@ extension CATransaction {
         MainTransactionCompletion(body).install()
     }
 }
+#endif
