@@ -78,7 +78,7 @@ jobs:
   base-gallery:
     name: base gallery
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -185,7 +185,7 @@ jobs:
   plan:
     name: plan
     if: ${{ (inputs.only == '' || inputs.only == 'health') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     outputs:
       all: ${{ steps.entries.outputs.all }}
@@ -375,7 +375,7 @@ jobs:
     # Blacksmith org vCPU cap starved every pool, and 16 shards of 16 vCPU asked 256 vCPU of it per push.
     # From the numbers above, 8 vCPU renders the 73 cases in 17.3 s against 13.4 s, at 138 vCPU-seconds
     # against 214: a shard takes about a third longer and the run 35% fewer vCPU-seconds, at half the peak.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     # As many shards as the run's cases need (the plan job): at most MAX_CASES_PER_SHARD each, so a shard runs in
     # under 10 minutes as the gallery grows. At eight fixed shards, with three cases at once, a shard's render took
@@ -538,6 +538,10 @@ jobs:
           set -euo pipefail
           bun install --frozen-lockfile
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+          # The UI font is the macOS system font (SF Pro), which Linux lacks: without the pin the stack
+          # falls to DejaVu Sans, a much wider face, so every stage wraps and sizes text unlike the Mac.
+          # Inter, as the browser tests draw it (B7 webviews-linux-parity, scripts/gallery-matrix/parity.py).
+          "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       # A red here is judged state by state against the base in the next step, so the step goes on.
       - name: Render the gallery and judge it
