@@ -543,16 +543,26 @@ fn dispatch_command(
             cmd_panes::set_ratio(mux, actor, pane, dir, ratio)
         }
         Command::SetSplitRatio { split, ratio, transaction } => {
-            cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction)
+            let drag = transaction.is_some() && input_qos::from_app(&actor);
+            let reply = cmd_panes::set_split_ratio(mux, client, actor, split, ratio, transaction);
+            input_qos::note_drag(writer, drag && reply.is_ok());
+            reply
         }
         Command::SetDividerVisible { split, visible, transaction } => {
             cmd_panes::set_divider_visible(mux, actor, split, visible, transaction)
         }
         Command::SetViewportPaneWidth { pane, width, transaction } => {
-            cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
+            let drag = transaction.is_some() && input_qos::from_app(&actor);
+            let reply =
+                cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction);
+            input_qos::note_drag(writer, drag && reply.is_ok());
+            reply
         }
         Command::SetLayoutSizes { values, transaction } => {
-            cmd_panes::set_layout_sizes(mux, client, actor, values, transaction)
+            let drag = input_qos::from_app(&actor);
+            let reply = cmd_panes::set_layout_sizes(mux, client, actor, values, transaction);
+            input_qos::note_drag(writer, drag && reply.is_ok());
+            reply
         }
         Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(
@@ -1016,6 +1026,7 @@ fn dispatch_command(
             cmd_sizing::resize_surface(mux, client, surface, cols, rows)
         }
         Command::ResizeAttachedView { surface, lease, view, identity, cols, rows } => {
+            input_qos::note_view_resize();
             cmd_sizing::resize_attached_view(
                 mux, client, surface, lease, view, identity, cols, rows,
             )
