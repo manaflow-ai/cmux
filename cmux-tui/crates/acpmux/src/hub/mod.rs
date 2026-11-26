@@ -54,10 +54,6 @@ mod bg_folder;
 mod bg_folder_bench;
 mod bg_notify;
 mod bg_tasks;
-mod capacity;
-#[cfg(test)]
-mod worker_lock_tests;
-pub use bg_tasks::{BgScope, bg_owner_words};
 pub(crate) mod book_tee;
 mod bookmarks;
 mod bounded;
@@ -65,9 +61,12 @@ mod bridge;
 mod btw;
 mod caller_registry;
 pub(crate) mod cancel;
+mod capacity;
 mod capacity_retry;
 /// A chat waiting for capacity: the one calm state every client draws.
 pub(crate) mod capacity_wait;
+#[cfg(test)]
+mod worker_lock_tests;
 // A turn ends when its agent ends it; the steers it runs on with are the next turn's.
 mod carried_turn;
 mod catalog_reload;
