@@ -41,11 +41,12 @@ class TickCheckoutRetryTest(unittest.TestCase):
         for name in ('request', 'unstick'):
             with self.subTest(job=name):
                 job = self.jobs[name]
-                listed = set(job['env']['TICK_TOOLING_FILES'].split())
                 tooling = [s for s in checkouts(job) if s['with'].get('path') == '.tick-tooling']
                 self.assertEqual(len(tooling), 2)
-                for step in tooling:
-                    self.assertEqual(step['with']['sparse-checkout'], '${{ env.TICK_TOOLING_FILES }}')
+                # A literal list (other guards read it as written), the same in the try and its retry.
+                self.assertEqual(tooling[0]['with']['sparse-checkout'], tooling[1]['with']['sparse-checkout'])
+                self.assertNotIn('${{', tooling[0]['with']['sparse-checkout'])
+                listed = set(tooling[0]['with']['sparse-checkout'].split())
                 used = set()
                 for step in job['steps']:
                     used |= set(re.findall(r'\.tick-tooling/(scripts/ci/[\w.-]+)', str(step.get('run', ''))))

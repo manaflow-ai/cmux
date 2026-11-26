@@ -1288,6 +1288,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_checkout_network_diagnostics.py
 
+      - name: Validate the nightly-next tick bounds and retries its checkouts
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_next_tick_checkout_retry.py
+
       - name: Validate production drift issue updates are sticky
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_iroh_drift_issue.py
