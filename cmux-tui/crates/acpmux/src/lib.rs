@@ -375,6 +375,7 @@ pub(crate) mod single_flight;
 /// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod transfer_service;
+pub mod usage_insights;
 pub mod usage_limit;
 pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).

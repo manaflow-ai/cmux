@@ -260,6 +260,10 @@ pub enum Command {
     /// Start and inspect background tasks owned by this agent session.
     #[command(subcommand)]
     Bg(crate::cli::bg::BgCmd),
+    /// What this machine's agent usage cost and why: cache writes by cause, the gap over what
+    /// the work needed, and each cause's fix. Local: reads transcripts, uploads nothing.
+    #[command(subcommand)]
+    Usage(crate::cli::usage::UsageCmd),
     /// Read the current session's inbox notices and message threads.
     Notices {
         /// A session name or id when run by the person; defaults to this agent session.
