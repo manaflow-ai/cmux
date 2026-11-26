@@ -112,6 +112,12 @@ function fakeHost() {
 
 type Hold = ReturnType<typeof useTrustHeldPrompts>;
 
+/// Yield to queued macrotasks (the fake host's lost-send rejects, the flush's next send): no wall
+/// clock, so a loaded runner cannot outrun it.
+async function macrotasks(turns = 8) {
+  for (let turn = 0; turn < turns; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 async function scenario(withResendWait: boolean) {
   const main = mountDom();
   const host = fakeHost();
@@ -154,15 +160,15 @@ async function scenario(withResendWait: boolean) {
     setHolds(false);
   });
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await macrotasks();
   });
   // The host is back: its journal sends the lost one again under its own id.
   await act(async () => {
     host.back();
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await macrotasks();
   });
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    await macrotasks();
   });
   return { host, givenBack };
 }
