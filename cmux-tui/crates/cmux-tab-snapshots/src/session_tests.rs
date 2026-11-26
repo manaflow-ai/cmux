@@ -7,6 +7,7 @@ use crate::wire::{Resume, kind};
 fn browser(id: &str, title: &str, favicon: &[u8], thumb: &[u8]) -> Observation {
     Observation {
         tab_id: id.to_owned(),
+        tab_key: String::new(),
         title: title.to_owned(),
         kind: Kind::Browser,
         favicon: Some(FaviconInput { mime: Mime::Png, bytes: favicon.to_vec() }),
@@ -149,6 +150,7 @@ fn mac_to_phone_frames_are_refused() {
 fn terminal(id: &str, text: &str) -> Observation {
     Observation {
         tab_id: id.to_owned(),
+        tab_key: String::new(),
         title: id.to_owned(),
         kind: Kind::Terminal,
         favicon: None,
