@@ -12,8 +12,30 @@ import QuartzCore
 enum InTreePageGeometry {
     static func report(_ container: NSView) -> [String: Any] {
         var misfits: [[String: Any]] = []
+        if let page = InTreePages.viewsPage(of: container) { return viewsReport(container, page: page) }
         let tree = view(container, depth: 0, misfits: &misfits)
         return ["tree": tree, "fits": misfits.isEmpty, "misfits": misfits]
+    }
+
+    /// Views window mode: the page is a Views child of the window's widget, outside `container`. `views_window` says
+    /// where: the window's runtime class, the page's and the container's rects in the window (the page fits when they
+    /// match) and the page's superviews up to the window's slot.
+    private static func viewsReport(_ container: NSView, page: NSView) -> [String: Any] {
+        var misfits: [[String: Any]] = []
+        let tree = view(page, depth: 0, misfits: &misfits)
+        let pageRect = page.convert(page.bounds, to: nil)
+        let containerRect = container.convert(container.bounds, to: nil)
+        if abs(pageRect.minX - containerRect.minX) > 0.5 || abs(pageRect.minY - containerRect.minY) > 0.5
+            || abs(pageRect.width - containerRect.width) > 0.5 || abs(pageRect.height - containerRect.height) > 0.5 {
+            misfits.append(["owner": "views_page", "page_in_window": rect(pageRect), "container_in_window": rect(containerRect)])
+        }
+        let chain = sequence(first: page, next: { $0 is ViewsWindowSlotView ? nil : $0.superview }).dropFirst()
+            .map { NSStringFromClass(type(of: $0)) }
+        let place: [String: Any] = [
+            "window_class": container.window.map { NSStringFromClass(type(of: $0)) } ?? "", "superviews": Array(chain),
+            "page_in_window": rect(pageRect), "container_in_window": rect(containerRect),
+        ]
+        return ["tree": tree, "fits": misfits.isEmpty, "misfits": misfits, "views_window": place]
     }
 
     private static func view(_ view: NSView, depth: Int, misfits: inout [[String: Any]]) -> [String: Any] {

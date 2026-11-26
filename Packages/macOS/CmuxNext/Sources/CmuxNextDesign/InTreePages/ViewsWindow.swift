@@ -60,6 +60,19 @@ extension InTreePages {
         return nil
     }
 
+    /// The page view (Chromium's `WebContentsViewCocoa`) the fork shows for `container` in its window's slot, or nil
+    /// (not views window mode, or no page shown). The page is a few levels under the slot (in Views' content view).
+    public static func viewsPage(of container: NSView) -> NSView? {
+        guard let root = container.window?.contentView,
+              let slot = root.subviews.first(where: { $0 is ViewsWindowSlotView }) else { return nil }
+        func find(in view: NSView, depth: Int) -> NSView? {
+            if viewsContainer(at: view) === container { return view }
+            guard depth < 3 else { return nil }
+            return view.subviews.lazy.compactMap { find(in: $0, depth: depth + 1) }.first
+        }
+        return find(in: slot, depth: 0)
+    }
+
     /// The view that stands for `view` in cmux's own view tree: its page's container for a view of a views window page,
     /// else `view` itself. Use it before asking which pane, chrome region or page holds a responder or a hit.
     public static func anchor(of view: NSView) -> NSView {

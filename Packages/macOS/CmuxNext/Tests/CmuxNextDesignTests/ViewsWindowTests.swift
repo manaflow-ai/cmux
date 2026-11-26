@@ -59,6 +59,18 @@ import Testing
         #expect(InTreePageFocus.containers(in: f.window).map { ObjectIdentifier($0) } == [ObjectIdentifier(f.container)])
     }
 
+    @Test func theGeometryReportFollowsThePageIntoTheSlot() throws {
+        let f = Self.fixture()
+        defer { f.window.close() }
+        #expect(InTreePages.viewsPage(of: f.container) === f.page)
+        let report = InTreePageGeometry.report(f.container)
+        let place = try #require(report["views_window"] as? [String: Any], "the report read the empty container")
+        #expect(report["fits"] as? Bool == true)
+        #expect(place["superviews"] as? [String] == ["NSView", NSStringFromClass(ViewsWindowSlotView.self)])
+        f.page.frame.origin.x -= 20
+        #expect(InTreePageGeometry.report(f.container)["fits"] as? Bool == false, "a page off its pane fit")
+    }
+
     @Test func theSlotTakesOnlyThePagesClicks() {
         let f = Self.fixture()
         defer { f.window.close() }
