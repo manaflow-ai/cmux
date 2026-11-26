@@ -19,6 +19,7 @@ negations do).
 
 Usage:
   scripts/ci/ios_app_package_paths.py           print the `<package>/**` lines
+  scripts/ci/ios_app_package_paths.py --resources  print the kit push resource re-includes
   scripts/ci/ios_app_package_paths.py --check   exit 1 and list each drift
 """
 
@@ -91,6 +92,11 @@ def app_packages(root: Path = ROOT) -> list[str]:
     return sorted(found)
 
 
+def kit_resource_paths(packages: list[str]) -> list[str]:
+    """Re-include bundled Markdown after the kit push filter excludes general notes."""
+    return [pkg + "/**/Resources/**" for pkg in packages if pkg.startswith(("Packages/Shared/", "Packages/iOS/"))]
+
+
 def workflow_filters(text: str) -> dict[str, list[str]]:
     """The `paths:` list of each pull_request and push trigger in a workflow's `on:` block."""
     out: dict[str, list[str]] = {}
@@ -125,24 +131,27 @@ def check(root: Path = ROOT) -> list[str]:
     problems: list[str] = []
     if not pkgs:
         return [f"no local packages found in {', '.join(APP_MANIFESTS)}"]
-    filters: list[tuple[str, list[str] | None]] = []
+    filters: list[tuple[str, list[str] | None, set[str]]] = []
     for wf in WORKFLOWS:
         found = workflow_filters((root / wf).read_text())
         for event in WORKFLOW_EVENTS.get(wf, ("pull_request", "push")):
-            filters.append((f"{wf}: {event}", found.get(event)))
+            expected = want
+            if wf == ".github/workflows/cmux-next-ios-kit.yml":
+                expected = want.union(kit_resource_paths(pkgs))
+            filters.append((f"{wf}: {event}", found.get(event), expected))
     if (root / TABLE).is_file():
         step = ci_steps.load(root / TABLE).steps.get(TABLE_STEP)
-        filters.append((f"{TABLE}: step {TABLE_STEP}", list(step.inputs) if step else None))
-    for where, lines in filters:
+        filters.append((f"{TABLE}: step {TABLE_STEP}", list(step.inputs) if step else None, want))
+    for where, lines, expected in filters:
         if lines is None:
             problems.append(f"{where} has no paths filter")
             continue
-        for pattern in sorted(want - set(lines)):
+        for pattern in sorted(expected - set(lines)):
             problems.append(f"{where} misses {pattern} (the app links it)")
         for line in lines:
-            if line.startswith("!") or "/Resources/" in line or not line.startswith(PACKAGE_ROOTS):
+            if line.startswith("!") or not line.startswith(PACKAGE_ROOTS):
                 continue
-            if line not in want:
+            if line not in expected:
                 problems.append(f"{where} names {line}, which the app does not link")
     return problems
 
@@ -153,10 +162,12 @@ def main(argv: list[str]) -> int:
         for p in problems:
             print(p)
         if problems:
-            print(f"fix: paste the lines `{sys.argv[0]}` prints into each filter", file=sys.stderr)
+            print(f"fix: generate package paths with {sys.argv[0]} and kit resource paths with --resources", file=sys.stderr)
         return 1 if problems else 0
-    for pkg in app_packages():
-        print(f'      - "{pkg}/**"')
+    packages = app_packages()
+    patterns = kit_resource_paths(packages) if "--resources" in argv else [p + "/**" for p in packages]
+    for pattern in patterns:
+        print(f'      - "{pattern}"')
     return 0
 
 

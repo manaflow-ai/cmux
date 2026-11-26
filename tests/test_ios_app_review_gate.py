@@ -1302,6 +1302,7 @@ class GateWorkflowTests(unittest.TestCase):
 
         doc = yaml.safe_load((ROOT / ".github/workflows/ios-review-gate.yml").read_text())
         on = doc.get("on", doc.get(True))
+        self.assertEqual(on["push"]["paths"], on["pull_request"]["paths"])
         for event in ("push", "pull_request"):
             patterns = on[event]["paths"]
             with self.subTest(event=event):
@@ -1334,7 +1335,9 @@ class GateWorkflowTests(unittest.TestCase):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
                              "cmux-next-ios/verify/parity-mac/2026-11-25-find-in-terminal.md",
                              "cmux-next-ios/verify/alignment/alignscan.swift",
-                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
+                             "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md",
+                             "Packages/Shared/CmuxTerminalStream/Sources/Resources/fixture.json",
+                             "Packages/iOS/CmuxMobileShellModel/Sources/Resources/help.md"):
                     self.assertFalse(matches(path), path)
                 for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/X.swift",
                              "cmux-next-ios/CmuxMobileKit/Package.swift", "cmux-next-ios/rust/Cargo.toml",

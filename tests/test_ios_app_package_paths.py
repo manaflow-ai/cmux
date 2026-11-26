@@ -60,8 +60,11 @@ class FixtureTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def workflows(self, lines: list[str]) -> None:
-        body = "\n".join(f'      - "{line}"' for line in lines)
         for wf in paths.WORKFLOWS:
+            entries = list(lines)
+            if wf.endswith("cmux-next-ios-kit.yml"):
+                entries += paths.kit_resource_paths(paths.app_packages(self.root))
+            body = "\n".join(f'      - "{line}"' for line in entries)
             write(self.root, wf, WORKFLOW.format(lines=body))
 
     def test_closure_is_transitive_and_skips_info_plist_paths(self) -> None:
@@ -75,6 +78,11 @@ class FixtureTests(unittest.TestCase):
         self.workflows(["Packages/Shared/**", "Packages/iOS/Conv/**"])
         problems = paths.check(self.root)
         self.assertTrue(any("names Packages/Shared/**" in p for p in problems), problems)
+
+    def test_resource_wildcard_cannot_admit_unlinked_packages(self) -> None:
+        self.workflows(["Packages/Shared/A/**", "Packages/Shared/B/**", "Packages/iOS/Conv/**",
+                        "Packages/Shared/**/Resources/**"])
+        self.assertTrue(any("names Packages/Shared/**/Resources/**" in p for p in paths.check(self.root)))
 
     def test_a_missing_transitive_package_fails(self) -> None:
         self.workflows(["Packages/Shared/A/**", "Packages/iOS/Conv/**"])
