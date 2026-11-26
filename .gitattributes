@@ -148,7 +148,6 @@ cmux-tui/bindings/go/raw/generated_*.go merge=cmux-generated-v1
 cmux-tui/bindings/typescript/src/raw/generated/** merge=cmux-generated-v1
 cmux-tui/bindings/rust/src/generated/** merge=cmux-generated-v1
 cmux-tui/bindings/zig/src/raw/generated/** merge=cmux-generated-v1
-cmux-tui/bindings/*/.cmux-resource-api.json merge=cmux-generated-v1
 cmux-tui/bindings/cpp/.cmux-sdk-manifest.json merge=cmux-generated-v1
 # The Java raw package: every file its .cmux-sdk-manifest.json lists is
 # generated; the hand-written ones (not in the manifest) merge by line.

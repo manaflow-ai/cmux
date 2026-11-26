@@ -225,6 +225,7 @@ impl Hub {
             self.caller_registry.forget(&session.id);
             // Its chat secrets go with it (`chat_secrets.rs`).
             crate::chat_secrets::clear(&session.id);
+            super::spend_burn::forget(&session.id);
             #[cfg(test)]
             {
                 let seam = self.purge_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
