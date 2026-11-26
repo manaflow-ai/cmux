@@ -5,7 +5,7 @@
 //! child whose agent cannot take one mid-turn it queues; either way the
 //! answer says which, with the queue's length. A child's message to its
 //! working parent steers the same way. While the child works,
-//! `get_session` says what it does right now: its plan step and latest tool.
+//! `get_session` says what it does right now: its latest tool.
 //!
 //! Stand-in agents (fake_agent.py): `fake` takes no prompt mid-turn, `steer`
 //! steers as Claude Code does (`FAKE_CLAUDE_STEER`). One test function: the
@@ -107,7 +107,7 @@ impl Client {
     async fn doing(&mut self, id: &str) -> Value {
         for _ in 0..200 {
             let row = self.ok(GET, json!({"sessionId": id})).await;
-            if row["turn"]["activity"].is_string() && row["turn"]["planStep"].is_string() {
+            if row["turn"]["activity"].is_string() {
                 return row;
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
@@ -171,10 +171,10 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     assert!(text.contains(r#""fromRole":"parent""#), "no parent label: {page}");
     assert!(text.contains(r#""kind":"subsession_message""#), "{page}");
 
-    // While it works, the parent reads what it does: plan step and tool.
+    // While it works, the parent reads what it does: its latest tool.
     let row = p.doing(&s).await;
     assert_eq!(row["state"], "working", "{row}");
-    assert_eq!(row["doing"], "Fix the queue · Run cargo test", "{row}");
+    assert_eq!(row["doing"], "Run cargo test", "{row}");
 
     // A message goes into its running turn by default, read at the agent's next tool step.
     let sent = p.ok(SEND, json!({"sessionId": s, "text": "also check the docs"})).await;

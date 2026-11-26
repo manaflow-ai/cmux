@@ -150,8 +150,6 @@ mod successor_harness;
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
-#[path = "hub_integration/task_list.rs"]
-mod task_list;
 #[path = "hub_integration/tasks.rs"]
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
