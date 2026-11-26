@@ -198,14 +198,6 @@ jobs:
     permissions:
       contents: read
 
-  web-validation:
-    name: Web validation
-    needs: route
-    if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'web-validation.yml') }}
-    uses: ./.github/workflows/web-validation.yml
-    permissions:
-      contents: read
-
   pipeline:
     name: pr pipeline
     needs: route

@@ -379,8 +379,8 @@ class Fallback(unittest.TestCase):
 
     calls = {Path(name).name: docs.pull_request_config(ROOT, name) for name in docs.WORKFLOWS}
     feat_only = sorted(n for n, c in calls.items() if c["branches"] == ["feat-cmux-next"])
-    # A pr-router callee (web-validation.yml, #48775) starts on its own only into main: into feat-cmux-next the
-    # router calls it, so the fallback never does.
+    # web-validation.yml (#48775) starts on its own only into main: a feat-cmux-next pull request does not run it
+    # (pr-router.yml dropped its caller), so the fallback never calls it there.
     main_only = sorted(n for n, c in calls.items() if c["branches"] == ["main"])
 
     def plan(self, event, files, runs=(), since=1000.0):
