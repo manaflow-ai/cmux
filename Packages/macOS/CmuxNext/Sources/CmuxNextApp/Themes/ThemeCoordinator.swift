@@ -35,7 +35,7 @@ final class ThemeCoordinator {
     /// Which room, workspace or terminal a theme action acts on, resolved
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?, _ machineID: String?) -> ThemePreview.Target?)?
-    private var observation: Task<Void, Never>?
+    private var observation: OwnedTask?
     /// Each workspace's own background (`ThemeCoordinator+Backgrounds`).
     let workspaceBackgrounds: WorkspaceBackgroundStore
     /// Each workspace's own glass tint over art, as text ("0.6").
@@ -75,21 +75,11 @@ final class ThemeCoordinator {
 
     /// `appearance.appTheme` as last read; nil follows the terminal theme.
     private var chromeTheme: String?
-    private var chromeObservation: Task<Void, Never>?
-    private var accentObservation: Task<Void, Never>?
-    private var artAccentObservation: Task<Void, Never>?
-    private var artObservation: Task<Void, Never>?
-    private var machineColorsObservation: Task<Void, Never>?
-
-    // Task handles are Sendable: cancellation needs no main-actor hop during teardown.
-    nonisolated deinit {
-        observation?.cancel()
-        chromeObservation?.cancel()
-        accentObservation?.cancel()
-        artAccentObservation?.cancel()
-        artObservation?.cancel()
-        machineColorsObservation?.cancel()
-    }
+    private var chromeObservation: OwnedTask?
+    private var accentObservation: OwnedTask?
+    private var artAccentObservation: OwnedTask?
+    private var artObservation: OwnedTask?
+    private var machineColorsObservation: OwnedTask?
 
     /// Follows `appearance.appTheme`: the theme the native chrome (window, sidebar, tab strips, light/dark)
     /// and the pages (`--cmux-app-*`, `WebTheme`) take: the system appearance's variant, its file and edits only
@@ -106,7 +96,7 @@ final class ThemeCoordinator {
                 guard store.setAccentFollowsArt(follows) else { continue }
                 self?.applyChromeTheme()
             }
-        }
+        }.owned()
         // Art Color: another picture (a pick, a shuffle or rotation step, a preview) is another hue,
         // and pages' `--cmux-app-*` accent comes from the app theme made here, so make it again. The
         // native scopes re-derive on their own (ThemeScope.repaintBackdropArt).
@@ -121,26 +111,26 @@ final class ThemeCoordinator {
                 guard store.accentFollowsArt else { continue }
                 self?.applyChromeTheme()
             }
-        }
+        }.owned()
         // `appearance.accent` and `.selection` re-derive the terminal-theme tokens (the store) and the app theme.
         accentObservation = Task { [weak self] in
             for await (accent, selection) in ObservationStream({ (settings.applied.accent, settings.applied.selection) }) {
                 guard let self, (store.setAccent(accent), store.setSelection(selection)) != (false, false) else { continue }
                 self.applyChromeTheme()
             }
-        }
+        }.owned()
         chromeObservation = Task { [weak self] in
             for await theme in ObservationStream({ settings.applied.chromeTheme }) {
                 guard let self, theme != self.chromeTheme else { continue }
                 self.chromeTheme = theme
                 self.applyChromeTheme()
             }
-        }
+        }.owned()
         // `appearance.machineColors`: every machine mark reads the store's picks (MachineColor).
         store.setMachineColors(settings.applied.machineColors)
         machineColorsObservation = Task {
             for await colors in ObservationStream({ settings.applied.machineColors }) { store.setMachineColors(colors) }
-        }
+        }.owned()
     }
 
     private func applyChromeTheme() {
@@ -211,7 +201,7 @@ final class ThemeCoordinator {
                 self?.migrateTerminalThemes()
                 self?.apply()
             }
-        }
+        }.owned()
     }
 
     // MARK: Mounts
