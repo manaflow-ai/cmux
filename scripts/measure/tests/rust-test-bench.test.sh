@@ -49,6 +49,8 @@ want 'test --locked -p acpmux --test duress_daemon --release -- duress_bench --n
 [[ -s "$root/artifacts/rust-test-bench/duress/duress-bench.json" ]]
 # A prior successful artifact cannot satisfy a skipped run.
 MOCK_REPORT=no run 1 "${duress[@]}"
+run 0 acpmux ordinary target=lib enable=CMUX_AGENT_PANE_COMPILE_HINTS
+want 'test --locked -p acpmux --lib -- ordinary --nocapture --test-threads=1 | enable=1 legs=unset'
 run 0 acpmux ordinary target=lib
 want 'test --locked -p acpmux --lib -- ordinary --nocapture --test-threads=1 | enable=unset legs=unset'
 run 0 acpmux ordinary ignored=1
