@@ -12,6 +12,8 @@ public nonisolated struct MenuMetrics: Sendable {
     public static let highlightRadius: CGFloat = 5
     /// A separator's distance from the menu's edges, on both sides: AppKit's own, where a row's content starts.
     public static let separatorInset: CGFloat = 15
+    /// A separator row's height: its hairline centred in it.
+    public static let separatorHeight: CGFloat = 9
     /// A checkmark or dash, in a menu that has one.
     public static let stateX: CGFloat = 10
     /// Where a row's icon starts in a menu with a checkmark or dash.
