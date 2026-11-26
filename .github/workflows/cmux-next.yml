@@ -3749,11 +3749,27 @@ jobs:
       # Why: note-559
       FAST_TIER_PR_SCOPE: ${{ github.event_name == 'pull_request' && vars.CI_FAST_TIER_PR_SCOPE != '0' && '1' || '' }}
     steps:
+      # Why: note-561
+      - name: Note when the checkout starts (Freestyle link check)
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: echo "FSR_CHECKOUT_T0=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        timeout-minutes: ${{ startsWith(runner.name, 'fsr-') && 5 || 30 }}
         with:
           persist-credentials: false
           submodules: false
           fetch-depth: ${{ github.event_name == 'pull_request' && 2 || 1 }}
+
+      - name: Stop on a Freestyle runner whose link cannot finish this job
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: |
+          took=$(( $(date +%s) - ${FSR_CHECKOUT_T0:-$(date +%s)} ))
+          if (( took > 180 )); then
+            echo "::error title=fast tier (cargo) link too slow::checkout took ${took} s on Freestyle runner ${RUNNER_NAME} (pool runners: 18-74 s). The apt, zig, rustup and R2 steps after it are network-bound too and ran past the 30-minute job timeout on every such runner (0 of 90 passed, 2026-11-26): stopping now instead. Rerun the job; it is not the PR."
+            exit 1
+          fi
+          echo "checkout took ${took} s on ${RUNNER_NAME}: link fast enough, continuing"
 
       - name: List the changed paths
         if: ${{ env.FAST_TIER_PR_SCOPE == '1' }}
