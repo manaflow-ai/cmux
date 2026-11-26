@@ -486,31 +486,7 @@ impl Shared {
         let own = own || over_rows;
         if own || over_total(state) {
             let limit = if over_rows { self.row_bound } else { self.bound };
-            let overrun = Overrun { held: state.held, limit };
-            tracing::warn!(
-                who = %state.who,
-                held = state.held,
-                line = size,
-                bound = limit,
-                total = state.pool.load(Ordering::Relaxed),
-                total_bound = self.total_bound,
-                "{}",
-                if own {
-                    "a connection's reader fell past its byte bound: it is disconnected"
-                } else {
-                    "a connection's reader over its fair share took nothing for the stall bound: it is disconnected"
-                }
-            );
-            OVERRUNS.fetch_add(1, Ordering::Relaxed);
-            if !own {
-                TOTAL_OVERRUNS.fetch_add(1, Ordering::Relaxed);
-            }
-            state.overrun = Some(overrun);
-            let in_channel = state.sent_bytes;
-            state.set_held(in_channel);
-            state.clear();
-            self.closed.send_replace(true);
-            self.wake.notify_one();
+            self.end_overrun(state, own, size, limit);
             return false;
         }
         let held = state.held + size;
@@ -518,6 +494,53 @@ impl Shared {
         Self::queue_line(state, line, lane);
         self.wake.notify_one();
         true
+    }
+
+    /// Ends the connection as overrun: `own` past its own bound (`limit`), else a stalled reader
+    /// over its fair share. `size` is the line that would not fit (0 for the pump's own check).
+    fn end_overrun(&self, state: &mut State, own: bool, size: usize, limit: usize) {
+        let overrun = Overrun { held: state.held, limit };
+        tracing::warn!(
+            who = %state.who,
+            held = state.held,
+            line = size,
+            bound = limit,
+            total = state.pool.load(Ordering::Relaxed),
+            total_bound = self.total_bound,
+            "{}",
+            if own {
+                "a connection's reader fell past its byte bound: it is disconnected"
+            } else {
+                "a connection's reader over its fair share took nothing for the stall bound: it is disconnected"
+            }
+        );
+        OVERRUNS.fetch_add(1, Ordering::Relaxed);
+        if !own {
+            TOTAL_OVERRUNS.fetch_add(1, Ordering::Relaxed);
+        }
+        state.overrun = Some(overrun);
+        let in_channel = state.sent_bytes;
+        state.set_held(in_channel);
+        state.clear();
+        self.closed.send_replace(true);
+        self.wake.notify_one();
+    }
+
+    /// The pump's check while it waits on a reader that takes nothing: one over its fair share
+    /// that took nothing for the stall bound ends now, not at a next line that may never come
+    /// (a hundred attached readers of quiet chats each kept a whole replay's pages). True when
+    /// it ended.
+    fn end_if_stalled(&self) -> bool {
+        let mut state = self.lock();
+        if state.overrun.is_some() || state.ended {
+            return true;
+        }
+        state.settle();
+        if state.held > self.fair_share && state.progress_at.elapsed() >= self.reader_stall {
+            self.end_overrun(&mut state, false, 0, self.fair_share);
+            return true;
+        }
+        false
     }
 
     fn queue_line(state: &mut State, mut line: Line, lane: Lane) {
@@ -791,6 +814,11 @@ impl Pump {
                                 return false;
                             }
                         }
+                        () = tokio::time::sleep(self.shared.reader_stall) => {
+                            if self.shared.end_if_stalled() {
+                                return false;
+                            }
+                        }
                     }
                 }
             }
@@ -802,10 +830,18 @@ impl Pump {
     pub(super) async fn forward(&self, line: Line) -> bool {
         let keep = if self.transport.max_capacity() > 1 { 2 } else { 1 };
         let mut closed = self.shared.closed.subscribe();
-        let room = tokio::select! {
-            biased;
-            _ = closed.wait_for(|c| *c) => return false,
-            room = self.transport.reserve_many(keep) => room,
+        // A reader that takes nothing is checked each stall bound ([`Shared::end_if_stalled`]).
+        let room = loop {
+            tokio::select! {
+                biased;
+                _ = closed.wait_for(|c| *c) => return false,
+                room = self.transport.reserve_many(keep) => break room,
+                () = tokio::time::sleep(self.shared.reader_stall) => {
+                    if self.shared.end_if_stalled() {
+                        return false;
+                    }
+                }
+            }
         };
         let Ok(mut room) = room else { return false };
         let Some(permit) = room.next() else { return false };
