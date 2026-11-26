@@ -259,7 +259,8 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "$SERVER_URL/repos/" not in artifacts
     for body in (preflight, owner_wait):
         assert "API_URL: ${{ github.api_url }}" in body
-    assert "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" in owner_wait
+    assert '"$API_URL/repos/$REPOSITORY/$1"' in owner_wait
+    assert 'api "actions/runs/$OWNER_RUN_ID"' in owner_wait
     # Any branch's run of the same commit owns it, not only feat-cmux-next's.
     assert "runs?head_sha=$SHA&event=push" in preflight
     assert "refs/heads/main" in preflight
@@ -1204,14 +1205,16 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     # test binary needs optimization, not whole-program LTO (cx-3gstu).
     jobs = _package_workflow_document()["jobs"]
     assert isinstance(jobs, dict)
-    steps = jobs["build-windows"]["steps"]
-    step = next(s for s in steps if s.get("name") == "Test Windows long-path state handling")
+    steps = jobs["cross-build-windows"]["steps"]
+    step = next(s for s in steps if s.get("name") == "Build the Windows long-path test binary")
     assert step["env"]["CARGO_PROFILE_RELEASE_LTO"] == "off"
     assert int(step["env"]["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"]) > 1
     run = step["run"]
-    assert run.count("profile.release.package.cmux-tui-core.codegen-units=16") == 3
+    assert "for crate in cmux-tui-core cmux-tui-platform; do" in run
+    assert '--config "profile.release.package.$crate.codegen-units=16"' in run
+    assert "--no-run" in run
     # The published binaries still build with the release profile as written.
-    build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")
+    build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU, on Linux)")
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
 
 
@@ -1227,7 +1230,32 @@ def test_package_workflow_uses_no_shared_build_cache() -> None:
         if not isinstance(job, dict):
             continue
         for step in job.get("steps", []) or []:
-            assert "actions/cache" not in str(step.get("uses", "")), name
+            action = str(step.get("uses", "")).split("@", 1)[0].lower()
+            # Local R2 wrappers have "actions/cache" in their path but do not use
+            # GitHub's cache scope. Their backend must remain explicitly R2.
+            if action in ("./.github/actions/cache-restore", "./.github/actions/cache-save"):
+                assert step.get("with", {}).get("backend") == "r2", name
+            assert action != "actions/cache" and not action.startswith("actions/cache/"), name
+
+    # The reviewed MinGW sysroot is shared only through the secret-backed R2
+    # store. PRs may read it anonymously; only successful branch pushes may save.
+    sysroot_steps = [
+        step for step in jobs["cross-build-windows"]["steps"]
+        if step.get("with", {}).get("path") == "${{ runner.temp }}/cmux-windows-gnu-sysroot"
+    ]
+    restores = [s for s in sysroot_steps if s.get("uses") == "./.github/actions/cache-restore"]
+    saves = [s for s in sysroot_steps if s.get("uses") == "./.github/actions/cache-save"]
+    assert len(restores) == len(saves) == 1
+    restore, save = restores[0], saves[0]
+    assert restore["with"]["key"] == save["with"]["key"]
+    assert "secrets." not in str(restore.get("env", {}))
+    assert "AWS_ACCESS_KEY_ID" not in restore.get("env", {})
+    assert "AWS_SECRET_ACCESS_KEY" not in restore.get("env", {})
+    assert save.get("if") == (
+        "${{ success() && github.ref == 'refs/heads/feat-cmux-next' && github.event_name == 'push' }}"
+    )
+    assert save["env"]["AWS_ACCESS_KEY_ID"] == "${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}"
+    assert save["env"]["AWS_SECRET_ACCESS_KEY"] == "${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}"
 
 
 PACKAGE_BUILD_JOBS = (
@@ -1235,7 +1263,10 @@ PACKAGE_BUILD_JOBS = (
     # cloudflare-relay moved to its own lane; it checks out the pull request
     # directly rather than a caller-supplied ref, so it is no longer one of the
     # jobs this invariant applies to.
+    "cross-build-windows",
+    "wine-smoke-windows",
     "build-windows",
+    "build-windows-acpmux",
     "package",
     "verify-linux-packages",
     "attest-npm-packages",
@@ -1298,13 +1329,26 @@ def test_package_jobs_use_one_optional_checkout_ref_input() -> None:
             if isinstance(step, dict)
             and "actions/checkout" in str(step.get("uses", ""))
         ]
-        assert len(checkouts) == 1, job_name
-        checkout = checkouts[0]
-        assert checkout["name"] == "Checkout caller or requested ref"
-        with_config = checkout["with"]
-        assert isinstance(with_config, dict)
-        assert with_config["persist-credentials"] == "false"
-        assert with_config["ref"] == "${{ inputs.checkout_ref }}"
+        assert len(checkouts) in (1, 2), job_name
+        primary = checkouts[0]
+        assert primary["name"] == "Checkout caller or requested ref"
+        assert "if" not in primary, job_name
+        if len(checkouts) == 2:
+            # A failed fetch may retry once, at the same ref, and a failed retry
+            # must fail the job rather than allowing a partial checkout to build.
+            retry = checkouts[1]
+            assert primary.get("id") == "checkout", job_name
+            assert primary.get("continue-on-error") == "true", job_name
+            assert retry.get("if") == "steps.checkout.outcome == 'failure'", job_name
+            assert retry.get("continue-on-error", "false") == "false", job_name
+            assert retry["uses"] == primary["uses"], job_name
+        else:
+            assert primary.get("continue-on-error", "false") == "false", job_name
+        for checkout in checkouts:
+            with_config = checkout["with"]
+            assert isinstance(with_config, dict)
+            assert with_config["persist-credentials"] == "false"
+            assert with_config["ref"] == "${{ inputs.checkout_ref }}"
 
 
 def test_package_checkout_ref_preserves_workflow_call_pr_branch_tag_and_sha() -> None:
