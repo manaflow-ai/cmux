@@ -14,6 +14,7 @@
 // The spring matches the iOS app's new chat (response 0.42 s, damping 0.82): sampled into a CSS
 // `linear()` easing, with a cubic-bezier approximation where WebKit has no `linear()`.
 
+import { declareMove } from "../../layout/motionContract";
 import { springEasing, motionMode } from "../../ui/motion/motionMode";
 import { holdForFirstFrame, type Frames, windowFrames } from "./conversation/entranceClock";
 
@@ -125,7 +126,8 @@ export function playNewChatEntrance(
   if (!hero || style === "off" || typeof hero.animate !== "function") return undefined;
   if (motionMode(hero.ownerDocument, hero) !== "full") return undefined;
   const easing = springEasing(NEW_CHAT_SPRING, NEW_CHAT_SPRING_FALLBACK, hero.ownerDocument);
-  const animations = newChatEntranceParts(hero, style).map((part) =>
+  const parts = newChatEntranceParts(hero, style);
+  const animations = parts.map((part) =>
     // motion-allow: the iOS new chat's spring (response 0.42 s) runs 360 ms, past the scale's large step; one entrance per new chat, matched across iOS and web (Leo 2026-11-22).
     part.element.animate([part.from, part.to], {
       duration: NEW_CHAT_PART_MS,
@@ -135,12 +137,25 @@ export function playNewChatEntrance(
       fill: "backwards",
     }),
   );
+  // The composer's rise is a script animation, and the layout-motion judge reads keyframe CSS
+  // animations only: the composer sat at its 8 px start through the hold and the stagger (long enough to
+  // count as rested), so the rise's first spring step read as an undeclared composer move on load (the
+  // bar and its glass, -0.6 px, in every composer-send-one-motion state). It is declared as what it is,
+  // the composer entering (schemas/layout-motion/contract.json `enter` on the composer surface), on the
+  // composer, for exactly as long as its rise plays. A composer move outside the rise is still judged.
+  const composerAt = parts.findIndex((part) => part.element.matches(DOCK_PARTS.composer));
+  const rise = animations[composerAt];
+  const undeclare = rise
+    ? declareMove({ event: "enter", scope: "targets", targets: [parts[composerAt]!.element], by: "new chat entrance" })
+    : undefined;
+  if (rise && undeclare) void rise.finished.then(undeclare, undeclare);
   const release = holdForFirstFrame(animations, frames);
   return {
     animations,
     stop() {
       release();
       for (const animation of animations) animation.cancel();
+      undeclare?.();
     },
   };
 }
