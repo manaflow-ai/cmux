@@ -1,3 +1,4 @@
+public import CmuxNextCloud
 public import Foundation
 
 extension CloudAPIClient {
@@ -19,13 +20,9 @@ extension CloudAPIClient {
 
     /// The Slack bridge uses the signed-in person's cmux bearer against cmux-platform.
     /// Like the owner API, this transport never caches credentials or follows redirects.
+    /// It lives here, not in CmuxNextCloud (cloud core, where Swift stays minimal): it is the Slack integration's relay.
     public static func slack(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
-                             teamID: String? = nil) -> CloudAPIClient {
-        slack(baseURL: baseURL, accessToken: accessToken, teamID: teamID, session: CloudOwnerAPIClient.transport)
-    }
-
-    static func slack(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
-                      teamID: String?, session: URLSession) -> CloudAPIClient {
+                             teamID: String? = nil, session: URLSession = CloudOwnerAPIClient.transport) -> CloudAPIClient {
         workerMachines(baseURL: baseURL, accessToken: accessToken, teamID: { teamID }, session: session)
     }
 
@@ -35,7 +32,7 @@ extension CloudAPIClient {
         case "GET": return try await sendData("GET", "/v1/slack/connection")
         case "POST": return try await sendData("POST", "/v1/slack/install-link")
         case "DELETE":
-            _ = try await send("DELETE", "/v1/slack/connection", as: Ignored.self)
+            _ = try await sendData("DELETE", "/v1/slack/connection")
             return Data("{}".utf8)
         default: throw CloudAPIError.transport("unsupported Slack request method")
         }
