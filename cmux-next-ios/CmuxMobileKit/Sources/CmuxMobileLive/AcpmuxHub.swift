@@ -984,7 +984,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             let previous = promptChain
             // The files already uploading since their pick go with this prompt; emptying the
             // composer after Send does not cancel them.
-            let prestaged = prestager.claim(attachments)
+            let directory = baseDirectory
+            let prestaged = prestager.claim(attachments, directory: directory)
             let task = Task { [weak self] in
                 await previous?.value
                 guard let self else { return }
@@ -993,7 +994,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 do {
                     try Task.checkCancellation()
                     blocks = try await self.promptBlocks(text: text, attachments: attachments, promptID: promptID, hub: hub,
-                                                         prestaged: prestaged)
+                                                         directory: directory, prestaged: prestaged)
                     try Task.checkCancellation()
                 } catch {
                     // Stopped or failed before every early upload was linked: none of them is wanted now.
@@ -1132,6 +1133,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private var sendTasks: [String: Task<Void, Never>] = [:]
     /// The composer's files, uploading to the Mac since they were picked (``prestageAttachments(_:)``).
     private let prestager = AttachmentPrestager()
+    /// The current composer contents, retained while the Mac link is down so the next link can
+    /// resume optimistic transfers without requiring another attachment change in the UI.
+    private var composerAttachments: [AgentAttachment] = []
 
     #if canImport(CmuxMobileLinkFFI)
     /// The chat's prompts until the Mac answers them (Rust, `cmux_composer_send::chat`): one
@@ -1409,15 +1413,16 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The composer's attachments changed: files a prompt would upload start uploading now, into the
     /// same folder Send uploads to; files taken off stop (``AttachmentPrestager``).
     public func prestageAttachments(_ attachments: [AgentAttachment]) {
+        composerAttachments = attachments.filter(AttachmentPrestager.uploadsAtSend)
         let cwd = baseDirectory
         let macName = summary.macName
         var upload: AttachmentPrestager.Upload?
-        if let link: any MacLink = hub?.macLink {
+        if hub?.isReady == true, let link: any MacLink = hub?.macLink {
             upload = { @Sendable (payload: LinkUpload.Payload, name: String) async throws -> String in
                 try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName)
             }
         }
-        prestager.sync(attachments, upload: upload)
+        prestager.sync(attachments, directory: cwd, upload: upload)
     }
 
     /// ACP prompt content: the text, then per attachment
@@ -1431,11 +1436,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Its bounds, resume and byte progress are the upload engine's (`AttachmentUploadClient`,
     /// lane/ios-attachment-send).
     func promptBlocks(text: String, attachments: [AgentAttachment], promptID: String, hub: AcpmuxHub,
-                      prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
+                      directory: String, prestaged: [String: AttachmentPrestager.Entry] = [:]) async throws -> [JSONValue] {
         let progress: @Sendable (AgentUploadProgress) -> Void = { [weak self] step in
             Task { @MainActor in self?.emit(.promptUploading(promptID: promptID, step)) }
         }
-        return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: baseDirectory,
+        return try await Self.promptBlocks(text: text, attachments: attachments, link: hub.macLink, cwd: directory,
                                            macName: summary.macName, progress: progress, prestaged: prestaged)
     }
 
@@ -1964,6 +1969,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     }
 
     func linkDown() {
+        prestager.cancelAll()
         // An attach still waiting on the old connection ends without touching this chat.
         generation += 1
         dropPipelined()
@@ -2024,6 +2030,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         flushHeldPrompts()
         // Kept records still being read: the attach starts once they are in (`restoreKept`).
         guard !attaching, !restoring, let hub, hub.isReady else { return }
+        prestageAttachments(composerAttachments)
         retryTask?.cancel()
         retryTask = nil
         gapTask?.cancel()

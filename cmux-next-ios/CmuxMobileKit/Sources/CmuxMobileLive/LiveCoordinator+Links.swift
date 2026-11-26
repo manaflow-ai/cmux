@@ -145,10 +145,11 @@ extension LiveCoordinator {
     }
 
     private func observe(_ session: MacSession) {
-        // What a change is compared against, read in the same main-actor turn as the tracking
-        // below (so the same values): onChange cannot use the tracking's own result, which is
-        // still being declared when the closure is written.
-        let seen = session.link.phase, seenMedia = session.link.media
+        // Capture the comparison values before registering the tracking closure. Referencing
+        // tuple bindings produced by withObservationTracking from its own onChange closure is
+        // rejected by the Swift compiler as a use before initialization.
+        let seen = session.link.phase
+        let seenMedia = session.link.media
         withObservationTracking {
             _ = (session.link.phase, session.link.media)
         } onChange: { [weak self, weak session] in

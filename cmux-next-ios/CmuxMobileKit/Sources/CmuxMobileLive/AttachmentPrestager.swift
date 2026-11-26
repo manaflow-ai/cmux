@@ -22,6 +22,7 @@ final class AttachmentPrestager {
     struct Entry {
         let task: Task<String, any Error>
         let started: ContinuousClock.Instant
+        let directory: String?
     }
 
     private(set) var entries: [String: Entry] = [:]
@@ -39,13 +40,16 @@ final class AttachmentPrestager {
 
     /// The composer's attachments now: starts an upload for each new one that would upload at
     /// send, cancels the uploads of those taken off. `upload` nil (no link): nothing starts.
-    func sync(_ attachments: [AgentAttachment], upload: Upload?) {
+    func sync(_ attachments: [AgentAttachment], directory: String? = nil, upload: Upload?) {
         let wanted = Set(attachments.filter(Self.uploadsAtSend).map(\.id))
-        for (id, entry) in entries where !wanted.contains(id) {
+        for (id, entry) in entries where !wanted.contains(id) || entry.directory != directory {
             entry.task.cancel()
             entries[id] = nil
         }
-        guard let upload else { return }
+        guard let upload else {
+            cancelAll()
+            return
+        }
         for attachment in attachments where wanted.contains(attachment.id) && entries[attachment.id] == nil {
             let payload: LinkUpload.Payload
             if let data = attachment.data { payload = .data(data) } else if let url = attachment.fileURL { payload = .file(url) } else { continue }
@@ -62,18 +66,30 @@ final class AttachmentPrestager {
                     throw error
                 }
             }
-            entries[attachment.id] = Entry(task: task, started: started)
+            entries[attachment.id] = Entry(task: task, started: started, directory: directory)
         }
     }
 
     /// Hands the early uploads of a sent prompt's attachments to it: no later ``sync(_:upload:)``
     /// (the composer emptied by Send) cancels them.
-    func claim(_ attachments: [AgentAttachment]) -> [String: Entry] {
+    func claim(_ attachments: [AgentAttachment], directory: String? = nil) -> [String: Entry] {
         var claimed: [String: Entry] = [:]
         for attachment in attachments {
-            if let entry = entries.removeValue(forKey: attachment.id) { claimed[attachment.id] = entry }
+            guard let entry = entries.removeValue(forKey: attachment.id) else { continue }
+            if entry.directory == directory {
+                claimed[attachment.id] = entry
+            } else {
+                entry.task.cancel()
+            }
         }
         return claimed
+    }
+
+    /// Cancels composer uploads that belong to a link which is no longer usable. The source
+    /// keeps the desired attachment list and starts these again when the next link is ready.
+    func cancelAll() {
+        for entry in entries.values { entry.task.cancel() }
+        entries.removeAll()
     }
 
     /// The chat went away with files still on its composer: their uploads have no owner.

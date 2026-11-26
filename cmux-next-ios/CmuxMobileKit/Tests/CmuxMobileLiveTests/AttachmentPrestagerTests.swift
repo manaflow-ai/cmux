@@ -13,15 +13,22 @@ import Testing
     actor FakeMac {
         var started: [String] = []
         var gates: [CheckedContinuation<Void, Never>] = []
+        var startWaiter: CheckedContinuation<Void, Never>?
         var open = true
         func upload(_ name: String) async throws -> String {
             started.append(name)
+            startWaiter?.resume()
+            startWaiter = nil
             if !open { await withCheckedContinuation { gates.append($0) } }
             try Task.checkCancellation()
             return "/w/.cmux/attachments/\(name)"
         }
         func hold() { open = false }
         func release() { open = true; gates.forEach { $0.resume() }; gates = [] }
+        func waitForUploadStart() async {
+            if !started.isEmpty { return }
+            await withCheckedContinuation { startWaiter = $0 }
+        }
     }
 
     func file(_ id: String, _ name: String) -> AgentAttachment {
@@ -67,6 +74,12 @@ import Testing
         #expect(try await entry.task.value == "/w/.cmux/attachments/a.zip")
     }
 
+    @Test func noLinkStartsNothing() {
+        let prestager = AttachmentPrestager()
+        prestager.sync([file("a", "a.zip")], upload: nil)
+        #expect(prestager.entries.isEmpty)
+    }
+
     @Test func aChatThatGoesAwayStopsItsUploads() async throws {
         let mac = FakeMac()
         await mac.hold()
@@ -78,10 +91,49 @@ import Testing
         await mac.release()
     }
 
-    @Test func noLinkStartsNothing() {
+    @Test func losingTheLinkCancelsComposerUploads() async throws {
         let prestager = AttachmentPrestager()
+        let mac = FakeMac()
+        await mac.hold()
+        prestager.sync([file("a", "a.zip")], upload: { _, name in try await mac.upload(name) })
+        let task = try #require(prestager.entries["a"]).task
         prestager.sync([file("a", "a.zip")], upload: nil)
         #expect(prestager.entries.isEmpty)
+        #expect(task.isCancelled)
+        await mac.release()
+    }
+
+    @Test func sendInAnotherDirectoryDiscardsTheEarlierPath() async throws {
+        let mac = FakeMac()
+        let prestager = AttachmentPrestager()
+        let attachment = file("a", "a.zip")
+        await mac.hold()
+        prestager.sync([attachment], directory: "/first", upload: { _, name in try await mac.upload(name) })
+        await mac.waitForUploadStart()
+        let original = try #require(prestager.entries[attachment.id])
+        #expect(prestager.claim([attachment], directory: "/second").isEmpty)
+        #expect(original.task.isCancelled)
+        await mac.release()
+    }
+
+    @Test func sameIDImageOptimizationCancelsTheOriginalUpload() async throws {
+        let prestager = AttachmentPrestager()
+        let mac = FakeMac()
+        await mac.hold()
+        let upload: AttachmentPrestager.Upload = { _, name in try await mac.upload(name) }
+        let original = AgentAttachment(id: "image", kind: .image, name: "photo.heic", data: Data("heic".utf8))
+        prestager.sync([original], upload: upload)
+        await mac.waitForUploadStart()
+        let task = try #require(prestager.entries[original.id]?.task)
+
+        let optimizedData = Data([0x89, 0x50, 0x4E, 0x47, 0, 0, 0, 0, 0, 0, 0, 0])
+        let optimized = AgentAttachment(id: original.id, kind: .image, name: "photo.png", data: optimizedData)
+        prestager.sync([optimized], upload: upload)
+
+        #expect(prestager.entries.isEmpty)
+        #expect(task.isCancelled)
+        #expect(await mac.started == ["photo.heic"])
+        await mac.release()
     }
 
     /// The prompt links the early copy: no second upload, and no link needed at Send.

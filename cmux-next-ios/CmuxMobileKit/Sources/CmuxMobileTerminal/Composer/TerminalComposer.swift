@@ -290,7 +290,11 @@ struct TerminalComposer: View {
         let canSend = model.composerHasText || !model.attachments.isEmpty
         let failed = model.attachmentError != nil
         return Button {
-            send()
+            if model.isUploading {
+                model.cancelAttachmentSend()
+            } else {
+                send()
+            }
         } label: {
             ZStack {
                 if model.isUploading {
@@ -312,13 +316,13 @@ struct TerminalComposer: View {
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(model.isUploading || !canSend)
+        .disabled(!canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
                 model.sendWithoutReturn()
             }
         }
-        .accessibilityLabel(model.isUploading ? "Sending" : failed ? "Send failed" : "Send")
+        .accessibilityLabel(model.isUploading ? "Cancel sending" : failed ? "Send failed" : "Send")
         .accessibilityIdentifier("terminal.composer.send")
     }
 
@@ -342,9 +346,14 @@ struct TerminalComposer: View {
                                              string: board.hasStrings ? board.string : nil)
         switch route {
         case .image:
-            guard let image = board.image, let data = image.pngData() else { return }
-            model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
-                                                   thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+            let stamp = Self.stamp()
+            for (index, item) in board.composerImages().enumerated() {
+                let ext = UTType(mimeType: item.mimeType)?.preferredFilenameExtension ?? "png"
+                let suffix = index == 0 ? "" : " \(index + 1)"
+                let thumbnail = UIImage(data: item.data)?.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(stamp)\(suffix).\(ext)",
+                                                       thumbnail: thumbnail, data: item.data))
+            }
         case .file(let url):
             Task { await loadFiles([url]) }
         case .text(let text):
