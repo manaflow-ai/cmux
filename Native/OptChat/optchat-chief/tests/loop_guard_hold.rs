@@ -317,9 +317,10 @@ fn a_silent_spawn_turn_under_the_guard_gets_no_note_until_the_person_writes() {
 
 /// The guard's refusal can come after the turn ended: a send the owner held
 /// back (`agent_rate`) answers "queued", so the silent spawn turn queues its
-/// `[no text]` note, and the outbox retry is refused (`agent_budget`) while
-/// that note still waits for its turn. The note is dropped and its ids wait
-/// for the person, like a note the hold kept from being queued.
+/// host-posted start (or, failing that, a `[no text]` note), and the outbox
+/// retry is refused (`agent_budget`) while it still waits. No `[no text]`
+/// turn runs and the ids wait for the person, like a note the hold kept from
+/// being queued.
 #[test]
 fn a_no_text_note_already_queued_when_the_guard_refuses_is_held_too() {
     let dir = tempfile::tempdir().unwrap();
@@ -373,7 +374,7 @@ fn a_no_text_note_already_queued_when_the_guard_refuses_is_held_too() {
             .lock()
             .unwrap()
             .iter()
-            .any(|l| l.contains(NO_TEXT_TAG) && l.contains("queuing"))
+            .any(|l| l.contains("posted no text") && !l.contains("loop guard"))
     };
     let deadline = Instant::now() + Duration::from_secs(10);
     while !noted(&lines) {

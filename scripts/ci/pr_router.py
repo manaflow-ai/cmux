@@ -60,9 +60,11 @@ import head_tier  # noqa: E402
 import workflow_paths_cover_inputs as filters  # noqa: E402
 
 ROOT = HERE.parents[1]
-# The step table's jobs that run only on a full-tier head (head_tier.py): a draft, or a base merge into an idle pull
-# request, routes them nowhere, as cmux-next.yml's path_route turned every Mac tier off for one.
-FULL_TIER_JOBS = ("mac",)
+# The step table's jobs that run only on a full-tier head (head_tier.py): a cheap head (a draft, a ready head before
+# `ready-to-land` or `full-ci`, a base merge into an idle pull request) routes them nowhere, so pr-pipeline.yml does not
+# start on it at all. mac alone was here until 11-25, so linux, web-browser and ios ran on every cheap push: about 50k
+# runner-minutes a day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
+FULL_TIER_JOBS = ("linux", "web-browser", "mac", "ios")
 MANIFEST = HERE / "pr_router.json"
 ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
@@ -180,6 +182,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if cheap and not config.get("draft"):
             why[name] = ("draft: starts when marked ready for review (or with full-ci)" if pr.get("draft") is not False
                          else tier_reason)
+            continue
+        # A callee whose every table job is full-tier-only starts on no cheap head (a fast-track head is full tier).
+        if tier != "full" and config.get("table_jobs") and set(config["table_jobs"]) <= set(FULL_TIER_JOBS):
+            why[name] = "cheap tier: starts when ready-to-land or full-ci is added (or the draft is marked ready)"
             continue
         if files is None:
             start.append(name)
