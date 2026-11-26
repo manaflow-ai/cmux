@@ -66,6 +66,29 @@ const active: HomeChiefWork = {
   taskSources: ["harness"],
   truncated: false,
 };
+// The plans arms (chiefPlans.experiment.ts): the Chief's own plan and each subagent's.
+const planned: HomeChiefWork = {
+  ...active,
+  plans: [
+    {
+      id: "chief-turn",
+      name: "Ship the hello page",
+      state: "working",
+      plan: { source: "chief", done: 2, total: 5, current: "Check the preview on a phone", next: "Share the link" },
+    },
+  ],
+  agents: [
+    {
+      ...active.agents[0]!,
+      plan: { source: "harness", done: 3, total: 7, current: "Write the hero section", next: "Add the share preview" },
+    },
+    {
+      ...active.agents[1]!,
+      plan: { source: "agent", done: 1, total: 3, current: "Wait for the preview URL", next: "Open it on a phone" },
+    },
+    { ...active.agents[2]!, plan: { source: "harness", done: 4, total: 4 } },
+  ],
+};
 export default componentEntry<Props>({
   id: "pages.home-chief-work",
   title: "Chief background work",
@@ -83,6 +106,26 @@ export default componentEntry<Props>({
     phone: {
       note: "Full-width sheet on a 390px phone.",
       props: { snapshot: active, loading: false },
+    },
+    "plans-inline": {
+      note: "Plans, inline arm: count and the step in progress under each subagent.",
+      props: { snapshot: planned, loading: false },
+      experiments: { "chief-plans": "inline" },
+    },
+    "plans-steps": {
+      note: "Plans, steps arm: a progress bar, the step in progress and the next one.",
+      props: { snapshot: planned, loading: false },
+      experiments: { "chief-plans": "steps" },
+    },
+    "plans-section": {
+      note: "Plans, plans-first arm: the Chief's plan and each subagent's in one section on top.",
+      props: { snapshot: planned, loading: false },
+      experiments: { "chief-plans": "section" },
+    },
+    "plans-off": {
+      note: "Plans off (the default): the same snapshot as before plans.",
+      props: { snapshot: planned, loading: false },
+      experiments: { "chief-plans": "off" },
     },
     empty: { props: { snapshot: { agents: [], tasks: [], truncated: false }, loading: false } },
     loading: { props: { loading: true } },
