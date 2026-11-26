@@ -310,6 +310,9 @@ pub struct AttachStream {
     /// left out (`replay_history_start`); `None` when the replay reaches the
     /// screen.
     pub history_rows_skipped: Option<u64>,
+    /// The terminal's output stream offset at the replay's cut: the offset of
+    /// the first byte `stream` delivers (`attach-frames-v1` OUTPUT frames).
+    pub stream_offset: u64,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
     /// Where the output stream stood at the replay (`terminal-resume-v1`).

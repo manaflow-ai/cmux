@@ -363,6 +363,21 @@ class ProjectionTests(unittest.TestCase):
                                               "mode": kept, "lacks": True, "shared": False})
                 self.assertNotIn(TEAM, json.dumps(row))
 
+    def test_a_spare_claim_keeps_its_skip_reasons_steps_and_path(self):
+        # Production 2026-11-26 16:09Z: a claim saw one spare and created, and the row read only `spares: 1` (hq#29939).
+        row = logs.line(event({"msg": "machines.spare.claim", "team": TEAM, "spares": 1,
+                               "skipped": {"warming": 1, "lost_generation": 2, "Bad Key": 3, "paused": "x",
+                                           "vm_0123456789abcdef": 1},
+                               "ms": {"leases": 4, "total": 95, "nested": {"x": 1}},
+                               "path": "created", "fallback": "all_skipped", "behind": 0}))
+        self.assertEqual(row["log"], {"msg": "machines.spare.claim", "team": logs.base.tag(TEAM), "spares": 1,
+                                      "path": "created", "fallback": "all_skipped", "behind": 0,
+                                      "skipped": {"lost_generation": 2, logs.base.tag("vm_0123456789abcdef"): 1,
+                                                  "warming": 1},
+                                      "ms": {"leases": 4, "total": 95}})
+        self.assertNotIn(TEAM, json.dumps(row))
+        self.assertNotIn("vm_0123456789abcdef", json.dumps(row))
+
     def test_a_cut_off_submit_answer_keeps_its_op_and_wait(self):
         # cmux-platform retro r2b92b756: a start that ran out its 25 s answer wait was retried silently, so only this
         # line counts how often an op outlives its request.
