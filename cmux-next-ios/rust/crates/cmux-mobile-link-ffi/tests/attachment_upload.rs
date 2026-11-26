@@ -157,6 +157,10 @@ fn spec(rig: &UploadRig, name: &str) -> UploadSpec {
     }
 }
 
+fn spec_for_mac(rig: &UploadRig, mac_id: String, name: &str) -> UploadSpec {
+    UploadSpec { upload_id: None, mac_id, name: name.into(), cwd: Some(rig.root.to_str().unwrap().into()) }
+}
+
 fn engine(timings: Timings) -> (Arc<AttachmentUploads>, Arc<Recorder>) {
     let recorder = Arc::new(Recorder::default());
     (AttachmentUploads::with_timings(recorder.clone(), timings), recorder)
@@ -240,12 +244,15 @@ async fn a_replaced_link_resumes_the_upload() {
     patterned_file(&source, size);
     let timings = Timings { backoff_start: Duration::from_millis(50), ..Timings::default() };
     let (uploads, _recorder) = engine(timings);
-    uploads.set_link(rig.mac_id.clone(), Some(rig.handle.clone()));
-    let id = uploads.start(spec(&rig, "resume.bin"), source.to_str().unwrap().into());
+    // A stable Mac key sharing the prefix still has a reconnect owner.
+    let upload_mac_id = "link-stable".to_owned();
+    uploads.set_link(upload_mac_id.clone(), Some(rig.handle.clone()));
+    let id = uploads
+        .start(spec_for_mac(&rig, upload_mac_id.clone(), "resume.bin"), source.to_str().unwrap().into());
     until("60% of the file", || uploads.progress(id.clone()).is_some_and(|p| p.acked_bytes > 60 * MIB)).await;
-    uploads.set_link(rig.mac_id.clone(), None);
+    uploads.set_link(upload_mac_id.clone(), None);
     let second = connect(&rig.base_url, &rig.mac_id, Transport::WireGuard).await;
-    uploads.set_link(rig.mac_id.clone(), Some(second));
+    uploads.set_link(upload_mac_id, Some(second));
     let path = uploads.wait(id.clone()).await.expect("uploaded");
     assert_eq!(sha256(Path::new(&path)), sha256(&source));
     let last = uploads.progress(id).unwrap();
@@ -253,6 +260,33 @@ async fn a_replaced_link_resumes_the_upload() {
     // Needs hostd's resumable `upload_id` protocol (cmux-mobile-host services.rs): without it
     // the second attempt restarts at byte 0 and this fails.
     assert!(last.sent_bytes * 2 < size * 3, "sent {} of {size}: it did not resume", last.sent_bytes);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_one_shot_link_disappearance_fails_promptly() {
+    let rig = upload_rig(Transport::WireGuard).await;
+    let phone = tempfile::tempdir().unwrap();
+    let source = phone.path().join("one-shot.bin");
+    patterned_file(&source, MIB);
+    let one_shot_mac = format!("link-{}", uuid::Uuid::new_v4());
+    let timings = Timings { backoff_start: Duration::from_millis(10), ..Timings::default() };
+    let (uploads, _recorder) = engine(timings);
+    uploads.set_link(one_shot_mac.clone(), Some(rig.handle.clone()));
+    let id = uploads
+        .start(spec_for_mac(&rig, one_shot_mac.clone(), "one-shot.bin"), source.to_str().unwrap().into());
+    uploads.set_link(one_shot_mac, None);
+
+    let result = tokio::time::timeout(Duration::from_secs(2), uploads.wait(id.clone()))
+        .await
+        .expect("one-shot link failure is bounded")
+        .expect_err("one-shot upload must fail when its link disappears");
+    assert!(
+        matches!(result, CmuxMobileError::Refused { ref code, .. } if code == "link_unavailable"),
+        "{result:?}"
+    );
+    let progress = uploads.progress(id).unwrap();
+    assert_eq!(progress.stage, UploadStage::Failed);
+    assert_eq!(progress.error_code.as_deref(), Some("link_unavailable"));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

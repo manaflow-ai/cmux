@@ -394,7 +394,7 @@ impl AttachmentUploads {
             error_message: None,
         };
         let upload = Arc::new(Upload {
-            one_shot: spec.mac_id.starts_with("link-"),
+            one_shot: spec.mac_id.strip_prefix("link-").is_some_and(|id| uuid::Uuid::parse_str(id).is_ok()),
             mac_id: spec.mac_id,
             name: Mutex::new(spec.name),
             cwd: spec.cwd,
