@@ -67,7 +67,7 @@ struct ChangingBytesTests {
 
     /// Each encoding knob against the same phases (opt-in: about 30 s a config).
     @Test(.enabled(if: matrix), .timeLimit(.minutes(2)),
-          arguments: ["baseline", "motion", "cap2M", "cap1M", "cap500k", "fps30", "balanced", "maintainFramerate"])
+          arguments: ["baseline", "motion", "cap2M", "cap1M", "cap500k", "fps30", "balanced", "maintainFramerate", "area", "areaFps30"])
     func encodingKnob(config: String) async throws {
         setenv("CMUX_VNC_ENCODING_EXPERIMENT", config, 1)
         defer { unsetenv("CMUX_VNC_ENCODING_EXPERIMENT") }

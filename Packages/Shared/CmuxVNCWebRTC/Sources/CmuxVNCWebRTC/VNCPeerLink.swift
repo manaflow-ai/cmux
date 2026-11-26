@@ -173,9 +173,14 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     /// Host: the screen sender's encoding for `quality` of a `source`-sized
     /// display at `frameRate` (60 unless both displays agreed on more).
     /// These are WebRTC's own sender parameters; its congestion control keeps running.
-    func applyVideo(_ quality: ScreenQuality, source: CGSize, frameRate: Int = ScreenQuality.baselineFrameRate) {
+    /// `ceiling` lowers the bitrate ceiling further (``ChangedArea``; nil: the quality's own).
+    func applyVideo(_ quality: ScreenQuality, source: CGSize, frameRate: Int = ScreenQuality.baselineFrameRate, ceiling: Int? = nil) {
         guard let sender = lock.withLock({ videoSender }) else { return }
-        let settings = quality.settings(sourceWidth: Int(source.width), sourceHeight: Int(source.height), frameRate: frameRate)
+        var settings = quality.settings(sourceWidth: Int(source.width), sourceHeight: Int(source.height), frameRate: frameRate)
+        if let ceiling {
+            settings.maxBitrate = min(settings.maxBitrate, ceiling)
+            settings.minBitrate = settings.minBitrate.map { min($0, settings.maxBitrate) }
+        }
         let parameters = sender.parameters
         parameters.degradationPreference = NSNumber(value: settings.degradation.rawValue)
         for encoding in parameters.encodings {
@@ -611,6 +616,8 @@ struct ScreenEncodingExperiment: Sendable {
     var degradation: RTCDegradationPreference?
     var maxBitrate: Int?
     var maxFramerate: Int?
+    /// The bitrate ceiling follows the changed area (``ChangedArea``).
+    var areaBitrate = false
 
     static var current: ScreenEncodingExperiment {
         var knobs = ScreenEncodingExperiment()
@@ -622,6 +629,10 @@ struct ScreenEncodingExperiment: Sendable {
         case "fps30": knobs.maxFramerate = 30
         case "balanced": knobs.degradation = .balanced
         case "maintainFramerate": knobs.degradation = .maintainFramerate
+        case "area": knobs.areaBitrate = true
+        case "areaFps30":
+            knobs.areaBitrate = true
+            knobs.maxFramerate = 30
         default: break
         }
         return knobs

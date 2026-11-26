@@ -452,6 +452,11 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var images = ScreenImageAssembler()
         /// The source state the viewer last heard (live until the host says otherwise).
         var source = ScreenSourceState.live
+        /// How much of the picture changed lately, and the bitrate ceiling last applied for it (nil: none yet).
+        var changed = ChangedArea()
+        var ceiling: Int?
+        /// The encoding ``applyQuality(_:)`` last set: the ceiling's full value comes from it.
+        var encoding: (quality: ScreenQuality, size: CGSize, fps: Int)?
         init(link: VNCPeerLink, backend: any ScreenBackend) {
             self.link = link
             self.backend = backend
@@ -675,6 +680,15 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 log("video: \(summary) capture \(String(format: "%.1f", Double(captured) / seconds)) fps target \(target.map(String.init) ?? "-") fps")
             }
         })
+        // The bitrate ceiling falls after a big change ends (ChangedArea).
+        if Self.followsChangedArea {
+            session.add(Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(250)) // ceiling relax period
+                    self?.relaxCeiling(session)
+                }
+            })
+        }
         // Idle refresh: capture sends nothing while the screen is still, but a
         // lost keyframe or a quality step needs a frame to encode.
         session.add(Task { [weak self] in
@@ -825,7 +839,10 @@ public final class ScreenStreamHost: @unchecked Sendable {
             let pixels = session.lock.withLock { session.displays.indices.contains(session.current) ? session.displays[session.current] : nil }
             return pixels.map { FocusGeometry(display: display, pixels: $0) }
         }, send: { link.sendText($0, onlyOn: VNCPeerLink.focusLabel) })
-        (session.backend as? any ScreenDamageSource)?.onDamage = { rects, size in producer.damage(rects, captured: size) }
+        (session.backend as? any ScreenDamageSource)?.onDamage = { [weak self] rects, size in
+            producer.damage(rects, captured: size)
+            self?.damaged(rects, size: size, session: session)
+        }
         session.add(Task { await producer.run { link.hasOpenChannel(VNCPeerLink.focusLabel) } })
     }
 
@@ -1041,11 +1058,60 @@ public final class ScreenStreamHost: @unchecked Sendable {
             defer { session.frameRate = fps }
             return (session.quality, size, cap, fps, session.frameRate != fps)
         }
-        session.link.applyVideo(quality, source: size, frameRate: fps)
+        let ceiling = session.lock.withLock { () -> Int? in
+            session.encoding = (quality, size, fps)
+            session.ceiling = Self.areaCeiling(session, now: DispatchTime.now().uptimeNanoseconds)
+            return session.ceiling
+        }
+        session.link.applyVideo(quality, source: size, frameRate: fps, ceiling: ceiling)
         session.backend.setFrameRate(fps)
         session.backend.setMaximumLongEdge(cap)
         if changed { log("frame rate: \(fps) fps (this Mac \(hostRate.map(String.init) ?? "?") Hz, viewer \(session.lock.withLock { session.viewerFrameRate }.map(String.init) ?? "?") Hz)") }
         return changed
+    }
+
+    /// Whether the bitrate ceiling follows the changed area.
+    static var followsChangedArea: Bool {
+        #if DEBUG
+        ScreenEncodingExperiment.current.areaBitrate
+        #else
+        false
+        #endif
+    }
+
+    /// The ceiling the changed area earns under Auto and Smooth Motion (nil:
+    /// the quality's own, or no encoding yet). Under `session.lock`.
+    private static func areaCeiling(_ session: Session, now: UInt64) -> Int? {
+        guard followsChangedArea, let encoding = session.encoding, encoding.quality == .auto || encoding.quality == .smooth else { return nil }
+        let full = encoding.quality.settings(sourceWidth: Int(encoding.size.width), sourceHeight: Int(encoding.size.height),
+                                             frameRate: encoding.fps).maxBitrate
+        return ChangedArea.ceiling(full: full, fraction: session.changed.fraction(now: now))
+    }
+
+    /// One picture's damage: a bigger change raises the ceiling before the encoder needs it.
+    private func damaged(_ rects: [CGRect], size: CGSize, session: Session) {
+        guard Self.followsChangedArea else { return }
+        let now = DispatchTime.now().uptimeNanoseconds
+        let update = session.lock.withLock { () -> (ScreenQuality, CGSize, Int, Int)? in
+            session.changed.add(rects, in: size, now: now)
+            guard let encoding = session.encoding, let next = Self.areaCeiling(session, now: now),
+                  ChangedArea.worthApplying(next, over: session.ceiling) else { return nil }
+            session.ceiling = next
+            return (encoding.quality, encoding.size, encoding.fps, next)
+        }
+        if let (quality, size, fps, ceiling) = update { session.link.applyVideo(quality, source: size, frameRate: fps, ceiling: ceiling) }
+    }
+
+    /// The ceiling falls once the change has been small for a while (``ChangedArea/window``).
+    private func relaxCeiling(_ session: Session) {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let update = session.lock.withLock { () -> (ScreenQuality, CGSize, Int, Int)? in
+            guard let encoding = session.encoding, let next = Self.areaCeiling(session, now: now),
+                  next < (session.ceiling ?? .max), ChangedArea.worthApplying(next, over: session.ceiling) else { return nil }
+            session.ceiling = next
+            return (encoding.quality, encoding.size, encoding.fps, next)
+        }
+        if let (quality, size, fps, ceiling) = update { session.link.applyVideo(quality, source: size, frameRate: fps, ceiling: ceiling) }
     }
 
     private func endSession(ifCurrent expected: Session? = nil) {
