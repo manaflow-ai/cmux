@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG && canImport(Darwin)
 import Darwin
 import Foundation
 
@@ -236,5 +236,14 @@ final class MobileDebugLogCrashCapture {
         previousSignalActionPointer = actions
         previousSignalActionCount = Int32(signalRecordDefinitions.count)
     }
+}
+#elseif DEBUG
+import Foundation
+
+/// Crash capture relies on Darwin signal and Objective-C exception APIs. Other
+/// platforms (the Linux package build) keep the sink's call sites and skip it.
+enum MobileDebugLogCrashCapture {
+    static func install(logFileDescriptor: Int32) {}
+    static func updateLogFileDescriptor(_ fileDescriptor: Int32) {}
 }
 #endif

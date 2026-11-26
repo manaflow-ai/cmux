@@ -8,10 +8,14 @@ Each rewrite leaves Apple builds byte-for-byte equivalent:
   * `import Darwin` becomes `#if canImport(Darwin) import Darwin #elseif
     canImport(Glibc) import Glibc #endif` (the access level and attributes
     are kept). A file that calls `Darwin.close(fd)`-style qualified libc
-    functions also imports `CmuxLinuxDarwin` in the Glibc branch, under
-    `#if canImport(CmuxLinuxDarwin)`: that Linux-only module declares
+    functions also imports `CmuxLinuxCompat` in the Glibc branch, under
+    `#if canImport(CmuxLinuxCompat)`: that Linux-only module declares
     `enum Darwin` forwarding to Glibc (Packages/Shared/CmuxLinuxCompat; the
-    package manifest adds it under `#if os(Linux)`).
+    package manifest adds it under `#if os(Linux)`). The same import is added
+    for `String(localized:)`, `SHA256.hash`, `Logger(` and
+    `OSAllocatedUnfairLock`, which that module also provides off Apple.
+  * a file that names XMLElement/XMLDocument/XMLNode imports FoundationXML
+    under `#if canImport(FoundationXML)`.
   * a file that names a URL-loading type (URLSession, URLRequest,
     HTTPURLResponse, URLProtocol, ...) gets `#if canImport(FoundationNetworking)
     import FoundationNetworking #endif` after its Foundation import, because
@@ -21,10 +25,10 @@ Each rewrite leaves Apple builds byte-for-byte equivalent:
     defines CGFloat, CGPoint, CGSize and CGRect.
   * `import os` / `import OSLog` / `import os.log` gets wrapped in
     `#if canImport(os)`; the file still needs a Linux path for what it used
-    (OSAllocatedUnfairLock has a module-internal stand-in, see
-    Packages/Shared/CMUXMobileCore/Sources/CMUXMobileCore/OSAllocatedUnfairLock+Linux.swift).
+    (CmuxLinuxCompat provides Logger and OSAllocatedUnfairLock).
 
-Imports already inside an `#if` block are left alone.
+Imports already under a platform `#if` (canImport, os(), targetEnvironment) are
+left alone; imports under other conditions such as `#if DEBUG` are rewritten.
 """
 
 from __future__ import annotations
@@ -36,37 +40,58 @@ from pathlib import Path
 IMPORT_LINE = re.compile(
     r"^(?P<prefix>(?:@[A-Za-z_]+(?:\([^)]*\))?\s+)*(?:(?:public|package|internal|fileprivate|private)\s+)?)import\s+(?P<module>[A-Za-z_][A-Za-z0-9_.]*)\s*$"
 )
-NEEDS_COMPAT = re.compile(r"\bDarwin\.[a-z_]|\bString\(localized:|\bSHA256\.hash\(")
+NEEDS_COMPAT = re.compile(r"\bDarwin\.[a-z_]|\bString\(\s*localized:|\bSHA256\.hash\(|\bLogger\(|\bOSAllocatedUnfairLock\b|\bOSLogType\b")
+XML_TYPES = re.compile(r"\bXML(Element|Document|Node|DTD\w*)\b")
 URL_TYPES = re.compile(r"\b(URLSession\w*|URLRequest|HTTPURLResponse|URLResponse|URLProtocol|URLCache|HTTPCookie\w*|URLCredential\w*|URLAuthenticationChallenge)\b")
+PLATFORM_GUARD = re.compile(r"canImport\(|\bos\(|targetEnvironment\(")
 OS_MODULES = {"os", "OSLog", "os.log", "os.signpost"}
 
 
-def rewrite(text: str) -> str:
+def rewrite(text: str, has_compat: bool = True) -> str:
     lines = text.split("\n")
     out: list[str] = []
-    depth = 0
+    # One entry per open #if: whether it (or its #elseif/#else) is a platform
+    # guard. Imports under `#if DEBUG` still need rewriting; imports under a
+    # canImport/os() guard were already placed by hand.
+    guards: list[bool] = []
     foundation_at = None
+    last_import_end = 0
+    guarded_import = False
     has_networking = "FoundationNetworking" in text
     for line in lines:
         stripped = line.strip()
         if re.match(r"#\s*if\b", stripped):
-            depth += 1
-        elif re.match(r"#\s*endif\b", stripped):
-            depth = max(0, depth - 1)
-        match = IMPORT_LINE.match(line) if depth == 0 else None
+            guards.append(bool(PLATFORM_GUARD.search(stripped)))
+        elif re.match(r"#\s*(elseif|else)\b", stripped) and guards:
+            guards[-1] = guards[-1] or bool(PLATFORM_GUARD.search(stripped)) or stripped.startswith("#else")
+        elif re.match(r"#\s*endif\b", stripped) and guards:
+            guards.pop()
+            if guarded_import and not any(guards):
+                # Insert after the platform block that held an import.
+                last_import_end = len(out) + 1
+                guarded_import = False
+        match = IMPORT_LINE.match(line) if not any(guards) else None
+        if IMPORT_LINE.match(line):
+            if any(guards):
+                guarded_import = True
+            else:
+                last_import_end = len(out) + 1
         if match:
             module = match.group("module")
             if module == "Darwin":
                 out += ["#if canImport(Darwin)", line,
                         "#elseif canImport(Glibc)", f"{match.group('prefix')}import Glibc", "#endif"]
+                last_import_end = len(out)
                 continue
             if module in OS_MODULES or module == "CryptoKit":
                 guard = "os" if module in OS_MODULES else module
                 out += [f"#if canImport({guard})", line, "#endif"]
+                last_import_end = len(out)
                 continue
             if module == "CoreGraphics":
                 out += ["#if canImport(CoreGraphics)", line, "#else",
                         f"{match.group('prefix')}import Foundation", "#endif"]
+                last_import_end = len(out)
                 continue
             if module == "Foundation" and foundation_at is None:
                 foundation_at = len(out)
@@ -77,30 +102,23 @@ def rewrite(text: str) -> str:
         # interface; keep the networking import at the same access level.
         out[foundation_at + 1:foundation_at + 1] = [
             "#if canImport(FoundationNetworking)", f"{prefix}import FoundationNetworking", "#endif"]
-    if NEEDS_COMPAT.search(text) and "CmuxLinuxCompat" not in text:
-        at = foundation_at + 1 if foundation_at is not None else first_import_after_ifs(out)
+    if foundation_at is not None and "FoundationXML" not in text and XML_TYPES.search(text):
+        prefix = IMPORT_LINE.match(out[foundation_at]).group("prefix")
+        out[foundation_at + 1:foundation_at + 1] = [
+            "#if canImport(FoundationXML)", f"{prefix}import FoundationXML", "#endif"]
+    if has_compat and NEEDS_COMPAT.search(text) and "CmuxLinuxCompat" not in text:
+        at = foundation_at + 1 if foundation_at is not None else last_import_end
         out[at:at] = ["#if canImport(CmuxLinuxCompat)", "import CmuxLinuxCompat", "#endif"]
     return "\n".join(out)
 
 
-def first_import_after_ifs(lines: list[str]) -> int:
-    """Index after the last top-of-file import or import #if block."""
-    end = 0
-    depth = 0
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if re.match(r"#\s*if\b", stripped):
-            depth += 1
-        elif re.match(r"#\s*endif\b", stripped):
-            depth -= 1
-            if depth == 0:
-                end = index + 1
-        elif IMPORT_LINE.match(line) or stripped.startswith("#else"):
-            if depth == 0:
-                end = index + 1
-        elif stripped and not stripped.startswith("//") and depth == 0:
-            break
-    return end
+def manifest_has_compat(path: Path) -> bool:
+    """Whether the nearest enclosing Package.swift depends on CmuxLinuxCompat."""
+    for parent in path.resolve().parents:
+        manifest = parent / "Package.swift"
+        if manifest.is_file():
+            return "CmuxLinuxCompat" in manifest.read_text(encoding="utf-8")
+    return False
 
 
 def main(argv: list[str]) -> int:
@@ -110,7 +128,10 @@ def main(argv: list[str]) -> int:
         files = [root] if root.is_file() else sorted(p for p in root.rglob("*.swift") if ".build" not in p.parts)
         for path in files:
             before = path.read_text(encoding="utf-8")
-            after = rewrite(before)
+            has_compat = manifest_has_compat(path)
+            if not has_compat and NEEDS_COMPAT.search(before) and "CmuxLinuxCompat" not in before:
+                print(f"warning: {path} needs CmuxLinuxCompat; add it to its Package.swift under #if os(Linux) and rerun", file=sys.stderr)
+            after = rewrite(before, has_compat)
             if after != before:
                 path.write_text(after, encoding="utf-8")
                 changed += 1
