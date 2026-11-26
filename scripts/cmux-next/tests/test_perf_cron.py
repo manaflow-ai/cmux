@@ -26,6 +26,9 @@ def row(p95, unit="ms", floor=1.0, budget=None):
 
 LINUX_PARTS = ["diff-viewer", "web-ui", "web-ui-scale", "web-ui-growth", "web-ui-god", "infinite-items", "web-ui-million", "web-ui-memory", "web-ui-flat", "web-ui-scroll-up", "web-ui-flat-grown", "web-ui-ladder", "web-ui-fidelity", "web-ui-typing", "web-ui-scroll", "web-ui-orchestrator", "web-ui-power-user", "web-ui-settled", "chat-disk", "cloud-claim", "terminal-scroll", "daemon-restart", "coord-sim", "chat-search"]
 FLEET = [n for n in ALL if n not in ("build", *LINUX_PARTS)]
+# A fresh state's order (part_order): a part with no row anywhere goes before a goal's part, so the goal's parts go last.
+LINUX_FRESH_ORDER = [n for n in LINUX_PARTS if not cron.PART_BY_NAME[n].get("goal")] + \
+    [n for n in LINUX_PARTS if cron.PART_BY_NAME[n].get("goal")]
 
 
 def confirm_all(state, regs, cur, run_url, t, regression):
@@ -118,7 +121,7 @@ class DecideTests(unittest.TestCase):
     def test_the_linux_part_runs_beside_the_build_and_needs_no_build_alone(self):
         state = cron.empty_state(T0)
         d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None)
-        self.assertEqual((d["part"], d["linux_parts"]), ("build", LINUX_PARTS))
+        self.assertEqual((d["part"], d["linux_parts"]), ("build", LINUX_FRESH_ORDER))
         state = cron.empty_state(T0)
         cron.decide(state, T0, "a" * 40, None, lambda sha: ["diff-viewer"], None)
         self.assertEqual(state["current"]["parts_todo"], ["diff-viewer"], "no Mac build for a Linux-only measurement")
@@ -304,6 +307,20 @@ class DecideTests(unittest.TestCase):
         t = at(cron.PART_STALE_HOURS + 2)
         self.assertEqual(cron.part_order(state, ["build", "coord-sim", "web-ui-flat", "fresh", "web-ui-god"], t),
                          ["build", "fresh", "web-ui-god", "coord-sim", "web-ui-flat"])
+
+    def test_the_sim_parts_that_failed_last_time_still_go_first_for_their_goal(self):
+        # Tip c2b1760e0a63 (2026-11-26): both sim parts failed at b4a3f5019f7f and stored no row, so they sat behind the
+        # stale Linux parts while NOW's sim_ladder_marginal_ratio_max and sim_fidelity_divergence_max kept one value.
+        for name in ("web-ui-ladder", "web-ui-fidelity"):
+            self.assertEqual(cron.PART_BY_NAME[name].get("goal"), "sim-fidelity-flat-ladder")
+        state = cron.empty_state(T0)
+        state["part_stored"] = {"web-ui-scale": {"at": cron.iso(T0)}, "daemon-restart": {"at": cron.iso(T0)}}
+        state["last"] = {"rows": {"webui.chat_search.x@host": {"p95": 1}}}
+        state["history"] = [{"sha": "a" * 40, "kind": "tip", "failed_parts": ["web-ui-ladder", "web-ui-fidelity"],
+                             "ran_failed": ["web-ui-ladder", "web-ui-fidelity"]}]
+        t = at(cron.PART_STALE_HOURS + 2)
+        order = cron.part_order(state, ["build", "web-ui-scale", "daemon-restart", "web-ui-ladder", "web-ui-fidelity"], t)
+        self.assertEqual(order, ["build", "web-ui-ladder", "web-ui-fidelity", "web-ui-scale", "daemon-restart"])
 
     def test_an_older_history_entry_names_its_failed_runs_by_their_reason(self):
         state = cron.empty_state(T0)
@@ -2364,7 +2381,7 @@ class Review2Tests(OneRunRule):
         state = cron.empty_state(T0)
         why = "no gateway runner label"
         d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None, mac_disabled=why)
-        self.assertEqual((d["part"], d["linux_parts"]), ("", LINUX_PARTS))
+        self.assertEqual((d["part"], d["linux_parts"]), ("", LINUX_FRESH_ORDER))
         cur = state["current"]
         self.assertEqual(cur["parts_todo"], LINUX_PARTS)
         self.assertEqual(cur["parts"]["stress"], {"state": "disabled", "reason": why})
@@ -4441,7 +4458,7 @@ class LinuxMatrixTests(unittest.TestCase):
     def test_one_tick_asks_for_every_linux_part_and_the_next_asks_for_none(self):
         state = cron.empty_state(T0)
         d = cron.decide(state, T0, "a" * 40, None, lambda sha: ALL, None, controller_route=True)
-        self.assertEqual((d["part"], d["linux_parts"]), ("build", LINUX_PARTS))
+        self.assertEqual((d["part"], d["linux_parts"]), ("build", LINUX_FRESH_ORDER))
         cur = state["current"]
         for name in LINUX_PARTS:
             cron.record_part(cur, name, {"state": "done", "worker": LINUX}, "r", at(1))
