@@ -1,0 +1,111 @@
+name: cmux machine channel cargo seed
+
+# Keeps the R2 cargo cache that the machine channel's thin musl builds restore fresh: the dependency entry
+# (`Key the cargo build in R2`, note-210c) and the per-commit workspace delta (scripts/ci/cargo-target-delta.sh), for
+# both legs, saved by a feat-cmux-next build. This build gets the cache's write credentials because the
+# next-cache-writer environment admits only feat-cmux-next. Pull request builds read the public URL and never write.
+#
+# Why: the only feat-cmux-next build of those legs was cmux-machine-channel.yml's push run. That run builds only
+# when the channel needs the commit and no merged PR head's build is taken (PR_HEAD_FAST_LANE). Its group keeps one
+# run waiting, and a newer push replaces it: 95 of 100 push runs were cancelled (2026-11-26, 06Z..18Z). So the
+# 3,362 PR head builds a day (pr-router.yml machine-channel-pr-head, about 58k runner-min) restored a dependency
+# entry for an older Cargo.lock and no workspace delta. In run 45731579747, 11e80282 was restored for a 57140a46
+# head, then 89 third-party crates and all 252 workspace crates compiled: 12.5 min of cargo in a 15 min job.
+# Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+#
+# Cost: at most one seed a SEED_INTERVAL_MINUTES, plus one per push that changes a cargo key input. A seed is skipped
+# while both legs' newest deltas (whoever saved them) are younger than that, so a channel push build counts as a
+# seed (scripts/ci/machine_channel_cargo_seed_due.py).
+# One group, never cancelled while it runs: a newer push only replaces the waiting one.
+
+on:
+  push:
+    branches: [feat-cmux-next]
+
+permissions: {}
+
+concurrency:
+  group: cmux-machine-channel-cargo-seed
+  cancel-in-progress: false
+
+env:
+  SEED_INTERVAL_MINUTES: "60"
+
+jobs:
+  due:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: is a machine channel cargo seed due
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      due: ${{ steps.due.outputs.due }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/machine_channel_cargo_seed_due.py
+          sparse-checkout-cone-mode: false
+
+      - name: Read both legs' newest workspace delta and this push's changed paths
+        id: due
+        env:
+          COMMITS: ${{ toJSON(github.event.commits) }}
+        run: |
+          set -euo pipefail
+          python3 -I scripts/ci/machine_channel_cargo_seed_due.py --minutes "$SEED_INTERVAL_MINUTES" --commits "$COMMITS" \
+            | tee -a "$GITHUB_OUTPUT"
+
+  seed-x86_64:
+    name: seed
+    needs: due
+    if: ${{ needs.due.outputs.due == 'true' }}
+    permissions:
+      contents: read
+      # The reusable package workflow's permission ceiling.
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    # The R2 cargo cache's write credentials, on feat-cmux-next only, as cmux-machine-channel.yml's build-x86_64.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
+    with:
+      version: 0.0.0-r2.sha-${{ github.sha }}
+      package_npm: false
+      package_pypi: false
+      include_windows: false
+      verify_linux_arm64: false
+      # scripts/cmux-next/cmux-tui-build-profiles.json machine_channel: the same leg key (target and lto) the PR head
+      # builds restore.
+      target_set: linux-x86_64
+      lto: thin
+      artifact_prefix: machine-channel-seed-
+      linux_runner: cmux-linux
+
+  seed-aarch64:
+    name: seed
+    needs: due
+    if: ${{ needs.due.outputs.due == 'true' }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
+    with:
+      version: 0.0.0-r2.sha-${{ github.sha }}
+      package_npm: false
+      package_pypi: false
+      include_windows: false
+      verify_linux_arm64: false
+      target_set: linux-aarch64
+      lto: thin
+      artifact_prefix: machine-channel-seed-
+      linux_runner: cmux-linux
