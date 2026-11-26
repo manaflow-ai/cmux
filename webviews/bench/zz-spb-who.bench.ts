@@ -910,7 +910,7 @@ try {
       console.log(
         "WHO",
         JSON.stringify(await page.evaluate(() => (window as any).__whoLog.slice(0, 5)), null, 1),
-        "\nSTACKS\n" + (await page.evaluate(() => (window as any).__whoSt.slice(0, 120).join("\n"))),
+        "\nSTACKS\n" + (await page.evaluate(() => (window as any).__whoSt.slice(0, 400).join("\n"))),
       );
       stopStream();
       if (profiler) {
