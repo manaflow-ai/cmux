@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,6 +66,25 @@ class RiskRuleTests(unittest.TestCase):
         # A new or deleted file is not a mode change.
         self.assertTrue(fast.classify(1, [small("Sources/New.swift")], [("000000", "100644", "Sources/New.swift")],
                                       SURFACE).fast)
+        self.assertIn("symlink", fast.classify(1, [small("Sources/sign")], [("000000", "120000", "Sources/sign")],
+                                               SURFACE).reason)
+
+    def test_an_unreadable_surface_is_never_a_fast_pass(self):
+        self.assertIsNone(fast.surface_patterns(Path("/nonexistent/release-surface.txt")))
+        with unittest.mock.patch.object(fast, "surface_patterns", return_value=None):
+            verdict = fast.classify(1, [small("Sources/Panels/Chat.swift")], [])
+        self.assertFalse(verdict.fast)
+        self.assertIn("could not be read", verdict.reason)
+
+    def test_a_mid_path_double_star_also_matches_no_directory(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+            handle.write("# comment\n@policy x\nweb/**/signing.ts\n")
+        try:
+            patterns = fast.surface_patterns(Path(handle.name))
+        finally:
+            Path(handle.name).unlink()
+        self.assertTrue(any(p.match("web/signing.ts") for p in patterns))
+        self.assertTrue(any(p.match("web/a/b/signing.ts") for p in patterns))
 
 
 class LocalGitTests(unittest.TestCase):
@@ -95,6 +115,16 @@ class LocalGitTests(unittest.TestCase):
         verdict = fast.evaluate(self.base, self.git("rev-parse", "HEAD"), git=self.runner, surface=SURFACE)
         self.assertTrue(verdict.fast, verdict.reason)
         self.assertEqual((verdict.commits, verdict.files, verdict.lines), (1, 1, 2))
+
+    def test_paths_git_would_quote_are_still_checked(self):
+        Path(self.dir, ".github", "workflows").mkdir(parents=True)
+        Path(self.dir, ".github", "workflows", "\u00e9.yml").write_text("on: push\n")
+        Path(self.dir, "a\tb.entitlements").write_text("x\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "odd names")
+        verdict = fast.evaluate(self.base, self.git("rev-parse", "HEAD"), git=self.runner, surface=SURFACE)
+        self.assertFalse(verdict.fast, verdict.reason)
+        self.assertIn("\u00e9.yml", verdict.reason)
 
     def test_an_unreadable_range_is_not_a_fast_pass(self):
         verdict = fast.evaluate("0" * 40, self.base, git=self.runner, surface=SURFACE)
@@ -148,8 +178,31 @@ class RollingFastPassTests(unittest.TestCase):
         self.assertFalse(go, why)
         self.assertIn(f"of {fast.FAST_PASS_CADENCE_MINUTES:g} min", why)
 
+    def test_a_classifier_error_keeps_the_cadence(self):
+        def broken(head, tip):
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "bad")
+        go, why = rolling.evaluate(NOW, "o/r", TIP, api=api_with(self.finished_start),
+                                   ls_remote=lambda repo, ref: HEAD, local_gap=lambda head, tip: (TIP, NOW),
+                                   cadence_minutes=20, fast_pass=broken)
+        self.assertFalse(go, why)
+        self.assertIn("even cadence", why)
+
+    def test_a_gap_the_checkout_cannot_read_is_not_classified(self):
+        def gap(head, tip):
+            raise LookupError("not in this checkout")
+
+        def api(path):
+            if "/compare/" in path:
+                return {"status": "ahead", "commits": [{"sha": TIP, "commit": {"committer": {"date": iso(1)}}}]}
+            return api_with(self.finished_start)(path)
+        go, why = rolling.evaluate(NOW, "o/r", TIP, api=api, ls_remote=lambda repo, ref: HEAD, local_gap=gap,
+                                   cadence_minutes=20,
+                                   fast_pass=lambda head, tip: self.fail("classified a gap the checkout lacks"))
+        self.assertNotIn("fast pass", why)
+
     def test_a_fast_pass_never_promotes_beside_a_running_build(self):
-        running = [dict(self.finished_start[0], status="in_progress", conclusion=None, created_at=iso(30))]
+        # Started 8 min ago: past the fast pass's 5-minute cadence, so only the running build holds it.
+        running = [dict(self.finished_start[0], status="in_progress", conclusion=None, created_at=iso(8))]
         jobs = {"jobs": [{"name": "nightly-next-one", "status": "in_progress", "steps": []}]}
 
         def api(path):
