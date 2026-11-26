@@ -37,9 +37,6 @@ public final class TerminalHostView: NSView {
     private var scroller: TerminalScroller?
     /// The surface's last scrollbar state (Ghostty's scrollbar action), kept while no scroller is built.
     private var scrollbar: TerminalScrollbar?
-    /// Builds the scroller when the pointer reaches the trailing edge of a terminal with scrollback
-    /// (``pointerMoved(to:)``); none while there is nothing to scroll back through or once it is built.
-    private var edgeTracker: TerminalScrollerEdgeTracker?
     private var shownStatus: TerminalConnectionStatus = .connected
     private var hostLoss: TerminalHostLoss?
     private var hostLossCause: TerminalHostLossCause?
@@ -105,6 +102,21 @@ public final class TerminalHostView: NSView {
             if let topOverlay {
                 topOverlay.translatesAutoresizingMaskIntoConstraints = true
                 addChrome(topOverlay, .overlay)
+            }
+            needsLayout = true
+        }
+    }
+
+    /// Computer Use's live preview card (``TerminalComputerUsePreview``) for the agent running in
+    /// this terminal, where the person dragged it (at first the top-trailing corner), under the find
+    /// bar while that shows.
+    public var computerUsePreview: TerminalComputerUsePreview? {
+        didSet {
+            guard oldValue !== computerUsePreview else { return }
+            oldValue?.removeFromSuperview()
+            if let computerUsePreview {
+                computerUsePreview.translatesAutoresizingMaskIntoConstraints = true
+                addChrome(computerUsePreview, .overlay)
             }
             needsLayout = true
         }
@@ -192,7 +204,7 @@ public final class TerminalHostView: NSView {
         if view === scroller { return .scroller }
         if view === bottomAccessory { return .accessory }
         if view === statusLabel.banner { return .statusLabel }
-        if view === topOverlay || view === restartButton || view === retryButton || view === sizedForChip
+        if view === topOverlay || view === computerUsePreview || view === restartButton || view === retryButton || view === sizedForChip
             || view is TerminalFindBarView { return .overlay }
         return nil
     }
@@ -383,35 +395,10 @@ public final class TerminalHostView: NSView {
         let previous = scrollbar
         scrollbar = bar
         if let scroller { return scroller.update(bar) }
-        guard TerminalScrollerGeometry.isUserMove(from: previous, to: bar) else { return trackEdge(for: bar) }
+        guard TerminalScrollerGeometry.isUserMove(from: previous, to: bar) else { return }
         let scroller = makeScroller()
         scroller.update(previous)
         scroller.update(bar)
-    }
-
-    /// The pointer moved over the terminal to `point` (this view's coordinates), or left it (nil),
-    /// while no scroller is built (``TerminalScrollerEdgeTracker``). Over the scroller's strip with
-    /// scrollback to show, it builds the scroller and hands it the pointer, which shows it; a built
-    /// scroller follows the pointer itself.
-    func pointerMoved(to point: CGPoint?) {
-        guard scroller == nil, let point, let bar = scrollbar, bar.totalRows > bar.visibleRows else { return }
-        let area = terminalBounds
-        guard area.contains(point), point.x >= TerminalScroller.strip(in: area, style: SystemScrollers.nativeStyle).minX else { return }
-        let scroller = makeScroller()
-        scroller.update(bar)
-        (scroller.verticalScroller as? ThinScroller)?.pointerMoved(to: scroller.convert(point, from: self))
-    }
-
-    /// Tracks the pointer for ``pointerMoved(to:)`` only while there is scrollback and no scroller:
-    /// a terminal with nothing to scroll back through gets no tracking area.
-    private func trackEdge(for bar: TerminalScrollbar?) {
-        let wanted = scroller == nil && (bar.map { $0.totalRows > $0.visibleRows } ?? false)
-        if wanted, edgeTracker == nil {
-            edgeTracker = TerminalScrollerEdgeTracker(host: self)
-        } else if !wanted, let edgeTracker {
-            edgeTracker.detach()
-            self.edgeTracker = nil
-        }
     }
 
     /// Whether the scroller is built (tests).
@@ -423,7 +410,6 @@ public final class TerminalHostView: NSView {
         scroller.onScrollToRow = { [weak self] row in _ = self?.current?.performBindingAction("scroll_to_row:\(row)") }
         scroller.onWheel = { [weak self] event in self?.current?.scrollWheel(with: event) }
         self.scroller = scroller
-        trackEdge(for: nil) // the scroller's own tracking area follows the pointer from here
         // Above the surface and a held frame, below the accessory, the status label and the overlays.
         addChrome(scroller, .scroller)
         scroller.frame = scroller.strip(in: terminalBounds)
@@ -562,10 +548,20 @@ public final class TerminalHostView: NSView {
         // Framed hidden too: the bar shows itself when find opens.
         // The shared find pill sits where every pane's does (FindPillMetrics.inset from top and trailing).
         let findInset = FindPillMetrics.inset
+        var findBottom = bounds.height
         for case let bar as TerminalFindBarView in subviews {
-            _ = place(bar, maxWidth: bounds.width - findInset * 2, evenHidden: true) { size in
+            let frame = place(bar, maxWidth: bounds.width - findInset * 2, evenHidden: true) { size in
                 CGPoint(x: self.bounds.width - findInset - size.width, y: self.bounds.height - findInset - size.height)
             }
+            if !bar.isHidden { findBottom = min(findBottom, frame.minY) }
+        }
+        if let computerUsePreview, !computerUsePreview.isHidden {
+            computerUsePreview.paneWidth = bounds.width
+            let top = findBottom < bounds.height ? findBottom - inset : bounds.height - inset
+            // Where the person dragged it inside the pane; a new card at the top-trailing corner.
+            computerUsePreview.area = CGRect(x: inset, y: inset, width: max(0, bounds.width - scrollerWidth - inset * 2),
+                                             height: max(0, top - inset))
+            _ = place(computerUsePreview, maxWidth: bounds.width - inset * 2) { size in computerUsePreview.origin(for: size) }
         }
     }
 

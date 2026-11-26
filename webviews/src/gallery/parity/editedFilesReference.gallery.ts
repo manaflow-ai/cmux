@@ -62,24 +62,27 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/conversation/EditedFilesCard.tsx"],
   variants: {
     "two-files": {
-      note: "Two nested paths, a document-diff tile, aggregate counts and real Undo / View changes actions.",
+      note: "Two nested paths, a document-diff tile, aggregate counts and a real Undo; each file row opens its diff inside the card.",
       snapshot: twoFileSnapshot,
       native: twoFileNative,
     },
     "two-files-focus": {
-      note: "Keyboard focus on aggregate counts exposes View changes and its external arrow without moving the header actions.",
+      note: "Keyboard focus on the first file row, then Enter: its diff opens under it inside the card, with Open in Changes in the diff's header; the header's counts stay plain counts.",
       snapshot: twoFileSnapshot,
       native: twoFileNative,
       play: async (ctx) => {
-        await ctx.focus({ selector: ".acpmux-edited-summary" });
-        await ctx.waitFor(() => {
-          const label = ctx.document.querySelector(".acpmux-edited-summary-link");
-          return label && ctx.document.defaultView?.getComputedStyle(label).opacity === "1";
-        });
+        await ctx.waitFor(() => ctx.document.querySelector("button.acpmux-edited-file"));
+        await ctx.focus({ selector: "button.acpmux-edited-file" });
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited-entry .acpmux-edited-diff .cv-edit-diff"));
+        if (!ctx.document.querySelector(".acpmux-edited-diff .acpmux-edited-open"))
+          throw new Error("the opened diff has no Open in Changes");
+        if (ctx.document.querySelector(".acpmux-review-changes, .acpmux-edited-summary"))
+          throw new Error("the card shows a second way to its changes");
       },
     },
     "nine-files": {
-      note: "The reference card: Edited 9 files, +129 −5, three initial rows, Show 6 more files, Undo and View changes.",
+      note: "The reference card: Edited 9 files, +129 −5, three initial rows, Show 6 more files, and Undo.",
       snapshot: chat(
         [
           user("Keep the window corners flush.", 1),
@@ -104,8 +107,10 @@ export default agentPaneEntry({
           throw new Error("Missing nine-file title");
         if (card.querySelector(".acpmux-edited-more")?.textContent?.trim() !== "Show 6 more files")
           throw new Error("Missing six-file expansion");
-        if (!card.querySelector(".acpmux-edited-undo") || !card.querySelector(".acpmux-review-changes"))
-          throw new Error("Missing reference card actions");
+        if (!card.querySelector(".acpmux-edited-undo")) throw new Error("Missing reference card Undo");
+        // One way to a change: a file row opens it inline; no View changes beside Undo.
+        if (card.querySelector(".acpmux-review-changes, .acpmux-edited-summary"))
+          throw new Error("The reference card shows a second way to its changes");
       },
     },
   },

@@ -31,6 +31,7 @@ import { $prose } from "@milkdown/kit/utils";
 import {
   followShownScrollerFade,
   markSidewaysEdges,
+  RESIZE_HANDLE_ATTRIBUTE,
   SIDEWAYS_ATTRIBUTE,
   SIDEWAYS_INK,
   SIDEWAYS_SCROLLER_ATTRIBUTE,
@@ -297,6 +298,7 @@ export class ResizableTableView extends TableView {
     this.dom.setAttribute(SIDEWAYS_SCROLLER_ATTRIBUTE, "");
     this.handle = document.createElement("div");
     this.handle.className = "md-col-resize";
+    this.handle.setAttribute(RESIZE_HANDLE_ATTRIBUTE, "");
     this.handle.contentEditable = "false";
     this.handle.hidden = true;
     this.handle.setAttribute("aria-hidden", "true");

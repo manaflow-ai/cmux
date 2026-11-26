@@ -44,4 +44,18 @@ rows="$(gate dmg open "$root/a.dmg"; gate app exec "$root/x.app")"
 grep -q '^LP-GATE dmg spctl rc=0 PATH: accepted source=Notarized Developer ID' <<<"$rows" || { echo "launch-premain gate: dmg row: $rows" >&2; exit 1; }
 grep -q -- '--type open --context context:primary-signature' "$root/calls" || { echo "launch-premain gate: open without its context" >&2; exit 1; }
 grep -q -- '--type exec -vv' "$root/calls" || { echo "launch-premain gate: exec assessed with a context (or not at all)" >&2; exit 1; }
+
+# fresh_keychain: a login keychain in the probe's home (launch-premain.swift's HOME_ROOT/h), each `security` step run
+# as the console user with that home as HOME and CFFIXED_USER_HOME; main makes it before any launch (Keychain Not Found
+# panels from arms h,a,d on cmux-austin-mini-1, 2026-11-18). launch-fresh-install.sh sources the same one.
+console() { printf '%s\n' "$*" >>"$root/console"; }
+OUT="$root" fresh_keychain "$root/h" || { echo "launch-premain keychain: fresh_keychain failed" >&2; exit 1; }
+kc="$root/h/Library/Keychains/login.keychain-db"
+grep -qxF "/bin/mkdir -p $root/h/Library/Keychains" "$root/console" || { echo "launch-premain keychain: no Keychains folder: $(cat "$root/console")" >&2; exit 1; }
+for want in "create-keychain -p ''" "list-keychains -d user -s" "default-keychain -d user -s" "set-keychain-settings"; do
+  grep -qF "/usr/bin/env HOME=$root/h CFFIXED_USER_HOME=$root/h /bin/sh -c exec /usr/bin/security $want \"\$0\" $kc" "$root/console" \
+    || { echo "launch-premain keychain: missing '$want' scoped to the home: $(cat "$root/console")" >&2; exit 1; }
+done
+declare -f main | awk '/fresh_keychain "\$out\/home\/h"/ { k = NR } /launch open prime/ && !p { p = NR } END { exit !(k && p && k < p) }' \
+  || { echo "launch-premain keychain: main does not make the probe home's keychain before its first launch" >&2; exit 1; }
 echo "launch-premain store: ok"

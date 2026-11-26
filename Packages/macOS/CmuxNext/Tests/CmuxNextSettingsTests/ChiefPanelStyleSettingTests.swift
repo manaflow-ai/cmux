@@ -21,14 +21,14 @@ struct ChiefPanelStyleSettingTests {
         #expect(row.defaultValue == .string("composeBar"))
     }
 
-    /// `home.chiefPanel.seesScreen`: the floating Chief's "sees your screen" eye; on when unset.
-    @Test func seesScreenIsOnWhenUnset() throws {
-        let unset = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
-        #expect(unset.chiefPanelSeesScreen)
-        let off = CmuxConfigSnapshot.parse(.object(["home": .object(["chiefPanel": .object(["seesScreen": .bool(false)])])]),
+    /// `home.chiefPanel.seesScreen` went with Share Screen with Chief (user 2026-11-20): no Settings row, and an old
+    /// file that still sets it loads with no diagnostic, the key listed as retired.
+    @Test func seesScreenIsRetired() {
+        let path = ["home", "chiefPanel", "seesScreen"]
+        #expect(SettingsSchema.descriptor(for: path) == nil, "the eye still has a Settings row")
+        #expect(SettingsSchema.isRetired(path))
+        let old = CmuxConfigSnapshot.parse(.object(["home": .object(["chiefPanel": .object(["seesScreen": .bool(false)])])]),
                                            validDensities: [], validMetrics: [])
-        #expect(!off.chiefPanelSeesScreen)
-        let row = try #require(SettingsSchema.descriptor(for: ChiefDockSetting.seesScreenPath), "no Settings row")
-        #expect(row.defaultValue == .bool(true))
+        #expect(old.diagnostics.isEmpty && old.retiredKeys == ["home.chiefPanel.seesScreen"])
     }
 }

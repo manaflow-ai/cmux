@@ -1,0 +1,132 @@
+/* The chat's Customize bar (CustomizeBar.tsx): a row of the composer hat, as the approved plan's. */
+.acpmux-customize-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1, 4px);
+  padding: var(--ds-space-1, 4px) var(--ds-space-2, 8px);
+  font-size: var(--text-detail);
+  color: var(--agent-text);
+  min-width: 0;
+  --acpmux-customize-bar-dot: 6px;
+}
+
+.acpmux-customize-bar[data-look="card"] {
+  gap: var(--ds-space-2, 8px);
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+}
+
+.acpmux-customize-bar[data-look="chip"] {
+  position: relative;
+  align-self: flex-start;
+  padding: 0;
+}
+
+.acpmux-customize-bar-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2, 8px);
+  min-width: 0;
+}
+
+.acpmux-customize-bar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--weight-emphasis);
+}
+
+.acpmux-customize-bar[data-look="card"] .acpmux-customize-bar-title {
+  white-space: normal;
+}
+
+.acpmux-customize-bar-dot {
+  flex: none;
+  width: var(--acpmux-customize-bar-dot);
+  height: var(--acpmux-customize-bar-dot);
+  border-radius: 50%;
+  background: var(--cmux-accent, #3b82f6);
+}
+
+.acpmux-customize-bar-dot[data-state="applied"] {
+  background: var(--cmux-success, #22c55e);
+}
+
+.acpmux-customize-bar-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1, 4px);
+  flex: none;
+}
+
+.acpmux-customize-bar-part {
+  padding: 0 var(--ds-space-1, 4px);
+  border-radius: 4px;
+  background: var(--acpmux-row-hover);
+  color: var(--agent-soft);
+  white-space: nowrap;
+}
+
+.acpmux-customize-bar-actions {
+  display: flex;
+  gap: var(--ds-space-1, 4px);
+  flex: none;
+  justify-content: flex-end;
+}
+
+.acpmux-customize-bar-problems {
+  margin: 0;
+  padding-left: var(--ds-space-3, 12px);
+  color: var(--cmux-danger, #ef4444);
+}
+
+.acpmux-customize-bar-failed {
+  margin: 0;
+  color: var(--cmux-danger, #ef4444);
+}
+
+.acpmux-customize-bar-name {
+  display: flex;
+  gap: var(--ds-space-1, 4px);
+}
+
+.acpmux-customize-bar-name input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+}
+
+.acpmux-customize-bar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1, 4px);
+  padding: var(--grid-half-step) var(--ds-space-2, 8px);
+  border: none;
+  border-radius: 999px;
+  background: var(--acpmux-row-hover);
+  color: var(--agent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.acpmux-customize-bar-chip:focus-visible {
+  outline: var(--cmux-focus-ring-width, 2px) solid var(--cmux-focus-ring-color, #3b82f6);
+}
+
+.acpmux-customize-bar[data-open="true"] .acpmux-customize-bar-chip svg {
+  transform: rotate(180deg);
+}
+
+.acpmux-customize-bar-popover {
+  position: absolute;
+  bottom: calc(100% + var(--ds-space-1, 4px));
+  left: 0;
+  z-index: var(--layer-dropdown);
+  width: min(360px, 90vw);
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2, 8px);
+  padding: var(--ds-space-2, 8px) var(--ds-space-3, 12px);
+}

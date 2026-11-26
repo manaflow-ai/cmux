@@ -30,7 +30,7 @@ samples=()
 for _ in $(seq 1 "$n"); do
   s=$(now_ms); run -- true; e=$(now_ms); samples+=($((e - s)))
 done
-printf '%s\n' "${samples[@]}" > "$work/cold"
+printf '%s\n' ${samples[@]+"${samples[@]}"} > "$work/cold"
 echo "REMOTE-AGENT-PATH exec_cold_ms p50=$(pct 0.5 < "$work/cold") p95=$(pct 0.95 < "$work/cold") n=$n"
 
 s=$(now_ms); lines=$(run -- sh -c 'i=0; while [ $i -lt 10000 ]; do echo line$i; i=$((i+1)); done' | wc -l); e=$(now_ms)

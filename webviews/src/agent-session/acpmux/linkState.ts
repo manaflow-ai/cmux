@@ -16,6 +16,10 @@ export type AcpmuxLink =
 /// Why a link is down (`cause`): this Mac's network, the team hub, the machine, or a refused token.
 export type LinkCause = "localNetwork" | "hubDown" | "peerDown" | "auth";
 
+/// Why the route last went down (`downReason`, acpmux `DialFail`): typed by acpmux from the dial's
+/// error, kept while the link is up again so a row can say why it moved.
+export type LinkDownReason = "timeout" | "refused" | "auth" | "pathChanged" | "unreachable";
+
 /// The carrier of the open link (`carrier`).
 export type LinkCarrier = "direct" | "ssh" | "hub" | "cloud";
 
@@ -24,6 +28,7 @@ export type PeerLinkDetail = {
   link: AcpmuxLink;
   carrier?: LinkCarrier;
   cause?: LinkCause;
+  downReason?: LinkDownReason;
   /// When `link` took its value, ms since the epoch.
   since?: number;
   /// When acpmux dials again on its own, ms since the epoch.
@@ -42,6 +47,13 @@ export const ACPMUX_LINKS: ReadonlySet<string> = new Set<AcpmuxLink>([
   "paused",
 ]);
 const CAUSES: ReadonlySet<string> = new Set<LinkCause>(["localNetwork", "hubDown", "peerDown", "auth"]);
+const DOWN_REASONS: ReadonlySet<string> = new Set<LinkDownReason>([
+  "timeout",
+  "refused",
+  "auth",
+  "pathChanged",
+  "unreachable",
+]);
 const CARRIERS: ReadonlySet<string> = new Set<LinkCarrier>(["direct", "ssh", "hub", "cloud"]);
 
 const time = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
@@ -57,6 +69,8 @@ export function readPeerLinkDetail(value: unknown): PeerLinkDetail | undefined {
   const detail: PeerLinkDetail = { link: word as AcpmuxLink };
   if (typeof raw.carrier === "string" && CARRIERS.has(raw.carrier)) detail.carrier = raw.carrier as LinkCarrier;
   if (typeof raw.cause === "string" && CAUSES.has(raw.cause)) detail.cause = raw.cause as LinkCause;
+  if (typeof raw.downReason === "string" && DOWN_REASONS.has(raw.downReason))
+    detail.downReason = raw.downReason as LinkDownReason;
   const since = time(raw.since);
   if (since !== undefined) detail.since = since;
   const nextRetryAt = time(raw.nextRetryAt);

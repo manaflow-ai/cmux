@@ -10,9 +10,21 @@
         "ty": "uint32",
         "required": true
       },
+      "/activity/echo_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/activity/echo_input_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
+        "nullable": true
+      },
+      "/activity/last_person_attach_at_ms": {
+        "ty": "uint64",
         "nullable": true
       },
       "/activity/last_user_input_at_ms": {
@@ -84,6 +96,9 @@
       "/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/terminal_id": {
+        "ty": "string"
       },
       "/updated_at_ms": {
         "ty": "uint64",
@@ -254,6 +269,19 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "event:agent-session-share-changed": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"agent-session-share-changed\""
+        ]
+      },
+      "/session": {
+        "ty": "string",
+        "required": true
       }
     },
     "event:bell": {
@@ -965,6 +993,29 @@
         "required": true
       },
       "/steps/*": {
+        "ty": "json"
+      }
+    },
+    "event:conversation-scheduled-changed": {
+      "/conversation": {
+        "ty": "string",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"conversation-scheduled-changed\""
+        ]
+      },
+      "/participant": {
+        "ty": "string",
+        "required": true
+      },
+      "/removed": {
+        "ty": "json"
+      },
+      "/scheduled": {
         "ty": "json"
       }
     },
@@ -7490,6 +7541,14 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/resume_generation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/resume_offset": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/rows": {
         "ty": "uint16",
         "nullable": true
@@ -8536,6 +8595,32 @@
       }
     },
     "request:cloud-session-status": {},
+    "request:computer-use-approvals": {
+      "/action": {
+        "ty": "string",
+        "required": true
+      },
+      "/answer": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/app_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/id": {
+        "ty": "uint64",
+        "nullable": true
+      }
+    },
+    "request:computer-use-config": {
+      "/config": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "request:computer-use-endpoint": {},
     "request:conversation-agent-token": {
       "/participant": {
         "ty": "string",
@@ -8813,6 +8898,10 @@
         "ty": "json",
         "required": true,
         "nullable": true
+      },
+      "/op_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:conversation-link-resolve": {
@@ -8922,6 +9011,19 @@
       },
       "/turns/*": {
         "ty": "string"
+      }
+    },
+    "request:conversation-scheduled-list": {
+      "/conversation": {
+        "ty": "string",
+        "nullable": true
+      }
+    },
+    "request:conversation-scheduled-op": {
+      "/op": {
+        "ty": "json",
+        "required": true,
+        "nullable": true
       }
     },
     "request:conversation-search": {
@@ -9847,12 +9949,35 @@
       }
     },
     "request:home-inbox": {
+      "/ids": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/ids/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/offset": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/owners": {
         "ty": "array",
         "nullable": true
       },
       "/owners/*": {
         "ty": "string"
+      },
+      "/scope": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/since": {
+        "ty": "uint64",
+        "nullable": true
       }
     },
     "request:identify": {
@@ -10082,6 +10207,10 @@
     "request:list-terminals": {},
     "request:list-workspace-groups": {},
     "request:list-workspaces": {
+      "/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/known": {
         "ty": "object",
         "nullable": true
@@ -11355,6 +11484,7 @@
       }
     },
     "request:ping": {},
+    "request:process-census": {},
     "request:process-info": {
       "/surface": {
         "ty": "uint64",
@@ -11978,6 +12108,10 @@
         "ty": "uint64",
         "nullable": true
       },
+      "/key": {
+        "ty": "string",
+        "nullable": true
+      },
       "/paste": {
         "ty": "boolean"
       },
@@ -12042,6 +12176,10 @@
     "request:set-client-info": {
       "/api_revision": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/api_version": {
+        "ty": "string",
         "nullable": true
       },
       "/capabilities": {
@@ -12661,6 +12799,9 @@
         "ty": "string",
         "required": true
       },
+      "/if_idle": {
+        "ty": "boolean"
+      },
       "/keep_layout": {
         "ty": "boolean"
       },
@@ -12864,6 +13005,41 @@
     "request:terminal-events": {
       "/after_revision": {
         "ty": "uint64"
+      }
+    },
+    "request:terminal-find": {
+      "/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/case_sensitive": {
+        "ty": "boolean"
+      },
+      "/epoch": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/max_matches": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/page_rows": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/query": {
+        "ty": "string",
+        "required": true
+      },
+      "/regex": {
+        "ty": "boolean"
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/whole_word": {
+        "ty": "boolean"
       }
     },
     "request:terminal-history": {
@@ -14007,6 +14183,24 @@
       }
     },
     "response:cloud-session-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-approvals": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-config": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:computer-use-endpoint": {
       "/data": {
         "ty": "json",
         "required": true
@@ -15979,6 +16173,33 @@
         "ty": "json"
       }
     },
+    "response:conversation-scheduled-list": {
+      "/data/scheduled": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/scheduled/*": {
+        "ty": "json"
+      }
+    },
+    "response:conversation-scheduled-op": {
+      "/data/change": {
+        "ty": "json"
+      },
+      "/data/removed": {
+        "ty": "json"
+      },
+      "/data/replayed": {
+        "ty": "boolean"
+      },
+      "/data/rev": {
+        "ty": "uint64"
+      },
+      "/data/scheduled": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:conversation-search": {
       "/data/hits": {
         "ty": "array",
@@ -17721,9 +17942,27 @@
         "ty": "string",
         "required": true
       },
+      "/data/full": {
+        "ty": "boolean"
+      },
       "/data/me": {
         "ty": "string",
         "required": true
+      },
+      "/data/offset": {
+        "ty": "uint64"
+      },
+      "/data/order": {
+        "ty": "string"
+      },
+      "/data/removed": {
+        "ty": "array"
+      },
+      "/data/removed/*": {
+        "ty": "string"
+      },
+      "/data/revision": {
+        "ty": "uint64"
       },
       "/data/rows": {
         "ty": "array",
@@ -17750,6 +17989,9 @@
       "/data/rows/*/id": {
         "ty": "string",
         "required": true
+      },
+      "/data/rows/*/index": {
+        "ty": "uint64"
       },
       "/data/rows/*/kind": {
         "ty": "enum",
@@ -17793,11 +18035,21 @@
       "/data/rows/*/unread": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/total": {
+        "ty": "uint64"
+      },
+      "/data/window": {
+        "ty": "boolean"
       }
     },
     "response:identify": {
       "/data/api_revision": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/data/api_version": {
+        "ty": "string",
         "nullable": true
       },
       "/data/app": {
@@ -17890,6 +18142,10 @@
       },
       "/data/min_api_revision": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/data/min_api_version": {
+        "ty": "string",
         "nullable": true
       },
       "/data/pid": {
@@ -18054,6 +18310,9 @@
       "/data/agents/*/surface": {
         "ty": "uint64",
         "required": true
+      },
+      "/data/agents/*/terminal_id": {
+        "ty": "string"
       },
       "/data/agents/*/updated_at_ms": {
         "ty": "uint64",
@@ -18473,6 +18732,9 @@
     "response:list-workspaces": {
       "/data/generation": {
         "ty": "string"
+      },
+      "/data/next": {
+        "ty": "uint64"
       },
       "/data/pane_revision": {
         "ty": "uint64"
@@ -19715,6 +19977,12 @@
       },
       "/data/version": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:process-census": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },
@@ -21981,7 +22249,14 @@
         "required": true
       }
     },
-    "response:set-client-info": {},
+    "response:set-client-info": {
+      "/data/api_revision": {
+        "ty": "uint32"
+      },
+      "/data/api_version": {
+        "ty": "string"
+      }
+    },
     "response:set-client-sizing": {},
     "response:set-column-dock": {
       "/data": {
@@ -22419,9 +22694,21 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/activity/echo_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/activity/echo_input_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
+        "nullable": true
+      },
+      "/data/activity/last_person_attach_at_ms": {
+        "ty": "uint64",
         "nullable": true
       },
       "/data/activity/last_user_input_at_ms": {
@@ -22531,6 +22818,12 @@
       },
       "/data/terminal_revision": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:terminal-find": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

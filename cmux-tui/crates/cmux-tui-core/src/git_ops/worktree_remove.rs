@@ -29,7 +29,7 @@ use super::checkpoint::ledger;
 use super::journal::Journal;
 use super::mutation::{Target, key, output_extra, refused, run_failed};
 use super::user_run::{UserGit, deadline};
-use super::worktree::BRANCH_PREFIX;
+use super::worktree::{self, BRANCH_PREFIX};
 use super::{
     MAX_SMALL_OUTPUT_BYTES, MAX_STATUS_BYTES, Repository, worktree_recipe, worktree_setup,
 };
@@ -75,13 +75,14 @@ pub(super) fn dispatch(
             None => {
                 let discard = request.fields.get("discard").and_then(Value::as_bool) == Some(true);
                 let mut attempt = plan(&target.repository, discard)?;
+                let resolved =
+                    worktree_recipe::resolve(mux, Some(&attempt.main_root), &attempt.main_root);
+                let consent = resolved.consent();
                 let script =
-                    worktree_recipe::resolve(mux, Some(&attempt.main_root), &attempt.main_root)
-                        .recipe
-                        .teardown;
+                    resolved.recipe.teardown.filter(|_| !reviews(&target.repository, &attempt));
                 attempt.teardown = script.is_some();
                 journal.start(&fingerprint, &attempt)?;
-                teardown = run_teardown(&attempt, &target, script.as_deref());
+                teardown = run_teardown(&attempt, &target, script.as_deref(), consent.as_deref());
                 attempt
             }
         };
@@ -110,13 +111,34 @@ pub(super) fn dispatch(
     })
 }
 
+/// Whether the worktree is a pull request review's (`git.review.start`
+/// records it in the worktree's admin folder and as `cmuxReview` on its
+/// branch): its checkout is the pull request's code, so the project's
+/// teardown, which can name a script in it, never runs there. Either record
+/// counts, so a detached or switched HEAD keeps it a review's.
+fn reviews(repository: &Repository, attempt: &Attempt) -> bool {
+    if worktree::reviewed(&attempt.root) {
+        return true;
+    }
+    let Some(branch) = attempt.branch.as_deref() else { return false };
+    let setting = format!("branch.{branch}.cmuxReview");
+    repository
+        .run(&["config", "--get", setting.as_str()], 4096)
+        .is_ok_and(|output| !String::from_utf8_lossy(&output.stdout).trim().is_empty())
+}
+
 /// Stops the worktree's setup and runs the project's teardown in it; what
 /// the reply says of the teardown. It runs once, before the first try.
-fn run_teardown(attempt: &Attempt, target: &Target, script: Option<&str>) -> Option<Value> {
+fn run_teardown(
+    attempt: &Attempt,
+    target: &Target,
+    script: Option<&str>,
+    consent: Option<&str>,
+) -> Option<Value> {
     let root = worktree_setup::resolved(&attempt.root);
     let (main, git_dir) = (Some(attempt.main_root.clone()), target.git_dir());
     let place = worktree_setup::Place::new(root, main, git_dir, target.common_dir());
-    worktree_setup::teardown(&place, script)
+    worktree_setup::teardown(&place, script, consent)
 }
 
 /// The worktree to remove, refused while it holds work found nowhere else
@@ -230,6 +252,17 @@ fn only_here(
 /// branch; whether the branch went.
 fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceError> {
     let git = UserGit { root: &attempt.main_root, deadline: deadline() };
+    // A review's checkout is the pull request's code: `worktree remove`
+    // checks it is clean inside it, so its hooks, fsmonitor and filter
+    // drivers (the worktree's own included) are off for every run here, and
+    // no run reaches a remote.
+    let untrusted = if reviews(repository, attempt) {
+        let root = if attempt.root.exists() { &attempt.root } else { &attempt.main_root };
+        worktree::offline(root)?
+    } else {
+        Vec::new()
+    };
+    let untrusted = worktree::borrowed(&untrusted);
     if attempt.root.exists() && !attempt.discard {
         // After a teardown only commits are kept: its own files go.
         if attempt.teardown {
@@ -244,7 +277,9 @@ fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceEr
             arguments.push("--force");
         }
         arguments.push(listed.as_str());
-        let run = git.run(&arguments).map_err(|failure| run_failed(OPERATION, &failure))?;
+        let run = git
+            .run_with(&arguments, &untrusted)
+            .map_err(|failure| run_failed(OPERATION, &failure))?;
         if !run.success && registered(&git, &attempt.root)?.is_some() {
             let message = "git worktree remove failed";
             return Err(refused(OPERATION, "git_failed", message, output_extra(&run.output())));
@@ -265,8 +300,9 @@ fn remove(repository: &Repository, attempt: &Attempt) -> Result<bool, ResourceEr
     // `branch -D` drops the branch's settings with it, the recorded base
     // too. A branch git keeps (checked out elsewhere) stays: the worktree
     // is gone either way.
-    let run =
-        git.run(&["branch", "-D", branch]).map_err(|failure| run_failed(OPERATION, &failure))?;
+    let run = git
+        .run_with(&["branch", "-D", branch], &untrusted)
+        .map_err(|failure| run_failed(OPERATION, &failure))?;
     Ok(run.success)
 }
 

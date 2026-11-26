@@ -45,6 +45,18 @@ struct CloudStartRowTests {
         #expect(strip.title(chat) == "Cloud row names")
     }
 
+    /// cmux#45947: New Cloud Chat opens a workspace of its own whose row reads as Cloud from the click, before any Send,
+    /// and reads as this Mac's again once its start ended (refused or failed: the chat stays here).
+    @Test func newCloudChatsWorkspaceReadsAsCloudFromTheClickUntilItsStartEnds() {
+        let titles = AgentCloudStartTitles()
+        #expect(!titles.startsInCloud(workspace: "ws-new"))
+        titles.beginWorkspace("ws-new")
+        #expect(titles.startsInCloud(workspace: "ws-new") && !titles.startsInCloud(workspace: "ws-other"))
+        titles.endWorkspace("ws-new")
+        #expect(!titles.startsInCloud(workspace: "ws-new"), "a start that ended left its row drawn as Cloud")
+        titles.endWorkspace(nil)
+    }
+
     /// A row of this Mac whose page is starting a Cloud chat draws the cloud mark and VoiceOver says Cloud; it names
     /// no machine. Another row of this Mac draws none.
     @Test func aStartingRowOfThisMacHasTheCloudMark() throws {

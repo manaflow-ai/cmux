@@ -75,6 +75,7 @@ async fn rig(transport: Transport, video_lane: bool) -> Rig {
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -101,6 +102,7 @@ async fn rig(transport: Transport, video_lane: bool) -> Rig {
             include_loopback: true,
             relay_only: false,
             block_udp: false,
+            force_relay: false,
             video_lane,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -221,6 +223,7 @@ async fn browser_video_rides_the_media_session_beside_wireguard() {
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -247,6 +250,7 @@ async fn browser_video_rides_the_media_session_beside_wireguard() {
             include_loopback: true,
             relay_only: false,
             block_udp: false,
+            force_relay: false,
             video_lane: true,
             webrtc_media: true,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -330,6 +334,7 @@ async fn the_shown_tab_takes_the_media_lane_back(
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -356,6 +361,7 @@ async fn the_shown_tab_takes_the_media_lane_back(
             include_loopback: true,
             relay_only: false,
             block_udp: false,
+            force_relay: false,
             video_lane: true,
             webrtc_media,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -445,6 +451,7 @@ async fn real_host_over_the_track() {
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -471,6 +478,7 @@ async fn real_host_over_the_track() {
             include_loopback: true,
             relay_only: false,
             block_udp: false,
+            force_relay: false,
             video_lane,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -558,6 +566,7 @@ async fn surface_over(transport: Transport, video_lane: bool) {
         agent_tab_host: None,
         uploads_dir: sockets.path().join("uploads"),
         pairing: None,
+        viewport_sync: None,
     };
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
@@ -584,6 +593,7 @@ async fn surface_over(transport: Transport, video_lane: bool) {
             include_loopback: true,
             relay_only: false,
             block_udp: false,
+            force_relay: false,
             video_lane,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,

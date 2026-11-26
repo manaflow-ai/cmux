@@ -1,0 +1,192 @@
+{
+  "title": "Terminal agent marks (experiments.terminalAgentMark): Claude Code and Codex in terminal tabs beside a Claude agent chat; the switch flips live, off (default, every agent's bare mark) to on (terminal agents' marks on a soft rounded square) and back",
+  "settings": {
+    "experiments": {
+      "terminalAgentMark": false
+    }
+  },
+  "harnessFixture": {
+    "harnesses": {
+      "claude": {
+        "argv": [
+          "python3",
+          "-I",
+          "-c",
+          "import json,sys,uuid\nfor line in sys.stdin:\n    try: m=json.loads(line)\n    except ValueError: continue\n    rid,meth=m.get('id'),m.get('method')\n    if rid is None: continue\n    if meth=='initialize': r={'protocolVersion':1,'agentInfo':{'name':'claude','title':'Claude','version':'1.0.0'},'agentCapabilities':{'loadSession':False,'promptCapabilities':{}}}\n    elif meth=='session/new': r={'sessionId':str(uuid.uuid4())}\n    elif meth=='session/prompt':\n        sid=m['params'].get('sessionId')\n        sys.stdout.write(json.dumps({'jsonrpc':'2.0','method':'session/update','params':{'sessionId':sid,'update':{'sessionUpdate':'agent_message_chunk','content':{'type':'text','text':'Here, in the chat pane.'}}}})+'\\n')\n        r={'stopReason':'end_turn'}\n    else: r={}\n    sys.stdout.write(json.dumps({'jsonrpc':'2.0','id':rid,'result':r})+'\\n'); sys.stdout.flush()\n"
+        ],
+        "description": "A stand-in Claude agent chat that answers each prompt once (Terminal agent marks tour)"
+      }
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "New workspace Marks",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Marks"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Show Marks",
+      "cmux": [
+        "workspace",
+        "name:Marks",
+        "focus"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Claude Code reports from the first terminal tab",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Marks",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; cmux agent hook emit --source claude --event SessionStart --payload-json '{\"session_id\":\"7e2a0000-0000-4000-8000-000000000001\"}' && echo HOOK-SENT\r"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Name it",
+      "cmux": [
+        "tab",
+        "current",
+        "rename",
+        "--name",
+        "claude (terminal)"
+      ],
+      "wait": 0.5,
+      "shot": false
+    },
+    {
+      "title": "A second terminal tab",
+      "cmux": [
+        "action",
+        "run",
+        "newSurface"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Codex reports from it",
+      "daemon": true,
+      "cmux": [
+        "workspace",
+        "name:Marks",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "clear; cmux agent hook emit --source codex --event SessionStart --payload-json '{\"session_id\":\"7e2a0000-0000-4000-8000-000000000002\"}' && echo HOOK-SENT\r"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Name it",
+      "cmux": [
+        "tab",
+        "current",
+        "rename",
+        "--name",
+        "codex (terminal)"
+      ],
+      "wait": 0.5,
+      "shot": false
+    },
+    {
+      "title": "A Claude agent chat tab beside them",
+      "cmux": [
+        "agents",
+        "chat",
+        "new",
+        "--workspace",
+        "name:Marks",
+        "--harness",
+        "claude",
+        "--name",
+        "claude-chat",
+        "--",
+        "Say hi."
+      ],
+      "wait": 2.5,
+      "shot": false
+    },
+    {
+      "title": "Off (the default): terminal agents and the chat all draw the bare mark",
+      "wait": 2
+    },
+    {
+      "title": "Flip Settings > Experiments > Terminal Agent Marks on, live",
+      "cmux": [
+        "settings",
+        "set",
+        "experiments.terminalAgentMark",
+        "true"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "On: Claude Code's and Codex's terminal tabs wear their mark on a rounded square; the chat keeps the bare mark",
+      "wait": 2
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2
+    },
+    {
+      "title": "Flip it off again, live",
+      "cmux": [
+        "settings",
+        "set",
+        "experiments.terminalAgentMark",
+        "false"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Back to the system appearance",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    }
+  ]
+}

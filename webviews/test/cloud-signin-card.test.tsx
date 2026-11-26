@@ -222,6 +222,8 @@ test("only an allowed provider page over https opens", () => {
     "https://cursor.com/loginDeepControl?challenge=c",
   );
   expect(signInURL("https://cursor.com.evil.example/login")).toBeUndefined();
+  // OpenCode's key page is the app's own fixed link, not a page a machine's sign-in may name.
+  expect(signInURL("https://opencode.ai/auth")).toBeUndefined();
 });
 
 test("each refusal reason has its own failure", () => {
@@ -262,7 +264,14 @@ test("the sign-in is offered only for a connected Cloud Claude or Codex chat on 
   expect(cloudAgentLogin(base)?.agent).toBe("claude");
   expect(cloudAgentLogin({ ...base, harness: "codex" })?.agent).toBe("codex");
   expect(cloudAgentLogin({ ...base, harness: "cursor" })?.agent).toBe("cursor");
-  expect(cloudAgentLogin({ ...base, harness: "opencode" })).toBeUndefined();
+  expect(cloudAgentLogin({ ...base, harness: "opencode" })?.agent).toBe("opencode");
+  // Only the `opencode` harness on Zen's and Go's models: another provider's model needs that
+  // provider's own login, and `opencode-v2` is a family acpmux does not sign in.
+  expect(cloudAgentLogin({ ...base, harness: "opencode", model: "opencode/big-pickle" })?.agent).toBe("opencode");
+  expect(cloudAgentLogin({ ...base, harness: "opencode", model: "opencode-go/kimi-k2" })?.agent).toBe("opencode");
+  expect(cloudAgentLogin({ ...base, harness: "opencode", model: "anthropic/claude-sonnet" })).toBeUndefined();
+  expect(cloudAgentLogin({ ...base, harness: "opencode-v2" })).toBeUndefined();
+  expect(cloudAgentLogin({ ...base, harness: "pi" })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, machineID: undefined })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, connected: false })).toBeUndefined();
   expect(cloudAgentLogin({ ...base, supported: false })).toBeUndefined();
@@ -344,14 +353,6 @@ test("no sign-in where acpmux lacks agent_login, or on another failure", async (
   expect(button("Sign in to Claude")).toBeUndefined();
 });
 
-test("in DEV the credential transfer stays beside the sign-in", async () => {
-  const { client } = mockClient();
-  const { signIn } = signInFor(client);
-  await render({ route: cloudRoute, cloudSignIn: signIn, transferCloudCredentials: async () => undefined });
-  expect(button("Sign in to Claude")).toBeDefined();
-  expect(button("Set up Claude Code credentials")).toBeDefined();
-});
-
 test("Claude: one click starts the login and opens its page; paste the code, finish, send again", async () => {
   const opened: string[] = [];
   const { client, calls, sent } = mockClient({
@@ -371,15 +372,17 @@ test("Claude: one click starts the login and opens its page; paste the code, fin
   expect(calls[0]).toEqual(["start", "claude", "chat-1"]);
   // The one Sign in click opened the page too (the host lets its start open it): no second click.
   expect(opened).toEqual(["https://claude.ai/oauth/authorize?code=true"]);
-  expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
-  expect(button("Continue")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  expect(host.textContent).toContain(
+    "Approve on the sign-in page beside this window, then paste the code it shows here.",
+  );
+  expect(button("Continue")!.getAttribute("data-sign-in-action")).toBe("continue");
   // Open sign-in page stays, quiet, to open it again.
   expect(button("Open sign-in page")!.classList.contains("cv-turn-error__primary")).toBe(false);
   await act(async () => button("Open sign-in page")!.click());
   expect(opened).toHaveLength(2);
   // Nothing goes again before the code: no gesture taken, nothing sent.
   expect(intents).toEqual([]);
-  const input = host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!;
+  const input = host.querySelector<HTMLInputElement>(".signin-paste-field")!;
   expect(input.getAttribute("autocomplete")).toBe("off");
   await typeInto(input, "  abc#def  ");
   await act(async () => button("Continue")!.click());
@@ -423,11 +426,11 @@ test("Codex: one click opens the page with its device code copied; after approva
   if (clipboard) Object.defineProperty(dom.window.navigator, "clipboard", clipboard);
   else delete (dom.window.navigator as unknown as Record<string, unknown>).clipboard;
   expect(opened).toEqual(["https://auth.openai.com/codex/device"]);
-  expect(host.querySelector('[data-testid="cloud-signin-code"]')!.textContent).toBe("WXYZ-1234");
+  expect(host.querySelector('[data-testid="cloud-signin-code"] .signin-code')!.textContent).toBe("WXYZ-1234");
   // The code is on the clipboard already, for the page's field.
   expect(copied).toEqual(["WXYZ-1234"]);
-  expect(button("Copied")).toBeDefined();
-  expect(host.textContent).toContain("Enter this code on the page. Waiting for approval…");
+  expect(button("Copy")!.getAttribute("data-sign-in-action")).toBe("copy");
+  expect(host.textContent).toContain("Paste this code on the sign-in page beside this window. It's already copied.");
   expect(calls).toContainEqual(["finish", "login-2", "chat-1", undefined]);
   await act(async () => approve({ signedIn: true, restarted: true }));
   await flush();
@@ -477,13 +480,10 @@ test("Cursor: one click opens its page, the card waits for the approve with no c
 });
 
 // A team Cloud machine takes no personal login (the start skipped it: `guest-not-owner`, guest `team`):
-// the card says so, Switch model leads, Use an API key stays, and neither Sign in to Claude nor a
-// login transfer (which ends in "Personal credentials can only be transferred to a Cloud machine you
-// own") is offered, by hand or automatically.
+// the card says so, Switch model leads, Use an API key stays, and Sign in to Claude is not offered.
 test("a team Cloud machine's sign-in failure names it and offers Switch model and Use an API key", async () => {
   const { client } = mockClient();
   const { signIn } = signInFor(client);
-  const transfers: unknown[][] = [];
   const team = { ...cloudRoute, teamMachine: true };
   const rejected = "The provider rejected Claude Code's credentials on this Cloud machine (HTTP 401).";
   await render(
@@ -491,19 +491,16 @@ test("a team Cloud machine's sign-in failure names it and offers Switch model an
       route: team,
       cloudSignIn: signIn,
       switchModel: () => undefined,
-      transferCloudCredentials: async (...args: unknown[]) => void transfers.push(args),
     },
     rejected,
   );
   await flush();
   expect(host.querySelector(".cv-turn-error__cause")!.textContent).toContain(
-    "Claude Code on this team Cloud machine has no sign-in it can use. cmux doesn’t pass personal logins to shared team machines.",
+    "Claude Code has no sign-in on this team Cloud machine. Personal logins stay off shared machines.",
   );
   expect(labels().slice(0, 2)).toEqual(["Switch model", "Use an API key"]);
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
   expect(button("Sign in to Claude")).toBeUndefined();
-  expect(button("Set up Claude Code credentials")).toBeUndefined();
-  expect(transfers).toEqual([]);
   // An owner machine's card is as it was.
   await render({ route: cloudRoute, cloudSignIn: signIn, switchModel: () => undefined }, rejected);
   expect(labels().slice(0, 3)).toEqual(["Sign in to Claude", "Use an API key", "Switch model"]);
@@ -552,6 +549,31 @@ test("API key: a password field, saved on the machine, then Send again", async (
   expect(sent).toHaveLength(1);
 });
 
+// OpenCode (Leo 2026-11-10: "an OpenCode subscription and they're using one of OpenCode's models"):
+// OpenCode Zen and Go sign in only with the key from opencode.ai/auth, so Use an API key is the one
+// button, the key field links that page, and the key is saved on the machine for the agent.
+test("OpenCode: only Use an API key, its key page one click away, saved on the machine", async () => {
+  const opened: string[] = [];
+  const { client, calls, sent } = mockClient({ apiKey: () => ({ saved: true, restarted: true }) });
+  const { signIn } = signInFor(client, { harness: "opencode", opened });
+  await render(
+    { route: { name: "OpenCode", harness: "opencode", hostKind: "cloud" }, cloudSignIn: signIn },
+    "Authentication required",
+  );
+  expect(button("Sign in to OpenCode")).toBeUndefined();
+  expect(button("Use an API key")!.classList.contains("cv-turn-error__primary")).toBe(true);
+  await act(async () => button("Use an API key")!.click());
+  await act(async () => button("Get an OpenCode API key")!.click());
+  expect(opened).toEqual(["https://opencode.ai/auth"]);
+  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "sk-oc-test-key");
+  await act(async () => button("Save")!.click());
+  await flush();
+  expect(calls).toContainEqual(["apiKey", "opencode", "chat-1", "sk-oc-test-key"]);
+  expect(calls.filter(([op]) => op === "start")).toEqual([]);
+  expect(host.innerHTML).not.toContain("sk-oc-test-key");
+  expect(sent).toEqual([]);
+});
+
 test("never sends without a gesture ticket", async () => {
   const { client, sent } = mockClient({
     start: () => ({ loginId: "login-3", url: "https://claude.ai/oauth/authorize", needsCode: true }),
@@ -561,7 +583,7 @@ test("never sends without a gesture ticket", async () => {
   await render({ route: cloudRoute, cloudSignIn: signIn });
   await act(async () => button("Sign in to Claude")!.click());
   await flush();
-  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "code-1");
+  await typeInto(host.querySelector<HTMLInputElement>(".signin-paste-field")!, "code-1");
   await act(async () => button("Continue")!.click());
   await flush();
   await flush();
@@ -594,7 +616,7 @@ test("a refused step names its reason, with Retry", async () => {
     await render({ route: cloudRoute, cloudSignIn: signIn });
     await act(async () => button("Sign in to Claude")!.click());
     await flush();
-    await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "wrong");
+    await typeInto(host.querySelector<HTMLInputElement>(".signin-paste-field")!, "wrong");
     await act(async () => button("Continue")!.click());
     await flush();
     expect(host.querySelector(".cv-turn-signin__error")!.textContent).toBe(copy);
@@ -700,7 +722,7 @@ test("a card that goes away cancels its login and sends nothing after", async ()
   await render({ route: cloudRoute, cloudSignIn: signIn });
   await act(async () => button("Sign in to Claude")!.click());
   await flush();
-  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "code-7");
+  await typeInto(host.querySelector<HTMLInputElement>(".signin-paste-field")!, "code-7");
   await act(async () => button("Continue")!.click());
   await act(async () => root.render(<></>));
   expect(calls).toContainEqual(["cancel", "login-7", "chat-1"]);
@@ -819,7 +841,7 @@ test("Claude, no paste: one click opens the automatic page on the machine, the a
   expect(onMachine).toEqual([AUTO]);
   expect(opened).toEqual([]);
   // No code field: the approve finishes it.
-  expect(host.querySelector(".cv-turn-signin__input")).toBeNull();
+  expect(host.querySelector(".signin-paste-field")).toBeNull();
   expect(host.textContent).toContain("Approve on the sign-in page; it finishes on its own.");
   expect(calls).toContainEqual(["finish", "login-a", "chat-1", undefined]);
   // Paste a code instead is a quiet link, never a second button.
@@ -846,8 +868,10 @@ test("Claude, no paste: a host that cannot open the machine-bound tab opens the 
   await flush();
   expect(onMachine).toEqual([AUTO]);
   expect(opened).toEqual([MANUAL]);
-  expect(host.querySelector(".cv-turn-signin__input")).not.toBeNull();
-  expect(host.textContent).toContain("Approve in your browser, then paste the code it shows.");
+  expect(host.querySelector(".signin-paste-field")).not.toBeNull();
+  expect(host.textContent).toContain(
+    "Approve on the sign-in page beside this window, then paste the code it shows here.",
+  );
   // No wait for an approve that cannot come.
   expect(calls.filter((call) => call[0] === "finish")).toEqual([]);
 });
@@ -861,7 +885,7 @@ test("Claude, no paste: a host without the open (older app) pastes as before", a
   await flush();
   await flush();
   expect(opened).toEqual([MANUAL]);
-  expect(host.querySelector(".cv-turn-signin__input")).not.toBeNull();
+  expect(host.querySelector(".signin-paste-field")).not.toBeNull();
 });
 
 test("Claude, no paste: Paste a code instead opens the code page; the pasted code finishes the same login", async () => {
@@ -882,7 +906,7 @@ test("Claude, no paste: Paste a code instead opens the code page; the pasted cod
   await flush();
   await act(async () => button("Paste a code instead")!.click());
   expect(opened).toEqual([MANUAL]);
-  const input = host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!;
+  const input = host.querySelector<HTMLInputElement>(".signin-paste-field")!;
   await typeInto(input, "abc#def");
   await act(async () => button("Continue")!.click());
   await flush();
@@ -908,7 +932,7 @@ test("Claude, no paste: the approve's wait ending after a pasted code sent again
   await flush();
   await flush();
   await act(async () => button("Paste a code instead")!.click());
-  await typeInto(host.querySelector<HTMLInputElement>(".cv-turn-signin__input")!, "abc#def");
+  await typeInto(host.querySelector<HTMLInputElement>(".signin-paste-field")!, "abc#def");
   await act(async () => button("Continue")!.click());
   await flush();
   await flush();
@@ -946,7 +970,9 @@ test("Gemini and Grok are login agents, each with its own ways in", () => {
   expect(loginAgent("gemini")).toBe("gemini");
   expect(loginAgent("grok")).toBe("grok");
   expect(loginAgent("cursor")).toBe("cursor");
-  expect(loginAgent("opencode")).toBeUndefined();
+  expect(loginAgent("opencode")).toBe("opencode");
+  expect(loginAgent("opencode-v2")).toBeUndefined();
+  expect([signsInByPage("opencode"), takesApiKey("opencode")]).toEqual([false, true]);
   expect(loginAgent(undefined)).toBeUndefined();
   expect([signsInByPage("cursor"), takesApiKey("cursor")]).toEqual([true, false]);
   expect([signsInByPage("gemini"), takesApiKey("gemini")]).toEqual([false, true]);

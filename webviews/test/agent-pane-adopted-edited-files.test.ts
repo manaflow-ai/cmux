@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // A reopened Codex turn that edited two files ends with the edited-files card (hq#2569 item 4):
-// "Edited 2 files +4 -1" with a row and counts per file; View changes opens the turn's diff with
+// "Edited 2 files +4 -1" with a row and counts per file; Open in Changes opens the turn's diff with
 // its hunks; the chat menu lists Changes; the summary's Outputs lists the files.
 //
 // Before: the turn had no edit records, so none of these drew (#22155 replays them); with them,

@@ -24,10 +24,6 @@ const allowedFills = new Set([
   "var(--row-focus)",
   // A floating bar over the content (Appearance's Undo, Redo and Reset) is a popup surface.
   "var(--surface-popup)",
-  // The pinned jump bar is liquid glass: the popup surface at the chrome tint over a blur.
-  "var(--surface-glass)",
-  // The scroll edge's tint is the page's own background, easing out under the jump bar.
-  "var(--scroll-edge-tint)",
 ]);
 const containerTags = new Set([
   "HTML",
@@ -50,8 +46,11 @@ const containerTags = new Set([
   "FIELDSET",
 ]);
 
-// Selection is interactive feedback: a checked segment may take --accent-soft.
-const selectionStates = "[data-swatch], [data-checked], [aria-current], [aria-pressed='true']";
+// Selection is interactive feedback: a checked segment may take --accent-soft. A swatch is the color
+// it names (the theme studio's accent choices, a Customization Library entry's colors): Appearance
+// draws them since Personalization folded into it; the theme tokens are swatches of the theme colors.
+const swatches = ".accent-swatch, .library-swatch, .theme-token";
+const selectionStates = `[data-swatch], [data-checked], [aria-current], [aria-pressed='true'], .section-link[aria-current] > .section-link-content, ${swatches}`;
 
 function declarations(css: string): Array<{ selector: string; property: string; value: string }> {
   const out: Array<{ selector: string; property: string; value: string }> = [];
@@ -128,6 +127,7 @@ test("the rendered page: html carries only the surface background, body and cont
       .map((element) => `${element.tagName}.${element.className}`);
     expect(painted).toEqual([]);
     const inline = [...document.body.querySelectorAll<HTMLElement>("[style]")]
+      .filter((element) => !element.matches(swatches))
       .filter((element) => /background/i.test(element.getAttribute("style") ?? ""))
       .map((element) => element.tagName);
     expect(inline).toEqual([]);
@@ -151,4 +151,21 @@ test("on controls follow appearance.accent with a neutral fallback; links and th
   }
   expect(root.get("--accent")).toBe("var(--cmux-accent, var(--text))");
   expect(root.get("--accent-text")).not.toContain("accent");
+});
+
+// A status dot (Connected, Signed in, a paired device) is the shared status color of its theme:
+// --success, --warning and --danger name the design tokens (--ds-color-*, light and dark in
+// pages/shared/desktop.css), and no rule reads them with a fallback, so a missing role shows as a
+// missing role in review instead of quietly painting the dot the text color.
+test("status colors are the shared design tokens, with no fallback to the text color", () => {
+  const root = new Map<string, string>();
+  for (const { selector, property, value } of declarations(stylesheet))
+    if (selector === ":root") root.set(property, value);
+  expect(root.get("--success")).toBe("var(--ds-color-success)");
+  expect(root.get("--warning")).toBe("var(--ds-color-attention)");
+  expect(root.get("--danger")).toBe("var(--ds-color-danger)");
+  const fallbacks = declarations(stylesheet)
+    .filter((item) => /var\(--(success|warning|danger)\s*,/.test(item.value))
+    .map((item) => `${item.selector} { ${item.property}: ${item.value} }`);
+  expect(fallbacks).toEqual([]);
 });

@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 
 /// Where the device hub gets the account: the app's Stack Auth access token
@@ -81,7 +82,7 @@ public actor DeviceHubClient {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 30
-        return URLSession(configuration: configuration)
+        return CmuxEgress.session(site: "CmuxDeviceHub.DeviceHubClient", configuration: configuration)
     }()
 
     // MARK: Account
@@ -193,6 +194,16 @@ public actor DeviceHubClient {
     public func setMacScreenShared(_ shared: Bool) async throws -> HubDevice {
         try await call("PUT", "/v1/devices/\(segment(signer.identity.id))/mac-screen", body: ["shared": shared],
                        as: DeviceAnswer.self).device
+    }
+
+    /// Carries a signed `cmux.share-approval.v1` (`approvalJSON`, one JSON object) to the host
+    /// `target`: `POST /v1/devices/:target/share-approval {approval}` (cmuxterm-hq#18912 cut 2). The
+    /// hub pushes it to the target, which admits it and turns its own sharing on.
+    public func sendShareApproval(target: String, approvalJSON: String) async throws {
+        struct Delivered: Decodable { var delivered: Bool? }
+        let body = Data("{\"approval\":".utf8) + Data(approvalJSON.utf8) + Data("}".utf8)
+        _ = try await call("POST", "/v1/devices/\(segment(target))/share-approval", query: [], bodyData: body,
+                           as: Delivered.self)
     }
 
     public func permissions(host: String) async throws -> [HubPermission] {

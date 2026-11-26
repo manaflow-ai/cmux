@@ -1,12 +1,17 @@
 import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
+import CmuxNextAppCore
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextCookieImport
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -16,7 +21,7 @@ import os
 /// browser-data import offer, the default-app registry and the imported
 /// data, and feeds imported history to the omnibar at launch. First-run onboarding
 /// (windows, Set Up cmux card, history page) is off unless `--onboarding`
-/// (``AppEnvironment/skipsOnboarding``): launches go straight to the main window. The one-time classic migration adds classic's workspaces
+/// (``AppEnvironment/launchSteps``): launches go straight to the main window. The one-time classic migration adds classic's workspaces
 /// to the restored windows (classic-migration-DESIGN.md).
 @MainActor
 final class OnboardingService {
@@ -53,7 +58,7 @@ final class OnboardingService {
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
 
     /// Keep in Sync's watches (imported cookies' too); `start` also seeds each profile's omnibar with its imported pages.
-    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, cookies: ChromiumCookieDestination { [cef = services.cache.cef] in try await cef.importCookies($0, into: $1) },
+    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, reader: services.browserDataReader, cookies: ChromiumCookieDestination { [cef = services.cache.cef] in try await cef.importCookies($0, into: $1) },
         stopped: { [weak services] name in if let services { BrowserFileImport.toast(services, id: "cookie-sync-stopped", BrowserImportOfferStrings.syncStopped(name)) } },
         deliver: SavingImportDestination.omnibar(services.cache))
 
@@ -62,8 +67,14 @@ final class OnboardingService {
 
     /// The Agents step's sign-ins: Settings > Agents > Harnesses' reader over this Mac's acpmux.
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
-                                                              openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
-    /// The top page a Sign In left (Bring your history); it shows again once the tool window closes.
+        openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false }, openSignInPage: { [weak services] url in services?.linkOpener.openSignInPage(url, beside: nil) })
+    /// Settings > Agents' cmux Tools card: `agents.cmuxMcp` and `cmux setup mcp`'s report.
+    private(set) lazy var agentTools = AgentToolsCLISource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
+    /// Make cmux Yours' choices over the settings owner; density goes through its action, which also applies the tokens.
+    private(set) lazy var firstRunChoices = FirstRunChoicesSettingsSource(settings: { [weak services] in services?.settings }, setDensity: { [weak services] preset in
+        _ = services?.registry.perform("appearance.density.set", invocation: ActionInvocation(arguments: ["density": .string(preset)], origin: .user))
+    })
+    /// The top page a Sign In left; it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
     init(services: AppServices) {
@@ -72,7 +83,7 @@ final class OnboardingService {
         let environment = ProcessInfo.processInfo.environment
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let support = NextSupport.applicationSupportDirectory()
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))
         // Keep Cmd-T off the file system hot path. The scan is bounded and runs
@@ -93,7 +104,7 @@ final class OnboardingService {
             }
         }
         presenter.makeModel = { [weak self] step in
-            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step) }
+            self.map { OnboardingModel(services: AppOnboardingServices(owner: $0), step: step, choices: $0.firstRunChoices) }
         }
         presenter.onWindowClose = { [weak self] in
             guard let self, let page = pageLeftForSignIn else { return }
@@ -101,8 +112,6 @@ final class OnboardingService {
             _ = TopPages.show(page, services: services)
         }
     }
-
-    var isShowing: Bool { controller != nil }
 
     /// Follows `browser.import.enabled` from `settings` (`AppServices.settings`).
     func followImportSetting(_ settings: SettingsController) {
@@ -125,13 +134,7 @@ final class OnboardingService {
     /// `importTarget` names the cmux browser profile they go into (the
     /// browser-data offer: into the tab's profile); without kinds the step
     /// makes one profile per source.
-    func show(step: OnboardingModel.Step, history: Bool = false, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
-        // The same single importData step hosts history as a web page. Browser import keeps
-        // its existing standalone tool; it is never substituted by the history action.
-        if step == .importData, history {
-            _ = services.registry.perform(ChiefMemoryImportHandlers.actionID, invocation: ActionInvocation(origin: .user))
-            return
-        }
+    func show(step: OnboardingModel.Step, importKinds: Set<ImportDataKind>? = nil, importTarget: String? = nil) {
         // `browser.import.enabled` off: the import window does not open, whoever asks.
         if step == .importData, !services.browserImportEnabled { return }
         presenter.show(step: step) { model, reused in
@@ -143,18 +146,22 @@ final class OnboardingService {
         }
     }
 
-    /// First-run routing only, once per app channel (an upgrade is no first run). Never when ``AppEnvironment/skipsOnboarding``
-    /// (showcase, capture builds): their captures are fresh homes, and the page over Home parks the workspace their seed fills.
-    func showHistoryAtFirstRun(isFirstRun: Bool, defaults: UserDefaults = .standard) {
-        let key = OnboardingWindowPresenter.historyShownKey
-        guard !services.environment.skipsOnboarding, !defaults.bool(forKey: key) else { return }
-        if isFirstRun {
-            // On top: launch can replace its first Home pane. Consume only once shown. The
-            // mark tells the fresh-home launch smoke this page covers Home on purpose.
-            guard TopPages.show(.page(.importHistory), services: services) != nil else { return }
-            DebugTimings.markLaunch("first_run.history_import_shown")
+    /// The guided Computer Use window (`palette.computerUse.setup` and the two Grant actions, which
+    /// Settings' Grant Access runs too): every entry opens it, as the earlier app did, never System
+    /// Settings by itself. `pane`: a Grant action's grant, whose Allow starts in the window once the
+    /// grants are read (System Settings opens with the drag panel docked to it), only on the
+    /// person's own run. `byPerson` false (an agent's `cmux action run`): the window comes forward
+    /// without the keys, bounces the Dock icon while another app is active, and starts nothing:
+    /// Computer Use is never turned on, and System Settings never opens, without the person's Allow.
+    /// `inFront`: the run may change the view (the person's run, or one that asked for focus);
+    /// otherwise the window opens behind with a Dock bounce. `byPerson`: the person's own gesture
+    /// in this app (``ActionInvocation/isPersonsOwnRun``), never an agent's, a page's or a
+    /// `focus` request: only that starts the grant's Allow, which can turn Computer Use on.
+    func showComputerUse(allowing pane: ComputerUsePermissionPane? = nil, inFront: Bool, byPerson: Bool) {
+        computerUseSetup.recheck()
+        presenter.show(step: .computerUse, quietly: !inFront) { model, _ in
+            if let pane, byPerson { model.computerUse.allowOnceKnown(pane) }
         }
-        defaults.set(true, forKey: key)
     }
 
     /// A Sign In's login in a local terminal tab (false: none opened). A top page covers it, so it shows once the page is left.
@@ -164,24 +171,42 @@ final class OnboardingService {
     }
 
     /// Home's Set Up cmux card (``FirstRunSetup``): what a first run offers, in place of the first-run windows.
-    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.skipsOnboarding)
+    private(set) lazy var setup = FirstRunSetup(skipsOnboarding: services.environment.launchSteps == .none)
 
-    /// A first run starts Home's Set Up cmux card, which offers the agents, the chat history (when found), the
-    /// account and the command line in one place: the Agents window and the CLI toast count as shown, and
-    /// Bring your history opens from the card's row. Otherwise Agents, then Bring your history
-    /// (``OnboardingWindowPresenter/showFirstRunSteps``); never when ``AppEnvironment/skipsOnboarding``.
+    /// Meet Chief (``ChiefOnboarding``): a fresh install's first look at Chief, in its chat (no window: no `--onboarding` needed).
+    private(set) lazy var chief = ChiefOnboarding(defaults: .standard, settings: HomeChiefOnboardingSettings { [weak services] in services?.settings },
+                                                  skipsOnboarding: services.environment.launchSteps == .none)
+
+    /// The launch's steps (``AppEnvironment/launchSteps``): with onboarding on, a first run starts Home's Set Up cmux card
+    /// (the Agents window and the CLI toast count as shown), else the first-run windows
+    /// (``OnboardingWindowPresenter/showFirstRunSteps``), after which this Mac's first launch is finished
+    /// (``OnboardingWindowPresenter/historyShownKey``).
     func showFirstRunSteps(isFirstRun: Bool) async {
-        guard !services.environment.skipsOnboarding else { return }
+        guard await presenter.showLaunchSteps(services.environment.launchSteps, isFirstRun: isFirstRun) else { return }
         let route = setup.route(isFirstRun: isFirstRun, replacedKeys: [CLIInstallHandlers.offeredAtLaunchKey], screenReader: NSWorkspace.shared.isVoiceOverEnabled)
         if route == .startCard { DebugTimings.markLaunch("first_run.setup_card_shown") }
         guard route == .windows else { return }
-        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
+        await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) {
+            UserDefaults.standard.set(true, forKey: OnboardingWindowPresenter.historyShownKey)
+        }
     }
 
-    func historyImportFinished() {
-        UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
+    /// A new person's first launch opens a new agent chat, composer ready, in a workspace of its own (cmux#48416): after
+    /// the launch's tool window closes (Make cmux Yours), none over a top page or for terminal-first.
+    @discardableResult
+    func openFirstChat(isFirstRun: Bool, defaults: UserDefaults = .standard) async -> String? {
+        await presenter.untilClosed()
+        let terminalFirst = (firstRunChoices.pickedWorkStyle ?? firstRunChoices.currentChoices().workStyle) == .terminal
+        guard services.agentTabs.canHost(on: services.daemon), services.windows.active?.shownTopPage == nil,
+              OnboardingWindowPresenter.claimFirstChat(isFirstRun: isFirstRun, steps: services.environment.launchSteps,
+                                                       terminalFirst: terminalFirst, defaults: defaults) else { return nil }
+        var spawn = WorkspaceSpawn(cwd: nil)
+        spawn.firstChat = AgentPaneSeed()
+        do { return try await services.windows.createWorkspace(spawn, into: services.windows.active?.state.id) } catch {
+            services.daemon.logger.error("first-run agent chat failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
     }
-
 }
 
 extension SavingImportDestination {

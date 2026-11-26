@@ -97,12 +97,15 @@ public actor AcpmuxConnection {
         start()
         let id = nextID
         nextID += 1
+        let isWrite = !AcpmuxHub.steadyMethods.contains(method)
+        if isWrite { writes.insert(id) }
+        defer { if isWrite { writes.remove(id) } }
         let message: JSONValue = .object(["jsonrpc": .string("2.0"), "id": .number(Double(id)), "method": .string(method), "params": params])
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes")
         return try await LinkDeadline.run(
             timeout: timeout,
-            timeoutError: LinkError(code: "timeout", message: "The Mac didn't answer (\(method))"),
+            timeoutError: LinkError(code: "timeout", message: "no reply to \(method)"),
             operation: { try await self.sendAndWait(id: id, data: data) },
             onCancel: { await self.fail(id, CancellationError()) }
         )
@@ -170,9 +173,11 @@ public actor AcpmuxConnection {
     /// its answer. Requests a caller submits one after another reach the Mac in that order
     /// (``request(_:_:)`` writes from a task of its own), and the caller need not wait for an
     /// answer before the next: a `session/prompt` is answered only when its turn ends.
-    /// The write is bounded by `timeout` (a link that stopped taking data) and released when the
-    /// caller is cancelled, as ``request(_:_:timeout:)``'s is.
-    public func submit(_ method: String, _ params: JSONValue, timeout: Duration = .seconds(30)) async throws -> Int {
+    /// The write is bounded by `timeout` (a link that stopped taking data), by default
+    /// ``writeBound(bytes:base:)`` of its size, and released when the caller is cancelled, as
+    /// ``request(_:_:timeout:)``'s is.
+    public func submit(_ method: String, _ params: JSONValue, timeout: Duration? = nil,
+                       base: Duration = AcpmuxConnection.writeBase) async throws -> Int {
         try Task.checkCancellation()
         if let ended { throw ended }
         start()
@@ -182,11 +187,17 @@ public actor AcpmuxConnection {
         let data = try JSONEncoder().encode(message)
         rpcLog.debug("-> \(id) \(method, privacy: .public) \(data.count) bytes (submitted)")
         submitted.insert(id)
+        if !AcpmuxHub.steadyMethods.contains(method) {
+            writes.insert(id)
+            // Bounded by this write's own deadline below, so a recovery it holds off is too.
+            sending.insert(id)
+        }
+        defer { sending.remove(id) }
         let channel = channel
         do {
             try await LinkDeadline.run(
-                timeout: timeout,
-                timeoutError: LinkError(code: "timeout", message: "The Mac didn't take (\(method))"),
+                timeout: timeout ?? Self.writeBound(bytes: data.count, base: base),
+                timeoutError: LinkError(code: "timeout", message: "write of \(method) timed out"),
                 operation: { try await channel.send(data) },
                 onCancel: { await self.release(id) }
             )
@@ -197,9 +208,25 @@ public actor AcpmuxConnection {
         return id
     }
 
+    /// The fixed part of a write's bound: a link that takes no data for this long is down.
+    public static let writeBase: Duration = .seconds(30)
+    /// The slowest link a write is still expected to finish on, in bytes a second: a prompt with
+    /// an inline image or PDF (several MB of base64) on a slow cellular link.
+    static let writeFloorRate = 16 * 1024
+
+    /// How long a write of `bytes` may take: `base`, plus its bytes at ``writeFloorRate``. A fixed
+    /// bound cut off a large prompt that was still going out on a slow link, and the prompt came
+    /// back as "unreachable" though the Mac was there (``LinkChannel/send(_:)`` reports no
+    /// progress, so the bound scales with the size instead of watching for a stall).
+    public static func writeBound(bytes: Int, base: Duration = writeBase) -> Duration {
+        base + .milliseconds(Int64(max(0, bytes)) * 1000 / Int64(writeFloorRate))
+    }
+
     /// A submitted request whose write failed, timed out or was cancelled: nothing waits for it.
     private func release(_ id: Int) {
+        sending.remove(id)
         submitted.remove(id)
+        writes.remove(id)
         answered[id] = nil
     }
 
@@ -220,6 +247,20 @@ public actor AcpmuxConnection {
     /// Submitted requests not yet answered to their ``reply(to:)``, and answers that came
     /// before it was called.
     private var submitted: Set<Int> = []
+    /// Requests and submits other than idempotent reads (``AcpmuxHub/steadyMethods``) the Mac has
+    /// not answered yet. An answer, a release or the channel's end takes each out (an answer kept
+    /// for a later ``reply(to:)`` is no longer in flight).
+    private var writes: Set<Int> = []
+
+    /// A prompt or mutation is still waiting for the Mac on this channel: a slow answer here is
+    /// work, not a stall, and closing the channel would lose it.
+    var hasWritesInFlight: Bool { !writes.isEmpty }
+    /// Submitted writes (``submit(_:_:timeout:base:)``, not idempotent reads) whose bytes are still
+    /// going out on the channel: the channel has not taken them whole yet.
+    private var sending: Set<Int> = []
+    /// A write is still going out: a read behind it on this channel is slow, not stalled (the Mac
+    /// cannot answer what has not reached it), and the write is bounded by its own deadline.
+    var isSending: Bool { !sending.isEmpty }
     private var answered: [Int: Result<JSONValue, any Error>] = [:]
 
     /// A JSON-RPC notification (no id, no reply), e.g. `session/cancel`.
@@ -302,6 +343,7 @@ public actor AcpmuxConnection {
             } else {
                 outcome = .success(value["result"] ?? .null)
             }
+            writes.remove(Int(id))
             guard let continuation = pending.removeValue(forKey: Int(id)) else {
                 // A submitted request answered before its ``reply(to:)``: keep it for the caller.
                 if submitted.contains(Int(id)) {
@@ -516,6 +558,8 @@ public actor AcpmuxConnection {
         // A submitted request whose `reply(to:)` is still to come fails there.
         for id in submitted where pending[id] == nil && answered[id] == nil { answered[id] = .failure(error) }
         submitted.subtract(pending.keys)
+        writes.removeAll()
+        sending.removeAll()
         pending.removeAll()
         continuation.finish()
     }

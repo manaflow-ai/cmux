@@ -257,8 +257,15 @@ fn find<'a>(key: &str, by_id: bool, rows: &'a [Value]) -> Result<Option<&'a Valu
 fn machine(row: &Value, on_hub: &dyn Fn(&str) -> bool) -> Result<JoinedMachine, Value> {
     let id = row.get_str("id").unwrap_or_default().to_owned();
     let name = row.get_str("name").unwrap_or(&id).to_owned();
-    // The hub knows it by the host name it heartbeats with; a label is only the list's.
-    let host = row.get_str("hostname").filter(|host| !host.is_empty()).unwrap_or(&name).to_owned();
+    // The hub knows it by the host name it heartbeats with: the name it joined with
+    // (`cmux device add HOST --name NAME`, a pasted line's CMUX_JOIN_NAME) on a current acpmux,
+    // which the hub lists, else its host name, as an older acpmux heartbeats.
+    let hostname = row.get_str("hostname").filter(|host| !host.is_empty());
+    let host = if on_hub(&name) || hostname.is_none() {
+        name.clone()
+    } else {
+        hostname.unwrap_or(&name).to_owned()
+    };
     let details = json!({"device": format!("{PREFIX}{id}"), "name": name, "host": host});
     match row.get_str("state") {
         Some("revoked") => Err(refusal(
@@ -363,6 +370,14 @@ pub(in crate::cli) fn start_words(
     name: &str,
 ) -> Result<Vec<String>, UsageError> {
     super::here_wait(start)?;
+    // Refused, never dropped: a joined machine's start takes a harness, model and folder only.
+    if start.effort.is_some() || start.mode.is_some() {
+        return Err(UsageError::new(format!(
+            "--effort and --mode pick a chat here or in Cloud; on {} start it, then set them with \
+             cmux acp session set SESSION effort=EFFORT",
+            machine.host
+        )));
+    }
     let mut words: Vec<String> = match machine.carrier {
         Carrier::Hub => {
             ["session", "start", name, "--machine", &machine.host].map(str::to_owned).to_vec()
@@ -615,12 +630,15 @@ where
         answer.set("reply", session.get("reply").cloned().unwrap_or(Value::Null));
         if let Some(error) = session.get("error").filter(|error| !error.is_null()) {
             answer.set("error", error.clone());
-            return Outcome::Failed {
-                error: json!({"code": "chat.turn_failed",
-                              "message": format!("the turn on {target} ended with an error"),
-                              "details": answer, "retryable": false}),
-                exit: 1,
-            };
+            let said =
+                error.as_str().or_else(|| error.get_str("message")).unwrap_or_default().to_owned();
+            let harness = session.get_str("harness").unwrap_or_default().to_owned();
+            let mut error = json!({"code": "chat.turn_failed",
+                                   "message": format!("the turn on {target} ended with an error"),
+                                   "details": answer, "retryable": false});
+            // An account out of usage says so, with the way on (cmux#55066).
+            super::super::account_limit::explain(&mut error, &said, &harness);
+            return Outcome::Failed { error, exit: 1 };
         }
         return Outcome::Done(answer);
     }
@@ -802,7 +820,11 @@ pub(in crate::cli) fn fail(global: &GlobalArgs, error: Value) -> i32 {
 
 /// `cmux acp WORDS` (this binary's acpmux) for at most `limit`: its stdout's last JSON line, or
 /// the failure.
-fn acp_json(words: &[&str], stdin: Option<&str>, limit: Duration) -> Result<Value, Value> {
+pub(in crate::cli) fn acp_json(
+    words: &[&str],
+    stdin: Option<&str>,
+    limit: Duration,
+) -> Result<Value, Value> {
     let exe = std::env::current_exe()
         .map_err(|e| error("acpmux.unreachable", &format!("cannot find cmux: {e}"), true))?;
     let mut command = Command::new(exe);

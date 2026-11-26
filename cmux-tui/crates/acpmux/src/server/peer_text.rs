@@ -53,6 +53,13 @@ pub fn masked(msg: &Message) -> Option<Message> {
     }
 }
 
+/// A session row (a summary) as a peer reads it; None when nothing in it changed. What
+/// `session_patch.rs` diffs for a peer, so a patch carries only masked text.
+pub fn masked_row(row: &Value) -> Option<Value> {
+    let mut row = row.clone();
+    mask_text(&mut row).then_some(row)
+}
+
 /// How much of one field a peer reads: a prompt may be megabytes, and
 /// masking all of it for every summary sent would stall the connection.
 const PEER_TEXT_CHARS: usize = 16_384;

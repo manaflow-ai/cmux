@@ -35,8 +35,10 @@
 //! remote relay (`cmux link`'s gate) does not list these verbs. Unknown and
 //! command-bearing params are refused.
 //!
-//! Bounds: 64 requests kept, pending or answered; a request is forgotten 15
-//! minutes after it was made or answered. Paths up to 4096 bytes, reasons
+//! Bounds: a request is forgotten 15 minutes after it was made or answered;
+//! their count is not capped (each is one map entry of at most about 5.5 KiB
+//! of text, plus a secret answer of at most 64 KiB until its first status
+//! read). Paths up to 4096 bytes, reasons
 //! up to 1000, sessions up to 200 plain characters, secret names up to 128,
 //! secret values up to 64 KiB.
 
@@ -55,7 +57,6 @@ use crate::server::{MessageWriter, Response};
 
 pub const ACCESS_REQUEST_CAPABILITY: &str = "access-request-v1";
 
-const MAX_REQUESTS: usize = 64;
 const KEPT: Duration = Duration::from_secs(15 * 60);
 const MAX_PATH_BYTES: usize = 4096;
 const MAX_REASON_BYTES: usize = 1000;
@@ -120,7 +121,7 @@ impl Refusal {
             Self::BadRequest => "bad access request",
             Self::UnknownRequest => "no such access request",
             Self::Answered => "the access request was already answered",
-            Self::Limit => "too many access requests; wait for some to be answered",
+            Self::Limit => "could not make an access request id",
         }
     }
 }
@@ -210,9 +211,6 @@ fn handle(
             let reason = params.text("reason")?;
             if reason.is_some_and(|reason| reason.len() > MAX_REASON_BYTES) {
                 return Err(Refusal::BadRequest);
-            }
-            if kept.len() >= MAX_REQUESTS {
-                return Err(Refusal::Limit);
             }
             let request_id = new_id().ok_or(Refusal::Limit)?;
             kept.insert(
@@ -387,4 +385,28 @@ fn reply(writer: &MessageWriter, id: Option<Value>, result: Result<Value, Refusa
         None,
         None,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn requests_past_the_old_cap_of_64_are_kept_and_listed() {
+        let requests = AccessRequests::default();
+        let now = Instant::now();
+        for index in 0..200 {
+            let mut params = Map::new();
+            params.insert("kind".into(), json!("secret"));
+            params.insert("name".into(), json!(format!("SECRET_{index}")));
+            let Ok(answer) = handle(&requests, "access-request", params, now) else {
+                panic!("request {index} refused");
+            };
+            assert!(answer["request_id"].is_string(), "{answer}");
+        }
+        let Ok(listed) = handle(&requests, "access-request-list", Map::new(), now) else {
+            panic!("list refused");
+        };
+        assert_eq!(listed["requests"].as_array().map(Vec::len), Some(200));
+    }
 }

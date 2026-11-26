@@ -24,7 +24,7 @@ public nonisolated struct DiffRepository: Sendable, Equatable {
         self.base = base
     }
 
-    public var name: String { URL(fileURLWithPath: root).lastPathComponent }
+    public var name: String { (root as NSString).lastPathComponent }
 }
 
 /// What a diff tab compares first (the page can switch afterwards).

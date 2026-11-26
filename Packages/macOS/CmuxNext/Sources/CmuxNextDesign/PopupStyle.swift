@@ -146,12 +146,26 @@ public final class PopupHostView: NSView {
         placeCard()
     }
 
-    /// The card fills the host less the band. A host smaller than the band
+    /// The card's frame in the host while it resizes inside a larger window (a hover card's morph,
+    /// `HoverCardPanel+Morph.swift`); nil: the card fills the host less the band. The shadow and its
+    /// cutout follow the card's frame either way, in the same commit, so the surface, its rim and its
+    /// shadow are one shape on every frame.
+    public var cardRect: CGRect? {
+        didSet { if cardRect != oldValue { placeCard() } }
+    }
+
+    /// The card's frame in the host at rest: the host less the band.
+    public var restingCardRect: CGRect {
+        let margin = PopupStyle.standard.shadowMargin + travelMargin
+        return bounds.insetBy(dx: margin, dy: margin)
+    }
+
+    /// The card fills the host less the band (or takes ``cardRect``). A host smaller than the band
     /// (a window not yet placed) leaves the card where it is.
     private func placeCard() {
         let margin = PopupStyle.standard.shadowMargin + travelMargin
         guard bounds.width >= 2 * margin, bounds.height >= 2 * margin else { return }
-        let frame = bounds.insetBy(dx: margin, dy: margin)
+        let frame = cardRect ?? restingCardRect
         card.frame = frame
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -159,6 +173,9 @@ public final class PopupHostView: NSView {
         let shape = CGPath(roundedRect: frame, cornerWidth: radius, cornerHeight: radius, transform: nil)
         shadowLayer.frame = bounds
         shadowLayer.shadowPath = shape
+        // Liquid Glass casts its own shadow; a second, black one under it read as a dark ring. The layer's
+        // opacity, not `isHidden`, which a popup that veils its card toggles (GroupEditorService).
+        shadowLayer.opacity = (card as? OverlaySurfaceView)?.castsSystemGlassShadow == true ? 0 : 1
         let cutout = CGMutablePath()
         cutout.addRect(bounds)
         cutout.addPath(shape)

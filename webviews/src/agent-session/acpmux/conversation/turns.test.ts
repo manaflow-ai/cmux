@@ -1,7 +1,19 @@
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { BACKGROUND_TURN } from "./backgroundTurns";
-import { THINKING, WORKED, WORKING, turnView, turnViewFrom } from "./turns";
+import { THINKING, WORKED, turnView, turnViewFrom } from "./turns";
+
+// These pin how a running turn's calls draw in sight, the `open` live arm they were written for;
+// the shipped `folded` keeps them under a closed "Working for" (#50987, live-turn-folds-to-line.test.ts).
+let armsBefore: typeof globalThis.cmuxExperiments;
+beforeEach(() => {
+  armsBefore = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...armsBefore, "live-turn-work": "open" };
+});
+afterEach(() => {
+  if (armsBefore === undefined) delete globalThis.cmuxExperiments;
+  else globalThis.cmuxExperiments = armsBefore;
+});
 
 const user = (at: number): AcpmuxRow => ({ id: "user", version: 1, at, kind: "user", text: "resume" });
 
@@ -31,7 +43,7 @@ test("a completed turn has no live timer row", () => {
     new Set(),
     { now: 10_000, working: false, turnStartedAtMs: 1_000 },
   );
-  expect(shown.some((row) => row.kind === THINKING || row.kind === WORKING)).toBe(false);
+  expect(shown.some((row) => row.kind === THINKING || row.turnPhase === "running")).toBe(false);
 });
 
 test("a partial same-chat refresh keeps an assistant row while tool rows arrive", () => {
@@ -411,4 +423,16 @@ test("a streamed token keeps the running turn's unchanged rows as the same objec
   const changed = shown.rows.filter((row) => before.get(row.id) !== row).map((row) => row.id);
   // The reply the token went to, and what holds it, may change; nothing earlier does.
   expect(changed.length).toBeLessThanOrEqual(3);
+});
+
+test("a running turn with a tool call and a streaming reply draws (no ReferenceError)", () => {
+  // shapeLiveRows read `foldsPrompt` from shapeLiveTurn's scope, so every live turn that reached it threw
+  // and the pane showed "could not be drawn" (#49052).
+  const rows: AcpmuxRow[] = [
+    user(1_000),
+    { id: "tool", version: 1, at: 2_000, kind: "activity", title: "Read file", status: "completed" } as AcpmuxRow,
+    { id: "answer", version: 1, at: 3_000, kind: "assistant", text: "streaming" },
+  ];
+  const shown = turnView(rows, new Set(), { now: 10_000, working: true, turnStartedAtMs: 1_000 });
+  expect(shown.length).toBeGreaterThan(0);
 });

@@ -48,9 +48,24 @@ prompt with one Bash call running --build-cmd, then "ok". Per run:
           background (darwinbg), 31 the default class
   build_s the build's own seconds, as the shell measured them
 
+--mode procs: what an open chat costs in processes, beside the harness alone. Per harness, n chats
+held open after one turn each, raw (the harness run directly, as in a terminal) and through acpmux:
+  procs / RSS MB per chat   the chat's process tree (raw: the harness and its children; acpmux: the
+                            agent host, the harness and its MCP servers) and its resident memory
+  harness process MB        the harness's own process alone
+  idle CPU % per chat       CPU over 10 s with every chat open and nothing sent
+  shared procs / RSS MB     acpmux only: the daemon and the processes under it outside every
+                            chat's host tree (Claude Code's MCP servers start there, one per chat)
+  machine RSS MB at n       every chat's tree plus the shared part
+  left after close          processes still running 10 s after each chat closed (raw: stdin closed
+                            and SIGTERM, as a terminal does; acpmux: session/close)
+  kinds per chat            the processes per chat by program (MCP servers, hosts, helpers)
+The floor row is the optimum: one process per chat, the harness itself at its raw size, nothing
+shared and nothing left behind. PROCS-ROW and PROCS-GAP lines carry the same numbers as JSON.
+
 Usage:
   acpmux-overhead-bench.py --acpmux PATH [--harness claude,codex,opencode] [-n 20]
-                           [--mode overhead|prewarm|hibernate|build-turn] [--build-cmd CMD]
+                           [--mode overhead|prewarm|hibernate|build-turn|procs] [--build-cmd CMD]
                            [--json OUT] [--md OUT]
 """
 
@@ -360,7 +375,7 @@ def stop(p):
 MODELS = {"claude": "claude-opus-5-5", "codex": "gpt-6.1-sol", "opencode": "bench/m"}
 
 
-def raw_claude(env, cwd):
+def raw_claude(env, cwd, keep=None):
     t0 = time.perf_counter()
     argv = ["claude", "-p", "--model", MODELS["claude"], "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
             "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio",
@@ -383,14 +398,19 @@ def raw_claude(env, cwd):
 
         _, tf, te, i = turn(i, "Reply with ok.")
         out["first"], out["end"] = ms(t0, tf), ms(t0, te)
+        if keep is not None:
+            keep.append(p)
+            return out
         ts, tf, te, i = turn(i, "Again: reply with ok.")
         out["warm_first"], out["warm_end"] = ms(ts, tf), ms(ts, te)
         return out
     finally:
-        stop(p)
+        # --mode procs keeps the harness open after its first turn (`keep`) and stops it itself.
+        if keep is None or p not in keep:
+            stop(p)
 
 
-def raw_codex(env, cwd):
+def raw_codex(env, cwd, keep=None):
     t0 = time.perf_counter()
     p = spawn(["codex", "app-server"], env, cwd)
     io = Lines(p.stdout, p.stdin)
@@ -416,11 +436,16 @@ def raw_codex(env, cwd):
 
         _, tf, te, i = turn(i, 3, "Reply with ok.")
         out["first"], out["end"] = ms(t0, tf), ms(t0, te)
+        if keep is not None:
+            keep.append(p)
+            return out
         ts, tf, te, i = turn(i, 4, "Again: reply with ok.")
         out["warm_first"], out["warm_end"] = ms(ts, tf), ms(ts, te)
         return out
     finally:
-        stop(p)
+        # --mode procs keeps the harness open after its first turn (`keep`) and stops it itself.
+        if keep is None or p not in keep:
+            stop(p)
 
 
 def acp_turn(io, start, rid, session, text):
@@ -436,7 +461,7 @@ def acp_turn(io, start, rid, session, text):
     return ts, tf, max(te, tf), j
 
 
-def raw_opencode(env, cwd):
+def raw_opencode(env, cwd, keep=None):
     t0 = time.perf_counter()
     p = spawn(["opencode", "acp"], env, cwd)
     io = Lines(p.stdout, p.stdin)
@@ -452,11 +477,16 @@ def raw_opencode(env, cwd):
         out = {"ready": ms(t0, t_ready)}
         _, tf, te, i = acp_turn(io, i, 3, sid, "Reply with ok.")
         out["first"], out["end"] = ms(t0, tf), ms(t0, te)
+        if keep is not None:
+            keep.append(p)
+            return out
         ts, tf, te, i = acp_turn(io, i, 4, sid, "Again: reply with ok.")
         out["warm_first"], out["warm_end"] = ms(ts, tf), ms(ts, te)
         return out
     finally:
-        stop(p)
+        # --mode procs keeps the harness open after its first turn (`keep`) and stops it itself.
+        if keep is None or p not in keep:
+            stop(p)
 
 
 RAW = {"claude": raw_claude, "codex": raw_codex, "opencode": raw_opencode}
@@ -636,6 +666,7 @@ def hibernate_main(args, daemon: Daemon, scratch):
                           "rss_mb": round(rss / 1024, 1),
                           "typed": k % 2})
     print(f"hibernate: {len(chats)} chats idle for {args.idle_wait} s", file=sys.stderr, flush=True)
+    # sleep-ok: the measured idle period; what is left alive after --idle-wait s is the result.
     time.sleep(args.idle_wait)
     for c in chats:
         pids = c.pop("pids")
@@ -677,6 +708,254 @@ def hibernate_main(args, daemon: Daemon, scratch):
     if args.md:
         with open(args.md, "a") as f:
             f.write(text + "\n")
+
+
+# ---------------------------------------------------------------- --mode procs
+
+PROCS_IDLE_S = 10.0  # the idle window CPU is read over, with every chat open and quiet
+PROCS_CLEANUP_S = 10.0  # how long after a close a process still running counts as left behind
+
+
+def cpu_seconds(text):
+    """`ps -o time=` as seconds: Linux `[dd-]hh:mm:ss`, macOS `mm:ss.ff` or `hh:mm:ss.ff`."""
+    days = 0
+    if "-" in text:
+        d, text = text.split("-", 1)
+        days = int(d)
+    total = 0.0
+    for part in text.split(":"):
+        total = total * 60 + float(part)
+    return days * 86400 + total
+
+
+def proc_rows():
+    """Every process: pid -> (ppid, rss KB, cpu seconds, argv text)."""
+    out = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,rss=,time=,args="], capture_output=True, text=True).stdout
+    rows = {}
+    for line in out.splitlines():
+        f = line.split(None, 4)
+        if len(f) >= 4 and f[0].isdigit() and f[1].isdigit() and f[2].isdigit():
+            try:
+                rows[int(f[0])] = (int(f[1]), int(f[2]), cpu_seconds(f[3]), f[4] if len(f) > 4 else "")
+            except ValueError:
+                continue
+    return rows
+
+
+def tree(rows, roots):
+    pids = [p for p in dict.fromkeys(roots) if p in rows]
+    i = 0
+    while i < len(pids):
+        pids.extend(pid for pid, r in rows.items() if r[0] == pids[i] and pid not in pids)
+        i += 1
+    return pids
+
+
+def kind(args):
+    """A process's kind, from its argv: the program's name and, for a runtime or a multi-tool binary
+    (node, python, cmux, acpmux, codex), its script or subcommand."""
+    words = args.split()
+    if not words:
+        return "?"
+    name = os.path.basename(words[0])
+    rest = [w for w in words[1:] if not w.startswith("-")]
+    if name.startswith(("node", "python", "bun", "deno")) and rest:
+        return f"{name} {os.path.basename(rest[0])}"
+    if name in ("cmux", "cmux-tui") and rest:
+        return f"{name} {' '.join(rest[:2])}"
+    if name in ("acpmux", "codex") and rest and words[1] == rest[0]:
+        # The subcommand only: a flag's value (`codex -m MODEL`) is no kind.
+        return f"{name} {rest[0]}"
+    return name
+
+
+def tree_cost(rows, pids):
+    kinds: dict[str, int] = {}
+    kinds_mb: dict[str, float] = {}
+    for p in pids:
+        k = kind(rows[p][3])
+        kinds[k] = kinds.get(k, 0) + 1
+        kinds_mb[k] = round(kinds_mb.get(k, 0.0) + rows[p][1] / 1024, 1)
+    return {"procs": len(pids), "rss_mb": round(sum(rows[p][1] for p in pids) / 1024, 1), "kinds": kinds,
+            "kinds_mb": kinds_mb}
+
+
+def idle_cpu(groups):
+    """CPU % of each group of pids over PROCS_IDLE_S with nothing sent: what an open, quiet chat costs."""
+    a = proc_rows()
+    # sleep-ok: the measured idle window; the CPU the open chats spend in it is the result.
+    time.sleep(PROCS_IDLE_S)
+    b = proc_rows()
+    out = []
+    for pids in groups:
+        used = sum(b[p][2] - a[p][2] for p in pids if p in a and p in b)
+        out.append(round(100.0 * used / PROCS_IDLE_S, 2))
+    return out
+
+
+def left_after(pids, marker):
+    """Processes still running PROCS_CLEANUP_S after a close: those of `pids` still alive, plus any
+    whose argv names `marker` (the scratch dir: a child that left the tree when its parent exited)."""
+    deadline = time.monotonic() + PROCS_CLEANUP_S
+    while True:
+        rows = proc_rows()
+        left = [p for p in pids if p in rows and alive(p)]
+        left += [p for p, r in rows.items() if marker in r[3] and p not in left and p != os.getpid()]
+        if not left or time.monotonic() > deadline:
+            return [{"pid": p, "kind": kind(rows[p][3]) if p in rows else "?"} for p in left]
+        time.sleep(0.25)
+
+
+def procs_side_raw(h, env, scratch, n):
+    keep: list = []
+    for k in range(n):
+        cwd = os.path.realpath(os.path.join(scratch, f"procs-raw-{h}-{k}"))
+        os.makedirs(cwd, exist_ok=True)
+        RAW[h](env, cwd, keep=keep)
+    rows = proc_rows()
+    chats = [tree(rows, [p.pid]) for p in keep]
+    cpu = idle_cpu(chats)
+    rows = proc_rows()
+    per = []
+    for pids, c in zip(chats, cpu):
+        cost = tree_cost(rows, [p for p in pids if p in rows])
+        root = pids[0] if pids and pids[0] in rows else None
+        cost["harness_rss_mb"] = round(rows[root][1] / 1024, 1) if root else None
+        cost["idle_cpu_pct"] = c
+        per.append(cost)
+    every = [p for pids in chats for p in pids]
+    for p in keep:
+        stop(p)
+    return {"chats": per, "shared": None, "left": left_after(every, f"procs-raw-{h}-")}
+
+
+def procs_side_acpmux(h, daemon: Daemon, scratch, n):
+    sids = []
+    for k in range(n):
+        cwd = os.path.realpath(os.path.join(scratch, f"procs-acpmux-{h}-{k}"))
+        os.makedirs(cwd, exist_ok=True)
+        _, r = daemon.request("session/new", {"cwd": cwd, "mcpServers": [],
+                                               "_meta": {"acpmux": {"harness": h, "policy": "approve-all",
+                                                                    "model": MODELS[h]}}}, timeout=180)
+        sid = r["sessionId"]
+        daemon.next += 1
+        acp_turn(daemon.io, daemon.io.mark(), daemon.next, sid, "Reply with ok.")
+        sids.append(sid)
+    rows = proc_rows()
+    chats = []
+    for sid in sids:
+        pids, _ = agent_procs(daemon.home, sid)
+        chats.append(pids or [])
+    # The daemon itself and every process under it that is no chat's: what all chats share.
+    owned = {p for pids in chats for p in pids}
+    shared = [p for p in tree(rows, [daemon.p.pid]) if p not in owned]
+    cpu = idle_cpu(chats + [shared])
+    rows = proc_rows()
+    per = []
+    for sid, pids, c in zip(sids, chats, cpu):
+        cost = tree_cost(rows, [p for p in pids if p in rows])
+        rec = json.load(open(os.path.join(daemon.home, "hosts", f"{sid}.json"))) if pids else {}
+        hp = rec.get("harness_pid")
+        cost["harness_rss_mb"] = round(rows[hp][1] / 1024, 1) if hp in rows else None
+        cost["idle_cpu_pct"] = c
+        per.append(cost)
+    shared_cost = tree_cost(rows, [p for p in shared if p in rows])
+    shared_cost["idle_cpu_pct"] = cpu[-1]
+    for sid in sids:
+        try:
+            daemon.request("session/close", {"sessionId": sid}, timeout=20)
+        except Exception as e:  # noqa: BLE001: a close that fails shows up as processes left
+            print(f"{h} close {sid}: {e}", file=sys.stderr)
+    return {"chats": per, "shared": shared_cost, "left": left_after(sorted(owned), f"procs-acpmux-{h}-")}
+
+
+def med(xs):
+    xs = [x for x in xs if x is not None]
+    return round(statistics.median(xs), 1) if xs else None
+
+
+def procs_main(args, daemon: Daemon, env, scratch):
+    """Processes, memory and idle CPU per open chat: each harness alone (the way it runs in a terminal
+    or under its own app) beside the same harness through acpmux, and what each leaves running after
+    its chat closes. The floor is the harness's own process and nothing else per chat: the program
+    the person asked for, with every helper either inside an existing process or shared by all chats."""
+    results = {}
+    lines = [f"### {args.label or 'run'} procs ({socket.gethostname()}, {args.n} open chats each, "
+             f"idle {PROCS_IDLE_S:.0f} s, load {os.getloadavg()[0]:.1f})", "",
+             "| harness | side | procs per chat | RSS MB per chat | harness process MB | idle CPU % per chat | "
+             "shared procs | shared RSS MB | machine RSS MB at n | left after close | kinds per chat |",
+             "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for h in args.harness.split(","):
+        sides = {}
+        for side, fn in (("raw", lambda: procs_side_raw(h, env, scratch, args.n)),
+                         ("acpmux", lambda: procs_side_acpmux(h, daemon, scratch, args.n))):
+            try:
+                sides[side] = fn()
+            except Exception as e:  # noqa: BLE001: a bench reports and goes on
+                sides[side] = {"error": str(e)}
+                print(f"{h} {side}: {e}", file=sys.stderr)
+        floor = None
+        if "chats" in sides.get("raw", {}):
+            hm = med([c["harness_rss_mb"] for c in sides["raw"]["chats"]])
+            floor = {"procs": 1, "rss_mb": hm, "harness_rss_mb": hm, "idle_cpu_pct": 0.0,
+                     "machine_rss_mb": round(hm * args.n, 1) if hm is not None else None}
+        sides["floor"] = floor
+        results[h] = sides
+        for side in ("floor", "raw", "acpmux"):
+            s = sides.get(side)
+            if s is None:
+                continue
+            if "error" in s:
+                lines.append(f"| {h} | {side} | error: {s['error'][:120]} | | | | | | | | |")
+                continue
+            if side == "floor":
+                lines.append(f"| {h} | floor | 1 | {s['rss_mb']} | {s['harness_rss_mb']} | 0 | 0 | 0 | "
+                             f"{s['machine_rss_mb']} | 0 | harness only |")
+                continue
+            chats = s["chats"]
+            procs, rss = med([c["procs"] for c in chats]), med([c["rss_mb"] for c in chats])
+            hm, cpu = med([c["harness_rss_mb"] for c in chats]), med([c["idle_cpu_pct"] for c in chats])
+            sh = s["shared"] or {"procs": 0, "rss_mb": 0.0, "kinds": {}, "kinds_mb": {}}
+            machine = round(sum(c["rss_mb"] for c in chats) + sh["rss_mb"], 1)
+            s["machine_rss_mb"] = machine
+            kinds, kinds_mb = {}, {}
+            for c in chats:
+                for k, v in c["kinds"].items():
+                    kinds[k] = kinds.get(k, 0) + v
+                    kinds_mb[k] = kinds_mb.get(k, 0.0) + c["kinds_mb"][k]
+            # Per chat: how many of each program and their MB, the biggest first.
+            ktext = ", ".join(f"{k} {kinds[k] / len(chats):g} ({kinds_mb[k] / len(chats):.0f} MB)"
+                              for k in sorted(kinds, key=lambda k: -kinds_mb[k])) if chats else ""
+            if sh["kinds"]:
+                ktext += "; shared: " + ", ".join(f"{k} {v} ({sh['kinds_mb'][k]:.0f} MB)"
+                                                  for k, v in sorted(sh["kinds"].items(), key=lambda kv: -sh["kinds_mb"][kv[0]]))
+            left = ", ".join(sorted({x["kind"] for x in s["left"]})) or "0"
+            lines.append(f"| {h} | {side} | {procs} | {rss} | {hm} | {cpu} | {sh['procs']} | {sh['rss_mb']} | {machine} | "
+                         f"{len(s['left'])} ({left}) | {ktext} |")
+            print("PROCS-ROW " + json.dumps({"harness": h, "side": side, "n": args.n, "procs_per_chat": procs,
+                                              "rss_mb_per_chat": rss, "harness_rss_mb": hm, "idle_cpu_pct": cpu,
+                                              "shared_procs": sh["procs"], "shared_rss_mb": sh["rss_mb"],
+                                              "machine_rss_mb": machine, "left": len(s["left"]),
+                                              "kinds": kinds, "kinds_mb": {k: round(v, 1) for k, v in kinds_mb.items()},
+                                              "shared_kinds_mb": sh.get("kinds_mb", {})}), flush=True)
+        if floor and "machine_rss_mb" in sides.get("acpmux", {}) and floor["machine_rss_mb"] is not None:
+            print("PROCS-GAP " + json.dumps({"harness": h, "n": args.n,
+                                              "acpmux_over_floor_mb": round(sides["acpmux"]["machine_rss_mb"] - floor["machine_rss_mb"], 1),
+                                              "raw_over_floor_mb": round(sides["raw"]["machine_rss_mb"] - floor["machine_rss_mb"], 1)}),
+                  flush=True)
+    results["_meta"] = {"label": args.label, "acpmux": args.acpmux, "n": args.n, "mode": "procs",
+                        "idle_s": PROCS_IDLE_S, "cleanup_s": PROCS_CLEANUP_S,
+                        "host": socket.gethostname(), "load": os.getloadavg()}
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(results, f, indent=1)
+    text = "\n".join(lines) + "\n"
+    print(text)
+    if args.md:
+        with open(args.md, "a") as f:
+            f.write(text + "\n")
+    bad = [h for h, s in results.items() if not h.startswith("_") and any("error" in (s.get(x) or {}) for x in ("raw", "acpmux"))]
+    return 1 if bad else 0
 
 
 # ---------------------------------------------------------------- main
@@ -746,7 +1025,7 @@ def main():
     ap.add_argument("--harness", default="claude,codex,opencode")
     ap.add_argument("-n", type=int, default=20)
     ap.add_argument("--warmup", type=int, default=2)
-    ap.add_argument("--mode", choices=["overhead", "prewarm", "hibernate", "build-turn"], default="overhead")
+    ap.add_argument("--mode", choices=["overhead", "prewarm", "hibernate", "build-turn", "procs"], default="overhead")
     ap.add_argument("--build-cmd", help="--mode build-turn: the shell command the turn's Bash call runs")
     ap.add_argument("--idle-wait", type=int, default=135, help="--mode hibernate: seconds the chats sit idle")
     ap.add_argument("--json")
@@ -762,12 +1041,16 @@ def main():
     stand = StandIn()
     threading.Thread(target=stand.serve_forever, daemon=True).start()
     url = f"http://127.0.0.1:{stand.server_address[1]}"
-    scratch = tempfile.mkdtemp(prefix="acpmux-bench-")
+    # The daemon's socket lives in the scratch dir; a unix socket path has about 104 bytes, and a long
+    # TMPDIR (an agent's per-session one) would push it over, when the daemon listens elsewhere.
+    scratch = tempfile.mkdtemp(prefix="acpmux-bench-", dir="/tmp" if len(tempfile.gettempdir()) > 40 else None)
     cwd = os.path.join(scratch, "work")
     os.makedirs(cwd)
     env = env_for(url, scratch)
     home = os.path.join(scratch, "acpmux-home")
     os.makedirs(home)
+    # The daemon refuses a home another user can write; a umask of 002 would make it 775.
+    os.chmod(home, 0o700)
     extra = dict(kv.split("=", 1) for kv in args.daemon_env)
     if args.no_agent_tools:
         extra["ACPMUX_AGENT_TOOLS"] = "0"
@@ -775,6 +1058,12 @@ def main():
     if args.mode == "build-turn":
         try:
             return build_turn_main(args, daemon, stand, scratch)
+        finally:
+            daemon.close()
+            shutil.rmtree(scratch, ignore_errors=True)
+    if args.mode == "procs":
+        try:
+            return procs_main(args, daemon, env, scratch)
         finally:
             daemon.close()
             shutil.rmtree(scratch, ignore_errors=True)

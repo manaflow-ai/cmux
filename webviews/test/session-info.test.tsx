@@ -136,7 +136,7 @@ afterEach(async () => {
 
 const noop = () => undefined;
 let paneWidth = 0;
-// The running line's counts call this (App.tsx `openAgents` / `openCommands`).
+// A tray command with no terminal calls this (App.tsx `openTrayCommand`).
 let reveal: ((section: "subagents" | "tasks") => void) | undefined;
 
 /// The pane's pieces as App.tsx places them: the toggle last in the header's tools, Session Info
@@ -941,7 +941,8 @@ test("Connectors says how many to reconnect, else how many connected, else None;
   const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-session-info-row")].map(
     (row) => row.textContent,
   );
-  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
+  // A server still connecting says nothing until that lasts the shared bound (lasting.ts `CONNECTION_QUIET_MS`).
+  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentry"]);
 
   // None failed: how many the harness loaded, never a green connected count.
   await render(container, {
@@ -1268,7 +1269,7 @@ test("Subagents names each running one on its line, and folds the ended ones int
     root.render(<SessionInfo agents={agents} onOpenSubagent={(id) => shown.push(id)} />);
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("3 running · 1 failed · 39 done");
+  expect(meta(subagents)).toBe("3 · 1 failed · 39 done");
   // No row of identical avatars and no "+N": the running ones by name, oldest first.
   expect(subagents.querySelector(".acpmux-session-info-subagents__running .cv-subagent-avatar")).toBeNull();
   expect(subagents.textContent).not.toMatch(/\+\d/);
@@ -1371,7 +1372,7 @@ test("the chats the agent started are listed under Subagents, counted with them,
     );
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("1 waiting · 3 running · 1 failed · 2 done");
+  expect(meta(subagents)).toBe("1 waiting · 3 · 1 failed · 2 done");
   // Running: the chat waiting on the person first, then the subagent and the running chats.
   expect(lines(subagents)).toEqual([
     ["Rename the settings keys", "Waiting"],
@@ -1411,7 +1412,7 @@ test("with only started chats Subagents is still drawn, and the running line's c
   // What it runs (Subagents) comes after Context and before the Show more line's Usage and Connectors
   // (sectionOrder.ts DEFAULT_ORDER). The chat's code edits are no Outputs (chatOutputs.ts).
   expect(sectionIds(container)).toEqual(["environment", "context", "subagents", "usage", "connectors"]);
-  expect(meta(section(container, "subagents"))).toBe("1 running · 1 done");
+  expect(meta(section(container, "subagents"))).toBe("1 · 1 done");
   // Closed, with Subagents folded: the running line's "2 subagents" opens it at Subagents.
   await click(head(section(container, "subagents")!));
   await click(toggle(container)!);
@@ -1481,7 +1482,7 @@ test("a Cloud VM chat's children, as its machine's daemon lists them with the ch
     root.render(<SessionInfo sessions={children} onOpenSession={(id) => opened.push(id)} />);
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("1 running · 1 done");
+  expect(meta(subagents)).toBe("1 · 1 done");
   await click(endedRow(subagents)!);
   expect(lines(subagents)).toEqual([
     ["Run the e2e suite", "Running"],

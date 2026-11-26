@@ -1,3 +1,5 @@
+import CmuxEgress
+public import CMUXAuthCore
 public import Foundation
 import CmuxNextWakeups
 
@@ -9,6 +11,8 @@ public final class CloudMachineWire {
     private let apiBaseURL: URL
     private let token: @Sendable () async throws -> String
     private let team: @Sendable () async -> String?
+    /// A tagged dev build's cloud data space, on the ticket request and the socket's upgrade; none for nightly; a misconfigured dev build opens none.
+    private let buildSpace: CMUXBuildSpaceState
     private var runner: Task<Void, Never>?
     private var generation = 0
     /// The person's spare that the platform says just became ready (`cloud.spare.ready`, for this socket's own team):
@@ -16,16 +20,17 @@ public final class CloudMachineWire {
     public var onSpareReady: @MainActor (String) -> Void = { _ in }
 
     public init(apiBaseURL: URL, token: @escaping @Sendable () async throws -> String,
-                team: @escaping @Sendable () async -> String?) {
+                team: @escaping @Sendable () async -> String?, buildSpace: CMUXBuildSpaceState) {
         self.apiBaseURL = apiBaseURL
         self.token = token
         self.team = team
+        self.buildSpace = buildSpace
     }
 
     /// `onSpareReady`: as ``onSpareReady``, set from the start.
     public convenience init(apiBaseURL: URL, auth: CloudAuth, onSpareReady: @escaping @MainActor (String) -> Void = { _ in }) {
         self.init(apiBaseURL: apiBaseURL, token: { try await auth.tokens().access },
-                  team: { await auth.teamID })
+                  team: { await auth.teamID }, buildSpace: auth.configuration.buildSpace)
         self.onSpareReady = onSpareReady
     }
 
@@ -60,19 +65,9 @@ public final class CloudMachineWire {
         let selectedTeam = await team()
         let access = try await token()
         let ticket = try await mintTicket(access: access)
-        var components = URLComponents(url: apiBaseURL, resolvingAgainstBaseURL: false) ?? URLComponents()
-        components.scheme = components.scheme == "http" ? "ws" : "wss"
-        components.path = "/v1/wire/cloud"
-        guard let url = components.url else { throw CloudAPIError.transport("invalid Cloud wire URL") }
-        var request = URLRequest(url: url)
-        let teamProtocol = selectedTeam.flatMap { $0.isEmpty ? nil : "team.\($0)" }
-        request.setValue(([
-            "cmux.wire.v1", "ticket.\(ticket)", teamProtocol,
-        ].compactMap { $0 }).joined(separator: ", "), forHTTPHeaderField: "Sec-WebSocket-Protocol")
-        if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
-            request.setValue(version, forHTTPHeaderField: "x-cmux-client-version")
-        }
-        let task = URLSession.shared.webSocketTask(with: request)
+        let request = try Self.socketRequest(apiBaseURL: apiBaseURL, ticket: ticket, team: selectedTeam,
+            version: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String, buildSpace: buildSpace)
+        let task = CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxNextCloud.CloudMachineWire"), with: request, site: "CmuxNextCloud.CloudMachineWire")
         task.maximumMessageSize = 8 << 20
         task.resume()
         defer { task.cancel(with: .goingAway, reason: nil) }
@@ -108,13 +103,38 @@ public final class CloudMachineWire {
         }
     }
 
-    private func mintTicket(access: String) async throws -> String {
+    /// The `/v1/wire/cloud` socket's upgrade: the one-use ticket and the team in the subprotocol, the app version and
+    /// the build space, when there is one.
+    nonisolated static func socketRequest(apiBaseURL: URL, ticket: String, team: String?, version: String?,
+                                          buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
+        var components = URLComponents(url: apiBaseURL, resolvingAgainstBaseURL: false) ?? URLComponents()
+        components.scheme = components.scheme == "http" ? "ws" : "wss"
+        components.path = "/v1/wire/cloud"
+        guard let url = components.url else { throw CloudAPIError.transport("invalid Cloud wire URL") }
+        var request = URLRequest(url: url)
+        let teamProtocol = team.flatMap { $0.isEmpty ? nil : "team.\($0)" }
+        request.setValue(([
+            "cmux.wire.v1", "ticket.\(ticket)", teamProtocol,
+        ].compactMap { $0 }).joined(separator: ", "), forHTTPHeaderField: "Sec-WebSocket-Protocol")
+        if let version { request.setValue(version, forHTTPHeaderField: "x-cmux-client-version") }
+        try buildSpace.apply(to: &request)
+        return request
+    }
+
+    /// `POST /v1/wire/ticket` for the cloud scope, with the person's session and the build space, when there is one.
+    nonisolated static func ticketRequest(apiBaseURL: URL, access: String, buildSpace: CMUXBuildSpaceState) throws -> URLRequest {
         var request = URLRequest(url: apiBaseURL.appendingPathComponent("v1/wire/ticket"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = Data(#"{"scope":"cloud"}"#.utf8)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        try buildSpace.apply(to: &request)
+        return request
+    }
+
+    private func mintTicket(access: String) async throws -> String {
+        let request = try Self.ticketRequest(apiBaseURL: apiBaseURL, access: access, buildSpace: buildSpace)
+        let (data, response) = try await CmuxEgress.shared(site: "CmuxNextCloud.CloudMachineWire").data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw CloudAPIError.transport("Cloud wire ticket refused")
         }

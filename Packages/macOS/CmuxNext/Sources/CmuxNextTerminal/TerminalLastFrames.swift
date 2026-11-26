@@ -1,3 +1,4 @@
+public import CoreGraphics
 import Foundation
 /// Evicted terminals' last frames (`TerminalLastFrame`), oldest dropped first past the bound
 /// (``capacity(warm:)``: the warm capacity plus what 1/32 of physical memory holds). Each frame is
@@ -16,6 +17,18 @@ public struct TerminalLastFrames {
 
     public var count: Int { frames.count }
 
+    /// Each evicted terminal's downscaled picture (hover cards, the sidebar's split miniature), taken as it is evicted
+    /// and kept apart from its frame: a frame is volatile, so memory pressure purges it, a pressure eviction
+    /// (`atOnce`) keeps none, and the bound drops the oldest; the picture outlives all three, so a hibernated
+    /// terminal's card shows how it last looked, never an empty tile.
+    private let pictures = TerminalEvictedPictures()
+
+    /// `key`'s kept picture (only a terminal that had output), at most ``TerminalEvictedPictures/side`` px.
+    public func picture(_ key: String) -> CGImage? { pictures.image(key) }
+
+    /// Resolves once `key`'s picture taken at its eviction is kept or dropped (tests).
+    func pictureSettled(_ key: String) async { await pictures.settled(key) }
+
     public subscript(key: String) -> TerminalLastFrame? { frames[key] }
 
     /// `key`'s frame for a hover card or drag thumbnail: only one whose terminal had output (a new
@@ -24,14 +37,21 @@ public struct TerminalLastFrames {
 
     /// Keeps `frame` for `key`; returns the frames the bound dropped.
     mutating func insert(_ frame: TerminalLastFrame, for key: String, capacity: Int) -> [(key: String, frame: TerminalLastFrame)] {
-        _ = remove(key)
+        removeFrame(key)
         frames[key] = frame
         order.append(key)
         return trim(to: capacity)
     }
 
+    /// Forgets `key`'s frame and picture (the tab closed, or its new surface shows it).
     @discardableResult
     public mutating func remove(_ key: String) -> TerminalLastFrame? {
+        pictures.drop(key)
+        return removeFrame(key)
+    }
+
+    @discardableResult
+    private mutating func removeFrame(_ key: String) -> TerminalLastFrame? {
         guard let frame = frames.removeValue(forKey: key) else { return nil }
         order.removeAll { $0 == key }
         return frame
@@ -72,10 +92,25 @@ public struct TerminalLastFrames {
     /// ``TerminalLastFrame/showsOutput``.
     public mutating func evict(_ session: TerminalSession, key: String, capacity: Int, atOnce: Bool) {
         remove(key)
+        let showsOutput = session.showsOutput
+        defer { keepPicture(of: session, key: key, showsOutput: showsOutput) }  // also on a pressure eviction
         guard !atOnce, capacity > 0 else { return note("evicted_at_once") }
-        guard let frame = TerminalLastFrame(of: session, showsOutput: session.showsOutput) else { return note("evicted_no_frame") }
+        guard let frame = TerminalLastFrame(of: session, showsOutput: showsOutput) else { return note("evicted_no_frame") }
         note("kept")
         for _ in insert(frame, for: key, capacity: Self.capacity(warm: capacity)) { note("dropped") }
+    }
+
+    /// Pictures `session` as it is evicted: from its kept frame (pinned while it renders, so a purge cannot tear it),
+    /// else from the surface it presents now, read in this turn before it closes. Only a terminal with output.
+    private func keepPicture(of session: TerminalSession, key: String, showsOutput: Bool) {
+        guard showsOutput else { return }
+        let side = TerminalEvictedPictures.side
+        if let frame = frames[key] {
+            pictures.keep(key) { await frame.snapshot(maxPixelSize: side) }
+        } else if let surface = session.surfaceView.presentedFrame {
+            let frame = SendableSurface(surface: surface)
+            pictures.keep(key) { await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(frame, maxPixelSize: side) }.value }
+        }
     }
 
     /// `key`'s new session draws now: it shows the frame that waits for it, if any.

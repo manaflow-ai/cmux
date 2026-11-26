@@ -13,10 +13,14 @@
 //! `structuredContent.status` `running`, `ok` or `failed`. `bg_start` asks the daemon to tell
 //! the chat when the task ends (`notify`, on unless false; `hub/bg_notify.rs`).
 //!
-//! `run_wait` is a `bg_start` the server writes: one blocking `gh run watch` or `gh pr checks
-//! --watch` under the daemon, then the failed jobs read once, and the outcome printed last, which
+//! `run_wait` is a `bg_start` the server writes: one blocking `glaeda-gh wait` (the machine's one
+//! GitHub poller, which waits on PR events where GitHub grants them), else `gh run watch` or `gh pr checks
+//! --watch` (one per target for every chat on the machine, `SHARED_WATCH`), under the daemon, then the failed jobs read once, and the outcome printed last, which
 //! the task's summary is (`resultLine`), so the chat wakes once with "... passed" or "... failed:
-//! JOB, JOB". A machine with no `gh` is refused before a task starts.
+//! JOB, JOB". A machine with no `gh` is refused before a task starts. Given a background task's id
+//! (`{"id": "bg-...", "timeoutSeconds": 900}`, as agents call it to wait for a task), it blocks
+//! until the task ends or the bound passes (at most [`TASK_WAIT_MAX`], a longer one clamped and
+//! said so), then answers as `bg_output` does.
 //!
 //! Own tasks first (incident 2026-11-14: a subagent listed every task of its chat and stopped
 //! all ten running ones, none its own): `bg_list` lists the tasks its caller started (that
@@ -36,33 +40,39 @@ pub(super) const TOOLS: [&str; 5] = ["bg_start", "bg_list", "bg_output", "bg_sto
 pub(super) fn tools() -> Vec<Value> {
     let id =
         json!({"type": "string", "description": "The task's id, as bg_start or bg_list gave it."});
-    let description = json!({"type": "string", "description": "A few words: what this call is for. The transcript titles the call with it."});
+    let description = json!({"type": "string", "description": "A few words on what this call is for; titles the call."});
     vec![
-        json!({"name": "bg_start", "description": "Run a shell command in the background: a dev server, a watcher, a long build or test run. It keeps running while this chat is idle or its agent hibernates, and after a restart; read it later with bg_output by its id. Prefer it to the harness's own background shell, which ends when the agent hibernates. Returns at once with the task's id. When it ends, this chat gets one message with how it ended and its last lines (unless notify is false), so there is no need to poll it.",
+        json!({"name": "bg_start", "description": "Start a background command that survives hibernation and restarts. Returns its task id immediately, and not the command or description you just sent (bg_list and bg_output read a stored command back). Use bg_output to read it.",
             "inputSchema": {"type": "object", "properties": {
-                "command": {"type": "string", "description": "The command, run by bash -c (/bin/sh where there is no bash), in the agent's environment."},
-                "cwd": {"type": "string", "description": "Its folder (default: the chat's)."},
-                "description": {"type": "string", "description": "A few words: what the task is for. Kept with the task; bg_list, bg_output and the end message name it by this."},
-                "notify": {"type": "boolean", "description": "Send this chat one message when the task ends (default true). It waits for a running turn to end; it never interrupts one."}},
+                "command": {"type": "string", "description": "Runs in the agent environment with bash -c (fallback /bin/sh)."},
+                "cwd": {"type": "string", "description": "Working directory (default: chat folder)."},
+                "description": {"type": "string", "description": "Short task title for listings, output and completion."},
+                "notify": {"type": "boolean", "description": "Send exit status and last lines when it ends (default true); a running turn reads it at its next tool step."}},
                 "required": ["command"]}}),
-        json!({"name": "bg_list", "description": "Your background tasks (the ones you started; a subagent sees its own), oldest first: id, state (running, exited, stopped, killed, lost), exit code and the tail of the output. Tasks other subagents or the lead started are counted, not listed, unless all is true; they are not yours to stop.",
+        json!({"name": "bg_list", "description": "Your background tasks (a subagent sees its own), newest 30 first, one line each: id, state, exit code, age, command (cut). The last line says how many more and how to page. Other callers' tasks are counted, not listed, unless all; they are not yours to stop.",
             "inputSchema": {"type": "object", "properties": {"description": description,
-                "all": {"type": "boolean", "description": "List every task of this chat, whoever started it, each with who started it (default false: only yours)."}}}}),
-        json!({"name": "bg_output", "description": "Read a background task's output: by default its last 64 KiB; with fromByte, from there (pass the last nextByte to read only what is new). Each task keeps its newest 8 MiB of output; skippedBytes says how much before fromByte is gone.",
+                "all": {"type": "boolean", "description": "Every task of this chat, with who started it."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "description": "Default 30."},
+                "offset": {"type": "integer", "minimum": 0, "description": "Newest to skip (paging)."},
+                "state": {"type": "string", "enum": ["running", "exited", "stopped", "killed", "lost", "ok", "failed"], "description": "Only this state or outcome."},
+                "full": {"type": "boolean", "description": "Whole commands and output tails."}}}}),
+        json!({"name": "bg_output", "description": "Read the last 64 KiB by default. Pass nextByte as fromByte to continue. skippedBytes counts output lost beyond the newest 8 MiB. Text, no base64 copy.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
                 "fromByte": {"type": "integer", "minimum": 0},
                 "maxBytes": {"type": "integer", "minimum": 1, "maximum": 1048576}},
                 "required": ["id"]}}),
-        json!({"name": "bg_stop", "description": "Stop a background task you started: SIGTERM to every process it started (its process group and those that left it), then SIGKILL to them 5 s later; returns once it ended. A task another subagent or the lead started is refused, naming who started it.",
+        json!({"name": "bg_stop", "description": "Stop a background task you started: SIGTERM to all its processes, SIGKILL to any left after 5 s; returns once it ended (at once for a task that ends on SIGTERM). Another caller's task is refused, naming who started it.",
             "inputSchema": {"type": "object", "properties": {"id": id, "description": description,
-                "force_other_owner": {"type": "boolean", "description": "Stop it even though another subagent or the lead started it. Only when its owner asked you to or is gone; never as cleanup (default false)."}},
+                "force_other_owner": {"type": "boolean", "description": "Stop another caller's task: only when its owner asked or is gone, never as cleanup."}},
                 "required": ["id"]}}),
-        json!({"name": "run_wait", "description": "Wait for a GitHub Actions run, or a pull request's checks, in the background, and get one message in this chat when it is done: passed, or failed with the failed jobs named. Returns at once with a background task id (bg_output reads it meanwhile). Use it instead of polling CI yourself. Needs the gh CLI.",
+        json!({"name": "run_wait", "description": "Wait in the background for a GitHub Actions run or a PR's checks (one shared poller per machine; needs gh) and get one message when done: passed, or failed naming the jobs. Returns at once with a task id. Use it instead of polling CI. With id (bg-...) and timeoutSeconds instead, blocks until that task ends or the timeout (max 1800 s), then answers as bg_output.",
             "inputSchema": {"type": "object", "properties": {
                 "repo": {"type": "string", "description": "OWNER/REPO."},
+                "id": {"type": "string", "description": "Instead of repo: a task id (bg-...)."},
+                "timeoutSeconds": {"type": "number", "minimum": 0, "description": "With id: how long to block (max 1800)."},
                 "run": {"type": "integer", "minimum": 1, "description": "The Actions run id to wait for."},
-                "pr": {"type": "integer", "minimum": 1, "description": "The pull request whose checks to wait for (instead of run)."},
-                "sha": {"type": "string", "description": "With pr: the head commit the checks must be for; a pull request whose head is another commit, before or after the wait, fails."},
+                "pr": {"type": "integer", "minimum": 1, "description": "Instead of run: the PR whose checks to wait for."},
+                "sha": {"type": "string", "description": "With pr: the head the checks must be for; another head fails."},
                 "description": description},
                 "required": ["repo"]}}),
     ]
@@ -71,7 +81,7 @@ pub(super) fn tools() -> Vec<Value> {
 /// What a Claude Code subagent's start (`callerSubagent`) adds to its answer: when its end comes.
 const SUBAGENT_END: &str = "You get its end after your next Bash or acpmux tool call; if you end first, it goes to your lead. bg_output reads it now.";
 
-pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
+pub(crate) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: &Value) -> Value {
     let by_subagent = args.get("callerSubagent").is_some_and(Value::is_object);
     let mut params = match args {
         Value::Object(_) => args.clone(),
@@ -79,6 +89,38 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         _ => return error_result("arguments must be an object".to_owned()),
     };
     params.set("sessionId", json!(session));
+    // A background task's id given to run_wait (`{"id": "bg-..."}`): run_wait waits for GitHub,
+    // and a bg task's end already comes as a message, so read it as bg_output does and say so.
+    // With a timeout (`{"id": "bg-...", "timeoutSeconds": 900}`), it first blocks until the task
+    // ends or the bound passes (`TaskWait`), and says which.
+    let mut note = None;
+    let mut waited = None;
+    let name = match bg_task_given_to_run_wait(name, &params) {
+        Some(task) => {
+            let bound = match TaskWait::of(&params) {
+                Ok(bound) => bound,
+                Err(why) => return error_result(why),
+            };
+            let sub = params.get("callerSubagent").cloned();
+            params = json!({"sessionId": session, "id": task});
+            if let Some(sub) = sub {
+                params.set("callerSubagent", sub);
+            }
+            note = Some(match bound {
+                None => format!(
+                    "run_wait waits for a GitHub run or pull request (repo with run or pr); {task} is a background task, whose end comes to this chat as one message, so there is nothing to wait on. Its output so far, as bg_output {{\"id\": \"{task}\"}} reads it:"
+                ),
+                Some(bound) => {
+                    let waited_for = bound.wait(daemon, &params).await;
+                    let line = bound.line(&task, waited_for);
+                    waited = Some((bound, waited_for));
+                    line
+                }
+            });
+            "bg_output"
+        }
+        None => name,
+    };
     if name == "run_wait" {
         let wait = match RunWait::of(&params) {
             Ok(wait) => wait,
@@ -97,6 +139,7 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             Ok(r) => {
                 let (line, status) = outcome("bg_start", &r);
                 let mut structured = r;
+                trim_echo("bg_start", &mut structured);
                 structured.set("summary", json!(line));
                 structured.set("status", json!(status));
                 let id = structured.get("id").and_then(Value::as_str).unwrap_or_default();
@@ -130,13 +173,35 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
         "bg_stop" => method::MUX_BG_STOP,
         other => return error_result(crate::mcp_hint::unknown_tool(other, TOOLS)),
     };
+    // A list's page (`acpmux_mcp_bg_list.rs`): the daemon answers the whole chat.
+    let page = match name {
+        "bg_list" => match super::bg_list::Page::take(&mut params) {
+            Ok(page) => Some(page),
+            Err(why) => return error_result(why),
+        },
+        _ => None,
+    };
     match daemon.request(m, params).await {
         Ok(r) => {
             let (line, status) = outcome(name, &r);
+            if let Some(page) = page {
+                let (mut structured, text) = page.apply(r, crate::store::now_ms());
+                structured.set("summary", json!(line));
+                structured.set("status", json!(status));
+                return ok(format!("{line}\n{text}").trim_end().to_owned(), structured);
+            }
             let mut structured = r;
+            trim_echo(name, &mut structured);
             structured.set("summary", json!(line));
             structured.set("status", json!(status));
             let mut text = format!("{line}\n{}", summary(name, &structured)).trim_end().to_owned();
+            if let Some(note) = &note {
+                text = format!("{note}\n{text}");
+                structured.set("redirectedFrom", json!("run_wait"));
+            }
+            if let Some((bound, waited)) = &waited {
+                structured.set("wait", bound.view(*waited));
+            }
             if by_subagent && name == "bg_start" && structured.get("notify") == Some(&json!(true)) {
                 text.push_str(&format!("\n{SUBAGENT_END}"));
                 // Claude Code shows the structured result, not the text, when there is one.
@@ -144,9 +209,169 @@ pub(super) async fn call(daemon: &Arc<Client>, session: &str, name: &str, args: 
             }
             ok(text, structured)
         }
-        Err(e) => refusal(e),
+        Err(e) => match &note {
+            Some(note) => error_result(format!("{note}\n{e:#}")),
+            None => refusal(e),
+        },
     }
 }
+
+/// The background task id a `run_wait` call gives: a `bg-` value under `id`, `task`, `taskId`,
+/// `task_id` or `run`, with a repo or without one. A `bg-` id names only a task this server
+/// started, so a repo beside it changes nothing: the census of 2026-11-23 (cmuxterm-hq
+/// docs/findings/2026-11-23-mcp-tool-error-census.md) counted 58 run_wait refusals "give run or
+/// pr" in 48 h on one VM, nearly all `{"repo": ..., "id": "bg-...", "timeoutSeconds": ...}`.
+fn bg_task_given_to_run_wait(name: &str, params: &Value) -> Option<String> {
+    if name != "run_wait" {
+        return None;
+    }
+    ["id", "task", "taskId", "task_id", "run"].iter().find_map(|k| {
+        let v = params.get(*k)?.as_str()?.trim();
+        v.starts_with("bg-").then(|| v.to_owned())
+    })
+}
+
+/// The most a `run_wait` on a background task blocks (`timeoutSeconds`); a longer bound is
+/// clamped to it, and the result says so.
+const TASK_WAIT_MAX: std::time::Duration = std::time::Duration::from_secs(1800);
+/// The first and the longest pause between two reads of the task's state while it runs.
+const TASK_LOOK_FIRST: std::time::Duration = std::time::Duration::from_millis(100);
+const TASK_LOOK_MAX: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How long a `run_wait` given a background task blocks for it to end: the bound the call gave
+/// under `timeoutSeconds`, `timeout` or `timeout_seconds` (seconds, a number or a numeric
+/// string), clamped to [`TASK_WAIT_MAX`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TaskWait {
+    /// The seconds the call asked for.
+    asked: f64,
+    /// What it waits: `asked`, or [`TASK_WAIT_MAX`] when that is less.
+    bound: std::time::Duration,
+}
+
+impl TaskWait {
+    /// The call's bound; `None` when it gives none (or 0), so the task is read at once.
+    fn of(params: &Value) -> Result<Option<Self>, String> {
+        let Some((key, v)) = ["timeoutSeconds", "timeout", "timeout_seconds"]
+            .iter()
+            .find_map(|k| params.get(*k).filter(|v| !v.is_null()).map(|v| (*k, v)))
+        else {
+            return Ok(None);
+        };
+        let asked = match v {
+            Value::String(s) => s.trim().trim_end_matches('s').parse::<f64>().ok(),
+            v => v.as_f64(),
+        };
+        let asked = asked
+            .filter(|a| a.is_finite() && *a >= 0.0)
+            .ok_or_else(|| format!("{key} must be a number of seconds, 0 or more (it was {v})"))?;
+        if asked == 0.0 {
+            return Ok(None);
+        }
+        let bound = std::time::Duration::from_secs_f64(asked).min(TASK_WAIT_MAX);
+        Ok(Some(Self { asked, bound }))
+    }
+
+    fn clamped(&self) -> bool {
+        std::time::Duration::from_secs_f64(self.asked) > self.bound
+    }
+
+    /// Blocks until the task `params` names is no longer running or the bound passes: how long
+    /// it waited, and whether it timed out with the task still running. A read the daemon
+    /// refuses (no such task) ends the wait at once: the read after it says why.
+    async fn wait(&self, daemon: &Arc<Client>, params: &Value) -> (std::time::Duration, bool) {
+        let start = tokio::time::Instant::now();
+        let deadline = start + self.bound;
+        let mut look = params.clone();
+        look.set("maxBytes", json!(1));
+        let mut pause = TASK_LOOK_FIRST;
+        loop {
+            let running = match daemon.request(method::MUX_BG_OUTPUT, look.clone()).await {
+                Ok(r) => r.get("state").and_then(Value::as_str) == Some("running"),
+                Err(_) => return (start.elapsed(), false),
+            };
+            let now = tokio::time::Instant::now();
+            if !running || now >= deadline {
+                return (now - start, running);
+            }
+            tokio::time::sleep(pause.min(deadline - now)).await;
+            pause = (pause * 2).min(TASK_LOOK_MAX);
+        }
+    }
+
+    /// The line the result starts with: how the wait ended, and a clamp when there was one.
+    fn line(&self, task: &str, (waited, timed_out): (std::time::Duration, bool)) -> String {
+        let clamp = if self.clamped() {
+            format!(
+                " (you asked for {} s; clamped to the most, {} s)",
+                self.asked,
+                TASK_WAIT_MAX.as_secs()
+            )
+        } else {
+            String::new()
+        };
+        let (secs, bound) = (waited.as_secs_f64(), self.bound.as_secs_f64());
+        if timed_out {
+            format!(
+                "{task} is a background task; timed out after waiting {bound:.0} s{clamp} and it is still running. Its output so far, as bg_output reads it:"
+            )
+        } else {
+            format!(
+                "{task} is a background task; it is not running after a wait of {secs:.1} s of {bound:.0} s{clamp}. Its output, as bg_output reads it:"
+            )
+        }
+    }
+
+    /// The result's `wait`: what was asked, what was waited, and whether it clamped or timed out.
+    fn view(&self, (waited, timed_out): (std::time::Duration, bool)) -> Value {
+        json!({"askedSeconds": self.asked, "boundSeconds": self.bound.as_secs_f64(),
+            "clamped": self.clamped(), "waitedSeconds": waited.as_secs_f64(),
+            "timedOut": timed_out})
+    }
+}
+
+/// What a result need not carry back to the agent that made the call: the command the caller
+/// itself just sent, whole, and `bg_output`'s base64 `data`, the same bytes `text` already
+/// carries. Measured on one VM in the week to 2026-11-24 (`scripts/measure/bg-echo-bytes.py`):
+/// 1,000,679 characters of echoed command and 2,019,596 of base64 over 3,597 results, about
+/// 839,000 tokens for nothing. A command of up to [`CMD_KEPT`] characters stays byte-identical
+/// (reading it back is how one checks what was stored when a start failed); a longer one is cut
+/// here and `bg_list` with `full: true` still reads the whole stored command.
+///
+/// A start's own answer carries neither: the caller wrote the `command` and the `description` in
+/// the very call it is reading the answer to, and `bg_output` and `bg_list` read the stored
+/// command back later, when the task is no longer in hand. Measured over 2,723 real `bg_start`
+/// answers in this host's transcripts (`scripts/measure/bg-echo-bytes.py`): of 756 B an answer,
+/// `command` was 37.6%, `description` 7.0% and `sessionId` 6.7% — half of every start receipt
+/// was the caller's own words read back to it.
+fn trim_echo(name: &str, structured: &mut Value) {
+    let Some(o) = structured.as_object_mut() else { return };
+    // The chat's own id, the same on every answer this chat reads.
+    o.remove("sessionId");
+    if name == "bg_start" {
+        // The caller's own words and folder, and an output that cannot exist yet.
+        for key in ["command", "description", "cwd", "totalBytes"] {
+            o.remove(key);
+        }
+    }
+    // `text` is those bytes already; base64 of them costs a third again for nothing (the tool's
+    // description says so once, not every answer).
+    if o.contains_key("text") {
+        o.remove("data");
+    }
+    // An end that has not happened, no spool error, the lead as starter, no output yet: null and
+    // default fields cost every answer bytes and say nothing (`bg_list::is_default`).
+    o.retain(|k, v| !(super::bg_list::is_default(k, v) || (k == "tail" && v == &json!(""))));
+    if let Some(command) = o.get("command").and_then(Value::as_str)
+        && command.chars().count() > CMD_KEPT
+    {
+        o.insert("command".into(), json!(super::bg_list::cut(command, CMD_KEPT)));
+        o.insert("commandCut".into(), json!("bg_list with full: true reads the whole one"));
+    }
+}
+
+/// How much of a task's own command a single-task result carries back (`trim_echo`).
+const CMD_KEPT: usize = super::bg_list::COMMAND_CHARS * 2;
 
 /// The result's one-line outcome and status (module docs): a task's own (`bg_run::outcome`, as
 /// the daemon put it in its view), or for a list how many run, finished and failed.
@@ -177,8 +402,11 @@ fn outcome(name: &str, r: &Value) -> (String, &'static str) {
         return (line, "ok");
     }
     let plural = if tasks.len() == 1 { "" } else { "s" };
+    // Every task of the caller's, counted before the page's state filter, offset and limit
+    // (`bg_list::Page::apply` takes the page after this line is built), so the line says so:
+    // a reader took "1 running" for the page's own count and read 29 exited tasks as running.
     let line = format!(
-        "{} background task{plural}: {running} running, {ok} ok, {failed} failed{others}",
+        "{} background task{plural} in all, not only the page below: {running} running, {ok} ok, {failed} failed{others}",
         tasks.len()
     );
     let status = if running > 0 {
@@ -200,10 +428,14 @@ fn task_line(t: &Value) -> String {
         (_, Some(signal)) => format!(" (signal {signal})"),
         _ => String::new(),
     };
-    let what = match s("description") {
-        "" => s("command").to_owned(),
-        d => format!("{d}: {}", s("command")),
-    };
+    // The caller sent this command; the line needs only enough of it to name the task.
+    let what = super::bg_list::cut(
+        &match s("description") {
+            "" => s("command").to_owned(),
+            d => format!("{d}: {}", s("command")),
+        },
+        super::bg_list::COMMAND_CHARS,
+    );
     let by = t.get("startedBy").filter(|v| v.is_object()).map_or(String::new(), |sub| {
         format!("  (started by {})", crate::hub::bg_owner_words(Some(sub)))
     });
@@ -213,10 +445,6 @@ fn task_line(t: &Value) -> String {
 fn summary(name: &str, r: &Value) -> String {
     let field = |k: &str| r.get(k).unwrap_or(&Value::Null);
     match name {
-        "bg_list" => {
-            let tasks = field("tasks").as_array().map(Vec::as_slice).unwrap_or_default();
-            tasks.iter().map(task_line).collect::<Vec<_>>().join("\n\n")
-        }
         "bg_output" => format!(
             "{}\n[{} bytes {}..{} of {}; next fromByte {}]",
             field("text").as_str().unwrap_or_default(),
@@ -234,14 +462,80 @@ fn summary(name: &str, r: &Value) -> String {
 mod tests {
     use super::*;
 
+    /// A result carries the bytes once and the caller's own command only as far as it names the
+    /// task: no base64 copy of `text`, and a long command cut (measured waste in `trim_echo`).
+    #[test]
+    fn a_result_echoes_neither_the_bytes_twice_nor_a_whole_command() {
+        let long = format!("cargo test {}", "x".repeat(4000));
+        let mut r = json!({"id": "bg-1", "command": long, "state": "exited",
+            "text": "out\n", "data": "b3V0Cg==", "totalBytes": 4});
+        trim_echo("bg_output", &mut r);
+        assert_eq!(r.get("data"), None, "text already carries those bytes");
+        let kept = r["command"].as_str().unwrap();
+        assert!(kept.chars().count() <= CMD_KEPT, "{} chars", kept.chars().count());
+        assert!(kept.starts_with("cargo test x") && kept.ends_with('\u{2026}'));
+        assert!(r["commandCut"].as_str().unwrap().contains("full: true"));
+        // A command short enough to read back is left byte-identical: after a start that failed,
+        // reading it is how one checks what was stored.
+        let mut short = json!({"id": "bg-2", "command": "ls  -l\n", "text": "", "data": ""});
+        trim_echo("bg_output", &mut short);
+        assert_eq!(short["command"], json!("ls  -l\n"));
+        assert_eq!(short.get("commandCut"), None);
+        // The text line cuts it too, so one result never carries the command twice whole.
+        let line = task_line(&json!({"id": "bg-1", "state": "exited", "exitCode": 0,
+            "description": "a long one", "command": long, "tail": "out"}));
+        assert!(line.chars().count() < 200, "{line}");
+        assert!(line.contains("a long one: cargo test x") && line.contains('\u{2026}'));
+    }
+
+    /// A start's answer carries what the caller cannot know yet — the task's id, its pid, that
+    /// it is running — and none of the words the caller itself just wrote. Reading a task back
+    /// by id still answers with its command, for a caller that no longer has it in hand.
+    #[test]
+    fn a_start_receipt_echoes_none_of_the_callers_own_words() {
+        let as_the_daemon_answers = || {
+            json!({"id": "bg-1", "sessionId": "00000000-0000-4000-8000-000000000001",
+                "command": "cargo test -p acpmux", "cwd": "/tmp/checkout",
+                "description": "run the suite", "state": "running", "pid": 1234,
+                "startedAt": 1_795_506_015_665_i64, "notify": true, "endedAt": null,
+                "exitCode": null, "signal": null, "outputError": null, "startedBy": null,
+                "keptFromByte": 0, "resultLine": false, "tail": "", "totalBytes": 0})
+        };
+        let mut start = as_the_daemon_answers();
+        trim_echo("bg_start", &mut start);
+        let o = start.as_object().unwrap();
+        for key in ["command", "description", "sessionId", "cwd", "notify"] {
+            assert!(!o.contains_key(key), "{key} is read back to its own author: {start}");
+        }
+        for key in ["id", "pid", "state", "startedAt"] {
+            assert!(o.contains_key(key), "{key} was dropped: {start}");
+        }
+        let before = as_the_daemon_answers().to_string().len();
+        assert!(start.to_string().len() * 2 < before, "{start} of {before} bytes");
+        // A read of a task by id is not the turn that started it: the command comes back.
+        let mut read = as_the_daemon_answers();
+        trim_echo("bg_output", &mut read);
+        assert_eq!(read["command"], json!("cargo test -p acpmux"));
+        assert_eq!(read["description"], json!("run the suite"));
+        assert!(read.get("sessionId").is_none(), "still this chat's own id");
+        for key in ["endedAt", "exitCode", "keptFromByte", "resultLine", "tail"] {
+            assert!(read.get(key).is_none(), "{key} carries only its default: {read}");
+        }
+        assert_eq!(read["totalBytes"], json!(0), "a read says how much output there is");
+    }
+
     /// A list's outcome counts its tasks by status; the list runs while any task runs.
     #[test]
     fn a_lists_outcome_counts_its_tasks() {
         let task =
             |state: &str, code: i64| json!({"state": state, "exitCode": code, "command": "c"});
         let r = json!({"tasks": [task("running", 0), task("exited", 0), task("exited", 1)]});
-        let line = "3 background tasks: 1 running, 1 ok, 1 failed".to_owned();
+        let line = "3 background tasks in all, not only the page below: 1 running, 1 ok, 1 failed"
+            .to_owned();
         assert_eq!(outcome("bg_list", &r), (line, "running"));
+        // The counts are the whole list's, never the page's (`bg_list::Page::apply` pages after
+        // this line is built), and the line says which.
+        assert!(outcome("bg_list", &r).0.contains("in all, not only the page below"));
         let done = json!({"tasks": [task("exited", 0), task("exited", 1)]});
         assert_eq!(outcome("bg_list", &done).1, "failed");
         assert_eq!(
@@ -255,6 +549,31 @@ mod tests {
         ));
         let none = json!({"tasks": [], "otherOwners": 1});
         assert!(outcome("bg_list", &none).0.starts_with("No background tasks of yours; 1 more"));
+    }
+
+    /// A bg task's wait bound comes from timeoutSeconds, timeout or timeout_seconds, as a number
+    /// or a numeric string; 0 or none reads at once, a bound past the most is clamped and says so,
+    /// and anything else is refused.
+    #[test]
+    fn a_task_waits_bound_is_read_and_clamped() {
+        let of = |v: Value| TaskWait::of(&v);
+        let b = of(json!({"id": "bg-1", "timeoutSeconds": 900})).unwrap().unwrap();
+        assert_eq!((b.bound.as_secs(), b.clamped()), (900, false));
+        assert_eq!(of(json!({"timeout": "60"})).unwrap().unwrap().bound.as_secs(), 60);
+        assert_eq!(of(json!({"timeout_seconds": 1.5})).unwrap().unwrap().bound.as_millis(), 1500);
+        assert_eq!(of(json!({"id": "bg-1"})).unwrap(), None);
+        assert_eq!(of(json!({"timeoutSeconds": 0})).unwrap(), None);
+        let long = of(json!({"timeoutSeconds": 7200})).unwrap().unwrap();
+        assert_eq!((long.bound, long.clamped()), (TASK_WAIT_MAX, true));
+        let timed_out = long.line("bg-1", (TASK_WAIT_MAX, true));
+        assert!(timed_out.contains("timed out after waiting 1800 s"), "{timed_out}");
+        assert!(
+            timed_out.contains("you asked for 7200 s; clamped to the most, 1800 s"),
+            "{timed_out}"
+        );
+        assert_eq!(long.view((TASK_WAIT_MAX, true))["clamped"], true);
+        assert!(of(json!({"timeoutSeconds": -1})).unwrap_err().contains("timeoutSeconds must be"));
+        assert!(of(json!({"timeout": "soon"})).is_err());
     }
 
     /// A call names a repo and a run or a pull request (with an optional sha); anything else is
@@ -271,8 +590,18 @@ mod tests {
             of(json!({"repo": "o/r", "pr": "12", "sha": "ABCDEF1", "description": "CI"})).unwrap();
         assert_eq!(pr.target, Target::Pr { number: 12, sha: Some("abcdef1".into()) });
         assert_eq!(pr.description, "CI");
+        // An id that names a run or a pull request is that run or pull request.
+        for (id, want) in [
+            (json!(4120), Target::Run(4120)),
+            (json!("4120"), Target::Run(4120)),
+            (json!("https://github.com/o/r/actions/runs/4120/job/9"), Target::Run(4120)),
+            (json!("https://github.com/o/r/pull/12"), Target::Pr { number: 12, sha: None }),
+        ] {
+            assert_eq!(of(json!({"repo": "o/r", "id": id.clone()})).unwrap().target, want, "{id}");
+        }
         for bad in [
             json!({"run": 7}),
+            json!({"repo": "o/r", "id": "nope"}),
             json!({"repo": "o/r; rm -rf /", "run": 7}),
             json!({"repo": "o/r"}),
             json!({"repo": "o/r", "run": 7, "pr": 1}),
@@ -301,7 +630,7 @@ case "$*" in
   "run view"*"--json jobs"*) echo "build, lint" ;;
   "pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;
   "pr checks"*--watch*) exit 0 ;;
-  "pr checks"*) echo "" ;;
+  "pr checks"*) echo "lint" ;;
 esac
 "#,
             calls.display()
@@ -309,14 +638,15 @@ esac
         std::fs::write(&gh, fake).unwrap();
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let path =
-            format!("{}:{}", dir.path().display(), std::env::var("PATH").unwrap_or_default());
+        // Only the fakes and the base tools: a host's own glaeda-gh must not answer for the fake gh.
+        let path = format!("{}:/usr/bin:/bin", dir.path().display());
         let run = |args: Value| {
             let script = RunWait::of(&args).unwrap().script();
             let out = std::process::Command::new("sh")
                 .arg("-c")
                 .arg(script)
                 .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", dir.path().join("share"))
                 .output()
                 .unwrap();
             let text = String::from_utf8_lossy(&out.stdout).into_owned();
@@ -329,8 +659,11 @@ esac
             "{all}"
         );
         assert!(all.contains("failed jobs: build, lint"), "{all}");
-        let (code, last, _) = run(json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}));
-        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"));
+        // A passing wait names no failed checks, even when gh still lists a superseded run's cancelled
+        // check ("lint" here): cmux#50630's own wait printed six of those above its "passed".
+        let (code, last, all) = run(json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}));
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{all}");
+        assert!(!all.contains("failed checks"), "{all}");
         let (code, last, _) = run(json!({"repo": "o/r", "pr": 3, "sha": "fedcba9"}));
         assert_eq!(code, Some(2));
         assert!(last.contains("its head is 0123456789abcdef"), "{last}");
@@ -338,6 +671,246 @@ esac
         // The pinned-elsewhere call never waited: the one wait is the earlier call's.
         assert_eq!(calls.matches("--watch").count(), 1, "{calls}");
         assert!(calls.contains("run watch 7 --repo o/r --exit-status"), "{calls}");
+    }
+
+    /// With glaeda-gh on PATH the wait is its daemon's (one poller for every session, PR events where GitHub
+    /// grants them), pinned to the head it read; a daemon that is down (exit 3) or a glaeda-gh too old for the
+    /// arguments (64) falls back to the gh watch, so the wait never gets less reliable.
+    // Shell-script stand-ins for gh and glaeda-gh run through `sh`: unix only.
+    #[cfg(unix)]
+    #[test]
+    fn run_wait_waits_through_glaeda_gh_and_falls_back_to_gh() {
+        let dir = cmux_unix_socket::short_test_dir("run-wait-glaeda");
+        let calls = dir.path().join("calls");
+        let rc = dir.path().join("glaeda-rc");
+        let gh = format!(
+            r#"#!/bin/sh
+echo "gh $*" >> '{calls}'
+case "$*" in
+  "pr view"*) echo 0123456789abcdef0123456789abcdef01234567 ;;
+  "pr checks"*--watch*) exit 0 ;;
+  "run watch"*) exit 0 ;;
+  "run view"*"--json conclusion"*) echo "conclusion: success  https://example.com/run/7" ;;
+  *) echo "" ;;
+esac
+"#,
+            calls = calls.display()
+        );
+        let glaeda = format!(
+            "#!/bin/sh\necho \"glaeda-gh $*\" >> '{}'\nexit $(cat '{}')\n",
+            calls.display(),
+            rc.display()
+        );
+        use std::os::unix::fs::PermissionsExt;
+        for (name, body) in [("gh", gh), ("glaeda-gh", glaeda)] {
+            let file = dir.path().join(name);
+            std::fs::write(&file, body).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = format!("{}:/usr/bin:/bin", dir.path().display());
+        let run = |args: Value, code: &str| {
+            std::fs::write(&rc, code).unwrap();
+            let _ = std::fs::remove_file(&calls);
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(RunWait::of(&args).unwrap().script())
+                .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", dir.path().join("share"))
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            let calls = std::fs::read_to_string(&calls).unwrap_or_default();
+            (out.status.code(), text.lines().last().unwrap_or_default().to_owned(), calls)
+        };
+        let pr = json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"});
+        let (code, last, calls) = run(pr.clone(), "0");
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{calls}");
+        assert!(
+            calls
+                .contains("glaeda-gh wait pr o/r#3 --sha 0123456789abcdef0123456789abcdef01234567"),
+            "{calls}"
+        );
+        assert!(!calls.contains("--watch"), "glaeda-gh waited: no gh poll: {calls}");
+        let (code, last, calls) = run(pr.clone(), "4");
+        assert_eq!(code, Some(4), "{calls}");
+        assert!(last.contains("failed") && last.contains("conflicts with its base"), "{last}");
+        assert!(!calls.contains("--watch"), "{calls}");
+        for down in ["3", "64"] {
+            let (code, last, calls) = run(pr.clone(), down);
+            assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{calls}");
+            assert!(calls.contains("gh pr checks 3 --repo o/r --watch"), "exit {down}: {calls}");
+        }
+        let (code, last, calls) = run(json!({"repo": "o/r", "run": 7}), "0");
+        assert_eq!((code, last.as_str()), (Some(0), "Actions run 7 in o/r passed"), "{calls}");
+        assert!(calls.contains("glaeda-gh wait run o/r/7"), "{calls}");
+        assert!(!calls.contains("run watch"), "{calls}");
+        let (code, _, calls) = run(json!({"repo": "o/r", "run": 7}), "3");
+        assert_eq!(code, Some(0), "{calls}");
+        assert!(calls.contains("gh run watch 7 --repo o/r"), "{calls}");
+    }
+
+    /// A head read the shared quota refused with its reset time ("until HH:MMZ", gh-quota exit 3)
+    /// sleeps until that reset and reads again instead of failing the wait; a reset already passed
+    /// reads again after 60 s; a refusal naming no reset still fails at once, naming the refusal.
+    #[cfg(unix)]
+    #[test]
+    fn run_wait_head_read_waits_out_a_quota_refusal() {
+        let dir = cmux_unix_socket::short_test_dir("run-wait-quota");
+        let calls = dir.path().join("calls");
+        let refusal = dir.path().join("refusal");
+        let refused = dir.path().join("refused");
+        let gh = format!(
+            r#"#!/bin/sh
+echo "gh $*" >> '{calls}'
+case "$*" in
+  "pr view"*)
+    if [ -s '{refusal}' ] && [ ! -e '{refused}' ]; then
+      : > '{refused}'; cat '{refusal}' >&2; exit 3
+    fi
+    echo 0123456789abcdef0123456789abcdef01234567 ;;
+  *) echo "" ;;
+esac
+"#,
+            calls = calls.display(),
+            refusal = refusal.display(),
+            refused = refused.display()
+        );
+        let glaeda = format!("#!/bin/sh\necho \"glaeda-gh $*\" >> '{}'\nexit 0\n", calls.display());
+        let sleep = format!("#!/bin/sh\necho \"sleep $*\" >> '{}'\n", calls.display());
+        use std::os::unix::fs::PermissionsExt;
+        for (name, body) in [("gh", gh), ("glaeda-gh", glaeda), ("sleep", sleep)] {
+            let file = dir.path().join(name);
+            std::fs::write(&file, body).unwrap();
+            std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = format!("{}:/usr/bin:/bin", dir.path().display());
+        let run = |text: &str| {
+            std::fs::write(&refusal, text).unwrap();
+            let _ = std::fs::remove_file(&refused);
+            let _ = std::fs::remove_file(&calls);
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(
+                    RunWait::of(&json!({"repo": "o/r", "pr": 3, "sha": "0123456789abcdef"}))
+                        .unwrap()
+                        .script(),
+                )
+                .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", dir.path().join("share"))
+                .output()
+                .unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            let calls = std::fs::read_to_string(&calls).unwrap_or_default();
+            (out.status.code(), text.lines().last().unwrap_or_default().to_owned(), calls)
+        };
+        let sleeps = |calls: &str| -> Vec<u64> {
+            calls.lines().filter_map(|l| l.strip_prefix("sleep ")?.trim().parse().ok()).collect()
+        };
+        // A reset two minutes from now, in the refusal's own UTC "HH:MMZ" form.
+        let utc = |minutes_ahead: i64| {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64;
+            let minute = (now % 86400 / 60 + minutes_ahead).rem_euclid(1440);
+            format!("{:02}:{:02}Z", minute / 60, minute % 60)
+        };
+        let ahead = format!(
+            "gh-quota: refused: GitHub's REST rate limit is spent for read-pool until {} (reset)",
+            utc(2)
+        );
+        let (code, last, calls) = run(&ahead);
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{calls}");
+        let slept = sleeps(&calls);
+        assert!(slept.len() == 1 && (60..=140).contains(&slept[0]), "{calls}");
+        assert!(calls.contains("glaeda-gh wait pr o/r#3 --sha 0123456789abcdef"), "{calls}");
+
+        let passed = format!(
+            "gh-quota: refused: GitHub's REST rate limit is spent for read-pool until {} (reset)",
+            utc(-2)
+        );
+        let (code, last, calls) = run(&passed);
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{calls}");
+        assert_eq!(sleeps(&calls), vec![60], "{calls}");
+
+        let (code, last, calls) = run("lane-gh: refused: retry after 30 s");
+        assert_eq!((code, last.as_str()), (Some(0), "Checks of o/r#3 passed"), "{calls}");
+        assert_eq!(sleeps(&calls), vec![35], "{calls}");
+
+        let (code, last, calls) = run("gh-quota: refused: a jobs sweep is forbidden");
+        assert_eq!(code, Some(2), "{calls}");
+        assert_eq!(
+            last,
+            "Checks of o/r#3 failed: its head could not be read (gh-quota: refused: a jobs sweep is forbidden)"
+        );
+        assert!(sleeps(&calls).is_empty() && !calls.contains("glaeda-gh"), "{calls}");
+    }
+
+    /// With no glaeda-gh, chats waiting for the same pull request share one `gh` watch: the second
+    /// waiter makes no GitHub call and takes the first's outcome; a lock left by a waiter that died is
+    /// taken over, so that wait still polls once and ends on its outcome.
+    #[cfg(unix)]
+    #[test]
+    fn run_wait_without_glaeda_gh_shares_one_gh_watch_per_target() {
+        let dir = cmux_unix_socket::short_test_dir("run-wait-share");
+        let calls = dir.path().join("calls");
+        let gh = format!(
+            r#"#!/bin/sh
+echo "gh $*" >> '{calls}'
+case "$*" in
+  "pr checks"*--watch*) /bin/sleep 2; exit 1 ;;
+  "pr checks"*) echo "build" ;;
+  *) echo "" ;;
+esac
+"#,
+            calls = calls.display()
+        );
+        let file = dir.path().join("gh");
+        std::fs::write(&file, gh).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let share = dir.path().join("share");
+        let path = format!("{}:/usr/bin:/bin", dir.path().display());
+        let script = RunWait::of(&json!({"repo": "o/r", "pr": 3})).unwrap().script();
+        let spawn = || {
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg(&script)
+                .env("PATH", &path)
+                .env("ACPMUX_RUN_WAIT_SHARE", &share)
+                .stdout(std::process::Stdio::piped())
+                .spawn()
+                .unwrap()
+        };
+        let last = |child: std::process::Child| {
+            let out = child.wait_with_output().unwrap();
+            let text = String::from_utf8_lossy(&out.stdout).into_owned();
+            (out.status.code(), text.lines().last().unwrap_or_default().to_owned())
+        };
+        let first = spawn();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let second = spawn();
+        for child in [first, second] {
+            assert_eq!(last(child), (Some(1), "Checks of o/r#3 failed: build".to_owned()));
+        }
+        let text = std::fs::read_to_string(&calls).unwrap();
+        assert_eq!(text.matches("--watch").count(), 1, "one watch for both waiters: {text}");
+
+        // A leader that died: its lock names a pid that no longer runs.
+        let mut gone = std::process::Command::new("true").spawn().unwrap();
+        gone.wait().unwrap();
+        let name = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("printf '%s' 'pr o/r#3' | cksum | tr -c '0-9\\n' -")
+            .output()
+            .unwrap();
+        let name = String::from_utf8_lossy(&name.stdout).trim().to_owned();
+        std::os::unix::fs::symlink(gone.id().to_string(), share.join(format!("{name}.lock")))
+            .unwrap();
+        std::fs::remove_file(&calls).unwrap();
+        assert_eq!(last(spawn()), (Some(1), "Checks of o/r#3 failed: build".to_owned()));
+        let text = std::fs::read_to_string(&calls).unwrap();
+        assert_eq!(text.matches("--watch").count(), 1, "the stale lock was taken over: {text}");
     }
 
     /// A task that prints its outcome last is summed up by that line once it ended.
@@ -381,6 +954,28 @@ fn number(params: &Value, key: &str) -> Result<Option<u64>, String> {
     }
 }
 
+/// The run or pull request an `id` names when the call gives neither `run` nor `pr`: an Actions
+/// run id (digits), a run URL (`.../actions/runs/N[/job/M]`) or a pull request URL
+/// (`.../pull/N`). A `bg-` id never comes here (`bg_task_given_to_run_wait`).
+fn run_or_pr_of_id(params: &Value) -> (Option<u64>, Option<u64>) {
+    let Some(id) = ["id", "url", "target"].iter().find_map(|k| match params.get(*k) {
+        Some(Value::Number(n)) => n.as_u64().map(|n| n.to_string()),
+        Some(Value::String(s)) => Some(s.trim().to_owned()),
+        _ => None,
+    }) else {
+        return (None, None);
+    };
+    let after = |marker: &str| -> Option<u64> {
+        let (_, rest) = id.split_once(marker)?;
+        rest.split(['/', '?', '#']).next()?.parse().ok().filter(|n| *n > 0)
+    };
+    if let Some(run) = id.parse::<u64>().ok().filter(|n| *n > 0).or_else(|| after("/actions/runs/"))
+    {
+        return (Some(run), None);
+    }
+    (None, after("/pull/"))
+}
+
 impl RunWait {
     fn of(params: &Value) -> Result<Self, String> {
         let s = |k: &str| {
@@ -400,7 +995,11 @@ impl RunWait {
         {
             return Err(format!("sha must be a commit sha (7 to 40 hex digits), not {sha:?}"));
         }
-        let target = match (number(params, "run")?, number(params, "pr")?) {
+        let (run, pr) = match (number(params, "run")?, number(params, "pr")?) {
+            (None, None) => run_or_pr_of_id(params),
+            given => given,
+        };
+        let target = match (run, pr) {
             (Some(run), None) if sha.is_none() => Target::Run(run),
             (Some(_), None) => return Err("sha goes with pr, not run".to_owned()),
             (None, Some(number)) => Target::Pr { number, sha },
@@ -429,33 +1028,134 @@ impl RunWait {
         match &self.target {
             Target::Run(run) => {
                 let name = format!("Actions run {run} in {repo}");
-                lines.push(format!("gh run watch {run} --repo {repo} --exit-status --interval 30 >/dev/null 2>&1; rc=$?"));
+                lines.push(glaeda_wait(&format!("run {repo}/{run}")));
+                lines.push(SHARED_WATCH.to_owned());
+                lines.push(format!("case $rc in 3|64) shared_watch \"run {repo}/{run}\" gh run watch {run} --repo {repo} --exit-status --interval {GH_INTERVAL_S} ;; esac"));
                 lines.push(format!("gh run view {run} --repo {repo} --json conclusion,url --jq '\"conclusion: \" + (.conclusion // \"none\") + \"  \" + .url'"));
-                lines.push(format!("failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
+                lines.push(format!("failed=; [ $rc -eq 0 ] || failed=$(gh run view {run} --repo {repo} --json jobs --jq '[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"cancelled\" or .conclusion == \"timed_out\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed jobs: $failed\"".to_owned());
-                lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}\"; fi"));
+                lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}${{why:+ ($why)}}\"; fi"));
             }
             Target::Pr { number, sha } => {
                 let name = format!("Checks of {repo}#{number}");
                 let head =
                     format!("gh pr view {number} --repo {repo} --json headRefOid --jq .headRefOid");
                 if let Some(sha) = sha {
-                    lines.push(format!("head=$({head}) || {{ echo \"{name} failed: its head could not be read\"; exit 2; }}"));
+                    lines.push(head_reader(&head));
+                    lines.push(format!("read_head || {{ echo \"{name} failed: its head could not be read${{refusal:+ ($refusal)}}\"; exit 2; }}"));
                     lines.push(format!("case \"$head\" in {sha}*) ;; *) echo \"{name} failed: its head is $head, not {sha}\"; exit 2;; esac"));
                 }
-                lines.push(format!("gh pr checks {number} --repo {repo} --watch --fail-fast --interval 30 >/dev/null 2>&1; rc=$?"));
-                lines.push(format!("failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
+                let pin = if sha.is_some() { " --sha \"$head\"" } else { "" };
+                lines.push(glaeda_wait(&format!("pr {repo}#{number}{pin}")));
+                lines.push(SHARED_WATCH.to_owned());
+                let key = if sha.is_some() {
+                    format!("pr {repo}#{number} $head")
+                } else {
+                    format!("pr {repo}#{number}")
+                };
+                lines.push(format!("case $rc in 3|64) shared_watch \"{key}\" gh pr checks {number} --repo {repo} --watch --fail-fast --interval {GH_INTERVAL_S} ;; esac"));
+                lines.push(format!("failed=; [ $rc -eq 0 ] || failed=$(gh pr checks {number} --repo {repo} --json name,bucket --jq '[.[] | select(.bucket == \"fail\" or .bucket == \"cancel\") | .name] | join(\", \")' 2>/dev/null)"));
                 lines.push("[ -n \"$failed\" ] && echo \"failed checks: $failed\"".to_owned());
                 if let Some(sha) = sha {
-                    lines.push(format!("now=$({head})"));
-                    lines.push(format!("case \"$now\" in {sha}*) ;; *) echo \"{name} failed: its head moved to $now while it was waited for\"; exit 2;; esac"));
+                    lines.push(format!("read_head || {{ echo \"{name} failed: its head could not be read after the wait${{refusal:+ ($refusal)}}\"; exit 2; }}"));
+                    lines.push(format!("case \"$head\" in {sha}*) ;; *) echo \"{name} failed: its head moved to $head while it was waited for\"; exit 2;; esac"));
                 }
-                lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}\"; fi"));
+                lines.push(format!("if [ $rc -eq 0 ]; then echo \"{name} passed\"; else echo \"{name} failed${{failed:+: $failed}}${{why:+ ($why)}}\"; fi"));
             }
         }
         lines.push("exit $rc".to_owned());
         lines.join("\n")
     }
+}
+
+/// How often the gh fallback (no glaeda-gh, or one that refused) reads the run or the checks: each
+/// read spends the login's own REST quota (about 2 to 3 calls), so 120 s keeps one watcher near 60
+/// to 90 calls an hour, where 30 s spent about 240 to 360 (Leo, 2026-11-17, on the Claude desktop app
+/// showing a GitHub rate limit: "this is... interesting. so claude desktop shows rate limit on hover
+/// of the github links sometimes...").
+const GH_INTERVAL_S: u64 = 120;
+
+/// The wait itself, through glaeda-gh when it is installed: its daemon is the one poller for every session
+/// on the machine and waits on GitHub's pull request events (`gh event listen`) where the account has
+/// access, so this task makes no GitHub calls while it waits. `rc` 3 (its daemon is down) or 64 (a
+/// glaeda-gh too old for these arguments), or no glaeda-gh, leaves the caller's `gh` watch to run instead;
+/// `why` names an outcome other than pass or fail. TARGET is `run OWNER/REPO/ID` or `pr OWNER/REPO#N`
+/// (with `--sha "$head"`), every value checked by `RunWait::of`.
+fn glaeda_wait(target: &str) -> String {
+    format!(
+        "if command -v glaeda-gh >/dev/null 2>&1; then glaeda-gh wait {target} --timeout 21600 >/dev/null 2>&1; rc=$?; else rc=3; fi\n\
+         case $rc in 2) why='timed out after 6 h' ;; 4) why='conflicts with its base' ;; 6) why='no check ever reported' ;; 7) why='inconclusive' ;; esac"
+    )
+}
+
+/// `shared_watch KEY CMD...`: the `gh` watch of a machine with no glaeda-gh (or one whose daemon is
+/// down), shared by every chat on the machine that waits for the same KEY (`run OWNER/REPO/ID`, or
+/// `pr OWNER/REPO#N [HEAD]`). The first waiter takes the lock, a symlink whose target is its pid
+/// (`ln -s` makes it atomically or fails), runs CMD, and writes its exit code with the time it
+/// ended; every other waiter reads GitHub not at all, checks every 5 s that the lock's pid lives,
+/// and takes the outcome once it is newer than its own start. A waiter whose leader died (stopped,
+/// killed, the machine slept) removes the stale lock and becomes the leader, so a wait is never
+/// less reliable than its own poll. This is glaeda-gh's one-poller-per-machine for a paying user or
+/// a teammate who never installed it (Leo, ask-922dfe5e36: "we need to be able to make sure
+/// arbitrary paying users/teammates can properly use it with the way that we properly use it"):
+/// ten sessions waiting on one pull request spent ten logins' worth of polls on one login before.
+/// The folder is `ACPMUX_RUN_WAIT_SHARE` (tests), else this user's own under `TMPDIR`.
+const SHARED_WATCH: &str = r#"shared_watch() {
+  key=$1; shift
+  share=${ACPMUX_RUN_WAIT_SHARE:-${TMPDIR:-/tmp}/acpmux-run-wait-$(id -u)}
+  mkdir -p "$share" 2>/dev/null && chmod 700 "$share" 2>/dev/null
+  name=$(printf '%s' "$key" | cksum | tr -c '0-9\n' -)
+  lock="$share/$name.lock"; out="$share/$name.rc"; since=$(date +%s)
+  while :; do
+    if ln -s "$$" "$lock" 2>/dev/null; then
+      "$@" >/dev/null 2>&1; rc=$?
+      printf '%s %s\n' "$(date +%s)" "$rc" > "$out.$$" && mv -f "$out.$$" "$out"
+      rm -f "$lock"; return 0
+    fi
+    pid=$(readlink "$lock" 2>/dev/null)
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then rm -f "$lock"; continue; fi
+    sleep 5
+    if [ -f "$out" ] && read t r < "$out" && [ "$t" -gt "$since" ] 2>/dev/null; then rc=$r; return 0; fi
+  done
+}"#;
+
+/// How long a refused head read waits at most for the quota to come back: the wait's own bound.
+const HEAD_READ_DEADLINE_S: u64 = 21600;
+
+/// `read_head`: sets `head` from READ (the `gh pr view` of the pinned pull request). A read the
+/// shared quota refused with its reset time (gh-quota exit 3, "... spent for read-pool until
+/// 06:26Z (reset)", or the broker's "retry after N s") sleeps until that reset and reads again,
+/// within the wait's own 6 h bound, instead of ending the wait on a false failure (cmuxterm-hq#16309
+/// and #16265 twice in 10 minutes, 2026-11-21). Any other refusal, or a reset past the bound, returns
+/// false with `refusal` set to the read's last stderr line. A reset time already passed (the quota's
+/// reset slips) reads again after 60 s.
+fn head_reader(read: &str) -> String {
+    r#"deadline=$(( $(date +%s) + DEADLINE ))
+gh_err=$(mktemp 2>/dev/null || echo "${TMPDIR:-/tmp}/run-wait-$$.err")
+trap 'rm -f "$gh_err"' EXIT
+read_head() {
+  while :; do
+    refusal=
+    head=$(READ 2>"$gh_err") && [ -n "$head" ] && return 0
+    refusal=$(grep -v '^[[:space:]]*$' "$gh_err" | tail -n 1)
+    t=$(grep -oE 'until [0-9]{1,2}:[0-9]{2}Z' "$gh_err" | tail -n 1 | tr -dc '0-9:')
+    now_s=$(date +%s)
+    if [ -n "$t" ]; then
+      h=$(echo "${t%%:*}" | sed 's/^0*//'); m=$(echo "${t##*:}" | sed 's/^0*//')
+      s=$(( ( ${h:-0} * 3600 + ${m:-0} * 60 - now_s % 86400 + 86400 ) % 86400 + 15 ))
+      [ "$s" -gt 43200 ] && s=60
+    else
+      n=$(grep -oE 'retry after [0-9]+ ?s' "$gh_err" | tail -n 1 | tr -dc '0-9')
+      [ -n "$n" ] || return 1
+      s=$(( n + 5 ))
+    fi
+    [ $(( now_s + s )) -lt "$deadline" ] || return 1
+    echo "run_wait: the head read was refused ($refusal); reading again in ${s}s, after the reset"
+    sleep "$s"
+  done
+}"#
+    .replace("DEADLINE", &HEAD_READ_DEADLINE_S.to_string())
+    .replace("READ", read)
 }
 
 /// Whether an executable named `name` is on this process's PATH (true when it has none).

@@ -30,7 +30,7 @@ extension IPhoneHostService {
     /// The store's one list file for `directory`, wired to the last quit's record and watched by the quit deadline.
     func configurePairedFile(_ directory: URL) {
         let record = pairedQuitRecord
-        let file = pairedStore.configure(directory: directory, lastQuitCutOff: { record?.lastQuitCutOffPairedPhones() ?? false },
+        let file = pairedStore.configure(directory: directory, sealName: dependencies?.pairingSealName, lastQuitCutOff: { record?.lastQuitCutOffPairedPhones() ?? false },
                                          cutOffSettled: { record?.pairedCutOffSettled() })
         guard pairedFile !== file else { return }
         pairedFile = file
@@ -67,7 +67,7 @@ extension IPhoneHostService {
     public func revokePhone(id: String) {
         prompts.forget(id: id)
         showPairDialog()
-        if prompts.pending.isEmpty { quietAttention() }
+        if !loudRequestWaits { quietAttention() }
         pairedStore.forget(id: id)
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
@@ -81,6 +81,8 @@ extension IPhoneHostService {
         case .unpaired(let id):
             Self.logger.info("phone \(id.prefix(8), privacy: .public) signed out; forgetting it")
             revokePhone(id: id)
+        case let .pairAnswer(id, identityKey, approvalKey, allow, by):
+            answerFromPairedDevice(id: id, identityKey: identityKey, approvalKey: approvalKey, allow: allow, by: by)
         default:
             break
         }
@@ -88,7 +90,12 @@ extension IPhoneHostService {
 
     private func ask(_ request: MobileHostPairRequest) {
         // A request hostd sent before connections were turned off asks nothing.
-        guard allowed, let list = pairedStore.current else { return }
+        guard allowed else { return }
+        // Before the list is in nothing is decided; the request waits for it.
+        guard let list = pairedStore.current else {
+            heldPairRequests.hold(request)
+            return
+        }
         switch list.decision(for: request) {
         case .trusted, .denied:
             // hostd may hold an older list: send the current one again.
@@ -97,6 +104,17 @@ extension IPhoneHostService {
         case .ask:
             break
         }
+        // DEBUG tagged dev builds only (nil in Release and with CMUX_NEXT_IPHONE_APPROVE_FIRST=1): this
+        // tag's own iPhone app of the signed-in user pairs as Allow would (IPhoneDevAutoApprove).
+        if !removed, Self.devAutoApproves(request, devAutoApprove: dependencies?.devAutoApprove, pairedUserID: list.userID,
+                                accountUserID: account?.userID) {
+            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from the dev auto-approve")
+            savePaired { $0.approve(request, at: Date()) }
+            prompts.forget(id: request.phoneDeviceID)
+            if !loudRequestWaits { quietAttention() }
+            showPairDialog()
+            return
+        }
         // Test-only (DEBUG builds; nil in Release): a tagged rig instance's seeded phone
         // pairs without the person-only prompt (IPhonePairingSeed).
         if let seed = dependencies?.pairingSeed, seed.trusts(request), pairedStore.current?.userID == account?.userID {
@@ -104,28 +122,22 @@ extension IPhoneHostService {
             savePaired { $0.approve(request, at: Date()) }
             return
         }
-        // This Mac's pairing code: the live pre-approval, minted for this device id, allows the phone
-        // once, in place of the person's Allow. hostd served this phone only because the service
-        // stamped its dial with the signed-in user, and the list is that user's.
-        if !removed, let trusted = pairedStore.current,
-           Self.redeems(request, tokens: &pairTokens, macDeviceID: state.deviceID, pairedUserID: trusted.userID,
-                        accountUserID: account?.userID) {
-            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired from this Mac's pairing code")
-            var withoutToken = request
-            withoutToken.pairToken = nil
-            let allowed = withoutToken
-            savePaired { $0.approve(allowed, at: Date()) }
-            // An earlier request from this phone (before it scanned) is answered: its prompt closes,
-            // so a stale Allow cannot overwrite the keys just approved.
+        // The person's own `mobile.autoApprovePhones` (off by default): a phone of the signed-in
+        // user pairs as Allow would. hostd served this phone only because the service stamped its
+        // dial with the signed-in user, and the list is that user's. Machines still ask.
+        if !removed, Self.autoApproves(request, on: dependencies?.autoApprovePhones() ?? false,
+                                       pairedUserID: list.userID, accountUserID: account?.userID) {
+            Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) paired by Approve Phone Requests Automatically")
+            savePaired { $0.approve(request, at: Date()) }
+            // An earlier request from this phone is answered: its prompt closes, so a stale Allow
+            // cannot overwrite the keys just approved.
             prompts.forget(id: request.phoneDeviceID)
-            if prompts.pending.isEmpty { quietAttention() }
+            if !loudRequestWaits { quietAttention() }
             showPairDialog()
             return
         }
-        // A waiting request never keeps a token.
-        var request = request
-        request.pairToken = nil
-        let outcome = prompts.receive(request, at: Date())
+        // Another build's dev iPhone app waits quietly, in places of its own (MobileHostPairPrompts.quietLimit).
+        let outcome = prompts.receive(request, at: Date(), quietly: asksQuietly(request))
         Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) asks to pair: \(String(describing: outcome), privacy: .public)")
         if outcome == .ask { announce(request) }
         showPairDialog()
@@ -134,6 +146,27 @@ extension IPhoneHostService {
     /// Settings > Mobile's Allow or Don't Allow on a waiting request (the person's own gesture,
     /// ``MobilePageProvider``). False when phone `id` has no waiting request.
     @discardableResult
+    /// Another of the person's paired devices answered a waiting request (hostd `pair-requests`;
+    /// hostd checked that the answering device is paired here, of this Mac's account, and named the
+    /// request by its fingerprint). It counts as the person's own Allow or Don't Allow, so a probe
+    /// phone of the same account pairs with no gesture on this Mac. Only a request still waiting
+    /// here with the same keys is answered, and only while the answering device is still paired.
+    /// `by` is this Mac's own device id when its owner answered with `cmux mobile pair-requests`
+    /// on this Mac (hostd's owner-only link socket, peer uid checked): the same OS user as this
+    /// app's Allow button.
+    func answerFromPairedDevice(id: String, identityKey: String, approvalKey: String, allow: Bool, by: String) {
+        let byThisMac = state.deviceID == by
+        guard let request = prompts.request(id: id), request.identityKey == identityKey,
+              request.approvalKey == approvalKey, by != id,
+              byThisMac || pairedStore.current?.hostdDevices.contains(where: { $0.id == by }) == true
+        else {
+            Self.logger.info("phone \(id.prefix(8), privacy: .public) answer from \(by.prefix(8), privacy: .public) matched no waiting request")
+            return
+        }
+        Self.logger.info("phone \(id.prefix(8), privacy: .public) answered from paired device \(by.prefix(8), privacy: .public)")
+        decide(request, allow: allow)
+    }
+
     public func answerPairRequest(id: String, allow: Bool) -> Bool {
         guard let request = prompts.request(id: id) else { return false }
         decide(request, allow: allow)
@@ -147,7 +180,8 @@ extension IPhoneHostService {
             pairDialog = nil
             CmuxDialogCenter.shared.dismiss(open.id)
         }
-        guard pairDialog == nil, !prompts.isQuiet(at: Date()), let request = prompts.pending.first else { return }
+        guard pairDialog == nil, !prompts.isQuiet(at: Date()),
+              let request = prompts.prompted.first else { return }
         // In the app only, never a floating window: a sheet on the frontmost cmux window. With
         // none on screen it waits (the banner, the Dock and Settings > Mobile still tell the
         // person) and shows when a cmux window next becomes main or the app comes forward.
@@ -201,7 +235,7 @@ extension IPhoneHostService {
 
     private func decide(_ request: MobileHostPairRequest, allow: Bool) {
         prompts.answer(id: request.phoneDeviceID, allowed: allow, at: Date())
-        if prompts.pending.isEmpty { quietAttention() }
+        if !loudRequestWaits { quietAttention() }
         Self.logger.info("phone \(request.phoneDeviceID.prefix(8), privacy: .public) \(allow ? "allowed" : "denied", privacy: .public)")
         savePaired { list in
             if allow { list.approve(request, at: Date()) } else { list.deny(request) }
@@ -233,30 +267,59 @@ extension IPhoneHostService {
         attentionRequest = nil
     }
 
-    /// Whether `request` carries this Mac's live pre-approval, for the paired list of the signed-in
-    /// user; the token is burnt when it does. Never true for another user's list or no account.
-    static func redeems(_ request: MobileHostPairRequest, tokens: inout MobileHostPairTokens, macDeviceID: String?,
-                        pairedUserID: String, accountUserID: String?, now: Date = Date()) -> Bool {
-        guard let token = request.pairToken, let accountUserID, pairedUserID == accountUserID else { return false }
-        return tokens.redeem(token, macDeviceID: macDeviceID, now: now)
+    /// Whether `mobile.autoApprovePhones` (`on`) pairs `request` without the prompt: a phone, never
+    /// a machine, on the paired list of the signed-in user. Never true with the setting off, no
+    /// account or another user's list.
+    static func autoApproves(_ request: MobileHostPairRequest, on: Bool, pairedUserID: String, accountUserID: String?) -> Bool {
+        guard on, !request.isMachine, let accountUserID, !accountUserID.isEmpty else { return false }
+        return pairedUserID == accountUserID
     }
 
-    /// This Mac's pairing code for cmux on iPhone: its device id and team, its name, the live
-    /// pre-approval (a new one a minute before the shown one expires) and its identity key's hash.
-    /// Nil until hostd is online for the signed-in account with iPhone connections on, and nil
-    /// once this Mac was removed from the account.
-    public func pairInvite(macName: String, now: Date = Date()) -> MobileHostPairInvite? {
-        // A Mac removed from the account mints nothing, even while hostd still reports online.
-        guard allowed, !removed, account != nil, state.phase == .online, let device = state.deviceID,
-              let team = state.teamID, let key = macPublicKey else { return nil }
-        let token = pairTokens.current(macDeviceID: device, now: now)
-        return MobileHostPairInvite(macDeviceID: device, teamID: team, macName: macName, token: token.token,
-                                    macPublicKey: key, expiresAt: token.expiresAt)
+    /// Whether `request` waits in Settings > Mobile only, without the prompt, banner or Dock bounce:
+    /// another build's dev iPhone app (``IPhoneDevAutoApprove/asksQuietly(_:macDevTag:)``).
+    func asksQuietly(_ request: MobileHostPairRequest) -> Bool {
+        IPhoneDevAutoApprove.asksQuietly(request, macDevTag: dependencies?.macDevTag)
     }
 
-    /// The account changed: its waiting requests, quiet period, blocked count and pairing code go with it.
+    /// A waiting request that the prompt, banner and Dock bounce are for.
+    var loudRequestWaits: Bool { !prompts.prompted.isEmpty }
+
+    /// Whether the dev auto-approve pairs `request` without the prompt: a tagged dev build's
+    /// (`devAutoApprove`, nil otherwise), for a phone of this tag's iPhone app, on the paired list of
+    /// the signed-in user. Never true for a machine, another tag, no account or another user's list.
+    static func devAutoApproves(_ request: MobileHostPairRequest, devAutoApprove: IPhoneDevAutoApprove?,
+                                pairedUserID: String, accountUserID: String?) -> Bool {
+        guard let devAutoApprove, let accountUserID, !accountUserID.isEmpty, pairedUserID == accountUserID else { return false }
+        return devAutoApprove.matches(request)
+    }
+
+    /// Idle sleep is held off only while a phone this account allowed can reach this Mac: phone
+    /// access is on by default, so a Mac with no paired phone sleeps as it would without cmux.
+    func updateKeepAwake() {
+        setKeepAwake(allowed && account != nil && !removed && !hostIdle && !(paired?.hostdDevices.isEmpty ?? true))
+    }
+
+    /// A start that ended without serving: the Mac may sleep until the next start (``hostIdle``).
+    func idleHost() {
+        hostIdle = true
+        setKeepAwake(false)
+    }
+
+    /// `mobile.autoApprovePhones` turned on: the phones already waiting pair now, as a new request would.
+    func autoApproveWaiting() {
+        guard dependencies?.autoApprovePhones() ?? false else { return }
+        for request in prompts.pending where !request.isMachine { ask(request) }
+    }
+
+    /// The paired list is in: each request that came before it is answered now.
+    func answerHeldPairRequests() {
+        guard pairedStore.current != nil, !heldPairRequests.isEmpty else { return }
+        for request in heldPairRequests.release() { ask(request) }
+    }
+
+    /// The account changed: its waiting requests, quiet period and blocked count go with it.
     func resetPrompts() {
-        pairTokens.revoke()
+        heldPairRequests = MobileHostHeldPairRequests()
         prompts = MobileHostPairPrompts()
         quietAttention()
         showPairDialog()
@@ -289,9 +352,20 @@ extension IPhoneHostService {
         let list = pairedStore.current ?? MobileHostPairedDevices(userID: "")
         // At once: the next hostd start or restart gets this list, never an older one.
         supervisor.setNewestDevices(list)
-        guard let directory = dependencies?.stateDirectory,
-              let macDevice = try? MobileHostDeviceIdentity(directory: directory).deviceID() else { return }
-        approverSync?.update(list.approversParams(macDevice: macDevice))
+        guard let directory = dependencies?.stateDirectory, let owner = account?.userID else { return }
+        guard let resolved = resolvedDevice, resolved.owner == owner else {
+            // The id is read off the main actor once; the newest list is pushed when it is back.
+            let identity = MobileHostDeviceIdentity(directory: directory, owner: owner)
+            // task-owner: one file read off the main actor, then one push on it
+            Task { [weak self] in
+                guard let id = await Task.detached(priority: .medium, operation: { try? identity.deviceID() }).value,
+                      let self, self.account?.userID == owner else { return }
+                self.resolvedDevice = (owner, id)
+                self.pushPaired()
+            }
+            return
+        }
+        approverSync?.update(list.approversParams(macDevice: resolved.id))
         pushListedPhones()
     }
 

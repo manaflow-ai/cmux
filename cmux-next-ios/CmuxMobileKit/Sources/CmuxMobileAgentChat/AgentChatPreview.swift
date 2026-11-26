@@ -1,5 +1,7 @@
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileMarkdown
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
@@ -83,6 +85,9 @@ public struct AgentChatPreview: View {
             .modifier(ChatTextSize(display: display))
             .clipped()
             .allowsHitTesting(false)
+            // Its rows draw their UIKit controls' stand-ins (`chatStill`): a tab card's picture
+            // is an `ImageRenderer` still of this view.
+            .drawnAsStillPicture()
     }
 
     private var isEmpty: Bool { turns.map(\.isEmpty) ?? !store.hasTurns }
@@ -198,6 +203,7 @@ struct PreviewRowProbe: ViewModifier {
     }
 }
 
+
 /// The card's rows: the transcript's rows (memoized per turn, an answer parsed by its
 /// tail), cut to what a bottom-aligned card can show. The card stays alive beside the
 /// live page, so drawing the whole chat laid out every streamed answer in full (its
@@ -244,6 +250,15 @@ final class AgentChatPreviewModel {
             if filled || count >= turns.count { return out.reversed() }
             count = min(turns.count, count * 2)
         }
+    }
+}
+extension View {
+    /// Marks this view as drawn once into a still picture (`ImageRenderer`): every row that
+    /// would use a UIKit-backed view draws in SwiftUI instead (`chatStill`, and `drawsStillPicture`
+    /// for markdown's math, `cmuxSpinnerDrawsStill` for a running tool's spinner), so the
+    /// picture never holds the system's yellow "cannot draw" mark.
+    public func drawnAsStillPicture() -> some View {
+        environment(\.chatStill, true).environment(\.drawsStillPicture, true).environment(\.cmuxSpinnerDrawsStill, true)
     }
 }
 #endif

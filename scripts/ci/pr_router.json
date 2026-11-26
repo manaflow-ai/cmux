@@ -1,0 +1,132 @@
+{
+ "about": "One router per push (scripts/ci/pr_router.py, .github/workflows/pr-router.yml, RFD 0023). Each callee: the pull_request activity types and path filter that used to start it on its own, and optionally `affects`, the inputs it reads. Edit this file and pr-router.yml together; `python3 scripts/ci/pr_router.py check` says whether they agree.",
+ "callees": {
+  "cmux-next-size-budget.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "edited",
+    "ready_for_review"
+   ],
+   "affects": [
+    "Resources/**",
+    "Packages/macOS/**",
+    "**/Assets.xcassets/**",
+    "Assets.xcassets/**",
+    "**/Cargo.toml",
+    "**/Cargo.lock",
+    "webviews/**",
+    "web/data/**",
+    "schemas/**",
+    "scripts/cmux-next/**",
+    "release-notes/next/**",
+    "config/vite-plus/**",
+    "clients/ts/**",
+    "scripts/*webviews*",
+    "Native/OptChat/optchat-chief/inspector/**",
+    ".github/workflows/cmux-next-size-budget.yml"
+   ],
+   "affects_why": "bundle-size-pr.py check measures three inputs (scripts/cmux-next/bundle-size-budget.json pull_request): files under tree_paths (Resources, Packages/macOS/*/Sources/*/Resources, Assets.xcassets), the web bundles (inputs: web-bundle-key.py --routed, a superset here by directory), and the crates of shipped Rust binaries (Cargo manifests and lockfiles); plus the tool itself under scripts/cmux-next. A change touching none of them adds nothing to the app.",
+   "skip_docs_only": true
+  },
+  "classic-api-guard.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "edited",
+    "ready_for_review"
+   ],
+   "affects": [
+    "web/**",
+    "config/iroh/**",
+    "workers/presence/**",
+    "scripts/ci/classic_api_guard.py",
+    "scripts/ci/classic-auto-deploy.json",
+    ".github/workflows/classic-api-guard.yml"
+   ],
+   "affects_why": "classic_api_guard.py warns into feat-cmux-next only when a changed path is under a guarded deploy of scripts/ci/classic-auto-deploy.json (every guarded path, 2026-11-21, is under web/, config/iroh/ or workers/presence/; by directory here so a path added there stays covered); otherwise it prints a notice and passes. The guard and its list run from the base, so their own change is listed only to exercise the workflow. A routed edit (the `Classic API change:` line, the base) reaches it through pr-router.yml's route `if:`. Last 300 merges: the old trigger started it on 300, this on 14."
+  },
+  "swift-linux-packages.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "Packages/**",
+    "vendor/stack-auth-swift-sdk-prerelease/**",
+    "cmux-next-ios/CmuxMobileKit/**",
+    "scripts/ci/swift-linux-packages.txt",
+    "scripts/ci/package-test-lane.sh",
+    ".github/workflows/swift-linux-packages.yml"
+   ],
+   "affects": [
+    "Packages/Shared/**",
+    "Packages/iOS/**",
+    "vendor/stack-auth-swift-sdk-prerelease/**",
+    "cmux-next-ios/CmuxMobileKit/**",
+    "scripts/ci/swift-linux-packages.txt",
+    "scripts/ci/package-test-lane.sh",
+    "scripts/ci/swift-test-debug-info.sh",
+    "scripts/ci/swiftpm-binary-module-guard.sh",
+    ".github/workflows/swift-linux-packages.yml"
+   ],
+   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9."
+  },
+  "web-validation.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "skip_docs_only": true,
+   "affects": [
+    ".github/workflows/web-validation.yml"
+   ],
+   "affects_why": "On a pull request every job but the web-validation status job is skipped (`github.event_name != 'pull_request'`), and that job only echoes that ci-status owns pull request web validation: it reads no file of the change. Its own definition is the one input a pull request run can exercise. web-validation is not a required check (scripts/ci/required_status_checks.py; feat-cmux-next requires clippy and React Doctor). Last 300 merges: the old docs-only filter started it on 298, this on 0 (only a change to this workflow starts it)."
+  },
+  "pr-pipeline.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "draft": true,
+   "table_jobs": [
+    "linux",
+    "web-browser",
+    "mac",
+    "ios"
+   ],
+   "table_why": "The step table's jobs this workflow runs (ci/steps.toml, `ci/run`). It starts when the change routes a step of one of them: a step's `inputs` are the path filter of the workflow it replaced. Runs on a draft, as those workflows did. Each job runs only when the change routes a step of it (the router's `table` output, pr-pipeline.yml's job `if:`s); the `mac` job only on a full-tier head (pr_router.py FULL_TIER_JOBS: a draft runs no Mac). The `ios` job runs on a draft too, as cmux-next-ios-kit.yml ran its kit tests on every pull request (Leo, 2026-11-22, quoted there: most code needs a proper pull request run within the hour)."
+  },
+  "screen-share-drop-gate.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review"
+   ],
+   "paths": [
+    "cmux-tui/crates/cmux-rd-host/**",
+    "cmux-tui/crates/cmux-rd-link/**",
+    "cmux-tui/crates/cmux-rd-proto/**",
+    "cmux-tui/crates/cmux-transport/**",
+    ".github/workflows/screen-share-drop-gate.yml"
+   ],
+   "affects": [
+    "cmux-tui/crates/cmux-rd-host/**",
+    "cmux-tui/crates/cmux-rd-link/**",
+    "cmux-tui/crates/cmux-rd-proto/**",
+    "cmux-tui/crates/cmux-transport/**",
+    ".github/workflows/screen-share-drop-gate.yml"
+   ],
+   "affects_why": "The gate builds cmux-rd from cmux-rd-host (its own Cargo workspace, which pulls the link, proto and transport crates by path) and runs scripts/screen-share-netem.py from cmux-rd-host's tree; nothing else changes what it measures."
+  }
+ }
+}

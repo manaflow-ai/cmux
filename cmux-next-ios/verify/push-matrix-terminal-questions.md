@@ -91,3 +91,59 @@ Failures found and fixed in this round:
    (`notify_terminal` tests on rbx; `TerminalQuestionFeedTests` on mini-cmux7s).
 5. **Rig only.** A new rig build is a new Mac device: the phone must be pinned to it
    (`PUSHPHONE_LAUNCH_ARGS`) and its link id seeded for pairing.
+
+## Terminal approvals: Claude Code 2.1.328's approval screen (2026-11-18)
+
+Read live in a terminal (`claude --permission-mode default`, a `mkdir … && touch …` Bash call):
+
+```
+ Bash command
+ Create out directory and touch a.txt file
+ mkdir -p /tmp/tfc-claude/out && touch /tmp/tfc-claude/out/a.txt
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for mkdir -p /tmp/tfc-claude/out and touch /tmp/tfc-claude/out/a.txt commands
+      in /private/tmp/tfc-claude
+   3. Yes, and switch to auto mode · auto mode handles these prompts for you
+   4. No
+ Esc to cancel · Tab to amend
+```
+
+- `1` alone approves at once (the command ran; no Return).
+- The "No" row moves (3 in older builds, 4 here), so Deny presses Escape, which stays the cancel key.
+- AskUserQuestion on the same build still takes a bare option number (`2` picked "Green"; rows
+  `1. Red` … `4. Type something.`, `5. Chat about this`).
+
+`TerminalApprovalKeys` types only these keys, and only while the screen's last block is the
+dialog: from the rule above "Do you want to" down to "Esc to cancel" as the last line, "1. Yes"
+right under the question, and the approval's whole command above it (whitespace ignored).
+
+A file tool's dialog names the file relative to the folder (Write `notes/todo.txt`, read live):
+
+```
+ Create file
+ notes/todo.txt
+ 1 buy milk
+ Do you want to create todo.txt?
+ ❯ 1. Yes
+   2. Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session
+   3. No
+ Esc to cancel · Tab to amend
+```
+
+Escape here answered "Rejected write to notes/todo.txt" (after Claude Code's short Escape wait); no file was written.
+The phone matches a file approval by its file name in the dialog's question line.
+
+### End to end on the tagged daemon (2026-11-19, `feat-cmux-next-terminal-feed-content` at 80be6ff7)
+
+A real Claude Code 2.1.328 (`--permission-mode default`) ran in a terminal of the fleet-built
+`cmux DEV tfeed` daemon (its own socket and state). The phone's requests were sent as they are
+(`list-notifications`, `read-screen`, `send`):
+
+| Step | Ledger row | Keys | Result |
+| --- | --- | --- | --- |
+| Finished turn | `message` "The capital of France is Paris.", `prompt` | none | the card shows the answer |
+| Bash approval | `approval` `{tool: Bash, command, description}` | `1` | the command ran; `approval` left the row |
+| AskUserQuestion | `question` (Red / Green / Blue) | `2` | the agent answered "Green" |
+| Bash approval | `approval` | Escape | the dialog closed; nothing ran |
+| Write approval | `approval` `{tool: Write, target}` | `1` | the file was written; `approval` left the row |

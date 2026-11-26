@@ -190,6 +190,9 @@ pub(crate) struct PromptId {
     /// inbox would hold without waking it is refused at once (`send.not_woken`) instead of
     /// leaving the send waiting for a turn that does not come (`hub/inbox.rs`).
     pub wake_or_fail: bool,
+    /// `--gather`: the message waits for the receiver's cold batch (`_meta.acpmux.gather`,
+    /// `hub/cold_wake.rs`).
+    pub gather: bool,
 }
 
 impl PromptId {
@@ -212,6 +215,7 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                gather: false,
             },
             None => Self {
                 id: uuid::Uuid::now_v7().to_string(),
@@ -230,6 +234,7 @@ impl PromptId {
                 subagent: None,
                 sender_token: None,
                 wake_or_fail: false,
+                gather: false,
             },
         }
     }
@@ -288,6 +293,9 @@ impl PromptId {
         }
         if self.wake_or_fail {
             mux.set(WAKE_OR_FAIL_META, json!(true));
+        }
+        if self.gather {
+            mux.set(crate::hub::cold_wake::GATHER_META, json!(true));
         }
         if let Some(token) = &self.sender_token {
             mux.set(crate::sender_token::META_KEY, token.to_value());
@@ -408,6 +416,26 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
             None => "replaced ? queued (the daemon did not report it; it may predate --supersede)"
                 .to_owned(),
         });
+    }
+    lines
+}
+
+/// [`sent_lines`] naming the target by the name it was given (`displayName` in its acceptance,
+/// from a daemon that has it), its typed `key` beside it: "steered to Mango · HOST/NAME". A target
+/// without a given name reads as before.
+pub(crate) fn sent_lines_to(accepted: &Value, supersede: bool, key: &str) -> Vec<String> {
+    let mut lines = sent_lines(accepted, supersede);
+    let given = accepted
+        .get("displayName")
+        .and_then(Value::as_str)
+        .filter(|n| crate::session_handle::valid(n));
+    if let (Some(given), Some(first)) = (given, lines.first_mut()) {
+        let to = crate::prompt_provenance::display_label(Some(given), key);
+        *first = match first.split_once(':') {
+            // The held line explains itself after its colon: the name goes before it.
+            Some((head, rest)) => format!("{head} (to {to}):{rest}"),
+            None => format!("{first} to {to}"),
+        };
     }
     lines
 }
@@ -1268,7 +1296,7 @@ pub(crate) async fn turn_reply(
     Ok(reply_of_turn(&events, turn))
 }
 
-fn page_events(page: &Value) -> (Vec<Value>, bool) {
+pub(crate) fn page_events(page: &Value) -> (Vec<Value>, bool) {
     let events = page.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
     (events, page.get("hasMore").and_then(Value::as_bool).unwrap_or(false))
 }
@@ -1297,35 +1325,6 @@ async fn paged_events(client: &Arc<Client>, query: Value, first: &str) -> Result
         }
         more = has_more;
         events.splice(0..0, older);
-    }
-    Ok(events)
-}
-
-/// Up to `limit` events of a chat after seq `after`, oldest first, a page of at most 100000 at a
-/// time.
-pub(crate) async fn events_after(
-    client: &Arc<Client>,
-    id: &str,
-    mut after: u64,
-    limit: usize,
-) -> Result<Vec<Value>> {
-    let mut events = Vec::new();
-    while events.len() < limit {
-        let v = client
-            .request(
-                method::MUX_EVENTS,
-                json!({"sessionId": id, "afterSeq": after, "limit": (limit - events.len()).min(100_000)}),
-            )
-            .await?;
-        let (page, more) = page_events(&v);
-        let Some(last) = page.last().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
-            break;
-        };
-        after = last;
-        events.extend(page);
-        if !more {
-            break;
-        }
     }
     Ok(events)
 }
@@ -1461,6 +1460,27 @@ mod prompt_tests {
         assert!(lines[1].starts_with("replaced ? queued"), "{lines:?}");
     }
 
+    /// Leo: "the send/recieve messages are still only the older names". `acpmux send` says the
+    /// target's given name, the typed key beside it; a target without one prints as before.
+    #[test]
+    fn a_send_names_the_target_by_its_given_name() {
+        let steered = json!({"steer": true, "displayName": "Mango"});
+        assert_eq!(
+            sent_lines_to(&steered, false, "studio-mac/coord-old"),
+            ["steered to Mango · studio-mac/coord-old"]
+        );
+        assert_eq!(sent_lines_to(&steered, false, "Mango"), ["steered to Mango"]);
+        let held = json!({"heldInInbox": true, "displayName": "Mango"});
+        let line = &sent_lines_to(&held, false, "coord-old")[0];
+        assert!(
+            line.starts_with("held in its inbox (to Mango · coord-old): the receiver"),
+            "{line}"
+        );
+        assert_eq!(sent_lines_to(&json!({"queued": true}), false, "coord-old"), ["queued"]);
+        let invalid = json!({"queued": true, "displayName": "no spaces allowed"});
+        assert_eq!(sent_lines_to(&invalid, false, "coord-old"), ["queued"]);
+    }
+
     #[test]
     fn a_supersede_key_goes_in_the_prompts_meta() {
         let mut p = PromptId::new(None);
@@ -1566,7 +1586,13 @@ mod prompt_tests {
         }
         assert_eq!(last_replies(&client, &id, 1).await.unwrap(), vec!["the reply".to_owned()]);
         // `session tail --since`: every event after the cursor, through the newest.
-        let after = events_after(&client, &id, 0, 100000).await.unwrap();
+        let mut after = Vec::new();
+        crate::cli::session_tail::stream_after(&client, &id, 0, None, |page| {
+            after.extend(page);
+            Ok(crate::cli::session_tail::Flow::Go)
+        })
+        .await
+        .unwrap();
         assert_eq!(after.last().unwrap()["seq"], session.meta().last_seq);
         assert!(after.len() > 13, "{} events", after.len());
         drop(dir);

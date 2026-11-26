@@ -6,14 +6,16 @@ import QuartzCore
 /// The Now Playing card's Play or Pause: the one filled control, a disc in the
 /// theme's accent (`accentFill`, the text color when no accent is chosen) with
 /// the glyph in `onAccent`, so it reads first among the controls (music apps
-/// do the same). Pressed, it dims.
+/// do the same). Pressed, it dims. A new icon draws at once: the disc's frame
+/// does not change with it, so no layout pass would draw it.
 final class SidebarNowPlayingPlayButton: NSButton {
     var onPress: (() -> Void)?
-    var icon: IconName = .mediaPlay { didSet { if icon != oldValue { renderedSide = 0; needsLayout = true } } }
+    var icon: IconName = .mediaPlay { didSet { if icon != oldValue { renderedSide = 0; renderGlyph() } } }
     var label = "" {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
+            image?.accessibilityDescription = label
         }
     }
     private var renderedSide: CGFloat = 0
@@ -42,7 +44,11 @@ final class SidebarNowPlayingPlayButton: NSButton {
 
     override func layout() {
         super.layout()
-        // The glyph is a bit under half the disc, nudged right for Play's triangle.
+        renderGlyph()
+    }
+
+    /// Draws the icon at a bit under half the disc, once the disc has a size.
+    private func renderGlyph() {
         let side = (bounds.height * 0.42).rounded()
         guard side > 0, side != renderedSide else { return }
         renderedSide = side

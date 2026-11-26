@@ -1,6 +1,7 @@
-//! RED (decision D4): only a Linux host with a root-owned Cloud image stamp
-//! and the Cloud identity serves file ops. The stamp checks run against a
-//! temporary tree whose owner stands in for root.
+//! Decision D4, widened 2026-11-19: a Linux host with a root-owned Cloud
+//! image stamp and the Cloud identity serves file ops to every peer; another
+//! Linux machine to its owner only; a Mac none. The stamp checks run against
+//! a temporary tree whose owner stands in for root.
 
 use std::fs;
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _, symlink};
@@ -47,7 +48,7 @@ impl Drop for Tree {
 }
 
 #[test]
-fn only_a_linux_host_with_a_trusted_stamp_and_the_cloud_identity_serves_fs() {
+fn only_a_linux_host_with_a_trusted_stamp_and_the_cloud_identity_is_a_cloud_host() {
     assert!(is_cloud_host(true, true, true));
     assert!(!is_cloud_host(false, true, true), "a Mac is never a Cloud host");
     assert!(!is_cloud_host(true, false, true), "no trusted stamp");
@@ -100,4 +101,15 @@ fn a_stamp_that_is_not_a_cloud_image_stamp_is_refused() {
     tree.write_stamp("something else\n", 0o644);
     assert!(!trusted_stamp(&tree.stamp(), &tree.base, tree.owner()));
     assert!(!trusted_stamp(&tree.base.join("etc/cmux/missing"), &tree.base, tree.owner()));
+}
+
+/// A Cloud host serves file ops to every peer, another Linux machine (a lane VM, a CI machine) to
+/// its owner only, a Mac to nobody (Leo, 2026-11-19: "especially for remote ... our lanes, the
+/// lane machines, plus our CI").
+#[test]
+fn a_linux_machine_of_ones_own_serves_file_ops_to_its_owner_and_a_mac_to_nobody() {
+    assert_eq!(file_scope(true, true), Some(Scope::Cloud));
+    assert_eq!(file_scope(true, false), Some(Scope::Owner));
+    assert_eq!(file_scope(false, false), None);
+    assert_eq!(file_scope(false, true), None, "a Mac is never a Cloud host");
 }

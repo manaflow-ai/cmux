@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxNextCompat
 public import Foundation
 
@@ -68,7 +69,7 @@ public actor DeviceHubClient {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.httpCookieStorage = nil
         configuration.timeoutIntervalForRequest = 30
-        return URLSession(configuration: configuration)
+        return CmuxEgress.session(site: "CmuxNextDevices.DeviceHubClient", configuration: configuration)
     }()
 
     // MARK: Account
@@ -94,7 +95,12 @@ public actor DeviceHubClient {
 
     private func exchangeStackToken() async throws -> DeviceHubAccountSession {
         let stack: String
-        do { stack = try await tokens.stackAccessToken() } catch { throw DeviceHubError.notSignedIn }
+        let tokens = self.tokens
+        // A token read that never answers held every hub call behind it (the account exchange is shared); bound it.
+        do { stack = try await DeviceHub.within(.seconds(30), what: "the account token") { try await tokens.stackAccessToken() } } catch let error as DeviceHubError {
+            if case .transport = error { throw error }
+            throw DeviceHubError.notSignedIn
+        } catch { throw DeviceHubError.notSignedIn }
         var request = URLRequest(url: url("/v1/auth/stack"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -171,6 +177,27 @@ public actor DeviceHubClient {
                        as: DeviceAnswer.self).device
     }
 
+    /// The same, for an owner's agent under the account's standing permission: the hub's audit
+    /// row names the agent session and its device.
+    public func setMacScreenShared(_ shared: Bool, agent: HubAgentActor) async throws -> HubDevice {
+        struct Body: Encodable { var shared: Bool; var agent: HubAgentActor }
+        return try await call("PUT", "/v1/devices/\(segment(signer.identity.id))/mac-screen", body: Body(shared: shared, agent: agent),
+                              as: DeviceAnswer.self).device
+    }
+
+    /// The account's settings (`GET /v1/settings`), one value per account.
+    public func accountSettings() async throws -> HubAccountSettings {
+        struct Answer: Decodable { var settings: HubAccountSettings }
+        return try await call("GET", "/v1/settings", as: Answer.self).settings
+    }
+
+    /// "My agents can turn screen sharing and control on my machines" (`PUT /v1/settings`). Only a
+    /// full app session writes it, after the person's click; the hub audits and pushes the change.
+    public func setAgentsMayShare(_ on: Bool) async throws -> HubAccountSettings {
+        struct Answer: Decodable { var settings: HubAccountSettings }
+        return try await call("PUT", "/v1/settings", body: ["agentsMayShare": on], as: Answer.self).settings
+    }
+
     public func permissions(host: String) async throws -> [HubPermission] {
         struct Answer: Decodable { var permissions: [HubPermission] }
         return try await call("GET", "/v1/permissions", query: [URLQueryItem(name: "host", value: host)], as: Answer.self).permissions
@@ -186,6 +213,13 @@ public actor DeviceHubClient {
     public func requestSession(host: String, scope: SessionScope) async throws -> HubSession {
         struct Body: Encodable { var hostId: String; var scope: SessionScope }
         return try await call("POST", "/v1/sessions", body: Body(hostId: host, scope: scope), as: SessionAnswer.self).session
+    }
+
+    /// From the viewer: a fresh viewer ticket for an approved or live session (the hub pushes the
+    /// host's matching one), for a ticket push that never came or a dropped stream.
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        struct Answer: Decodable { var ticket: SessionTicket }
+        return try await call("POST", "/v1/sessions/\(segment(id))/reattach", body: [String: String](), as: Answer.self).ticket
     }
 
     /// From the host: answers a pending request. `always` stores the permission with `scope`.

@@ -11,6 +11,8 @@
 // attachments ... so you can see it all and close aka delete"). Sent messages draw "both" as
 // "inline". It is only a look: a draft's text, its attachment marks and their order are the same
 // in every view, so switching never changes what is sent. Anything else reads as "inline".
+// `agentPane.composerVimKeys` (`composerVimKeys`) is off by default: on, the chat's prompt takes the minimal
+// modal vim of composer/vimKeys.ts (Esc for normal mode); off, the composer never reads those keys.
 // `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest
 // behavior. When off, an up-scrolled reader stays anchored while new rows arrive below; a reader at
 // the bottom continues following streaming output.
@@ -38,10 +40,20 @@
 // read: the chord the host sends, empty for the app's own. Anything else reads as "cmux".
 // `newChatsIn` is `agentPane.newChatsIn` ("Start New Chats In", "local" by default): "cloud" makes a
 // new chat's run location Cloud unless its composer picks another (runLocationDefault.ts).
+// `composerLook` is `agentPane.composerLook` ("auto" by default): "studio" draws Studio's look in
+// every chat (composerLook.ts); "auto" keeps the app's own. The New Tab page always draws Claude's
+// look. Anything else reads as "auto".
+// `emptyChatComposerPosition` is `agentPane.emptyChatComposerPosition` ("bottom" by default): "center"
+// sits a chat's composer in the middle of the pane until its first message (styles.css,
+// [data-empty-chat-composer="center"]). Anything else reads as "bottom".
+// `followUpMode` is `agentPane.followUpMode` ("steer" by default): what Return and Send do with a
+// message sent while an agent that steers is mid-turn, "steer" it into the turn or "queue" it for after
+// (followUpMode.ts); ⌘Return does the other. Anything else reads as "steer".
 // `cloudEnvironments` is the launch flag CLOUD_ENVIRONMENTS_ENABLED (Swift
 // AgentPaneCloudEnvironmentsFlag, read from the bundle's LSEnvironment, else the launch
-// environment; no cmux.json key): on, picking Cloud in a new
-// chat's strip adds the Environment chip (CloudEnvironmentChip.tsx). Off unless the host says true.
+// environment; no cmux.json key): on, picking Cloud in a new chat's strip adds the Environment chip
+// (CloudEnvironmentChip.tsx), on Auto. On by default, as the host's flag is: only the host's `false`
+// (CLOUD_ENVIRONMENTS_ENABLED=0 or false) hides it.
 import { useSyncExternalStore } from "react";
 
 // `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
@@ -49,10 +61,13 @@ import { useSyncExternalStore } from "react";
 // top :("). The others stay as choices.
 export type { HarnessPlacement } from "../../ui/harnessPlacement";
 import type { HarnessPlacement } from "../../ui/harnessPlacement";
+import { readFollowUpMode, type FollowUpMode } from "./followUpMode";
 export type ReasoningSliderStyle = "accent" | "minimal";
 export type AttachmentView = "inline" | "strip" | "both";
 export type NewChatPlace = "local" | "cloud";
 export type ComposerRing = "context" | "planUsage";
+export type ComposerLookSetting = "auto" | "studio";
+export type EmptyChatComposerPosition = "bottom" | "center";
 export const DICTATION_SOURCES = ["cmux", "macos", "chatgpt", "claude", "gemini", "wisprFlow", "superwhisper"] as const;
 export type DictationSource = (typeof DICTATION_SOURCES)[number];
 export type ComposerSettings = {
@@ -61,6 +76,7 @@ export type ComposerSettings = {
   dictationSource: DictationSource;
   dictationShortcut: string;
   spellChecking: boolean;
+  composerVimKeys: boolean;
   attachmentView: AttachmentView;
   scrollToBottomOnSend: boolean;
   reasoningSlider: boolean;
@@ -71,6 +87,9 @@ export type ComposerSettings = {
   showMachineLoadWarnings: boolean;
   newChatsIn: NewChatPlace;
   composerRing: ComposerRing;
+  composerLook: ComposerLookSetting;
+  emptyChatComposerPosition: EmptyChatComposerPosition;
+  followUpMode: FollowUpMode;
   cloudEnvironments: boolean;
 };
 
@@ -80,6 +99,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   dictationSource: "cmux",
   dictationShortcut: "",
   spellChecking: false,
+  composerVimKeys: false,
   attachmentView: "inline",
   scrollToBottomOnSend: true,
   reasoningSlider: false,
@@ -90,13 +110,17 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   showMachineLoadWarnings: true,
   newChatsIn: "local",
   composerRing: "context",
-  cloudEnvironments: false,
+  composerLook: "auto",
+  emptyChatComposerPosition: "bottom",
+  followUpMode: "steer",
+  cloudEnvironments: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
   | "showContextUsage"
   | "showDictation"
   | "spellChecking"
+  | "composerVimKeys"
   | "reasoningSlider"
   | "plainFooter"
   | "harnessSwitch"
@@ -119,6 +143,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
       : "cmux",
     dictationShortcut: typeof raw.dictationShortcut === "string" ? raw.dictationShortcut : "",
     spellChecking: flag("spellChecking"),
+    composerVimKeys: flag("composerVimKeys"),
     attachmentView,
     scrollToBottomOnSend: flag("scrollToBottomOnSend"),
     reasoningSlider: flag("reasoningSlider"),
@@ -132,6 +157,9 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     showMachineLoadWarnings: flag("showMachineLoadWarnings"),
     newChatsIn: raw.newChatsIn === "cloud" ? "cloud" : "local",
     composerRing: raw.composerRing === "planUsage" ? "planUsage" : "context",
+    composerLook: raw.composerLook === "studio" ? "studio" : "auto",
+    emptyChatComposerPosition: raw.emptyChatComposerPosition === "center" ? "center" : "bottom",
+    followUpMode: readFollowUpMode(raw.followUpMode),
     cloudEnvironments: flag("cloudEnvironments"),
   };
 }
@@ -169,12 +197,15 @@ export function setComposerSettings(value: unknown) {
   publishComposerSettings(value);
 }
 
+/// Calls `listener` on every change of the page's composer settings; returns the unsubscribe.
+export function subscribeComposerSettings(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
 export function useComposerSettings(): ComposerSettings {
   return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
+    subscribeComposerSettings,
     () => current,
     // A static render (a sent bubble's markup, renderToStaticMarkup) reads the same page value.
     () => current,

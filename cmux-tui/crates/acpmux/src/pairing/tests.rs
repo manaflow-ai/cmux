@@ -198,6 +198,7 @@ fn the_read_only_gate_allows_reads_and_nothing_else() {
         MUX_HISTORY,
         MUX_SESSION_SEARCH,
         MUX_RESOLVE,
+        MUX_HERE,
     ] {
         assert!(read_only_allows(m), "{m}");
     }
@@ -213,6 +214,7 @@ fn the_read_only_gate_allows_reads_and_nothing_else() {
         MUX_RENAME,
         MUX_TAG,
         MUX_VIEW,
+        MUX_HERE_BEAT,
         MUX_MARK_UNREAD,
         MUX_MARK_READ,
         MUX_DRAFT_SET,
@@ -383,4 +385,37 @@ fn tailnet_admission_requires_bound_tickets_even_for_migrated_stores() {
     pairing.lock().store.tickets[0].identity.clear();
     assert!(pairing.ticket_open(&ticket.secret, "run-one"));
     assert!(!pairing.ticket_open_bound(&ticket.secret, "run-one"));
+}
+
+/// Door A timing run (huge-blue/doora-timing, 2026-11-16): two fresh Ubuntu VMs added with
+/// `cmux device add HOST --yes --name doora-vm-N` both heartbeat as `ubuntu`, their host name,
+/// so `cmux chat --on doora-vm-1` named no mesh host and the two clash. A pasted line or Door A
+/// join is on the mesh by the name it joined with; a sign-in join, a revoked or copied record
+/// and an unusable name keep the host name.
+#[test]
+fn a_joined_machine_is_on_the_mesh_by_the_name_it_joined_with() {
+    use crate::machine_record::{JOINED_BY_SIGN_IN, MachineCredential};
+    let joined = |name: &str| MachineCredential {
+        name: name.into(),
+        machine_id: "machine_1".into(),
+        ..MachineCredential::default()
+    };
+    let host = || "ubuntu".to_owned();
+    assert_eq!(mesh_host_of(Some(&joined("doora-vm-1")), host()), "doora-vm-1");
+    assert_eq!(mesh_host_of(Some(&joined("Doora-VM-2")), host()), "doora-vm-2");
+    assert_eq!(mesh_host_of(None, host()), "ubuntu");
+    let sign_in =
+        MachineCredential { joined_by: Some(JOINED_BY_SIGN_IN.into()), ..joined("ubuntu-dev-tag") };
+    assert_eq!(
+        mesh_host_of(Some(&sign_in), host()),
+        "ubuntu",
+        "a sign-in join keeps its host name"
+    );
+    let revoked = MachineCredential { revoked: true, ..joined("doora-vm-1") };
+    assert_eq!(mesh_host_of(Some(&revoked), host()), "ubuntu");
+    let copied = MachineCredential { cloned: true, ..joined("doora-vm-1") };
+    assert_eq!(mesh_host_of(Some(&copied), host()), "ubuntu");
+    for unusable in ["", "host", "has space", "-dash", "a/b"] {
+        assert_eq!(mesh_host_of(Some(&joined(unusable)), host()), "ubuntu", "{unusable:?}");
+    }
 }

@@ -33,6 +33,10 @@
     "description": {
       "$ref": "#/$defs/text"
     },
+    "tagline": {
+      "description": "One line for the App Store, at most 80 characters in en: what the person gets (\"Start, pause and connect to your Cloud machines\").",
+      "$ref": "#/$defs/text"
+    },
     "publisher": {
       "type": "object",
       "additionalProperties": false,
@@ -183,10 +187,25 @@
         "$ref": "#/$defs/interfaceName"
       },
       "properties": {
+        "cmux.chat.action/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
+        "cmux.composer.chip/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
+        "cmux.composer.model.picker/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
+        "cmux.composer.toolbar/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
         "cmux.composer.command/1": {
           "$ref": "#/$defs/dataImplementation"
         },
         "cmux.composer.mention/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
+        "cmux.signal.source/1": {
           "$ref": "#/$defs/dataImplementation"
         }
       },
@@ -326,6 +345,29 @@
           "type": "boolean",
           "description": "The app may also open as a page tab (Open as Tab, drag into a workspace)."
         },
+        "overlay": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The app's cmux.pane/1 scene may also open as a floating overlay over the window. Only the person opens it (a palette pick or a click in cmux); an app, a script, the CLI or an agent cannot. Escape or a click outside closes it.",
+          "properties": {
+            "title": {
+              "$ref": "#/$defs/text",
+              "description": "Default: the app name."
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 240,
+              "maximum": 960,
+              "description": "Points. Default 480; the window's size caps it."
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 120,
+              "maximum": 720,
+              "description": "Points. Default 320; the window's size caps it."
+            }
+          }
+        },
         "hiddenByDefault": {
           "type": "boolean",
           "description": "Installed but hidden until the user shows it; still reachable from the palette, CLI and App Store."
@@ -381,6 +423,32 @@
             "$ref": "#/$defs/toolbarItem"
           },
           "description": "At most 4 per app; the shell shows a few and puts the rest in the overflow menu."
+        },
+        "menus": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "$ref": "#/$defs/menuItem"
+          },
+          "description": "Rows the app adds to cmux's own right-click menus, after the built-in rows (one group per menu, before Customize Menu)."
+        },
+        "wallpapers": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "description": "Live wallpapers (plans/cmux-next/live-wallpapers.md): each a folder in the package with wallpaper.json and its WGSL program, checked by cmux-wallpaper's validator. Needs no capability: a wallpaper gets only the Frame uniform.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "path"
+            ],
+            "properties": {
+              "path": {
+                "$ref": "#/$defs/path"
+              }
+            }
+          }
         }
       }
     },
@@ -1159,6 +1227,59 @@
         },
         "args": {
           "type": "object"
+        }
+      }
+    },
+    "menuItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "target",
+        "title",
+        "op"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/localId"
+        },
+        "target": {
+          "enum": [
+            "workspace",
+            "tab",
+            "terminal"
+          ],
+          "description": "The menu: workspace is a sidebar workspace row's, tab a tab's, terminal a terminal's right-click menu. The op gets the right-clicked object as args.target {kind, id}."
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "icon": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "symbol"
+          ],
+          "properties": {
+            "symbol": {
+              "$ref": "#/$defs/symbol"
+            }
+          }
+        },
+        "op": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9_]*(\\.[a-zA-Z][a-zA-Z0-9_-]*)+$",
+          "maxLength": 96,
+          "description": "One of the app's own catalog ops, run with apps-run."
+        },
+        "args": {
+          "type": "object"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Order among the menu's app rows (then app id, then declaration order)."
         }
       }
     },

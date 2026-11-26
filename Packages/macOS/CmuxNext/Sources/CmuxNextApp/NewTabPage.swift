@@ -32,10 +32,10 @@ struct NewTabPageHandler {
     var browseProject: () async -> String? = { nil }
     /// Returns recent projects, optionally filtered by the picker's query.
     var listProjects: (String?) async -> [String] = { _ in [] }
-    /// Runs a host-owned action advertised by the omnibar.
-    var action: (String) -> Void = { _ in }
-    /// `(page tab)`: the bar's lists of now, for a view that is made after its tab's key; nil keeps the page's own.
-    var places: (String) -> NewTabPlaces.Lists? = { _ in nil }
+    /// `(id, shown title)`: runs a host-owned action advertised by the omnibar, when the palette still lists it under the title the page's list has.
+    var action: (String, String) -> Void = { _, _ in }
+    /// `(page tab)`: asked at the make of the page's view, after its tab's key: it asks for the palette's actions (a page with no view takes no kept list) and gives the bar's lists of now; nil keeps the page's own.
+    var listsAtViewMake: (String) -> NewTabPlaces.Lists? = { _ in nil }
 }
 
 enum NewTabPage {
@@ -56,14 +56,13 @@ enum NewTabPage {
     /// and recent pages, newest first.
     static func omnibar(_ services: AppServices, excluding selectedID: String?, paletteActions: Bool = true) -> AgentPaneOmnibar {
         let (tabs, workspaces, folders) = places(services, excluding: selectedID)
-        let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
-            AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default)))
-        }
+        let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map { AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title, icon: AppServices.dataURL(services.siteFavicon($0.url, profile: .default))) }
+        let bookmarks = services.bookmarks.tree(BrowserProfileRecord.defaultID).bookmarks.prefix(AgentPaneOmnibar.maximumEntries).compactMap { b in b.url.map { AgentPaneOmnibar.Page(url: $0.absoluteString, title: b.displayTitle, icon: AppServices.dataURL(services.bookmarks.favicon(of: b, profile: BrowserProfileRecord.defaultID, fetching: true))) } }
         let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
         // Every Commands palette (Cmd-Shift-P) action, from the palette's own rows (one source).
         let actions = paletteActions ? Self.paletteActions(services) : []
         return AgentPaneOmnibar(
-            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history),
+            tabs: tabs, workspaces: workspaces, folders: folders, projects: folders, actions: actions, commands: Array(commands), history: Array(history), bookmarks: Array(bookmarks),
             uses: pickHistory(services),
             profiles: services.browserProfiles.ordered.map { .init(id: $0.id, name: $0.name, color: $0.color) }
         )
@@ -71,19 +70,11 @@ enum NewTabPage {
 
     /// The Commands palette's pick history for the kinds of rows the bar lists (tabs, workspaces, actions), by usage
     /// key: one history for both, so a pick in either ranks the row in both (cmuxterm-hq lenses slack-firefox-frecency.md).
-    static func pickHistory(_ services: AppServices) -> [String: Double] {
-        let model = services.palette.model, now = model.now()
-        var uses: [String: Double] = [:]
-        for key in model.frecency.entries.keys where key.hasPrefix("tab:") || key.hasPrefix("workspace:") || key.hasPrefix("action:") {
-            let score = model.frecency.score(for: key, at: now)
-            if score > 0.01 { uses[key] = score }
-        }
-        return uses
-    }
+    static func pickHistory(_ services: AppServices) -> [String: Double] { AgentPaneOmnibar.uses(of: services.palette.model) }
 
     /// Every Commands palette (Cmd-Shift-P) action as the bar lists it, from the palette's own rows.
     static func paletteActions(_ services: AppServices) -> [AgentPaneOmnibar.Action] {
-        BenchSpans.measure("newTab.paletteActions") { services.palette.commandEntries().map(AgentPaneOmnibar.Action.init(paletteEntry:)) }
+        BenchSpans.measure("newTab.paletteActions") { services.palette.commandEntries().filter { AgentPaneOmnibar.Action.pageMayRun($0.id.rawValue) }.map(AgentPaneOmnibar.Action.init(paletteEntry:)) }
     }
 
     /// The bar's places from the rows that the places feed keeps (a page's open maps no workspace), with
@@ -135,7 +126,7 @@ enum NewTabPage {
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).showingApp(services.settings?.snapshot.newTabApp).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+        ).showingApp(services.settings?.snapshot.newTabApp).showingClock(services.settings?.snapshot.newTabClock).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
     }
@@ -148,7 +139,7 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).showingApp(services.settings?.snapshot.newTabApp).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+        ).showingApp(services.settings?.snapshot.newTabApp).showingClock(services.settings?.snapshot.newTabClock).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
             .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
     }
 
@@ -182,12 +173,14 @@ enum NewTabPage {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
                 }.value
             },
-            action: { [weak services] id in
-                // As the palette runs its row: an action that needs arguments asks for them there.
-                services?.palette.runCommand(ActionID(rawValue: id), relativeTo: services?.windows.active?.window)
+            // As the palette runs its row: an action that needs arguments asks for them there. A row it refuses now (it cannot run, or its title changed) leaves the bar's list or changes in it: the actions are read again.
+            action: { [weak services] id, shown in
+                if let services, !services.palette.runCommand(ActionID(rawValue: id), shown: shown, relativeTo: services.windows.active?.window) { fillPaletteActions(services, again: true) }
             },
-            places: { [weak services] key in
-                guard let services, services.newTabPlaces.rows != nil else { return nil }
+            listsAtViewMake: { [weak services] key in
+                guard let services else { return nil }
+                fillPaletteActions(services)
+                guard services.newTabPlaces.rows != nil else { return nil }
                 return NewTabPage.places(services, excluding: key, current: services.workspaceID(ofTab: key))
             }
         )
@@ -238,8 +231,8 @@ extension PaneController {
         NewTabPage.open(in: self, seed: seed, reusingShown: reusingShown, then: then)
     }
 
-    /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field; in
-    /// an agent chat its composer; anywhere else a new New Tab page, whose field takes the keyboard
+    /// Focus Location Bar: a browser tab's address bar; on a New Tab page its own (React) field; in a
+    /// chat dock beside a browser that browser's address bar; in an agent chat its composer; anywhere else a new New Tab page, whose field takes the keyboard
     /// (cx-e2aa; Lawrence 2026-10-10: the New Tab page is React only, no native omnibar row). ⌃L
     /// stays the terminal's (clear screen).
     func focusLocation(_ invocation: ActionInvocation) {
@@ -252,6 +245,15 @@ extension PaneController {
             bar.focusLocation()
             return
         }
+        // A docked chat (Home's Chief dock) has no address bar: the browser beside it (focused last, else first) takes Cmd-L.
+        if let workspace, let beside = workspace.workspace.screens.lazy.compactMap({ $0.panesBeside(dockedChat: self.pane.handle) }).first,
+           let browser = (workspace.recentPanes.compactMap { workspace.panes[$0] } + beside.compactMap { workspace.pane(for: $0.handle) }).first(where: { pane in
+               guard case .browser? = pane.currentContent else { return false }
+               return beside.contains { $0.handle == pane.pane.handle } }), let window = services.windowController(showing: browser) {
+            window.focus.send(.focusPane(browser.paneKey, source: .intent))
+            window.focus.send(.focusTarget(.addressBar, source: .intent))
+            return
+        }
         // An agent chat: its composer takes the keyboard, not a new New Tab page beside it.
         if case .agent(let view) = currentContent, view.model.newTab == nil {
             view.focusComposer()
@@ -260,28 +262,5 @@ extension PaneController {
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
         // of another machine it is the same page; nothing starts there before a send (cx-k21v).
         NewTabPage.open(in: self, seed: nil, reusingShown: true)
-    }
-}
-
-extension AgentPaneNewTab {
-    /// The page with Integrate a harness off when it was dismissed for good.
-    func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
-        var page = self
-        page.harnessHintDismissed = dismissed ? true : nil
-        return page
-    }
-
-    /// The page with the project of the chat the person last picked and started, if any.
-    func startingIn(_ startedProject: String?) -> AgentPaneNewTab {
-        var page = self
-        page.startedProject = startedProject
-        return page
-    }
-
-    /// The page with All chats left out (recent chats only) when Show All Chats on New Tab is off.
-    func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
-        var page = self
-        page.allChats = shown ? nil : false
-        return page
     }
 }

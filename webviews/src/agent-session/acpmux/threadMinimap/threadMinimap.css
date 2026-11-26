@@ -38,6 +38,13 @@
   will-change: transform;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
+/* A selection drag that began in the text (ThreadMinimap.tsx textPress): the rail and its strip take
+   no pointer until it ends, so a drag along the pane edge keeps selecting and never reveals, widens or
+   captures the rail (Leo, 2026-11-22: "a lot of awkwardness when you try to e.g. copy text along this area"). */
+.acpmux-minimap__rail[data-text-press],
+.acpmux-minimap__strip[data-text-press] {
+  pointer-events: none !important;
+}
 .acpmux-minimap__strip {
   position: absolute;
   left: 0;
@@ -66,6 +73,7 @@
    transcript at its ends. Its scrollbar is hidden in both engines, so the transcript's shared one is
    the only one on screen (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -85,7 +93,7 @@
   display: none;
 }
 /* A rail longer than its room fades at an edge with more rows past it: 2.5rem, less in a short rail
-   (--acpmux-minimap-fade, model.ts railFade), and never over the prompts on screen (railFades). Each
+   (--acpmux-minimap-fade, model.ts railFade), and clear of the highlighted prompts when following the transcript. Each
    edge deepens as the list leaves that end (--acpmux-minimap-fade-*-reach, 0 to 1, model.ts
    railFadeReach): none at the very top or bottom, so the ticks roll under the edge like a wheel. The
    reaches do not inherit, so a scroll's new reach restyles the list and none of its ticks. */
@@ -372,19 +380,15 @@
   isolation: isolate;
   will-change: transform;
   box-sizing: border-box;
-  /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
-     none clears it through --acpmux-minimap-rim. Glass, the popover level as the chat's other hover
-     cards (the link preview, a session's card; glass.css GLASS LEVELS), never an opaque fill (Leo
-     2026-10-21). Reduce Transparency turns the fill into the solid popup surface (below) and the blur
-     off (pages/shared/desktop.css). */
-  padding: var(--ds-space-2);
+  /* A hover card (PreviewCard.tsx: .ui-card.ui-glass): the one hover card glass of every other card
+     in the chat (the link preview, a session's card; glass.css GLASS LEVELS), its fill, frost, rim,
+     elevation and its text floor, never a recipe of its own (Leo, 2026-11-20: "WHERE IS THE GLASS
+     EVERYWHERE ALL THESE STUPID F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"). It drew the older
+     popover level by hand before. appearance.borders none clears the glass rim; Reduce Transparency
+     makes the fill the solid popup surface (--glass-opaque). */
+  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--surface-popup, var(--acpmux-minimap-card));
   border-radius: var(--ds-radius-xl);
-  background: color-mix(in srgb, var(--glass-surface, var(--acpmux-minimap-base)) var(--ds-glass-popover-tint), transparent);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
-    var(--elevation-2);
   color: var(--agent-text);
   font: var(--text-body) / var(--text-body--line-height) var(--font-ui);
   letter-spacing: var(--text-body--letter-spacing);
@@ -392,13 +396,17 @@
   cursor: default;
 }
 /* Reduce Transparency: the solid popup surface. */
-:root[data-reduce-transparency] .acpmux-minimap__card {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-minimap__card {
   background: var(--surface-popup, var(--acpmux-minimap-card));
 }
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-minimap__card {
     background: var(--surface-popup, var(--acpmux-minimap-card));
   }
+}
+/* Its insets over desktop.css's .ui-card ones, whichever sheet loads last. */
+.acpmux-minimap__card.ui-card {
+  padding: var(--ds-space-2);
 }
 /* The sender of another session's message, above its words: secondary text, one line. */
 .acpmux-minimap__from {
@@ -572,7 +580,7 @@
     --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
   }
 }
-:root[data-reduce-transparency] .acpmux-row .cv-user__bubble {
+:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-row .cv-user__bubble {
   --acpmux-landing-highlight: color-mix(in srgb, var(--agent-text) 22%, var(--glass-surface));
 }
 /* The full-height map (ScrollMap.tsx): marks sit where their messages are in the chat. A prompt's
@@ -675,4 +683,98 @@
 .acpmux-minimap__rail[data-side="right"] .acpmux-minimap__list,
 .acpmux-scrollmap[data-side="right"] {
   transform: scaleX(-1);
+}
+
+/* Increase Contrast: a resting tick is the muted ink at full strength (3:1 or more on every theme's
+   ground, test/control-contrast-N.test.ts), so the rail reads without a pointer on it. The lit and
+   bookmarked ticks keep their own steps over it, in the text ink. */
+@media (prefers-contrast: more) {
+  .acpmux-minimap__tick[data-tone="rest"] .acpmux-minimap__bar,
+  .acpmux-minimap__tick[data-tone="rest"] .acpmux-minimap__dot {
+    opacity: 1;
+  }
+}
+/* What the rail shows (railShow.ts; Leo, 2026-11-21: "why cant you see an agents'? why cant you filter
+   it? customize it immediately?"). The agent's replies draw by replies.experiment.ts's arm. `lens`, the
+   default, draws them as every other tick: one column, one x, one width at rest (the rule above), and
+   the head control names the list. `ruler` draws them as minor ticks, shorter and a step dimmer, between
+   the prompts they answer. `lanes` sets them in an inner lane, 8 px in. */
+.acpmux-minimap__rail[data-replies-look="ruler"] .acpmux-minimap__tick[data-reply] .acpmux-minimap__bar {
+  width: 14px;
+}
+.acpmux-minimap__rail[data-replies-look="ruler"] .acpmux-minimap__tick[data-reply][data-tone="rest"] .acpmux-minimap__bar {
+  opacity: 0.25;
+}
+.acpmux-minimap__rail[data-replies-look="lanes"] .acpmux-minimap__tick[data-reply] .acpmux-minimap__bar {
+  margin-inline-start: 8px;
+  width: 18px;
+}
+/* The head control (RailShowControl.tsx): the list's name in the rail's muted type, just above its
+   first row, on the rail's own edge. It draws while the pointer or focus is on the rail, or while a
+   choice other than every prompt is on, so a filtered rail always says so; it takes no room. */
+.acpmux-minimap__show {
+  position: absolute;
+  bottom: 100%;
+  inset-inline-start: 0;
+  margin-bottom: var(--ds-space-1);
+  padding: 0 var(--ds-space-1);
+  border: 0;
+  border-radius: var(--ds-space-1);
+  background: transparent;
+  color: var(--acpmux-minimap-rest);
+  font: inherit;
+  font-size: var(--text-caption);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--cmux-motion-micro) var(--cmux-ease-out);
+}
+.acpmux-minimap__rail[data-side="right"] .acpmux-minimap__show {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+}
+.acpmux-minimap__rail:is([data-hovering], :focus-within, [data-show]) .acpmux-minimap__show,
+.acpmux-minimap__show[data-popup-open] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.acpmux-minimap__rail[data-show]:not([data-hovering], :focus-within) .acpmux-minimap__show {
+  opacity: 0.6;
+}
+.acpmux-minimap__show:hover,
+.acpmux-minimap__show[data-popup-open] {
+  color: var(--acpmux-minimap-text);
+  background: var(--acpmux-minimap-card);
+}
+.acpmux-minimap__show:focus-visible {
+  outline: 1px solid var(--agent-focus-ring, var(--acpmux-minimap-text));
+}
+
+/* The transcript's New line, in the gap between rail ticks or at its height on the full map.
+   It occupies no slot and leaves scrolling, focus and prompt hit targets alone. */
+.acpmux-minimap__cutover {
+  position: absolute;
+  inset-inline-start: 0;
+  z-index: var(--layer-raised);
+  width: min(100%, var(--ds-space-3));
+  height: var(--acpmux-minimap-bar-height);
+  border-radius: var(--ds-space-1);
+  background: var(--cmux-app-accent, var(--agent-text));
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.acpmux-minimap__cutover[data-look="band"] {
+  width: 100%;
+  height: var(--ds-space-1);
+  opacity: 0.45;
+}
+.acpmux-minimap__cutover[data-look="dot"] {
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+}
+.acpmux-minimap__cutover[data-edge="start"] {
+  transform: none;
+}
+.acpmux-minimap__cutover[data-edge="end"] {
+  transform: translateY(-100%);
 }

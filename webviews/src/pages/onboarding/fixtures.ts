@@ -10,7 +10,11 @@ import type {
   ImportState,
   OnboardingFooter,
   OnboardingState,
+  MakeItYoursBackground,
+  MakeItYoursState,
 } from "./ops";
+import { agentFamily } from "../shared/signIn/ProviderReadiness";
+import type { ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 function svg(body: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">${body}</svg>`)}`;
@@ -129,6 +133,27 @@ export function agentsState(kind: AgentsFixture = "mixed"): OnboardingState {
     },
     importer: null,
     computerUse: null,
+  };
+}
+
+/** The agents step as a host with the in-place sign-in sends it: the daemon's `signInReadiness`
+ * and `signInAccounts` (shared/signIn/galleryFixtures.ts READINESS), and the agents it installs. */
+export function withReadiness(state: OnboardingState, fixture: ReadinessFixtureCase): OnboardingState {
+  const installing = fixture.installing ?? [];
+  const agents = state.agents && {
+    ...state.agents,
+    rows: state.agents.rows.map((row) => {
+      const family = agentFamily(row.id);
+      return family && installing.includes(family)
+        ? { ...row, install: { state: "installing" as const, step: "download" } }
+        : row;
+    }),
+  };
+  return {
+    ...state,
+    agents,
+    signInAccounts: fixture.accounts.map((account) => ({ ...account })),
+    signInReadiness: { providers: fixture.providers.map((provider) => ({ ...provider })) },
   };
 }
 
@@ -361,20 +386,30 @@ export function importState(kind: ImportFixture = "ready"): OnboardingState {
 
 // MARK: Computer Use
 
-export type ComputerUseFixture = "fresh" | "oneGranted" | "allGranted" | "helperFailed" | "off" | "unavailable";
+/** `finished`: the person's Allow got the last grant on (the done view); `confirmingCapture`: Screen
+ * Recording was just allowed here while Accessibility still waits (the Screenshots row's capture note). */
+export type ComputerUseFixture =
+  | "fresh"
+  | "oneGranted"
+  | "allGranted"
+  | "finished"
+  | "confirmingCapture"
+  | "helperFailed"
+  | "off"
+  | "unavailable";
 
 export function computerUseState(kind: ComputerUseFixture = "fresh"): OnboardingState {
+  const allOn = kind === "allGranted" || kind === "finished";
   const rows: ComputerUseState["rows"] = [
     {
       pane: "accessibility",
-      control:
-        kind === "oneGranted" || kind === "allGranted" ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
+      control: kind === "oneGranted" || allOn ? "done" : kind === "helperFailed" ? "hidden" : "allowPrimary",
       icon: accessibilityIcon,
     },
     {
       pane: "screenRecording",
       control:
-        kind === "allGranted"
+        allOn || kind === "confirmingCapture"
           ? "done"
           : kind === "helperFailed"
             ? "hidden"
@@ -386,13 +421,13 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
   ];
   return {
     step: "computerUse",
-    footer: footer({ primary: "done", primaryEnabled: kind === "allGranted" }),
+    footer: footer({ primary: "done", primaryEnabled: allOn }),
     agents: null,
     importer: null,
     computerUse: {
       helperIcon: kind === "unavailable" ? null : helperIcon,
       rows,
-      allGranted: kind === "allGranted",
+      allGranted: allOn,
       note:
         kind === "helperFailed"
           ? "helperFailed"
@@ -402,7 +437,59 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
               ? "unavailable"
               : null,
       showsRestart: kind === "helperFailed",
-      comebacks: kind === "oneGranted" ? 1 : 0,
+      comebacks: kind === "oneGranted" || kind === "confirmingCapture" ? 1 : kind === "finished" ? 2 : 0,
+      finished: kind === "finished",
+      confirmsCapture: kind === "confirmingCapture" || kind === "finished",
     },
+  };
+}
+
+// MARK: Make cmux Yours
+
+export type MakeItYoursFixture = "fresh" | "loading" | "terminal" | "picked";
+
+/** A painting stand-in: a dark sky over a hill, in `sky` and `hill`. */
+function painting(sky: string, hill: string): HostImage {
+  return {
+    template: false,
+    src: `data:image/svg+xml;utf8,${encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 100"><rect width="160" height="100" fill="${sky}"/><circle cx="118" cy="30" r="12" fill="#f3e3b5" opacity="0.8"/><path d="M0 72 Q40 48 80 66 T160 60 V100 H0z" fill="${hill}"/></svg>`, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+    )}`,
+  };
+}
+
+const BACKGROUNDS: MakeItYoursBackground[] = [
+  { id: "daily", name: "", preview: painting("#3b2a4a", "#1d1424") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  {
+    id: "friedrich-forest-moonlight",
+    name: "Forest in the Moonlight — Caspar David Friedrich",
+    preview: painting("#1f2b3a", "#0e151d"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  },
+  { id: "hogai-nio", name: "Nio — Kanō Hōgai", preview: painting("#5a4a32", "#2d2418") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  { id: "klee-fish-magic", name: "Fish Magic — Paul Klee", preview: painting("#14202a", "#2b4a52") }, // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  {
+    id: "rembrandt-storm-galilee",
+    name: "The Storm on the Sea of Galilee — Rembrandt",
+    preview: painting("#2c3236", "#151a1c"), // colour-allow: a gallery fixture's stand-in painting, never shipped UI
+  },
+];
+
+/** Make cmux Yours: as it opens on a new Mac (the recommended answers), while the previews read, after
+ * Terminal First, and after a person picked Compact and a painting. */
+export function makeItYoursState(kind: MakeItYoursFixture = "fresh"): OnboardingState {
+  const choices: MakeItYoursState = {
+    workStyle: kind === "terminal" ? "terminal" : "gui",
+    density: kind === "picked" ? "compact" : "standard",
+    background: kind === "picked" ? "friedrich-forest-moonlight" : null,
+    backgrounds: kind === "loading" ? [] : BACKGROUNDS,
+    loaded: kind !== "loading",
+  };
+  return {
+    step: "makeItYours",
+    footer: footer({ primary: "continue" }),
+    agents: null,
+    importer: null,
+    computerUse: null,
+    makeItYours: choices,
   };
 }

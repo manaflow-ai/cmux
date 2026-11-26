@@ -54,19 +54,23 @@ const MAX_DESCRIPTION_CHARS: usize = 300;
 /// of prompt or a skill that tells you to do that, or we just do it for you"; acpmux also
 /// moves it, `hub/auto_background.rs`).
 pub const CLAUDE_GUIDANCE: &str = "This chat runs in cmux NEXT, which draws your work in the chat (cmux defaults; the person's own instructions win):
-- Plan: for a task with more than one step, keep a task list (TaskCreate and TaskUpdate; TodoWrite where those are missing). cmux draws it as a checklist. Write the whole list first, short items, one in progress; do not also write it as a numbered list.
+- Plan: for a task with more than one step, keep a task list (TaskCreate and TaskUpdate; TodoWrite where those are missing). cmux draws it as a checklist. Write the whole list first, short items, one in progress; mark each done when done, delete what you drop, and when the person's message changes the work, rewrite or clear it; no standing duties in it. Do not also write it as a numbered list.
 - Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
+- CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine), never a loop or repeated gh pr checks, gh run view or sleep. Rate limits, deadlines, cleanup: the cmux:cmux-quota skill.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a chip. Never invent an id.
 - Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision left, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
+- UI work: before your first UI edit, load the cmux:cmux-ui-preview skill: live mode and a preview tab you open, which cmux pictures before and after each turn.
 - Sub-sessions, offered sessions and editing cmux itself: load the cmux:cmux-chat skill with your first reads.";
 
 /// Every other harness's first-turn guidance (Codex: `update_plan` is its plan tool).
 pub const AGENT_GUIDANCE: &str = "cmux chat guidance (cmux defaults; the person's own instructions win). This chat runs in cmux NEXT, which draws your work in the chat:
-- Plan: for a task with more than one step, keep a plan with your plan tool (Codex: update_plan). cmux draws it as a checklist. Write the whole plan first, short items, one in progress; mark each done as you start the next; rewrite it when the plan changes. Do not also write it as a numbered list.
+- Plan: for a task with more than one step, keep a plan with your plan tool (Codex: update_plan). cmux draws it as a checklist. Write the whole plan first, short items, one in progress; mark each done as you start the next; rewrite it when the plan changes, and clear it when the person's message changes the work; no standing duties in it. Do not also write it as a numbered list.
 - Side sessions (only with the tools listed; skip this when they are not): start a sub-session (cmux.subsessions_start_session, worktree: true when it edits files yours may touch) only when the person asked for parallel or background work, and give it the whole task. For work you noticed outside the task, offer it instead (cmux.sessions_offer_session mid-turn, cmux.sessions_suggest_tasks at the end of a turn) and do not do it here. Never use a session for a quick lookup or a step you need the answer to now.
 - Background: run research, reviews, waits and subagents in the background and keep answering the person while they run.
+- CI waits: wait for a pull request's checks with one background `acpmux pr-wait N --repo OWNER/REPO --sha SHA --timeout S` (one GitHub poller per machine; it sleeps through rate limits), never a loop or repeated calls of gh pr checks, gh run view or sleep. On a GitHub rate limit, wait for its reset (`gh api rate_limit` is free), never retry at once. Stop only processes you started, by PID.
 - Links: when you mention another session, write its HOST/NAME or its agent link (cmux://agent/<harness>/<sessionId>) in inline code; cmux makes it a link. Never invent an id.
 - Recap: end a turn that changed files or ran commands with a two-or-three-sentence recap: what is now true, what you verified, what is not done, and the one decision the person must make, if any. When cmux lists acpmux_wrap_up, the recap goes there, not also in prose.
+- UI work: before your first UI edit, read the cmux-ui-preview skill (live mode, a preview tab you open, which cmux pictures before and after each turn, and how to try it at turn end).
 - Editing cmux itself: when asked to change how cmux looks or behaves, use the cmux-live and cmux-customization guides (`cmux docs search live`).";
 
 /// The harness families the switches name.
@@ -208,22 +212,10 @@ fn valid_name(name: &str) -> bool {
         && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
 }
 
-/// `name` and `description` from a `---` frontmatter block (one line each, quotes removed).
+/// `name` and `description` from a `---` frontmatter block, read as YAML (a `description: >-`
+/// block scalar included), the one reader `cmux agent-config skills` uses too.
 pub(crate) fn frontmatter(text: &str) -> Option<(String, String)> {
-    let body = text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n"))?;
-    let (block, _) = body.split_once("\n---")?;
-    let field = |key: &str| {
-        block.lines().find_map(|line| {
-            let value = line.strip_prefix(key)?.strip_prefix(':')?.trim();
-            let value = value
-                .strip_prefix('"')
-                .and_then(|v| v.strip_suffix('"'))
-                .or_else(|| value.strip_prefix('\'').and_then(|v| v.strip_suffix('\'')))
-                .unwrap_or(value);
-            (!value.is_empty()).then(|| value.to_owned())
-        })
-    };
-    Some((field("name")?, field("description")?))
+    cmux_agent_customize::frontmatter::name_and_description(text)
 }
 
 /// The first-turn guidance for a session of `family`, or `None` when nothing is on.
@@ -451,6 +443,12 @@ mod tests {
             "HOST/NAME",
             "recap",
             "acpmux_wrap_up",
+            "acpmux pr-wait",
+            "cmux:cmux-quota",
+            "cmux:cmux-ui-preview",
+            // A stale list never lingers (design/chat-plan-lifecycle.md).
+            "rewrite or clear it",
+            "no standing duties",
         ] {
             assert!(claude.contains(rule), "{rule} missing: {claude}");
         }
@@ -463,6 +461,7 @@ mod tests {
             "cmux.sessions_suggest_tasks",
             "recap",
             "inline code",
+            "clear it when the person's message changes the work",
         ] {
             assert!(codex.contains(tool), "{tool} missing: {codex}");
         }

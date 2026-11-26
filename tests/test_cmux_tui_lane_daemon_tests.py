@@ -159,7 +159,7 @@ def check_preflight_retest():
            f"a feat-cmux-next publisher whose daemon tests are stuck: re-tested ({values.get('daemon_tested')!r}, {result.stderr.strip()[-300:]})")
 
 
-def run_policy(event, ref, message):
+def run_policy(event, ref, message, dispatch_daemon_tests=""):
     with tempfile.TemporaryDirectory() as tmp:
         git = ["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@example.com"]
         subprocess.run(["git", "init", "-q", tmp], check=True)
@@ -167,7 +167,7 @@ def run_policy(event, ref, message):
         output = os.path.join(tmp, "github-output")
         open(output, "w").close()
         env = git_fixture_env.fixture_env({"PATH": os.environ["PATH"], "HOME": tmp, "GITHUB_OUTPUT": output,
-               "EVENT_NAME": event, "REF": ref})
+               "EVENT_NAME": event, "REF": ref, "DISPATCH_DAEMON_TESTS": dispatch_daemon_tests})
         result = subprocess.run(["bash", "-c", policy_step()], cwd=tmp, env=env,
                                 capture_output=True, text=True)
         if result.returncode != 0:
@@ -193,11 +193,35 @@ def main():
     for event, ref, message, want, why in cases:
         got = run_policy(event, ref, message)
         _check(got == want, f"{why}: {event} {ref} -> {got!r}, want {want!r}")
+    # A tree-only dispatch (the hot verify rust look) skips them; an explicit true, or a push, does not read it.
+    for event, flag, want, why in [
+        ("workflow_dispatch", "false", "false", "a tree-only dispatch (daemon_tests=false) skips the daemon tests"),
+        ("workflow_dispatch", "true", "true", "a dispatch with daemon_tests=true runs them"),
+        ("push", "false", "true", "only a dispatch reads daemon_tests"),
+    ]:
+        ref = "refs/heads/codex/some-lane" if event == "workflow_dispatch" else "refs/heads/feat-cmux-next"
+        got = run_policy(event, ref, plain, flag)
+        _check(got == want, f"{why}: {event} {ref} daemon_tests={flag} -> {got!r}, want {want!r}")
+
+    with open(os.path.join(ROOT, ".github", "workflows", "cmux-next-hot-verify.yml"), encoding="utf-8") as handle:
+        hot_verify = handle.read()
+    _check('gh workflow run cmux-tui-artifacts.yml --repo "$GITHUB_REPOSITORY" --ref "$branch" -f daemon_tests=false'
+           in hot_verify, "the hot verify rust look asks for the tree only")
 
     all_jobs = jobs()
     preflight = all_jobs["tree-preflight"]
     _check(preflight["outputs"].get("daemon_tests") == "${{ steps.daemon-policy.outputs.daemon_tests }}",
            "tree-preflight exports daemon_tests")
+    _check(preflight["outputs"].get("reuse_key") == "${{ steps.reuse-key.outputs.key }}",
+           "tree-preflight exports the same-input reuse key")
+    _check(preflight["outputs"].get("reuse_hit") == "${{ steps.reuse.outputs.hit }}",
+           "tree-preflight exports the same-input reuse hit")
+    reuse_steps = {step.get("id"): step for step in preflight["steps"]}
+    _check({"reuse-key", "reuse"} <= set(reuse_steps),
+           "tree-preflight fingerprints and looks up the same-input pass")
+    for name in ("build-linux", "build-machine-channel-x86_64", "build-machine-channel", "build", "build-windows", "build-darwin-fallback", "cmux-next-daemon-tests"):
+        _check("needs.tree-preflight.outputs.reuse_hit != 'true'" in str(all_jobs[name].get("if", "")),
+               f"{name} skips all work when the same-input pass is reused")
 
     daemon_if = str(all_jobs["cmux-next-daemon-tests"]["if"])
     _check(daemon_if.count("needs.tree-preflight.outputs.daemon_tests == 'true'") >= 2,

@@ -84,9 +84,9 @@ public final class HomeChiefHomes {
 /// Start Queued Agent Now's refusals (Resources/Home.xcstrings).
 nonisolated enum HomeChiefHomesStrings {
     static var notQueued: String {
-        String(localized: "home.startQueuedAgent.notQueued", defaultValue: "That agent is not waiting in the Chief’s queue.", table: "Home", bundle: .module)
+        String(localized: "home.startQueuedAgent.notQueued", defaultValue: "That agent is not waiting in the Chief’s queue.", table: "Home", bundle: .localizedModule)
     }
     static var noChiefHome: String {
-        String(localized: "home.startQueuedAgent.noChiefHome", defaultValue: "Start Queued Agent Now works in a Chief’s Home", table: "Home", bundle: .module)
+        String(localized: "home.startQueuedAgent.noChiefHome", defaultValue: "Start Queued Agent Now works in a Chief’s Home", table: "Home", bundle: .localizedModule)
     }
 }

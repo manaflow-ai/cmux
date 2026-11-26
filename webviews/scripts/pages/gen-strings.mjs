@@ -15,6 +15,7 @@
 //   node scripts/pages/gen-strings.mjs --if-stale     # only pages whose inputs are newer (test preload)
 //   node scripts/pages/gen-strings.mjs --check        # fail when a written table differs
 //   node scripts/pages/gen-strings.mjs settings       # only the named pages
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -69,15 +70,15 @@ export function schemaKeys(schemaFile) {
 
 // Page -> output and catalogs. `keys(catalogKeys)` picks the keys the page uses (all by default).
 export const PAGES = {
-  "import-history": {
-    out: "webviews/src/pages/import-history/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/import-history/Localizable.xcstrings" }],
-  },
   // The onboarding tool window (Agents, Import from Browsers, Computer Use): the page's own table,
   // its keys and translations the Swift steps' (CmuxNextOnboarding) it replaces.
   onboarding: {
     out: "webviews/src/pages/onboarding/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/onboarding/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/pages/onboarding/Localizable.xcstrings" },
+      // The provider readiness rows' sign-in (logins done right): the shared sign-in card's keys.
+      { file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" },
+    ],
   },
   gallery: {
     out: "webviews/src/gallery/generated/strings.json",
@@ -111,6 +112,11 @@ export const PAGES = {
   pageErrors: {
     out: "webviews/src/pages/shared/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/shared/Localizable.xcstrings" }],
+  },
+  // The device sign-in card and account list (Settings > Accounts, onboarding): their own table.
+  signIn: {
+    out: "webviews/src/pages/shared/signIn/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" }],
   },
   variantPick: {
     out: "webviews/src/ui/variant-pick/generated/strings.json",
@@ -153,6 +159,10 @@ export const PAGES = {
         keys: () => ["action.reloadConfiguration"],
       },
       {
+        file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
+        keys: () => ["action.remote.newGroup"],
+      },
+      {
         // Agents > Chiefs (u2586) draws the channels Home's Chief editor (ChiefPage.tsx).
         file: "webviews/src/pages/home-channels/Localizable.xcstrings",
         keys: (all) =>
@@ -173,15 +183,55 @@ export const PAGES = {
         file: `${sources}/CmuxNextActions/RemoteActions.xcstrings`,
         keys: () => ["action.device.add"],
       },
+      // Settings > Accounts' device sign-in and account list (logins done right).
+      { file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" },
     ],
   },
   history: {
     out: "webviews/src/pages/history/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/history/Localizable.xcstrings" }],
   },
+  terminalHistory: {
+    out: "webviews/src/pages/terminal-history/generated/strings.json",
+    catalogs: [
+      { file: "webviews/src/pages/terminal-history/Localizable.xcstrings" },
+      {
+        file: `${sources}/CmuxNextApp/Resources/Localizable.xcstrings`,
+        keys: () => ["terminalHistory.tab"],
+      },
+      {
+        file: `${sources}/CmuxNextAgentPane/Resources/Localizable.xcstrings`,
+        keys: () => ["terminalHistory.unavailable"],
+      },
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: () => [
+          "files.searching",
+          "find.next",
+          "find.noResults",
+          "find.placeholder",
+          "find.previous",
+          "inbox.earlier",
+          "ledger.total.tools",
+          "message.more",
+          "subagents.empty.title",
+          "transcript.agent",
+          "transcript.jumpLatest",
+          "transcript.loading",
+          "transcript.loadingOlder",
+          "transcript.you",
+        ],
+      },
+    ],
+  },
   stash: {
     out: "webviews/src/pages/stash/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
+  },
+  // The Forum page (the team's hosted agent forum; behind experiments.forum).
+  forum: {
+    out: "webviews/src/pages/forum/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/forum/Localizable.xcstrings" }],
   },
   // The Feed page (plans/cmux-next/feed-page.md): its table moved next to it when the Swift Feed
   // module was deleted (the same keys and values), with the refusal toast's `toast.dismiss`.
@@ -266,35 +316,17 @@ export const PAGES = {
     out: "webviews/src/pages/cloud-progress/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/cloud-progress/Localizable.xcstrings" }],
   },
-  // The Mobile Pairing page shares its table with its Swift provider (`mobilePairing.page.` keys).
-  "mobile-pairing": {
-    out: "webviews/src/pages/mobile-pairing/generated/strings.json",
-    catalogs: [
-      {
-        file: `${sources}/CmuxNextApp/Resources/MobilePairing.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("mobilePairing.page.")),
-      },
-    ],
-  },
-  // The server cards (cmux-page://cmux.server-cards/) share the tables of the Swift they replaced:
-  // Pair Another Machine's own, and the server surfaces' (which Pair Another Machine reuses).
+  // The server page (cmux-page://cmux.server-cards/): the menu bar popover's routes. Every card (Add Server, Pair
+  // Another Machine, Add Machine, app health) is native (AddServerDialog, PairInviteDialog, AddMachineDialog).
   "server-cards": {
     out: "webviews/src/pages/server-cards/generated/strings.json",
     catalogs: [
-      { file: `${sources}/CmuxNextServer/Resources/PairInvite.xcstrings` },
-      // Add Machine's card shares its table with the Machines section (`addMachine.` keys only).
-      {
-        file: `${sources}/CmuxNextServer/Resources/AddMachine.xcstrings`,
-        keys: (all) => all.filter((key) => key.startsWith("addMachine.")),
-      },
-      // The server surfaces' own table (the menu bar panel, Health, pairing, Add Server); the app's
-      // refusals (`refusal.*`) stay native.
+      // The server surfaces' own table (the menu bar panel, Health, pairing); the app's refusals (`refusal.*`) and
+      // Add Server's words (`approver.*`) stay native.
       {
         file: `${sources}/CmuxNextServer/Resources/Localizable.xcstrings`,
-        keys: (all) => all.filter((key) => !key.startsWith("refusal.")),
+        keys: (all) => all.filter((key) => !key.startsWith("refusal.") && !key.startsWith("approver.")),
       },
-      // App health's popover (`#/app-health`, webviews/src/app-health), hosted as Health is.
-      { file: "webviews/src/app-health/Localizable.xcstrings" },
     ],
   },
   // The right sidebar's Machines section (cmux-page://cmux.machines/) shares the Swift card's table:
@@ -367,30 +399,10 @@ export const PAGES = {
     out: "webviews/src/pages/home-channels/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/home-channels/Localizable.xcstrings" }],
   },
-  // The cards drawn in a Home chat (home-messages/cards: agent pills, link previews, MCP connect,
-  // first run, header toggles), with the Swift keys they replace; their table lives next to them.
-  "home-messages-cards": {
-    out: "webviews/src/pages/home-messages/cards/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-messages/cards/Localizable.xcstrings" }],
-  },
-  // The Messages transcript and composer (home-messages/transcript): the Swift transcript's keys, so
-  // their translations carry over. The parts it reuses from Channels read Channels' table beside it.
-  "home-messages-transcript": {
-    out: "webviews/src/pages/home-messages/transcript/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-messages/transcript/Localizable.xcstrings" }],
-  },
-  // The docked Home's Messages page (cmux-page://cmux.home-messages/): its own table next to it (the
-  // native list's `home.*` and `sidebar.*` keys), and the Channels page's connect strings for the
-  // daemon gate it shares.
-  "home-messages": {
-    out: "webviews/src/pages/home-messages/generated/strings.json",
-    catalogs: [
-      { file: "webviews/src/pages/home-messages/Localizable.xcstrings" },
-      {
-        file: "webviews/src/pages/home-channels/Localizable.xcstrings",
-        keys: (all) => all.filter((key) => key.startsWith("connect.")),
-      },
-    ],
+  // Home's Set Up cmux card (setup-card), with the Swift keys it replaces; its table lives next to it.
+  "setup-card": {
+    out: "webviews/src/pages/setup-card/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/setup-card/Localizable.xcstrings" }],
   },
   // The agent pane's rows the channels Home reuses for agent runs (tool calls, shell blocks,
   // diffs, Markdown): only their keys, installed as the pane's table (agent-session/acpmux/i18n.ts).
@@ -456,6 +468,19 @@ export const PAGES = {
       },
     ],
   },
+  // Settings > Agents > Harnesses draws the agent pane's plan usage card under each account
+  // (ProviderAccounts.tsx, acpmux/PlanUsageCard.tsx), which reads the pane's table; the page installs
+  // only its `planUsage.` keys (settings/paneStrings.ts). Without them the shipped page showed the
+  // raw keys (planUsage.window.session) in every account's usage.
+  "settings-pane": {
+    out: "webviews/src/pages/settings/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("planUsage.")),
+      },
+    ],
+  },
   // The icon picker (cmux-page://cmux.icon-picker/) has no Swift page; its table lives next to it.
   "icon-picker": {
     out: "webviews/src/pages/icon-picker/generated/strings.json",
@@ -492,12 +517,6 @@ export const PAGES = {
   viewerEmpty: {
     out: "webviews/src/viewer-empty/generated/strings.json",
     catalogs: [{ file: "webviews/src/viewer-empty/Localizable.xcstrings" }],
-  },
-  // The Messages page's sheets and New Message (home-messages/sheets), keyed as the Swift
-  // CmuxNextHome catalog they replace; the page's own table takes this catalog when it lands.
-  "home-messages-sheets": {
-    out: "webviews/src/pages/home-messages/sheets/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/home-messages/sheets/Localizable.xcstrings" }],
   },
 };
 
@@ -610,18 +629,23 @@ const mtime = (file) => {
  * branch carries a copy that a merge can make stale. `bestEffort` still writes a page whose
  * catalogs miss translations (install must not fail on a half-translated branch; the tests and the
  * builds run strict). `ifStale` skips a page whose outputs are all newer than its inputs.
+ * `ifUnchanged` skips a page whose stamp (stampFile) says its outputs on disk are the ones this
+ * script made from these exact inputs, by content, not by time: a restored output cache can leave
+ * an old table newer than its inputs, which `ifStale` would keep.
  * Returns the number of failed pages.
  */
 export function writeStrings({
   check = false,
   bestEffort = false,
   ifStale = false,
+  ifUnchanged = false,
   only = [],
   log = console.error,
 } = {}) {
   let failed = 0;
   for (const [name, page] of Object.entries(PAGES)) {
     if (only.length && !only.includes(name)) continue;
+    if (ifUnchanged && !check && stampCurrent(name, page)) continue;
     if (ifStale && !check) {
       const target = path.join(repo, page.out);
       const outs = page.splitLocales
@@ -650,7 +674,8 @@ export function writeStrings({
       failed++;
       if (!bestEffort || check) continue;
     }
-    for (const [file, content] of outputsOf(page, json)) {
+    const outputs = outputsOf(page, json);
+    for (const [file, content] of outputs) {
       if (check) {
         const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
         if (current !== content) {
@@ -673,6 +698,83 @@ export function writeStrings({
         fs.utimesSync(file, now, now);
       }
     }
+    if (!check) writeStamp(name, page, outputs);
+  }
+  return failed;
+}
+
+/**
+ * Where writeStrings records what a page's outputs were made from: webviews/node_modules/.cache,
+ * outside src/ so no dev server watches it. No node_modules (before an install): no stamp, and
+ * `ifUnchanged` writes the page as before.
+ */
+const stampFile = (name) => path.join(webviews, "node_modules", ".cache", "gen-strings", `${name}.json`);
+
+/** sha256 over each file's path and bytes; null when one is missing. */
+function digest(files, read = (file) => fs.readFileSync(file)) {
+  const hash = crypto.createHash("sha256");
+  try {
+    for (const file of files)
+      hash
+        .update(`${path.relative(repo, file)}\0`)
+        .update(read(file))
+        .update("\0");
+  } catch {
+    return null;
+  }
+  return hash.digest("hex");
+}
+
+/** Whether `page`'s stamp names these inputs and the outputs now on disk. */
+function stampCurrent(name, page) {
+  let stamp;
+  try {
+    stamp = JSON.parse(fs.readFileSync(stampFile(name), "utf8"));
+  } catch {
+    return false;
+  }
+  if (!stamp?.inputs || !Array.isArray(stamp.outputs) || stamp.inputs !== digest(inputsOf(page))) return false;
+  const outputs = digest(stamp.outputs.map((file) => path.join(repo, file)));
+  return outputs !== null && outputs === stamp.digest;
+}
+
+/** Records that `outputs` (file -> content, now on disk) are what this script makes from `page`'s inputs. */
+function writeStamp(name, page, outputs) {
+  if (!fs.existsSync(path.join(webviews, "node_modules"))) return;
+  const inputs = digest(inputsOf(page));
+  if (!inputs) return;
+  const files = [...outputs.keys()];
+  const stamp = {
+    inputs,
+    outputs: files.map((file) => path.relative(repo, file)),
+    digest: digest(files, (file) => outputs.get(file)),
+  };
+  // Written then renamed, as the tables are: test processes run the preload in parallel.
+  try {
+    const file = stampFile(name);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const temp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(temp, `${JSON.stringify(stamp)}\n`);
+    fs.renameSync(temp, file);
+  } catch {}
+}
+
+/** Writes the pane and acpmux protocol types; true when a generator failed. */
+async function writeProtocols() {
+  const scripts = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+  if (process.versions.bun) {
+    const { writePaneProtocol } = await import("../pane-protocol-codegen.ts");
+    const { writeAcpmuxProtocol } = await import("../acpmux-protocol-codegen.ts");
+    writePaneProtocol({ log: () => {} });
+    writeAcpmuxProtocol({ log: () => {} });
+    return false;
+  }
+  const { spawnSync } = await import("node:child_process");
+  let failed = false;
+  for (const script of ["pane-protocol-codegen.ts", "acpmux-protocol-codegen.ts"]) {
+    const run = spawnSync("bun", [path.join(scripts, script)], { stdio: ["ignore", "ignore", "inherit"] });
+    if (run.error?.code === "ENOENT") return false;
+    failed ||= run.status !== 0;
   }
   return failed;
 }
@@ -686,6 +788,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // The design scale's Tailwind theme and token list are build output too (gen-design-scale.mjs).
   const { writeDesignScale } = await import("./gen-design-scale.mjs");
   const scaleFailed = writeDesignScale({ check, log: () => {} });
+  // The pane and acpmux protocol types are build output too (pane-protocol-codegen.ts,
+  // acpmux-protocol-codegen.ts), written only where they changed. Bun imports them; under node
+  // (their imports carry no extension) bun runs them, skipped when no bun is installed.
+  const protocolFailed = check ? false : await writeProtocols();
   const bestEffort = process.argv.includes("--best-effort") || (!check && process.env.CMUX_STRINGS_BEST_EFFORT === "1");
   const failed = writeStrings({
     check,
@@ -693,5 +799,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ifStale: process.argv.includes("--if-stale"),
     only: process.argv.slice(2).filter((arg) => !arg.startsWith("--")),
   });
-  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed ? 1 : 0);
+  process.exit((failed && !bestEffort) || tipsFailed || scaleFailed || protocolFailed ? 1 : 0);
 }

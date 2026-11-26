@@ -24,21 +24,87 @@ export function emptySnapshot(): AcpmuxSnapshot {
 /// grew with the chat: it is written at most every SNAPSHOT_SAVE_MS, and at once as the page hides
 /// or unloads, so a reload still finds the latest one.
 const SNAPSHOT_SAVE_MS = 250;
+/// The copy is a first paint: the rows in view and a margin, until the client's own page replaces
+/// them. Writing the whole transcript cost time and bytes that grew with the chat (20,000 rows were
+/// 5 MB, past sessionStorage's quota, so the write failed and a stale copy stayed): it keeps the
+/// newest SAVED_ROWS rows, within SAVED_BYTES, and a cut copy says older history is left.
+export const SAVED_ROWS = 200;
+export const SAVED_BYTES = 1024 * 1024;
+/// One saved snapshot per view (paneView.ts): the chats sharing one pane document each keep their own, so a
+/// reload paints each chat's own last rows. The page's own snapshot (no view) keeps the key it always had.
+export function snapshotKey(view: string | null = null): string {
+  return view === null ? "cmux.acpmux.snapshot" : `cmux.acpmux.snapshot.view.${view}`;
+}
 const snapshotSave: {
-  next?: AcpmuxSnapshot;
+  next: Map<string | null, AcpmuxSnapshot>;
   timer?: ReturnType<typeof setTimeout>;
   hooked?: boolean;
-} = {};
-function writeSnapshot(): void {
+  /// Every view whose copy this page saved or read (the page's own, `null`, always): `clearSnapshot` removes each.
+  views: Set<string | null>;
+} = { next: new Map(), views: new Set([null]) };
+/// The pages `clearSnapshot` dropped: each keeps no copy until it loads again. Held per page (its `window`), not
+/// in this module: a module outlives the page in a test run (one module cache for every file, each with its own
+/// document), and one file's dropped page must not stop the next file's saves.
+const droppedPages = new WeakSet<object>();
+function thisPage(): object {
+  return typeof window === "undefined" ? globalThis : window;
+}
+/// The copy of `snapshot` with its newest `count` rows. The prompt index (`earlierPrompts`) stays
+/// out: typed arrays do not survive JSON, and a reload reads it again.
+function savedCopy(snapshot: AcpmuxSnapshot, count: number): string {
+  const cut = snapshot.rows.length > count;
+  return JSON.stringify({
+    ...snapshot,
+    rows: cut ? snapshot.rows.slice(-count) : snapshot.rows,
+    earlierPrompts: undefined,
+    sessions: savedSessions(snapshot),
+    ...(cut ? { canLoadOlder: true, historyFrom: undefined } : {}),
+  });
+}
+/// Writes every pending snapshot now (the page hiding does this; tests call it instead of waiting the debounce).
+export function writeSnapshot(): void {
   clearTimeout(snapshotSave.timer);
   snapshotSave.timer = undefined;
-  const next = snapshotSave.next;
-  snapshotSave.next = undefined;
-  if (!next) return;
+  const pending = [...snapshotSave.next];
+  snapshotSave.next.clear();
+  for (const [view, next] of pending) writeOne(snapshotKey(view), next);
+}
+function writeOne(key: string, next: AcpmuxSnapshot): void {
+  // Fewer rows until the copy fits the byte bound, then the store's quota; one chat's pasted text
+  // can make a few rows large. A copy that fits nowhere is removed: a stale one would paint a chat
+  // that has moved on.
+  for (let count = SAVED_ROWS; ; count = Math.floor(count / 4)) {
+    try {
+      const value = savedCopy(next, count);
+      if (value.length > SAVED_BYTES && count > 0) continue;
+      sessionStorage.setItem(key, value);
+      return;
+    } catch {
+      // Storage full: try a smaller tail.
+    }
+    if (count === 0) break;
+  }
   try {
-    sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify({ ...next, sessions: savedSessions(next) }));
+    sessionStorage.removeItem(key);
   } catch {
-    // Painting remains live when storage is unavailable or full.
+    // Painting remains live when storage is unavailable.
+  }
+}
+
+/// Drops the reload copies (the page's and each view's) and any write still pending, and keeps none
+/// for the rest of this page, so the next load starts empty and draws from its live client
+/// (PaneBoundary: a copy holding the rows that threw would fail the same way).
+export function clearSnapshot(): void {
+  droppedPages.add(thisPage());
+  clearTimeout(snapshotSave.timer);
+  snapshotSave.timer = undefined;
+  snapshotSave.next.clear();
+  for (const view of snapshotSave.views) {
+    try {
+      sessionStorage.removeItem(snapshotKey(view));
+    } catch {
+      // Storage that is unavailable holds no copy to repaint.
+    }
   }
 }
 
@@ -96,8 +162,10 @@ export function savedSessions(snapshot: AcpmuxSnapshot): AcpmuxSessionEntry[] {
   Object.assign(savedList, { sessions, shown, saved });
   return saved;
 }
-export function saveSnapshot(next: AcpmuxSnapshot): void {
-  snapshotSave.next = next;
+export function saveSnapshot(next: AcpmuxSnapshot, view: string | null = null): void {
+  if (droppedPages.has(thisPage())) return;
+  snapshotSave.views.add(view);
+  snapshotSave.next.set(view, next);
   if (!snapshotSave.hooked && typeof window !== "undefined") {
     snapshotSave.hooked = true;
     window.addEventListener("pagehide", writeSnapshot);
@@ -106,16 +174,20 @@ export function saveSnapshot(next: AcpmuxSnapshot): void {
   snapshotSave.timer ??= setTimeout(writeSnapshot, SNAPSHOT_SAVE_MS);
 }
 
-export function cachedSnapshot(): AcpmuxSnapshot {
+export function cachedSnapshot(view: string | null = null): AcpmuxSnapshot {
   try {
-    const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
+    snapshotSave.views.add(view);
+    const value = JSON.parse(sessionStorage.getItem(snapshotKey(view)) ?? "null");
     if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
       acpmuxPerf.markAgent("snapshotPaint");
       // `connection`, `drewKeptTail`, `chatRead` and `turnsEnded` are facts about a live client, and this one is
-      // restored: no client has drawn anything yet, so this document's first paint is its own to report.
+      // restored: no client has drawn anything yet, so this document's first paint is its own to report. The prompt
+      // index is never restored: a copy saved by an older build holds it as rows, not columns, and a client reads
+      // it again.
       return {
         ...emptySnapshot(),
         ...value,
+        earlierPrompts: undefined,
         connection: "connecting",
         drewKeptTail: undefined,
         chatRead: undefined,
