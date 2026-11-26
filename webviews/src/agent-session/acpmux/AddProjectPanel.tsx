@@ -1,4 +1,4 @@
-import { keycapLegend } from "../../ui/keycapLegend";
+import { KeyHint } from "../../ui/KeyHint";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
@@ -287,23 +287,23 @@ export function AddProjectPanel({
                 disabled={!directory || loading || !!error}
                 onClick={add}
               >
-                {t("project.addFolder")} <kbd>{keycapLegend("⌘↩")}</kbd>
+                {t("project.addFolder")} <KeyHint keys="⌘↩" />
               </button>
             </>
           )}
         </div>
         <div className="acpmux-add-project-footer">
           <span>
-            <kbd>↑↓</kbd> {t("project.navigate")}
+            <KeyHint keys="↑↓" /> {t("project.navigate")}
           </span>
           <span>
-            <kbd>{keycapLegend("↩")}</kbd> {t("project.select")}
+            <KeyHint keys="↩" /> {t("project.select")}
           </span>
           <span>
-            <kbd>⌥←</kbd> {t("project.back")}
+            <KeyHint keys="⌥←" /> {t("project.back")}
           </span>
           <span>
-            <kbd>{t("project.escape")}</kbd> {t("project.close")}
+            <KeyHint keys={t("project.escape")} /> {t("project.close")}
           </span>
         </div>
       </div>

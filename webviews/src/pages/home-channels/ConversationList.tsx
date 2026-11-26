@@ -17,6 +17,7 @@ import { activityAt, chiefState, conversationName, isUnread, listOrder, type Chi
 import { chiefBackendChip, type HomeChief, type HomeConversation, type HomeParticipant } from "./types";
 import { intl } from "../../ui/intl";
 import { useLasting } from "../../ui/lasting";
+import { KeyHint } from "../../ui/KeyHint";
 
 /** Where the list shows New Cloud Machine: a labeled row under the search field (`row`, the page's),
  * an icon in the header beside New Message and New Chief (`header`), or a labeled row at the foot of
@@ -161,7 +162,7 @@ export function ConversationList({
       <button type="button" className="lg-search" onClick={onOpenPalette}>
         <HomeIcon name="search" size={14} />
         <span>{t("list.search")}</span>
-        <kbd>⌘K</kbd>
+        <KeyHint keys="⌘K" />
       </button>
       {cloudRow("row")}
       {cloudError && cloudLasting && (
