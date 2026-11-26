@@ -51,7 +51,13 @@ env:
 concurrency:
   # Adding dev-build gets its own group, so a later label event cannot replace
   # the pending run that asks for the dogfood build.
-  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}
+  # A dispatch (main's full suite, ci-main-full-suite.yml) gets a group of its
+  # own too. GitHub keeps one pending run per group and cancels it when a newer
+  # one queues, even with cancel-in-progress off, so two gates that each missed
+  # the other's still-pending run cancelled main's full suite before it started
+  # a job: 45844217549, 45845203890 and 45845498645 on 2026-11-26, and no full
+  # run finished from 11:15Z on.
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
   # A label-only rerun can escalate the same head to full-ci. Let the current
   # compile finish and publish its app-host product so the queued run can reuse
   # it instead of throwing away a long compile and starting from zero.
@@ -761,10 +767,12 @@ jobs:
         if: ((github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(env.CI_OWNED_HEAD_REPOS), github.event.pull_request.head.repo.full_name)) || github.event_name == 'workflow_dispatch') && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '') && steps.route-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -792,10 +800,12 @@ jobs:
         if: (steps.route-token.outcome == 'failure') && steps.route-token-repo-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
 
       # The glaeda-route App installation's budget around the reads below (a free
@@ -1123,10 +1133,12 @@ jobs:
         if: ((steps.inputs.outputs.fingerprint != '' && steps.suite.outputs.full_suite == 'false' && (steps.suite.outputs.unit_suite != 'true' || steps.suite.outputs.unit_canary == 'true') && steps.unchanged_inputs.outputs.compile_admitted != 'true') && vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)) && steps.admitted-read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: read
           permission-pull-requests: read
           skip-token-revoke: true
@@ -1576,6 +1588,7 @@ jobs:
     # ci-macos.yml's admission-placement and late-placement read the runners with it.
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
 
   linux-preflight:
     name: linux-preflight
