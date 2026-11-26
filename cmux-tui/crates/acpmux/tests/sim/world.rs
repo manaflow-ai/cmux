@@ -35,88 +35,8 @@ thread_local! {
 pub fn left_alive() -> (usize, usize) {
     HUBS.with(|h| {
         let hubs = std::mem::take(&mut *h.borrow_mut());
-        let strong: Vec<usize> = hubs.iter().map(|w| w.strong_count()).collect();
-        if std::env::var_os("SIM_LEAK_TRACE").is_some() {
-            for w in &hubs {
-                if let Some(hub) = w.upgrade() {
-                    eprintln!("leak hub: {}", hub.sim_leak_probe());
-                }
-            }
-        }
-        if std::env::var_os("SIM_LEAK_TRACE").is_some() {
-            eprintln!(
-                "leak strong {strong:?} daemon futures {} dropped {}; sentinels spawned {} dropped {}",
-                LOCAL_MADE.load(std::sync::atomic::Ordering::SeqCst),
-                LOCAL_DROPPED.load(std::sync::atomic::Ordering::SeqCst),
-                SENT_MADE.load(std::sync::atomic::Ordering::SeqCst),
-                SENT_DROPPED.load(std::sync::atomic::Ordering::SeqCst)
-            );
-        }
         (hubs.iter().filter(|w| w.strong_count() > 0).count(), hubs.len())
     })
-}
-/// SIM_LEAK_TRACE: which stage of a hub's life leaves it alive once its runtime is gone.
-pub fn probe() {
-    let alive = |w: &std::sync::Weak<Hub>| w.strong_count();
-    let a = {
-        let hub = Hub::new(config(), Box::new(SimStore(Arc::new(Disk::default()))));
-        Arc::downgrade(&hub)
-    };
-    let rt = || tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    let b = {
-        let r = rt();
-        let w = r.block_on(async {
-            let hub = Hub::new(config(), Box::new(SimStore(Arc::new(Disk::default()))));
-            Arc::downgrade(&hub)
-        });
-        drop(r);
-        w
-    };
-    let c = {
-        let r = rt();
-        let w = r.block_on(async {
-            let hub = Hub::new(config(), Box::new(SimStore(Arc::new(Disk::default()))));
-            hub.sim_startup().await;
-            Arc::downgrade(&hub)
-        });
-        drop(r);
-        w
-    };
-    let d = {
-        let r = rt();
-        let w = r.block_on(async {
-            let hub = Hub::new(config(), Box::new(SimStore(Arc::new(Disk::default()))));
-            let _ = hub.person.install_spawn_key(app::PERSON_KEY);
-            hub.sim_startup().await;
-            tokio::time::sleep(Duration::from_secs(2)).await;
-            Arc::downgrade(&hub)
-        });
-        drop(r);
-        w
-    };
-    eprintln!(
-        "leak probe: no runtime {} built in runtime {} +sim_startup {} +spawn key and 2 s {}",
-        alive(&a),
-        alive(&b),
-        alive(&c),
-        alive(&d)
-    );
-}
-static SENT_MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-static SENT_DROPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-static LOCAL_MADE: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-static LOCAL_DROPPED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-struct LocalSentinel;
-impl Drop for LocalSentinel {
-    fn drop(&mut self) {
-        LOCAL_DROPPED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    }
-}
-struct Sentinel;
-impl Drop for Sentinel {
-    fn drop(&mut self) {
-        SENT_DROPPED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    }
 }
 const TICK: Duration = Duration::from_millis(10);
 
@@ -248,17 +168,9 @@ fn config() -> Config {
 /// The daemon: a hub over the disk, its restore in the background, and every connection the
 /// app opens served by the real protocol handler.
 async fn daemon(disk: Arc<Disk>, agents: Arc<Agents>, incarnation: u64) -> turmoil::Result {
-    LOCAL_MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let _local = LocalSentinel;
     acpmux::sim_agent::install(agents.factory(incarnation));
     let hub = Hub::new(config(), Box::new(SimStore(disk)));
     HUBS.with(|h| h.borrow_mut().push(Arc::downgrade(&hub)));
-    SENT_MADE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let sentinel = Sentinel;
-    tokio::spawn(async move {
-        let _s = sentinel;
-        std::future::pending::<()>().await
-    });
     let _ = hub.person.install_spawn_key(app::PERSON_KEY);
     {
         let hub = hub.clone();
