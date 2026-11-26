@@ -162,6 +162,7 @@ BROWSER_PROOF_REPLY = f"{BROWSER_PROOF_MARKER} title=Example Domain h1=Example D
 FOLDER_PROOF_FILE = "cmux-folder-proof.txt"
 FOLDER_PROOF_WORD = f"folder{secrets.token_hex(6)}"
 FOLDER_PROOF_DIR = None
+FOLDER_TRUSTED = False
 if args.from_folder and not args.cleanup_machine:
     FOLDER_PROOF_DIR = os.path.realpath(tempfile.mkdtemp(prefix="cmux-proof-folder-"))
     Path(FOLDER_PROOF_DIR, FOLDER_PROOF_FILE).write_text(FOLDER_PROOF_WORD + "\n", encoding="utf-8")
@@ -288,6 +289,10 @@ def finish(result: str) -> None:
         record("remove claude connection", code, "", err)
         if code != 0 and result == "pass":
             result = "fail: claude connection not removed"
+    if FOLDER_TRUSTED:
+        # Forget the run's trust record while the app's daemon still answers, so an owned Mac keeps none.
+        code, out, err = cmux("setup", "trust", FOLDER_PROOF_DIR, "--level", "unknown", timeout=60)
+        record("forget proof folder trust", code, out, err)
     if app_launcher is not None:
         # Quit only the bundle this proof identified, then wait for the open -W helper we started.
         # Its exit is the launch service's completion event, not a fixed sleep between backends.
@@ -941,6 +946,14 @@ if START_LOGIN:
         record("cloud start-chat takes no --login (dropped)", 0, "", "")
         evidence["claude_login"]["login"] = None
         START_LOGIN = ()
+# A Cloud start refuses a folder this Mac doesn't trust (#41079), and the proof's folder is a new temp
+# directory, so the proof trusts it the person's way first (run 45750166181 failed on that refusal).
+if FOLDER_PROOF_DIR:
+    code, out, err = cmux("setup", "trust", FOLDER_PROOF_DIR, "--level", "trusted", timeout=60)
+    record("trust proof folder", code, out, err)
+    if code != 0:
+        finish("fail: trust proof folder")
+    FOLDER_TRUSTED = True
 chat_started = time.monotonic()
 chat_deadline = chat_started + 600
 while True:  # bounded: the same start-chat again while its machine is still being made
