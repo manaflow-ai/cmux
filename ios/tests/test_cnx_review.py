@@ -2288,6 +2288,9 @@ try_script_mode() {{ echo try; }}; try_get_app || echo "fail=$TRY_FAIL"''', {'CM
         verdict = flow[flow.index('  verdict:'):]
         self.assertIn("needs.build-ahead.outputs.outcome == 'built'", verdict)
         self.assertIn('[[ "$OUTCOME" == built ]]', verdict)
+        # The gateway's hook admits only build-ahead; the verdict job there was refused red at 7df749d8.
+        self.assertNotIn('CI_EVAL_STEP_GATEWAY', verdict)
+        self.assertIn("'cmux-linux'", verdict)
         fleet = flow[:flow.index('  verdict:')]
         self.assertEqual(fleet.count('outcome=built'), 1)
         self.assertIn('if [[ "$state" == done ]]; then echo "outcome=built"', fleet)

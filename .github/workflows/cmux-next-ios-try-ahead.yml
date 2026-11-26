@@ -111,8 +111,9 @@ jobs:
     name: cmux Dev try build (ahead)
     needs: build-ahead
     if: ${{ !cancelled() && (needs.build-ahead.outputs.outcome == 'built' || needs.build-ahead.outputs.outcome == 'failed') }}
-    # The gateway that just ran the fleet job: no second runner pool to wait on.
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
+    # Not the gateway: its job-started hook admits only listed thin cmux-ci jobs (build-ahead here) and refused
+    # this one at 7df749d8 (19:52Z), red after the device app built. The shared Linux label, as the other one-line jobs.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 2
     permissions: {}
     steps:
