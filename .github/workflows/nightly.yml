@@ -3243,6 +3243,12 @@ jobs:
     permissions:
       contents: read
       actions: read
+    # Self-hosted Linux runners may inherit a host Git config whose credential helper is unavailable
+    # after a runner image refresh. Keep checkout on its own authenticated GitHub URL instead of the
+    # broken host helper and URL rewrite. The checkout action still installs its token header locally.
+    env:
+      GIT_CONFIG_GLOBAL: ${{ runner.temp }}/nightly-resolver-gitconfig
+      GIT_CONFIG_NOSYSTEM: '1'
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 195 || 75 }}
     outputs:
       commit: ${{ steps.resume_source.outputs.build_sha || steps.resolve.outputs.commit }}
