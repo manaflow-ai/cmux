@@ -335,6 +335,13 @@ class CollectionTests(unittest.TestCase):
             sleep.assert_not_called()
 
 
+class DetailQuerySizeTests(unittest.TestCase):
+    def test_detail_query_is_small(self):
+        # Run 45858610960 (main) timed out on a 100-label/100-file query.
+        self.assertNotIn("first: 100", NOTES.PR_FIELDS)
+        self.assertLessEqual(NOTES.PR_DETAIL_BATCH, 10)
+
+
 class AppcastTests(unittest.TestCase):
     def write_feeds(self, directory, build="102"):
         for name in APPCASTS:

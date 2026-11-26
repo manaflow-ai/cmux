@@ -27,10 +27,10 @@ MERGED_PR_PAGES = 20
 UPDATED_SLACK = timedelta(hours=1)
 PR_PICK_FIELDS = "number mergedAt baseRefName mergeCommit { oid } updatedAt"
 PR_FIELDS = """number title url mergedAt baseRefName mergeCommit { oid }
-                labels(first: 100) { nodes { name } }
-                files(first: 100) { totalCount nodes { path } }"""
+                labels(first: 20) { nodes { name } }
+                files(first: 30) { totalCount nodes { path } }"""
 # PRs whose details one query reads.
-PR_DETAIL_BATCH = 50
+PR_DETAIL_BATCH = 10
 
 
 class TransientGitHubError(RuntimeError):
