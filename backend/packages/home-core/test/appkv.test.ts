@@ -65,6 +65,30 @@ describe("appkv domain (storage:synced)", () => {
     expect(h.state.revision).toBe(1)
   })
 
+  it("compares nested object values independent of field order while preserving array order", () => {
+    const h = host()
+    h.run(mac, "appkv.set", { app: "notes", key: "k", value: { a: { x: 1, y: 2 }, b: [1, 2] } }, "1")
+    const same = h.run(phone, "appkv.set", { app: "notes", key: "k", value: { b: [1, 2], a: { y: 2, x: 1 } } }, "2")
+    expect(same.ok && same.changed).toBe(false)
+    expect(h.state.revision).toBe(1)
+    h.run(phone, "appkv.set", { app: "notes", key: "k", value: { b: [2, 1], a: { y: 2, x: 1 } } }, "3")
+    expect(h.state.revision).toBe(2)
+  })
+
+  it("rejects malformed Unicode before hashing instead of overwriting or deleting another key", () => {
+    const h = host()
+    h.run(mac, "appkv.set", { app: "a", key: "\ufffd", value: "keep" }, "seed")
+    for (const bad of ["\ud800", "\udfff", "x\ud800y"]) {
+      for (const op of ["appkv.set", "appkv.delete"]) {
+        expect(h.run(mac, op, { app: "a", key: bad, value: 1 }, `${op}-key-${bad}`)).toMatchObject({ ok: false, code: "validation.invalid" })
+        expect(h.run(mac, op, { app: bad, key: "k", value: 1 }, `${op}-app-${bad}`)).toMatchObject({ ok: false, code: "validation.invalid" })
+      }
+    }
+    expect(rows(h)).toEqual([expect.objectContaining({ key: "\ufffd", value: "keep" })])
+    expect(h.run(mac, "appkv.set", { app: "\ud83d\udcdd", key: "\ud83d\udd11", value: 1 }, "paired").ok).toBe(true)
+    expect(h.run(mac, "appkv.set", { app: "a\u0085", key: "k", value: 1 }, "control")).toMatchObject({ ok: false, code: "validation.invalid" })
+  })
+
   it("refuses another user, system principals and unknown ops", () => {
     const h = host()
     expect(h.run(bob, "appkv.set", { app: "a", key: "k", value: 1 }, "b")).toMatchObject({ ok: false, code: "auth.forbidden" })

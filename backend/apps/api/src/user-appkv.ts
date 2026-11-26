@@ -18,10 +18,11 @@ export const readAppKvOp = (stream: SecondaryStream<appkv.AppKvHead>, entity: st
   if (op !== "appkv.list") return { ok: false, code: "validation.invalid", message: `unknown appkv read ${op}` }
   const after = params.after_revision
   if (after !== undefined && (typeof after !== "number" || !Number.isSafeInteger(after) || after < 0)) return { ok: false, code: "validation.invalid", message: "after_revision must be a revision" }
-  const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(Math.floor(params.limit), appkv.APPKV_PAGE_LIMIT) : appkv.APPKV_PAGE_LIMIT
+  if (params.limit !== undefined && (typeof params.limit !== "number" || !Number.isSafeInteger(params.limit) || params.limit < 1 || params.limit > appkv.APPKV_PAGE_LIMIT)) return { ok: false, code: "validation.invalid", message: `limit must be an integer from 1 to ${appkv.APPKV_PAGE_LIMIT}` }
+  const limit = (params.limit as number | undefined) ?? appkv.APPKV_PAGE_LIMIT
   const engine = stream.open(entity)
   const rows = engine.rows.range<appkv.AppKvRow>(appkv.TABLE_ITEM, { after: (after as number | undefined) ?? 0, limit: limit + 1 }).map((r) => r.row)
   const page = rows.slice(0, limit)
   const more = rows.length > limit
-  return { ok: true, value: { rows: page, next_after_revision: more ? page[page.length - 1]!.revision : null }, revision: String(engine.currentSeq) }
+  return { ok: true, value: { revision: String(engine.currentSeq), rows: page, next_after_revision: more ? page[page.length - 1]!.revision : null }, revision: String(engine.currentSeq) }
 }

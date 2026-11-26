@@ -84,7 +84,7 @@ export class UserDO extends OwnerDO<UserState> {
       engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 }, redact: { privateTables: homeInbox.INBOX_PRIVATE_TABLES } },
       owns: (op) => op.startsWith("inbox."),
       // A chief token (principal.agent) never reads the owner's inbox: it holds the owner's DM previews (cx-59n8.11).
-      maySubscribe: (_head, principal, entity) => principal.user === entity && principal.agent === undefined && !isMachineInstallKind(principal.install_kind) && !(principal.install !== undefined && isMachineInstallKind(this.existing()?.currentState.installs[principal.install]?.kind))
+      maySubscribe: (_head, principal, entity) => principal.user === entity && principal.agent === undefined && !isMachineInstallKind(principal.install_kind) && !(principal.install !== undefined && isMachineInstallKind(this.existing()?.currentState.installs[principal.install]?.kind)) && inboxRefusalFor(this.existing()!.currentState, entity, principal, "inbox.list") === undefined
     }, (ws, a) => this.socketLive(ws, a))
     this.appkv = new SecondaryStream(ctx, this.sqlStore, {
       prefix: "appkv",

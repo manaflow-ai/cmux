@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest"
+import { env } from "cloudflare:workers"
+import { runInDurableObject as runIn } from "cloudflare:test"
+import { Schema } from "effect"
+import { AppKvList } from "../../../packages/protocol/src/ops-appkv.ts"
 import { callOp, callRead, makeTenant, mintInstallToken, succeeded, worker, type Tenant } from "./setup/tenant.ts"
 
 /**
@@ -66,6 +70,9 @@ describe("synced app storage (appkv) through the Worker", { timeout: 60_000 }, (
     expect(succeeded(page), page.raw).toBe(true)
     expect(page.body.value.rows).toEqual([expect.objectContaining({ app: "cmux/todo", key: "item:1", value: { title: "milk", done: true }, revision: 2 })])
     expect(page.body.value.next_after_revision).toBeNull()
+    expect(page.body.stream).toBe(`appkv:${alice.user}`)
+    expect(page.body.value.revision).toBe(page.body.revision)
+    expect(Schema.is(AppKvList.result)(page.body.value)).toBe(true)
 
     // A delete removes the row on both devices.
     expect(succeeded(await callOp(phone.token, "appkv.delete", { app: "cmux/todo", key: "item:1" }))).toBe(true)
@@ -116,6 +123,41 @@ describe("synced app storage (appkv) through the Worker", { timeout: 60_000 }, (
     expect(sock.frames.some((f) => f.t === "snapshot" && f.stream === `appkv:${t.user}`)).toBe(false)
     expect(JSON.stringify(sock.frames)).not.toContain(t.canary)
     sock.ws.close()
+  })
+
+  it.each(["removed", "narrowed"])("an already subscribed install stops reading after its access is %s", async (change) => {
+    const t = await makeTenant(`appkv-${change}`, "mac")
+    const sock = await openSocket(t.installToken, t.user)
+    const userEnv = env as unknown as { USER_DO: DurableObjectNamespace }
+    const stub = userEnv.USER_DO.get(userEnv.USER_DO.idFromName(t.user))
+    const runInside = runIn as unknown as <T>(stub: unknown, fn: (instance: any) => Promise<T>) => Promise<T>
+    await runInside(stub, async (instance) => {
+      // Registration eviction drops the install and grant; narrowing keeps the install but drops read.
+      const state = instance.boundEngine.currentState
+      const grant = state.installs[t.install].grant
+      if (change === "removed") {
+        delete state.installs[t.install]
+        delete state.grants[grant]
+      } else state.grants[grant].op_classes = ["mutate-own"]
+    })
+    expect(succeeded(await set(t.session, { app: "notes", key: "secret", value: t.canary }))).toBe(true)
+    sock.ws.send(JSON.stringify({ t: "snapshot.request", stream: `appkv:${t.user}` }))
+    // The refusal is a socket-order barrier after the write: no timing-based negative assertion.
+    await sock.until(() => sock.frames.some((f) => f.t === "error" && f.code === "auth.forbidden"))
+    expect(sock.frames.filter((f) => f.t === "snapshot")).toHaveLength(1)
+    expect(sock.frames.some((f) => f.t === "event")).toBe(false)
+    expect(JSON.stringify(sock.frames)).not.toContain(t.canary)
+    sock.ws.close()
+  })
+
+  it("pages rows with the declared stream and revision, and rejects fractional limits", async () => {
+    const t = await makeTenant("appkv-pages", "mac")
+    for (const key of ["a", "b"]) expect(succeeded(await set(t.session, { app: "notes", key, value: key }))).toBe(true)
+    const first = await callRead(t.session, "appkv.list", { limit: 1 })
+    expect(first.body.value).toMatchObject({ rows: [expect.objectContaining({ key: "a" })], next_after_revision: 1, revision: "2" })
+    const second = await callRead(t.session, "appkv.list", { limit: 1, after_revision: first.body.value.next_after_revision })
+    expect(second.body.value).toMatchObject({ rows: [expect.objectContaining({ key: "b" })], next_after_revision: null, revision: "2" })
+    expect(succeeded(await callRead(t.session, "appkv.list", { limit: 0.5 }))).toBe(false)
   })
 
   it("a retry with the same idempotency key replays; limits answer app.limit", async () => {

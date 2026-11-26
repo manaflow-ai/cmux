@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { canonicalJson } from "@cmux/ownership"
 import type { Domain, Principal, Reject, ReduceResult, RowWrite } from "../conversation/engine-types.ts"
 import { rowsOf } from "../conversation/engine-types.ts"
 
@@ -56,9 +57,11 @@ export const utf8Bytes = (s: string): number => encoder.encode(s).length
 export const appKvRowKey = (app: string, key: string): string => createHash("sha256").update(app).update("\u0000").update(key).digest("base64url")
 
 // eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0000-\u001f\u007f]/
-const validApp = (app: unknown): app is string => typeof app === "string" && app.length > 0 && utf8Bytes(app) <= APPKV_MAX_APP_ID_BYTES && !CONTROL.test(app)
-const validKey = (key: unknown): key is string => typeof key === "string" && key.length > 0 && utf8Bytes(key) <= APPKV_MAX_KEY_BYTES
+const CONTROL = /\p{Cc}/u
+// UTF-8 replaces unpaired surrogates, which would alias a distinct replacement-character key.
+const wellFormed = (value: string): boolean => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value)
+const validApp = (app: unknown): app is string => typeof app === "string" && app.length > 0 && wellFormed(app) && utf8Bytes(app) <= APPKV_MAX_APP_ID_BYTES && !CONTROL.test(app)
+const validKey = (key: unknown): key is string => typeof key === "string" && key.length > 0 && wellFormed(key) && utf8Bytes(key) <= APPKV_MAX_KEY_BYTES
 
 const refuse = (code: string, message: string): ReduceResult<AppKvHead> => ({ ok: false, code, message })
 
@@ -121,7 +124,7 @@ export const makeAppKvDomain = (gate: (principal: Principal, op: string) => Reje
     if (utf8Bytes(text) > APPKV_MAX_VALUE_BYTES) return refuse("app.limit", "value is larger than 64 KiB")
     // Stored as parsed JSON, so the row holds exactly what the text says (no undefined fields).
     const value = JSON.parse(text) as unknown
-    if (current && serialized(current.value) === text) return { ok: true, state: head, value: current, changed: false }
+    if (current && canonicalJson(current.value) === canonicalJson(value)) return { ok: true, state: head, value: current, changed: false }
     if (!current && usageOf(head, app) === undefined && Object.keys(head.apps).length >= APPKV_MAX_APPS) return refuse("app.limit", `synced storage holds at most ${APPKV_MAX_APPS} apps`)
     const after = utf8Bytes(key) + utf8Bytes(text)
     const bytes = usage.bytes - before + after
@@ -133,6 +136,7 @@ export const makeAppKvDomain = (gate: (principal: Principal, op: string) => Reje
 })
 
 export interface AppKvPage {
+  readonly revision: string
   readonly rows: ReadonlyArray<AppKvRow>
   /** Pass as `after_revision` for the next page; null when this page is the last. */
   readonly next_after_revision: number | null

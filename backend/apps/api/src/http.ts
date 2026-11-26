@@ -120,7 +120,7 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
 
 /** The stream a read answers from (Home conversations are keyed by params, inbox reads by the user). */
 const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
-  op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
+  op.startsWith("appkv.") ? `appkv:${p.user}` : op.startsWith("inbox.") ? `inbox:${p.user}` : op === "home.requests.list" ? `requests:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
 
 /**
  * NEXT Cloud's ops (owner cloud:CloudDO) are cmux-platform's: platformForward (platform-forward.ts) sends every one of
