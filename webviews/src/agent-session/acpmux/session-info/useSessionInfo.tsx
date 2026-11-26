@@ -55,7 +55,6 @@ import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } fr
 import { chatOutputs, type OutputFile } from "./chatOutputs";
 import { producedLinks, type ProducedLink } from "./producedLinks";
 import { type ProcessRegistry, type SessionInfoProcess } from "./processes";
-import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
@@ -653,7 +652,6 @@ export type SessionInfoLists = {
   /// The pull requests, issues and commits the chat produced (producedLinks.ts).
   readonly produced: readonly ProducedLink[];
   readonly outputFiles: OutputFile[];
-  readonly scopedPlan: SessionInfoPlan | undefined;
   readonly artifacts: number;
   readonly documents: readonly OutputArtifact[];
   readonly agents: readonly Subagent[];
@@ -707,13 +705,6 @@ function useSessionInfoLists({
   // same files, so the sections need not read the rows for it.
   const outputFiles = useSameValue(
     useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
-  );
-  const scopedWorking = scopedAgent?.state === "running";
-  const scopedPlan = useSameValue(
-    useMemo(
-      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
-      [drawn, scopedAgent, rows, scopedWorking],
-    ),
   );
   // The chat's gallery, kept while it holds the same items (sameValue: each item's kind, key, source and
   // render call), so a replaced image or render with the same count is a new gallery, and a streamed
@@ -782,7 +773,6 @@ function useSessionInfoLists({
       links,
       produced,
       outputFiles,
-      scopedPlan,
       artifacts,
       documents,
       agents,
@@ -798,7 +788,6 @@ function useSessionInfoLists({
       links,
       produced,
       outputFiles,
-      scopedPlan,
       artifacts,
       documents,
       agents,
@@ -1197,7 +1186,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
     links,
     produced,
     outputFiles,
-    scopedPlan,
     artifacts,
     documents,
     agents,
@@ -1241,17 +1229,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rowCount, push, overflow, native]);
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
-  // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
-  // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
-  // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
-  // subagent's panel gets the parent's snapshot, so it never reads that one: its plan comes from its
-  // own live rows (useSessionInfoLists `scopedPlan`), so a step ticked in place shows here at once.
-  const live = snapshot.progress;
-  const livePlan = useMemo<SessionInfoPlan | undefined>(
-    () => (live ? { entries: live.plan, ended: Boolean(live.ended), done: live.completed } : undefined),
-    [live],
-  );
-  const plan = scope?.agent ? scopedPlan : drawn ? livePlan : undefined;
   const views = subagents?.views;
   const asks = subagents?.asks;
   // Environment's Changes: the folder's git changes, read as the panel shows and at each turn's end.
@@ -1399,7 +1376,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           backLabel={scope ? subagentBackLabel(t, scope.parent) : undefined}
           summary={summary}
           usage={usage}
-          plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
           place={place}
@@ -1496,7 +1472,6 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         rows={sectionRows}
         outputFiles={outputFiles}
         produced={produced}
-        plan={plan}
         toolCalls={toolCalls}
         agents={agents}
         waiting={waiting}
