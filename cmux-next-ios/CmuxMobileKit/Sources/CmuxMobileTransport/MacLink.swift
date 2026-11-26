@@ -285,8 +285,8 @@ extension LinkError: LocalizedError {
             return (reason: "the Mac isn't reachable on your tailnet",
                     sentence: "Your Mac isn't reachable on your tailnet. Make sure both devices are on the same tailnet and the Mac is awake.")
         case LinkError.tailscaleNoAnswer:
-            return (reason: "the Mac didn't answer over Tailscale",
-                    sentence: "Your Mac didn't answer over Tailscale. Update cmux on your Mac, or make sure it's awake.")
+            return (reason: "the Mac's cmux can't take Tailscale Only yet",
+                    sentence: "Your Mac can't take a Tailscale Only connection yet. Update cmux on your Mac and make sure it's awake, then try again.")
         case LinkError.tailscaleUnsupported:
             return (reason: "Tailscale Only isn't available yet",
                     sentence: "The cmux service doesn't support Tailscale Only yet. Turn it off in Settings → Transport for now.")

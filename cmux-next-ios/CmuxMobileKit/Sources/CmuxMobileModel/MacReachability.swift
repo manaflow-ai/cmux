@@ -139,7 +139,7 @@ public enum MacReachability: Equatable, Sendable {
         case .tailscale(.phoneOff): "Tailscale is off on this iPhone"
         case .tailscale(.macOff): "Tailscale is off on the Mac"
         case .tailscale(.unreachable): "Not reachable on your tailnet"
-        case .tailscale(.noAnswer): "Didn't answer over Tailscale"
+        case .tailscale(.noAnswer): "Mac needs a cmux update for Tailscale"
         case .tailscale(.unsupported): "Tailscale Only unavailable"
         }
     }
@@ -161,7 +161,7 @@ public enum MacReachability: Equatable, Sendable {
         case .tailscale(.phoneOff): "Tailscale isn't connected on this iPhone"
         case .tailscale(.macOff): "Tailscale isn't running on \(macName)"
         case .tailscale(.unreachable): "\(macName) isn't reachable on your tailnet"
-        case .tailscale(.noAnswer): "\(macName) didn't answer over Tailscale"
+        case .tailscale(.noAnswer): "Update cmux on \(macName) for Tailscale Only"
         case .tailscale(.unsupported): "Tailscale Only isn't available yet"
         }
     }
@@ -197,7 +197,7 @@ public enum MacReachability: Equatable, Sendable {
         case .tailscale(.unreachable):
             "\(macName) is on a tailnet, but this iPhone couldn't reach it there. Make sure both are on the same tailnet and the Mac is awake, then retry."
         case .tailscale(.noAnswer):
-            "\(macName) didn't answer a Tailscale Only connection. Update cmux on the Mac, or make sure it's awake, then retry."
+            "\(macName) can't take a Tailscale Only connection yet. Update cmux on the Mac and make sure it's awake, then retry."
         case .tailscale(.unsupported):
             "The cmux service can't set up Tailscale Only connections yet. Choose WireGuard in Settings → Transport for now."
         }
@@ -218,7 +218,8 @@ public enum MacReachability: Equatable, Sendable {
         case .phoneOffline: "iPhone offline"
         case .tailscale(.phoneOff): "Tailscale off"
         case .tailscale(.macOff): "Tailscale off on Mac"
-        case .tailscale(.unreachable), .tailscale(.noAnswer): "Not on tailnet"
+        case .tailscale(.unreachable): "Not on tailnet"
+        case .tailscale(.noAnswer): "Mac needs cmux update"
         case .tailscale(.unsupported): "Tailscale unavailable"
         }
     }
