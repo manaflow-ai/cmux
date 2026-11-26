@@ -430,7 +430,7 @@ fn toml_has(table: &toml::Table, key: &str) -> bool {
 
 /// Whether `args` sets `key` with `-c key=…`, `-ckey=…`, `--config key=…` or
 /// `--config=key=…`.
-fn sets_codex_key(args: &[String], key: &str) -> bool {
+pub(crate) fn sets_codex_key(args: &[String], key: &str) -> bool {
     let sets = |value: &str| value.split_once('=').is_some_and(|(k, _)| k.trim() == key);
     args.iter().enumerate().any(|(i, a)| match a.as_str() {
         "-c" | "--config" => args.get(i + 1).is_some_and(|v| sets(v)),

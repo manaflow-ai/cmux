@@ -173,7 +173,7 @@ env:
 jobs:
   plan-build:
     name: select binary targets
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -189,7 +189,7 @@ jobs:
           BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
           DARWIN_BUILDER: ${{ inputs.darwin_builder }}
           MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-15' || fromJSON(vars.RUNNER_POOLS).macos_15)) }}
-          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+          LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404-arm' || fromJSON(vars.RUNNER_POOLS).linux_arm64)) }}
           VERIFY_LINUX_ARM64: ${{ inputs.verify_linux_arm64 }}
           LTO: ${{ inputs.lto }}
@@ -357,6 +357,25 @@ jobs:
       matrix: ${{ fromJSON(needs.plan-build.outputs.matrix) }}
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -373,7 +392,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ "$RUNNER_OS" = Linux ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
           bash scripts/ci/init-submodule.sh ghostty
           bash scripts/ci/init-submodule.sh ghostty-next
@@ -595,6 +617,27 @@ jobs:
           path: /home/runner/cmux-tui-fat-warm
           commit: on-change
 
+      # Pool runners mount no sticky disk but keep HOME across jobs, so the darwin cross leg keeps
+      # its warm target in the runner slot's own directory (scripts/ci/machine-channel-warm-target.sh
+      # pool-dir; bounded, and removed when the host runs short of disk). It built cold on every
+      # push before: 1475 s for the build step (job 139565194555). A recorded tree with the current
+      # toolchain stamp skips the R2 restore below; an unrecorded one is seeded from it.
+      - name: Locate the pool warm target (feat-cmux-next, fat, aarch64 macOS on Linux)
+        id: pool-warm-darwin
+        if: inputs.lto != 'thin' && matrix.darwin_on_linux && runner.os == 'Linux' && startsWith(runner.name, 'cmux-runner-pool-') && matrix.target == 'aarch64-apple-darwin' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+        continue-on-error: true
+        env:
+          WARM_TARGET: ${{ matrix.build_target }}
+          MACHINE_CHANNEL_WARM_TOOLCHAIN: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          disk="$(scripts/ci/machine-channel-warm-target.sh pool-dir "$WARM_TARGET")"
+          [[ -n "$disk" ]] || exit 0
+          hit="$(scripts/ci/machine-channel-warm-target.sh probe "$disk" "$WARM_TARGET")"
+          echo "pool warm target: $hit at $disk"
+          { echo "disk=$disk"; echo "hit=$([[ "$hit" == hit ]] && echo true || echo false)"; } >> "$GITHUB_OUTPUT"
+
       # Warm start for the Linux musl legs (.github/warm-sources.json: actions-cache):
       # dependency builds keyed by the toolchain and Cargo.lock, so a new commit
       # recompiles only the workspace crates (cmux-tui's group took 346 s cold,
@@ -620,7 +663,7 @@ jobs:
       # of a 22.6 min aarch64 leg in run 45443556021 (2026-11-24), which the channel point waits for.
       - name: Key the cargo build in R2
         id: r2-cargo-key
-        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && runner.os == 'Linux' && ((matrix.cross == true && !matrix.darwin_on_linux) || matrix.darwin_on_linux) && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success' && steps.fat-warm-darwin-aarch64.outcome != 'success' }}
+        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && runner.os == 'Linux' && ((matrix.cross == true && !matrix.darwin_on_linux) || matrix.darwin_on_linux) && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success' && steps.fat-warm-darwin-aarch64.outcome != 'success' && steps.pool-warm-darwin.outputs.hit != 'true' }}
         continue-on-error: true
         env:
           LEG: ${{ matrix.target }}-${{ inputs.lto }}
@@ -922,6 +965,10 @@ jobs:
           # so a change empties the disk (scripts/ci/machine-channel-warm-target.sh).
           MACHINE_CHANNEL_WARM_TOOLCHAIN: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**') }}
           WARM_TARGET: ${{ matrix.build_target }}
+          # A pool runner's own warm directory, else the sticky disk's mount point.
+          WARM_DISK: ${{ steps.pool-warm-darwin.outputs.disk || '/home/runner/cmux-tui-fat-warm' }}
+          # An exact R2 hit (its key holds the toolchain stamp) seeds a new pool tree as built.
+          MACHINE_CHANNEL_WARM_SEED_EXACT: ${{ steps.r2-cargo-target.outputs.cache-hit == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -930,8 +977,8 @@ jobs:
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
           # Start from the shipped legs' warm target (mounted on feat-cmux-next pushes only);
           # "Record the warm target", after "Stage binary", prunes and records it. Without a
-          # mounted disk restore does nothing.
-          ./scripts/ci/machine-channel-warm-target.sh restore /home/runner/cmux-tui-fat-warm "$WARM_TARGET" \
+          # mounted disk (or a pool runner's own directory) restore does nothing.
+          ./scripts/ci/machine-channel-warm-target.sh restore "$WARM_DISK" "$WARM_TARGET" \
             || echo "warning: warm target restore failed; building as is" >&2
           ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"
           bash tests/test_tailnet_cross_link.sh
@@ -1079,10 +1126,11 @@ jobs:
           DARWIN_ON_LINUX: ${{ matrix.darwin_on_linux }}
           # The stamp "Build the macOS binaries on Linux" restored against.
           DARWIN_TOOLCHAIN: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**') }}
+          POOL_DISK: ${{ steps.pool-warm-darwin.outputs.disk }}
         shell: bash
         run: |
           set -euo pipefail
-          disk=/home/runner/cmux-tui-fat-warm
+          disk=${POOL_DISK:-/home/runner/cmux-tui-fat-warm}
           [[ "$LTO" != thin || "$DARWIN_ON_LINUX" == true ]] || disk=/home/runner/machine-channel-warm
           [[ "$DARWIN_ON_LINUX" != true ]] || export MACHINE_CHANNEL_WARM_TOOLCHAIN="$DARWIN_TOOLCHAIN"
           scripts/ci/machine-channel-warm-target.sh record "$disk" "$WARM_TARGET" \
@@ -1248,6 +1296,25 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -1441,6 +1508,25 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -1500,7 +1586,7 @@ jobs:
         needs.build.result == 'success' &&
         (!inputs.include_windows || needs.build-windows.result == 'success')
       }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || inputs.nightly_runner && github.run_attempt == 1 && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -1509,6 +1595,25 @@ jobs:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
       - name: Checkout caller or requested ref
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+
+      # Pool runners' fetches from github.com stall ("Operation too slow. Less than 1 bytes/sec", "RPC
+      # failed; curl 28", a blob:none checkout's "could not fetch ... from promisor remote"), which
+      # actions/checkout's own fetch retries do not cover: owner run 45704131744 failed this way and its
+      # tree never published, so every deferred commit stayed refused. Retry once from a fresh .git;
+      # a healthy job checks out once, a second failure fails the job.
+      - name: Fresh .git after a stalled checkout
+        if: steps.checkout.outcome == 'failure'
+        shell: bash
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 20
+
+      - name: Retry checkout caller or requested ref after a stalled fetch
+        if: steps.checkout.outcome == 'failure'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.checkout_ref }}
@@ -1521,7 +1626,10 @@ jobs:
         run: |
           if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
             git sparse-checkout disable 2>/dev/null || true
-            git reset -q --hard HEAD
+            # No checkout ran (a skipped or failed one): nothing to repair, and no .git to reset.
+            if git rev-parse --git-dir >/dev/null 2>&1; then
+              git reset -q --hard HEAD
+            fi
           fi
 
       - name: Download darwin arm64 binary
