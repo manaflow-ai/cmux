@@ -72,6 +72,8 @@ impl Surface {
         let (replay, history_rows_omitted, history_rows_skipped) =
             window_replay_locked(&mut term, window)?;
         let (cols, rows) = (term.cols(), term.rows());
+        // Under the terminal lock, like the replay: the next output's offset.
+        let (_, stream_offset) = pty.snapshot_position.load();
         let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
         let colors = pty.terminal_colors_locked(&term, defaults);
         if exited || pty.dead.load(Ordering::Acquire) {
@@ -101,6 +103,7 @@ impl Surface {
             pending_sequence: replay.pending_sequence.into(),
             history_rows_omitted,
             history_rows_skipped,
+            stream_offset,
             stream,
             lifecycle,
             stamp,
