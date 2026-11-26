@@ -114,7 +114,7 @@ pub(super) fn kick_client(mux: &Arc<Mux>, client: u64, by: TerminalDetachActor) 
     // connection-wide marker first as well.
     let mut notice = json!({"event": "client-disconnected-by"});
     if !by.is_empty() {
-        notice["by"] = json!(by.clone());
+        notice.insert("by", json!(&by));
     }
     let kicked = disconnect_client_with_notice(
         mux,
