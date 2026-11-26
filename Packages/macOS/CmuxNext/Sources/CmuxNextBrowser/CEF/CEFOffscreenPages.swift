@@ -594,6 +594,10 @@ final class CEFOffscreenPageView: NSView, InTreePageContainer, NSTextInputClient
         !closed && window != nil && !isHiddenOrHasHiddenAncestor
     }
 
+    /// Whether this page has cmux's keyboard: it draws and its view is its window's first responder. Chromium's focus
+    /// follows it (`CEFRuntime.focusRequested`).
+    var hasTheKeyboard: Bool { isDrawing && window?.firstResponder === self }
+
 
     func close() {
         closed = true

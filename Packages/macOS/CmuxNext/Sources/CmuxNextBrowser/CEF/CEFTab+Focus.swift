@@ -32,8 +32,19 @@ let cefFocusRequestCallback: CEFShimLibrary.FocusRequestFn = { context, browser,
 extension CEFRuntime {
     /// Chromium asks to focus a page. Unknown browsers (a popup not adopted
     /// yet) are refused: only a tab cmux shows can be given focus.
+    ///
+    /// An off-screen page has Chromium's focus whenever its view is its window's first responder: Chromium's own ask for
+    /// it is allowed then. cmux's grant runs before the page's first navigation commits, and Chromium asks again around
+    /// that navigation; refused, the page lost Chromium's focus while its view kept the keyboard, and a press grants
+    /// nothing again, since the view has it already (other-Mac runs osr-func-4 to osr-func-6: no select popup; the
+    /// focus_log of in-tree run osr-func-9 shows the order: grant, ask refused with the page view first responder,
+    /// commit, document.hasFocus() false). It moves no window and no keys: the view has the keyboard already.
     func focusRequested(browser: Int32, source: Int32) -> Bool {
         let named = (CEFFocusSource(rawValue: source) ?? .system).name
+        if let page = offscreenPages.page(browser), page.hasTheKeyboard {
+            focusTrace.note(browser, "on_set_focus source=\(named) -> allowed (its view has the keyboard)", view: page)
+            return true
+        }
         guard let tab = tabsByBrowser[browser] else {
             focusTrace.note(browser, "on_set_focus source=\(named) -> refused (no tab)")
             return false
