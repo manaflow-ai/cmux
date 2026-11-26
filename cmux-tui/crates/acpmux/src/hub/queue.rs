@@ -449,12 +449,14 @@ impl Hub {
                     break waiting || gather || hold;
                 };
                 let withdraw = if waiting {
+                    // The admission loop released `admit`; enqueue reacquires it so a restore
+                    // cannot start between its final check and the durable queued record.
                     let (waits, position) = self
-                        .enqueue_or_refuse_admitted(session, &p, &turn_id, limits)
+                        .enqueue_or_refuse(session, &p, &turn_id, limits)
                         .inspect_err(|_| {
-                            super::digest::end_gather(session, &turn_id);
-                            super::person_hold::end(session, &turn_id);
-                        })?;
+                        super::digest::end_gather(session, &turn_id);
+                        super::person_hold::end(session, &turn_id);
+                    })?;
                     let mut accepted = json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position});
                     if awaiting_owner {
                         accepted.set("awaitingOwner", json!(true));
@@ -824,22 +826,6 @@ impl Hub {
         limits: QueueLimits,
     ) -> Result<(Waits, u64), Answer> {
         self.enqueue(session, p, turn_id, limits, false, |_, waits| waits).map_err(Err)
-    }
-
-    /// [`Self::enqueue_or_refuse`] when the caller already holds `session.admit`.
-    ///
-    /// `queue_slot` keeps that leaf lock across the admission check and queue insertion so a
-    /// second prompt cannot observe the first prompt before its queued reservation is durable.
-    /// Reacquiring it in `enqueue` would self-deadlock because `std::sync::Mutex` is not
-    /// reentrant.
-    pub(super) fn enqueue_or_refuse_admitted(
-        &self,
-        session: &Arc<Session>,
-        p: &Slot<'_>,
-        turn_id: &str,
-        limits: QueueLimits,
-    ) -> Result<(Waits, u64), Answer> {
-        self.enqueue_admitted(session, p, turn_id, limits, false, |_, waits| waits).map_err(Err)
     }
 
     /// Why the chat takes no new prompt now, if it takes none: [`Self::queue_slot`] and a
