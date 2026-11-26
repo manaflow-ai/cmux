@@ -274,9 +274,17 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
   /// line. The offset alone holds for 6 frames between two wrapped lines, and a reply that grew a
   /// line then moved the view up 23px in the frames read after it (#23807's first CI run).
   /// Infinite animations (a spinner, the running line's shimmer) never end and do not count.
+  /// The offset is the drawn one (as `scrollTop` below): the follow chase draws the thread back by a
+  /// `translate` and brings it home over frames with the offset already at the end, so an offset that
+  /// holds can still be a view that moves (the last line's 7px chase, read as the turn's end moving).
   const rest = (page: Page) =>
     page.evaluate(async () => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const drawn = () => {
+        const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
+        const lag = thread ? Number.parseFloat(getComputedStyle(thread).translate.split(" ")[1] ?? "") || 0 : 0;
+        return scroller.scrollTop - lag;
+      };
       const moving = () =>
         scroller
           .getAnimations({ subtree: true })
@@ -287,9 +295,10 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       let last = NaN;
       for (let held = 0, frames = 0; held < 6 && frames < 600; frames += 1) {
         await window.cmuxPaintFrame();
-        const still = scroller.scrollTop === last && !moving();
+        const at = drawn();
+        const still = at === last && !moving();
         held = still ? held + 1 : 0;
-        last = scroller.scrollTop;
+        last = at;
       }
     });
 
