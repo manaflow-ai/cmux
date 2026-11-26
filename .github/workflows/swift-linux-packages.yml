@@ -383,9 +383,10 @@ jobs:
           set -euo pipefail
           awk -F'\t' '$2 == "cmux-next-ios/CmuxMobileKit" { f = 1 } END { exit !f }' handed/*.tsv 2>/dev/null ||
             { echo "CmuxMobileKit not handed over"; exit 0; }
+          # Set first: a key that cannot be read (no tomllib) still builds it.
+          echo "needed=1" >> "$GITHUB_OUTPUT"
           inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
           xcode="$(xcodebuild -version | tr -cs 'A-Za-z0-9.' '-')"
-          echo "needed=1" >> "$GITHUB_OUTPUT"
           echo "key=cmux-next-ios-link-ffi-xcf-${RUNNER_OS}-${RUNNER_ARCH}-${xcode}-${inputs}" >> "$GITHUB_OUTPUT"
           echo "fleet_key=cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}" >> "$GITHUB_OUTPUT"
       - name: Restore CmuxMobileLinkFFI.xcframework
