@@ -730,6 +730,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     public var awaitsFirstPrompt: Bool { hub?.firstPromptsInFlight.contains(sessionID) == true }
     /// The hub's link to the Mac is down (it is reconnecting): observed through `isReady`.
     public var isOffline: Bool { hub?.isReady != true }
+    /// When the records shown were last in step with the Mac: set while attached (each live
+    /// record, the attach catching up, the link's last moment up), else the restored kept copy's
+    /// ``AgentTranscriptEntry/savedAt``. The offline line's age (Leo, 2026-11-25).
+    public private(set) var savedCopyAt: Date?
     private var attaching = false
     /// Records that arrive while attaching are applied after the attach page.
     private var held: [JSONValue] = []
@@ -853,6 +857,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         heldEarlier = nil
         keptEarlier = entry.earlier
         keptRestored = true
+        if savedCopyAt == nil { savedCopyAt = entry.savedAt }
         applyingKept = true
         for record in entry.records { apply(record: record) }
         applyingKept = false
@@ -875,6 +880,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         openChunkText = ""
         kept = []
         keptEarlier = false
+        savedCopyAt = nil
         earlierBefore = nil
         earlierCarry = []
         stopEarlier()
@@ -908,7 +914,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Hands the kept records to the cache (it writes them to disk shortly after, bounded).
     private func saveKept() {
         guard let cache = hub?.transcriptCache, let key = keptKey, !kept.isEmpty else { return }
-        cache.save(key, sessionID: sessionID, earlier: keptEarlier, records: kept)
+        cache.save(key, sessionID: sessionID, earlier: keptEarlier, records: kept, savedAt: savedCopyAt)
     }
 
     public func events() -> AsyncStream<AgentSessionEvent> {
@@ -1990,6 +1996,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         retryTask?.cancel()
         retryTask = nil
         failures = 0
+        // The rows were the Mac's until now: the kept copy saved below is dated so.
+        if attached { savedCopyAt = Date() }
         attached = false
         attaching = false
         refillPending = false
@@ -2460,6 +2468,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attachTask = nil
         failures = 0
         attached = true
+        savedCopyAt = Date()
         // Its history is here: a later load of it reads "Loading chat…", not "Starting…".
         hub?.forgetStartedHere(sessionID)
         keptRestored = false
@@ -2968,6 +2977,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             lastSeq = seq
             keep(record)
         }
+        if attached, !applyingKept { savedCopyAt = Date() }
         journal.record(record)
         for event in records.map(record) {
             switch event {

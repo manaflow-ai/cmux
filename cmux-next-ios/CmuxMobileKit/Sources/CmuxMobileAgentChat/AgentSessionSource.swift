@@ -341,6 +341,11 @@ public protocol AgentSessionSource: AnyObject {
     /// The source can't reach its Mac now (a dropped link): a chat still loading says it is
     /// connecting, not starting. Observable.
     var isOffline: Bool { get }
+    /// When the transcript this phone shows was last in step with the Mac: the last record
+    /// applied live or the link's last moment up in this launch, else when the kept copy it
+    /// restored was saved. Nil: not known (a mock, a copy kept before this was recorded). For
+    /// the offline line's age (``AgentChatStore/offlineLine(now:)``).
+    var savedCopyAt: Date? { get }
     /// The chat reached the oldest turn it shows: read the page before it, delivered as
     /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
     func loadEarlierHistory()
@@ -381,6 +386,7 @@ extension AgentSessionSource {
     public var isStarting: Bool { false }
     public var awaitsFirstPrompt: Bool { false }
     public var isOffline: Bool { false }
+    public var savedCopyAt: Date? { nil }
 }
 
 extension AgentSessionSource {

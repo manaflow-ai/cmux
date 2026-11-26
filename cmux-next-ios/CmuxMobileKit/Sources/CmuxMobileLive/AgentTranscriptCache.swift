@@ -14,11 +14,15 @@ public struct AgentTranscriptEntry: Sendable, Hashable, Codable {
     public var earlier: Bool
     /// Records oldest first, starting at a prompt (`user_message`).
     public var records: [JSONValue]
+    /// When these records were last in step with the Mac (the chat's offline line says how old
+    /// the copy is: "updated 3 min ago"). Nil in a copy kept before it was recorded.
+    public var savedAt: Date?
 
-    public init(sessionID: String, earlier: Bool, records: [JSONValue]) {
+    public init(sessionID: String, earlier: Bool, records: [JSONValue], savedAt: Date? = nil) {
         self.sessionID = sessionID
         self.earlier = earlier
         self.records = records
+        self.savedAt = savedAt
     }
 
     /// The newest seq kept (0: none).
@@ -136,9 +140,9 @@ public final class AgentTranscriptCache: @unchecked Sendable {
     }
 
     /// Keeps `records` (oldest first, from a prompt) for `key`: in memory now, bounded on disk later.
-    @MainActor public func save(_ key: String, sessionID: String, earlier: Bool, records: [JSONValue]) {
+    @MainActor public func save(_ key: String, sessionID: String, earlier: Bool, records: [JSONValue], savedAt: Date? = nil) {
         guard !records.isEmpty else { return }
-        let entry = AgentTranscriptEntry(sessionID: sessionID, earlier: earlier, records: records)
+        let entry = AgentTranscriptEntry(sessionID: sessionID, earlier: earlier, records: records, savedAt: savedAt)
         guard memory[key] != entry else { return }
         remember(key, entry)
         if lastHead?.key == key { lastHead = nil }
