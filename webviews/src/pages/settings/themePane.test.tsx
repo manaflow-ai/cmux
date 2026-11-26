@@ -155,7 +155,7 @@ test("a pick on one side of the app pair keeps the other side; Match off goes ba
     mock: { values: { "appearance.appTheme": "light:GitHub Light,dark:Dracula" } },
   });
   await click(themeRow(page, "app-light")!.querySelector("[data-theme-picker]")!);
-  await click(document.querySelector('[data-theme-option="Solarized Light"]')!.closest("li")!);
+  await click(document.querySelector('[data-theme-option="Solarized Light"]')!.closest(".theme-option")!);
   expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({
     key: "appearance.appTheme",
     value: "light:Solarized Light,dark:Dracula",
@@ -249,7 +249,7 @@ test("a row's star stars the theme without picking it, and starred themes list f
   const starred = document.querySelectorAll<HTMLButtonElement>('[data-theme-star="Solarized Light"]');
   expect([...starred].map((button) => button.getAttribute("aria-pressed"))).toEqual(["true", "true"]);
   // A pick from the starred group writes the theme itself.
-  await click(rows[0]!.closest("li")!);
+  await click(rows[0]!.closest(".theme-option")!);
   expect(ops(page.provider, "cmux.settings.set").at(-1)).toEqual({ key: "appearance.theme", value: "Solarized Light" });
   // The last star off resets the key.
   await click(themeRow(page, "single")!.querySelector("[data-theme-picker]")!);
