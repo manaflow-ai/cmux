@@ -119,22 +119,22 @@ import Testing
     }
 
     @Test func aCancelledControlCaptureDoesNotAttachAJustFinishedPicture() async throws {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-cancel-(UUID().uuidString).png")
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-cancel-\(UUID().uuidString).png")
         try Data("PNG".utf8).write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
         let (started, signal) = AsyncStream.makeStream(of: Void.self)
-        var attached = false
+        let box = Box()
         let capture = CaptureToChat(take: { _ in
             signal.yield(())
             try? await Task.sleep(for: .seconds(60))
             return .taken(file, bytes: 3)
-        }, attach: { _, _ in attached = true }, session: { _ in nil }, source: nil)
+        }, attach: { urls, source in box.attached.append((urls, source)) }, session: { _ in nil }, source: nil)
         let run = Task { await capture.run(.picker) }
         var iterator = started.makeAsyncIterator()
         _ = await iterator.next()
         run.cancel()
         #expect(await run.value == .cancelled)
-        #expect(!attached, "a control deadline must not attach a late result")
+        #expect(box.attached.isEmpty, "a control deadline must not attach a late result")
         #expect(!FileManager.default.fileExists(atPath: file.path), "a late result is cleaned up")
     }
 

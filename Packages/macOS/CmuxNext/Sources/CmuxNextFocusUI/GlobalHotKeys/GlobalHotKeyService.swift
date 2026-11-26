@@ -45,7 +45,7 @@ package final class GlobalHotKeyService {
         registrar: any GlobalHotKeyRegistrar = CarbonHotKeyRegistrar(),
         layout: @escaping @MainActor () -> KeyCodeLayout = KeyCodeLayout.current,
         showHideEnabled: @escaping @MainActor () -> Bool = { false },
-        startAgentEnabled: @escaping @MainActor () -> Bool = { false },
+        startAgentEnabled: @escaping @MainActor () -> Bool = { true },
         captureEnabled: @escaping @MainActor () -> Bool = { false }
     ) {
         self.registry = registry
