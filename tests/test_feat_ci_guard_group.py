@@ -8,6 +8,7 @@ for the branch: test_preflight_trust.py errored in all five tests there unseen (
 """
 import os
 from pathlib import Path
+import re
 import sys
 import shutil
 import subprocess
@@ -31,6 +32,7 @@ import docs_only_paths  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from real_git import real_git, run_bounded  # noqa: E402
 WORKFLOWS = ROOT / ".github/workflows"
+LAND_TIER = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
 
 
 def triggers(workflow: dict) -> dict:
@@ -52,6 +54,12 @@ def runs_ci_group(job: dict) -> bool:
     """The job runs guards-local.sh's default set (the `ci` group) and nothing keeps it off feat-cmux-next."""
     # The pull_request_skip guard's base clause runs the job on other bases; it never keeps it off feat-cmux-next.
     condition = str(job.get("if", "")).replace("!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') ||", "")
+    # The land tier (tests/test_head_tier.py) runs it at the head handed to land, and the label guard
+    # (tests/test_ci_label_events_skip_full_ci.py) skips only other labels' events: neither keeps it off feat-cmux-next.
+    condition = condition.replace(LAND_TIER, "")
+    condition = re.sub(r"!\(github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.ref == "
+                       r"'feat-cmux-next' && \(github\.event\.action == 'labeled'.*?github\.event\.label\.name\)\)", "",
+                       condition)
     if "feat-cmux-next" in condition and "!=" in condition:
         return False
     for step in job.get("steps") or []:
@@ -270,14 +278,15 @@ class TheGuardGroupRunsOnItsMeasuredSize(unittest.TestCase):
         # The window gate (base-coalesce.yml) and the 2-vCPU path route (fast_check_route.py): a pull request that
         # touches nothing a guard group reads skips it; an empty route (a push, a router failure) runs it.
         self.assertEqual(self.job()["needs"], ["coalesce", "fast-check-route"])
-        self.assertEqual(self.job()["if"],
-                         "${{ (github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
-                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                         "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}")
+        self.assertTrue(self.job()["if"].startswith(  # then the land tier (tests/test_head_tier.py)
+                        "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
+                        "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
+                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && "),
+                        self.job()["if"])
         self.assertEqual(
             workflow_jobs.single_runs_on(self.job()),
             "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request'"
-            " && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')"
+            " && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04'"
             " || 'cmux-linux' }}",
         )
 
