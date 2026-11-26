@@ -258,6 +258,18 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.metrics.dividerHitWidth` | real |  | 1 to 24 | Divider Drag Width |
 | `appearance.metrics.titlebarHeight` | real |  | 24 to 56 | Titlebar Height |
 | `appearance.metrics.sidebarRowHeight` | real |  | 20 to 48 | Workspace Row Height |
+| `appearance.metrics.sidebarRowInset` | real |  | 0 to 24 | Workspace Row Inset. The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's. |
+| `appearance.metrics.sidebarRowPadding` | real |  | 0 to 24 | Workspace Row Padding. Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's. |
+| `appearance.metrics.sidebarRowGap` | real |  | 0 to 12 | Workspace Row Gap. The gap between two sidebar rows. Unset is the density's. |
+| `appearance.metrics.sidebarRowHeightWithSubtitle` | real |  | 28 to 96 | Two-Line Row Height. A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line. |
+| `appearance.metrics.toolbarButtonSize` | real |  | 16 to 40 | Toolbar Button Size. The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's. |
+| `appearance.metrics.toolbarButtonGap` | real |  | 0 to 16 | Toolbar Button Gap. The space between neighboring icon buttons in the title bar. Unset is three tenths of a button. |
+| `appearance.metrics.toolbarButtonCornerRadius` | real |  | 0 to 20 | Toolbar Button Corner. The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does. |
+| `appearance.metrics.toolbarButtonActiveFill` | real |  | 0 to 0.4 | Active Button Fill. How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill. |
+| `appearance.metrics.headerDivider` | real |  | 0 to 1 | Header Divider. How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's. |
+| `appearance.metrics.spacingScale` | real |  | 0.5 to 2 | Spacing. One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's. |
+| `appearance.metrics.composerPadding` | real |  | 0 to 24 | Composer Padding. The room from the chat prompt box's sides to its text and controls. Unset is the density's. |
+| `appearance.metrics.composerMinHeight` | real |  | 32 to 160 | Composer Height. The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's. |
 | `appearance.borders` | string | `"default"` | `default`, `none` | Borders. None removes every border, hairline and separator in the app. |
 | `appearance.liquidGlass` | boolean | `false` |  | Liquid Glass. Off draws the composer, menus, popovers and cards as solid surfaces with a plain border. |
 | `appearance.focusIndicator` | string | `"tabs"` | `border`, `tabs`, `both`, `none` | Focused Pane. How the focused pane stands out. |
