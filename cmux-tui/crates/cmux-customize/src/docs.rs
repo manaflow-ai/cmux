@@ -370,7 +370,7 @@ fn settings_items() -> Vec<Item> {
         .into_iter()
         .map(|(section, keys, settable)| {
             item(
-                section.clone(),
+                section,
                 Reach::Drawn,
                 format!(
                     "{keys} keys, {settable} an agent may set; `cmux customize schema settings` lists each with its values"
