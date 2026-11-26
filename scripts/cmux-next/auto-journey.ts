@@ -44,7 +44,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { Api, CHAT_START_SIZE, STACK, directExec, http, listAllMachines, passwordSignIn, resolveBackend, scrub, sleep, staleJourneyInstalls, staleJourneyMachines, waitMachine } from "./cloud-journey.ts";
+import { Api, CHAT_START_SIZE, STACK, directExec, http, listAllMachines, passwordSignIn, resolveBackend, scrub, sleep, staleJourneyInstalls, staleJourneyMachines, waitRunning } from "./cloud-journey.ts";
 
 type Step = { step: string; status: "pass" | "fail" | "skip"; ms: number; detail: string };
 type View = { id: string; holder: string; epoch: number; version: number; lastSeq: number; snapshot: number; standby: string[]; auto: boolean; move?: unknown };
@@ -316,7 +316,7 @@ async function main(): Promise<number> {
       });
       owned.machine = v.machine.id as string;
       keep();
-      const m = await waitMachine(api, owned.machine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+      const m = await waitRunning(api, owned.machine, 300_000);
       return { value: owned.machine, detail: `${owned.machine} running, daemon ${m.image?.daemon_version ?? "?"}` };
     });
     meta.machine = machine;
