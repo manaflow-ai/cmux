@@ -474,6 +474,71 @@ def merge_lines(ours: str, base: str, theirs: str, path: str, size: int) -> tupl
     return result, remaining
 
 
+# Rust module lists kept in name order (acpmux `hub/mod.rs`, cmux#56459): a top-level `mod x;` with the
+# comment and attribute lines directly above it is one unit, and the units sit together sorted by name.
+# A branch made before a file's list was sorted, merged with one made after, moves every line around its
+# own new `mod`, so the line merge stops on lines nobody changed. When that merge leaves a conflict and one
+# of the three copies already keeps the list sorted, the three are merged again with each one's list sorted
+# the same way; that merge is taken only when it is clean. Module order means nothing to Rust except for
+# macros, so a file with `macro_rules!` or `#[macro_use]` is never reordered.
+RUST_MOD = re.compile(r"^(pub(\([^)]*\))? )?mod \w+;\s*$")
+RUST_LEAD = re.compile(r"^(#\[|//(?!!))")
+
+
+def sort_rust_mods(text: str) -> str:
+    """The file with its top-level `mod x;` units moved to the first one's place, ordered by name."""
+    lines = text.split("\n")
+    units: list[list[str]] = []
+    keep: list[str] = []
+    pending: list[str] = []
+    first = None
+    for line in lines:
+        if RUST_LEAD.match(line):
+            pending.append(line)
+            continue
+        if RUST_MOD.match(line):
+            if first is None:
+                first = len(keep)
+            units.append(pending + [line])
+            pending = []
+            continue
+        keep += pending
+        pending = []
+        keep.append(line)
+    keep += pending
+    if first is None:
+        return text
+    units.sort(key=lambda unit: re.sub(r"^.*mod ", "", unit[-1]))
+    return "\n".join(keep[:first] + [line for unit in units for line in unit] + keep[first:])
+
+
+def merge_rust_mods(base: str, ours: str, theirs: str, path: str, size: int) -> tuple[bytes, int] | None:
+    texts = []
+    for name in (base, ours, theirs):
+        with open(name, "rb") as handle:
+            try:
+                texts.append(handle.read().decode("utf-8"))
+            except UnicodeDecodeError:
+                return None
+    if any("macro_rules!" in text or "#[macro_use]" in text for text in texts):
+        return None
+    sorted_texts = [sort_rust_mods(text) for text in texts]
+    if sum(1 for line in sorted_texts[0].split("\n") if RUST_MOD.match(line)) < 2:
+        return None
+    if not any(text == done for text, done in zip(texts, sorted_texts)) or texts == sorted_texts:
+        return None
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="cmux-merge-rust-mods-") as scratch:
+        names = []
+        for label, text in zip(("base", "ours", "theirs"), sorted_texts):
+            name = os.path.join(scratch, label)
+            with open(name, "wb") as handle:
+                handle.write(text.encode("utf-8"))
+            names.append(name)
+        result, remaining = merge_lines(names[1], names[0], names[2], path, size)
+    return (result, 0) if remaining == 0 else None
+
+
 def main(argv: list[str]) -> int:
     generated = len(argv) > 1 and argv[1] == "--generated"
     if generated:
@@ -490,6 +555,8 @@ def main(argv: list[str]) -> int:
     else:
         typescript = merge_typescript(base, ours, theirs, path, size) if IMPORT_FILE.search(path) else None
         result, remaining = typescript or merge_lines(ours, base, theirs, path, size)
+        if remaining and path.endswith(".rs"):
+            result, remaining = merge_rust_mods(base, ours, theirs, path, size) or (result, remaining)
     # A .json or .toml result, settled or merged clean (both sides adding one key in
     # different places), must parse with no key twice, and a python3 with no tomllib
     # cannot say it does. Otherwise it is git's plain merge, marked conflicted for the

@@ -60,7 +60,7 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { laneNotice } from "./laneReport";
 import "./AgentMessageRow.css";
 import "./LaneNoticeBatch.css";
-import { messageOpened, setMessageOpened } from "./incomingOpened";
+import { useDisclosure } from "./useDisclosure";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { Face } from "../multiplayer/Faces";
@@ -342,7 +342,7 @@ export function SenderChip({
       {/* A sender acpmux could not verify (Leo, 2026-11-05: "why is it sending it as if it were
           me?"): the one subtle marker, never words in or beside its name. The message row draws
           its own (AgentMessageRow.tsx `unverified`). */}
-      {withMark && message.unverified && <UnverifiedMark program={message.program} claimed={message.name} />}
+      {withMark && message.unverified && <UnverifiedMark program={message.program} />}
       {/* The other machine the sender's chat runs on, on the line itself, not only in the name's
           tooltip (Leo, 2026-10-27, on a lane's message: "Is this, like, from another machine? But
           even if they're from another machine, what's going on here?"). This Mac's chats name none. */}
@@ -462,14 +462,11 @@ export function IncomingMessageLine({
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
   // estimator reads it.
-  const [opened, setOpen] = useState(() => messageOpened(session, id));
+  // One open-state store (useDisclosure.ts): a click is one transition of the transcript's owner.
+  const { open: opened, set: show } = useDisclosure({ message: id, sessionId: session });
   const open = whole || opened;
   const lineLook = useMessageLineLook();
   const inPlace = useReceivedLook() === "card";
-  const show = (next: boolean) => {
-    setMessageOpened(session, id, next);
-    setOpen(next);
-  };
   const rawId = useId();
   // The prompt as the agent got it (cmux's envelope around the message) waits behind Details, open
   // or closed per chat and row, so scrolling it out of the virtualized transcript keeps it.
@@ -721,7 +718,6 @@ export function IncomingMessageLine({
         nameSlot={<SenderChip message={message} onOpen={onOpen} />}
         unverified={message.unverified === true}
         program={message.program}
-        claimed={message.name}
         preview={preview || t("message.noText")}
         label={t("message.collapsedLabel", { from, preview: preview || t("message.noText") })}
         open={open}

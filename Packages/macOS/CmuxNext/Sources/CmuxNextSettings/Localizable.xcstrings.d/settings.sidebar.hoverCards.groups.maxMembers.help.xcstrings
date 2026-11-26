@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.hoverCards.groups.maxMembers.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The most members a group's card lists by name."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أكبر عدد من الأعضاء تذكرهم بطاقة المجموعة بالاسم."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Najviše članova koje kartica grupe navodi po imenu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Det største antal medlemmer, gruppens kort viser ved navn."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die meisten Mitglieder, die eine Gruppenkarte mit Namen nennt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El máximo de miembros que la tarjeta de un grupo muestra por nombre."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le nombre maximal de membres que la carte d'un groupe nomme."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il numero massimo di membri che la scheda di un gruppo elenca per nome."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "グループカードに名前で表示するメンバーの最大数。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចំនួនសមាជិកច្រើនបំផុតដែលកាតក្រុមបង្ហាញតាមឈ្មោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "그룹 카드에 이름으로 표시할 최대 구성원 수입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Det største antallet medlemmer gruppens kort viser med navn."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Największa liczba członków wymienianych z nazwy na karcie grupy."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O máximo de membros que o cartão de um grupo lista pelo nome."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наибольшее число участников, которых карточка группы называет по имени."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จำนวนสมาชิกสูงสุดที่การ์ดกลุ่มแสดงชื่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grup kartının adıyla listelediği en fazla üye sayısı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Найбільша кількість учасників, яких картка групи називає на ім'я."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Số thành viên tối đa thẻ nhóm liệt kê theo tên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "组卡片按名称列出的最多成员数。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "群組卡片按名稱列出的最多成員數。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
