@@ -455,6 +455,18 @@ skips a webview red (early on the built commit, or the Mac's `webview_red`), whi
 waits for a new commit instead. Route: check-nightly-webviews' owned nightly-only pool, not Linux, since
 test_nightly_owned_minis_only allows a JIT Linux label only for Leo's listed tail and loop jobs.
 
+## note-53
+
+Leo, 2026-11-25 (ask-0275618397): "after one nightly is done, they got to go to the next nightly and the next
+nightly ... Just keep the train going like 24/7, constantly." Measured on 11-25 (runs 45670426505, 45680718388,
+45631022085): nightly-next-one held its signing Mac 27-43 min, of which notarization was 4.5-5.6 min and the work
+after the feed was 8-14 min, mostly the nearest deltas (266-337 s) and the bundle size report (85-101 s). Only two
+Macs sign (cmux15, ultra1), so that tail spaces the train. When nightly-next has already moved past the build's
+commit, a newer push is waiting and replaces this item within one build, so after the feed is written
+`newer-push-waiting.sh` sets NEWER_PUSH_WAITING and both skip: the live item stays full-only until the next one,
+and the Mac goes to the next build 6-7 min sooner. The dSYMs, variant artifacts and cleanup still run (later jobs
+and the next build's warm workspace need them). A ref read that fails keeps the tail.
+
 ## note-52
 
 Above `check-nightly-app-store-shelf:` in `.github/workflows/nightly.yml`.

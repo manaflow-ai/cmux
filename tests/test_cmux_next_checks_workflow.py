@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
 from runs_on_labels import unwrap_fork_pool_reads  # noqa: E402
 from cmux_next_step_text import step_run  # noqa: E402
+import step_process  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -400,8 +401,7 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
             env["HOME"] = str(home)
         if path_prefix is not None:
             env["PATH"] = f"{path_prefix}:{env.get('PATH', '/usr/bin:/bin')}"
-        return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env, capture_output=True,
-                              text=True, timeout=120)
+        return step_process.run_step(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env, timeout=120)
 
     def assert_own_stale_pin(self, result: subprocess.CompletedProcess) -> None:
         output = result.stdout + result.stderr
@@ -1400,33 +1400,14 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
         self.assertIn("exit 0", pr)  # any non-pass leaves the Mac canary to run
 
 
-def kill_group(pid: int) -> None:
-    # The group may be gone, or (macOS) hold only a zombie leader, which raises EPERM.
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except OSError:
-        pass
-
-
 def run_step(script: str, env: dict, timeout: float) -> subprocess.CompletedProcess:
-    """Run a workflow step's shell in its own process group and kill the whole group on timeout.
+    """Run a workflow step's shell with tests/step_process.py: no stdin, its own group, killed whole.
 
     subprocess.run's timeout kills only bash: its cmux_tui_tree_key.py child lived on, and once
     the temporary directory with the fake git was removed its git calls reached the real
     checkout and lazy-fetched placeholder objects for 19+ minutes (cosmic-gray, 2026-10-20).
     """
-    with subprocess.Popen(["bash", "-c", script], env=env, text=True, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, start_new_session=True) as process:
-        try:
-            stdout, stderr = process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            kill_group(process.pid)
-            process.communicate()
-            raise
-        finally:
-            # Background children a finished step left behind go too.
-            kill_group(process.pid)
-    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+    return step_process.run_step(["bash", "-c", script], env=env, timeout=timeout)
 
 
 class StepRunnerLeavesNoChild(unittest.TestCase):
@@ -1441,6 +1422,29 @@ class StepRunnerLeavesNoChild(unittest.TestCase):
             return
         os.kill(child, signal.SIGKILL)
         self.fail(f"step child {child} outlived the timed-out step")
+
+    def test_a_killed_test_process_takes_the_step_with_it(self):
+        """pytest killed by `timeout` runs no finally: the step's group must still die (it lived 18 h)."""
+        with tempfile.TemporaryDirectory() as directory:
+            pid_file = Path(directory) / "child"
+            runner = subprocess.Popen(
+                [sys.executable, "-c", "import os, sys; sys.path.insert(0, sys.argv[1]); import step_process; "
+                 "step_process.run_step(['bash', '-c', sys.argv[2]], env=dict(os.environ), timeout=60)",
+                 str(ROOT / "tests"), f"sleep 60 & echo $! > {pid_file}.tmp; mv {pid_file}.tmp {pid_file}; cat"],
+                stdin=subprocess.DEVNULL)
+            try:
+                deadline = time.monotonic() + 10
+                while not pid_file.exists() and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(pid_file.exists(), "the step never started")
+                child = int(pid_file.read_text())
+            finally:
+                runner.kill()
+                runner.wait()
+        if process_gone.died(child, within=5):
+            return
+        os.kill(child, signal.SIGKILL)
+        self.fail(f"step child {child} outlived the killed test process")
 
 
 def preflight_step(document, job_id, step_id):
@@ -1471,7 +1475,12 @@ case "$*" in
   *cat-file*) exit 0 ;;
   *ls-tree*) printf '100644 blob %040d\\tCargo.toml\\0' 1 ;;
   *rev-parse*) printf '%040d\\n' 1 ;;
-  *mktree*) cat >/dev/null; if [[ -e "$REMOTE_FETCH_MARKER" ]]; then printf '%s\\n' "$REMOTE_TREE_KEY"; else printf '%040d\\n' 2; fi ;;
+  *mktree*)
+    # cmux_tui_tree_key.py keeps `git mktree --batch` open and reads one tree id per tree (a
+    # blank line ends one), so reading stdin to EOF here deadlocked it. The key is the last tree.
+    if [[ -e "$REMOTE_FETCH_MARKER" ]]; then tree="$REMOTE_TREE_KEY"; else tree="$(printf '%040d' 2)"; fi
+    if [[ "$*" != *--batch* ]]; then cat >/dev/null; printf '%s\\n' "$tree"; exit 0; fi
+    while IFS= read -r line; do [[ -z "$line" ]] && printf '%s\\n' "$tree"; done; exit 0 ;;
   *) exit 1 ;;
 esac
 ''')
@@ -1604,7 +1613,7 @@ def can_run_on_owned_runner(job: dict) -> bool:
     for runs_on in cells:  # each matrix cell (`${{ matrix.runner }}` read as its values)
         runs_on = unwrap_fork_pool_reads(runs_on)
         # The fork pull request arm (scripts/ci/one_linux_label.py) names a hosted or Blacksmith label, never a mini.
-        runs_on = runs_on.replace("(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')", "")
+        runs_on = runs_on.replace("'ubuntu-24.04'", "")
         runs_on = OVERFLOW_FAILOVER.sub("", runs_on)
         runs_on = re.sub(r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", runs_on)
         if "vars." in runs_on or "outputs.mini_runner" in runs_on:
@@ -3012,8 +3021,8 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
     """The checks job and the path router run on cmux-linux for every own-branch run, on every attempt.
 
     No placement job picks their runner (cmuxterm-hq decisions/junctions.md: one label for every own-branch Linux job,
-    the pickers deleted). A fork's run takes GitHub-hosted Ubuntu, a fork pull request vars.CI_FORK_LINUX_RUNNER
-    (GitHub-hosted Ubuntu while it is unset).
+    the pickers deleted). A fork's run and a fork pull request take
+    GitHub-hosted Ubuntu.
     """
 
     def context(self, **extra) -> dict:
@@ -3026,7 +3035,7 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
         for name in (JOB, "path_route"):
             runs_on = one_runs_on(jobs[name])
             with self.subTest(job=name):
-                self.assertNotIn("vars.", runs_on.replace("vars.CI_FORK_LINUX_RUNNER", ""))
+                self.assertNotIn("vars.", runs_on)
                 self.assertNotIn("needs.", runs_on)
                 for attempt in (1, 2, 3):
                     self.assertEqual(evaluate(runs_on, self.context(**{"github.run_attempt": attempt})), "cmux-linux")
@@ -3035,8 +3044,6 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
                                  "ubuntu-24.04")
                 fork_pr = self.context(**{"github.event.pull_request.head.repo.full_name": "someone/cmux"})
                 self.assertEqual(evaluate(runs_on, fork_pr), "ubuntu-24.04")
-                self.assertEqual(evaluate(runs_on, {**fork_pr, "vars.CI_FORK_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}),
-                                 "blacksmith-4vcpu-ubuntu-2404")
         self.assertEqual(evaluate(str(jobs[JOB]["timeout-minutes"]), self.context()), 15)
 
 
@@ -3585,8 +3592,7 @@ class AppSizeCapOnPush(unittest.TestCase):
         env = git_fixture_env.fixture_env({k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
         env.update(EVENT_NAME="push", FULL_CI="true", BEFORE=before, GITHUB_WORKSPACE=str(self.repo),
                    GITHUB_SHA=self.head())
-        return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env,
-                              capture_output=True, text=True, timeout=120)
+        return step_process.run_step(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env, timeout=120)
 
     def test_a_push_that_adds_no_app_source_passes_over_the_cap(self):
         (self.repo / "README.md").write_text("docs\n")
