@@ -372,3 +372,50 @@ fn the_wire_reads_cmux_json_values_and_answers_snake_case() {
     assert!(rules.call("tab_discard_nope", json!({})).is_err());
     assert!(rules.call("tab_discard_plan", json!({"setting": {"mode": "sometimes"}})).is_err());
 }
+
+#[test]
+fn the_record_op_counts_a_miss_for_either_step() {
+    let mut rules = TabDiscard::new();
+    let record = |rules: &mut TabDiscard, probe, step| {
+        rules.call("tab_discard_record", json!({"key": "p", "probe": probe, "step": step})).unwrap()
+            ["doubted"]
+            .as_bool()
+            .unwrap()
+    };
+    assert!(!record(&mut rules, json!({}), "discard"));
+    let silent = json!({"answered": false});
+    let misses: Vec<bool> = (0..ProbeHistory::UNANSWERED_LIMIT)
+        .map(|_| record(&mut rules, silent.clone(), "discard"))
+        .collect();
+    assert_eq!(misses, [true, true, false]);
+    // A freeze miss counts in the same row (the step only changes what "said busy" means).
+    assert!(!record(&mut rules, silent, "freeze"));
+    let doubted = rules.call("tab_discard_probe_doubted", json!({"key": "p"})).unwrap();
+    assert_eq!(doubted, json!({"doubted": false}));
+}
+
+#[test]
+fn the_verdict_op_reads_one_answer_and_records_nothing() {
+    let mut rules = TabDiscard::new();
+    let verdict = rules
+        .call(
+            "tab_discard_probe_verdict",
+            json!({"probe": {"media_session": true, "answered": false}, "pressure": "critical", "doubted": true}),
+        )
+        .unwrap();
+    assert_eq!(
+        verdict,
+        json!({"exemption": null, "stops_when_frozen": true, "keep_reason": "unanswered"})
+    );
+    let form = rules
+        .call("tab_discard_probe_verdict", json!({"probe": {}, "shows_form_submission": true}))
+        .unwrap();
+    assert_eq!(
+        form,
+        json!({"exemption": null, "stops_when_frozen": false, "keep_reason": "form_submission"})
+    );
+    assert_eq!(
+        rules.call("tab_discard_probe_doubted", json!({"key": "x"})).unwrap(),
+        json!({"doubted": true})
+    );
+}
