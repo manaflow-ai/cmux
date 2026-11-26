@@ -1383,6 +1383,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-app-agents"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
