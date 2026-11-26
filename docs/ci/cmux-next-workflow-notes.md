@@ -1339,8 +1339,13 @@ Release step), so a push keeps it.
 
 Above `path_route: EVENT_LABELS` in `.github/workflows/cmux-next.yml`.
 
-The labels at the push. A re-run keeps that event, so it reads them
-live: adding full-ci or dev-build and re-running routes on them.
+The event's labels, used only when the live read fails. path_route reads
+the pull request's labels live on every attempt and exports them as
+`needs.path_route.outputs.labels` (`,a,b,`); every job reads that, not
+`github.event.pull_request.labels`. On 2026-11-25 (#53099, cmux#56909) a
+synchronize event delivered after full-ci was added carried no labels; it
+shared the concurrency group, cancelled the labeled run, and deferred every
+Mac tier. Adding full-ci or dev-build and re-running also routes on them.
 
 ## note-98
 
@@ -5218,8 +5223,8 @@ compile-checks phase `scheme-debug` with the job id of the app zip.
 - Parity: heads whose sha ends in `0` (1 in 16; `vars.CI_SCHEME_FLEET_PARITY=always` for every head) still compile on
   the Mac and compare file lists, Info.plist and Mach-O link lists (`scripts/ci/app_bundle_parity.py`); a difference
   is a `fleet parity` warning with the table in the step summary.
-- Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head. DEV Release
-  (`dev_daily`) compiles are unchanged.
+- Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head and says so
+  (2026-11-25-fleet-fallback.md). DEV Release (`dev_daily`) compiles are unchanged.
 
 ## note-canary-linux-read
 

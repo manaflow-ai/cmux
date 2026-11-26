@@ -794,10 +794,11 @@ pub(crate) async fn history(
         );
     }
     // START: the prompt accepted to the prompt written to the agent (an agent start inside it).
-    // MODEL: the prompt written to the model's first output (the route and the API).
+    // QUEUED: the prompt waiting in the agent behind its own work or a compaction, `b` or `c`.
+    // MODEL: the end of that wait to the model's first output (the route and the API).
     println!(
-        "{:<5} {:<10} {:>7} {:>7} {:>7} {:>5} {:>8} PROMPT",
-        "SEQ", "STATUS", "WALL", "START", "MODEL", "TOOLS", "TOKENS"
+        "{:<5} {:<10} {:>7} {:>7} {:>9} {:>7} {:>5} {:>8} PROMPT",
+        "SEQ", "STATUS", "WALL", "START", "QUEUED", "MODEL", "TOOLS", "TOKENS"
     );
     for t in turns {
         let g = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
@@ -807,12 +808,17 @@ pub(crate) async fn history(
             .and_then(Value::as_u64)
             .map(|n| n.to_string())
             .unwrap_or_else(|| "-".into());
+        let queued = match t.get("queuedOn").and_then(Value::as_str) {
+            Some(on) => format!("{} {}", secs(&t, "queuedMs"), &on[..1]),
+            None => secs(&t, "queuedMs"),
+        };
         println!(
-            "{:<5} {:<10} {:>7} {:>7} {:>7} {:>5} {:>8} {}",
+            "{:<5} {:<10} {:>7} {:>7} {:>9} {:>7} {:>5} {:>8} {}",
             t.get("seq").and_then(Value::as_u64).unwrap_or(0),
             g("status"),
             wall,
             secs(&t, "toAgentMs"),
+            queued,
             secs(&t, "firstModelMs"),
             t.get("toolCalls").and_then(Value::as_u64).unwrap_or(0),
             tokens,
