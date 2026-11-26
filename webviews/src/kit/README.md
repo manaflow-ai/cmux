@@ -14,6 +14,9 @@ to check prop names before writing a view. Run `cmux customize tokens test 8 --a
 look up a value on the design scale. The same queries are available through the
 `customize_components` and `customize_tokens` MCP tools.
 
+Import from `kit/index.ts` only; the files behind it may move. Every export is ready, experimental or
+deprecated, with the promises in [ui/STATUS.md](../ui/STATUS.md).
+
 | Piece                            | What it is                                                                                                                                                                                    |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Row`                            | One list row: leading mark, title, optional second line, trailing column. With `onSelect` the whole row is the open target. `compact` 28, `comfortable` 32.                                   |
