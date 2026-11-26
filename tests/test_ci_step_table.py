@@ -1078,7 +1078,8 @@ class PipelineTest(unittest.TestCase):
                  "cloud-vm-image-lock.yml": "cloud-vm-image-lock", "mux.yml": "mux",
                  "automation-bench.yml": "automation-bench",
                  "repair-nightly-appcast-content-types.yml": "repair-nightly-appcast",
-                 "cmux-next-remote-daemon.yml": "remote-daemon-packaging"}
+                 "cmux-next-remote-daemon.yml": "remote-daemon-packaging",
+                 "risk-tier-tests.yml": "risk-tier-tests", "app-store-shelf.yml": "app-store-shelf"}
         steps = ci_steps.load().steps
         for name, step in moved.items():
             with self.subTest(workflow=name):
@@ -1093,13 +1094,32 @@ class PipelineTest(unittest.TestCase):
         wf = yaml.safe_load((ROOT / ".github/workflows/web-complexity.yml").read_text())
         self.assertEqual(wf.get("on", wf.get(True))["pull_request"]["branches-ignore"], ["feat-cmux-next"])
         self.assertEqual(steps["web-complexity"].job, "linux")
-        # cmux-vm-clients.yml keeps its rust job's pull requests; its moved sdk job skips only feat-cmux-next's.
-        wf = yaml.safe_load((ROOT / ".github/workflows/cmux-vm-clients.yml").read_text())
+        # These keep their pull requests into other bases; each moved job skips only feat-cmux-next's.
         # The land tier (tests/test_head_tier.py) wraps it: the condition, then the land condition and label guard.
-        self.assertTrue(wf["jobs"]["sdk"]["if"].startswith(
-            "${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && "), wf["jobs"]["sdk"]["if"])
-        self.assertNotIn("github.base_ref", wf["jobs"]["rust"].get("if", ""))
-        self.assertEqual(steps["cmux-vm-sdk"].job, "linux")
+        for name, job, step in (("cmux-vm-clients.yml", "sdk", "cmux-vm-sdk"),
+                                ("cmux-vm-clients.yml", "rust", "cmux-vm-clients-rust"),
+                                ("cmux-next-crash-class.yml", "crash-class", "cmux-next-crash-class"),
+                                ("cmux-cloud-cli.yml", "test", "cmux-cloud-cli"),
+                                ("cmux-vm-cloud.yml", "check", "cmux-vm-cloud")):
+            with self.subTest(workflow=name, job=job):
+                wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
+                self.assertIn("pull_request", wf.get("on", wf.get(True)))
+                self.assertTrue(wf["jobs"][job]["if"].startswith(
+                    "${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && "),
+                    wf["jobs"][job]["if"])
+                self.assertEqual(steps[step].job, "linux")
+                on = wf.get("on", wf.get(True))
+                self.assertEqual(set(steps[step].inputs) - {".github/workflows/" + name},
+                                 set(on["pull_request"]["paths"]) - {".github/workflows/" + name})
+        # The cargo steps run alone, so their compile does not raise the shared wave bound.
+        for step in ("cmux-vm-clients-rust", "cmux-cloud-cli", "app-store-shelf"):
+            with self.subTest(step=step):
+                self.assertTrue(steps[step].alone)
+                self.assertIn("rust", steps[step].needs)
+        self.assertIn("zig", steps["app-store-shelf"].needs)
+        self.assertIn("bash scripts/ci/app-store-shelf-check.sh", steps["app-store-shelf"].run)
+        self.assertIn("python3 tests/test_risk_tier.py", steps["risk-tier-tests"].run)
+        self.assertIn("crash-class-gate.sh", steps["cmux-next-crash-class"].run)
         # ci-guards.yml's submodule guard skips only feat-cmux-next's pull requests; every gitlink routes its step.
         wf = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
         self.assertEqual(wf["jobs"]["workflow-guard-submodule-forward-only"]["if"],
@@ -1329,8 +1349,8 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(sorted(table.tools), ["bun", "go", "node", "rust", "valgrind", "zig", "zlib"])
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
-                     "web-tests-4", "web-production-build"}
-        wants_node = {"ci-artifact-worker", "web-complexity", "webviews-typecheck"}
+                     "web-tests-4", "web-production-build", "cmux-vm-cloud"}
+        wants_node = {"ci-artifact-worker", "web-complexity", "webviews-typecheck", "cmux-vm-cloud"}
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
             if step.job != "linux":
