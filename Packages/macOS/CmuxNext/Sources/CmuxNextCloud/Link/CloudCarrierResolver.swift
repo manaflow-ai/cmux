@@ -253,9 +253,10 @@ public actor CloudCarrierServe {
     /// wedges the machine's link for good (2026-11-15).
     static let tokenReadDeadline: Duration = .seconds(75)
 
-    /// The supervisor has its own ready deadline, but the app also bounds every connect so a helper that
-    /// starts and then stops speaking cannot leave the Cloud link in `connecting` forever.
-    static let connectDeadline: Duration = .seconds(20)
+    /// The app bounds every connect so a helper that starts and then stops speaking cannot leave the Cloud
+    /// link in `connecting` forever. This covers the supervisor's 10-second lease wait, 90-second token
+    /// read and 15-second ready wait, with a small margin for handoff.
+    static let connectDeadline: Duration = .seconds(120)
 
     /// Answers the supervisor's token read `read` with the connector's environment, always: within
     /// ``tokenReadDeadline`` an access token, `fenced` or why there is none.
