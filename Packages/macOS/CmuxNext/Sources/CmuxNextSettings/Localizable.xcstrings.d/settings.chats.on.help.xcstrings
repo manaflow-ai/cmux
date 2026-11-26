@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chats.on.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Where cmux chat starts a chat with no --on: here, cloud, vm:NAME or a device name."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المكان الذي يبدأ فيه cmux chat الدردشة دون --on: here أو cloud أو vm:NAME أو اسم جهاز."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdje cmux chat pokreće razgovor bez --on: here, cloud, vm:NAME ili naziv uređaja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor cmux chat starter en chat uden --on: here, cloud, vm:NAME eller et enhedsnavn."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wo cmux chat einen Chat ohne --on startet: here, cloud, vm:NAME oder ein Gerätename."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dónde inicia cmux chat un chat sin --on: here, cloud, vm:NAME o el nombre de un dispositivo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Où cmux chat démarre un chat sans --on : here, cloud, vm:NAME ou un nom d’appareil."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dove cmux chat avvia una chat senza --on: here, cloud, vm:NAME o il nome di un dispositivo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "--on の指定がないときに cmux chat がチャットを開始する場所: here、cloud、vm:NAME、またはデバイス名。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កន្លែងដែល cmux chat ចាប់ផ្ដើមការជជែក ពេលគ្មាន --on៖ here, cloud, vm:NAME ឬឈ្មោះឧបករណ៍។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "--on 없이 cmux chat이 채팅을 시작하는 곳: here, cloud, vm:NAME 또는 기기 이름."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvor cmux chat starter en chat uten --on: here, cloud, vm:NAME eller et enhetsnavn."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdzie cmux chat zaczyna czat bez --on: here, cloud, vm:NAME lub nazwa urządzenia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Onde o cmux chat inicia um chat sem --on: here, cloud, vm:NAME ou o nome de um dispositivo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Где cmux chat начинает чат без --on: here, cloud, vm:NAME или имя устройства."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ตำแหน่งที่ cmux chat เริ่มแชตเมื่อไม่ได้ระบุ --on: here, cloud, vm:NAME หรือชื่ออุปกรณ์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "--on olmadan cmux chat'in sohbeti başlattığı yer: here, cloud, vm:NAME veya bir cihaz adı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Де cmux chat починає чат без --on: here, cloud, vm:NAME або назва пристрою."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nơi cmux chat bắt đầu cuộc trò chuyện khi không có --on: here, cloud, vm:NAME hoặc tên thiết bị."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "没有 --on 时 cmux chat 开始聊天的位置：here、cloud、vm:NAME 或设备名称。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "沒有 --on 時，cmux chat 開始聊天的位置：here、cloud、vm:NAME 或裝置名稱。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

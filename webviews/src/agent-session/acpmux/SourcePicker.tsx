@@ -39,8 +39,11 @@ export function SourcePicker({
   onPick,
   onCloning,
   returnFocus,
+  startPage,
 }: {
   open: boolean;
+  /// The page it opens on (the GitHub page, opened again after Connect to GitHub); none: the sources.
+  startPage?: SourcePage;
   options: SourcePickerOptions;
   current?: string;
   currentPeer?: string;
@@ -52,7 +55,7 @@ export function SourcePicker({
 }) {
   const t = useT();
   const { github, cloudFolders, onCloudFolder, onClone, onEmpty } = options;
-  const [page, setPage] = useState<SourcePage>("add");
+  const [page, setPage] = useState<SourcePage>(startPage ?? "add");
   const [query, setQuery] = useState("");
   const [machine, setMachine] = useState<CloudFolder>();
   const clone = useGitURLClone(onClone, onCloning, pick);
@@ -492,6 +495,9 @@ function githubRows(
     message = name ? t("source.github.notShared", { repo: name }) : t("composer.githubNoMatches");
   } else if (ready && state.missing && !state.loading) {
     message = t("source.github.notShared", { repo: state.missing });
+  } else if (ready && state.status?.progress === "connected" && state.status.account && !typed) {
+    // The app just finished the connect: whose repositories these are now.
+    message = t("source.github.connectedAccount", { account: state.status.account });
   }
   // The repository the person is after rides along with Connect, so it is picked once GitHub hands back.
   const connectFor = () => github.onConnect(githubFullName(typed) ?? githubFolderRepo(current) ?? state.missing);
@@ -502,6 +508,14 @@ function githubRows(
     ready && !state.error && !state.connecting && !state.status?.connecting
       ? { id: "\0more", label: t("composer.githubChooseMore"), onAction: connectFor }
       : undefined;
+  // One more organization: GitHub's account chooser, from the list it adds to.
+  if (ready && !state.error && !typed && github.onAddAccount && !state.connecting && !state.status?.connecting)
+    repos.push({
+      id: "\0addAccount",
+      label: t("source.github.addOrganization"),
+      icon: "github",
+      onAction: github.onAddAccount,
+    });
   if (action) {
     const connect = action === "connect";
     repos.push({

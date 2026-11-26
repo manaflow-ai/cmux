@@ -183,14 +183,14 @@ export function Notice({
       data-placement={placement}
       data-state={state}
       data-look={v2 ? look : undefined}
-      // One material per surface: a toast floats over the pane, so it is the App's toast glass at the
-      // popover level (ui/glass/hostGlass.ts), the page under it blurring in place; an inline or banner
-      // notice sits in its page's flow and keeps the page's glass.
-      data-host-glass={placement === "stack" ? "popover" : undefined}
-      data-host-glass-role={placement === "stack" ? "toast" : undefined}
-      data-host-glass-cover={placement === "stack" ? "" : undefined}
+      // One material per surface: a notice without the App's toast glass keeps the page's material,
+      // and says which (ui/glass/hostGlass.ts).
       data-page-glass={
-        placement === "stack" ? undefined : "an inline or banner notice in its page's flow, not floating"
+        floats
+          ? undefined
+          : placement === "stack"
+            ? "a stack toast on the page's floating material (experiments.toastGlass off)"
+            : "an inline or banner notice in its page's flow, not floating"
       }
       role={role}
       aria-live={role === "group" ? "polite" : undefined}
