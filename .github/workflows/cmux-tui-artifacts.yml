@@ -411,13 +411,15 @@ jobs:
           set -euo pipefail
           [[ -s "$BUNDLE" ]] || { echo "::warning title=no attestation bundle::the attest step gave no bundle; installers use the attestations API"; exit 0; }
           digest="$(sha256sum assets/cmux-tui/manifest.json | awk '{print $1}')"
-          # Any valid bundle for these bytes verifies; write-once keeps the first one a rerun finds there.
-          python3 scripts/ci/upload-r2-object.py --write-once \
+          # A rerun re-signs, so its bundle's bytes differ from the published one; any valid
+          # bundle for these manifest bytes verifies. --keep-existing leaves the published
+          # bytes at this immutable key and never writes over them (a rerun reuses them).
+          python3 scripts/ci/upload-r2-object.py --write-once --keep-existing \
             --file "$BUNDLE" --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
             --key "cmux-tui-attestations/sha256-$digest.sigstore.json" \
             --content-type application/json \
             --cache-control "public, max-age=31536000, immutable" \
-            || echo "::warning title=bundle kept::an earlier bundle for this manifest is kept"
+            || { echo "::warning title=bundle not published::upload failed; installers use the attestations API"; exit 0; }
           echo "Published: https://files.cmux.com/cmux-tui-attestations/sha256-$digest.sigstore.json"
 
       - name: Upload to R2

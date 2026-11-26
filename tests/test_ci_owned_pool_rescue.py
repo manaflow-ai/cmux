@@ -10272,6 +10272,18 @@ class StallMove(unittest.TestCase):
         self.assertEqual(count, 1, logs)
         self.assertIn(f"workflow:{rescue.CMUX_NEXT_WORKFLOW_PATH}@{HEAD}", api.calls)
         self.assertEqual(starts[0][0].event, "workflow_dispatch")
+        # A head after cmux#45176 cut the clause: its placement reads the dispatch as its pull request's run.
+        placement = ("    env:\n      CMUX_NEXT_PULL_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}\n"
+                     "      CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}\n")
+        logs = []
+        count, starts = scan(dispatch_api(placement), logs)
+        self.assertEqual(count, 1, logs)
+        # A head after cmux#45176 without the placement flag: its bot re-run keeps the side lane, so it is left.
+        cut = ("(vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || "
+               "fromJSON(vars.RUNNER_POOLS).macos_26)")
+        logs = []
+        self.assertEqual(scan(dispatch_api(cut), logs), (0, []))
+        self.assertTrue(any("leaves it" in line for line in logs), logs)
         # The head before the clause: its bot re-run still takes CI_SIDE_LANE_RUNNER.
         old = ("(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' || "
                "github.run_attempt < 2) && vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER")

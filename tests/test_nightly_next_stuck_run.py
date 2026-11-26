@@ -312,7 +312,8 @@ class StuckRun(unittest.TestCase):
         job_spec = tick["jobs"]["unstick"]
         steps = job_spec["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
-        self.assertIn("scripts/ci/nightly_next_stuck_run.py", tooling["with"]["sparse-checkout"].split())
+        self.assertNotIn("sparse-checkout", tooling["with"])  # the whole tooling tree, no promisor fetch
+        self.assertTrue((ROOT / "scripts/ci/nightly_next_stuck_run.py").is_file())
         names = [step.get("name") for step in steps]
         step = steps[names.index("Report a stuck nightly-next run and re-run its lost jobs once it ends")]
         self.assertTrue(step["continue-on-error"])

@@ -285,7 +285,7 @@ class Declared(unittest.TestCase):
         self.assertEqual(rescue["runs-on"],
                          "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-queue-jit-x64' }}")
         self.assertIn("ephemeral-required", path.read_text())
-        self.assertEqual(rescue["steps"][0]["with"]["ref"], "main")
+        self.assertEqual(rescue["steps"][0]["with"]["ref"], "refs/heads/main")
         self.assertTrue((ROOT / "scripts/ci/hosted_light_rescue.py").is_file())
         old = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         self.assertNotIn("hosted_light_rescue.py", str(old["jobs"]))

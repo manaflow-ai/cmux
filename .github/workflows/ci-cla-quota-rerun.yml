@@ -18,7 +18,7 @@ name: CLA quota re-run
 # minutes, so when the reset is under 40 minutes away a pass sleeps until just
 # after it and runs then: one planned pass per reset, not a loop. Cost: free
 # rate_limit reads of GITHUB_TOKEN; reads and re-runs on the glaeda-route
-# App's own budget. Its own workflow and concurrency group (moved out of
+# App's own budget, or on GITHUB_TOKEN while the App's hour is spent. Its own workflow and concurrency group (moved out of
 # ci-queue-janitor.yml), so a pass waiting for the reset never holds the
 # macOS sweep.
 on:
@@ -64,8 +64,12 @@ jobs:
       cancel-in-progress: false
     # No continue-on-error: a pass that ends on a spent budget it cannot wait out exits 1,
     # so the run is red rather than green while CLA checks stay failed.
+    # actions: write and pull-requests: read let the workflow token read and re-run while the
+    # glaeda-route App's hour is spent (the two reset at different minutes; cla_quota_rerun.py).
     permissions:
       contents: read
+      actions: write
+      pull-requests: read
     env:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
       GH_BUDGET_WAIT_MAX_SECONDS: "900"
