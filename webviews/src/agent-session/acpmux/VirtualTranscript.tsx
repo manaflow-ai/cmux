@@ -60,7 +60,7 @@ import { drawTranscriptShell } from "./transcript/transcriptShell";
 import { useStableCallback } from "./stableCallback";
 import { minimapReserve } from "./chatMinimap/paint";
 import type { RowsChange } from "./threadMinimap/model";
-import { fadesBelow, preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
+import { preserveScrollAnchorTop, scrollAnchorBase, fadesBelow } from "./conversation/scrollAnchor";
 import { useBesideStack } from "./conversation/useBesideStack";
 import { attachUserScrollIntent, userScrollIntent } from "./conversation/userScroll";
 import {
@@ -179,7 +179,7 @@ import { type TranscriptNeedsYou } from "./needsYou/JumpPill";
 import { copyTextResult } from "./conversation/clipboard";
 import { transcriptRangeText } from "./conversation/transcriptCopy";
 import { chatColumnOf, useChatSizing } from "./chatWidth";
-import { useChatDisplay, sendPopEnabled } from "./chatDisplay";
+import { sendPopEnabled, useChatDisplay } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
 import { noteSendFromLatest } from "./conversation/sendMorph";
@@ -188,8 +188,8 @@ import {
   readUnread,
   subscribeUnread,
   unreadPending,
-  noteUnreadCount,
   noteUnreadNews,
+  noteUnreadCount,
 } from "./conversation/unreadState";
 import { sinceCount, sinceNews, type HeldSpan, SinceTurnHold } from "./conversation/sinceNews";
 import {
@@ -1852,6 +1852,19 @@ function TranscriptView({
     // frame by frame: the room takes each frame's height and the rows ride with it on that one clock.
     // A glide of their own on top would trail the stack's edge by a fold.
     const asksFolding = () => dock.querySelector(":scope > .acpmux-asks-stack [data-fold-clip]") !== null;
+    // The running tray, too, moves the stack on its own clock: it grows in from 0 frame by frame
+    // (subagents.css `--acpmux-tray-enter`), its fold opens and closes on useFold, and on a chat's
+    // load it comes with its whole height in the first frame that draws it. The rows rest REST_GAP
+    // over it on every one of those frames (agent-pane-composer-rest-gap); a glide on top left them
+    // trailing the tray's top edge, the gap 22px for two frames on load and down to 38px as it
+    // entered. So a change in the tray's own height takes the room at once and plays no glide.
+    let trayDrawn = tray(over());
+    const trayMoved = () => {
+      const now = tray(over());
+      const moved = Math.abs(now - trayDrawn) >= 0.5;
+      trayDrawn = now;
+      return moved;
+    };
     // A typed edit's growth starts in the field's own observer (fieldGrowth.ts, deferred): told first
     // in that round, the dock already holds the field at its natural height. Taken here, the rows
     // glided on the fold's curve and led the field by 5 to 7 px (transcript-composer-grow-anchor).
@@ -1868,7 +1881,8 @@ function TranscriptView({
         return;
       }
       const rows = thread.current;
-      if (!rows || growth || asksFolding()) {
+      const trayed = trayMoved();
+      if (!rows || growth || asksFolding() || trayed) {
         take();
         return;
       }

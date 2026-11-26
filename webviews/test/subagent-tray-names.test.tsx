@@ -13,6 +13,14 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 
+// The folded header's names are the `one` arm's (trayFoldHead.experiment.ts); since #48542 the default
+// `kinds` arm draws each kind's mark and count instead (subagent-tray.test.tsx covers it).
+const experimentsBefore = globalThis.cmuxExperiments;
+globalThis.cmuxExperiments = { ...experimentsBefore, "subagent-tray-fold-head": "one" };
+afterAll(() => {
+  globalThis.cmuxExperiments = experimentsBefore;
+});
+
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
   pretendToBeVisual: true,
