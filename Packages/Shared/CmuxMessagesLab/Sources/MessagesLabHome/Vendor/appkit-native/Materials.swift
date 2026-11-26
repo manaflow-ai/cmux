@@ -200,10 +200,21 @@ final class FieldChrome: NSView {
 
     override func layout() {
         super.layout()
-        container.frame = bounds
-        group.frame = bounds
-        fieldContainer.frame = bounds
-        fieldGroup.frame = bounds
+        if LabGlass.experiment == "fixed" {
+            // EXPERIMENT: the containers cover the largest chrome the window's display holds, so a pane width change
+            // does not resize them.
+            let screen = (window?.screen ?? NSScreen.main)?.frame.size ?? .zero
+            let box = CGRect(x: 0, y: 0, width: max(bounds.width, screen.width), height: max(bounds.height, screen.height))
+            if container.frame != box { container.frame = box }
+            if group.frame != box { group.frame = box }
+            if fieldContainer.frame != box { fieldContainer.frame = box }
+            if fieldGroup.frame != box { fieldGroup.frame = box }
+        } else {
+            container.frame = bounds
+            group.frame = bounds
+            fieldContainer.frame = bounds
+            fieldGroup.frame = bounds
+        }
         keyFixView.frame = bounds
         placeKeyFix()
     }

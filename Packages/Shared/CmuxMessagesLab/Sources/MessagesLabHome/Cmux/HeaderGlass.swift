@@ -34,9 +34,12 @@ final class HeaderGlassView: NSView {
     required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func viewDidUnhide() { super.viewDidUnhide(); needsLayout = true }
 
     override func layout() {
         super.layout()
+        // EXPERIMENT ("header"): a hidden band does not follow the pane's size until it shows.
+        if LabGlass.experiment == "header", isHidden { return }
         surface.frame = bounds
         CATransaction.begin(); CATransaction.setDisableActions(true)
         edge.frame = bounds
