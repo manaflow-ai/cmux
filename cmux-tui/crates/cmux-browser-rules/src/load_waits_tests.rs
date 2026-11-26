@@ -193,6 +193,7 @@ fn load_waits_op_carries_the_state_between_calls() {
         json!({"input": {"kind": "begin", "requestedUrl": "https://a.test/"}}),
     )
     .unwrap();
+    assert_eq!(reply["ticket"]["requestedUrl"], json!("https://a.test/"));
     let mut ticket = reply["ticket"].clone();
     ticket["navigation"] = json!(1);
     let reply = ops::call(

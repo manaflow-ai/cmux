@@ -34,7 +34,7 @@ use serde_json::{Value, json};
 pub enum WaitInput {
     /// [`LoadWaits::begin_navigation`]: replies `ticket`.
     Begin {
-        #[serde(default)]
+        #[serde(default, rename = "requestedUrl")]
         requested_url: Option<String>,
     },
     /// [`LoadWaits::navigation_event`].
