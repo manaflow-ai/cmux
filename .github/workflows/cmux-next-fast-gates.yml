@@ -107,6 +107,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: &resolve-sparse |
+            /.gitmodules
             /.github/runners.json
             /scripts/ci/fast_check_route.py
             /scripts/ci/fast-check-inputs.json
