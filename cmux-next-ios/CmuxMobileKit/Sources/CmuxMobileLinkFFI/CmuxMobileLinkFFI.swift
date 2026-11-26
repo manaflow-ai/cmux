@@ -21625,6 +21625,19 @@ public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
 }
 }
 /**
+ * Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
+ * file at `path` (an Application Support file of this build's own), so a dial after a relaunch
+ * with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they
+ * are kept for this process only. Returns how many hosts the file remembered.
+ */
+public func setRouteLiteralsPath(path: String) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_route_literals_path(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+/**
  * The device's network now, `wifi`, `lte` (any cellular), `wired` or
  * `other` (iOS `NWPathMonitor`, every path update): the key-to-paint tag.
  */
@@ -22654,6 +22667,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_route_literals_path() != 31443) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_network_kind() != 35548) {
