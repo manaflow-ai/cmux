@@ -18,6 +18,8 @@ import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { CloudFeature } from "./CloudFeature";
 import { CustomizeFeature } from "./CustomizeFeature";
+import { CommunityView, useCommunity } from "./CommunityView";
+import type { CommunityStore } from "./community";
 import { FeaturesView } from "./FeaturesView";
 import { InstalledView } from "./InstalledView";
 import { CategoryBar, HeroCard, ItemCard, ItemRow, ListRow } from "./items";
@@ -45,11 +47,22 @@ import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
 import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 
-/** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement. */
-type ToolbarTab = StoreTab | "examples";
+/** The toolbar's tabs: the store's tabs, plus Examples in the `tab` placement, plus Community. */
+type ToolbarTab = StoreTab | "examples" | "community";
 
-export function AppsPage({ store, strings }: { store: AppsStore; strings: Strings }) {
+export function AppsPage({
+  store,
+  strings,
+  community,
+}: {
+  store: AppsStore;
+  strings: Strings;
+  /** The Community tab (community.ts); absent, the page has no Community tab. */
+  community?: CommunityStore;
+}) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
+  const communitySnap = useCommunity(community);
+  const onCommunity = !!community && communitySnap?.active === true;
   const tabRefs = useRef<Partial<Record<ToolbarTab, HTMLButtonElement>>>({});
   const { t } = strings;
   // A lost owner link keeps the listings it had and says so only once it lasts (a launch, a daemon
@@ -78,17 +91,21 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
     "discover",
     ...(examplesTab ? (["examples"] as const) : []),
     ...(snap.featuresEnabled ? (["features"] as const) : []),
+    ...(community ? (["community"] as const) : []),
     "installed",
   ];
   const onFeatures = snap.tab === "features" && featuresShown;
-  const current: ToolbarTab =
-    snap.tab === "installed" || onFeatures
+  const current: ToolbarTab = onCommunity
+    ? "community"
+    : snap.tab === "installed" || onFeatures
       ? snap.tab
       : examplesTab && snap.shelf === "example"
         ? "examples"
         : "discover";
   // Discover is a plain tab change unless the Examples shelf is the one showing.
   const show = (tab: ToolbarTab) => {
+    community?.setActive(tab === "community");
+    if (tab === "community") return;
     if (tab === "examples") store.setShelf("example");
     else if (tab === "discover" && snap.shelf === "example") store.setShelf("store");
     else store.setTab(tab);
@@ -133,12 +150,16 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
           type="search"
           placeholder={t("store.search")}
           aria-label={t("store.search")}
-          value={snap.query}
+          value={onCommunity ? communitySnap!.query : snap.query}
           // The search filters the list on screen: it stays live while the link comes back (Leo, 2026-11-24 11:57Z).
-          onChange={(event) => store.setQuery(event.target.value)}
+          onChange={(event) =>
+            onCommunity ? community!.setQuery(event.target.value) : store.setQuery(event.target.value)
+          }
           onKeyDown={(event: KeyboardEvent<HTMLInputElement>) => {
-            if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && snap.query) {
-              store.setQuery("");
+            const query = onCommunity ? communitySnap!.query : snap.query;
+            if (event.key === "Escape" && !event.metaKey && !event.ctrlKey && query) {
+              if (onCommunity) community!.setQuery("");
+              else store.setQuery("");
               event.preventDefault();
             }
           }}
@@ -152,6 +173,8 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
       {down && snap.catalog.length === 0 && snap.installed.length === 0 ? (
         // Nothing read yet and the link is down: blank, and no false empty shelf either.
         <div className="apps-state" />
+      ) : onCommunity ? (
+        <CommunityView snap={communitySnap!} store={community!} strings={strings} />
       ) : onFeatures ? (
         <FeaturesView snap={snap} store={store} strings={strings} />
       ) : snap.tab === "installed" ? (
