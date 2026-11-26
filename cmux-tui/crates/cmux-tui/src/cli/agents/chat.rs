@@ -274,8 +274,13 @@ pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<Chat, Cal
     };
     let workspace =
         info.pointer("/sessionEnv/CMUX_WORKSPACE_ID").and_then(Value::as_str).map(workspace_key);
-    let keys = session_workspace_keys(global)?;
-    if !workspace.as_ref().is_some_and(|key| keys.contains(key)) {
+    let snapshot = session_snapshot(global)?;
+    let in_workspace =
+        workspace.as_ref().is_some_and(|key| session_workspace_keys(&snapshot).contains(key));
+    // A chat that came here by a move (Bring Back Local, `cmux link agent move`) runs with no
+    // workspace in its env: the move's guard clears the env it brought (`transfer_guard.rs`), and
+    // the app shows it in a workspace it opened for it. Its tab there puts it in this session.
+    if !in_workspace && !shown_in_session(global, &snapshot, &chat) {
         return Err(not_run(
             "chat.out_of_scope",
             format!("chat {chat} does not run in a workspace of this cmux session"),
@@ -316,18 +321,54 @@ pub(super) fn workspace_key(value: &str) -> String {
     value.chars().filter(|ch| *ch != '-').flat_map(char::to_lowercase).collect()
 }
 
-/// The keys of this cmux session's workspaces (`extra.key`), from the
-/// session snapshot `agents_snapshot` reads.
-fn session_workspace_keys(global: &GlobalArgs) -> Result<HashSet<String>, CallFailure> {
-    let snapshot = mcp::agent_resource(global, super::snapshot_plan())
-        .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
-    Ok(snapshot["workspaces"]
+/// This cmux session's snapshot (its workspaces and tabs), as `agents_snapshot` reads it from
+/// the daemon.
+fn session_snapshot(global: &GlobalArgs) -> Result<Value, CallFailure> {
+    mcp::agent_resource(global, super::snapshot_plan()).map_err(|error| CallFailure {
+        kind: FailureKind::NotRun,
+        error,
+        idempotency_key: None,
+    })
+}
+
+/// The keys of this cmux session's workspaces (`extra.key`), from its daemon snapshot.
+fn session_workspace_keys(snapshot: &Value) -> HashSet<String> {
+    snapshot["workspaces"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(|workspace| workspace["extra"]["key"].as_str())
         .map(workspace_key)
-        .collect())
+        .collect()
+}
+
+/// Whether a tab of this cmux session shows chat `chat`: the app names each chat tab's acpmux
+/// session (`snapshot.get`), and the daemon snapshot holds only this session's tabs. No app
+/// (CI, a headless agent): no tab shows it.
+fn shown_in_session(global: &GlobalArgs, snapshot: &Value, chat: &str) -> bool {
+    let Ok(app) =
+        mcp::agent_app(global, "snapshot.get", json!({}), super::super::app::READ_TIMEOUT, None)
+    else {
+        return false;
+    };
+    let Some(topology) = app.get("topology") else { return false };
+    tab_shows_chat(snapshot, &super::app_chat_sessions(topology), chat)
+}
+
+/// Whether one of SNAPSHOT's tabs is a chat tab the app binds (CHATS, tab id to acpmux session)
+/// to chat `chat`.
+pub(super) fn tab_shows_chat(
+    snapshot: &Value,
+    chats: &HashMap<String, String>,
+    chat: &str,
+) -> bool {
+    snapshot["tabs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tab| tab.get("id").and_then(Value::as_str))
+        .filter_map(|id| chats.get(id))
+        .any(|session| session.strip_prefix("acp:").unwrap_or(session) == chat)
 }
 
 /// The caller's own chat: the acpmux session acpmux started it in.

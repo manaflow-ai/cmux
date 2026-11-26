@@ -846,7 +846,7 @@ fn collect_app_tabs(topology: &Value, workspace_ids: Option<&HashSet<String>>) -
 
 /// The app's agent chat tabs by tab id: each `kind: conversation` tab with its acpmux
 /// `agent_session` anywhere in the app topology.
-fn app_chat_sessions(topology: &Value) -> HashMap<String, String> {
+pub(super) fn app_chat_sessions(topology: &Value) -> HashMap<String, String> {
     fn visit(value: &Value, out: &mut HashMap<String, String>) {
         match value {
             Value::Object(object) => {
