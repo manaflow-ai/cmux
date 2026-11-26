@@ -55,6 +55,7 @@ dependencies = [
  "cmux-host-budget",
  "cmux-hub-host",
  "cmux-image-linear",
+ "cmux-intent",
  "cmux-journal",
  "cmux-json",
  "cmux-link",
@@ -93,6 +94,7 @@ dependencies = [
  "cmux-usage-patterns",
  "cmux-usage-share",
  "cmux-vault-egress",
+ "cmux-wallpaper",
  "cmux-wg",
  "cmux-worktree-care",
  "dhat",
@@ -1615,9 +1617,12 @@ dependencies = [
  "base64",
  "blake3",
  "cmux-signed-envelope",
+ "flate2",
  "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
  "zstd",
 ]
@@ -2182,6 +2187,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-egress",
  "cmux-process",
  "cmux-scope",
  "flate2",
@@ -2318,6 +2324,15 @@ dependencies = [
 name = "cmux-install-check"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-intent"
+version = "0.1.0"
+dependencies = [
+ "clap",
  "serde",
  "serde_json",
 ]
@@ -2464,6 +2479,7 @@ name = "cmux-mobile-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-mobile-core",
+ "cmux-rd-screen",
  "serde_json",
  "uniffi",
 ]
@@ -2493,6 +2509,25 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tokio",
+]
+
+[[package]]
+name = "cmux-no-checkout"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64",
+ "cmux-no-checkout",
+ "cmux-process",
+ "cmux-scope",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "zeroize",
 ]
 
 [[package]]
@@ -3279,11 +3314,13 @@ dependencies = [
  "cmux-host",
  "cmux-host-budget",
  "cmux-install-check",
+ "cmux-intent",
  "cmux-json",
  "cmux-layout-reducer",
  "cmux-lifeline",
  "cmux-link",
  "cmux-migrate",
+ "cmux-no-checkout",
  "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
@@ -3333,6 +3370,7 @@ dependencies = [
  "ghostty-vt",
  "ghostty-vt-sys",
  "glob",
+ "ignore",
  "libc",
  "notify",
  "parking_lot",
@@ -3737,6 +3775,8 @@ name = "cmux-wallpaper"
 version = "0.1.0"
 dependencies = [
  "naga",
+ "schemars 1.2.2",
+ "serde",
  "serde_json",
 ]
 
