@@ -392,7 +392,25 @@ public final class SidebarModel {
     public var locksReorder: Bool { (isFiltering && docDrag == nil) || grouping.isGrouped }
     /// The sidebar document's drag half (sidebar-v2 S5), set by the App
     /// while the document is active.
-    @ObservationIgnored public var docDrag: SidebarDocDrag?
+    @ObservationIgnored public var docDrag: SidebarDocDrag? {
+        didSet { if docDrag != nil { awaitsDocument = false } } // the document is back
+    }
+    /// The launch's saved sidebar drew the document (`SidebarSnapshot.drawsDocument`) and it is not back yet: the
+    /// apps after the list wait for it rather than take the band below, which the list's blocks would take from them
+    /// a moment later (the band closed, the list grew, its rows moved: c-9197de7242's launch video, frame 4).
+    /// The App clears it when the document is back or the launch ends without it.
+    @ObservationIgnored public var awaitsDocument = false {
+        didSet { if oldValue != awaitsDocument { onAwaitsDocumentChange?() } }
+    }
+    /// The sidebar view lays its bands out again when `awaitsDocument` changes.
+    @ObservationIgnored public var onAwaitsDocumentChange: (() -> Void)?
+
+    /// The window's view state from its saved sidebar (snapshot-first launch): its collapsed sections, saved only
+    /// there, and whether it waits for the document (`awaitsDocument`; not when `documentShown` already).
+    package func seedView(from saved: SidebarSnapshot?, documentShown: Bool) {
+        collapsedSections = Set((saved?.sidebarSections ?? []).filter(\.isCollapsed).map(\.id))
+        awaitsDocument = saved?.drawsDocument == true && !documentShown
+    }
     /// The document's group sorts the last `setSections` arranged its groups in.
     @ObservationIgnored private var arrangedSorts: [String: SidebarGroupSort] = [:]
     /// The document's archived items the last `setSections` marked its rows by.
@@ -841,6 +859,7 @@ public final class SidebarModel {
                                                 background: preferences.groupHeaderBackground)
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
+        grouping.folderlessUngrouped = preferences.folderlessUngrouped
         groupsByComputer = preferences.groupsByComputer
         if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
