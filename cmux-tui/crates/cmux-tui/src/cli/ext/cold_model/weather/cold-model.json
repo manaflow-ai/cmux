@@ -1,5 +1,0 @@
-{
-  "model": "claude-haiku-5-5",
-  "task": "A weather widget for one city (sample: Lisbon, 21 degrees, sunny, high 24 low 15), and in the medium size the next four hours with their temperatures.",
-  "page": "skills/cmux-customization/references/extension-design.md"
-}

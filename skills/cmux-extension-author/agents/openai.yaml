@@ -1,4 +1,0 @@
-interface:
-  display_name: "cmux Extension Author"
-  short_description: "Write a cmux NEXT extension with cmux ext dev, from one recipe per kind."
-  default_prompt: "Use $cmux-extension-author to pick the recipe for the kind of extension asked for, copy it into a new folder, change it to fit, and run cmux ext dev --once --json until it exits 0 and its scene shows the change."
