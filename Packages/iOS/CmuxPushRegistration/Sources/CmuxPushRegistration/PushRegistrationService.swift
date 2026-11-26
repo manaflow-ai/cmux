@@ -1,3 +1,4 @@
+public import CmuxAuthRuntime
 public import Foundation
 #if canImport(FoundationNetworking)
 public import FoundationNetworking
@@ -50,10 +51,8 @@ public actor PushRegistrationService: PushRegistering {
     private let retryDelays: [Duration]
     private let retryJitter: @Sendable (ClosedRange<Double>) -> Double
     private let retrySleep: @Sendable (Duration) async throws -> Void
-    private let sessionSnapshotTimeout: Duration
     private let sessionSnapshotClock: any Clock<Duration>
-    private let sessionSnapshotTimeoutRegistry = AuthPhaseTimeoutRegistry()
-    private let authLog = AuthDebugLog()
+    private let sessionSnapshotReader: PushSessionSnapshotReader
     private var retryTask: Task<Void, Never>?
     private var unregisterDrainTask: Task<Void, Never>?
     /// App-lifetime, direction-owned workers let a privacy-sensitive opt-out
@@ -196,8 +195,11 @@ public actor PushRegistrationService: PushRegistering {
         self.retryDelays = retryDelays
         self.retryJitter = retryJitter
         self.retrySleep = retrySleep
-        self.sessionSnapshotTimeout = sessionSnapshotTimeout
         self.sessionSnapshotClock = sessionSnapshotClock
+        self.sessionSnapshotReader = PushSessionSnapshotReader(
+            timeout: sessionSnapshotTimeout,
+            clock: sessionSnapshotClock
+        )
         let enabled = self.defaults.bool(forKey: Self.enabledKey)
         let hasToken = self.defaults.string(forKey: Self.cachedTokenKey)?.isEmpty == false
         self.snapshotValue = PushRegistrationSnapshot(
@@ -482,7 +484,7 @@ public actor PushRegistrationService: PushRegistering {
             )
         }
         let session = await boundedSessionSnapshot(
-            phase: .pushUnregistrationSession,
+            phase: .unregistration,
             recoveryGeneration: preferenceGeneration
         )
         if let preferenceGeneration,
@@ -675,7 +677,7 @@ public actor PushRegistrationService: PushRegistering {
                 pushIdentity.map { ["pushPublicKey": $0.publicKey] } ?? [:],
                 uniquingKeysWith: { _, new in new }
             ),
-            authPhase: .pushRegistrationSession
+            authPhase: .registration
         )
         let result: RegistrationResult
         let requestSession: AuthenticatedSessionSnapshot?
@@ -828,7 +830,7 @@ public actor PushRegistrationService: PushRegistering {
         staleGeneration: UUID
     ) async {
         let currentSession = await boundedSessionSnapshot(
-            phase: .pushRegistrationSession
+            phase: .registration
         )
         if isEnabled,
            cachedTokenHex == tokenHex,
@@ -859,7 +861,7 @@ public actor PushRegistrationService: PushRegistering {
 
         guard isEnabled, let currentToken = cachedTokenHex,
               let currentSession = await boundedSessionSnapshot(
-                  phase: .pushRegistrationSession
+                  phase: .registration
               ),
               await tokenProvider.isAuthenticatedSessionCurrent(currentSession)
         else { return }
@@ -890,7 +892,7 @@ public actor PushRegistrationService: PushRegistering {
             capturedAccessToken: capturedAccessToken,
             capturedRefreshToken: capturedRefreshToken,
             sessionSnapshot: sessionSnapshot,
-            authPhase: .pushUnregistrationSession
+            authPhase: .unregistration
         ) else { return false }
         guard await performDelete(context.request) else { return false }
         if let session = context.session {
@@ -906,7 +908,7 @@ public actor PushRegistrationService: PushRegistering {
         capturedAccessToken: String? = nil,
         capturedRefreshToken: String? = nil,
         sessionSnapshot: AuthenticatedSessionSnapshot? = nil,
-        authPhase: AuthPhase
+        authPhase: PushSessionSnapshotReader.Phase
     ) async -> Result<PushRequest, PushRegistrationFailure> {
         let accessToken: String
         let refreshToken: String
@@ -1015,7 +1017,7 @@ public actor PushRegistrationService: PushRegistering {
         preferenceGeneration: UUID? = nil
     ) async {
         guard let session = await boundedSessionSnapshot(
-            phase: .pushUnregistrationSession,
+            phase: .unregistration,
             recoveryGeneration: preferenceGeneration
         ) else { return }
         if let preferenceGeneration,
@@ -1095,24 +1097,14 @@ public actor PushRegistrationService: PushRegistering {
     }
 
     private func boundedSessionSnapshot(
-        phase: AuthPhase,
+        phase: PushSessionSnapshotReader.Phase,
         recoveryGeneration: UUID? = nil
     ) async -> AuthenticatedSessionSnapshot? {
-        let tokenProvider = tokenProvider
         do {
-            return try await withAuthPhaseTimeout(
+            return try await sessionSnapshotReader.snapshot(
                 phase,
-                duration: sessionSnapshotTimeout,
-                clock: sessionSnapshotClock,
-                log: authLog,
-                registry: sessionSnapshotTimeoutRegistry,
-                blocksRetriesWhileTimedOutOperationActive: true
-            ) {
-                // This provider API only reads a coherent stored token pair or
-                // awaits bounded launch bootstrap. Cancelling it cannot leave
-                // an ambiguous server mutation behind.
-                try await tokenProvider.authenticatedSessionSnapshot()
-            }
+                from: tokenProvider
+            )
         } catch let error as AuthError where error == .timedOut {
             schedulePendingUnregisterRecovery(
                 preferenceGeneration: recoveryGeneration
