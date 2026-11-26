@@ -2249,8 +2249,17 @@ jobs:
             fi
           }
           started=$SECONDS
-          retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
-          echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          # The fleet mirror is a whole, verified clone (glaeda-verified, not shallow), so a commit it
+          # holds brings every object it needs through the alternate. Asking github.com for it anyway
+          # is what failed run 45744507889 (429 x4, then 403, at 03:09Z on 11-26): fetch only what the
+          # mirror lacks.
+          if grep -qxF "$mirror/objects" .git/objects/info/alternates 2>/dev/null \
+              && git --git-dir="$mirror" cat-file -e "$BUILD_SHA^{commit}" 2>/dev/null; then
+            echo "$BUILD_SHA is in the fleet mirror $mirror: no fetch from origin"
+          else
+            retry git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"
+            echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
+          fi
           git_dir="${GITHUB_WORKSPACE:?}/.git"
           for key in core.sparseCheckout core.sparseCheckoutCone index.sparse; do
             git config --local --unset-all "$key" || true
