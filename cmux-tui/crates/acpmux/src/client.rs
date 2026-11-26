@@ -32,6 +32,8 @@ impl Drop for PendingRequest<'_> {
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
     daemon_build: std::sync::Mutex<Option<String>>,
+    /// The daemon's ABI revision from its hello (`abi_hello.rs`); none from a pre-hello daemon.
+    daemon_abi_rev: std::sync::Mutex<Option<u64>>,
     /// The session this connection proved at initialize, never the caller's claim.
     proven_caller_session: std::sync::OnceLock<String>,
     /// Absolute path to the CLI bundled with the app that started the daemon,
@@ -174,6 +176,7 @@ impl Client {
         }
         Arc::new(Self {
             daemon_build: std::sync::Mutex::new(None),
+            daemon_abi_rev: std::sync::Mutex::new(None),
             proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
             socket: path.to_path_buf(),
@@ -220,6 +223,8 @@ impl Client {
         // Whether it runs in an acpmux session's environment, said positively: only a terminal
         // declaration may be the owner's own send (`cli_caller.rs`).
         crate::cli_caller::declare(&mut meta, caller);
+        // The ABI hello (`abi_hello.rs`): this build's revision and build id.
+        crate::abi_hello::stamp(&mut meta);
         hello.set("_meta", json!({"acpmux": meta}));
         // Every command waits here first: a daemon that stopped answering says so (`slow_notice.rs`).
         let init = crate::slow_notice::noted(
@@ -231,6 +236,7 @@ impl Client {
         {
             let _ = self.proven_caller_session.set(session.to_owned());
         }
+        *self.daemon_abi_rev.lock_or_recover() = crate::abi_hello::read(&init).rev;
         *self.daemon_build.lock_or_recover() =
             init.pointer("/_meta/acpmux/build").and_then(Value::as_str).map(str::to_owned);
         *self.daemon_cli_path.lock_or_recover() = init
@@ -274,6 +280,12 @@ impl Client {
             return false;
         };
         self.request(method::MUX_PERSON_PROVE, json!({ "proof": proof })).await.is_ok()
+    }
+
+    /// The daemon's ABI revision, as its hello said (`abi_hello.rs`); none from a daemon before
+    /// the hello, which [`crate::abi_hello::skew`] reads as pre-hello.
+    pub fn daemon_abi_rev(&self) -> Option<u64> {
+        *self.daemon_abi_rev.lock_or_recover()
     }
 
     /// The daemon's build id, as reported at initialize.

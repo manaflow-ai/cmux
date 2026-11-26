@@ -261,6 +261,8 @@ pub(super) fn initialize(
         },
         "authMethods": [],
         "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": capabilities,
+        // The ABI hello (`abi_hello.rs`, RFD 0178): the gate's revision this build serves.
+        crate::abi_hello::FIELD: crate::abi_hello::own(),
         // `local`: the unix socket or the proven local app
         // (`local_app.rs`), which the session pool serves.
         "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -401,6 +403,8 @@ pub(in crate::server) fn note_initialize(conn: &Conn, params: &Value) {
     conn.peer_row_batches.store(batches == Some(true), Ordering::SeqCst);
     // The features it reads (`client_features.rs`); none listed: a client from before the list.
     conn.client_features.note(params);
+    // Its ABI hello, counted for `_acpmux/status`; nothing in it can fail the connection.
+    crate::abi_hello::note(crate::abi_hello::read(params));
     // Opt-in too (`chunk_deltas.rs`): a client that does not ask hears every chunk's whole event.
     // A peer's link reads text masked (`peer_text.rs`), so it is never sent the compact form.
     let deltas = params.pointer("/_meta/acpmux/chunkDeltas").and_then(Value::as_bool);
