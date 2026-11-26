@@ -31,7 +31,7 @@ final class CloudMachineUpdates {
         self.services = services
     }
 
-    /// Follows the app's Cloud machines until the app quits (``AppServices/startCloud()``).
+    /// Follows the app's Cloud machines until the app quits, starting after the first frame.
     @discardableResult
     static func start(_ services: AppServices) -> Task<Void, Never> {
         let updates = CloudMachineUpdates(services: services)

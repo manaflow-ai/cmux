@@ -52,6 +52,44 @@ A theme file is a pit of success: it can only set how cmux looks, never what it 
   in the app theme's text color instead, and Settings says so.
 - A managed (team or MDM) value wins over the file.
 
+### Layout and proportions
+
+A look can also take the source app's proportions. Each one is an `appearance.metrics.*` number with
+a bounded range. If you leave it unset, it keeps the density's value, so a look without these keys draws cmux's
+own layout. Each value applies as soon as you save.
+
+| Proportion | Key | Range |
+| --- | --- | --- |
+| Title bar (header) height | `appearance.metrics.titlebarHeight` | 24-56 pt |
+| Default sidebar width | `appearance.metrics.sidebarWidth` | 160-420 pt |
+| Sidebar row height | `appearance.metrics.sidebarRowHeight` | 20-48 pt |
+| Sidebar row fill to sidebar edge | `appearance.metrics.sidebarRowInset` | 0-24 pt |
+| Sidebar row fill to its content | `appearance.metrics.sidebarRowPadding` | 0-24 pt |
+| Gap between sidebar rows | `appearance.metrics.sidebarRowGap` | 0-12 pt |
+| A row with a detail line (a two-line card) | `appearance.metrics.sidebarRowHeightWithSubtitle` | 28-96 pt |
+| Tab bar height (the tabs follow it) | `appearance.metrics.tabStripHeight` | 22-44 pt |
+| Toolbar icon button size (header chips take it too) | `appearance.metrics.toolbarButtonSize` | 16-40 pt |
+| Gap between toolbar buttons (pitch less size) | `appearance.metrics.toolbarButtonGap` | 0-16 pt |
+| Toolbar button fill corner (hover, pressed, active) | `appearance.metrics.toolbarButtonCornerRadius` | 0-20 pt |
+| Fill under a toolbar button that is on, a share of the text color | `appearance.metrics.toolbarButtonActiveFill` | 0-0.4 |
+| Hairline under the header and tab row, 0 for none | `appearance.metrics.headerDivider` | 0-1 |
+| Chat composer side padding | `appearance.metrics.composerPadding` | 0-24 pt |
+| Chat composer one-line height | `appearance.metrics.composerMinHeight` | 32-160 pt |
+| Spacing grid (padding and gaps), a multiplier | `appearance.metrics.spacingScale` | 0.5-2 |
+| Gap between panes | `appearance.metrics.columnGap` | 0-24 pt |
+
+```jsonc
+// themes/claude-dark.json: Claude's header buttons, 21.5 pt on a 24.5 pt pitch, the one that is on over a 5 pt
+// rounded square at 14% of the text color, a hairline under the header
+{
+  "appearance.metrics": {
+    "titlebarHeight": 40, "sidebarWidth": 288, "sidebarRowHeight": 26,
+    "toolbarButtonSize": 21.5, "toolbarButtonGap": 3, "toolbarButtonCornerRadius": 5,
+    "toolbarButtonActiveFill": 0.14, "headerDivider": 1
+  }
+}
+```
+
 For more than a look, write a view of your own: a sidebar or Session Info section (the skill's "Make
 a view"). A view whose script fails shows its error in its own place with a Reload button, and the
 rest of the app keeps working. If a code change of your own breaks the app, go back a build from the
