@@ -255,6 +255,7 @@
           "\"connected\"",
           "\"connecting\"",
           "\"degraded\"",
+          "\"idle\"",
           "\"offline\"",
           "\"paused\"",
           "\"reconnecting\"",
@@ -434,6 +435,34 @@
       "/*untyped*": {
         "ty": "json",
         "nullable": true
+      }
+    },
+    "event:_acpmux/room": {
+      "/deltas": {
+        "ty": "array"
+      },
+      "/deltas/*": {
+        "ty": "json"
+      },
+      "/left": {
+        "ty": "array"
+      },
+      "/left/*": {
+        "ty": "string"
+      },
+      "/presence": {
+        "ty": "array",
+        "required": true
+      },
+      "/presence/*": {
+        "ty": "json"
+      },
+      "/room": {
+        "ty": "json",
+        "required": true
+      },
+      "/snapshot": {
+        "ty": "boolean"
       }
     },
     "event:_acpmux/rows_lagged": {
@@ -21909,6 +21938,20 @@
         "nullable": true
       }
     },
+    "request:_acpmux/rooms": {
+      "/chats": {
+        "ty": "array"
+      },
+      "/chats/*": {
+        "ty": "string"
+      },
+      "/workspaces": {
+        "ty": "array"
+      },
+      "/workspaces/*": {
+        "ty": "string"
+      }
+    },
     "request:_acpmux/route/add": {
       "/*untyped*": {
         "ty": "json",
@@ -36308,6 +36351,12 @@
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
+      }
+    },
+    "response:_acpmux/rooms": {
+      "/data/rooms": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "response:_acpmux/route/add": {
