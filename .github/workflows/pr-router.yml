@@ -285,6 +285,7 @@ jobs:
       jobs: ${{ needs.route.outputs.table || '' }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
     permissions:
       contents: read
       # The ios job's picker reads the queue and its runs (scripts/ci/ios_runner_pool.py).
@@ -297,7 +298,7 @@ jobs:
   pipeline-fail-fast:
     name: head fail-fast after pr pipeline
     needs: pipeline
-    if: ${{ failure() && needs.pipeline.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.pipeline.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: pr-router.yml
