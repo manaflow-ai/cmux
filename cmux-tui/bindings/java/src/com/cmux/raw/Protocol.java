@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "bbaa9cc76d49028ddb36c74dc6ce5d7acbcc1f2f79abd78bc19f3f51f4339001";
+    public static final String IR_SHA256 = "235abef66ac92657f881cf335f430c934910471d80070ca90561ea21a08da2e1";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -24,6 +24,7 @@ public final class Protocol {
             case "agent-inventory-watch-ended" -> AgentInventoryWatchEndedEvent.fromWire(value);
             case "agent-presence-changed" -> AgentPresenceChangedEvent.fromWire(value);
             case "agent-session-share-changed" -> AgentSessionShareChangedEvent.fromWire(value);
+            case "apps-cloud-machine" -> AppsCloudMachineEvent.fromWire(value);
             case "bell" -> BellEvent.fromWire(value);
             case "bookmarks-changed" -> BookmarksChangedEvent.fromWire(value);
             case "browser-state" -> BrowserStateEvent.fromWire(value);
