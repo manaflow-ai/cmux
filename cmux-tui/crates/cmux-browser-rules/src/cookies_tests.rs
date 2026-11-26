@@ -104,7 +104,7 @@ fn a_playwright_cookie_with_a_url_takes_its_host_and_directory() {
 #[test]
 fn cookies_set_refuses_an_expired_cookie_and_a_non_object() {
     let ok = json!({"name": "n", "value": "v", "domain": "a.test", "expires": -1});
-    assert_eq!(cookies_to_set(&[ok.clone()], 100.0).unwrap().len(), 1);
+    assert_eq!(cookies_to_set(std::slice::from_ref(&ok), 100.0).unwrap().len(), 1);
     let expired = json!({"name": "n", "value": "v", "domain": "a.test", "expires": 100});
     assert!(cookies_to_set(&[ok, expired], 100.0).unwrap_err().contains("clearCookies()"));
     assert!(cookies_to_set(&[json!(1)], 0.0).unwrap_err().contains("array of objects"));
