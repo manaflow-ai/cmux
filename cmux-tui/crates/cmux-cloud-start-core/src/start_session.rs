@@ -204,10 +204,9 @@ pub fn from_folder(text: Option<&str>, has_cwd: bool) -> FromFolder {
     if text.len() > PATH_MAX || text.chars().any(char::is_control) {
         return FromFolder::Invalid;
     }
-    let folder = if text.chars().count() > 1 && text.ends_with('/') {
-        &text[..text.len() - 1]
-    } else {
-        text
+    let folder = match text.strip_suffix('/') {
+        Some(trimmed) if text.chars().count() > 1 => trimmed,
+        _ => text,
     };
     FromFolder::Check { path: text.to_owned(), folder: folder.to_owned() }
 }
