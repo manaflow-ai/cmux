@@ -168,7 +168,8 @@ export type LiveBackground = {
   uninstall(): void;
 };
 
-/** Starts a live background of `style` behind the document's content. */
+/** Starts a live background of `style` behind the document's content.
+ * @status experimental: only the live-background experiment draws it (ui/STATUS.md). */
 export function installLiveBackground(doc: Document, style: LiveBackgroundStyle): LiveBackground | null {
   const view = doc.defaultView;
   if (!view) return null;
