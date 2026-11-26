@@ -1604,9 +1604,12 @@ dependencies = [
  "base64",
  "blake3",
  "cmux-signed-envelope",
+ "flate2",
  "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
  "zstd",
 ]

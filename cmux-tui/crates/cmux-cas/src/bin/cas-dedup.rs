@@ -1,13 +1,13 @@
-//! `cas-dedup --root LABEL=PATH [--root ...] [--sample-every K] [--level N] [--threads T]`: what the
+//! `cas-dedup --root LABEL=PATH [--root ...] [--sample-every K] [--level N] [--threads T] [--public-dir DIR]`: what the
 //! roots would keep as `cas/1` chunks against the bytes they hold, as one JSON object
 //! ([`cmux_cas::dedup`]). The fleet measurement under hq `docs/design/cold-storage-and-shared-tier.md`.
 
 use cmux_cas::dedup::{Options, measure};
+use cmux_cas::public::Public;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str =
-    "usage: cas-dedup --root LABEL=PATH [--root ...] [--sample-every K] [--level N] [--threads T]";
+const USAGE: &str = "usage: cas-dedup --root LABEL=PATH [--root ...] [--sample-every K] [--level N] [--threads T] [--public-dir DIR]";
 
 fn main() -> ExitCode {
     match run() {
@@ -33,6 +33,10 @@ fn run() -> Result<(), String> {
             }
             "--sample-every" => opts.sample_every = num(&v)?,
             "--level" => opts.zstd_level = v.parse().map_err(|_| v.clone())?,
+            "--public-dir" => {
+                let idx = Public::new(&v).index().map_err(|e| format!("{v}: {e}"))?;
+                opts.public = Some(idx.prefixes());
+            }
             "--threads" => opts.threads = usize::try_from(num(&v)?).map_err(|_| v.clone())?,
             _ => return Err(a),
         }

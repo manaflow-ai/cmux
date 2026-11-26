@@ -57,6 +57,14 @@ pub struct Report {
     pub zstd_sampled_bytes: u64,
     /// `physical * zstd_ratio`: the chunk store's bytes at rest.
     pub physical_compressed: u64,
+    /// Of `physical`, the bytes of distinct chunks the public tier holds (0 without a public
+    /// index): kept once for every tenant, so a cold pass stores a ref instead of a copy.
+    pub public_chunk_bytes: u64,
+    /// Files whose every chunk is public: stored as a ref.
+    pub public_ref_files: u64,
+    pub public_ref_file_bytes: u64,
+    /// `physical - public_chunk_bytes`: what a tenant's cold pass physically keeps.
+    pub physical_after_public: u64,
     pub seconds: f64,
 }
 
@@ -82,11 +90,13 @@ pub struct Options {
     pub sample_every: u64,
     pub zstd_level: i32,
     pub threads: usize,
+    /// Prefixes of the public tier's chunk ids ([`crate::public::PublicIndex::prefixes`]).
+    pub public: Option<std::collections::HashSet<Key>>,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Self { sample_every: 32, zstd_level: 3, threads: 8 }
+        Self { sample_every: 32, zstd_level: 3, threads: 8, public: None }
     }
 }
 
@@ -196,6 +206,12 @@ fn record(st: &mut State, i: usize, meta: &std::fs::Metadata, cut: Cut, opts: &O
         add(&mut root.logical, size);
     }
     add(&mut st.totals.chunks, as_u64(chunks.len()));
+    if let Some(public) = &opts.public {
+        if !chunks.is_empty() && chunks.iter().all(|(k, _)| public.contains(k)) {
+            add(&mut st.totals.public_ref_files, 1);
+            add(&mut st.totals.public_ref_file_bytes, size);
+        }
+    }
     for (n, (k, len)) in chunks.into_iter().enumerate() {
         match st.chunks.entry(k) {
             Entry::Vacant(e) => {
@@ -282,7 +298,17 @@ pub fn measure(roots: &[(String, PathBuf)], opts: &Options) -> Report {
             }
         }
     }
+    if let Some(public) = &opts.public {
+        let held: u64 = st
+            .chunks
+            .iter()
+            .filter(|(k, _)| public.contains(*k))
+            .map(|(_, c)| u64::from(c.len))
+            .sum();
+        st.totals.public_chunk_bytes = held;
+    }
     let mut r = st.totals;
+    r.physical_after_public = r.physical.saturating_sub(r.public_chunk_bytes);
     r.roots = st.per_root;
     r.physical_over_logical = ratio(r.physical, r.logical, 0.0);
     r.zstd_level = opts.zstd_level;

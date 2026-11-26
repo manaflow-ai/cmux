@@ -28,7 +28,7 @@ fn shared_chunks_are_counted_once_and_attributed_to_both_roots() {
 
     let r = measure(
         &[("a".into(), a.path().into()), ("b".into(), b.path().into())],
-        &Options { sample_every: 1, zstd_level: 3, threads: 4 },
+        &Options { sample_every: 1, zstd_level: 3, threads: 4, public: None },
     );
     assert_eq!(r.files, 4, "symlink not followed");
     assert_eq!(r.logical, (2 << 20) * 3 + 6 + (1 << 20));
