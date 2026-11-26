@@ -130,11 +130,13 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cmux_next_compile_revert.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_cmux_next_compile_revert.py"
 
 [[test]]
 path = "tests/test_ci_cmux_next_compile_status.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_cmux_next_compile_status.py"
 
 [[test]]
 path = "tests/test_ci_cmux_tui_channel_heal.py"
@@ -161,7 +163,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_compile_test_plan.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_compile_test_plan.py"
 
 [[test]]
 path = "tests/test_ci_delta_since_green.py"
@@ -298,8 +301,14 @@ path = "tests/test_ci_git_seed.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_github_fetch_auth.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_github_fetch_auth.py"
+
+[[test]]
 path = "tests/test_ci_github_token_budget.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_github_token_budget.py"
 
 [[test]]
 path = "tests/test_ci_guard_attribution.py"
@@ -307,7 +316,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_guard_base_verdicts.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_guard_base_verdicts.py"
 
 [[test]]
 path = "tests/test_ci_guard_check_isolation.py"
@@ -357,6 +367,10 @@ path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_ios_fast_verdict.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_ios_kit_base_red.py"
 lane = "linux-guard"
 
@@ -397,7 +411,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_launch_budget_gate.py"
-lane = "linux-guard"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_launch_budget_gate.py"
 
 [[test]]
 path = "tests/test_ci_light_jobs_pool_mirror_checkout.py"
@@ -592,6 +607,10 @@ path = "tests/test_ci_package_lane_prebuild.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_lane_preflight.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_package_lane_suite.py"
 lane = "linux-guard"
 
@@ -610,6 +629,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_parallel_artifact_transport.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_paths_tree_key.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1130,7 +1153,15 @@ path = "tests/test_ci_workflow_tailnet_oidc_pr_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_workflows_have_no_repeated_keys.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflows_pin_no_fleet_pool.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflows_registered.py"
 lane = "linux-guard"
 
 [[test]]
