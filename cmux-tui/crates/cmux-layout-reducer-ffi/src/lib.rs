@@ -48,6 +48,8 @@
 //! and whether it earns an undo toast),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' empty workspace repair (`empty_workspace_step`: one
+//! step of the reducer whose state the app holds; `empty_workspace_cause`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -88,6 +90,7 @@ mod cloud_move;
 mod cloud_sequence;
 mod cloud_task;
 pub mod drag_handle;
+mod empty_workspace;
 pub mod focus;
 mod imessage;
 pub mod input;
@@ -589,6 +592,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&cmux_focus_core::wire::agent_cursor_visibility(&request))
                     .map_err(|_| ERR_INVALID)?
+            }
+            operation if empty_workspace::handles(operation) => {
+                empty_workspace::respond(operation, request)?
             }
             operation if cloud_config::handles(operation) => {
                 cloud_config::respond(operation, request)?

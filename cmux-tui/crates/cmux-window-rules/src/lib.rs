@@ -34,6 +34,8 @@
 //!   where the launch lands: the last workspace and tab, or Home.
 //! - [`editors`]: the code editors Open in Editor knows and which one opens
 //!   a folder (the person's `editor.default`, else the first installed).
+//! - [`empty_workspace`]: what happens to a workspace with no pane (its
+//!   last tab closed: it closes; its terminal was lost: it gets a new one).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
 
@@ -43,6 +45,7 @@ pub mod chat;
 pub mod close;
 pub mod closed;
 pub mod editors;
+pub mod empty_workspace;
 pub mod files;
 pub mod history;
 pub mod launch;
