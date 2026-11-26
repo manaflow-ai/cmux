@@ -16,7 +16,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { ROW_METRIC } from "../src/agent-session/acpmux/rowMetric";
+import { ROW_METRIC, ROW_METRIC_VARIANTS, type RowMetric } from "../src/agent-session/acpmux/rowMetric";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -24,7 +24,6 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
   setDefaultTimeout(300_000);
   const ENTRY = "agent-pane.activity-row-density";
   const MEASURED = ["expanded", "folded", "runs-open"];
-  const SHOTS = ["density-roomy", "density-compact", "density-dense"];
   const OUT = process.env.FAST_CHECKS_OUT;
   const LOG = process.env.CMUX_ROW_DENSITY_LOG === "1";
   try {
@@ -147,6 +146,20 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
   const callsIn = (height: number) => Math.round(height / ROW_METRIC.height);
   const runHeight = (calls: number) => calls * ROW_METRIC.height;
 
+  const expectWorkedGeometry = ({ rows, worked }: Measured, metric: RowMetric) => {
+    const headers = rows.filter((row) => row.id.startsWith("worked-"));
+    // The reply-only first turn retains its header so the reply stays in place when the turn ends.
+    expect(headers.map((row) => row.id)).toEqual([
+      "worked-density-first",
+      "worked-density-remote",
+      "worked-density-notice",
+    ]);
+    expect(worked).toHaveLength(headers.length);
+    for (const height of worked) expect(height).toBeCloseTo(metric.height + metric.ruleAbove, 1);
+    for (const row of headers)
+      expect(row.height).toBeCloseTo(metric.height + metric.ruleAbove + metric.ruleBelow, 1);
+  };
+
   for (const variant of MEASURED) {
     test(`each shut one-line row is one row of the metric, ${ROW_METRIC.height}px (${variant})`, async () => {
       const lines = lineRows((await of(variant)).rows);
@@ -185,18 +198,17 @@ await requireBrowserLane("transcript-activity-row-density.test.ts", async () => 
       for (const glyph of glyphs) expect(glyph).toBeCloseTo(ROW_METRIC.glyph, 1);
     });
     test(`"Worked for" is one row and its rule's room (${variant})`, async () => {
-      const { rows, worked } = await of(variant);
-      expect(worked.length).toBe(2);
-      for (const height of worked) expect(height).toBeCloseTo(ROW_METRIC.height + ROW_METRIC.ruleAbove, 1);
-      for (const row of rows.filter((each) => each.id.startsWith("worked-")))
-        expect(row.height).toBeCloseTo(ROW_METRIC.height + ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow, 1);
+      expectWorkedGeometry(await of(variant), ROW_METRIC);
     });
   }
 
-  // The density candidates the gallery compares, drawn for the PR (no assertion past drawing).
-  if (OUT)
-    for (const variant of SHOTS)
-      test(`draws ${variant}`, async () => {
-        expect((await of(variant)).rows.length).toBeGreaterThan(0);
-      });
+  for (const [name, metric] of Object.entries(ROW_METRIC_VARIANTS)) {
+    test(`density-${name} draws the candidate's row and divider geometry`, async () => {
+      const measured = await of(`density-${name}`);
+      expectWorkedGeometry(measured, metric);
+      expect(new Set(measured.words.map((word) => word.size))).toEqual(new Set([metric.font]));
+      expect(new Set(measured.chips)).toEqual(new Set([metric.chip]));
+      expect(new Set(measured.glyphs)).toEqual(new Set([metric.glyph]));
+    });
+  }
 });

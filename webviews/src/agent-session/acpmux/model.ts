@@ -521,6 +521,13 @@ export type AcpmuxRow = {
   text?: string;
   /// Codex's explicit message phase; absent for harnesses and history without phase metadata.
   assistantPhase?: "commentary" | "final_answer";
+  /// The message's text is whole: no further delta will grow it, though the row can still be
+  /// `streaming` until its turn ends. Codex says so by stamping a message's phase a second time, on
+  /// `item/completed` (direct.ts; acpmux codex_app_server/message_phases.rs), and a reply that
+  /// arrives in one chunk with its phase (a watched rollout, replayed history) is whole as it comes.
+  /// What a final answer says is read out of it only then: a half-written tagged ask parses
+  /// differently with every delta (turns.ts `answerComplete`).
+  textComplete?: boolean;
   /// A reply or summary's actual turn start, retained after the snapshot's live clock clears.
   turnStartedAtMs?: number;
   /// A finished reply's checked claims ("tests pass"), from acpmux's `claim_checks` at its turn's
@@ -740,6 +747,9 @@ export type AcpmuxRow = {
   /// hub/turn_retry.rs): on the client's `TURN_RETRY` row while it retries, and on the live line,
   /// which then says the model cannot be reached instead of "Thinking" (conversation/Thinking.tsx).
   retry?: AcpmuxTurnRetry;
+  /// On the live line while it retries: when the retries began, on this computer's clock, so "Can't
+  /// reach the model" waits out the shared bound from then, not from when the line was drawn.
+  retryAt?: number;
   /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
   /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
   retriedMs?: number;
@@ -1985,17 +1995,19 @@ const LIVE_STEP_EDGE = "+step";
 /// the next row; Leo, 2026-11-17: "these are too big"), conversation.css `.cv-worked.has-divider.is-toggle`;
 /// no stack gap follows (MARK_WORKED).
 const WORKED_GAP_PT = ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow;
-/// Read once per layout pass, with the scale (layoutConversation).
+/// Read once per layout pass (layoutConversation). `--cv-tool-row-height` is 22px plus the row air at every
+/// Interface Size (conversation.css `:root`), so the row is too: scaled with the grid, a closed group's line was
+/// placed 22 × (scale − 1) px too tall at a larger Interface Size.
 let lineRowPt = TRANSCRIPT_LINE_ROW;
 const toolRowHeight = () => (editsEstimateOn() ? lineRowPt : lineRowPt * chromeScale);
+/// A call in an opened run, the estimate for a call whose drawn height is not yet known: one row, as a
+/// run's calls stack flush (`.cv-tools` gap 0, transcriptSpacing.ts call-pitch).
+const callRow = () => toolRowHeight();
 /// Settings > Advanced > Experiments > Expanded Edits Estimate (`experiments.expandedEditsEstimate`, default off;
 /// Leo, 2026-11-24, ask-82b08b7ed7: UI changes wait behind a switch). On: an opened edits group is estimated at
 /// its files' diff cards (`openEditsBody`) and a tool row at its drawn 22 px line at every Interface Size. Off:
 /// the estimates as they were, an edits group at its closed line and a tool row scaled with the grid.
 const editsEstimateOn = () => experimentSwitchOn("expandedEditsEstimate");
-/// A call in an opened run, the estimate for a call whose drawn height is not yet known: one row, as a
-/// run's calls stack flush (`.cv-tools` gap 0, transcriptSpacing.ts call-pitch).
-const callRow = () => toolRowHeight();
 /// A later part of a running turn's long run keeps the room the run's flex gap gave its first entry
 /// (conversation/runParts.ts; conversation.css `.acpmux-row--run-part`).
 const runPartTop = (row: AcpmuxRow) => (isRunPart(row) ? gridLength("base") * chromeScale : 0);
