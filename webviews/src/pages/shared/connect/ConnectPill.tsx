@@ -2,8 +2,10 @@
 // tiles put it in the shared connect card's head (agent-session/acpmux/ConnectCard.tsx `pill`), and
 // the All connections list puts it on every row, so a connection reads the same everywhere.
 // Leo, 2026-11-25: "are there deeper ergo things we can do wrt that? and other apps and whatnot?"
-// The words come from the host, which carries the state's action (a Reconnect, a Manage): a pill alone
-// is a connection state with no action, so it draws none of its own (check-connection-notices.py).
+// The pill draws the words its host gives it (`label`): the host is the card or row that carries the
+// state's one action (Connect, Reconnect), so a state like "Not connected" is said where it can be acted
+// on (cmuxterm-hq docs/handbook/connection-state-with-no-action-or-bound.md). A host with no words of
+// its own passes the pill's (`strings.t(CONNECT_STATUS_KEY[status])`, connectStatus.ts).
 import { CONNECT_TONE, type ConnectStatus } from "./connectStatus";
 import "./connectPill.css";
 
@@ -14,7 +16,7 @@ export function ConnectPill({
   dataPrefix = "connect",
 }: {
   status: ConnectStatus;
-  /** The state's words: the host's own (Connected · 14 tools) or CONNECT_STATUS_KEY's, drawn by the host. */
+  /** The words for the state: the host's own (Connected · 14 tools) or the pill's (CONNECT_STATUS_KEY). */
   label: string;
   /** Hover text (an exact expiry time). */
   hint?: string;

@@ -184,8 +184,9 @@ function Tile({
       label={
         entry.state === "unavailable"
           ? t("settingsWindow.connections.unavailable")
-          : (!lapsing && !pending && entry.state !== "connect" && entry.statusLabel) ||
-            connectStrings.t(CONNECT_STATUS_KEY[status])
+          : lapsing || pending || entry.state === "connect"
+            ? connectStrings.t(CONNECT_STATUS_KEY[status])
+            : entry.statusLabel || connectStrings.t(CONNECT_STATUS_KEY[status])
       }
       hint={lapsing ? expiryText(lapsing, navigator.language) : undefined}
       dataPrefix="connections"

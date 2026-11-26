@@ -1,23 +1,14 @@
 /** The actual previous ledger cannot forget or reopen a fork's capture stage. */
 import assert from "node:assert/strict";
 import { writeFileSync, unlinkSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { newSnapshotId, newVmId } from "../src/lib/ids.ts";
 import { memoryLedgerStorage, TenantLedger } from "../src/limits/ledger.ts";
+import { readBaseline } from "./compat-baseline.ts";
 
 const baseline = "5768d9d8f42af15c83adfa6d1adda35a61900404";
-const root = fileURLToPath(new URL("../../../", import.meta.url));
-const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
-// Pass --depth only in an already-shallow checkout; it would make a full clone shallow.
-const shallowDepth = git("rev-parse", "--is-shallow-repository").stdout.toString().trim() === "true" ? ["--depth=1"] : [];
-let source = git("show", `${baseline}:workers/cmux-vm/src/limits/ledger.ts`);
-if (source.exitCode !== 0) {
-  assert.equal(git("fetch", "--no-tags", ...shallowDepth, "origin", baseline).exitCode, 0);
-  source = git("show", `${baseline}:workers/cmux-vm/src/limits/ledger.ts`);
-}
-assert.equal(source.exitCode, 0);
+const source = readBaseline(baseline, "ledger.ts");
 const fixture = new URL(`../src/limits/.fork-capture-compat-${crypto.randomUUID()}.ts`, import.meta.url);
-writeFileSync(fixture, source.stdout);
+writeFileSync(fixture, source);
 try {
   const previous = await import(fixture.href);
   const storage = memoryLedgerStorage(), current = new TenantLedger(storage), old = new previous.TenantLedger(storage);

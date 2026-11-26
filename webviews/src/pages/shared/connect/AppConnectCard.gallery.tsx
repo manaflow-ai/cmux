@@ -83,8 +83,8 @@ async function load() {
   const { ConnectPill } = await import("./ConnectPill");
   const { CONNECT_STATUS_KEY } = await import("./connectStatus");
   const { connectStrings } = await import("./strings");
-  await import("../../settings/paneStrings");
   const strings = connectStrings();
+  await import("../../settings/paneStrings");
   return function AppConnectCards({ look }: Props) {
     return (
       <section className="settings-page">

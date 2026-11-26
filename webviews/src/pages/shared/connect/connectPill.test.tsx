@@ -30,7 +30,7 @@ async function draw(node: React.ReactNode): Promise<HTMLElement> {
   return container;
 }
 
-test("every state draws its pill in its tone and the words its host gives", async () => {
+test("every state draws its pill in its tone and words, and the host's words replace them", async () => {
   const strings = connectStrings(["en"]);
   for (const status of Object.keys(CONNECT_TONE) as Array<keyof typeof CONNECT_TONE>) {
     const root = await draw(
@@ -63,7 +63,7 @@ test("an app connection draws through the pane's card: its parts, one named butt
           action: "reconnect",
         }}
         onBegin={() => void ran.push(look)}
-        pill={<ConnectPill status="expiring" label="Expires soon" />}
+        pill={<ConnectPill status="expiring" label={connectStrings().t(CONNECT_STATUS_KEY.expiring)} />}
         details={<span data-detail="">Sign-in expires soon.</span>}
         extra={
           <button type="button" data-extra="">
