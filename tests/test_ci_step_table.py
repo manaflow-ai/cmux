@@ -53,7 +53,7 @@ def table(steps: str, jobs: str = 'linux = "l"\nadvisory = "a"') -> ci_steps.Tab
 # of ci time, period."): tests/test_head_tier.py land_tier_condition and the label guard of
 # tests/test_ci_label_events_skip_full_ci.py, exactly as #54886 put them on every gated workflow. The router (a
 # workflow_call caller) passes its pull_request event through, so the same expression reads the same head.
-PIPELINE_LAND_TIER_JOBS = ("linux", "web-browser")
+PIPELINE_LAND_TIER_JOBS = ("linux", "web-browser", "ios", "mac")
 PIPELINE_LAND_TIER = "(github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0')))"
 PIPELINE_LABEL_GUARD = '!(github.event_name == \'pull_request\' && github.event.pull_request.base.ref == \'feat-cmux-next\' && (github.event.action == \'labeled\' || github.event.action == \'unlabeled\') && !contains(fromJSON(\'["full-ci","ready-to-land"]\'), github.event.label.name))'
 
@@ -942,6 +942,38 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(router["jobs"]["route"]["outputs"]["table"], "${{ steps.route.outputs.table }}")
         self.assertEqual(router["jobs"]["pipeline"]["with"], {"jobs": "${{ needs.route.outputs.table || '' }}"})
 
+    def test_browser_suites_run_on_a_pr_only_with_full_ci(self) -> None:
+        """NOW's pr_verdict, 2026-11-26 08:57Z: `pr router / pr pipeline / web-browser` ended 3 of the newest 20 PR
+        verdicts. A PR routes the web-browser job only with `full-ci`; base pushes run its suites (ci-web.yml)."""
+        import pr_router
+
+        callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
+        config = callees["pr-pipeline.yml"]
+        web = ["webviews/src/app.tsx"]
+        self.assertEqual(pr_router.FULL_CI_ONLY_JOBS, ("web-browser",))
+        with mock.patch.dict(os.environ, {"CI_PR_BROWSER_FULL_CI_ONLY": "1"}):
+            self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=False), ["linux"])
+            self.assertEqual(pr_router.table_jobs_routed(callees, None, full_ci=False), ["linux"])
+            self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=True), ["linux", "web-browser"])
+            browser = {s.name for s in ci_steps.load().steps.values() if s.job == "web-browser"}
+            self.assertFalse(browser & set(pr_router.table_steps(config, web, full_ci=False) or []))
+            self.assertTrue(browser & set(pr_router.table_steps(config, web, full_ci=True) or []))
+            # The ready-to-land head (full tier) without full-ci routes no browser step either.
+            event = {"action": "labeled", "label": {"name": "ready-to-land"},
+                     "pull_request": {"draft": False, "labels": [{"name": "ready-to-land"}]}}
+            start, why = pr_router.route(event, callees, web, decided=("full", "ready-to-land"))
+            self.assertNotIn("web-browser", why.get("pr-pipeline.yml", ""))
+            event = {"action": "labeled", "label": {"name": "full-ci"},
+                     "pull_request": {"draft": False, "labels": [{"name": "full-ci"}]}}
+            start, why = pr_router.route(event, callees, web, decided=("full", "full-ci"))
+            self.assertIn("pr-pipeline.yml", start)
+        # The repository variable turns it off.
+        with mock.patch.dict(os.environ, {"CI_PR_BROWSER_FULL_CI_ONLY": "0"}):
+            self.assertEqual(pr_router.table_jobs_routed(callees, web, full_ci=False), ["linux", "web-browser"])
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())
+        env = next(s for s in router["jobs"]["route"]["steps"] if s.get("id") == "route")["env"]
+        self.assertEqual(env["CI_PR_BROWSER_FULL_CI_ONLY"], "${{ vars.CI_PR_BROWSER_FULL_CI_ONLY || '1' }}")
+
     def test_each_pipeline_job_runs_only_when_routed(self) -> None:
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
         on = wf.get("on", wf.get(True))
@@ -956,7 +988,9 @@ class PipelineTest(unittest.TestCase):
                 continue  # MacFallbackTest: it runs on a linux step's request, not on the router's
             if name in pickers:
                 with self.subTest(picker=name):
-                    self.assertEqual(job["if"], f"${{{{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}') }}}}")
+                    routed = f"inputs.jobs == '' || contains(fromJSON(inputs.jobs), '{pickers[name]}')"
+                    # The picker runs exactly when its job does: the land tier too.
+                    self.assertEqual(job["if"], f"${{{{ ({routed}) && {PIPELINE_LAND_TIER} && {PIPELINE_LABEL_GUARD} }}}}")
                     self.assertFalse([s for s in job["steps"] if "ci/run" in s.get("run", "")])
                     self.assertIn(name, wf["jobs"][pickers[name]]["needs"])
                 continue
@@ -986,7 +1020,8 @@ class PipelineTest(unittest.TestCase):
     def test_the_changed_paths_are_nul_separated(self) -> None:
         # Without -z git quotes a non-ASCII path, which then matches no step's inputs: green, nothing run.
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
-        self.assertIn("git diff --name-only --no-renames -z ", wf["jobs"]["linux"]["steps"][1]["run"])
+        runs = [s.get("run", "") for s in wf["jobs"]["linux"]["steps"]]
+        self.assertTrue(any("git diff --name-only --no-renames -z " in run for run in runs))
         with tempfile.TemporaryDirectory() as tmp:
             listed = Path(tmp) / "paths"
             listed.write_bytes("skills/caf\u00e9/SKILL.md\0a b.txt\0".encode())
@@ -1255,8 +1290,9 @@ class PipelineTest(unittest.TestCase):
         # cmux-next-pr-autofix.yml's generated-drift job keeps its docs-only fallback runs; a pull request into
         # feat-cmux-next runs the generated-drift step, judged by the base's generated_outputs.py.
         autofix = yaml.safe_load((ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text())["jobs"]
-        self.assertTrue(autofix["generated-drift"]["if"].endswith(
-            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}"))
+        self.assertIn(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')",
+            autofix["generated-drift"]["if"])
         drift = steps["generated-drift"]
         self.assertEqual((drift.job, drift.inputs), ("linux", ("**",)))
         self.assertLessEqual(drift.timeout, 360)
@@ -2079,6 +2115,68 @@ class CrateResults(unittest.TestCase):
         with mock.patch.object(crate_results, "plan", return_value=[]), mock.patch("sys.stdout", out):
             crate_results.main(["plan", "/dev/null", "--", "-p", "a"])
         self.assertEqual(out.getvalue().strip(), crate_results.REUSED_ALL)
+
+    def plan_change(self, paths, store=None, root=None, gone=()):
+        """plan() for a change of `paths` (CI_PATHS_FILE, as ci_steps hands a step), `gone` deleted from the tree."""
+        root = root or self.repo()
+        for path in gone:
+            subprocess.run(["git", "rm", "-q", path], cwd=root, check=True)
+        listed = root / "changed-paths.txt"
+        listed.write_text("".join(f"{p}\n" for p in paths))
+        out = io.StringIO()
+        runs = crate_results.plan(root / "state.json", list(self.ARGS), {"CI_PATHS_FILE": str(listed)}, root=root,
+                                  store=CrateStore() if store is None else store, out=out)
+        return runs, out.getvalue()
+
+    def test_a_crate_no_changed_path_reaches_does_not_run(self):
+        runs, out = self.plan_change(["cmux-tui/crates/c/src/lib.rs"])
+        self.assertEqual(runs, ["-p", "b", "--lib", "--test", "tb"], "only b reaches c")
+        self.assertIn("a not reached", out)
+        runs, _ = self.plan_change(["shared/x.txt"])
+        self.assertEqual(runs, ["-p", "a", "--lib", "--test", "ta"], "a's include_str! names shared/x.txt")
+        runs, out = self.plan_change(["other/y.txt", "cmux-next-ios/App.swift"])
+        self.assertEqual(runs, [], "a change no crate reads runs none: the step prints REUSED_ALL")
+        self.assertIn("2 of 2 crates not reached", out)
+
+    def test_a_deleted_path_still_reaches_the_crate_that_named_it(self):
+        runs, _ = self.plan_change(["shared/x.txt"], gone=["shared/x.txt"])
+        self.assertEqual(runs, ["-p", "a", "--lib", "--test", "ta"])
+        runs, _ = self.plan_change(["cmux-tui/crates/c/src/old.rs"])
+        self.assertEqual(runs, ["-p", "b", "--lib", "--test", "tb"], "a file c no longer has is still c's")
+
+    def test_what_it_cannot_place_reaches_every_crate(self):
+        for paths in (["cmux-tui/Cargo.lock"], ["ci/steps.toml"], ["schemas/settings/x.json"],
+                      ["scripts/ci/crate_results.py"], ["ghostty-next"]):
+            self.assertEqual(self.plan_change(paths)[0], self.ARGS, paths)
+        root = self.repo()
+        runs = crate_results.plan(root / "state.json", list(self.ARGS), {}, root=root, store=CrateStore(),
+                                  out=io.StringIO())
+        self.assertEqual(runs, self.ARGS, "no CI_PATHS_FILE: the change is unknown, every crate runs")
+
+    def test_a_crate_not_reached_is_one_whose_key_the_change_leaves(self):
+        # The narrowing is never weaker than the key: a crate it drops is one whose stored pass would have hit.
+        base = self.keys()
+        for changes in ({"cmux-tui/crates/c/src/lib.rs": "pub fn c() { 2; }\n"}, {"shared/x.txt": "y\n"},
+                        {"other/y.txt": "w\n"}, {"cmux-tui/crates/b/src/lib.rs": "pub fn b() { 3; }\n"}):
+            root = self.repo(changes)
+            ws = crate_results.Workspace(crate_results.tree_files(root), crate_results.disk_reader(root))
+            planned = crate_results.crates(ws, self.ARGS)
+            moved = self.keys(changes)
+            skipped = crate_results.unreached(ws, planned, list(changes), io.StringIO())
+            self.assertTrue(skipped, changes)
+            for name in skipped:
+                self.assertEqual(moved[name], base[name], (changes, name))
+
+    def test_no_store_still_skips_what_the_change_does_not_reach(self):
+        with mock.patch.object(crate_results.ci_steps.StepResults, "from_env", return_value=None):
+            root = self.repo()
+            listed = root / "changed-paths.txt"
+            listed.write_text("cmux-tui/crates/c/src/lib.rs\n")
+            out = io.StringIO()
+            runs = crate_results.plan(root / "state.json", list(self.ARGS), {"CI_PATHS_FILE": str(listed)},
+                                      root=root, out=out)
+        self.assertEqual(runs, ["-p", "b", "--lib", "--test", "tb"])
+        self.assertIn("no store", out.getvalue())
 
     def test_the_step_plans_by_crate_and_posts_only_after_a_pass(self):
         run = ci_steps.load().steps[crate_results.STEP].run

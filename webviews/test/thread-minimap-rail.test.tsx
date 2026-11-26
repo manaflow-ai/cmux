@@ -62,6 +62,17 @@ const VIEWPORT = 600;
 let paneWidth = 1040;
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => paneWidth });
+// The scroller's content height is its spacer's (the transcript sizes it inline). jsdom reports 0, which
+// put every offset past the scroller's end: since #48114 that reads as the browser's spring back at the
+// end, never the reader's own scroll up, so the rail's browse, drag and jump paths never ran here.
+Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", {
+  configurable: true,
+  get(this: HTMLElement) {
+    const spacer = this.querySelector<HTMLElement>(":scope > .acpmux-spacer, :scope > * > .acpmux-spacer");
+    const height = spacer ? Number.parseFloat(spacer.style.height) : Number.NaN;
+    return Number.isFinite(height) ? Math.max(height, VIEWPORT) : VIEWPORT;
+  },
+});
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
   configurable: true,
@@ -110,6 +121,13 @@ const chat = (count: number) =>
     { ...row(`t${index}-end`, "turnSummary"), status: "completed", durationMs: 1_000 },
   ]).flat();
 
+// The rail places its list in the frame after the commit that moved its band (#54847), so a check of the
+// list's offset waits that frame out too, as a browser would have painted it by then.
+const nextFrame = () =>
+  act(async () => {
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+  });
+
 async function mount(prompts: number) {
   const root = createRoot(document.getElementById("root")!);
   await act(async () =>
@@ -124,16 +142,19 @@ async function mount(prompts: number) {
   );
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
   // The minimap places its band in the frame after a scroll event, as a browser runs it.
-  const scrolled = () =>
-    act(async () => {
+  const scrolled = async () => {
+    await act(async () => {
       scroller.dispatchEvent(new dom.window.Event("scroll"));
       await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
+    await nextFrame();
+  };
   await act(async () => {
     scroller.scrollTop = 0;
     scroller.dispatchEvent(new dom.window.Event("scroll"));
     await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
   });
+  await nextFrame();
   return { root, scroller, scrolled, unmount: () => act(async () => root.unmount()) };
 }
 
@@ -631,6 +652,11 @@ test("a rail browsed in one chat follows the reader again in the next chat the t
       view.scroller.dispatchEvent(new dom.window.Event("scroll"));
       await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
     });
+    // Two jumps that far inside 120 ms read as a fling, whose rail catches up once at rest: wait for it.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 160));
+    });
+    await nextFrame();
     expect(list().scrollTop).toBe(0);
   } finally {
     await view.unmount();
