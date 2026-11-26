@@ -1,0 +1,19 @@
+# Inputs of one api-workerd shard (backend.yml; scripts/ci/receipt_input_key.py): UNIT KIND PATH.
+# The shard runs `bun install` in backend/ and vitest's test/**/*.test.ts in backend/apps/api on the Bun and Node
+# the workflow pins. A green shard is recorded under the key of these rows, and a later run of that shard with the
+# same key skips its tests (backend.yml, "Look up a green run of this shard"). Leaving out a path the tests read
+# lets a stale green stand: tests/test_receipt_input_key.py resolves every relative path the Worker's code, tests
+# and the packages it imports name, and fails when one lands outside these rows.
+* tree backend
+* tree clients/ts
+* tree workers/cmux-vm/sdk
+* tree libs
+* tree cmux-tui/crates/cmux-auto-session/fixtures
+* tree cmux-tui/crates/cmux-transport/tests/vectors
+* tree schemas/link-token
+* tree schemas/ownership-mirror
+* blob .github/workflows/backend.yml
+* blob scripts/ci/api-workerd-shard.sh
+* blob scripts/ci/toolchain-r2.sh
+* blob scripts/ci/receipt_input_key.py
+* blob scripts/ci/receipt-inputs/api-workerd.txt
