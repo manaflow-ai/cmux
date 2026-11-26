@@ -77,7 +77,7 @@ jobs:
     if: ${{ contains(fromJSON(needs.gate.outputs.missing || '[]'), 'cmux-next-guards.yml') }}
     uses: ./.github/workflows/cmux-next-guards.yml
     permissions:
-      actions: read
+      actions: write
       checks: read
       contents: read
       pull-requests: write
