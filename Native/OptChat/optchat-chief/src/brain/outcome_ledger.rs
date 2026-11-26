@@ -72,9 +72,13 @@ impl Brain {
     pub(super) fn outcome_resumed(&mut self, id: &str) {
         // Nor does the running turn owe it now (landed_told.rs).
         self.turn_landed.retain(|(i, _)| i != id);
+        let reopened = self.state.sub(id).is_some_and(|(_, sub)| sub.reopened);
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.reopened = false;
+        }
         let before = self.state.untold.len();
         self.state.untold.retain(|u| u.id != id);
-        if self.state.untold.len() != before {
+        if reopened || self.state.untold.len() != before {
             self.save();
         }
     }
@@ -108,7 +112,9 @@ impl Brain {
             .values_mut()
             .flat_map(|r| r.subs.iter_mut())
         {
-            let open = sub.at_work() || sub.waiting() || sub.status == SubStatus::Done;
+            let open = sub.at_work()
+                || sub.waiting()
+                || matches!(sub.status, SubStatus::Done | SubStatus::Reported);
             if open && names(&text, &sub.id) {
                 sub.told_ms = now;
                 told = true;
@@ -120,10 +126,10 @@ impl Brain {
             if told {
                 self.save();
             }
-            if let Some(note) = host_spawn_note {
-                if let Err(e) = self.chat.append(Kind::Note, note) {
-                    (self.log)(&format!("logging host subagent start failed: {e}"));
-                }
+            if let Some(note) = host_spawn_note
+                && let Err(e) = self.chat.append(Kind::Note, note)
+            {
+                (self.log)(&format!("logging host subagent start failed: {e}"));
             }
             return;
         }
@@ -138,10 +144,10 @@ impl Brain {
                     (self.log)(&format!("logging host outcome {id} failed: {e}"));
                 }
             }
-            if let Some(note) = host_spawn_note {
-                if let Err(e) = self.chat.append(Kind::Note, note) {
-                    (self.log)(&format!("logging host subagent start failed: {e}"));
-                }
+            if let Some(note) = host_spawn_note
+                && let Err(e) = self.chat.append(Kind::Note, note)
+            {
+                (self.log)(&format!("logging host subagent start failed: {e}"));
             }
             self.save();
         }

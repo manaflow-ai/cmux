@@ -1047,12 +1047,12 @@ fn app_try_takes_the_nearest_build_that_contains_the_commit() {
         panic!("expected the nearest full build, got {plan:?}")
     };
     assert_eq!((picked["build"].as_str(), from.as_str()), (Some("500"), "400"));
-    let text = super::plan_human(&plan, C0, Path::new("/A.app"), None);
+    let text = plan_human(&plan, C0, Path::new("/A.app"), None);
     assert!(text.contains("500") && text.contains(&C1[..10]) && text.contains(&C0[..12]), "{text}");
-    assert_eq!(super::plan_json(&plan, C0, Path::new("/A.app"), None)["nearest"], true);
+    assert_eq!(plan_json(&plan, C0, Path::new("/A.app"), None)["nearest"], true);
 
     // A pulled build is passed over for the next one.
-    let mut pulled = listing.clone();
+    let mut pulled = listing;
     pulled["builds"][2] = build("500", C1, false, "pulled");
     let Plan::Full { build: picked, .. } = nearest(C0, &pulled, Ok(&descent), vec![]) else {
         panic!("expected full")
