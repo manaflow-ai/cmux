@@ -301,7 +301,7 @@ class NoFleetLinuxAdmission(unittest.TestCase):
         self.assertNotIn("cmux-fleet-linux", WORKFLOW_TEXT)
 
 
-class PublishersHoldTheWholeMini(unittest.TestCase):
+class PublishersUseIsolatedLinux(unittest.TestCase):
     def test_publishers_use_ephemeral_linux_on_every_attempt(self) -> None:
         for name in EXCLUSIVE_PUBLISHERS:
             with self.subTest(job=name):

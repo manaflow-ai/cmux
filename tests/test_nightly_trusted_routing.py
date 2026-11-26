@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Execute nightly runner selectors for pooled native work and Linux control work.
+"""Execute nightly runner selectors for native work and portable Linux work.
 
-Nightlies never run on Blacksmith (Lawrence, 2026-10-30). Every nightly.yml route ends on our own runners:
-a job holding a signing or publication secret on the owned one-job JIT VM label cmux-gcp-nightly-jit-x64 on every
-attempt (the ephemeral runner the signing-secret rules allow; GitHub-hosted Ubuntu starts nothing in manaflow-ai, so
-only a fork's branch names it), the light placed controls and decide on our own runners, the early native jobs on the owned nightly
-slot, build-nightly-app and every other job on the nightly-only Mac pool.
+Read-only controls use the Linux pool; credentialed controls and uploads use
+owned one-job Linux VMs. Native builds, signing and GUI jobs keep their Mac
+routes. Fork fallback and environment/credential gates remain explicit.
 """
 import copy
 import json
@@ -86,8 +84,7 @@ def hosted_route(name: str, attempt: object) -> str:
     return JIT_LABEL
 
 
-# No hosted preflight: runner-preflight runs on the nightly-only pool since 2026-11-18
-# (test_nightly_owned_minis_only.HOSTED_PREFLIGHT_JOBS has the reason).
+# Preflight carries an issue-write token, so it uses EPHEMERAL_CONTROL_JOBS.
 HOSTED_PREFLIGHT_JOBS: tuple[str, ...] = ()
 # On our minis for nightly-next only; classic and RC take the ephemeral JIT nightly label, as their release uploads may wait out
 # the rate limit for 360 min (test_nightly_owned_minis_only.NIGHTLY_NEXT_ONLY_OWNED).
