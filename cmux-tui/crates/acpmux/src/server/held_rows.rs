@@ -76,7 +76,16 @@ pub(super) fn flush(hub: &Hub, conn: &Conn) {
     for row in &held {
         if built.as_ref().is_none_or(|(id, _)| *id != row.session_id) {
             let Ok(s) = hub.resolve(&row.session_id) else { continue };
-            built = Some((&row.session_id, hub.session_change_summary(&s)));
+            // A client that draws no breakdown gets none, and leaves the chart a turn owes to
+            // the connections that draw it (`Hub::session_change_summary_lean`).
+            let lean = conn.omit_time_breakdown.load(std::sync::atomic::Ordering::SeqCst)
+                || super::omits_time_breakdown(conn, &row.session_id);
+            let summary = if lean {
+                hub.session_change_summary_lean(&s)
+            } else {
+                hub.session_change_summary(&s)
+            };
+            built = Some((&row.session_id, summary));
         }
         let Some((_, summary)) = &built else { continue };
         conn.send_row(
