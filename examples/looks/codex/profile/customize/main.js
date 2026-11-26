@@ -2,9 +2,9 @@
 // customize app (local/customize), so this joins the two feature looks it is built from.
 // - codex/sidebar: the Chats section, the thread hover card and the row decorations.
 // - codex/send-parity: the builder New Tab page.
-// Each part is that look's main.js, unchanged, in its own scope.
-// codex/threads' Activity section is not here: an app implements cmux.section/1 once, so the profile
-// keeps the Chats section and turns on cmux's own priority view for Activity (see README.md, Gaps).
+// Each part is that look's main.js in its own scope. The sidebar part adds the reference app's
+// section order (Active work, Projects, Recents): an app implements cmux.section/1 once, so
+// codex/threads' Activity section can't ship beside Chats and Active work lives inside it (README.md, Gaps).
 const __sidebar = (() => {
 // A chat sidebar after a desktop coding agent app. Public surfaces only: cmux.section/1 (the list),
 // cmux.hovercard/1 (the thread card) and cmux.sidebar.rows/1 (row decorations).
@@ -103,10 +103,17 @@ function age(ms) {
 const visible = computed(() => chats().filter((c) => !isArchived(c)).sort((a, b) => stamp(b) - stamp(a)))
 const pinned = computed(() => visible().filter(isPinned))
 const unpinned = computed(() => visible().filter((c) => !isPinned(c)))
+// The reference's order: Active work (running, waiting on you, unread), then Projects (chats with a
+// project folder), then Recents (the rest, newest first). A chat shows in one of them, never twice.
+const isActive = (c) => c.state === "working" || c.state === "input" || Boolean(c.unread)
+const active = computed(() => unpinned().filter(isActive))
+const settled = computed(() => unpinned().filter((c) => !isActive(c)))
+const recents = computed(() => settled().filter((c) => !c.project))
 const projects = computed(() => {
   const groups = new Map()
-  for (const c of unpinned()) {
-    const name = c.project || "No project"
+  for (const c of settled()) {
+    if (!c.project) continue
+    const name = c.project
     if (!groups.has(name)) groups.set(name, { name, threads: [] })
     groups.get(name).threads.push(c)
   }
@@ -233,9 +240,14 @@ function renderChats() {
         ? VStack({ spacing: 0 }, [heading("Pinned"), ForEach({ items: pinned, key: chatKey }, thread)])
         : null,
     () =>
+      active().length
+        ? VStack({ spacing: 0 }, [heading("Active work"), limited("active", active)])
+        : null,
+    () =>
       prefs().organize === "list"
-        ? VStack({ spacing: 0 }, [heading("Chats"), limited("list", unpinned)])
-        : VStack({ spacing: 0 }, [
+        ? VStack({ spacing: 0 }, [heading("Chats"), limited("list", settled)])
+        : projects().length
+        ? VStack({ spacing: 0 }, [
             heading("Projects"),
             ForEach({ items: projects, key: (p) => p.name }, (p) =>
               VStack({ spacing: 0 }, [
@@ -253,7 +265,12 @@ function renderChats() {
                 () => (prefs().collapsed[p().name] ? null : limited(`project:${p().name}`, () => p().threads))
               ])
             )
-          ]),
+          ])
+        : null,
+    () =>
+      prefs().organize !== "list" && recents().length
+        ? VStack({ spacing: 0 }, [heading("Recents"), limited("recents", recents)])
+        : null,
     () => (source() && source().error() ? Text(source().error().message).font(TEXT).color(cmux.theme.warning).paddingHorizontal(ROW_PAD) : null),
     () => (visible().length || (source() && source().error()) ? null : Text("No chats").font(TEXT).color(cmux.theme.text.secondary).paddingHorizontal(ROW_PAD).frame({ height: ROW_HEIGHT }))
   ]).paddingHorizontal(ROW_INSET)
