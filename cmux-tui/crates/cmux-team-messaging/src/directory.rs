@@ -6,7 +6,7 @@
 //! bridge author (`via Slack`) is never offered as a recipient. Nothing here does I/O or reads a
 //! clock; the host passes unread counts, presence and recent activity in.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
@@ -431,27 +431,23 @@ impl Directory {
         // Rank on cheap keys first; only the top `limit` pay for their card, pair space and
         // per-space agent reach, so a keystroke costs O(entries log limit), not O(agents x spaces).
         let mut entries: Vec<(Key<'_>, Entry<'_>)> = Vec::new();
-        let mut push = |entry: Entry<'_>, texts: &[&str], group: u8, live: bool, at: u64, label: &str, id: &str| {
-            let tier = if q.is_empty() {
-                0
-            } else {
-                match texts.iter().filter_map(|t| match_tier(t, &q)).min() {
-                    Some(t) => t,
-                    None => return,
-                }
-            };
-            entries.push((
-                (tier, group, u8::from(!live), u64::MAX - at, label.to_lowercase(), id),
-                entry,
-            ));
-        };
         for p in ix.addressable(viewer, team) {
             let live = ix.here.get(p.id.as_str()).is_some_and(|h| h.status != Status::Away);
             let owner = ix.owner_of(p).map(|o| o.display_name.as_str());
             let mut texts = vec![p.handle.as_str(), p.display_name.as_str()];
             texts.extend(owner);
             let group = if p.kind == PrincipalKind::Person { 0 } else { 2 };
-            push(Entry::Principal(p), &texts, group, live, 0, &p.display_name, &p.id);
+            rank(
+                &mut entries,
+                &q,
+                Entry::Principal(p),
+                &texts,
+                group,
+                live,
+                0,
+                &p.display_name,
+                &p.id,
+            );
         }
         if !principals_only {
             for s in &readable {
@@ -459,7 +455,17 @@ impl Directory {
                 if s.kind == SpaceKind::Pair {
                     continue;
                 }
-                push(Entry::Space(s), &[s.title.as_str()], 3, false, 0, &s.title, &s.id);
+                rank(
+                    &mut entries,
+                    &q,
+                    Entry::Space(s),
+                    &[s.title.as_str()],
+                    3,
+                    false,
+                    0,
+                    &s.title,
+                    &s.id,
+                );
             }
             let mut newest: HashMap<&str, u64> = HashMap::new();
             for r in recent {
@@ -472,7 +478,9 @@ impl Directory {
                 if t.state == ThreadState::Closed {
                     continue;
                 }
-                push(
+                rank(
+                    &mut entries,
+                    &q,
                     Entry::Thread(t, s, at),
                     &[t.subject.as_str(), s.title.as_str()],
                     1,
@@ -483,7 +491,6 @@ impl Directory {
                 );
             }
         }
-        drop(push);
 
         if entries.len() > limit && limit > 0 {
             entries.select_nth_unstable_by(limit - 1, |a, b| a.0.cmp(&b.0));
@@ -543,6 +550,30 @@ impl Directory {
 /// Match tier, group (people 0, recent threads 1, agents 2, spaces 3), not-live, recency (newest
 /// first), lowercased label, id.
 type Key<'a> = (u8, u8, u8, u64, String, &'a str);
+
+/// Push `entry` with its sort key if `query` matches one of `texts` (an empty query matches all).
+#[allow(clippy::too_many_arguments)]
+fn rank<'a>(
+    entries: &mut Vec<(Key<'a>, Entry<'a>)>,
+    query: &str,
+    entry: Entry<'a>,
+    texts: &[&str],
+    group: u8,
+    live: bool,
+    at: u64,
+    label: &str,
+    id: &'a str,
+) {
+    let tier = if query.is_empty() {
+        0
+    } else {
+        match texts.iter().filter_map(|t| match_tier(t, query)).min() {
+            Some(t) => t,
+            None => return,
+        }
+    };
+    entries.push(((tier, group, u8::from(!live), u64::MAX - at, label.to_lowercase(), id), entry));
+}
 
 enum Entry<'a> {
     Principal(&'a Principal),
