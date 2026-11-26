@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.tokens.form.invalidSpendCap" : {
+      "comment" : "Settings > Developer: invalid optional spend limit inline validation",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a positive amount with at most two decimal places."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

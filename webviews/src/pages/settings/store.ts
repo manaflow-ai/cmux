@@ -927,10 +927,11 @@ export class SettingsStore {
   /** One Developer gesture, then the card as it is after it. `created` is the new token, answered once. */
   async runTokens(
     run: DeveloperTokensRun,
-  ): Promise<{ state: DeveloperTokensState | null; created: CreatedToken | null }> {
+  ): Promise<{ ok: boolean; state: DeveloperTokensState | null; created: CreatedToken | null }> {
     const reply = await this.request("cmux.settings.tokens.run", run);
     const created = reply.ok ? (reply.value?.created ?? null) : null;
-    return { state: await this.tokensState(), created };
+    const ok = reply.ok && reply.value?.ok !== false;
+    return { ok, state: await this.tokensState(), created };
   }
 
   /** Settings > Automations (Cloud automations); null when the host has none. */

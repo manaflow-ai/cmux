@@ -34,7 +34,6 @@ public final class SettingsDeveloperTokens: PageProvider {
     @ObservationIgnored private let cli: @MainActor () async -> URL?
     @ObservationIgnored private let runCLI: @Sendable (URL, [String], Data?) async throws -> (Int32, Data, Data)
     @ObservationIgnored private var generation = 0
-    private static let maximumSpendCapUsd = 1_000_000.0
 
     public init(cli: @escaping @MainActor () async -> URL?,
                 runCLI: @escaping @Sendable (URL, [String], Data?) async throws -> (Int32, Data, Data) = SettingsIntegrationsHub.run) {
@@ -83,18 +82,27 @@ public final class SettingsDeveloperTokens: PageProvider {
         let reply = try? await awaitConcurrently({ try await runCLI(cli, ["token"] + words + ["--json"], nil) })
         let answer = reply.flatMap { SettingsIntegrationsHub.lastLine($0.1) }
         var created: JSONValue = .null
+        let actionSucceeded: Bool
         if let answer, answer["ok"]?.boolValue == true {
-            lastError = nil
             if action == "create", let token = answer["token"]?.stringValue, !token.isEmpty {
                 created = ["token": .string(token), "tokenInfo": answer["tokenInfo"] ?? .null]
+                lastError = nil
+                actionSucceeded = true
+            } else if action == "create" {
+                lastError = (action, "cli.invalid", "create did not return a token")
+                actionSucceeded = false
+            } else {
+                lastError = nil
+                actionSucceeded = true
             }
         } else {
             lastError = (action,
                          answer?["error"]?["code"]?.stringValue ?? "cli.failed",
                          answer?["error"]?["message"]?.stringValue ?? "")
+            actionSucceeded = false
         }
         await refresh()
-        return created == .null ? ["ok": .bool(lastError == nil)] : ["ok": .bool(true), "created": created]
+        return created == .null ? ["ok": .bool(actionSucceeded)] : ["ok": .bool(actionSucceeded), "created": created]
     }
 
     /// The ids the list named under `key` of `value`.
@@ -137,11 +145,15 @@ public final class SettingsDeveloperTokens: PageProvider {
                 words.append("--expires-days=\(Int(days))")
             case nil: break
             }
-            if let cap = params["spendCapUsd"]?.doubleValue {
-                guard cap > 0, cap <= Self.maximumSpendCapUsd, cap.isFinite else {
-                    throw PageError.invalidParams("spendCapUsd is above 0 and at most 1000000")
+            if let rawCap = params["spendCapUsd"], !rawCap.isNull {
+                guard let cap = rawCap.doubleValue, cap > 0, cap.isFinite else {
+                    throw PageError.invalidParams("spendCapUsd is a positive amount with at most two decimal places")
                 }
-                words.append("--spend-cap=" + String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), cap))
+                let formatted = String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), cap)
+                guard Double(formatted) == cap else {
+                    throw PageError.invalidParams("spendCapUsd is a positive amount with at most two decimal places")
+                }
+                words.append("--spend-cap=" + formatted)
             }
             let owner = params["owner"]?.stringValue ?? "me"
             guard owner == "me" || (owner == "team" && list["canManageTeamTokens"]?.boolValue == true) else {

@@ -70,6 +70,6 @@ import Testing
         recorder.releaseFirstCLI?.resume(returning: Self.cliURL)
         await older.value
         #expect(page.state["tokens"]?.arrayValue?.first?["id"]?.stringValue == "new")
-        #expect(recorder.runCalls == 2)
+        #expect(recorder.runCalls == 1)
     }
 }

@@ -183,7 +183,9 @@ function CreateForm({
   const [scopes, setScopes] = useState<TokenScope[]>(["machines", "chats"]);
   const [expires, setExpires] = useState<number | null>(DEFAULT_EXPIRATION);
   const [cap, setCap] = useState("");
-  const ready = name.trim().length > 0 && name.trim().length <= 64 && scopes.length > 0;
+  const spendCap = spendCapOf(cap);
+  const capInvalid = cap.trim().length > 0 && spendCap === null;
+  const ready = name.trim().length > 0 && name.trim().length <= 64 && scopes.length > 0 && !capInvalid;
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!ready) return;
@@ -192,7 +194,7 @@ function CreateForm({
       name: name.trim(),
       scopes,
       expiresInDays: expires,
-      spendCapUsd: spendCapOf(cap),
+      spendCapUsd: spendCap,
       owner,
     });
     if (created) onCreated(created);
@@ -241,6 +243,7 @@ function CreateForm({
             placeholder={t("settingsWindow.tokens.form.spendCapPlaceholder")}
             value={cap}
             data-tokens-cap=""
+            aria-invalid={capInvalid}
             onChange={(event) => setCap(event.target.value)}
           />
         </label>
@@ -251,6 +254,7 @@ function CreateForm({
         </div>
       )}
       {scopes.length === 0 && <div className="row-help">{t("settingsWindow.tokens.form.pickScope")}</div>}
+      {capInvalid && <div className="row-error">{t("settingsWindow.tokens.form.invalidSpendCap")}</div>}
       <div className="accounts-buttons">
         <Button type="submit" variant="solid" className="button" data-tokens-action="create" disabled={!ready || busy}>
           {t("settingsWindow.tokens.form.create")}
@@ -617,7 +621,7 @@ export function DeveloperTokensCard() {
       if (!reply) return { ok: false, created: null };
       setState(reply.state);
       setNow(Date.now());
-      return { ok: !reply.state?.error, created: reply.created };
+      return { ok: reply.ok, created: reply.created };
     },
     [store],
   );
