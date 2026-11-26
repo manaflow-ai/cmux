@@ -32,7 +32,7 @@ import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
 import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath, isLiveClockNode } from "./turnFold";
-import { ACTIVITY_LINE, LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
+import { LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnEndCrossLook, turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
@@ -224,7 +224,7 @@ const LIVE_LINE = LIVE_THINKING;
 /// Whether `rows` holds a running turn's line near its end.
 export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
   for (let index = rows.length - 1; index >= 0 && index >= rows.length - LINE_TAIL; index -= 1)
-    if (rows[index]!.id === LIVE_LINE || rows[index]!.kind === ACTIVITY_LINE) return true;
+    if (rows[index]!.id === LIVE_LINE) return true;
   return false;
 }
 
@@ -373,8 +373,7 @@ export function captureTurnEnd(
 ): TurnEndCapture | undefined {
   if (!thread || !scroller || foldMs(thread) <= 0) return undefined;
   const nodes = [...mounted(thread)];
-  const liveLine = (node: HTMLElement) =>
-    node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`);
+  const liveLine = (node: HTMLElement) => node.dataset.rowId === LIVE_LINE;
   if (!held && !nodes.some(liveLine)) return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
   const first = Math.max(
