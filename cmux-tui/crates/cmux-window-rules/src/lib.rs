@@ -36,6 +36,9 @@
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`onboarding_first_run`]: the first run's project scan ranking and
+//!   folder rules, the Set Up card's launch route and Chief form, the
+//!   Opacity slider's step and the classic migration's next step.
 
 pub mod appearance;
 pub mod browser;
@@ -47,6 +50,7 @@ pub mod files;
 pub mod history;
 pub mod launch;
 pub mod notifications;
+pub mod onboarding_first_run;
 pub mod remote;
 pub mod restore;
 pub mod screen_share;
