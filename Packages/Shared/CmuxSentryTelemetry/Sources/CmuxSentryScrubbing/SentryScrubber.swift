@@ -111,6 +111,14 @@ public struct SentryScrubber: Sendable {
     /// turn into `/Users/<redacted>ice/x`, leaking the `ice` suffix.
     private let homeDirectoryPattern: SentryRegexPattern?
 
+    /// Recent ``scrub(_:)`` results, so a string seen before costs a lookup,
+    /// not ~20 regex passes. Every crash or lag-spike event repeats most of
+    /// its strings: the same image path on each frame and debug image, the
+    /// same (already scrubbed) breadcrumbs and device context. ``scrub(_:)``
+    /// is a pure function of its input for one scrubber, so a hit returns
+    /// exactly what the regex pass would.
+    private let memo: SentryScrubMemo
+
     /// Whether each rule's literal gate may skip its regex (``SentryLiteralProbe``); off only in the
     /// tests that check the gate against the ungated rules.
     private let gatesByLiterals: Bool
@@ -123,15 +131,18 @@ public struct SentryScrubber: Sendable {
     /// build-machine stack-frame paths (whose home differs from the runtime one)
     /// are still covered.
     ///
-    /// - Parameter homeDirectory: Absolute path replaced wherever it is found. Defaults to ``NSHomeDirectory()``.
-    public init(homeDirectory: String = NSHomeDirectory()) {
-        self.init(homeDirectory: homeDirectory, gatesByLiterals: true)
+    /// - Parameters:
+    ///   - homeDirectory: Absolute path replaced wherever it is found. Defaults to ``NSHomeDirectory()``.
+    ///   - memoCapacity: How many recent results ``scrub(_:)`` keeps (0 turns the memo off).
+    public init(homeDirectory: String = NSHomeDirectory(), memoCapacity: Int = SentryScrubMemo.defaultCapacity) {
+        self.init(homeDirectory: homeDirectory, gatesByLiterals: true, memoCapacity: memoCapacity)
     }
 
-    /// ``init(homeDirectory:)`` with the literal gate on or off (off: every rule's regex runs on
-    /// every string, as before the gate).
-    init(homeDirectory: String, gatesByLiterals: Bool) {
+    /// ``init(homeDirectory:memoCapacity:)`` with the literal gate on or off (off: every rule's regex
+    /// runs on every string, as before the gate).
+    init(homeDirectory: String, gatesByLiterals: Bool, memoCapacity: Int = SentryScrubMemo.defaultCapacity) {
         self.gatesByLiterals = gatesByLiterals
+        self.memo = SentryScrubMemo(capacity: memoCapacity)
         // A trailing slash (`HOME=/srv/alice/`) would keep the home from matching `/srv/alice/x`.
         var home = homeDirectory
         while home.count > 1, home.hasSuffix("/") {
@@ -178,11 +189,13 @@ public struct SentryScrubber: Sendable {
     /// - Returns: The scrubbed string.
     public func scrub(_ text: String) -> String {
         guard !text.isEmpty else { return text }
+        if let remembered = memo.result(for: text) { return remembered }
         var pass = Pass(text, gated: gatesByLiterals)
         redactURLCredentials(in: &pass)
         redactSecrets(in: &pass)
         redactEmails(in: &pass)
         redactPaths(in: &pass)
+        memo.remember(pass.text, for: text)
         return pass.text
     }
 
