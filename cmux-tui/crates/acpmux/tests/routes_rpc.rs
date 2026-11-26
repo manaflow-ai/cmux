@@ -320,6 +320,14 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
         local.env_of(&id, "ANTHROPIC_BASE_URL").await,
         "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a"
     );
+    // With automatic continuations disabled, the retry mark from the failed
+    // turn must not strand the next ordinary prompt behind the quiet restart.
+    local
+        .ok(
+            "session/prompt",
+            json!({"sessionId": id, "prompt": [{"type": "text", "text": "after fallback"}]}),
+        )
+        .await;
 
     // A route that cannot start (the local CodeRouter is not running) is
     // refused before the binding changes: the chat stays on proxy A.
