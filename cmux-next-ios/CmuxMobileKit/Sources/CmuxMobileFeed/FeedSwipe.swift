@@ -53,9 +53,9 @@ enum FeedSwipeOutcome {
     @MainActor func play() {
         switch self {
         case .none: break
-        case .granted: UINotificationFeedbackGenerator().notificationOccurred(.success)
-        case .refused: UINotificationFeedbackGenerator().notificationOccurred(.warning)
-        case .filed: UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.8)
+        case .granted: CmuxMobileTheme.standard.haptics.notify(.success)
+        case .refused: CmuxMobileTheme.standard.haptics.notify(.warning)
+        case .filed: CmuxMobileTheme.standard.haptics.impact(.soft, intensity: 0.8)
         }
     }
 }

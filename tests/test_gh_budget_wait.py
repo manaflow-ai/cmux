@@ -446,7 +446,11 @@ PUBLISH_PATH = (
 # A dispatch that must never wait through a rate limit, so its job is not on the publish path: nightly-next-one's
 # tick ask right before notarization (docs/ci/nightly-workflow-notes.md#note-26). Waiting would hold the build; a
 # missed ask costs at most the tick's 5-minute cron, and wake-nightly-next-tick asks again at the job's end.
-DISPATCH_NEVER_WAITS = {"nightly-next-one": "Ask main's nightly-next tick at notarization"}
+DISPATCH_NEVER_WAITS = {
+    "nightly-next-one": "Ask main's nightly-next tick at notarization",
+    # The type-check hand-off (#49884) is best effort beside the nightly, never on its publish path.
+    "fixit-handoff": "Dispatch fixit-handoff on feat-cmux-next",
+}
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 # One-mini mode adds room for glaeda's capacity wait on the nightly mini (tests/test_nightly_mini_gate_timeouts.py);
 # these guards hold the limit with the mode off, the smaller one.
@@ -493,14 +497,17 @@ SHARED_TOKEN_ONLY = {
     ("resolve-nightly-cmux-tui-client", "Resolve cmux-tui client commit"),
     ("resolve-nightly-cmux-tui-client", "Leave the build slot to a newer nightly-next push"),
     # The tick wake after nightly-next-one, a workflow dispatch like retry-nightly-next's (which reads
-    # github.token from its job env). No App path fits it: the release App holds contents and workflows,
-    # not actions, so it cannot dispatch; its key stays off the nightly mini; and the same call inside
-    # nightly-next-one reaches the tick while that job still holds the slot, so the tick promotes nothing.
+    # github.token from its job env). The release App cannot dispatch (contents and workflows, not actions), so
+    # github.token goes first and a refusal moves to cmux-bot and the CI pools (GH_TOKEN_SPARE, GH_TOKEN_SPARES)
+    # at once: run 45562645699 slept 18.4 min here for github.token's reset (test_dispatches_move_to_app_pools).
     ("wake-nightly-next-tick", "Ask main's nightly-next tick"),
     # The loop's retry of a commit whose nightly-next-one left the slot before nightly-next moved: a workflow
     # dispatch like retry-nightly-next's, for the same reason (the release App cannot dispatch). Its nightly-next
     # read is git ls-remote.
     ("wake-nightly-next-tick", "Retry the commit that left the slot unless nightly-next moved"),
+    # The post-publication dispatch, the same way: github.token first, then cmux-bot and the CI pools at once
+    # (run 45562645699 slept 12.9 min here).
+    ("dispatch-published-in", "Ask for this build's post-publication run"),
     ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
     ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
     ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),
@@ -591,6 +598,21 @@ class WorkflowTests(unittest.TestCase):
                 continue
             if dispatches:
                 self.assertIn(name, PUBLISH_PATH, name)
+
+    def test_dispatches_move_to_app_pools(self) -> None:
+        # Run 45562645699: with github.token's hour spent, the tick wake and the post-publication dispatch slept
+        # 18.4 and 12.9 min for its reset after the feed was live. Each App installation has its own hour.
+        for name, step_name in (("wake-nightly-next-tick", "Ask main's nightly-next tick"),
+                                ("wake-nightly-next-tick", "Retry the commit that left the slot unless nightly-next moved"),
+                                ("dispatch-published-in", "Ask for this build's post-publication run")):
+            steps = self.jobs[name]["steps"]
+            env = next(s for s in steps if s.get("name") == step_name).get("env") or {}
+            self.assertIn("steps.cmux-bot-token.outputs.token", str(env.get("GH_TOKEN_SPARE")), (name, step_name))
+            self.assertIn("env.CI_POOL_GH_TOKEN", str(env.get("GH_TOKEN_SPARES")), (name, step_name))
+            self.assertTrue(any(s.get("id") == "cmux-bot-token" for s in steps), name)
+            self.assertTrue(any("ci_pool_tokens.py" in str(s.get("run", "")) for s in steps), name)
+            # App keys stay off the nightly mini.
+            self.assertNotIn("CI_NIGHTLY_MINI", str(self.jobs[name]["runs-on"]), name)
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
         for name in PUBLISH_PATH:

@@ -403,3 +403,95 @@ fn notice_stats_count_reads_per_kind() {
     );
     asking.join().unwrap();
 }
+
+/// Answers the chat's first pending ask with its reject option (any harness's shape: a
+/// permission, a question, a plan approval), else cancels the turn.
+fn answer_pending(acpmux: &mut Acpmux, session: &str) {
+    let info = acpmux.call("_acpmux/info", json!({"sessionId": session}));
+    let pending = info["result"]["pending"][0].clone();
+    let options = pending["options"].as_array().cloned().unwrap_or_default();
+    let option = options
+        .iter()
+        .find(|o| o["kind"].as_str().is_some_and(|k| k.starts_with("reject")))
+        .or(options.first())
+        .and_then(|o| o["optionId"].as_str().map(str::to_owned));
+    match (pending["permissionId"].as_str(), option) {
+        (Some(permission), Some(option)) => {
+            let answered = acpmux.call(
+                "_acpmux/permission_respond",
+                json!({"sessionId": session, "permissionId": permission, "optionId": option}),
+            );
+            assert!(answered.get("error").is_none(), "{answered}");
+        }
+        _ => {
+            acpmux.call("session/cancel", json!({"sessionId": session}));
+        }
+    }
+}
+
+/// A question is a wait like a permission (goal notify-every-finish: "every finished turn,
+/// permission request and question"): each harness's question, and a plan to approve, posts
+/// exactly one "needs input" notice for a chat open in two tabs, and answering it reads it.
+#[test]
+fn every_kind_of_question_posts_one_needs_input_notice_per_wait() {
+    let daemon = machine("notice-questions");
+    let (surface, session) = chat(&daemon);
+    let other_surface = second_tab(&daemon, &session);
+    let (marker_surface, marker_session) = chat(&daemon);
+    let tabs = [surface, other_surface];
+    let mut marker = Acpmux::connect(&daemon, &marker_session);
+    let mut acpmux = Acpmux::connect(&daemon, &session);
+
+    let kinds = [
+        "question: which one",
+        "plan-ask: read, then fix",
+        "xai-question: which one",
+        "cursor-question: which one",
+    ];
+    for (round, kind) in kinds.iter().enumerate() {
+        let before: Vec<Value> = titled(&daemon, &tabs, "needs input")
+            .into_iter()
+            .map(|row| row["id"].clone())
+            .collect();
+        let fresh = |daemon: &Daemon| -> Vec<Value> {
+            titled(daemon, &tabs, "needs input")
+                .into_iter()
+                .filter(|row| !before.contains(&row["id"]))
+                .collect()
+        };
+        let asking = {
+            let mut asker = Acpmux::connect(&daemon, &session);
+            let session = session.clone();
+            let kind = kind.to_string();
+            std::thread::spawn(move || asker.prompt(&session, &kind))
+        };
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while fresh(&daemon).is_empty() {
+            assert!(
+                Instant::now() < deadline,
+                "{kind}: no needs-input notice: {:?}",
+                all_notices(&daemon)
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let fence = format!("marker {round}");
+        marker.prompt(&marker_session, &fence);
+        notice(&daemon, marker_surface, |row| {
+            row["body"].as_str().is_some_and(|b| b.contains(&fence))
+        });
+        let waiting = fresh(&daemon);
+        assert_eq!(waiting.len(), 1, "{kind}: one wait, one notice: {waiting:?}");
+        assert_eq!(waiting[0]["source"], "agent", "{kind}: {:?}", waiting[0]);
+
+        answer_pending(&mut acpmux, &session);
+        let id = waiting[0]["id"].clone();
+        let read = |row: &Value| row["id"] == id && row["acknowledged"] == true;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !all_notices(&daemon).iter().any(read) {
+            let all = all_notices(&daemon);
+            assert!(Instant::now() < deadline, "{kind}: answered, still unread: {all:?}");
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        asking.join().unwrap();
+    }
+}

@@ -22,6 +22,10 @@ afterEach(() => {
 });
 
 async function draw(node: React.ReactNode): Promise<HTMLElement> {
+  // One card at a time: a test that draws again reads only the new card.
+  unmount?.();
+  unmount = null;
+  document.body.replaceChildren();
   const container = document.createElement("div");
   document.body.append(container);
   const root = createRoot(container);
@@ -54,7 +58,9 @@ for (const look of ["inline", "sheet", "strip"] as const) {
     test(`${look}: ${name} draws its one action`, async () => {
       await draw(<DeviceSignInCard family={SIGN_IN_STATE_FAMILY[name]} view={view} look={look} {...handlers} />);
       // The sheet is a dialog, drawn in a portal: read the whole document.
-      expect(actionsIn(document.body)).toEqual(EXPECTED[name]);
+      // A signed-in ChatGPT account also links to its usage page (OpenAI's guidance), except in the one-line strip.
+      const chatgptSignedIn = SIGN_IN_STATE_FAMILY[name] === "codex" && view.state === "signedIn" && look !== "strip";
+      expect(actionsIn(document.body)).toEqual(chatgptSignedIn ? ["manage", ...EXPECTED[name]] : EXPECTED[name]);
       expect(EXPECTED[name][0]).toBe(primaryAction(view));
       const solid = [...document.body.querySelectorAll<HTMLElement>('[data-sign-in-action][data-variant="solid"]')];
       expect(solid.length).toBeLessThanOrEqual(1);
@@ -198,7 +204,38 @@ test("a finished sign-in is titled by its provider, and the paste field says wha
   await draw(
     <DeviceSignInCard family="codex" view={{ state: "signedIn", account: "you@example.com" }} {...handlers} />,
   );
-  expect(document.body.querySelector(".signin-title")!.textContent).toBe("ChatGPT");
+  expect(document.body.querySelector(".signin-title")!.textContent).toBe("You're using your ChatGPT plan");
+  await draw(
+    <DeviceSignInCard family="claude" view={{ state: "signedIn", account: "you@example.com" }} {...handlers} />,
+  );
+  expect(document.body.querySelector(".signin-title")!.textContent).toBe("Claude");
   await draw(<DeviceSignInCard family="claude" view={SIGN_IN_STATES.paste} {...handlers} />);
   expect(document.body.querySelector(".signin-paste-field")!.getAttribute("placeholder")).toBe("One-time code");
+});
+
+test("a ChatGPT sign-in follows OpenAI's guidance in every arm: its plan, Manage usage, one solid action", async () => {
+  for (const arm of ["plan", "account", "row"] as const) {
+    for (const look of ["inline", "sheet"] as const) {
+      await draw(
+        <DeviceSignInCard
+          family="codex"
+          view={{ state: "signedIn", account: "you@example.com" }}
+          look={look}
+          chatgptArm={arm}
+          {...handlers}
+        />,
+      );
+      const card = document.body.querySelector(`.signin-chatgpt[data-arm="${arm}"]`)!;
+      expect(card).not.toBeNull();
+      expect(card.textContent).toContain("you@example.com");
+      expect(card.textContent).toContain("ChatGPT");
+      const manage = card.querySelector('[data-sign-in-action="manage"]') as HTMLAnchorElement;
+      expect(manage.getAttribute("href")).toBe("https://chatgpt.com/settings/usage");
+      expect(manage.getAttribute("target")).toBe("_blank");
+      expect(card.querySelectorAll('[data-sign-in-action="done"]').length).toBe(1);
+      expect(card.querySelector(".signin-chatgpt-tile")).not.toBeNull();
+    }
+  }
+  await draw(<DeviceSignInCard family="codex" view={SIGN_IN_STATES.code} {...handlers} />);
+  expect(document.body.querySelector(".signin-title")!.textContent).toBe("Sign in with ChatGPT");
 });

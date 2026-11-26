@@ -112,6 +112,8 @@ output_areas() {
       # The Cargo locks (base-autofix.sh --locks) follow every Cargo manifest (autofix-areas.sh locks); before
       # cmux-tui/*, which would claim cmux-app-ffi's lock for formatting.
       Cargo.lock | */Cargo.lock) echo locks ;;
+      # The iPhone app's uniffi Swift bindings (base-autofix.sh 5a).
+      cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/*) echo iosffi ;;
       cmux-tui/* | Native/OptChat/*) echo fmt ;;
       *) echo unknown ;;
     esac

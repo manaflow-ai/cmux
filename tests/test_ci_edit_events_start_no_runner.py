@@ -87,16 +87,10 @@ EDIT_READS: dict[tuple[str, str], tuple[frozenset[str], str]] = {
 }
 
 # A comment event whose jobs may start on any comment or review, and why.
-COMMENT_REACTS: dict[tuple[str, str], str] = {
-    ("cmux-next-defaults-guard-review.yml", "pull_request_review"): "a review can take an approval back; a "
-    "pull_request_review run uses the PR's own workflow copy, and feat-cmux-next has none, so it starts "
-    "nothing on a feat-cmux-next PR",
-}
+COMMENT_REACTS: dict[tuple[str, str], str] = {}
 
 # A comment that is a command for its workflow: (event, body, author type). It must still start a job.
-COMMENT_COMMANDS: dict[str, tuple[str, str, str]] = {
-    "cmux-next-defaults-guard-review.yml": ("issue_comment", "Review (codex): SHIP at " + "a" * 40, "Bot"),
-}
+COMMENT_COMMANDS: dict[str, tuple[str, str, str]] = {}
 
 COMMENT_EVENTS = ("issue_comment", "pull_request_review", "pull_request_review_comment", "discussion_comment")
 ORDINARY_COMMENTS = ("Thanks, this looks good to me.", "<!-- pr-status -->\nCI: 12 of 40 checks passed")

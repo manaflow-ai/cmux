@@ -57,6 +57,7 @@ name: Cloudflare relay
 #   cmux-next-cloud-journey (production) and their CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
     paths:
       - cmux-tui/relays/cloudflare-do/**
       - cmux-tui/crates/cmux-remote-protocol/**
@@ -98,7 +99,7 @@ permissions:
 # replaced by a newer pending one, which carries the same or newer relay source. Pull
 # requests keep their own cancelling group.
 concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('cloudflare-relay-pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/feat-cmux-next' && 'cloudflare-relay-deploy' || format('cloudflare-relay-{0}', github.ref) }}
+  group: ${{ github.event_name == 'pull_request' && format('cloudflare-relay-pr-{0}', github.event.pull_request.number) || github.ref == 'refs/heads/feat-cmux-next' && 'cloudflare-relay-deploy' || format('cloudflare-relay-{0}', github.ref) }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -115,7 +116,7 @@ env:
 jobs:
   cloudflare-relay:
     name: Cloudflare Durable Object relay
-    if: github.event_name != 'workflow_dispatch' || inputs.action != 'rollback'
+    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.action != 'rollback') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }} # owned-pool-unfit: the Rust toolchain and Worker builder install exited 101 twice on cmux-linux hosts (#48644); stays on its old pool until it fits
     timeout-minutes: 30
     permissions:
@@ -129,12 +130,33 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
-          cache: npm
-          cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
+
+      - name: Cache the npm cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/relays/cloudflare-do/package-lock.json') }}
+
+      - name: Cache the npm cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/relays/cloudflare-do/package-lock.json') }}
 
       - name: Set up pinned Rust toolchain
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -164,8 +186,8 @@ jobs:
 
   # What this run deploys, where, and whether it needs the migration approval. No secrets.
   plan:
-    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -216,8 +238,8 @@ jobs:
 
   migration-approval:
     needs: plan
-    if: needs.plan.outputs.migrations_changed == 'true' && (needs.plan.outputs.staging == 'true' || needs.plan.outputs.production == 'true')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (needs.plan.outputs.migrations_changed == 'true' && (needs.plan.outputs.staging == 'true' || needs.plan.outputs.production == 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment: relay-migrations
     timeout-minutes: 5
     permissions:
@@ -230,11 +252,8 @@ jobs:
 
   deploy-staging:
     needs: [plan, cloudflare-relay, migration-approval]
-    if: >-
-      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.staging == 'true' &&
-      (needs.cloudflare-relay.result == 'success' || needs.plan.outputs.mode != 'deploy') &&
-      (needs.migration-approval.result == 'success' || needs.plan.outputs.migrations_changed != 'true')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.staging == 'true' && (needs.cloudflare-relay.result == 'success' || needs.plan.outputs.mode != 'deploy') && (needs.migration-approval.result == 'success' || needs.plan.outputs.migrations_changed != 'true')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment: relay-staging
     timeout-minutes: 30
     permissions:
@@ -298,16 +317,43 @@ jobs:
       # feat-cmux-next's commits (no blobs) for the ancestry check: one branch, not checkout's fetch-depth 0
       # of every branch and tag, which stalled under 1000 B/s on 2026-11-23.
       - name: Fetch the release rails' feat-cmux-next history
+        working-directory: ${{ github.workspace }}
         run: .relay-tools/scripts/ci/fetch_branch_history.sh feat-cmux-next .relay-tools
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
-          cache: npm
-          cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
+
+      - name: Cache the npm cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/relays/cloudflare-do/package-lock.json') }}
+
+      - name: Cache the npm cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/relays/cloudflare-do/package-lock.json') }}
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Set up pinned Rust toolchain
         if: needs.plan.outputs.mode != 'version'
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -384,8 +430,8 @@ jobs:
   # The Linux cmux-tui the journeys dial the carrier with (`--cmux`), built once for all three.
   build-journey-cmux:
     needs: plan
-    if: needs.plan.outputs.journeys == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (needs.plan.outputs.journeys == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 40
     permissions:
       contents: read
@@ -446,10 +492,8 @@ jobs:
   # carrier dials cross the relay just deployed. Production follows only on a pass.
   journey-staging:
     needs: [plan, deploy-staging, build-journey-cmux]
-    if: >-
-      !cancelled() && needs.plan.outputs.journeys == 'true' &&
-      needs.deploy-staging.result == 'success' && needs.build-journey-cmux.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (!cancelled() && needs.plan.outputs.journeys == 'true' && needs.deploy-staging.result == 'success' && needs.build-journey-cmux.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
@@ -470,10 +514,15 @@ jobs:
         with:
           name: relay-journey-cmux
           path: ${{ runner.temp }}/journey-cmux
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey (staging), against the staging relay
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -495,8 +544,8 @@ jobs:
   # the deploy's own reds from ones that were already there (cmux-vm.yml does the same).
   journey-production-baseline:
     needs: [plan, journey-staging]
-    if: "!cancelled() && needs.plan.outputs.production == 'true' && needs.journey-staging.result == 'success'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (!cancelled() && needs.plan.outputs.production == 'true' && needs.journey-staging.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment:
       name: cmux-next-cloud-journey
       deployment: false
@@ -517,10 +566,15 @@ jobs:
         with:
           name: relay-journey-cmux
           path: ${{ runner.temp }}/journey-cmux
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Check the production journey account
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -551,12 +605,8 @@ jobs:
 
   deploy-production:
     needs: [plan, cloudflare-relay, migration-approval, deploy-staging, journey-staging, journey-production-baseline]
-    if: >-
-      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.production == 'true' &&
-      (needs.migration-approval.result == 'success' || needs.plan.outputs.migrations_changed != 'true') &&
-      ((needs.plan.outputs.journeys == 'true' && needs.journey-staging.result == 'success' && needs.journey-production-baseline.result == 'success') ||
-      (needs.plan.outputs.journeys != 'true' && needs.plan.outputs.mode != 'deploy' && (needs.plan.outputs.staging != 'true' || needs.deploy-staging.result == 'success')))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (!cancelled() && needs.plan.result == 'success' && needs.plan.outputs.production == 'true' && (needs.migration-approval.result == 'success' || needs.plan.outputs.migrations_changed != 'true') && ((needs.plan.outputs.journeys == 'true' && needs.journey-staging.result == 'success' && needs.journey-production-baseline.result == 'success') || (needs.plan.outputs.journeys != 'true' && needs.plan.outputs.mode != 'deploy' && (needs.plan.outputs.staging != 'true' || needs.deploy-staging.result == 'success')))) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment: relay-production
     timeout-minutes: 30
     permissions:
@@ -618,16 +668,43 @@ jobs:
       # feat-cmux-next's commits (no blobs) for the ancestry check: one branch, not checkout's fetch-depth 0
       # of every branch and tag, which stalled under 1000 B/s on 2026-11-23.
       - name: Fetch the release rails' feat-cmux-next history
+        working-directory: ${{ github.workspace }}
         run: .relay-tools/scripts/ci/fetch_branch_history.sh feat-cmux-next .relay-tools
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
-          cache: npm
-          cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
+
+      - name: Cache the npm cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/relays/cloudflare-do/package-lock.json') }}
+
+      - name: Cache the npm cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/relays/cloudflare-do/package-lock.json') }}
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Set up pinned Rust toolchain
         if: needs.plan.outputs.mode != 'version'
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -704,8 +781,8 @@ jobs:
   # on the baseline and red now (exit 3) is the deploy's own red and rolls production back.
   journey-production:
     needs: [plan, deploy-production, build-journey-cmux, journey-production-baseline]
-    if: "!cancelled() && needs.plan.outputs.journeys == 'true' && needs.deploy-production.result == 'success'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (!cancelled() && needs.plan.outputs.journeys == 'true' && needs.deploy-production.result == 'success') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment:
       name: cmux-next-cloud-journey
       deployment: false
@@ -734,10 +811,15 @@ jobs:
         with:
           name: relay-journey-production-baseline
           path: ${{ runner.temp }}/cloud-journey
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey after the deploy
         id: after
         env:
@@ -762,8 +844,8 @@ jobs:
 
   rollback-production:
     needs: [plan, deploy-production, journey-production]
-    if: always() && needs.journey-production.outputs.regressed == 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    if: ${{ (always() && needs.journey-production.outputs.regressed == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     environment: relay-production
     timeout-minutes: 15
     permissions:
@@ -781,11 +863,32 @@ jobs:
           sparse-checkout: |
             cmux-tui/relays/cloudflare-do
             scripts/ci/api_call_log
+      - name: Restore pinned Node 22.23.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 22.23.4 || true
+
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "22.23.4"
-          cache: npm
-          cache-dependency-path: cmux-tui/relays/cloudflare-do/package-lock.json
+
+      - name: Cache the npm cache
+        if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/relays/cloudflare-do/package-lock.json') }}
+
+      - name: Cache the npm cache (restore only off base branches)
+        if: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.npm
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-tui/relays/cloudflare-do/package-lock.json') }}
       - run: npm ci --no-audit --no-fund
       - name: Roll production back to the recorded version
         env:

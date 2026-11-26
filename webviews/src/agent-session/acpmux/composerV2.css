@@ -105,9 +105,10 @@
     color-mix(in srgb, var(--cmux-tone-light, #fff) 80%, transparent),
     color-mix(in srgb, var(--agent-text) 12%, transparent)
   );
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline-ring, 1px) var(--acpmux-pill-edge, color-mix(in srgb, var(--agent-text) 24%, transparent)),
-    var(--elevation-1);
+  /* One hairline and no lift: a chip on the composer's glass is a plain control, not a glass pane of
+     its own with a shadow (no nested glass, check-no-nested-glass.ts; Leo 2026-11-22: "doubled up
+     glass/wack looking glass"). */
+  box-shadow: inset 0 0 0 var(--cmux-hairline-ring, 1px) var(--acpmux-pill-edge, color-mix(in srgb, var(--agent-text) 24%, transparent));
   color: var(--agent-text);
 }
 @media (hover: hover) and (pointer: fine) {
@@ -155,7 +156,7 @@
    glyph; with text (or a draft that can go: attachments, a resume) it takes the accent fill. Stop is
    the soft disc with the text ink; the first Esc of the double press keeps its accent glyph. A press
    changes only the fill (design/pressed-state.md). */
-.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send {
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:not(.acpmux-resume) {
   border-radius: 50%;
   background: var(--acpmux-pill-fill, var(--ds-surface-hover));
   color: var(--acpmux-send-off-fg, color-mix(in srgb, var(--agent-text) 45%, transparent));
@@ -166,28 +167,28 @@
 .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send.acpmux-cancel[data-escape-armed] {
   color: var(--acpmux-v2-accent);
 }
-.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:is(.acpmux-send-ready, .acpmux-resume):not(.acpmux-cancel, :disabled),
-.acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, :disabled) {
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, .acpmux-resume, :disabled),
+.acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, .acpmux-resume, :disabled) {
   background: var(--acpmux-v2-accent);
   color: var(--agent-accent-text, Canvas);
 }
 @media (hover: hover) and (pointer: fine) {
-  .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:not(:disabled):hover {
+  .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:not(:disabled, .acpmux-resume):hover {
     /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
     background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
   }
-  .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:is(.acpmux-send-ready, .acpmux-resume):not(.acpmux-cancel, :disabled):hover,
-  .acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, :disabled):hover {
+  .acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, .acpmux-resume, :disabled):hover,
+  .acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, .acpmux-resume, :disabled):hover {
     /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
     background: color-mix(in srgb, var(--acpmux-v2-accent) 88%, var(--agent-text));
   }
 }
-.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:not(:disabled):active {
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:not(:disabled, .acpmux-resume):active {
   /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
   background: var(--acpmux-pill-press, color-mix(in srgb, var(--agent-text) 22%, transparent));
 }
-.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send:is(.acpmux-send-ready, .acpmux-resume):not(.acpmux-cancel, :disabled):active,
-.acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, :disabled):active {
+.acpmux-composer-box[data-composer-v2] .acpmux-composer-actions .acpmux-send.acpmux-send-ready:not(.acpmux-cancel, .acpmux-resume, :disabled):active,
+.acpmux-composer-box[data-composer-v2][data-has-text="true"] .acpmux-composer-actions .acpmux-send:not(.acpmux-cancel, .acpmux-resume, :disabled):active {
   /* chat-surface-allow: the default-off composer refresh experiment (#47159); its fills are the variant under comparison, kept as tried until it ships */
   background: color-mix(in srgb, var(--acpmux-v2-accent) 76%, var(--agent-text));
 }

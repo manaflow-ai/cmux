@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.mobile.terminalSizingOrder.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The devices a shared terminal sizes to first, highest first."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الأجهزة التي تأخذ الطرفية المشتركة حجمها أولًا، الأعلى أولًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uređaji čiju veličinu dijeljeni terminal prvo preuzima, najviši prvi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "De enheder, en delt terminal tager størrelse efter først, højeste først."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Geräte, nach deren Größe sich ein geteiltes Terminal zuerst richtet, höchste zuerst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los dispositivos a cuyo tamaño se ajusta primero un terminal compartido, de mayor a menor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les appareils dont un terminal partagé prend la taille en premier, du plus prioritaire au moins prioritaire."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I dispositivi alla cui dimensione si adatta per primo un terminale condiviso, dal più alto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "共有ターミナルが優先してサイズを合わせるデバイス（上から順）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឧបករណ៍ដែល Terminal ដែលបានចែករំលែកយកទំហំមុនគេ ខ្ពស់បំផុតមុន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "공유 터미널이 먼저 크기를 맞추는 기기(높은 순서부터)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enhetene en delt terminal tilpasser størrelsen til først, høyeste først."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Urządzenia, do których rozmiaru udostępniony terminal dopasowuje się najpierw, od najwyższego."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os dispositivos a cujo tamanho um terminal compartilhado se ajusta primeiro, do mais alto ao mais baixo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Устройства, под которые общий терминал подстраивается в первую очередь, начиная с высшего."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "อุปกรณ์ที่เทอร์มินัลที่แชร์จะใช้ขนาดก่อน เรียงจากสูงสุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Paylaşılan terminalin önce boyutunu aldığı cihazlar, en yüksekten başlayarak."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Пристрої, розмір яких спільний термінал бере першим, від найвищого."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các thiết bị mà terminal được chia sẻ lấy kích thước trước, cao nhất trước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "共享终端优先采用其大小的设备，按从高到低排列。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "共享終端機優先採用其大小的裝置，由高到低排列。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -17,6 +17,9 @@ export type FindPillLabels = {
   close: string;
   /** The match-case toggle's name; absent where the search cannot match case (no toggle). */
   matchCase?: string;
+  /** The whole-word and regex toggles' names (terminal history find); absent: no toggle. */
+  wholeWord?: string;
+  regex?: string;
 };
 
 /** The replace row (the code editor's Replace, Opt-Cmd-F). */
@@ -49,6 +52,10 @@ export type FindPillProps = {
   icon: (role: FindPillIconRole) => ReactNode;
   matchCase?: boolean;
   onMatchCaseChange?: (matchCase: boolean) => void;
+  wholeWord?: boolean;
+  onWholeWordChange?: (wholeWord: boolean) => void;
+  regex?: boolean;
+  onRegexChange?: (regex: boolean) => void;
   inputRef?: Ref<HTMLInputElement>;
   /** Cmd-G in the field steps (default); false where a document-level handler already does. */
   commandGSteps?: boolean;
@@ -148,6 +155,32 @@ export function FindPill(props: FindPillProps) {
           >
             Aa
           </button>
+          {labels.wholeWord !== undefined && props.onWholeWordChange ? (
+            <button
+              type="button"
+              className="find-pill__button find-pill__button--text"
+              {...pressFeedback}
+              aria-label={labels.wholeWord}
+              title={labels.wholeWord}
+              aria-pressed={props.wholeWord ? "true" : "false"}
+              onClick={() => props.onWholeWordChange?.(!props.wholeWord)}
+            >
+              ab
+            </button>
+          ) : null}
+          {labels.regex !== undefined && props.onRegexChange ? (
+            <button
+              type="button"
+              className="find-pill__button find-pill__button--text"
+              {...pressFeedback}
+              aria-label={labels.regex}
+              title={labels.regex}
+              aria-pressed={props.regex ? "true" : "false"}
+              onClick={() => props.onRegexChange?.(!props.regex)}
+            >
+              .*
+            </button>
+          ) : null}
           <span className="find-pill__separator" aria-hidden="true" />
         </>
       ) : null}
@@ -196,7 +229,7 @@ export function FindPill(props: FindPillProps) {
       props.onClose();
     }
   };
-  const rootClass = ["find-pill", replace?.open ? "find-pill--replace" : "", props.className ?? ""]
+  const rootClass = ["find-pill", "ui-glass", replace?.open ? "find-pill--replace" : "", props.className ?? ""]
     .filter(Boolean)
     .join(" ");
   return (

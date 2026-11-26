@@ -111,6 +111,52 @@ pub fn pack(
         kept.extend(spans.into_iter().map(|(_, _, s)| s));
     }
     let offset: u64 = kept.iter().map(|s| s.raw).sum();
+    let data = read_span(files, &lens, offset, total)?;
+    encode_after(store, name, kept, &data, params)
+}
+
+/// Packs session `name`'s log from line `after` on into `store`, when the store's pack of it
+/// (with the same `params`) has sealed segments that end at line `after`: `files` back to back
+/// are the log's lines from `after` on, and the sealed segments are kept as they are, unchecked.
+/// What a writer that appends calls as its log grows, once a [`pack`] of the same log has
+/// checked them: it reads only the new lines, never the log before them. `Ok(None)` when the
+/// pack's sealed segments do not end at `after` (none there, other params, or a pack that
+/// sealed less or more since): the caller packs with [`pack`].
+pub fn pack_after(
+    store: &Store,
+    name: &str,
+    after: u64,
+    files: &[PathBuf],
+    params: &Params,
+) -> Result<Option<(Manifest, PackStats)>> {
+    check_name(name)?;
+    let Some(old) = Manifest::load(store, name)? else { return Ok(None) };
+    // Segments marked by an older turn rule are packed again whole (`pack` does it).
+    if old.params != *params || old.turn_rule < TURN_RULE {
+        return Ok(None);
+    }
+    let kept: Vec<Segment> = old.segments.into_iter().take_while(|s| s.sealed).collect();
+    if kept.last().map_or(0, |s| s.line + s.lines) != after || kept.is_empty() {
+        return Ok(None);
+    }
+    let mut data = Vec::new();
+    for path in files {
+        let mut f = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        f.read_to_end(&mut data)?;
+    }
+    encode_after(store, name, kept, &data, params).map(Some)
+}
+
+/// Encodes `data`, the log after the segments `kept`, into `store` and saves the manifest.
+fn encode_after(
+    store: &Store,
+    name: &str,
+    kept: Vec<Segment>,
+    data: &[u8],
+    params: &Params,
+) -> Result<(Manifest, PackStats)> {
+    let offset: u64 = kept.iter().map(|s| s.raw).sum();
+    let total = offset + data.len() as u64;
     let mut index = BlobIndex::default();
     let with_blobs: Vec<&Segment> = kept.iter().filter(|s| s.blob_chunks.is_some()).collect();
     let tables = par_map(&with_blobs, |s| match &s.blob_chunks {
@@ -120,7 +166,6 @@ pub fn pack(
     for (s, table) in with_blobs.iter().zip(&tables) {
         index.add_table(s.blob, table)?;
     }
-    let data = read_span(files, &lens, offset, total)?;
 
     // Cut into segments and encode, in order (a blob's number depends on what came before).
     let mut line_no = kept.last().map_or(0, |s| s.line + s.lines);

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "picker.modeRefused" : {
+      "comment" : "Agent pane: why a permission mode row is disabled, after the agent or the organization's managed settings refused it",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "غير مسموح به على هذا الـMac: رفض الوكيل أو إعدادات مؤسستك هذا الوضع"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije dozvoljeno na ovom Macu: agent ili postavke vaše organizacije odbili su ovaj način"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke tilladt på denne Mac: agenten eller din organisations indstillinger afviste denne tilstand"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auf diesem Mac nicht erlaubt: Der Agent oder die Einstellungen deiner Organisation haben diesen Modus abgelehnt"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Not allowed on this Mac: the agent or your organization’s settings refused this mode"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No permitido en este Mac: el agente o la configuración de tu organización rechazó este modo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non autorisé sur ce Mac : l’agent ou les réglages de votre organisation ont refusé ce mode"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Non consentito su questo Mac: l’agente o le impostazioni della tua organizzazione hanno rifiutato questa modalità"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このMacでは使用できません：エージェントまたは組織の設定がこのモードを拒否しました"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនត្រូវបានអនុញ្ញាតនៅលើ Mac នេះទេ៖ ភ្នាក់ងារ ឬការកំណត់របស់ស្ថាប័នអ្នកបានបដិសេធរបៀបនេះ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 Mac에서 허용되지 않음: 에이전트 또는 조직 설정이 이 모드를 거부했습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikke tillatt på denne Macen: agenten eller organisasjonens innstillinger avviste denne modusen"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Niedozwolone na tym Macu: agent lub ustawienia Twojej organizacji odrzuciły ten tryb"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não permitido neste Mac: o agente ou as configurações da sua organização recusaram este modo"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не разрешено на этом Mac: агент или настройки вашей организации отклонили этот режим"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่อนุญาตบน Mac เครื่องนี้: เอเจนต์หรือการตั้งค่าขององค์กรของคุณปฏิเสธโหมดนี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu Mac'te izin verilmiyor: ajan veya kuruluşunuzun ayarları bu modu reddetti"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не дозволено на цьому Mac: агент або налаштування вашої організації відхилили цей режим"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không được phép trên máy Mac này: tác tử hoặc cài đặt của tổ chức bạn đã từ chối chế độ này"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此 Mac 不允许：智能体或你所在组织的设置拒绝了此模式"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此 Mac 不允許：代理或你所屬組織的設定拒絕了此模式"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

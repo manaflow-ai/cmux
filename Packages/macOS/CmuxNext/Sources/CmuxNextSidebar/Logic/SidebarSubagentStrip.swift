@@ -31,7 +31,8 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
     /// Rows mode: the rows drawn, oldest first, each with its depth under the chat (1, or 2 under
     /// another listed subagent).
     public var rows: [Row]
-    /// Rows mode: the subagents past `rows` ("N more", which opens the chat).
+    /// Rows mode: the listed (recent) subagents past `rows` ("N more", which opens the chat). Never the chat's
+    /// lifetime count (`SidebarSubagents.total`): a coordinator's thousands of finished helpers are not news.
     public var more: Int
     /// Stack mode: the marks drawn, at most `stackMarks`, running ones first.
     public var marks: [SidebarSubagent.State]
@@ -50,13 +51,16 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
     /// The most marks the stacked line draws.
     public static let stackMarks = 4
 
+    /// Failed subagents of a row that lists none (folded, or the tree off): its title line's failed mark counts them.
+    public static func failedCount(_ subagents: SidebarSubagents?) -> Int {
+        subagents?.items.filter { $0.state == .failed }.count ?? 0
+    }
+
     /// Lines the strip takes under the row's name.
     public var lineCount: Int { mode == .stack ? 1 : rows.count + (more > 0 ? 1 : 0) }
 
     /// The strip for `subagents` under a row. `tree`: the session tree is on (`sidebar.sessionTree`);
-    /// `folded`: the person folded this row there. With the tree off a row draws no subagent line at all:
-    /// its working indicator already says the agent runs, and a "✧ 1 running" line under one row read as
-    /// a stray line above the next (https://github.com/manaflow-ai/cmux/issues/52977).
+    /// `folded`: the person folded this row there. Folded or with the tree off a row lists none (nil).
     public static func make(_ subagents: SidebarSubagents?, tree: Bool, folded: Bool,
                             look: SidebarSubagentLook = .both) -> SidebarSubagentStrip? {
         guard tree, let subagents, !subagents.isEmpty else { return nil }
@@ -71,17 +75,21 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
             let shown = Array(items.suffix(visibleRows))
             let ids = Set(shown.map(\.id))
             let rows = shown.map { Row(subagent: $0, depth: $0.parent.map(ids.contains) == true ? 2 : 1) }
-            return SidebarSubagentStrip(mode: .rows, rows: rows, more: max(0, subagents.total - shown.count), marks: [],
+            return SidebarSubagentStrip(mode: .rows, rows: rows, more: max(0, items.count - shown.count), marks: [],
                                         running: subagents.running, done: 0, failed: failed, tab: shown.first?.tab ?? subagents.chat)
         }
-        // Folded with nothing running under the rows look: only work that runs shows.
-        if look == .rows && subagents.running == 0 { return nil }
+        // Folded, or off the tree: no line under the row. Leo 2026-11-23 on "◇◇◇◇◇ 4 running · 3 failed" there: "this is
+        // weird and bad and unncessary"; 05:08Z: "there's no point in even saying it's running. it's running or it's
+        // failed or it's done." What may need a look, a failed subagent, is the title line's one failed mark instead
+        // (`failedCount`, the roll-up's failed chip). Only the Debug `stack` look still draws the stacked line.
+        guard look == .stack else { return nil }
         let order: [SidebarSubagent.State] = [.running, .failed, .done, .stopped]
         let marks = items.sorted { (order.firstIndex(of: $0.state) ?? 0) < (order.firstIndex(of: $1.state) ?? 0) }
             .prefix(stackMarks).map(\.state)
         // Stopped ones (cancelled, disconnected) are not done: a chat whose subagents were all stopped never reads "N done".
         let stopped = items.filter { $0.state == .stopped }.count
-        let done = max(0, subagents.total - subagents.running - failed - stopped)
+        // Done counts the listed (recent) ones, not every subagent the chat ever started.
+        let done = items.filter { $0.state == .done }.count
         return SidebarSubagentStrip(mode: .stack, rows: [], more: 0,
                                     marks: marks.isEmpty ? [.running] : Array(marks),
                                     running: subagents.running, done: done, failed: failed,

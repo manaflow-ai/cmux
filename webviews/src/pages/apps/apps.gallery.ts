@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (public-safe sample app data), not shipped UI.
 import { appsPageEntry, type AppsPageVariant } from "../../gallery/format";
-import { manyStoreApps, sampleApps, storeApps } from "./mockProvider";
+import { sampleApps, manyStoreApps, storeApps } from "./mockProvider";
 
 const base = sampleApps();
 const empty = { details: {}, installed: {}, grants: {} } satisfies AppsPageVariant["data"];
@@ -54,6 +54,22 @@ deployedInstalled.installed["manaflow-ai/hello-deploy"] = {
     state: "running",
     url: "http://127.0.0.1:49153",
   },
+};
+
+// An app installed from a git repo: its page links the repo at the pinned commit.
+const fromGit = structuredClone(base);
+fromGit.details["sample-org/standup"] = {
+  ...structuredClone(template),
+  id: "sample-org/standup",
+  name: "Standup",
+  description: "A public-safe sample app installed from a git repo subdirectory, pinned to a tagged commit.",
+  publisher: "sample-org",
+  publisher_verified: false,
+  tier: "unverified",
+  repository: "https://github.com/sample-org/cmux-apps",
+  path: "apps/standup",
+  commit: "3f9c2a1b7d4e5f60718293a4b5c6d7e8f9012345",
+  tag: "v1.2.0",
 };
 
 // The curated store (Leo, 2026-11-16: "idk if we want to ship THOSE as standard apps"): Discover
@@ -199,6 +215,7 @@ export default appsPageEntry({
     "pages/apps/GrantsPanel.tsx",
     "pages/apps/parts.tsx",
     "pages/apps/items.tsx",
+    "pages/apps/SourceLink.tsx",
   ],
   variants: {
     "browse-hero-rows": {
@@ -331,6 +348,11 @@ export default appsPageEntry({
       note: "A deployed app's listing: Runs on names the kinds of machine its server accepts.",
       hash: "#/discover?layout=split&app=manaflow-ai/hello-deploy",
       data: deployed,
+    },
+    "detail-git": {
+      note: "An app installed from git: Repository links github.com/OWNER/REPO/PATH @ the short commit, pinned to that commit.",
+      hash: "#/discover?layout=split&app=sample-org/standup",
+      data: fromGit,
     },
     "installed-deploy": {
       note: "Installed with a deployed app: its row says where the instance runs.",

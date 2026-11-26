@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-22",
+  "row": "app_lines",
+  "allow": 43,
+  "why": "#50003 Forum top page behind experiments.forum: ForumTopPage (an InternalPageProvider like StashTopPage and BookmarksTopPage) needs AppServices, DaemonPageRelay and PageConnectionWatch, which are App types; its registration, setting-off reason and sidebar action wiring sit beside the App Store's in TopPages.swift and SidebarBridge+Sections.swift. Everything that can live in a domain package does (Sidebar, Pages, Settings, Compat, Daemon). The factory was folded into the provider to keep the growth down.",
+  "author": "forum-app-surface lane (claude opus)",
+  "owner": "forum-app-surface lane",
+  "receipt": "Review (independent-reviewer-50003): SHIP at 6244064033d3d54489a29f7af23ce7c774adf63f",
+  "expiry": "2026-12-22"
+}

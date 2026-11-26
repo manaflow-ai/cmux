@@ -42,7 +42,7 @@
 #                       (scripts/cmux-next/chief-start-probe.py): at rest, whether the Chief's brain host runs and
 #                       which Home view asked for it; then Home's first open and the first Chief reply after it.
 #                       Prints IDLE-AB home <arm> <round> ... and IDLE-AB home median <metric> base ... head ...
-# The harness (bench_memory.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
+# The harness (bench_memory.py and its macos_libs.py, thread_wakes.py, tag_teardown.py, the test agent) is this script's checkout's,
 # copied before the arms are checked out, so a base that predates it runs the same harness.
 # Each arm is built in this checkout (its warm DerivedData, so the second arm builds incrementally), the
 # checkout is put back at this script's commit at the end, and the tagged apps, their daemons and every
@@ -124,7 +124,8 @@ disk() { echo "IDLE-AB disk $1 $(df -h "$here" | tail -n 1)"; }
 disk start
 out="$here/.build/perf-idle-ab"
 rm -rf "$out" && mkdir -p "$out/runs" "$out/harness"
-for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/thread_wakes.py scripts/cmux-next/diff_tab_cells.py \
+for f in scripts/cmux-next/bench_memory.py scripts/cmux-next/macos_libs.py scripts/cmux-next/thread_wakes.py \
+         scripts/cmux-next/diff_tab_cells.py \
          scripts/cmux-next/tag_teardown.py scripts/cmux-next/chief-start-probe.py \
          cmux-tui/crates/acpmux/tests/fake_agent.py; do
   cp "$f" "$out/harness/" || { echo "perf-idle-ab: no $f in this checkout" >&2; exit 3; }

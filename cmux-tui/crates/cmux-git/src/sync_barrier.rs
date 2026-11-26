@@ -46,6 +46,9 @@ pub struct Sync {
     /// `<marker>.filled` and `<marker>.want`, emptied when this sync began.
     filled: PathBuf,
     want: PathBuf,
+    /// `<marker>.partial` ([`partial`]): written by [`Sync::complete_partial`], removed by
+    /// [`Sync::complete`].
+    partial: PathBuf,
 }
 
 /// Shared locks stay held through the caller's write, preventing a new seed
@@ -104,6 +107,19 @@ fn filled_ledger(folder: &Path) -> io::Result<PathBuf> {
 
 fn want_ledger(folder: &Path) -> io::Result<PathBuf> {
     sidecar(folder, ".want")
+}
+
+fn partial_note(folder: &Path) -> io::Result<PathBuf> {
+    sidecar(folder, ".partial")
+}
+
+/// Why `folder` is ready with only part of its files ([`Sync::complete_partial`]): its copy's
+/// source went away mid-fill, and the machine kept what landed so the chat plays on, as a game
+/// plays the part it downloaded. None for a whole folder, a folder with no sync, or a note
+/// that cannot be read. A later sync that completes the folder takes the note away.
+pub fn partial(folder: &Path) -> Option<String> {
+    let note = partial_note(&resolved(folder).ok()?).ok()?;
+    std::fs::read_to_string(note).ok().filter(|reason| !reason.trim().is_empty())
 }
 
 /// Whether `ledger` (the lines of a `<marker>.filled`) holds `relative`, a path below the
@@ -232,7 +248,8 @@ impl Sync {
         let (filled, want) = (filled_ledger(folder)?, want_ledger(folder)?);
         open(&filled, true)?.set_len(0)?;
         open(&want, true)?.set_len(0)?;
-        Ok(Self { marker, head: Some(head), owner: Some(owner), filled, want })
+        let partial = partial_note(folder)?;
+        Ok(Self { marker, head: Some(head), owner: Some(owner), filled, want, partial })
     }
 
     /// These parts of the checkout are in place ([`ledger_holds`] says what a line holds).
@@ -278,7 +295,34 @@ impl Sync {
     }
 
     /// A failed durability step leaves the barrier incomplete.
-    pub fn complete(mut self) -> io::Result<()> {
+    pub fn complete(self) -> io::Result<()> {
+        // Whole now: an earlier partial sync's note goes first, so the folder never reads
+        // ready and whole while it still says what it lacks, nor partial once whole.
+        match std::fs::remove_file(&self.partial) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error),
+        }
+        self.mark_ready()
+    }
+
+    /// Ready with only what landed: the source of the copy went away (`reason` says how), and
+    /// the folder's head is in place ([`Sync::head_ready`] was called), so the chat that opened
+    /// there plays on with what it has instead of every tool failing for good. The note
+    /// ([`partial`]) is written before the ready byte, so no reader sees the folder ready and
+    /// whole when it is not. A sync that completes the folder later removes it.
+    pub fn complete_partial(self, reason: &str) -> io::Result<()> {
+        if self.head.is_some() {
+            return Err(io::Error::other("a partial sync must have marked its head"));
+        }
+        let mut note = open(&self.partial, true)?;
+        note.set_len(0)?;
+        note.write_all(reason.as_bytes())?;
+        note.sync_data()?;
+        self.mark_ready()
+    }
+
+    fn mark_ready(mut self) -> io::Result<()> {
         let file = self.marker.file_mut();
         file.seek(SeekFrom::Start(0))?;
         file.write_all(b"1")?;

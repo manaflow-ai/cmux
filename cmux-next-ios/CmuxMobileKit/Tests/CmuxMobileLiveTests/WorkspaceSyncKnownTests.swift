@@ -80,6 +80,50 @@ import Testing
         await sync.bind(nil, macID: "mac")
     }
 
+    /// A redial to the same Mac (a foreground return, a network change) sends the revision of
+    /// the tree the phone holds in its setup batch: an unchanged Mac answers `unchanged`, and the
+    /// phone keeps its 1,000 rows without reading the whole tree again. A Mac whose tree moved
+    /// meanwhile still sends it whole.
+    @Test func aRedialToTheSameMacKeepsTheHeldTree() async throws {
+        let macID = "mac-redial-\(UUID().uuidString)"
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        let first = KnownDaemonChannel(workspaces: 1_000, advertisesKnown: true)
+        await sync.bind(await WorkspaceSync.prepare(first, deviceID: "test", deviceName: "iPhone",
+                                                    macID: macID, sendsKnown: true), macID: macID)
+        _ = try await sync.listNow()
+        #expect(first.wholeReplies == 1)
+        let wholeBytes = first.wholeReplyBytes
+
+        let second = KnownDaemonChannel(workspaces: 1_000, advertisesKnown: true)
+        let clock = ContinuousClock()
+        let started = clock.now
+        await sync.bind(await WorkspaceSync.prepare(second, deviceID: "test", deviceName: "iPhone",
+                                                    macID: macID, sendsKnown: true), macID: macID)
+        let elapsed = clock.now - started
+        _ = try await sync.listNow()
+        first.finish()
+        #expect(second.wholeReplies == 0, "the redial read the whole tree again")
+        #expect(second.unchangedReplies >= 1)
+        #expect(second.knownSent.first?["tree_revision"] as? String == second.treeRevision)
+        #expect(sync.tree?.workspaces.count == 1_000)
+        #expect(sync.isStale == false)
+        #expect(second.listBytes < 3 * 400, "the redial's lists took \(second.listBytes) bytes")
+        print("REDIAL-HELD workspaces=1000 whole_tree_bytes=\(wholeBytes) redial_list_bytes=\(second.listBytes) "
+              + "redial_bind=\(elapsed)")
+
+        // The tree moved while the phone was away: the redial gets it whole.
+        let third = KnownDaemonChannel(workspaces: 1_000, advertisesKnown: true)
+        third.bumpRevision()
+        await sync.bind(await WorkspaceSync.prepare(third, deviceID: "test", deviceName: "iPhone",
+                                                    macID: macID, sendsKnown: true), macID: macID)
+        _ = try await sync.listNow()
+        second.finish()
+        #expect(third.wholeReplies == 1)
+        #expect(sync.tree?.workspaces.count == 1_000)
+        await sync.bind(nil, macID: macID)
+        third.finish()
+    }
+
     /// A daemon that does not advertise the capability gets no `known` (its Mac
     /// lane refuses a field it does not know), and every list is the whole tree.
     @Test func anOlderDaemonNeverGetsKnown() async throws {

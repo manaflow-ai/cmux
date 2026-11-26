@@ -121,33 +121,84 @@
           ]
         },
         {
-          "key": "agentPane.display.pinnedPlan",
-          "note": "The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).",
+          "key": "agentPane.display.headerBreadcrumb",
+          "note": "Taste prototype: the chat header's title as one monospace slash path, repo / branch / chat title (webviews header/ThreadTitle.tsx). Off by default; off, the header shows the plain title as before.",
           "title": {
-            "key": "settings.agentPane.display.pinnedPlan",
-            "text": "Pin Task List in Chat"
+            "key": "settings.agentPane.display.headerBreadcrumb",
+            "text": "Header Path"
           },
           "help": {
-            "key": "settings.agentPane.display.pinnedPlan.help",
-            "text": "Keeps the agent's task list under the latest message, not over the composer."
+            "key": "settings.agentPane.display.headerBreadcrumb.help",
+            "text": "Show the chat's repository and branch before its title in the header, as a path."
           },
           "kind": "toggle",
           "default": false,
           "keywords": [
             "agent",
             "chat",
-            "acp",
             "display",
-            "reading",
-            "plan",
-            "task",
-            "tasks",
-            "todo",
-            "checklist",
-            "pin",
-            "pinned",
+            "header",
+            "title",
+            "breadcrumb",
+            "path",
+            "slash",
+            "monospace",
+            "repo",
+            "branch",
+            "toggle"
+          ]
+        },
+        {
+          "key": "agentPane.display.chatListStatusPills",
+          "note": "A taste prototype (Taste Board #19, winner and finalist list rows): a small status pill (Running, Needs you, Done, Failed) at the end of each live chat's row in All Chats (webviews newtab/AllChatsList.tsx ChatStatusPill), from the state the row already has; idle and indexed rows show none. Off by default: the rows are as before.",
+          "title": {
+            "key": "settings.agentPane.display.chatListStatusPills",
+            "text": "Status Pills in All Chats"
+          },
+          "help": {
+            "key": "settings.agentPane.display.chatListStatusPills.help",
+            "text": "Shows Running, Needs you, Done or Failed as a small pill on each live chat in All Chats."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "all chats",
             "list",
-            "progress"
+            "status",
+            "pill",
+            "badge",
+            "running",
+            "needs you",
+            "done",
+            "failed",
+            "toggle"
+          ]
+        },
+        {
+          "key": "agentPane.display.subagentOf",
+          "note": "A subagent's own pane says whose it is, \"Subagent of <chat>\" muted beside its name on the header's one line (webviews subagents/subagentPanes.ts paneHeading; Leo, 2026-11-22). Off by default; off, the header names the subagent alone, as before.",
+          "title": {
+            "key": "settings.agentPane.display.subagentOf",
+            "text": "Subagent Of in Header"
+          },
+          "help": {
+            "key": "settings.agentPane.display.subagentOf.help",
+            "text": "In a subagent's own pane, show which chat it belongs to beside its name in the header."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "display",
+            "header",
+            "subagent",
+            "parent",
+            "of",
+            "provenance",
+            "toggle"
           ]
         },
         {
@@ -233,6 +284,33 @@
             "checks",
             "turn",
             "notification"
+          ]
+        },
+        {
+          "key": "agentPane.display.compactShortTurns",
+          "note": "A turn with little to hide (under three tool calls and five seconds) draws flat, its work in a one-line summary such as \"4s \u00b7 Ran 2 commands\", instead of folding under \"Worked for 4s\". Off unless switched on: Leo, 2026-11-25: \"why isn't there a toggle? there should be one.\" (webviews conversation/turns.ts foldsTurn, chatDisplay.ts COMPACT_SHORT_TURNS_KEY).",
+          "title": {
+            "key": "settings.agentPane.display.compactShortTurns",
+            "text": "Compact Summary for Short Turns"
+          },
+          "help": {
+            "key": "settings.agentPane.display.compactShortTurns.help",
+            "text": "A short turn shows a one-line summary of what it did, instead of folding under Worked for."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "short",
+            "turn",
+            "worked",
+            "summary",
+            "compact",
+            "fold",
+            "toggle"
           ]
         },
         {
@@ -1548,6 +1626,13 @@
                 "key": "settings.choice.dots",
                 "text": "Dots"
               }
+            },
+            {
+              "value": "glyph",
+              "title": {
+                "key": "settings.choice.thinkingJumpGlyph",
+                "text": "Thinking Glyph"
+              }
             }
           ],
           "default": "arrow",
@@ -1563,6 +1648,70 @@
             "button",
             "arrow",
             "dots",
+            "claude"
+          ]
+        },
+        {
+          "key": "agentPane.display.thinking.glyph",
+          "name": "thinkingGlyph",
+          "note": "A look's thinking dots: a cmux.particles/1 document (cmux-app-host js/ABI.md \"Particles choreography\", checked by the one Rust validator, cmux-app-host particles.rs, through cmux-config's domain:particles_document). The chat plays it before the live status line and, with jumpButton glyph, in Jump to latest, each choosing the document's trigger from the agent's current activity kind; a sidebar row plays it for cmux.sidebar.rows/1 indicator \"glyph\". A look may keep it in a file of its folder: {\"$file\": \"thinking-glyph.json\"} (cmux-customize setup::inline_files). Unset draws nothing new.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.glyph",
+            "text": "Thinking Glyph"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.glyph.help",
+            "text": "Dots a look plays while the agent works, as a cmux.particles/1 document."
+          },
+          "kind": "text",
+          "default": null,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "glyph",
+            "particles",
+            "dots",
+            "choreography",
+            "animation",
+            "claude"
+          ],
+          "page_hidden": "a cmux.particles/1 document a look or cmux settings set writes, edited in cmux-next.json"
+        },
+        {
+          "key": "agentPane.display.thinking.glyphSize",
+          "name": "thinkingGlyphSize",
+          "note": "The dot size in points Jump to latest draws the thinking glyph at, over the document's particle.size (the button is smaller than the status line); 0 keeps the document's size. The status line and sidebar rows always use the document's size.",
+          "title": {
+            "key": "settings.agentPane.display.thinking.glyphSize",
+            "text": "Jump Button Glyph Size"
+          },
+          "help": {
+            "key": "settings.agentPane.display.thinking.glyphSize.help",
+            "text": "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 16,
+            "step": 0.1,
+            "unit": "points",
+            "placeholder": 0
+          },
+          "default": 0,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "thinking",
+            "glyph",
+            "particles",
+            "dots",
+            "size",
+            "jump",
             "claude"
           ]
         },
@@ -1645,6 +1794,31 @@
             "provider",
             "picker"
           ]
+        },
+        {
+          "key": "agentPane.display.modelPickerOrder",
+          "note": "The order of the model picker's harness tabs, as tab keys, first to last (webviews modelPickerOrder.ts). A drag of a tab on the picker's rail writes it; Starred always stays first, and a tab it does not name keeps its default place after the named ones. Empty: the default order. The agent pages' storage ends with the launch, so the order lives here.",
+          "title": {
+            "key": "settings.agentPane.display.modelPickerOrder",
+            "text": "Model Picker Harness Order"
+          },
+          "help": {
+            "key": "settings.agentPane.display.modelPickerOrder.help",
+            "text": "The order of the harnesses in the model picker. Drag a harness in the picker to move it."
+          },
+          "kind": "string_list",
+          "default": [],
+          "keywords": [
+            "agent",
+            "chat",
+            "model",
+            "picker",
+            "harness",
+            "order",
+            "rearrange",
+            "drag"
+          ],
+          "page_hidden": "tab keys, set by dragging a harness in the model picker"
         },
         {
           "key": "agentPane.display.queueing",

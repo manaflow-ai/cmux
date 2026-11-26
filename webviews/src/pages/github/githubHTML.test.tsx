@@ -24,13 +24,16 @@ test("a bot's footer badge is its picture, light and dark, and its <sup> line is
   const out = draw(mockBotBodyHTML);
   expect(out).not.toContain("&lt;picture");
   expect(out).not.toContain("&lt;sup");
-  expect(out).toMatch(/<a class="gh-md-link" href="https:\/\/backend\.blacksmith\.sh\/[^"]*"[^>]*><picture>/);
+  // A link carries its address as a fact (aria-describedby, the cut tooltip's text) before its class.
+  expect(out).toMatch(
+    /<a (?:aria-describedby="[^"]*" )?class="gh-md-link" href="https:\/\/backend\.blacksmith\.sh\/[^"]*"[^>]*><picture>/,
+  );
   expect(out).toContain('<source media="(prefers-color-scheme: dark)" srcSet="data:image/svg+xml;base64,');
   expect(out).toContain('<source media="(prefers-color-scheme: light)" srcSet="data:image/svg+xml;base64,');
   expect(out).toMatch(
     /<img class="gh-md-img" src="data:image\/svg\+xml;base64,[^"]+" alt="Autofix with \[code\]smith" width="190" height="28"/,
   );
-  expect(out).toContain('<sup><a class="gh-md-link" href="https://app.blacksmith.sh/');
+  expect(out).toMatch(/<sup><a (?:aria-describedby="[^"]*" )?class="gh-md-link" href="https:\/\/app\.blacksmith\.sh\//);
   expect(out).toContain("<code>@codesmith-bot</code>");
   // The check table keeps its alignment as a style, not an attribute.
   expect(out).toContain('<th style="text-align:center">Status</th>');
@@ -69,7 +72,7 @@ test("only the allowlist survives: no handler, style, class, id, form, frame or 
   expect(out).not.toMatch(/\b(id|class|style|onclick|onerror)="(x|y|color:red|alert\(1\))"/);
   expect(out).not.toContain("javascript:");
   expect(out).toContain("bad");
-  expect(out).toContain('<a class="gh-md-link" href="https://github.com/a"');
+  expect(out).toMatch(/<a (?:aria-describedby="[^"]*" )?class="gh-md-link" href="https:\/\/github\.com\/a"/);
   expect(out).toContain(
     '<img class="gh-md-img" src="https://camo.githubusercontent.com/abc" alt="shot" loading="lazy"',
   );

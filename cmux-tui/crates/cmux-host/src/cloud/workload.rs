@@ -121,6 +121,9 @@ pub const SYSTEM_TIMERS: &[&str] = &[
     "anacron.timer",
     "cmux-machine-health.timer",
     "cmux-self-update-guard.timer",
+    // The Cloud Chief host's self-update (images/cmux-vm/chief): installed in every image, so on a
+    // guest that is not a Chief it still kept every machine awake as workload (staging, 2026-11-24).
+    "cmux-chief-update.timer",
 ];
 
 /// `/etc/cron.d` entries that are the distribution's.

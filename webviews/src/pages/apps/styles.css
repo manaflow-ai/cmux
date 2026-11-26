@@ -1498,3 +1498,18 @@ code {
     flex-wrap: wrap;
   }
 }
+
+/* Windowed: only the catalog rows near the viewport are mounted, each placed at its offset
+   (AppsPage.tsx CatalogList). A grid row is the same auto-fill grid, so its cards keep their width. */
+.apps-catalog-space {
+  position: relative;
+  width: 100%;
+}
+
+.apps-catalog-space > * {
+  position: absolute;
+  top: 0;
+  inset-inline-start: 0;
+  width: 100%;
+  box-sizing: border-box;
+}

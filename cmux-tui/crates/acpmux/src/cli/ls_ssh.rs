@@ -11,6 +11,9 @@
 //! acpmux's fixed text. The far `acpmux` may be off a non-login PATH: `$HOME/.local/bin/acpmux`
 //! is tried first, then `acpmux`.
 
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -21,6 +24,11 @@ pub(crate) const LS_DEADLINE: Duration = Duration::from_secs(8);
 
 /// The `via` of a row read over ssh.
 pub(crate) const VIA: &str = "ssh";
+
+type Listing = Result<Vec<Value>, String>;
+
+/// A resident caller can join the read directly. Independent CLIs share the private cache file.
+static READS: OnceLock<crate::single_flight::SingleFlight<PathBuf, Listing>> = OnceLock::new();
 
 /// The far side's listing: this machine's sessions only, as JSON.
 const SCRIPT: &str = "for a in \"$HOME/.local/bin/acpmux\" acpmux; do if command -v \"$a\" >/dev/null 2>&1; then exec \"$a\" --json ls --machine local; fi; done; echo 'acpmux: not found on this machine' >&2; exit 127";
@@ -54,43 +62,123 @@ pub(crate) fn down_ssh_peers(peers: &[Value]) -> Vec<(String, String)> {
 /// Every down ssh peer's rows read over ssh, in parallel: (the peers that answered, their rows).
 /// A peer that failed is said on stderr unless `quiet`.
 pub(crate) async fn rows(
+    socket: &Path,
     peers: &[Value],
     quiet: bool,
     deadline: Instant,
 ) -> (Vec<String>, Vec<Value>) {
-    let down = down_ssh_peers(peers);
-    if down.is_empty() {
-        return (Vec::new(), Vec::new());
-    }
     let deadline = deadline.min(Instant::now() + LS_DEADLINE);
-    let reads = down.into_iter().map(|(name, destination)| async move {
-        let read = tokio::task::spawn_blocking({
-            let destination = destination.clone();
-            move || read(&destination, deadline)
-        })
-        .await
-        .map_err(|e| e.to_string())
-        .and_then(|r| r);
-        (name, read)
+    let reads = destinations(peers).into_iter().map(|(destination, names)| async move {
+        let path = cache_path(socket, &destination);
+        let read = READS
+            .get_or_init(Default::default)
+            .run(path.clone(), || async move {
+                tokio::task::spawn_blocking(move || {
+                    cached_read(&path, deadline, || read(&destination, deadline))
+                })
+                .await
+                .map_err(|e| e.to_string())?
+            })
+            .await;
+        (names, read)
     });
     let mut answered = Vec::new();
     let mut all = Vec::new();
-    for (name, read) in futures_util::future::join_all(reads).await {
+    for (names, read) in futures_util::future::join_all(reads).await {
         match read {
             Ok(rows) => {
-                all.extend(rows.into_iter().map(|row| tag(&name, row)));
-                answered.push(name);
+                for name in names {
+                    all.extend(rows.iter().cloned().map(|row| tag(&name, row)));
+                    answered.push(name);
+                }
             }
-            Err(why) => {
-                if !quiet {
+            Err(why) if !quiet => {
+                for name in names {
                     eprintln!(
                         "acpmux: {name}'s link is down and its sessions over ssh were not read: {why}"
                     );
                 }
             }
+            Err(_) => {}
         }
     }
     (answered, all)
+}
+
+/// The WebSocket port changes the peer route, but SSH uses only its login destination.
+fn destinations(peers: &[Value]) -> BTreeMap<String, BTreeSet<String>> {
+    let mut destinations = BTreeMap::<_, BTreeSet<_>>::new();
+    for (name, destination) in down_ssh_peers(peers) {
+        destinations.entry(destination).or_default().insert(name);
+    }
+    destinations
+}
+
+fn cache_path(socket: &Path, destination: &str) -> PathBuf {
+    use sha2::{Digest, Sha256};
+    let mut key = Sha256::new();
+    for field in [Some(socket.as_os_str().to_owned()), Some(destination.into())]
+        .into_iter()
+        .chain(["HOME", "USERPROFILE", "SSH_AUTH_SOCK", "PATH"].map(std::env::var_os))
+    {
+        if let Some(field) = field {
+            key.update([1]);
+            key.update(field.as_encoded_bytes());
+        }
+        key.update([0]);
+    }
+    crate::config::home().join("ssh-ls-cache").join(format!("{:x}", key.finalize()))
+}
+
+// Each cache file is also its destination's lock. A killed reader releases it. A partial
+// write is a cache miss. This disposable snapshot needs no fsync and has no lock-file expiry.
+fn cached_read(path: &Path, deadline: Instant, read: impl FnOnce() -> Listing) -> Listing {
+    use std::io::{Read, Seek};
+
+    let Some(dir) = path.parent() else { return read() };
+    let mut file = match crate::config::private_state_dir(dir)
+        .and_then(|()| crate::config::private_state_rw(path))
+    {
+        Ok(file) => file,
+        Err(_) => return read(),
+    };
+    loop {
+        match file.try_lock() {
+            Ok(()) => break,
+            Err(std::fs::TryLockError::WouldBlock) => {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Err("another ssh listing is still running".into());
+                }
+                std::thread::sleep(left.min(Duration::from_millis(25)));
+            }
+            Err(std::fs::TryLockError::Error(_)) => return read(),
+        }
+    }
+    let mut bytes = Vec::new();
+    if file.read_to_end(&mut bytes).is_ok()
+        && let Ok((at, mut listing)) = serde_json::from_slice::<(u64, Listing)>(&bytes)
+        && let Some(age) = crate::store::now_ms().checked_sub(at)
+        && age <= if listing.is_ok() { 10_000 } else { 1_000 }
+    {
+        if let Ok(rows) = &mut listing {
+            for row in rows {
+                if let Some(fields) = row.as_object_mut() {
+                    fields.insert("asOfMs".into(), json!(at));
+                }
+            }
+        }
+        return listing;
+    }
+
+    let listing = read();
+    if file.rewind().is_ok() && file.set_len(0).is_ok() {
+        let _ = serde_json::to_writer(
+            std::io::BufWriter::new(&mut file),
+            &(crate::store::now_ms(), &listing),
+        );
+    }
+    listing
 }
 
 /// One peer's listing over ssh, by `deadline`.
@@ -99,6 +187,9 @@ fn read(destination: &str, deadline: Instant) -> Result<Vec<Value>, String> {
     let mut cmd = cmux_process::Command::new("ssh");
     cmd.args(argv);
     let limit = deadline.saturating_duration_since(Instant::now());
+    if limit.is_zero() {
+        return Err("the ssh listing reached its deadline".into());
+    }
     let done = crate::cli::owned_child::owned(&mut cmd, None, limit, "the ssh listing")
         .map_err(|e| e.to_string())?;
     if !done.status.success() {
@@ -167,6 +258,60 @@ mod tests {
         assert_eq!(
             down_ssh_peers(peers.as_array().unwrap()),
             [("a".to_owned(), "a".to_owned()), ("b".to_owned(), "me@b".to_owned())]
+        );
+    }
+
+    #[test]
+    fn ssh_listing_reads_once_per_destination_and_keeps_aliases_and_users_separate() {
+        let peers = json!([
+            {"name":"a","url":"ssh://u@host:1"}, {"name":"b","url":"ssh://u@host:2"},
+            {"name":"a","url":"ssh://u@host:1"}, {"name":"c","url":"ssh://v@host"},
+        ]);
+        let groups = destinations(peers.as_array().unwrap());
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups["u@host"], ["a".to_owned(), "b".to_owned()].into());
+        let socket = Path::new("/daemon/a");
+        assert_ne!(cache_path(socket, "u@host"), cache_path(socket, "v@host"));
+        assert_ne!(cache_path(socket, "u@host"), cache_path(Path::new("/daemon/b"), "u@host"));
+    }
+
+    #[test]
+    fn ssh_listing_shares_one_read_across_callers_then_expires_it() {
+        use std::sync::Barrier;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("cache").join("source");
+        let deadline = Instant::now() + LS_DEADLINE;
+        let readers = Barrier::new(8);
+        let reads = AtomicUsize::new(0);
+        std::thread::scope(|scope| {
+            let tasks: Vec<_> = (0..8)
+                .map(|_| {
+                    scope.spawn(|| {
+                        readers.wait();
+                        cached_read(&path, deadline, || {
+                            reads.fetch_add(1, Ordering::Relaxed);
+                            std::thread::sleep(Duration::from_millis(50));
+                            Ok(vec![json!({"sessionId":"far"})])
+                        })
+                    })
+                })
+                .collect();
+            for task in tasks {
+                assert_eq!(task.join().unwrap().unwrap()[0]["sessionId"], "far");
+            }
+        });
+        assert_eq!(reads.load(Ordering::Relaxed), 1);
+        assert!(
+            cached_read(&path, deadline, || panic!("fresh cache")).unwrap()[0]["asOfMs"].is_u64()
+        );
+        let old = (0_u64, Ok::<_, String>(vec![json!({"sessionId":"expired"})]));
+        std::fs::write(&path, serde_json::to_vec(&old).unwrap()).unwrap();
+        assert_eq!(cached_read(&path, deadline, || Err("miss".into())), Err("miss".into()));
+        assert_eq!(
+            cached_read(&path, deadline, || panic!("duplicate failed read")),
+            Err("miss".into())
         );
     }
 

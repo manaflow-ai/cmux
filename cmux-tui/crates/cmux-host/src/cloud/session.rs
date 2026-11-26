@@ -8,6 +8,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use super::sender::{Answer, AttentionQueue, EventOutcome, EventQueue, OpRequest, Reporter};
+use super::wake_echo::WakeEcho;
 use super::wire::{
     ACP_ACTIVITY_TTL_MS, ATTENTION_EMIT_OP, Activity, ActivityChange, DaemonInfo, EVENT_EMIT_OP,
     activity_from_daemon,
@@ -33,9 +34,13 @@ pub struct Session {
     /// The applied machine.toml's idle window (cmux-cloud-start-core `machine_config::idle`), read
     /// on each workload probe; None while the file declares none.
     idle_window: Option<u64>,
+    /// The pressure probe's block (`pressure.rs`), as last reported; None while nothing is short.
+    pressure: Option<Value>,
     /// This service is the restart a flip or a rollback queued: the reports say degraded until
     /// the restarted session host answers `identify` ([`Session::after_restart`]).
     awaiting_daemon: bool,
+    /// Wake-to-first-echo timing of the latest resume (`wake_echo.rs`).
+    wake: WakeEcho,
 }
 
 /// What the machine's acpmux daemons last said: each one's sessions at work and until when it
@@ -68,6 +73,9 @@ struct AcpDaemon {
     /// Its line's `phases` block, if it sent one: whether its model streams are relayed, and
     /// one entry per session at work.
     phases: Option<(bool, Vec<Value>)>,
+    /// Its line carried `"turn_end": 1`: its 0 means nothing pending
+    /// ([`super::wire::ACTIVITY_TURN_END_CAPABILITY`]).
+    turn_end: bool,
 }
 
 /// The `phases` block of one `acp_activity` line, or None when it has none or it does not read
@@ -132,6 +140,12 @@ impl AcpActivity {
         self.daemons.values().map(|d| d.expires_at).min()
     }
 
+    /// Whether the machine's 0 means nothing pending: the count is known and every daemon whose
+    /// count holds promised it (`turn_end` version 1). No daemon, no promise.
+    fn turn_end(&self) -> bool {
+        self.known() && !self.daemons.is_empty() && self.daemons.values().all(|d| d.turn_end)
+    }
+
     /// The machine's `phases` block: every daemon's turns, relayed only when every daemon's
     /// are. None unless the count is known and every daemon whose count holds sent phases.
     fn phases(&self) -> Option<Value> {
@@ -182,7 +196,9 @@ impl Session {
             stream_live: false,
             workload: None,
             idle_window: None,
+            pressure: None,
             awaiting_daemon: false,
+            wake: WakeEcho::default(),
         }
     }
 
@@ -208,14 +224,28 @@ impl Session {
     }
 
     /// The guest resumed (the supervisor's clock-set wake, a confirmed
-    /// unchanged instance id): one report named `resume`.
-    pub fn resume(&mut self, now: u64) -> Vec<OpRequest> {
+    /// unchanged instance id) at wall-clock `wall`: one report named `resume`, and the wake's
+    /// timing starts (`wake_echo.rs`).
+    pub fn resume(&mut self, now: u64, wall: u64) -> Vec<OpRequest> {
+        if let Some(ended) = self.wake.resumed(now, wall) {
+            self.reporter.replace_wake(Some(ended));
+        }
         self.reporter.trigger("resume", now).into_iter().collect()
     }
 
     /// One `subscribe-activity` snapshot or `activity-changed` event.
     pub fn daemon_activity(&mut self, activity: &Value, now: u64) -> Vec<OpRequest> {
-        self.own_activity(&activity_from_daemon(activity), now)
+        let mut out = match self.wake.daemon_activity(activity) {
+            Some(block) => self.reporter.set_wake(block, now).into_iter().collect(),
+            None => Vec::new(),
+        };
+        out.extend(self.own_activity(&activity_from_daemon(activity), now));
+        out
+    }
+
+    /// The wake being timed, or else the last one timed (the role's state file).
+    pub fn wake_latest(&self) -> Option<Value> {
+        self.wake.latest()
     }
 
     /// The daemon's or the socket's activity changed: every change is reported.
@@ -237,8 +267,9 @@ impl Session {
         self.acp.lapsed_busy.remove(&id);
         self.acp.absent_known = false;
         let phases = read_phases(line, sessions);
+        let turn_end = line.field("turn_end").as_u64() == Some(1);
         let expires_at = now + ACP_ACTIVITY_TTL_MS;
-        self.acp.daemons.insert(id, AcpDaemon { sessions, expires_at, phases });
+        self.acp.daemons.insert(id, AcpDaemon { sessions, expires_at, phases, turn_end });
         self.acp_refresh(now)
     }
 
@@ -282,15 +313,18 @@ impl Session {
         );
         activity.workload = self.workload.as_ref().map(Workload::to_json);
         activity.idle_window_seconds = self.idle_window;
+        activity.pressure = self.pressure.clone();
         activity
     }
 
     /// The daemon block as it stands: `activity` while the stream is live, `activity-turns` with
-    /// it while acpmux's count is known, `activity-phases` with that while its phases are, and
+    /// it while acpmux's count is known, `activity-phases` with that while its phases are,
+    /// `activity-turn-end` with `activity-turns` while every daemon promised it, and
     /// `activity-workload` with `activity` while the workload probe reads.
     fn daemon_now(&self) -> DaemonInfo {
         self.base
             .with_activity(self.stream_live, self.acp.known(), self.acp.phases().is_some())
+            .with_turn_end(self.acp.turn_end())
             .with_workload(self.workload.is_some())
     }
 
@@ -322,6 +356,17 @@ impl Session {
             return Vec::new();
         }
         self.acp_refresh(now)
+    }
+
+    /// The pressure probe's block (`pressure.rs`; None: nothing is short). A report goes when it
+    /// changed, so the Cloud's sizer looks at the machine within seconds of it running short.
+    pub fn pressure(&mut self, block: Option<Value>, now: u64) -> Vec<OpRequest> {
+        if block == self.pressure {
+            return Vec::new();
+        }
+        self.pressure = block;
+        let activity = self.activity();
+        self.reporter.set_activity(activity, true, now).into_iter().collect()
     }
 
     /// The applied machine.toml's idle window as it stands (`machine_config::idle::read`). A report
@@ -456,6 +501,9 @@ impl Session {
             self.acp.expire(now);
             out.extend(self.acp_refresh(now));
         }
+        if let Some(block) = self.wake.fire(now) {
+            out.extend(self.reporter.set_wake(block, now));
+        }
         out.extend(self.reporter.fire(now));
         out.extend(self.events.fire(now));
         if let Some(req) = self.attention.fire(now) {
@@ -489,6 +537,9 @@ impl Session {
             return (next.into_iter().collect(), note);
         }
         let note = Some(report_note(&request.reason, answer));
+        if answer.ok() {
+            self.wake.report_ok(now);
+        }
         (self.reporter.finished(answer, now, random).into_iter().collect(), note)
     }
 
@@ -498,6 +549,7 @@ impl Session {
             self.events.next_deadline(),
             self.attention.next_deadline(),
             self.acp.next_expiry(),
+            self.wake.next_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -773,6 +825,62 @@ mod tests {
 
     fn acp_from(daemon: &str, turns: u64) -> String {
         json!({"acp_activity": {"turns": turns, "daemon": daemon}}).to_string()
+    }
+
+    /// Old vs new: an acpmux line without `turn_end` (every daemon before it) never earns
+    /// `activity-turn-end`; one with `"turn_end": 1` does, alongside `activity-turns`; a machine
+    /// with one old and one new daemon gets none; and it goes when the counts lapse.
+    #[test]
+    fn activity_turn_end_needs_every_daemons_promise() {
+        use super::super::wire::{
+            ACTIVITY_CAPABILITY, ACTIVITY_TURN_END_CAPABILITY, ACTIVITY_TURNS_CAPABILITY,
+        };
+        let new = |daemon: &str, turns: u64| {
+            json!({"acp_activity": {"turns": turns, "daemon": daemon, "turn_end": 1}}).to_string()
+        };
+        let has = |s: &Session| {
+            s.reporter.daemon().capabilities.iter().any(|c| c == ACTIVITY_TURN_END_CAPABILITY)
+        };
+        let base = DaemonInfo { version: "v".into(), capabilities: vec![] };
+        assert_eq!(
+            base.with_activity(true, false, false).with_turn_end(true).capabilities,
+            [ACTIVITY_CAPABILITY],
+            "never without `activity-turns`"
+        );
+        assert_eq!(
+            base.with_activity(true, true, false).with_turn_end(true).capabilities,
+            [ACTIVITY_CAPABILITY, ACTIVITY_TURNS_CAPABILITY, ACTIVITY_TURN_END_CAPABILITY]
+        );
+
+        // Old: no `turn_end` field, no capability.
+        let mut s = session();
+        s.activity_stream(true, 0);
+        s.line(&acp_from("/a.sock", 0), 1_000);
+        assert!(s.reporter.daemon().capabilities.iter().any(|c| c == ACTIVITY_TURNS_CAPABILITY));
+        assert!(!has(&s), "an acpmux older than `turn_end`");
+        // A version this agent does not know is no promise either.
+        s.line(
+            &json!({"acp_activity": {"turns": 0, "daemon": "/a.sock", "turn_end": 2}}).to_string(),
+            2_000,
+        );
+        assert!(!has(&s));
+
+        // New: the same daemon now promises it.
+        s.line(&new("/a.sock", 0), 3_000);
+        assert!(has(&s));
+        s.line(&new("/a.sock", 1), 4_000);
+        assert!(has(&s), "the promise holds while a turn runs too");
+
+        // Mixed: a second, older daemon takes it away until it lapses.
+        s.line(&acp_from("/b.sock", 0), 5_000);
+        assert!(!has(&s), "one daemon's 0 may hide pending work");
+        s.line(&new("/a.sock", 0), 5_000 + ACP_ACTIVITY_TTL_MS - 1_000);
+        s.fire(5_000 + ACP_ACTIVITY_TTL_MS);
+        assert!(has(&s), "the old daemon lapsed idle");
+
+        // Every count lapsed: no promise.
+        s.fire(5_000 + 3 * ACP_ACTIVITY_TTL_MS);
+        assert!(!has(&s));
     }
 
     /// cmux#33330: two acpmux daemons on one machine. The idle one's renewal never replaces the

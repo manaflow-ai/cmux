@@ -48,6 +48,90 @@ Or ask: "make the window see-through glass"
 
 To put glass behind a piece of a view of your own, see [glass.md](glass.md).
 
+### Lamina
+
+A layered, translucent desktop look in four variants, each dark and light. Pick one; each turns on a theme file and a chat stylesheet of its own (`themes/NAME.json`, `agent-pane/theme.css`). Each variant is also a whole look, `examples/looks/lamina`, `lamina-mist`, `lamina-slate` and `lamina-tide` (`cmux setup install github.com/manaflow-ai/cmux/examples/looks/NAME@feat-cmux-next`); their READMEs list what each surface gets.
+
+#### Lamina
+
+Layered, translucent and compact: a frosted sidebar under squarer content cards, 4 point controls, 8 point panes and cards, one-point strokes, an accent mark on the selected row, and a toast that is an 8 point card instead of a pill.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina.json
+```
+
+Or ask: "make cmux look like Lamina, compact and balanced"
+
+#### Lamina light
+
+Layered, translucent and compact: a frosted sidebar under squarer content cards, 4 point controls, 8 point panes and cards, one-point strokes, an accent mark on the selected row, and a toast that is an 8 point card instead of a pill. Light.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-light.json
+```
+
+Or ask: "make cmux look like Lamina, compact and balanced, light"
+
+#### Lamina Mist
+
+Lamina, cooler and more see-through: a blue-gray tint, clear glass behind the window, a card sidebar and a looser density.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-mist.json
+```
+
+Or ask: "make cmux look like Lamina Mist, cool and more translucent"
+
+#### Lamina Mist light
+
+Lamina, cooler and more see-through: a blue-gray tint, clear glass behind the window, a card sidebar and a looser density. Light.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-mist-light.json
+```
+
+Or ask: "make cmux look like Lamina Mist, cool and more translucent, light"
+
+#### Lamina Slate
+
+Lamina, neutral, flatter and denser: no glass, solid layers, tighter rows and a line between the panes.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-slate.json
+```
+
+Or ask: "make cmux look like Lamina Slate, neutral, flatter and denser"
+
+#### Lamina Slate light
+
+Lamina, neutral, flatter and denser: no glass, solid layers, tighter rows and a line between the panes. Light.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-slate-light.json
+```
+
+Or ask: "make cmux look like Lamina Slate, neutral, flatter and denser, light"
+
+#### Lamina Tide
+
+Lamina with the accent forward: teal marks, carded sidebar sections and a thicker status ring.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-tide.json
+```
+
+Or ask: "make cmux look like Lamina Tide, accent-forward teal"
+
+#### Lamina Tide light
+
+Lamina with the accent forward: teal marks, carded sidebar sections and a thicker status ring. Light.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/lamina-tide-light.json
+```
+
+Or ask: "make cmux look like Lamina Tide, accent-forward teal, light"
+
 ### Plush: soft raised surfaces
 
 One tinted surface everywhere, panes and your prompt raised out of it by soft shadows, no borders,
@@ -517,6 +601,20 @@ cmux customize use ~/.local/state/cmux/customize/recipes/violet-app.json
 ```
 
 Or ask: "make cmux look like a violet desktop coding app"
+
+### A light web coding app
+
+Workspaces as one-line tabs, a quiet sidebar, a white page on a light-gray frame, a centered
+760-point chat column, your prompts in light-gray bubbles and a hairline rounded composer.
+Command-N starts a chat and Shift-Command-[ and ] walk the tabs. It ships its theme file
+(`themes/web-coding-app.json`) and chat stylesheet (`agent-pane/theme.css`); the colors are
+matched by eye, not measured.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/web-coding-app.json
+```
+
+Or ask: "make cmux look like a light web coding agent, with workspaces as tabs"
 
 ## For agents and scripts
 

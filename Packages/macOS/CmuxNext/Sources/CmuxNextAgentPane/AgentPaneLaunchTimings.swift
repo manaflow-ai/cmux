@@ -12,14 +12,19 @@ import os
 /// mark made before that is kept with its time until then.
 /// The relaunch-reconnect bench reads them (scripts/cmux-next/bench_relaunch_reconnect.py).
 public nonisolated final class AgentPaneLaunchTimings: Sendable {
+    // lint:allow singleton: one process-wide launch-mark recorder; marks come from any thread before the App
+    // can hand an instance around (the host actor's acpmux lookup, the first page), 17 call sites.
     public static let shared = AgentPaneLaunchTimings()
     private struct State {
         var sink: (@Sendable (String, Date) -> Void)?
         var early: [(String, Date)] = []
         var listeners: [@Sendable (String) -> Void] = []
         var layoutSettled = false
+        var inputEchoed = false
     }
 
+    // Lock carve-out: a synchronous swap of the receiver, early marks and once-flags from any marking thread,
+    // no I/O under it.
     private let state = Mutex(State())
     private let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
 
@@ -47,6 +52,18 @@ public nonisolated final class AgentPaneLaunchTimings: Sendable {
         }
         receiver?(name, date)
         for listener in listeners { listener(name) }
+    }
+
+    /// The first chat composer's echo of a typed key (`pane.inputEchoed`, webviews launchInputEcho.ts), once per
+    /// process: the launch mark `agent_pane.input_echoed` at the page's wall-clock `date` (the frame that drew the
+    /// key), the chat front's first interaction (LaunchStages `first_interaction`, scripts/ci/launch_tti_check.py).
+    func inputEchoed(at date: Date) {
+        guard LaunchMarkSink.shared.isActive else { return }
+        let first = state.withLock { state -> Bool in
+            defer { state.inputEchoed = true }
+            return !state.inputEchoed
+        }
+        if first { mark("agent_pane.input_echoed", at: date) }
     }
 
     /// The first chat page's launch settle (`pane.launchSettle`, webviews launchSettle.ts), once per process:

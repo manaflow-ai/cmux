@@ -2398,7 +2398,7 @@ export function snapshotVm(input: {
           vcpus: snapshotReservation.vcpus,
           memoryMb: snapshotReservation.memoryMb,
           diskMb: snapshotReservation.diskMb,
-          [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(vm.providerMetadata),
+          [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(vm.providerMetadata, "trusted-carrier"),
         },
       };
       yield* repo.recordSnapshotUsageEventIfMissing
@@ -3306,7 +3306,7 @@ export function forkVm(input: {
             providerMetadata: {
               ...source.providerMetadata,
               ...(handle.providerMetadata ?? {}),
-              [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata),
+              [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata, "trusted-carrier"),
             },
           }),
         );
@@ -3389,7 +3389,7 @@ export function forkVm(input: {
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
       providerMetadata: {
-        [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata),
+        [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata, "trusted-carrier"),
       },
       modelPlane: input.modelPlane,
       ...(sourceNetworkPolicy ? { networkPolicy: sourceNetworkPolicy } : {}),
