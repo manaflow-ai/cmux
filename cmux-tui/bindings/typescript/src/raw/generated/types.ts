@@ -1156,6 +1156,7 @@ export type ServerStatsConnections = {
 };
 
 export type ServerStatsDisk = {
+  "checkpoints"?: (ServerStatsDiskCheckpoints) | null;
   "error": (string) | null;
   "files": Array<ServerStatsDiskFile>;
   "files_truncated": boolean;
@@ -1168,6 +1169,14 @@ export type ServerStatsDisk = {
   "segments": (ServerStatsDiskSegments) | null;
   "shm_bytes": bigint;
   "wal_bytes": bigint;
+};
+
+export type ServerStatsDiskCheckpoints = {
+  "budget_bytes": bigint;
+  "bytes": bigint;
+  "checkpoints": bigint;
+  "largest_bytes": bigint;
+  "over_budget": boolean;
 };
 
 export type ServerStatsDiskFile = {
