@@ -35,7 +35,6 @@ chief-usage
 chief-views
 cloud
 cloud-progress
-coderouter
 debug-settings
 feed
 files

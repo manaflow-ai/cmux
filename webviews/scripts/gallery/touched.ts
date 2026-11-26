@@ -80,6 +80,9 @@ export function hostStylesheets(
 
 /** The relative imports of one source file, resolved to files that exist. */
 export function importsOf(file: string, read: (file: string) => string | undefined = readSource): string[] {
+  const memo = importMemos.get(read);
+  const hit = memo?.get(file);
+  if (hit) return hit;
   const text = read(file);
   if (text === undefined) return [];
   const out: string[] = [];
@@ -89,7 +92,23 @@ export function importsOf(file: string, read: (file: string) => string | undefin
     const resolved = resolveImport(path.resolve(path.dirname(file), spec), read);
     if (resolved) out.push(resolved);
   }
+  memo?.set(file, out);
   return out;
+}
+
+// One run reads, parses and resolves each file once: every entry's import walk crosses the same
+// shared modules, and re-reading them per entry made one run take 67 s over 898 entries.
+const importMemos = new WeakMap<(file: string) => string | undefined, Map<string, string[]>>();
+
+/** READ with each file read once, and importsOf through it parsing each file once. */
+export function onceReader(read: (file: string) => string | undefined): (file: string) => string | undefined {
+  const texts = new Map<string, string | undefined>();
+  const once = (file: string) => {
+    if (!texts.has(file)) texts.set(file, read(file));
+    return texts.get(file);
+  };
+  importMemos.set(once, new Map());
+  return once;
 }
 
 function resolveImport(base: string, read: (file: string) => string | undefined): string | undefined {
@@ -179,7 +198,7 @@ export function touchedEntries(
 ): TouchedEntries {
   const src = options.src ?? SRC;
   const repoRoot = options.repoRoot ?? path.resolve(src, "../..");
-  const read = options.read ?? readSource;
+  const read = onceReader(options.read ?? readSource);
   const paneStylesheets = options.paneStylesheets ?? (() => agentPaneStylesheets());
   const ids = entries.map((entry) => entry.id).sort();
   const broad = changed.filter((file) => EVERYTHING.some((pattern) => pattern.test(file)));
