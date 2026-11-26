@@ -29,6 +29,7 @@ struct CopyMachines {
     delay: Duration,
     disks: Arc<Mutex<HashMap<String, tempfile::TempDir>>>,
     deleted: Mutex<Vec<String>>,
+    deleted_notify: Arc<tokio::sync::Notify>,
 }
 
 impl Machines for CopyMachines {
@@ -44,6 +45,7 @@ impl Machines for CopyMachines {
     }
     async fn delete(&self, machine: &str) -> Result<(), String> {
         self.deleted.lock().unwrap().push(machine.to_owned());
+        self.deleted_notify.notify_one();
         Ok(())
     }
 }
@@ -214,7 +216,7 @@ async fn a_fork_past_the_budget_never_blocks_the_start_and_waits_warm_for_the_ne
     assert_eq!(*machines.deleted.lock().unwrap(), ["m-fork-0"]);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn an_unused_warm_fork_is_deleted_after_its_ttl_and_a_newer_one_replaces_it() {
     let machines = Arc::new(CopyMachines::default());
     let slot = Arc::new(WarmSlot::<CopyMachines>::with_ttl(Duration::from_millis(80)));
@@ -227,12 +229,26 @@ async fn an_unused_warm_fork_is_deleted_after_its_ttl_and_a_newer_one_replaces_i
     };
     slot.park(machines.clone(), warm("a"));
     slot.park(machines.clone(), warm("b"));
-    tokio::time::sleep(Duration::from_millis(20)).await;
+    wait_for_deletions(&machines, 1).await;
     assert_eq!(*machines.deleted.lock().unwrap(), ["a"], "the older warm fork is deleted");
     assert!(slot.take("other").is_none(), "a warm fork is only for its own machine");
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    tokio::time::advance(Duration::from_millis(80)).await;
+    wait_for_deletions(&machines, 2).await;
     assert_eq!(*machines.deleted.lock().unwrap(), ["a", "b"]);
     assert!(slot.peek().is_none());
+}
+
+async fn wait_for_deletions(machines: &CopyMachines, count: usize) {
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if machines.deleted.lock().unwrap().len() >= count {
+                break;
+            }
+            machines.deleted_notify.notified().await;
+        }
+    })
+    .await
+    .expect("warm fork deletion did not complete");
 }
 
 #[tokio::test]
