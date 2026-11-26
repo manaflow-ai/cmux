@@ -1154,7 +1154,8 @@ mod tests {
     #[test]
     fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
         let d = dirs();
-        let reference = secret_file(&d, "claude-token", "\u{FEFF} sk-ant-oat01-ab\n  cd\t\u{a0}e\u{200B}f \r");
+        let reference =
+            secret_file(&d, "claude-token", "\u{FEFF} sk-ant-oat01-ab\n  cd\t\u{a0}e\u{200B}f \r");
         add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
         let (_, kind, _, secret) =
             credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();

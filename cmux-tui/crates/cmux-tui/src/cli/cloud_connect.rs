@@ -331,7 +331,13 @@ pub(super) fn run(
                 // Zero-width spaces and a BOM too: not whitespace to Unicode, but a copy adds them (cmux#57418).
                 Zeroizing::new(
                     read.chars()
-                        .filter(|c| !c.is_whitespace() && !matches!(c, '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'))
+                        .filter(|c| {
+                            !c.is_whitespace()
+                                && !matches!(
+                                    c,
+                                    '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}'
+                                )
+                        })
                         .collect::<String>(),
                 )
             } else {

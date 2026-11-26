@@ -1730,7 +1730,11 @@ fn wake_credentials_before_restart(what: &str) {
         Err(e) => return log(&format!("{what}: no credential wakes ({e})")),
     };
     let began = Instant::now();
-    let looked = CREDENTIAL_WAKES.lock().unwrap_or_else(|e| e.into_inner()).look(&ls, |id| wake_session(id, began), log);
+    let looked = CREDENTIAL_WAKES.lock().unwrap_or_else(|e| e.into_inner()).look(
+        &ls,
+        |id| wake_session(id, began),
+        log,
+    );
     if !looked.holding.is_empty() {
         log(&format!("{what} goes on; not woken: {}", looked.holding.join(", ")));
     }
