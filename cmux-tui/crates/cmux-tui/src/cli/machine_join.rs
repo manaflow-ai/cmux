@@ -387,12 +387,8 @@ fn parse_verb(verb: &str, rest: &[String]) -> Result<Command, UsageError> {
             _ => return Err(usage()),
         }
     }
-    if [auth.token_stdin, auth.token_file.is_some(), auth.app_session]
-        .iter()
-        .filter(|given| **given)
-        .count()
-        > 1
-    {
+    let ways = [auth.token_stdin, auth.token_file.is_some(), auth.app_session];
+    if ways.into_iter().filter(|given| *given).count() > 1 {
         return Err(UsageError::new(
             "give the credential one way: --cloud-token-file, --cloud-token-stdin or --app-session",
         ));
