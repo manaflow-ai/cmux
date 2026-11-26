@@ -1,0 +1,17 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.compactionThresholdInsight" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Compaction Threshold Insight"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

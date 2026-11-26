@@ -1,0 +1,17 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "compaction.thresholdInsight" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Automatic compaction at {before} tokens. Set a smaller auto-compact window to carry less context between turns."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
