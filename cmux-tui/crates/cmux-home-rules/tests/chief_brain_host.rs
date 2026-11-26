@@ -11,8 +11,9 @@ fn op(name: &str, request: Value) -> Value {
 #[test]
 fn the_bundled_chief_runs_in_stable_nightly_and_debug_only() {
     let allowed = |id: Value, debug: bool| {
-        op("bundled_chief_allowed", json!({"bundleId": id, "isDebugBuild": debug}))["allowed"]
-            .clone()
+        let request =
+            json!({"bundleId": id, "stableBundleId": "com.cmuxterm.app", "isDebugBuild": debug});
+        op("bundled_chief_allowed", request)["allowed"].clone()
     };
     assert_eq!(allowed(json!("com.cmuxterm.app"), false), json!(true));
     assert_eq!(allowed(json!("com.cmuxterm.app.nightly"), false), json!(true));
@@ -20,6 +21,10 @@ fn the_bundled_chief_runs_in_stable_nightly_and_debug_only() {
     assert_eq!(allowed(json!("com.cmuxterm.apps"), false), json!(false));
     assert_eq!(allowed(json!("com.example"), false), json!(false));
     assert_eq!(allowed(Value::Null, true), json!(true));
+    // No stable id from the caller: only nightly and debug builds run it.
+    let bare = |id: &str| op("bundled_chief_allowed", json!({"bundleId": id}))["allowed"].clone();
+    assert_eq!(bare("com.cmuxterm.app"), json!(false));
+    assert_eq!(bare("com.cmuxterm.app.nightly"), json!(true));
 }
 
 #[test]

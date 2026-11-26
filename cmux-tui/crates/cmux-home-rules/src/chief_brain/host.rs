@@ -10,8 +10,6 @@ use serde::{Deserialize, Serialize};
 
 /// `HomeBrainHost.bundledChiefName`.
 pub const BUNDLED_CHIEF_NAME: &str = "optchat-chief";
-/// `HomeBrainHost.stableBundleID`.
-pub const STABLE_BUNDLE_ID: &str = "com.cmuxterm.app";
 /// `DevTools.nightlyBundleID`.
 pub const NIGHTLY_BUNDLE_ID: &str = "com.cmuxterm.app.nightly";
 /// `FilesHost.executableName`.
@@ -39,12 +37,21 @@ pub fn dev_tools_available(bundle_id: Option<&str>, is_debug_build: bool) -> boo
     bundle_id.is_some_and(|b| is_bundle(trim_ws(b), NIGHTLY_BUNDLE_ID))
 }
 
-/// `HomeBrainHost.bundledChiefAllowed(bundleID:isDebugBuild:)`.
-pub fn bundled_chief_allowed(bundle_id: Option<&str>, is_debug_build: bool) -> bool {
+/// `HomeBrainHost.bundledChiefAllowed(bundleID:isDebugBuild:)`. The caller passes
+/// `HomeBrainHost.stableBundleID`: it is Classic's id, which cmux NEXT code names only at
+/// its reviewed sites (`check-state-roots.sh`), so Rust takes it rather than spelling it.
+pub fn bundled_chief_allowed(
+    bundle_id: Option<&str>,
+    stable_bundle_id: Option<&str>,
+    is_debug_build: bool,
+) -> bool {
     if dev_tools_available(bundle_id, is_debug_build) {
         return true;
     }
-    bundle_id.is_some_and(|b| is_bundle(trim_ws(b), STABLE_BUNDLE_ID))
+    match (bundle_id, stable_bundle_id.filter(|s| !s.is_empty())) {
+        (Some(b), Some(stable)) => is_bundle(trim_ws(b), stable),
+        _ => false,
+    }
 }
 
 /// `AcpmuxEnvironment.agentLaunchDisabled`.
@@ -78,6 +85,8 @@ pub fn host_candidates(
 #[serde(rename_all = "camelCase")]
 pub struct BundleRequest {
     pub bundle_id: Option<String>,
+    /// `HomeBrainHost.stableBundleID`.
+    pub stable_bundle_id: Option<String>,
     #[serde(default)]
     pub is_debug_build: bool,
 }
