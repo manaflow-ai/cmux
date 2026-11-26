@@ -152,6 +152,7 @@ members = [
     "crates/cmux-interactivity",
     "crates/cmux-wallpaper",
     "crates/cmux-config",
+    "crates/cmux-home-rules",
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
@@ -320,6 +321,7 @@ default-members = [
     "crates/cmux-interactivity",
     "crates/cmux-wallpaper",
     "crates/cmux-config",
+    "crates/cmux-home-rules",
     "crates/cmux-customize",
     "crates/cmux-customize-recipes",
     "crates/cmux-theme-tokens",
@@ -507,6 +509,7 @@ cmux-local-auth = { path = "crates/cmux-local-auth" }
 cmux-stack-auth = { path = "crates/cmux-stack-auth" }
 cmux-mcp-connect = { path = "crates/cmux-mcp-connect" }
 cmux-config = { path = "crates/cmux-config" }
+cmux-home-rules = { path = "crates/cmux-home-rules" }
 cmux-customize = { path = "crates/cmux-customize" }
 cmux-customize-recipes = { path = "crates/cmux-customize-recipes" }
 cmux-tui-cloud-conversations = { path = "crates/cmux-tui-cloud-conversations" }

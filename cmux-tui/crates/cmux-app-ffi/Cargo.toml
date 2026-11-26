@@ -31,6 +31,8 @@ cmux-keymap = { path = "../cmux-keymap" }
 cmux-action-catalog = { path = "../cmux-action-catalog" }
 # cmux-next.json's reads for the app (src/settings.rs: cmux-config's app_ops).
 cmux-config = { path = "../cmux-config" }
+# The Mac Home, chat list and Chief rules (src/home.rs: cmux-home-rules' ops).
+cmux-home-rules = { path = "../cmux-home-rules" }
 # The agent pane relay policy (src/ffi.rs: one check per page frame).
 cmux-agent-pane-policy = { path = "../cmux-agent-pane-policy" }
 # Predictive local echo for a terminal on another machine (cmux-terminal-prediction src/ffi.rs).
