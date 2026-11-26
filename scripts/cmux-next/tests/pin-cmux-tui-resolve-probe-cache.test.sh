@@ -86,7 +86,8 @@ resolve() { # [env...] -> stdout+stderr in $out, exit in $status
   err=$(cat "$TMP/err")
 }
 
-tree_reads() { grep -c '/cmux-tui/tree/' "$TMP/curl.log" 2>/dev/null || true; }
+# Tree reads other than the unverifiable one (manifest disagrees: vrc 2, never cached).
+tree_reads() { grep '/cmux-tui/tree/' "$TMP/curl.log" 2>/dev/null | grep -vc "/tree/$(key "$mismatch")/" || true; }
 cache="$TMP/probe-cache"
 
 # First call fills the cache.
@@ -114,6 +115,7 @@ grep -qx "commit=$published" <<<"$out" && grep -qx "key=$(key "$published")" <<<
 [[ "$(grep -v '^behind_hours=' <<<"$out")" == "$(grep -v '^behind_hours=' <<<"$first")" ]] \
   || fail "the cached call's output differs:" "$first" "---" "$out"
 [[ "$(tree_reads)" == 0 ]] || fail "the cached call re-read $(tree_reads) tree URLs (cold call: $cold):" "$(cat "$TMP/curl.log")"
+grep -q "/tree/$(key "$mismatch")/" "$TMP/curl.log" || fail "an unverifiable tree must be probed again, not cached:" "$(cat "$TMP/curl.log")"
 # Only the tip's own key (tip_key=) may be computed again; no walked commit's.
 keys=$(wc -l < "$TMP/keys.log")
 (( keys <= 1 )) || fail "the cached call recomputed $keys tree keys:" "$(cat "$TMP/keys.log")"
