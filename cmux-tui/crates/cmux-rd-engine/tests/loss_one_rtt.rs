@@ -148,6 +148,7 @@ impl Sim {
                 acked_frame: self.viewer.last_released(),
                 decode_us: 0,
                 need_recovery: self.viewer.need_recovery(),
+                acked_ltr_tokens: Vec::new(),
                 arrivals: self.arrivals.drain(..take).collect(),
                 nacks: self.viewer.take_nacks(now, NACK_AFTER_US, FEEDBACK_INTERVAL_US),
             };
