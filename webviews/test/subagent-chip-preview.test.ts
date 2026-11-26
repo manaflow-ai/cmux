@@ -8,7 +8,9 @@
 // - the second chip is cut (its label overflows), and pointing at it shows the card with the
 //   subagent's whole name and its task; no row moves; the pointer leaving puts it away;
 // - Tab onto the third chip shows its card too;
-// - the finished line's chip shows its card, which says it is done.
+// - the finished line's chip shows its card, which says it is done;
+// - at the stage's top edge and its bottom edge (variants near-top-hover, near-bottom-hover), the open
+//   card covers none of its row's text (Leo, 2026-11-22: "and more bullshit somehow happened here").
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
@@ -39,10 +41,10 @@ await requireBrowserLane("subagent-chip-preview.test.ts", async () => {
     await vite?.close();
   });
 
-  const open = async (): Promise<Page> => {
-    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+  const open = async (variant = "grouped", height = 700): Promise<Page> => {
+    const page = await browser.newPage({ viewport: { width: 900, height } });
     const base = `http://127.0.0.1:${(vite.httpServer!.address() as { port: number }).port}`;
-    await page.goto(`${base}${galleryFrame(ENTRY, { variant: "grouped" })}`);
+    await page.goto(`${base}${galleryFrame(ENTRY, { variant })}`);
     await page.locator(CHIPS).nth(8).waitFor();
     await page.mouse.move(0, 0);
     return page;
@@ -114,4 +116,36 @@ await requireBrowserLane("subagent-chip-preview.test.ts", async () => {
       await page.close();
     }
   });
+
+  for (const [variant, chip] of [
+    ["near-top-hover", `${CHIPS} >> nth=1`],
+    ["near-bottom-hover", ".cv-subagent-done-row .cv-agent-tag"],
+  ] as const)
+    test(`${variant}: the card covers none of its row's text`, async () => {
+      const page = await open(variant, 260);
+      try {
+        const target = page.locator(chip);
+        await target.hover();
+        const card = page.locator(PREVIEW);
+        await card.waitFor({ state: "visible", timeout: 5_000 });
+        await page.evaluate(
+          () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        const box = await card.evaluate((element) => element.getBoundingClientRect().toJSON());
+        const text = await target.evaluate((element) => {
+          const range = document.createRange();
+          range.selectNodeContents(element.closest(".acpmux-row")!);
+          return [...range.getClientRects()]
+            .filter((rect) => rect.width > 0 && rect.height > 0)
+            .map((rect) => rect.toJSON());
+        });
+        expect(text.length).toBeGreaterThan(0);
+        const covered = text.filter(
+          (line) => box.left < line.right && line.left < box.right && box.top < line.bottom && line.top < box.bottom,
+        );
+        expect(covered).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    });
 });

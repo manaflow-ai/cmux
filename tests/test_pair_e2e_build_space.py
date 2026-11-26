@@ -1,4 +1,4 @@
-"""pair-e2e's phone and Mac share one build space, and the rig tells a refused pairing code from a taken one.
+"""pair-e2e's phone and Mac share one build space and one tag, and the rig pairs by the Mac's dev auto-approve.
 
 A tagged dev Mac's hostd registers in dev:<tag> (CMUX_BUILD_SPACE); a phone lists only its own space's Macs.
 The plain Demo phone build is in the default space, lists 0 Macs and refuses the Mac's code, which the rig
@@ -15,23 +15,19 @@ pair = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(pair)
 
 
-class PairingCodeLineTests(unittest.TestCase):
-    # The phone's two lines (cmux-next-ios LiveCoordinator+PairInvite.swift); the Mac id is private in the log.
-    REFUSED = "pairing code for a space this account is not in"
-    TAKEN = "pairing code for <private>"
+class DevAutoApproveTests(unittest.TestCase):
+    """Since the QR code went (#48532) the phone pairs by the tagged Mac's dev auto-approve. The rig looked
+    for the deleted page's code, found none and passed with no pairing (VM run 45518511681)."""
 
-    def test_refused_code_is_not_taken(self):
-        self.assertIsNotNone(pair.CODE_REFUSED.search(self.REFUSED))
-        self.assertIsNone(pair.CODE_TAKEN.search(self.REFUSED))
+    def test_paired_line_matches_the_mac_source(self):
+        src = (ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneHostService+Pairing.swift").read_text()
+        self.assertIn("privacy: .public) paired from the dev auto-approve\")", src)
+        self.assertIsNotNone(pair.PAIRED.search("[app.iphone] phone 0a1b2c3d paired from the dev auto-approve"))
 
-    def test_taken_code(self):
-        self.assertIsNotNone(pair.CODE_TAKEN.search(self.TAKEN))
-        self.assertIsNone(pair.CODE_REFUSED.search(self.TAKEN))
-
-    def test_lines_match_the_phone_source(self):
-        src = (ROOT / "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/LiveCoordinator+PairInvite.swift").read_text()
-        self.assertIn(f'log.info("{self.REFUSED}")', src)
-        self.assertIn('log.info("pairing code for \\(invite.mac', src)
+    def test_only_the_macs_own_tag_pairs(self):
+        self.assertTrue(pair.auto_pairs("dev.cmux.mobile.iospair-abc-1", "iospair-abc-1"))
+        self.assertFalse(pair.auto_pairs("dev.cmux.mobile", "iospair-abc-1"))
+        self.assertFalse(pair.auto_pairs("dev.cmux.mobile.iospair-abc-2", "iospair-abc-1"))
 
 
 class SharedBuildSpaceTests(unittest.TestCase):
@@ -41,6 +37,8 @@ class SharedBuildSpaceTests(unittest.TestCase):
         self.assertIsNotNone(block, "pair-e2e's phone build settings block")
         self.assertIn('mac_tag="iospair-', block.group(1))
         self.assertIn('build_settings+=("CMUX_MOBILE_DEV_TAG=.$mac_tag")', block.group(1))
+        # Its bundle id is that tag's too, the phone the Mac's dev auto-approve pairs.
+        self.assertIn('build_settings+=("CMUX_MOBILE_TAG=.$mac_tag")', block.group(1))
         # The tag is set before the phone build and the Mac build uses that same tag.
         self.assertLess(block.start(), sh.index("build_command=(xcodebuild"))
         self.assertEqual(sh.count('mac_tag="iospair-'), 1)

@@ -138,15 +138,12 @@ struct CloudGitHubReposTests {
 
     static let page = "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b" // exp 2100-01-01
 
-    @Test func theConnectReplyOpensOnlyTheAppsInstallationPage() {
-        let ok = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"\#(Self.page)"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: ok) == .page(URL(string: Self.page)!))
-        let elsewhere = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1"},"authorize_url":"https://example.com/apps/cmux/installations/new"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: elsewhere) == .refused)
-        let noConnection = Self.body(#"{"ok":true,"value":{"authorize_url":"\#(Self.page)"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: noConnection) == .refused)
-        #expect(CloudGitHubConnects.answer(status: 403, body: Self.body(#"{"ok":false,"error":{"code":"policy.denied"}}"#)) == .refused)
-        for status in [408, 429, 500, 503] { #expect(CloudGitHubConnects.answer(status: status, body: Data()) == .noAnswer, "\(status)") }
+    @Test func aConnectThatGaveNoPageIsRefusedOrNoAnswer() {
+        #expect(CloudGitHubConnects.answer(.http(status: 403, code: "policy.denied", message: nil)) == .refused)
+        #expect(CloudGitHubConnects.answer(.http(status: 200, code: "integration.not_configured", message: nil)) == .refused)
+        #expect(CloudGitHubConnects.answer(.decoding("no install page")) == .refused)
+        for status in [408, 429, 500, 503] { #expect(CloudGitHubConnects.answer(.http(status: status, code: nil, message: nil)) == .noAnswer, "\(status)") }
+        for failure in [CloudAPIError.timedOut("x"), .transport("x"), .notSignedIn] { #expect(CloudGitHubConnects.answer(failure) == .noAnswer) }
         #expect(CloudGitHubApp.authorizationExpiry(URL(string: Self.page)!) == Date(timeIntervalSince1970: 4_102_444_800))
     }
 
@@ -174,22 +171,22 @@ struct CloudGitHubReposTests {
         #expect(asked == ["key-1", "key-1", "key-2", "key-3", "key-4"])
     }
 
-    /// #55104: a Cloud start card's Connect for one repository. The API reuses a connection that already covers it
+    /// #55104: a Cloud start card's Connect for one repository (the daemon's `owner.github_connect` answer). The API reuses a connection that already covers it
     /// (`connected: true`, nothing to open), and for an owner the App is installed on answers GitHub's authorize page,
     /// never the person's own installation settings (whose save comes back with no state and asks a web sign-in).
     @Test func aRepositoryConnectOpensTheAuthorizePageOrNothingWhenCovered() {
-        let covered = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_1","status":"active"},"connected":true}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: covered) == .connected)
+        let covered = Self.body(#"{"connection":"conn_1","connected":true}"#)
+        #expect(CloudGitHubConnects.reply(covered) == .connected)
         let authorize = "https://github.com/login/oauth/authorize?client_id=Iv1&state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"
-        let installed = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_2"},"authorize_url":"\#(authorize)"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: installed) == .page(URL(string: authorize)!))
+        let installed = Self.body(#"{"connection":"conn_2","authorize_url":"\#(authorize)"}"#)
+        #expect(CloudGitHubConnects.reply(installed) == .page(URL(string: authorize)!))
         let forOwner = "https://github.com/apps/cmux/installations/new/permissions?target_id=7&state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"
-        let install = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_3"},"authorize_url":"\#(forOwner)"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: install) == .page(URL(string: forOwner)!))
-        let settings = Self.body(#"{"ok":true,"value":{"connection":{"id":"conn_4"},"authorize_url":"https://github.com/settings/installations/183460287"}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: settings) == .refused, "a settings page carries no state: never a connect page")
-        let noConnection = Self.body(#"{"ok":true,"value":{"connected":true}}"#)
-        #expect(CloudGitHubConnects.answer(status: 200, body: noConnection) == .refused)
+        let install = Self.body(#"{"connection":"conn_3","authorize_url":"\#(forOwner)"}"#)
+        #expect(CloudGitHubConnects.reply(install) == .page(URL(string: forOwner)!))
+        let settings = Self.body(#"{"connection":"conn_4","authorize_url":"https://github.com/settings/installations/183460287"}"#)
+        #expect(CloudGitHubConnects.reply(settings) == nil, "a settings page carries no state: never a connect page")
+        let noConnection = Self.body(#"{"connected":true}"#)
+        #expect(CloudGitHubConnects.reply(noConnection) == nil)
     }
 
     /// #55104: a team whose connection is ready (on the person's own account) still asks the API for a repository card's
@@ -244,8 +241,20 @@ struct CloudGitHubReposTests {
         let completion = try #require(CloudGitHubCompletion(url: url, scheme: "cmux-dev-x"))
         #expect(completion.params == ["state": state, "code": "abc", "installation_id": "42", "setup_action": "install"])
         #expect(completion.team == "team_0123456789abcdef0123")
-        #expect(completion.idempotencyKey == "complete:" + String(state.suffix(40)))
+        // The console's key for the same redirect (dashboard integration-callback.test.ts pins 9f146c4dbeb30218 too).
+        #expect(completion.idempotencyKey == "complete:" + String(state.suffix(40)) + ":9f146c4dbeb30218")
         #expect(completion.error == nil)
+        // #55104: another redirect of the same state (the code-less update, a new installation) is its own completion,
+        // never `idempotency.conflict`; the same redirect again is the same completion.
+        // One #require per line: a #require nested in another's argument is a recursive macro expansion,
+        // which fails the test build.
+        let updateURL = try #require(URL(string: "\(link)?state=\(state)&installation_id=42&setup_action=update"))
+        let update = try #require(CloudGitHubCompletion(url: updateURL, scheme: "cmux-dev-x"))
+        let otherInstallURL = try #require(URL(string: "\(link)?state=\(state)&code=abc&installation_id=43&setup_action=install"))
+        let otherInstall = try #require(CloudGitHubCompletion(url: otherInstallURL, scheme: "cmux-dev-x"))
+        #expect(Set([completion.idempotencyKey, update.idempotencyKey, otherInstall.idempotencyKey]).count == 3)
+        #expect(try #require(CloudGitHubCompletion(url: url, scheme: "cmux-dev-x")).idempotencyKey == completion.idempotencyKey)
+        #expect(completion.idempotencyKey.count <= 128)
         // Another build's scheme, another path, no signed state: not a completion.
         #expect(CloudGitHubCompletion(url: url, scheme: "cmux") == nil)
         let otherPath = try #require(URL(string: "cmux-dev-x://integration/other?state=\(state)"))
@@ -265,10 +274,36 @@ struct CloudGitHubReposTests {
 
     @Test func aCompletionIsConnectedOnlyWhenTheAPISaysOk() {
         #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":true,"value":{}}"#)) == .connected)
-        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid"}}"#)) == .refused)
-        #expect(CloudOwnerAPIClient.completion(status: 403, body: Self.body("{}")) == .refused)
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid"}}"#)) == .refused(message: nil))
+        #expect(CloudOwnerAPIClient.completion(status: 403, body: Self.body("{}")) == .refused(message: nil))
         #expect(CloudOwnerAPIClient.completion(status: 503, body: Data()) == .noAnswer)
         #expect(CloudOwnerAPIClient.completion(status: 429, body: Data()) == .noAnswer)
+    }
+
+    /// A refused completion carries the API's words for the person (an expired state, another person's state).
+    @Test func aRefusedCompletionCarriesTheAPIsMessage() {
+        let refused = Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid","message":"integration state expired"}}"#)
+        #expect(CloudOwnerAPIClient.completion(status: 400, body: refused) == .refused(message: "integration state expired"))
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: refused) == .refused(message: "integration state expired"))
+        #expect(CloudOwnerAPIClient.completion(status: 400, body: Self.body(#"{"ok":false,"error":{"code":"x","message":"  "}}"#)) == .refused(message: nil))
+    }
+
+    /// An organization member's install comes back as `setup_action=request` with no installation: the API's refusal
+    /// of it reads as an owner's approval pending, not as an error; a request that did bring an installation does not.
+    @Test func anOwnerRequestReadsAsPendingApproval() throws {
+        let state = "h.\(Self.statePayload).s"
+        let link = CloudGitHubCompletion.link(scheme: "cmux-dev-x")
+        let requestURL = try #require(URL(string: "\(link)?state=\(state)&setup_action=request"))
+        let request = try #require(CloudGitHubCompletion(url: requestURL, scheme: "cmux-dev-x"))
+        #expect(request.isOwnerRequest)
+        let installedURL = try #require(URL(string: "\(link)?state=\(state)&installation_id=7&setup_action=request"))
+        let installed = try #require(CloudGitHubCompletion(url: installedURL, scheme: "cmux-dev-x"))
+        #expect(!installed.isOwnerRequest)
+        let said = "GitHub sent your request to install the cmux GitHub App to the organization's owners. When an owner approves it, choose Connect GitHub in cmux again"
+        let refused = Self.body(#"{"ok":false,"error":{"code":"integration.state_invalid","message":"\#(said)"}}"#)
+        #expect(CloudOwnerAPIClient.completion(status: 400, body: refused, ownerRequest: true) == .pendingApproval(message: said))
+        #expect(CloudOwnerAPIClient.completion(status: 503, body: Data(), ownerRequest: true) == .noAnswer)
+        #expect(CloudOwnerAPIClient.completion(status: 200, body: Self.body(#"{"ok":true,"value":{}}"#), ownerRequest: true) == .connected)
     }
 
     @Test func aRefusedCompletionKeepsTheAPIsReasonUnlessItIsTheExpiredState() {
@@ -281,17 +316,17 @@ struct CloudGitHubReposTests {
 
     @MainActor @Test func theLastAnswerStaysOnTheChangesUntilTheNextOneOrANewConnect() {
         let changes = CloudGitHubChanges()
-        changes.record(.refused, reason: nil)
+        changes.record(.refused(message: nil), reason: nil)
         #expect(changes.refusal == CloudGitHubChanges.Refusal(reason: nil))
         #expect(changes.count == 1)
-        changes.record(.refused, reason: "Only an owner can connect.")
+        changes.record(.refused(message: nil), reason: "Only an owner can connect.")
         #expect(changes.refusal?.reason == "Only an owner can connect.")
         changes.forgetRefusal()
         #expect(changes.refusal == nil)
-        changes.record(.refused, reason: nil)
+        changes.record(.refused(message: nil), reason: nil)
         changes.record(.connected, reason: nil)
         #expect(changes.refusal == nil, "a connection clears the last refusal")
-        changes.record(.refused, reason: nil)
+        changes.record(.refused(message: nil), reason: nil)
         changes.record(.noAnswer, reason: nil)
         #expect(changes.refusal == nil, "a lost answer proves nothing, and the person is told nothing wrong")
         #expect(changes.count == 6)

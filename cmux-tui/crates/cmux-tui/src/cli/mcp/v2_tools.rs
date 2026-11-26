@@ -23,9 +23,10 @@ use super::transport::{self, Prefix};
 pub(super) const DEFAULT_PAGE: usize = 100;
 pub(super) const MAX_PAGE: usize = 1000;
 
-/// `terminal_wait` and `terminal_wait_exit` wait at most this long: the
-/// server answers one call at a time, so an unbounded wait would stop every
-/// later call. The daemon waits forever when `timeout_ms` is absent.
+/// `terminal_wait` and `terminal_wait_exit` wait at most this long. A top-level wait runs on
+/// its own thread (`Server::detached_wait`), but one a `cmux_exec` script makes holds the
+/// script, and a forgotten wait holds a thread and a daemon connection. The daemon waits
+/// forever when `timeout_ms` is absent.
 const DEFAULT_WAIT_MS: u64 = 30_000;
 const MAX_WAIT_MS: u64 = 300_000;
 
@@ -195,6 +196,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("theme.scheme.convert", THEME_SCHEME_REASON),
     ("theme.scheme.export", THEME_SCHEME_REASON),
     ("theme.scheme.from_image", THEME_SCHEME_REASON),
+    ("theme.slots.resolve", THEME_SCHEME_REASON),
     ("stash.create", STASH_REASON),
     ("stash.list", STASH_REASON),
     ("stash.restore", STASH_REASON),
@@ -211,12 +213,16 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.machine.share_chat", CLOUD_API_REASON),
     ("cloud.machine.chief_start", CLOUD_API_REASON),
     ("cloud.machine.chief_resize", CLOUD_API_REASON),
+    ("cloud.machine.setup_desktop", CLOUD_API_REASON),
     ("cloud.machine.fork", CLOUD_API_REASON),
     ("cloud.owner.acpmux_keyed_start", CLOUD_API_REASON),
     ("cloud.owner.acpmux_person_holds", CLOUD_API_REASON),
     ("cloud.owner.fork_run", CLOUD_API_REASON),
     ("cloud.owner.github_app", CLOUD_API_REASON),
     ("cloud.owner.github_connect", CLOUD_API_REASON),
+    ("cloud.owner.github_complete", CLOUD_API_REASON),
+    ("cloud.owner.github_list", CLOUD_API_REASON),
+    ("cloud.owner.github_clone_token", CLOUD_API_REASON),
     ("cloud.owner.github_repos", CLOUD_API_REASON),
     ("cloud.owner.handoff_begin_turn", CLOUD_API_REASON),
     ("cloud.owner.handoff_open", CLOUD_API_REASON),

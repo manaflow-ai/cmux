@@ -1,8 +1,14 @@
 public import Foundation
 
 /// Where a build keeps the settings, configuration and state files that every build once shared:
-/// `~/.config/cmux` (the settings file and what lives beside it), `cmux-next/recovery`,
-/// `cmux/agent-home` and `cmux/Chat Uploads` in Application Support, and the `cmux` caches.
+/// `~/.config/cmux-next` (the settings file and what lives beside it), `cmux-next/recovery`,
+/// `cmux-next/agent-home` and `cmux-next/Chat Uploads` in Application Support, and the `cmux-next` caches.
+///
+/// None of them is under classic cmux's roots (`~/.config/cmux`, Application Support and Caches `cmux`,
+/// `~/.local/state/cmux`): Leo, 2026-11-24: "we need to get more ambitious, especially given how we've
+/// made our stuff more efficient end to end to end." (cmuxterm-hq goals/next-zero-classic-footprint-all-surfaces.md).
+/// NEXT's files that builds before kept there move once at launch (``ClassicFolderItemsMove``'s
+/// `moveConfigItems`, `run`).
 ///
 /// The user, 2026-11-16: "for dev builds we must make sure that all such values and configurations
 /// have a dev build isolation that prevents each dev build from deriving state from each other even
@@ -11,7 +17,8 @@ public import Foundation
 /// its caches in `~/Library/Caches/cmux-next/builds/<key>`. It starts them empty: nothing is copied
 /// or read from nightly's, stable's or another tag's files, so a fresh DEV build has the schema's
 /// defaults and its build defaults (`SettingsBuildDefaults`). NIGHTLY, cmux NEXT, RC, release, an
-/// untagged staging build and a process outside any bundle keep the shared paths exactly as before.
+/// untagged staging build and a process outside any bundle share NEXT's own roots, whose defaults
+/// the Rust children resolve the same way without any variable.
 ///
 /// Rust children (the daemon, acpmux, the `cmux` CLI in the build's terminals) read the same files
 /// through the variables of ``environment``, which `CmuxNextApp.prepareLaunchEnvironment` sets in the
@@ -67,11 +74,19 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     }
 
     /// The folder of the settings file and what lives beside it (`themes/`, `keybindings.json`,
-    /// `agent-pane/`, `diff/languages/`): `~/.config/cmux`, or `<own root>/config` for a DEV build.
+    /// `agent-pane/`, `diff/languages/`): `~/.config/cmux-next`, or `<own root>/config` for a DEV build.
     public var configDirectory: URL {
         ownRoot?.appendingPathComponent("config", isDirectory: true)
-            ?? userHome.appendingPathComponent(".config/cmux", isDirectory: true)
+            ?? userHome.appendingPathComponent(".config/\(Self.nextFolder)", isDirectory: true)
     }
+
+    /// The name of NEXT's own folder in each root (`~/.config`, Application Support, Caches, `~/.local/state`),
+    /// beside classic cmux's `cmux`.
+    public static let nextFolder = "cmux-next"
+
+    /// Classic cmux's `~/.config/cmux`, where builds before kept the shared ``configDirectory``: only the
+    /// launch-time move reads it.
+    public var classicConfigDirectory: URL { userHome.appendingPathComponent(".config/cmux", isDirectory: true) }
 
     /// `cmux-next.json` (`CmuxConfigFile`).
     public var settingsFile: URL { configDirectory.appendingPathComponent("cmux-next.json", isDirectory: false) }
@@ -84,7 +99,7 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// The automations store (cmux-automations).
     public var automationsDirectory: URL { configDirectory.appendingPathComponent("automations", isDirectory: true) }
     /// The person's own views app (`CustomizeFolder`, cmux-customize). Shared builds keep their rule
-    /// (`CMUX_CUSTOMIZE_DIR`, `XDG_CONFIG_HOME`, `~/.config/cmux/customize`); this is that rule's default.
+    /// (`CMUX_CUSTOMIZE_DIR`, `XDG_CONFIG_HOME`, `~/.config/cmux-next/customize`); this is that rule's default.
     public var customizeDirectory: URL { configDirectory.appendingPathComponent("customize", isDirectory: true) }
     /// The person's own agent skills (acpmux `user_skills_dir`).
     public var agentSkillsDirectory: URL { configDirectory.appendingPathComponent("skills", isDirectory: true) }
@@ -113,13 +128,13 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// The folder of every workspace's agent home (`AgentHome`).
     public var agentHome: URL {
         ownRoot?.appendingPathComponent("agent-home", isDirectory: true)
-            ?? applicationSupport.appendingPathComponent("cmux", isDirectory: true).appendingPathComponent("agent-home", isDirectory: true)
+            ?? NextSupport(applicationSupport: applicationSupport).folder.appendingPathComponent("agent-home", isDirectory: true)
     }
 
     /// Files attached to chats (`ChatUploadFolders`).
     public var chatUploads: URL {
         ownRoot?.appendingPathComponent("Chat Uploads", isDirectory: true)
-            ?? applicationSupport.appendingPathComponent("cmux", isDirectory: true).appendingPathComponent("Chat Uploads", isDirectory: true)
+            ?? NextSupport(applicationSupport: applicationSupport).folder.appendingPathComponent("Chat Uploads", isDirectory: true)
     }
 
     /// `~/Library/Caches/cmux-next/builds/<key>` for a DEV build; nil for every other.
@@ -134,7 +149,7 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// Projects' owner avatars (`AgentPaneOwnerAvatars`).
     public var projectAvatarsCache: URL {
         ownCaches?.appendingPathComponent("project-avatars", isDirectory: true)
-            ?? caches.appendingPathComponent("cmux", isDirectory: true).appendingPathComponent("project-avatars", isDirectory: true)
+            ?? caches.appendingPathComponent(Self.nextFolder, isDirectory: true).appendingPathComponent("project-avatars", isDirectory: true)
     }
 
     /// The shell mode's completion dump folder (`AgentPaneShellCompletion`).
@@ -150,7 +165,7 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
             .appendingPathComponent("phone-tab-pictures", isDirectory: true)
     }
 
-    /// The `cmux vm` config a DEV build's CLI reads instead of the person's `~/.config/cmux/vm.json` (cmux-vm
+    /// The `cmux vm` config a DEV build's CLI reads instead of the person's `~/.config/cmux-next/vm.json` (cmux-vm
     /// `CMUX_VM_DEFAULT_CONFIG`): `<config>/vm.json`; nil for every other build (cmux-vm's own default).
     public var vmConfigFile: URL? {
         ownRoot.map { _ in configDirectory.appendingPathComponent("vm.json", isDirectory: false) }
@@ -248,12 +263,12 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     }
 
     /// The Cloud secrets index a process with `environment` uses: ``cloudSecretsFileKey``, else
-    /// `<home>/.config/cmux/cloud-secrets.json` (Rust's `cloud_secret::index_path`).
+    /// `<home>/.config/cmux-next/cloud-secrets.json` (Rust's `cloud_secret::index_path`).
     public static func cloudSecretsIndex(environment: [String: String], home: URL) -> URL {
         if let path = environment[cloudSecretsFileKey], !path.isEmpty {
             return URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
         }
-        return home.appendingPathComponent(".config/cmux/cloud-secrets.json", isDirectory: false)
+        return home.appendingPathComponent(".config/\(nextFolder)/cloud-secrets.json", isDirectory: false)
     }
 
     /// The Cloud secrets Keychain service a process with `environment` uses: ``cloudSecretsServiceKey``, else

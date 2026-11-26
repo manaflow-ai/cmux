@@ -1,3 +1,5 @@
+import { readStatusItem, type StatusItem } from "./composerStatusModel";
+
 /// acpmux's whole machine link state (`_acpmux/peer_state_changed` and `_acpmux/peers` `link`,
 /// acpmux `protocol/peer_state.rs` `MachineLink`). acpmux owns it: the pane only reads it and draws it
 /// (peerLink.ts), with no clock of its own. An older daemon sends no `link`; its `state` word (one of
@@ -11,7 +13,10 @@ export type AcpmuxLink =
   | "offline"
   | "authFailed"
   | "updateRequired"
-  | "paused";
+  | "paused"
+  /// Not dialed on purpose: unused since the daemon started, or closed after going unused
+  /// (acpmux `peer_demand.rs`). Using the machine connects it.
+  | "idle";
 
 /// Why a link is down (`cause`): this Mac's network, the team hub, the machine, or a refused token.
 export type LinkCause = "localNetwork" | "hubDown" | "peerDown" | "auth";
@@ -33,6 +38,9 @@ export type PeerLinkDetail = {
   since?: number;
   /// When acpmux dials again on its own, ms since the epoch.
   nextRetryAt?: number;
+  /// The composer status dot's item for this link (`status`), absent while the link is up or paused
+  /// and from an older acpmux (composerStatusModel.ts).
+  status?: StatusItem;
 };
 
 export const ACPMUX_LINKS: ReadonlySet<string> = new Set<AcpmuxLink>([
@@ -45,6 +53,7 @@ export const ACPMUX_LINKS: ReadonlySet<string> = new Set<AcpmuxLink>([
   "authFailed",
   "updateRequired",
   "paused",
+  "idle",
 ]);
 const CAUSES: ReadonlySet<string> = new Set<LinkCause>(["localNetwork", "hubDown", "peerDown", "auth"]);
 const DOWN_REASONS: ReadonlySet<string> = new Set<LinkDownReason>([
@@ -75,5 +84,7 @@ export function readPeerLinkDetail(value: unknown): PeerLinkDetail | undefined {
   if (since !== undefined) detail.since = since;
   const nextRetryAt = time(raw.nextRetryAt);
   if (nextRetryAt !== undefined) detail.nextRetryAt = nextRetryAt;
+  const status = readStatusItem(raw.status);
+  if (status !== undefined) detail.status = status;
   return detail;
 }

@@ -374,6 +374,12 @@ pub(crate) fn status_line(v: &Value) -> String {
     {
         line.push_str(&format!("  ({})", super::super::output::HELD_LINE));
     }
+    if let Some(due) = v.pointer("/accepted/dueAt").and_then(Value::as_u64) {
+        line.push_str(&format!(
+            "  {}",
+            super::super::output::due_words(due, crate::store::now_ms())
+        ));
+    }
     if let Some(error) = v.get("error").and_then(Value::as_str) {
         line.push_str(&format!("  last error: {error}"));
     }

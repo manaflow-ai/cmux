@@ -9,7 +9,7 @@ pub const STATE_OVERRIDE: &str = "CMUX_CUSTOMIZE_STATE_DIR";
 /// The folders one customization is made of.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Roots {
-    /// The folder of the settings file (`~/.config/cmux`).
+    /// The folder of the settings file (`~/.config/cmux`, `~/.config/cmux-next` on macOS).
     pub config_dir: PathBuf,
     /// The settings file itself (`cmux-next.json`, or `CMUX_NEXT_CONFIG_FILE`).
     pub settings_file: PathBuf,
@@ -23,7 +23,11 @@ pub struct Roots {
 
 impl Roots {
     /// The roots this process's environment names; `None` with no home.
+    /// An old install's state moves to NEXT's folder first (macOS).
     pub fn from_env() -> Option<Roots> {
+        if std::env::var_os(STATE_OVERRIDE).is_none() {
+            cmux_config::location::migrate_legacy_state_once();
+        }
         Roots::from(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
     }
 
@@ -39,10 +43,13 @@ impl Roots {
         // The same order the daemon reads its customize folder in
         // (cmux-tui-core `apps::catalog::customize_dir`); the test below
         // holds this side of it.
-        let shared = home.as_ref().map(|home| home.join(".config/cmux"));
+        let shared = home.as_ref().map(|home| home.join(".config").join(cmux_config::NEXT_DIR));
         let customize_dir = env("CMUX_CUSTOMIZE_DIR")
             .map(PathBuf::from)
-            .or_else(|| env("XDG_CONFIG_HOME").map(|xdg| PathBuf::from(xdg).join("cmux/customize")))
+            .or_else(|| {
+                env("XDG_CONFIG_HOME")
+                    .map(|xdg| PathBuf::from(xdg).join(cmux_config::NEXT_DIR).join("customize"))
+            })
             .or_else(|| shared.as_ref().map(|dir| dir.join("customize")))
             .unwrap_or_else(|| config_dir.join("customize"));
         // The runner's order (cmux-automations `Store::default_root`): a
@@ -78,7 +85,7 @@ impl Roots {
     }
 
     /// Installed setups' own views layers (`setup::layers`): `setups/` next
-    /// to the customize folder (`~/.config/cmux/setups`), so a setup never
+    /// to the customize folder (`~/.config/cmux/setups`; `cmux-next` on macOS), so a setup never
     /// writes into the person's own views. The daemon reads the same folder
     /// (cmux-tui-core `apps::catalog::setups_dir`).
     pub fn setups_dir(&self) -> PathBuf {
@@ -100,7 +107,8 @@ fn default_state_dir(env: &impl Fn(&str) -> Option<OsString>, home: &Path) -> Pa
     env("XDG_STATE_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| home.join(".local/state"))
-        .join("cmux/customize")
+        .join(cmux_config::NEXT_DIR)
+        .join("customize")
 }
 
 #[cfg(test)]
@@ -116,9 +124,12 @@ mod tests {
     #[test]
     fn the_default_roots_sit_under_home() {
         let roots = Roots::from(env(&[("HOME", "/home/pat")])).unwrap();
-        assert_eq!(roots.settings_file, PathBuf::from("/home/pat/.config/cmux/cmux-next.json"));
-        assert_eq!(roots.customize_dir, PathBuf::from("/home/pat/.config/cmux/customize"));
-        assert_eq!(roots.state_dir, PathBuf::from("/home/pat/.local/state/cmux/customize"));
+        // `cmux-next` on macOS (cmux Classic owns `cmux` there), `cmux` elsewhere.
+        let dir = cmux_config::NEXT_DIR;
+        let under = |path: &str| PathBuf::from(path.replace("{dir}", dir));
+        assert_eq!(roots.settings_file, under("/home/pat/.config/{dir}/cmux-next.json"));
+        assert_eq!(roots.customize_dir, under("/home/pat/.config/{dir}/customize"));
+        assert_eq!(roots.state_dir, under("/home/pat/.local/state/{dir}/customize"));
     }
 
     #[test]
@@ -141,7 +152,10 @@ mod tests {
         .unwrap();
         assert_eq!(roots.customize_dir, PathBuf::from("/mine"));
         let roots = Roots::from(env(&[("HOME", "/home/pat"), ("XDG_CONFIG_HOME", "/x")])).unwrap();
-        assert_eq!(roots.customize_dir, PathBuf::from("/x/cmux/customize"));
+        assert_eq!(
+            roots.customize_dir,
+            PathBuf::from("/x").join(cmux_config::NEXT_DIR).join("customize")
+        );
     }
 
     #[test]

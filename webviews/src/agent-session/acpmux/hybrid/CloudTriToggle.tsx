@@ -7,7 +7,15 @@ import { useId, useState } from "react";
 import { useT } from "../i18n";
 import { Tooltip } from "../../../ui/Tooltip";
 import { Menu, MenuButton, MenuGroup, MenuItem, MenuPopup } from "../../../ui/Menu";
-import type { HybridBlocked, HybridBlockedWhy, HybridLook, HybridPin, SlotHolder } from "./hybridModel";
+import type {
+  HybridBlocked,
+  HybridBlockedWhy,
+  HybridLook,
+  HybridPin,
+  SlotHolder,
+  HybridStart,
+  HybridStartState,
+} from "./hybridModel";
 import "./cloudToggle.css";
 
 const ORDER = ["auto", "cloud", "local"] as const;
@@ -41,6 +49,25 @@ const BLOCKED_HELP = {
   slept: "hybrid.blocked.slept.help",
   "trial-full": "hybrid.blocked.trial-full.help",
 } as const satisfies Record<HybridBlockedWhy, string>;
+/// A hybrid start's state, as the control's name and its tooltip (RFD 0078 "the start"; rule 2: the
+/// button alone shows it, no dialog, no banner).
+const START = {
+  booting: "hybrid.start.booting",
+  ready: "hybrid.start.ready",
+  moving: "hybrid.start.moving",
+  live: "hybrid.start.live",
+  failed: "hybrid.start.failed",
+} as const satisfies Record<HybridStartState, string>;
+const START_HELP = {
+  booting: "hybrid.start.booting.help",
+  ready: "hybrid.start.ready.help",
+  moving: "hybrid.start.moving.help",
+  live: "hybrid.start.live.help",
+  failed: "hybrid.start.failed.help",
+} as const satisfies Record<HybridStartState, string>;
+/// The machine is up (or the chat is on it): the cloud takes its color.
+const START_LIT: ReadonlySet<HybridStartState> = new Set(["ready", "moving", "live"]);
+
 /// The two that are failures, not setup: they alone wear the warning dot.
 const FAILURE: ReadonlySet<HybridBlockedWhy> = new Set(["offline", "move-failed"]);
 
@@ -104,6 +131,7 @@ export function CloudTriToggle({
   onTrade,
   holdersOpen = false,
   where,
+  start,
   onChange,
   onLitChange,
 }: {
@@ -133,6 +161,10 @@ export function CloudTriToggle({
   /// Where the chat runs right now, from the app's place state ("This Mac", the Cloud machine's
   /// name, "Moving to ..."): drawn after the name, so turning Hybrid on shows what it did.
   where?: string;
+  /// A hybrid start (Cloud chosen, the chat started here while its machine boots): the name says
+  /// which step, the chosen glyph shows it (breathing while it boots, a sweep while it moves, the
+  /// warning dot when it failed and the chat stays here). Blocked wins over it; a pick still works.
+  start?: HybridStart;
   onChange(pin: HybridPin): void;
   /// Choosing Hybrid again while it is chosen turns its light on or off.
   onLitChange?(lit: boolean): void;
@@ -142,16 +174,26 @@ export function CloudTriToggle({
   const [fresh, setFresh] = useState(false);
   const [menuOpen, setMenuOpen] = useState(holdersOpen);
   const why = blocked?.why;
-  const glows = (mode: HybridPin) => !why && (mode === "cloud" || (mode === "auto" && lit));
-  const failed = why !== undefined && FAILURE.has(why);
+  const step = why ? undefined : start?.cloud;
+  const glows = (mode: HybridPin) =>
+    !why && (step ? mode === pin && START_LIT.has(step) : mode === "cloud" || (mode === "auto" && lit));
+  const failed = (why !== undefined && FAILURE.has(why)) || step === "failed";
   // The warning dot sits on the chosen glyph when it shows the cloud, else on Only in Cloud's.
   const dotOn: HybridPin = pin === "local" ? "cloud" : pin;
   const dot = <span className="acpmux-hybrid-tri__dot" aria-hidden="true" />;
+  const startTip = (state: HybridStartState) => ({
+    label: t(START[state]),
+    // Rust's reason first: it says what failed; the sentence after says the chat is still here.
+    detail: state === "failed" && start?.reason ? `${start.reason} ${t(START_HELP[state])}` : t(START_HELP[state]),
+    className: "ui-card",
+  });
   const tip = (mode: HybridPin) =>
     why
       ? // A hover card, so the sentence saying what a click does shows (a plain tooltip is one line).
         { label: t(BLOCKED[why]), detail: t(BLOCKED_HELP[why]), className: "ui-card" }
-      : { label: t(NAMES[mode]), detail: t(HELP[mode]) };
+      : step && mode === pin
+        ? startTip(step)
+        : { label: t(NAMES[mode]), detail: t(HELP[mode]) };
   const blockedClick = (blockedWhy: HybridBlockedWhy) => {
     if (blockedWhy === "slept") {
       if (!onLitChange) return;
@@ -175,8 +217,9 @@ export function CloudTriToggle({
     setFresh(glows(next));
     onChange(next);
   };
-  const name =
-    pin === "auto" && waiting
+  const name = step
+    ? t(START[step])
+    : pin === "auto" && waiting
       ? t("hybrid.waiting.label")
       : pin === "auto" && lit
         ? t("hybrid.keepRunning")
@@ -194,16 +237,19 @@ export function CloudTriToggle({
           data-form="cycle"
           data-mode={pin}
           data-blocked={why}
+          data-start={step}
           data-lit={glows(pin) ? "" : undefined}
           data-fresh={fresh ? "" : undefined}
-          aria-label={`${t("hybrid.pin")}: ${why ? t(BLOCKED[why]) : t(NAMES[pin])}`}
+          aria-label={`${t("hybrid.pin")}: ${why ? t(BLOCKED[why]) : step ? t(START[step]) : t(NAMES[pin])}`}
           style={style}
           onClick={() => pick(next)}
           onAnimationEnd={() => setFresh(false)}
         >
           <Glyph mode={pin} paint={paint} />
           {failed && dot}
-          {named && <span className="acpmux-hybrid-label">{why ? t(BLOCKED[why]) : t(NAMES[pin])}</span>}
+          {named && (
+            <span className="acpmux-hybrid-label">{why ? t(BLOCKED[why]) : step ? t(START[step]) : t(NAMES[pin])}</span>
+          )}
         </button>
       </Tooltip>
     );
@@ -217,6 +263,7 @@ export function CloudTriToggle({
       data-look={look}
       data-mode={pin}
       data-blocked={why}
+      data-start={step}
       style={style}
     >
       {ORDER.map((mode, index) => (
@@ -226,7 +273,8 @@ export function CloudTriToggle({
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a segment holds a glyph and a tooltip, which an input cannot.
             role="radio"
             aria-checked={mode === pin}
-            aria-label={t(NAMES[mode])}
+            // Blocked, every segment runs the blocked action, so each says that action, not its mode.
+            aria-label={why ? t(BLOCKED[why]) : t(NAMES[mode])}
             tabIndex={mode === pin ? 0 : -1}
             className="acpmux-hybrid-toggle acpmux-hybrid-tri__segment"
             data-look={look}
@@ -235,6 +283,7 @@ export function CloudTriToggle({
             data-lit={mode === pin && glows(mode) ? "" : undefined}
             data-fresh={fresh && mode === pin ? "" : undefined}
             data-blocked={why}
+            data-start={mode === pin ? step : undefined}
             data-waiting={mode === pin && mode === "auto" && waiting ? "" : undefined}
             onClick={() => pick(mode)}
             onKeyDown={(event) => {
@@ -262,7 +311,19 @@ export function CloudTriToggle({
           </button>
         </Tooltip>
       )}
-      {named && !why && holders && holders.length > 0 && (
+      {named && step && (
+        <Tooltip {...startTip(step)} side="top">
+          <span className="acpmux-hybrid-label acpmux-hybrid-tri__name" data-testid="hybrid-start" data-start={step}>
+            {name}
+            {where && (
+              <span className="acpmux-hybrid-tri__where" data-testid="hybrid-where">
+                {where}
+              </span>
+            )}
+          </span>
+        </Tooltip>
+      )}
+      {named && !why && !step && holders && holders.length > 0 && (
         <Menu open={menuOpen} onOpenChange={setMenuOpen}>
           <MenuButton
             className="acpmux-hybrid-toggle acpmux-hybrid-label acpmux-hybrid-tri__name"
@@ -288,7 +349,7 @@ export function CloudTriToggle({
           </MenuPopup>
         </Menu>
       )}
-      {named && !why && !(holders && holders.length > 0) && (
+      {named && !why && !step && !(holders && holders.length > 0) && (
         <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">
           {name}
           {where && (

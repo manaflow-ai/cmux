@@ -296,7 +296,7 @@
               "note": "In the text and in the row too, so every attachment shows in one place with its remove (Leo, 2026-10-24: \"ALSO show the top displayed attachments alongside the inline attachments\")."
             }
           ],
-          "default": "inline",
+          "default": "strip",
           "keywords": [
             "attachment",
             "attachments",
@@ -543,6 +543,29 @@
           "swift_enum": {
             "name": "AgentPaneEmptyChatComposerPosition"
           }
+        },
+        {
+          "key": "agentPane.composerPlaceholder",
+          "note": "The idle prompt's placeholder in every chat (agentPane.composerPlaceholder; Composer.tsx): empty (the default) keeps cmux's own 'Type / for commands'; any other text replaces it while no turn runs, so a profile can say what its reference app's composer says. The mid-turn, Esc and stopping hints still win, since they say what a key does now.",
+          "title": {
+            "key": "settings.agentPane.composerPlaceholder",
+            "text": "Message Box Placeholder"
+          },
+          "help": {
+            "key": "settings.agentPane.composerPlaceholder.help",
+            "text": "The text shown in an empty message box. Empty uses cmux's own."
+          },
+          "kind": "text",
+          "default": "",
+          "keywords": [
+            "composer",
+            "message box",
+            "placeholder",
+            "prompt",
+            "hint",
+            "text",
+            "agent"
+          ]
         },
         {
           "key": "agentPane.followUpMode",

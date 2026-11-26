@@ -30,7 +30,12 @@
 //!    Release app (`cmux-tui/<sha>/mac-app.json`, reload-build with `release` and `publish`): it replaces
 //!    this app under the app's own identity, every session kept, and `undo` puts the app back
 //!    (try_cmd/app_build.rs). It comes before a daemon-only live plan: it brings the Swift that one leaves out.
-//! 4. Otherwise it says which build is missing and exits 1: it never builds.
+//! 4. **A copy, for a PR.** A pull request with none of these (an open PR's head has no
+//!    build yet) goes into a copy of the NIGHTLY beside the running app, as
+//!    `cmux app try .` does (try_cmd/copy.rs, `pr:N`): its web and daemon Rust
+//!    live, Swift named as needing the dev build. Leo (2026-11-19): "the diffs
+//!    thing plus the like trying out pull requests".
+//! 5. Otherwise it says which build is missing and exits 1: it never builds.
 //!
 //! Every run writes a receipt (`last.json`, `history.jsonl`) with its phases
 //! and steps; `undo` puts back what the last try replaced, `status` prints it.
@@ -86,7 +91,7 @@ pub(crate) enum Command {
         app: Option<PathBuf>,
     },
     Copy {
-        tree: PathBuf,
+        source: copy::Source,
         from: Option<PathBuf>,
         action: copy::Action,
         dry_run: bool,
@@ -155,9 +160,20 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         }
     }
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    if let [word] = words.as_slice()
-        && let Some(tree) = copy::dir_target(word, home.as_deref())
-    {
+    // A working tree, or a PR with a copy's flag (`N --from APP|--extract|--stop`): the copy form. A bare
+    // PR stays a try, which falls through to the copy when CI has no build of it (run_try).
+    let copy_source = match words.as_slice() {
+        [word] => copy::dir_target(word, home.as_deref()).map(copy::Source::Tree).or_else(|| {
+            match resolve::classify(word) {
+                Some(resolve::Spec::Pull(number)) if from.is_some() || !copy_flags.is_empty() => {
+                    Some(copy::Source::Pull(number))
+                }
+                _ => None,
+            }
+        }),
+        _ => None,
+    };
+    if let Some(source) = copy_source {
         let action = match copy_flags.as_slice() {
             [] => copy::Action::Run,
             [(_, action)] => *action,
@@ -170,9 +186,9 @@ pub(super) fn parse(rest: &[String]) -> Result<Command, UsageError> {
         if action != copy::Action::Run && (dry_run || from.is_some()) {
             return Err(UsageError::new(messages().usage));
         }
-        return Ok(Command::Copy { tree, from, action, dry_run });
+        return Ok(Command::Copy { source, from, action, dry_run });
     }
-    // --from, --extract and --stop belong to the working-tree form.
+    // --from, --extract and --stop belong to the copy form (a working tree or a PR).
     if from.is_some() {
         return Err(unexpected("--from"));
     }
@@ -226,8 +242,8 @@ pub(super) fn run(global: &GlobalArgs, command: &Command) -> i32 {
     if let Command::Channel { dry_run, app } = command {
         return run_channel(global, *dry_run, app.as_deref());
     }
-    if let Command::Copy { tree, from, action, dry_run } = command {
-        return copy::run(global, tree, from.as_deref(), *action, *dry_run);
+    if let Command::Copy { source, from, action, dry_run } = command {
+        return copy::run(global, source, from.as_deref(), *action, *dry_run);
     }
     if let Command::Link { link, dry_run } = command {
         return share::open_link(global, link, *dry_run);
@@ -415,6 +431,14 @@ fn choose(
         return Plan::Live { files, helper, scope };
     }
     Plan::None { why }
+}
+
+/// The PR whose try goes into a copy of the NIGHTLY instead: one `plan` found no build for.
+fn pull_copy(spec: &resolve::Spec, plan: &Plan) -> Option<u64> {
+    match (spec, plan) {
+        (resolve::Spec::Pull(number), Plan::None { .. }) => Some(*number),
+        _ => None,
+    }
 }
 
 /// The feed's newest build that names a commit: what `resolve::descent` compares with.
@@ -905,6 +929,23 @@ fn run_try(
         }
         phases.add("plan", t);
     }
+    if let (Some(number), Plan::None { why }) = (pull_copy(&spec, &plan), &plan) {
+        // No build of the PR's head (an open PR has none): a copy of the NIGHTLY with its change in, as
+        // `cmux app try .` makes; this app is not touched. `--app` names the copy's golden app.
+        if global.output == OutputMode::Human {
+            let mut text = messages
+                .pull_copy
+                .replace("{pr}", &number.to_string())
+                .replace("{commit}", short(&commit));
+            for reason in why {
+                text.push_str("\n  - ");
+                text.push_str(reason);
+            }
+            println!("{text}");
+        }
+        let source = copy::Source::Pull(number);
+        return copy::run(global, &source, named, copy::Action::Run, dry_run);
+    }
     let planned = plan_json(&plan, &commit, &app, app_commit.as_deref());
     let mut receipt = json!({
         "schema": 1, "action": "try", "target": target, "commit": commit,
@@ -1115,6 +1156,7 @@ fn same_team(path: &Path) -> Result<(), String> {
 
 /// Fetches and checks every file and the Screen Sharing helper, then swaps them
 /// in: nothing in the app changes before every byte is here and checked.
+#[cfg(test)]
 fn try_live(
     app: &Path,
     files: &[Wanted],

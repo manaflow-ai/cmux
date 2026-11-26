@@ -170,8 +170,9 @@ public final class HangEpisodeRecorder: Sendable {
     /// A hang started `elapsed` ago: opens its file, with the `load` measured so far. Returns at once (the toggle is read on
     /// the recorder's queue too, so a main thread holding the tunable store's lock never
     /// blocks the watchdog).
-    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample], load: HangLoad = HangLoad()) {
-        let started = Date(timeIntervalSinceNow: -elapsed.fractionalMilliseconds / 1_000)
+    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample], load: HangLoad = HangLoad(),
+               observedAt: Date = Date()) {
+        let started = observedAt.addingTimeInterval(-elapsed.fractionalMilliseconds / 1_000)
         queue.async { [self] in
             guard isEnabled() else { return }
             // Raw addresses first: the evidence is on disk before anything can block.
@@ -197,7 +198,11 @@ public final class HangEpisodeRecorder: Sendable {
             change(beat: beat) { episode in
                 episode.entry.duration = duration
                 episode.entry.ongoing = ongoing
-                if let load { episode.entry.load = load }
+                // A later load keeps the blocking call the hang was sampled in (the call may end before the hang).
+                if var load {
+                    if load.blockingCall == nil { load.blockingCall = episode.entry.load.blockingCall }
+                    episode.entry.load = load
+                }
             }
         }
     }

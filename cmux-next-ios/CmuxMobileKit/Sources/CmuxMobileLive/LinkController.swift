@@ -201,6 +201,17 @@ public final class LinkController {
     private nonisolated static func connect(dialer: any MacLinkDialer, endpoint: LinkEndpoint, transport: TransportKind,
                                             forceRefresh: Bool, events: LinkConnectivityEvents,
                                             accessToken: @Sendable (Bool) async throws -> String) async throws -> any MacLink {
+        // The token and the dial are one "link-connect" span (``PhoneTrace``): a launch, a
+        // reconnect after a drop and a forced token refresh alike.
+        try await PhoneTrace.action("link-connect", args: ["transport": "\(transport)", "refresh": "\(forceRefresh)"]) {
+            try await dial(dialer: dialer, endpoint: endpoint, transport: transport, forceRefresh: forceRefresh,
+                           events: events, accessToken: accessToken)
+        }
+    }
+
+    private nonisolated static func dial(dialer: any MacLinkDialer, endpoint: LinkEndpoint, transport: TransportKind,
+                                         forceRefresh: Bool, events: LinkConnectivityEvents,
+                                         accessToken: @Sendable (Bool) async throws -> String) async throws -> any MacLink {
         let token = try await accessToken(forceRefresh)
         ConnectTimeline.shared.mark("token_ready")
         let link = try await dialer.dial(endpoint, transport: transport, accessToken: token)
@@ -337,9 +348,11 @@ public final class LinkController {
             }
             endpoint.relayOnly = machine.relayOnly
             endpoint.blockUDP = machine.blockUDP
+            endpoint.proxyOnly = DeveloperOptions.proxyOnly
+            endpoint.dropWireGuard = DeveloperOptions.dropWireGuard
             endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
             endpoint.forceRelay = DeveloperOptions.forceRelay
-            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public)")
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public) proxyOnly=\(endpoint.proxyOnly, privacy: .public) dropWireGuard=\(endpoint.dropWireGuard, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
@@ -621,6 +634,16 @@ public final class LinkController {
 
     private func applyForegroundProbe() {
         link?.setForegroundProbe(onScreen && !machine.isBackgrounded)
+    }
+
+    /// The keyboard is coming up over this link's terminal or chat: the
+    /// first key follows in a few hundred ms. Waking the radio now moves
+    /// the idle-to-connected promotion off that key (RFD 0142 T2). The
+    /// coordinator calls it for the focused Mac only; the Rust link
+    /// decides whether a datagram goes out.
+    public func prewake() {
+        guard onScreen, !machine.isBackgrounded else { return }
+        link?.prewake()
     }
 
     private func adopt(_ link: any MacLink, generation: Int) {

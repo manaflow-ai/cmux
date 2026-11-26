@@ -292,31 +292,26 @@ PY
 
 # The packages this lane tests whole when a pull request changes one of their inputs. A Swift test
 # target no pull request check runs is listed with its reason in the swift-test-targets.json
-# registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
+# registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxUpdater
 # passed `suite` on an owned Mac at ccc9958672bf before they joined (CmuxChiefList at 777eb5a7d77f).
+# Mac-only: a package whose tests pass on Linux runs in swift-linux-packages.yml (the list or a whole-package
+# matrix group), never here as well. CmuxAuthRuntime and CmuxPhonePush run on Linux; the suites that
+# compile only on Apple platforms run in auth-refresh-tests.yml on a Mac.
 select_packages() {
   PACKAGES=(
-    CMUXAuthCore
-    CmuxAuthRuntime
-    CmuxChiefList
     CmuxIrohTransport
     CmuxIrxTransport
     CmuxUpdater
-    CmuxPhonePush
-    CmuxConnectivityTelemetry
-    CmuxDeviceHub
-    CmuxEgress
-    CmuxHomeCore
     CmuxHomeRender
     CmuxMobileBilling
     CmuxMobileSupport
     CmuxMobileTunnel
+    CmuxPushRegistration
     CmuxRemote
     CmuxScreenKit
-    CmuxTabsKit
     CmuxVNCWebRTC
-    CmuxVisibleRows
     GlassHost
+    CmuxLiveCode
   )
 
   changed="$work/changed-files.txt"
@@ -659,9 +654,10 @@ run_package_tests() {
     package_args "$pkg" || return $? # 1: not found; 75: the resolve failed on the network (no verdict)
     case "$pkg" in
     # These packages have process-tree suites whose child fixtures
-    # share global process resources; run each suite in its own Swift
-    # Testing process.
-    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport)
+    # share global process resources (CmuxPushRegistration: its URLProtocol
+    # stubs, as when it was part of CmuxAuthRuntime); run each suite in its
+    # own Swift Testing process.
+    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport|CmuxPushRegistration)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
     *)
@@ -928,8 +924,21 @@ ensure_mobile_link_ffi() {
 }
 
 run_suite() {
+  local app_ffi_link=()
   if [ "$lane_os" = Linux ]; then
     linux_suite_setup
+    # CmuxNext's Linux shape links CCmuxAppFFI as libcmux_app_ffi.a built here (scripts/ci/app_ffi_linux.py).
+    if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+      local app_ffi_lib
+      echo "::group::libcmux_app_ffi.a for Linux"
+      if ! app_ffi_lib="$(python3 scripts/ci/app_ffi_linux.py build)"; then
+        echo "::endgroup::"
+        echo "::error title=CCmuxAppFFI build failed::package-test-lane.sh: scripts/ci/app_ffi_linux.py build failed; no CmuxNext test ran" >&2
+        exit 1
+      fi
+      echo "::endgroup::"
+      app_ffi_link=(-Xlinker -L -Xlinker "$app_ffi_lib")
+    fi
   else
     select_xcode
     echo "Xcode: $DEVELOPER_DIR"
@@ -943,7 +952,8 @@ run_suite() {
   fi
   # CMUX_SWIFT_SUITE_CONFIGURATION=release builds the suites optimized (measurements of what the
   # user runs); @testable imports then need -enable-testing. The default stays debug.
-  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
+  local configuration=(-c "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"}
+    ${app_ffi_link[@]+"${app_ffi_link[@]}"})
   # Release keeps DEBUG defined, so test helpers behind #if DEBUG still build; the code is optimized.
   # The Xcode 26.6 optimizer crashes in CopyPropagation on CmuxNextSettingsTests (signal 6), so a
   # release suite build turns that one SIL pass off.
@@ -956,14 +966,37 @@ run_suite() {
     configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
-  case "$suite_package" in
-    Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
-      ensure_web_bundles ;;
-  esac
-  if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
-    ensure_cmux_tui_tree
+  # On Linux, CmuxNext builds only its Linux shape (CMUX_SWIFTPM_TARGET_LINUX: targets that read
+  # neither the web bundles nor cmux-tui's daemon), and the swift container has no curl to fetch bun.
+  if [ "$lane_os" != Linux ]; then
+    case "$suite_package" in
+      Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
+        ensure_web_bundles ;;
+    esac
+    if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+      ensure_cmux_tui_tree
+    fi
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
+  # CMUX_SWIFT_TEST_PRODUCTS=fleet: run on the test bundles a fleet job built for this commit
+  # (scripts/ci/fleet-test-products.py) instead of building them here. Debug, unsanitized suites of a
+  # whole package only. When the fleet has no products (no verdict, a red build, an unreachable
+  # controller), this Mac builds them as it always has, and the log says so.
+  local fleet_products=0
+  if [ "${CMUX_SWIFT_TEST_PRODUCTS:-build}" = fleet ] && [ "$lane_os" != Linux ] \
+    && [ "${CMUX_SWIFT_SUITE_CONFIGURATION:-debug}" = debug ] && [ -z "${CMUX_SWIFT_SANITIZE:-}" ] \
+    && [ -z "${CMUX_SWIFT_TEST_DEBUG_INFO:-}" ]; then
+    echo "::group::fleet test products $suite_package"
+    local products_started=$SECONDS
+    if python3 scripts/ci/fleet-test-products.py "$suite_package"; then
+      fleet_products=1
+      echo "fleet test products: in place after $((SECONDS - products_started))s; this Mac builds nothing"
+    else
+      echo "::warning title=Fleet test products::$suite_package: no fleet test products for this commit; building them on this Mac"
+    fi
+    echo "::endgroup::"
+  fi
+  if [ "$fleet_products" != 1 ]; then
   swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   local build_log build_status=0
@@ -990,6 +1023,7 @@ run_suite() {
   [ "$build_status" -eq 0 ] || exit "$build_status"
   record_built_ref "$suite_package"
   echo "::endgroup::"
+  fi
   # swift build copies String Catalogs into the resource bundles uncompiled; without the
   # compiled <lang>.lproj tables, localization suites fail (cmux-next.yml runs the same step).
   # (xcstringstool is Xcode's: on Linux the listed packages have no catalogs, and their CI job proves it.)

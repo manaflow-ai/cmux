@@ -599,6 +599,9 @@ struct Worker {
     /// The workload probe (`workload.rs`): its memory and when it runs next (while bound).
     workload: super::workload::Tracker,
     workload_at: Option<u64>,
+    /// The pressure probe (`pressure.rs`): its memory and when it reads next (while bound).
+    pressure: super::pressure::Tracker,
+    pressure_at: Option<u64>,
     rng: SystemRandom,
     epoch: Instant,
     /// This service is the restart a flip or a rollback queued: the first session starts
@@ -683,6 +686,8 @@ impl Worker {
             noise_key_wait: None,
             workload: super::workload::Tracker::default(),
             workload_at: None,
+            pressure: super::pressure::Tracker::default(),
+            pressure_at: None,
             rng: SystemRandom::new(),
             epoch: Instant::now(),
             restarted: false,
@@ -713,6 +718,7 @@ impl Worker {
                 self.bind_retry_at,
                 self.activity.retry_at,
                 self.workload_at,
+                self.pressure_at,
             ]
             .into_iter()
             .flatten()
@@ -1182,6 +1188,8 @@ impl Worker {
         // A new session knows no workload yet: the first probe now, the first result one interval on.
         self.workload = super::workload::Tracker::default();
         self.workload_at = Some(self.now());
+        self.pressure = super::pressure::Tracker::default();
+        self.pressure_at = Some(self.now());
     }
 
     fn activity_reset(&self) -> Activity {
@@ -1302,11 +1310,36 @@ impl Worker {
         if self.workload_at.is_some_and(|at| at <= self.now()) {
             self.probe_workload();
         }
+        if self.pressure_at.is_some_and(|at| at <= self.now()) {
+            self.probe_pressure();
+        }
         let now = self.now();
         if let Some(live) = self.live.as_mut() {
             let reqs = live.session.fire(now);
             self.drive(reqs);
         }
+    }
+
+    /// One pressure probe (`pressure.rs`); the next one an interval later. A probe that does not
+    /// read reports nothing short.
+    fn probe_pressure(&mut self) {
+        let now = self.now();
+        self.pressure_at = Some(now + super::pressure::PROBE_INTERVAL_MS);
+        let Some(live) = self.live.as_mut() else { return };
+        let block = super::pressure::read(self.paths.root())
+            .and_then(|r| self.pressure.observe(&r, wall_ms()).to_json());
+        if block.as_ref() != live.session.pressure_block() {
+            // One line a change (the read-back reads it: `journalctl -u cmux-host | grep pressure`).
+            let shown = |b: Option<&Value>| b.map_or_else(|| "none".to_owned(), Value::to_string);
+            log(&format!(
+                "pressure: {} (was {}) at {}",
+                shown(block.as_ref()),
+                shown(live.session.pressure_block()),
+                wall_ms()
+            ));
+        }
+        let reqs = live.session.pressure(block, now);
+        self.drive(reqs);
     }
 
     /// One workload probe (`workload.rs`); the next one an interval later. A probe that does not
@@ -1474,6 +1507,10 @@ fn agent_ask(line: &str, paths: &Paths) -> Option<Ask> {
     }
     if let Some(ask) = msg.get(super::apps_call::CALL_KEY) {
         return Some(Ask::AppsCall(Box::new(super::apps_call::check_call(ask))));
+    }
+    if let Some(ask) = msg.get(super::machine_request::REQUEST_KEY) {
+        let ask = super::machine_request::check_ask(ask);
+        return Some(Ask::MachineRequest(Box::new(ask)));
     }
     if let Some(ask) = msg.get(super::mcp_call::CALL_KEY) {
         return Some(Ask::McpCall(Box::new(super::mcp_call::check_call(ask))));

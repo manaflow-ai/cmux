@@ -347,6 +347,28 @@ export interface CloudDiskHealth {
   readonly floor_mb: number;
   readonly top_users: ReadonlyArray<{ readonly path: string; readonly used_mb: number }>;
   readonly observed_at: number;
+  /** The disk bar the Cloud app server computes from this report (cmux-cloud-disk); older servers omit it. */
+  readonly bar?: CloudDiskBar;
+}
+
+/**
+ * The disk bar as cmux-cloud-disk's `DiskView` serializes it: GB to one place, the segments left to
+ * right with their widths in parts of 1000. The page draws it as it is; it computes nothing.
+ */
+export interface CloudDiskBar {
+  readonly state: "allocated" | "ok" | "almost_full";
+  readonly total_gb: number;
+  readonly used_gb?: number;
+  readonly free_gb?: number;
+  readonly segments: ReadonlyArray<{
+    readonly kind: "system" | "project" | "caches" | "used" | "free";
+    readonly bytes: number;
+    readonly gb: number;
+    readonly width: number;
+  }>;
+  /** English, for the CLI and tests; the page writes its own words from the numbers. */
+  readonly label: string;
+  readonly text: string;
 }
 
 /**
@@ -485,6 +507,8 @@ export interface FsWriteResult {
   revision?: string | null;
 }
 
+export type PortForwardScheme = "http" | "https";
+
 /** A port forward on this Mac (`cloud.port.list` items, the `cloud.port.forward` answer). */
 export interface PortForward {
   machine: string;
@@ -492,6 +516,8 @@ export interface PortForward {
   host: "127.0.0.1";
   /** Connect here, on 127.0.0.1 only. */
   localPort: number;
+  scheme: PortForwardScheme;
+  url: string;
   generation: number;
   state: "up" | "down";
   reason?: string | null;
@@ -536,6 +562,8 @@ export interface AccountEvent {
   signedIn: boolean;
   user?: string | null;
   team?: string | null;
+  /** Signed out: what Sign In signs in to ("Signs in to cmux.com"), made by the app; absent from an older host. */
+  signInBackend?: string | null;
 }
 
 /** `cloud.auth.status`: the host answers from its own sign-in. */

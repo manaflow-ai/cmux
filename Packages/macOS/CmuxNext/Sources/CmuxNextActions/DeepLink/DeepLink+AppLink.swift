@@ -159,8 +159,10 @@ extension DeepLink {
     /// `cmux://settings/cloud/claude`, `/cloud/chatgpt` and `/cloud/api-key` open it on that row of
     /// Models for Cloud (``cloudRoute(row:)``). `cmux://settings/integrations` (or `/connections`) is
     /// Settings > Integrations, where a connector's sign-in returns (`?connected=` or `?error=` are left
-    /// to the page's own refresh).
-    /// Nil for any other URL.
+    /// to the page's own refresh). `cmux://settings/connections/github` (or `/github`,
+    /// `/accounts/github`) is the GitHub connection on Settings > Accounts. Every other settings path
+    /// passes through to the page (``settingsPassThrough(_:)``); nil for an action path
+    /// (``settingsRoutes``) or another URL.
     public static func settingsRoute(for url: URL, linkScheme: String) -> String? {
         guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
               url.host?.lowercased() == "settings" else { return nil }
@@ -172,8 +174,29 @@ extension DeepLink {
         case "/cloud/chatgpt", "/cloud/chatgpt/": return cloudRoute(row: "chatgpt")
         case "/cloud/api-key", "/cloud/api-key/": return cloudRoute(row: "apiKey")
         case "/integrations", "/integrations/", "/connections", "/connections/": return "#/settings/integrations"
-        default: return nil
+        case "/github", "/github/", "/connections/github", "/connections/github/", "/accounts/github", "/accounts/github/":
+            return "#/settings/accounts?focus=connection.github"
+        default: return settingsPassThrough(url.path)
         }
+    }
+
+    /// Any other settings link reaches the page as written, and the page's one registry resolves it
+    /// (webviews settingsLinks.ts): `cmux://settings/<a>` is `#/settings/<a>`, `cmux://settings/<a>/<b>`
+    /// `#/settings/<a>?focus=<b>` (more segments join with dots). So every category, alias, card,
+    /// setting key and connection has a link (`cmux://settings/terminal.fontSize`,
+    /// `cmux://settings/accounts/machines`, `cmux://settings/connections/linear`), and a name the page
+    /// does not know is named there instead of nothing opening. `cmux://settings` alone opens the page.
+    /// The action paths (``settingsRoutes``) stay actions.
+    static func settingsPassThrough(_ path: String) -> String? {
+        if settingsRoutes[path.lowercased()] != nil { return nil }
+        let segments = path.split(separator: "/").map(String.init)
+        guard let section = segments.first else { return "#/settings" }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~"))
+        guard let first = section.addingPercentEncoding(withAllowedCharacters: allowed) else { return nil }
+        guard segments.count > 1 else { return "#/settings/\(first)" }
+        guard let focus = segments.dropFirst().joined(separator: ".").addingPercentEncoding(withAllowedCharacters: allowed)
+        else { return nil }
+        return "#/settings/\(first)?focus=\(focus)"
     }
 
     /// Settings > Cloud (`#/settings/cloud`), opened on a row of its Models for Cloud card
