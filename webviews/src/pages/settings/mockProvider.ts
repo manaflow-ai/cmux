@@ -1240,6 +1240,7 @@ export class MockSettingsProvider {
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
     provide("cmux.settings.models.changed", (ctx) => this.track(this.modelsChanged, ctx));
     provide("cmux.settings.keys.changed", (ctx) => this.track(this.keysChanged, ctx));
+    provide("cmux.settings.extensions.changed", (ctx) => this.track(this.extensionsWatch, ctx));
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
     provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
@@ -1494,6 +1495,13 @@ export class MockSettingsProvider {
   ];
   /** While true, `cmux.settings.extensions.list` is unknown (a host without the route). */
   extensionsUnsupported = false;
+  private readonly extensionsWatch = new Set<EventSourceContext>();
+
+  /** Tells the page the installed extensions changed, as the app does on the daemon's `apps-changed`
+   * (an install, a removal, or a saved manifest it reloaded). */
+  extensionsChanged(): void {
+    for (const ctx of this.extensionsWatch) ctx.emit(null);
+  }
 
   private extensionValues(app: MockExtensionApp): Record<string, unknown> {
     const values: Record<string, unknown> = {};
