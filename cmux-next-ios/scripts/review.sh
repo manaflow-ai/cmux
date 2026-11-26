@@ -79,8 +79,10 @@
 #     id). iPhone connections (`mobile.allowIPhoneConnections`, on by default) live in the shared
 #     ~/.config/cmux/cmux-next.json that every build reads, so a fresh tag has the person's choice;
 #     when they turned it off this reports it and never turns it on.
-#  3. Every connected, paired iPhone (scripts/lib/iphone-review-targets.sh; a new phone is
-#     registered in ~/.config/cmux/iphone-device-ids; a --device-id phone that is missing is a
+#  3. Every connected, paired iPhone of this Mac's person (scripts/lib/iphone-review-targets.sh: a
+#     phone this Mac does not know that it reaches only over Wi-Fi, such as a teammate's test phone
+#     in the room, is skipped; a new phone plugged in by USB is registered in
+#     ~/.config/cmux/iphone-device-ids; a --device-id phone that is missing is a
 #     blocker, a missing default a notice): signs a copy of the app with this Mac's Apple
 #     Development identity and, per bundle, a development profile naming the phone
 #     (sign_device_app.py), installs it through the sanctioned install
@@ -519,6 +521,14 @@ fleet_finish_sim() {
     REPORT_SIM="BLOCKED: the fleet iPhone build failed (step ${SIM_STEP:-not created}, exit $rc; $STATE/sim-step.log)$next; retry: $(retry_command)"
     return 1
   fi
+  # Saved before the download: a rerun fetches this step's artifact again (sim_reusable) instead of sending a new
+  # step, which the controller refuses ("409: step_key already names a different step"; vcorp1125d, 2026-11-25).
+  printf '%s\n' "$SIM_STEP" >"$STATE/sim-passed"
+  sim_download
+}
+
+# The passed step's artifact into $STATE/ios.zip.
+sim_download() {
   rm -f "$STATE/ios.zip"
   cmux_ci artifact "$SIM_STEP" "$STATE/ios.zip" >/dev/null ||
     { REPORT_SIM="BLOCKED: step $SIM_STEP passed but its artifact did not download; retry: $(retry_command)"; return 1; }
@@ -540,12 +550,12 @@ read_ios_artifact() {
   # check must never leave an older mark that a rerun would reuse.
   rm -f "$STATE/ios-passed"
   why="$(safe_unzip "$STATE/ios.zip" "$STATE/ios" 2>&1)" ||
-    { REPORT_SIM="BLOCKED: the iPhone artifact of step $SIM_STEP is not a safe zip (${why##*$'\n'})"; return 1; }
+    { REPORT_SIM="BLOCKED: the iPhone artifact of step $SIM_STEP is not a safe zip (${why##*$'\n'})"; sim_forget; return 1; }
   local check
   # One field per line (a tab split loses empty fields); the reason for a mismatch goes in the report.
   check="$(/usr/bin/python3 -I "$SCRIPT_DIR/handoff_receipt.py" read-manifest "$STATE/ios/handoff.json" \
     --tag "$SLUG" --sha "$SHA" --bundle-id "dev.cmux.mobile.$SLUG" 2>&1)" ||
-    { REPORT_SIM="BLOCKED: step $SIM_STEP: ${check##*$'\n'}; retry: $(retry_command)"; return 1; }
+    { REPORT_SIM="BLOCKED: step $SIM_STEP: ${check##*$'\n'}; retry: $(retry_command)"; sim_forget; return 1; }
   local status host device reason dir
   { IFS= read -r status; IFS= read -r host; IFS= read -r device; IFS= read -r reason; } <<<"$check"
   dir="$STATE/ios"
@@ -554,6 +564,7 @@ read_ios_artifact() {
   else
     REPORT_SIM="BLOCKED: fleet simulator check on $host failed: ${reason:-unknown}; evidence $dir; retry: $(retry_command)"
     REVIEW_FAILED=1
+    sim_forget
   fi
   why="$(safe_unzip "$STATE/ios/CmuxMobileApp-Demo-device-unsigned.app.zip" "$STATE/device" 2>&1)" ||
     { REPORT_SIM="$REPORT_SIM; BLOCKED: the device app is not a safe zip (${why##*$'\n'})"; REVIEW_FAILED=1; return 1; }
@@ -568,9 +579,24 @@ read_ios_artifact() {
 # rerun of 0e728c2b25 got "409: step_key already names a different step" and nothing for the phone (2026-11-24).
 # The state is per tag and head, and read_ios_artifact checks the manifest's tag and commit again.
 sim_reusable() {
-  [[ -s "$STATE/ios-passed" && -s "$STATE/ios.zip" ]] || return 1
-  SIM_STEP="$(head -n 1 "$STATE/ios-passed")"
-  echo "==> iPhone app: reusing this head's build from step ${SIM_STEP:-?} (its simulator check passed)"
+  if [[ -s "$STATE/ios-passed" && -s "$STATE/ios.zip" ]]; then
+    SIM_STEP="$(head -n 1 "$STATE/ios-passed")"
+    echo "==> iPhone app: reusing this head's build from step ${SIM_STEP:-?} (its simulator check passed)"
+    return 0
+  fi
+  # A step that passed but whose artifact did not download: fetch it again; read_ios_artifact checks it as always.
+  [[ -s "$STATE/sim-passed" ]] || return 1
+  SIM_STEP="$(head -n 1 "$STATE/sim-passed")"
+  [[ "$SIM_STEP" =~ ^[0-9a-f]{24}$ ]] || return 1
+  echo "==> iPhone app: step $SIM_STEP passed before; downloading its artifact again"
+  sim_download || { echo "==> iPhone app: its artifact did not download again; sending a new step" >&2; REPORT_SIM=""; sim_forget; return 1; }
+}
+
+# Give up the passed step: a rerun sends a new one, under a new key (sim_key's -rN), since the controller answers the
+# old key only with the old step ("409: step_key already names a different step").
+sim_forget() {
+  rm -f "$STATE/sim-passed"
+  sim_next_attempt
 }
 
 # --- the tagged Mac -----------------------------------------------------------

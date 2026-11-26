@@ -488,7 +488,7 @@ impl Hub {
             let made = if target.is_some() {
                 // Onto another harness: its agent reads the subagent's turns (`rehydrate`), not
                 // the copy, which no one resumes.
-                let _ = std::fs::remove_file(&copy.file);
+                let _ = crate::home_fs::remove_file(&copy.file);
                 Made::Fresh
             } else {
                 Made::Copy(copy.copy.clone())
@@ -873,7 +873,6 @@ impl Hub {
             usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
             goal: None,
-            task_list: None,
             permission_rules: None,
             tags: Default::default(),
             unread: false,
@@ -889,6 +888,7 @@ impl Hub {
             wait_start: false,
             throwaway: false,
             create_key: None,
+            placed_by: None,
             agent_behind_seq: None,
             hibernated_ms: 0,
             close: None,
@@ -914,6 +914,7 @@ impl Hub {
             harness_roots: vec![],
             watching: None,
             composer_draft: None,
+            pinned: false,
             // It runs the parent's mode: a spawn from other preset contents leaves it too.
             preset_mode_approval: parent_meta.preset_mode_approval.clone(),
             // The chat's marks on the history the fork shows by reference, under their own seqs;
@@ -969,6 +970,8 @@ impl Hub {
                 agent_id: Some(c.agent_id.clone()),
                 name: c.name.clone(),
             }),
+            // A fork is a new chat: Auto, whatever its parent was pinned to.
+            place_mode: None,
         };
         // The subagent's name and its last prompt, as an adopted chat's past sets them.
         if let Some(c) = &sub_copy {

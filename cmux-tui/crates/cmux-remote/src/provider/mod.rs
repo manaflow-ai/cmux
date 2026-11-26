@@ -63,7 +63,10 @@ pub use ssh::{
     SshProvider, SshProviderConfig, one_line, ssh_stderr_of,
 };
 pub use stream::LengthDelimitedLink;
-pub use tailnet::{NoTailnetHints, PeerPath, TailnetCarrierMode, TailnetHints, add_candidates};
+pub use tailnet::{
+    LocalApiTailnetHints, NoTailnetHints, PeerPath, TailnetCarrierMode, TailnetHints,
+    add_candidates, hints_for_mode,
+};
 #[cfg(unix)]
 pub use unix::UnixProvider;
 pub(crate) use websocket::DisplaySeconds;

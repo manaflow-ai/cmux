@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.app.sendAnonymousTelemetry.summary" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off until you turn it on. No prompts, files or paths."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "متوقف حتى تشغّله. لا مطالبات ولا ملفات ولا مسارات."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus, bis du es einschaltest. Keine Prompts, Dateien oder Pfade."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desactivado hasta que lo actives. Sin prompts, archivos ni rutas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Désactivé jusqu'à ce que vous l'activiez. Aucun prompt, fichier ni chemin."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オンにするまでオフ。プロンプト、ファイル、パスは送信しません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "켜기 전까지 꺼져 있습니다. 프롬프트, 파일, 경로는 보내지 않습니다."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在你打开前保持关闭。不含提示词、文件或路径。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在你開啟前保持關閉。不含提示詞、檔案或路徑。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isključeno dok ga ne uključiš. Bez promptova, datoteka ili putanja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slået fra, indtil du slår det til. Ingen prompts, filer eller stier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disattivato finché non lo attivi. Nessun prompt, file o percorso."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បិទរហូតដល់អ្នកបើក។ គ្មានប្រអប់បញ្ចូល ឯកសារ ឬផ្លូវទេ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Av til du slår det på. Ingen ledetekster, filer eller stier."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wyłączone, dopóki go nie włączysz. Bez promptów, plików i ścieżek."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desativado até você ativar. Sem prompts, arquivos ou caminhos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Выключено, пока вы не включите. Без промптов, файлов и путей."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ปิดอยู่จนกว่าคุณจะเปิด ไม่มีพรอมต์ ไฟล์ หรือพาธ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sen açana kadar kapalı. İstem, dosya veya yol yok."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вимкнено, доки ви не ввімкнете. Без промптів, файлів і шляхів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tắt cho đến khi bạn bật. Không có prompt, tệp hay đường dẫn."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

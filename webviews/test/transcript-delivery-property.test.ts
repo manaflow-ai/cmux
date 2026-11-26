@@ -372,8 +372,13 @@ function faulty(live: EventRecord[], seed: number): SimDelivery {
 /// The rows as the person sees them. A reply's id is the first of its chunks the pane held, so one whose first
 /// chunk came late is made again under the earlier id and keeps drawing in the element it had (`frame`,
 /// `adoptFrames`): the same words in the same place, so the frame is not compared.
+/// The rows without what depends on when they came rather than what they are: `frame`, and
+/// `readAtOpen` (direct.ts `noteReadWork` marks what had arrived when an open read the running turn,
+/// which a shuffled delivery changes by design).
 function shown(rows: unknown): unknown[] {
-  return (rows as readonly AcpmuxRow[]).map((row) => (row.frame === undefined ? row : { ...row, frame: undefined }));
+  return (rows as readonly AcpmuxRow[]).map((row) =>
+    row.frame === undefined && row.readAtOpen === undefined ? row : { ...row, frame: undefined, readAtOpen: undefined },
+  );
 }
 
 /// Plays one window of the recorded chat: `deliver` sends its live part.

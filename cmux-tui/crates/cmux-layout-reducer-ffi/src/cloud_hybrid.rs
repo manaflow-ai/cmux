@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use cmux_cloud_start_core::balance;
 use cmux_cloud_start_core::computer_status::{self, Facts};
 use cmux_cloud_start_core::hybrid::{self, Account, Event, State};
+use cmux_cloud_start_core::hybrid_gui;
 use cmux_cloud_start_core::hybrid_show;
 use cmux_cloud_start_core::keep_count;
 use serde::Deserialize;
@@ -29,6 +30,14 @@ pub(crate) fn handles(operation: &[u8]) -> bool {
 
 fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
     serde_json::from_slice(request).map_err(|_| ERR_INVALID)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CallKey {
+    chat_id: String,
+    turn_id: String,
+    call_seq: u64,
 }
 
 #[derive(Deserialize)]
@@ -71,6 +80,23 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Ok(()) => json!({ "enabled": true }),
                 Err(off) => json!({ "enabled": false, "off": off }),
             }
+        }
+        // The app's Cloud send: run its first turn here while the machine boots, or not and why
+        // (cmux-cloud-start-core `hybrid_gui`). The kill switches are this process's env.
+        b"cloud_hybrid_gui_start" => {
+            let mut send: hybrid_gui::Send = read(request)?;
+            send.killed |= [hybrid_gui::ENV, hybrid_gui::GUI_ENV]
+                .iter()
+                .any(|name| hybrid_gui::says_off(std::env::var(name).ok().as_deref()));
+            serde_json::to_value(hybrid_gui::decide(&send)).map_err(|_| ERR_INVALID)?
+        }
+        // One model call's `x-cmux-call-key` (cmux-platform#2074's dedupe).
+        b"cloud_hybrid_call_key" => {
+            let ask: CallKey = read(request)?;
+            json!({
+                "header": hybrid_gui::CALL_KEY_HEADER,
+                "key": hybrid_gui::call_key(&ask.chat_id, &ask.turn_id, ask.call_seq),
+            })
         }
         // One event: the next state and the effects to run, in order.
         b"cloud_hybrid_step" => {

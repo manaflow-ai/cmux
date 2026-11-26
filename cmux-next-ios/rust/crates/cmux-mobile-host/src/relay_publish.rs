@@ -61,7 +61,8 @@ pub struct Published {
 }
 
 pub struct RelayPublisher {
-    cache: RelayCache,
+    /// Replaced by [`RelayPublisher::set_cache`] (a fresh access token) between publishes.
+    cache: Mutex<RelayCache>,
     key: SigningKey,
     epoch: u64,
     config: RelayPublishConfig,
@@ -73,7 +74,20 @@ impl RelayPublisher {
     /// `cache` is this Mac's relay cache client (its device id is the source); `key` is the source
     /// identity key the phones pin; `epoch` starts a new history (a new hostd run, a re-key).
     pub fn new(cache: RelayCache, key: SigningKey, epoch: u64, config: RelayPublishConfig) -> Self {
-        Self { cache, key, epoch, config, seqs: Mutex::new(HashMap::new()) }
+        Self { cache: Mutex::new(cache), key, epoch, config, seqs: Mutex::new(HashMap::new()) }
+    }
+
+    /// Publishes through `cache` from now on: the same source, a current access token.
+    pub fn set_cache(&self, cache: RelayCache) {
+        *self.cache.lock().unwrap_or_else(PoisonError::into_inner) = cache;
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.config.enabled
+    }
+
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     pub fn source_key(&self) -> PublicKey {
@@ -142,6 +156,7 @@ impl RelayPublisher {
     ) -> Published {
         let mut published = Published { position: Some(position), ..Published::default() };
         let sealed_on = if delta { delta_stream(stream) } else { stream.to_owned() };
+        let cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner).clone();
         for viewer in viewers {
             let envelope = match seal(&self.key, &viewer.key, &sealed_on, position, plaintext) {
                 Ok(envelope) => envelope,
@@ -153,9 +168,9 @@ impl RelayPublisher {
             };
             published.bytes += envelope.len();
             let sent = if delta {
-                self.cache.append_delta(&viewer.device, stream, envelope).await
+                cache.append_delta(&viewer.device, stream, envelope).await
             } else {
-                self.cache.put_snapshot(&viewer.device, stream, envelope).await
+                cache.put_snapshot(&viewer.device, stream, envelope).await
             };
             match sent {
                 Ok(()) => published.sent += 1,

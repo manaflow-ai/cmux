@@ -6985,6 +6985,7 @@
     "locks is present only when the request names it in include.",
     "hook_queue is present only when the request names it in include and the session serves a socket.",
     "disk is present only when the request names it in include and the session keeps its registry on disk.",
+    "disk.checkpoints is present only when the request names both disk and disk_checkpoints in include.",
     "commands is present only when the request names it in include.",
     "journal_followers is present only when the request names it in include."
    ]
@@ -7914,6 +7915,56 @@
     "Sealed journal segments by codec; kinds lists at most 16 kinds by the number of segments that hold them."
    ]
   },
+  "ServerStatsDiskCheckpoints": {
+   "kind": "object",
+   "fields": {
+    "checkpoints": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "largest_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "budget_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "over_budget": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "checkpoints counts the rows of the registry's journal_checkpoints table; bytes sums each row's id, state and content references plus 96 bytes, and largest_bytes is the largest row.",
+    "budget_bytes is the daemon's checkpoint disk budget: the newest 16 checkpoints that pruning keeps plus 8 not yet sealed, 2 MiB each; over_budget is true when bytes exceeds it."
+   ]
+  },
   "ServerStatsDisk": {
    "kind": "object",
    "fields": {
@@ -8008,6 +8059,15 @@
      "presence": "required",
      "nullable": true
     },
+    "checkpoints": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsDiskCheckpoints"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
+    },
     "error": {
      "type": {
       "kind": "scalar",
@@ -8021,7 +8081,8 @@
    "constraints": [
     "registry_bytes, wal_bytes and shm_bytes are the sizes of the registry file and its -wal and -shm files.",
     "files lists at most 32 entries of the registry's directory, largest first; files_unlisted counts the others, and files_truncated is true when the listing stopped at 20000 entries.",
-    "journal and segments are null when the registry could not be read, and error says why.",
+    "journal and segments are null when the registry could not be read, and error says why; so is checkpoints when present.",
+    "checkpoints is present only when the request's include also names disk_checkpoints; older daemons never send it.",
     "Reads on its own read-only connection, never under the registry lock and never a scan of the live journal."
    ]
   },
@@ -14495,6 +14556,16 @@
       "capability": "workspace-first-tab-v1",
       "description": "The workspace's first tab, made in the same request: {kind: \"browser\"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply."
      },
+     "name_source": {
+      "type": {
+       "kind": "ref",
+       "name": "NameSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -19756,7 +19827,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers, and disk_checkpoints, which adds checkpoints to disk); unknown names are ignored."
    ]
   },
   "process-census": {
@@ -35292,6 +35363,59 @@
      }
     },
     "additional_properties": false
+   }
+  },
+  "apps-cloud-machine": {
+   "since": 12,
+   "capability": "apps-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "apps-cloud-machine"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "machine": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "kind": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "record",
+        "live",
+        "lost"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "record": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Targeted only to the verified app connection whose apps-machine-state-watch names this machine; nothing is sent after that connection's list replaces or drops it. record (kind record only) is the platform's machine record. No bearer or raw frame."
+    ]
    }
   }
  }

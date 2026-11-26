@@ -91,5 +91,22 @@ class BenchRunsAfterARedStep(unittest.TestCase):
         self.assertIn("!cancelled()", jobs["kit-tests"]["if"])
 
 
+class KitTestsRunAfterARedLint(unittest.TestCase):
+    # A red Connection notices (it reads webviews/ too) skipped every kit test on base from 2026-11-25: a web-only
+    # finding in GitHubConnectCard.tsx hid 22 simulator reds in the kit's own code. The tests now run after it.
+    TESTS = (
+        "swift test (macOS)",
+        "swift test (macOS, measured suites alone)",
+        "xcodebuild test (iOS simulator)",
+        "xcodebuild test (iOS simulator, Mac fallback)",
+    )
+
+    def test_the_kit_tests_run_after_a_red_step(self) -> None:
+        by_name = {step.get("name"): step for step in steps()}
+        for name in self.TESTS:
+            self.assertIn(name, by_name, f"the kit job has no step named {name!r}")
+            self.assertTrue(survives_a_red_step(by_name[name]), f"{name!r} is skipped after a red lint step")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -66,9 +66,36 @@ pub(super) struct Row {
     pub name: Option<String>,
     pub status: String,
     pub host: Option<String>,
+    /// When the platform made it (epoch ms), when it last began running (epoch ms), and its
+    /// `{cpu, memory_mb, disk_mb}`: what a reused machine's origin records.
+    pub created_at: Option<i64>,
+    pub running_since: Option<i64>,
+    pub size: Option<Value>,
 }
 
 impl Row {
+    /// How a machine that already existed came to this start: the status it had, how long it had
+    /// run (`uptime_s`, absent when it was not running), its age and size, so a proof can tell a
+    /// reused machine from a fresh one and what it was.
+    pub(super) fn reused(&self, now_ms: i64) -> Value {
+        let secs = |since: Option<i64>| {
+            since.filter(|t| *t > 0 && *t <= now_ms).map(|t| (now_ms - t) / 1000)
+        };
+        let mut origin = json!({"from": "existing", "status_before": self.status});
+        if self.status == "running"
+            && let Some(uptime) = secs(self.running_since)
+        {
+            origin["uptime_s"] = json!(uptime);
+        }
+        if let Some(age) = secs(self.created_at) {
+            origin["age_s"] = json!(age);
+        }
+        if let Some(size) = &self.size {
+            origin["size"] = size.clone();
+        }
+        origin
+    }
+
     fn listed(&self) -> Value {
         json!({
             "machine_id": self.id,
@@ -94,6 +121,12 @@ pub(super) trait Cloud {
     /// How the last [`Cloud::create`] got its machine ([`spare_origin`]), when the platform said.
     fn last_create(&self) -> Option<Value> {
         None
+    }
+    /// The wall clock in epoch ms (a reused machine's uptime and age).
+    fn now_ms(&self) -> i64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
     }
     fn new_key(&mut self) -> String {
         cmux_cloud_client::client_key()
@@ -246,18 +279,23 @@ impl DirectRunner<'_> {
     /// The machine `--name` or `--target` names, made or started, once it runs with a host.
     /// Also how the machine came: `{"from": "existing"}`, or a create's [`spare_origin`].
     fn machine(&mut self, args: &[String]) -> Result<(Row, Value), Value> {
-        let existing = json!({"from": "existing"});
+        let now = self.cloud.now_ms();
         let (row, origin) = if let Some(target) = flag(args, "--target") {
             let id = target
                 .strip_prefix("machine:")
                 .or_else(|| target.strip_prefix("vm:"))
                 .unwrap_or(target);
-            (self.cloud.get(id)?, existing)
+            let row = self.cloud.get(id)?;
+            let origin = row.reused(now);
+            (row, origin)
         } else if let Some(name) = flag(args, "--name") {
             let found =
                 self.cloud.list()?.into_iter().find(|row| row.name.as_deref() == Some(name));
             match found {
-                Some(row) => (row, existing),
+                Some(row) => {
+                    let origin = row.reused(now);
+                    (row, origin)
+                }
                 None => {
                     let key = self.cloud.new_key();
                     let row = self.cloud.create(name, &key)?;
@@ -555,6 +593,13 @@ fn row_of(machine: cmux_cloud_wire::CloudMachine) -> Row {
         name: machine.name,
         status: machine.status.as_str().to_owned(),
         host: machine.host,
+        created_at: Some(machine.created_at),
+        running_since: machine.running_since.flatten(),
+        size: Some(json!({
+            "cpu": machine.size.cpu,
+            "memory_mb": machine.size.memory_mb,
+            "disk_mb": machine.size.disk_mb,
+        })),
     }
 }
 
@@ -789,6 +834,10 @@ impl Cloud for Api {
             .map(|v| (name.to_owned(), v))
     }
 }
+
+#[cfg(test)]
+#[path = "direct_seeded_tests.rs"]
+mod seeded_tests;
 
 /// `cloud list-machines|pause-machine|resume-machine|kill-machine` on the direct route
 /// ([`Route::choose`]): answered by the cmux API and printed as the app prints them. `None` leaves

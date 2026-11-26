@@ -3,6 +3,34 @@
 // host's answers to each gesture (SettingsConnections), so the card, its tests and its gallery run
 // with no CLI and no platform. Pure data: the gallery imports these fixtures.
 import type { ConnectionEntry, ConnectionsCatalog, ConnectionsRun, ConnectionsState } from "./ops";
+import { rowsByKey, schema, type SchemaRow } from "./schema";
+
+/** The Labs toggle that lists Slack and Google (ConnectionsPanel `UPCOMING_KEY`). */
+export const CONNECTIONS_UPCOMING_LAB = "labs.connectionsUpcoming";
+
+/** Tests and the gallery: the Labs row `labs.connectionsUpcoming` in the page's schema when the
+ * checked-in export (settings-schema.json, regenerated on a Mac) does not have it yet, shaped like
+ * the other Labs toggles; a no-op once the export lists it. */
+export function ensureConnectionsUpcomingLabRow(): void {
+  if (rowsByKey.has(CONNECTIONS_UPCOMING_LAB)) return;
+  const like = schema.rows.find(
+    (row) => row.section === "advanced" && row.kind === "toggle" && row.key.startsWith("labs."),
+  );
+  if (!like) throw new Error("no Labs toggle to copy");
+  const row: SchemaRow = {
+    ...structuredClone(like),
+    key: CONNECTIONS_UPCOMING_LAB,
+    path: ["labs", "connectionsUpcoming"],
+    default: false,
+    title: { key: "settings.labs.connectionsUpcoming", text: "Upcoming Connections" },
+    help: {
+      key: "settings.labs.connectionsUpcoming.help",
+      text: "Lists Slack and Google in Connections before they can be connected.",
+    },
+  };
+  schema.rows.push(row);
+  (rowsByKey as Map<string, SchemaRow>).set(row.key, row);
+}
 
 const base = {
   category: null,
@@ -18,6 +46,8 @@ const base = {
   buttonLabel: "Connect",
   state: "connect",
   auth: "dcr",
+  loopback: false,
+  upcoming: false,
 } satisfies Partial<ConnectionEntry>;
 
 const tools = (count: number) => (count === 1 ? "1 tool" : `${count} tools`);
@@ -42,33 +72,103 @@ export function connected(
   };
 }
 
+const notSetUp = {
+  auth: "client",
+  available: false,
+  state: "unavailable",
+  statusLabel: "Not set up on this deployment yet.",
+  buttonLabel: null,
+} satisfies Partial<ConnectionEntry>;
+
+/** The platform's catalog in rank order: the top five connect in one tap (Vercel signs in back to a
+ * listener on this Mac), then a key server, an unavailable one, and Slack and Google, which list
+ * only with labs.connectionsUpcoming on. */
 export const MOCK_CATALOG: ConnectionEntry[] = [
   { ...base, name: "linear", title: "Linear", line: "Issues, projects and cycles.", rank: 1, category: "work" },
+  { ...base, name: "sentry", title: "Sentry", line: "Errors, issues and releases.", rank: 2, category: "dev" },
+  {
+    ...base,
+    name: "atlassian",
+    title: "Atlassian",
+    line: "Jira issues and Confluence pages.",
+    rank: 3,
+    category: "work",
+  },
+  { ...base, name: "notion", title: "Notion", line: "Pages, databases and comments.", rank: 4, category: "work" },
+  {
+    ...base,
+    name: "vercel",
+    title: "Vercel",
+    line: "Projects, deployments and logs.",
+    rank: 5,
+    category: "dev",
+    loopback: true,
+  },
   {
     ...base,
     name: "github",
     title: "GitHub",
     line: "Repositories, pull requests and issues.",
-    rank: 2,
+    rank: 6,
     category: "dev",
   },
-  { ...base, name: "sentry", title: "Sentry", line: "Errors, issues and releases.", rank: 3, category: "dev" },
-  { ...base, name: "notion", title: "Notion", line: "Pages, databases and comments.", rank: 4, category: "work" },
-  { ...base, name: "exa", title: "Exa", line: "Web search built for agents.", rank: 5, auth: "key", keyField: true },
-  { ...base, name: "stripe", title: "Stripe", line: "Payments, customers and refunds.", rank: 6, category: "business" },
+  { ...base, name: "exa", title: "Exa", line: "Web search built for agents.", rank: 7, auth: "key", keyField: true },
+  { ...base, ...notSetUp, name: "figma", title: "Figma", line: "Design files, comments and components.", rank: 8 },
   {
     ...base,
-    name: "figma",
-    title: "Figma",
-    line: "Design files, comments and components.",
-    rank: 7,
-    auth: "client",
-    available: false,
-    state: "unavailable",
-    statusLabel: "Not set up on this deployment yet.",
-    buttonLabel: null,
+    ...notSetUp,
+    name: "slack",
+    title: "Slack",
+    line: "Channels, threads and messages.",
+    rank: 9,
+    category: "work",
+    upcoming: true,
+  },
+  {
+    ...base,
+    ...notSetUp,
+    name: "gmail",
+    title: "Gmail",
+    line: "Mail, threads and drafts.",
+    rank: 10,
+    category: "google",
+    upcoming: true,
+  },
+  {
+    ...base,
+    ...notSetUp,
+    name: "google-calendar",
+    title: "Google Calendar",
+    line: "Events, invites and free time.",
+    rank: 11,
+    category: "google",
+    upcoming: true,
+  },
+  {
+    ...base,
+    ...notSetUp,
+    name: "google-drive",
+    title: "Google Drive",
+    line: "Files, Docs and Sheets.",
+    rank: 12,
+    category: "google",
+    upcoming: true,
   },
 ];
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The catalog with Linear's sign-in lapsing within a day and Sentry's lapsed an hour ago, as the
+ * platform will send `connection.expiresAt` (the CLI passes it through as `expiresAt`). */
+export function mockExpiringCatalog(now = Date.now()): ConnectionsCatalog {
+  return mockConnectionsCatalog(
+    defaultEntries().map((entry) => {
+      if (entry.name === "linear") return { ...entry, expiresAt: new Date(now + DAY_MS).toISOString() };
+      if (entry.name === "sentry") return { ...entry, expiresAt: new Date(now - DAY_MS / 24).toISOString() };
+      return entry;
+    }),
+  );
+}
 
 /** The catalog with `linear` connected for the team and `sentry` for the person. */
 export function mockConnectionsCatalog(entries: ConnectionEntry[] = defaultEntries()): ConnectionsCatalog {

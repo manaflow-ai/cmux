@@ -9779,6 +9779,11 @@ Result<ServerStatsConnections> Codec<ServerStatsConnections>::decode(const Json&
 Result<Json> Codec<ServerStatsDisk>::encode(const ServerStatsDisk& value) {
     (void)value;
     Json::Object object;
+    if (!value.checkpoints.is_absent()) {
+        auto encoded = encode_value(value.checkpoints);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("checkpoints", std::move(encoded).value());
+    }
     if (value.error) {
         auto encoded = encode_value(*value.error);
         if (!encoded) return std::move(encoded).error();
@@ -9834,6 +9839,16 @@ Result<ServerStatsDisk> Codec<ServerStatsDisk>::decode(const Json& value) {
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ServerStatsDisk result{};
+    const Json* field_checkpoints = value.find("checkpoints");
+    if (field_checkpoints) {
+        if (field_checkpoints->is_null()) {
+            result.checkpoints = Field<ServerStatsDiskCheckpoints>::null();
+        } else {
+            auto decoded = decode_value<ServerStatsDiskCheckpoints>(*field_checkpoints);
+            if (!decoded) return std::move(decoded).error();
+            result.checkpoints = Field<ServerStatsDiskCheckpoints>(std::move(decoded).value());
+        }
+    }
     const Json* field_error = value.find("error");
     if (!field_error) {
         return make_error(ErrorCode::decode, "missing required field 'error'");
@@ -9953,6 +9968,79 @@ Result<ServerStatsDisk> Codec<ServerStatsDisk>::decode(const Json& value) {
         auto decoded = decode_value<std::uint64_t>(*field_wal_bytes);
         if (!decoded) return std::move(decoded).error();
         result.wal_bytes = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsDiskCheckpoints>::encode(const ServerStatsDiskCheckpoints& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_budget_bytes = encode_value(value.budget_bytes);
+    if (!encoded_budget_bytes) return std::move(encoded_budget_bytes).error();
+    object.emplace("budget_bytes", std::move(encoded_budget_bytes).value());
+    auto encoded_bytes = encode_value(value.bytes);
+    if (!encoded_bytes) return std::move(encoded_bytes).error();
+    object.emplace("bytes", std::move(encoded_bytes).value());
+    auto encoded_checkpoints = encode_value(value.checkpoints);
+    if (!encoded_checkpoints) return std::move(encoded_checkpoints).error();
+    object.emplace("checkpoints", std::move(encoded_checkpoints).value());
+    auto encoded_largest_bytes = encode_value(value.largest_bytes);
+    if (!encoded_largest_bytes) return std::move(encoded_largest_bytes).error();
+    object.emplace("largest_bytes", std::move(encoded_largest_bytes).value());
+    auto encoded_over_budget = encode_value(value.over_budget);
+    if (!encoded_over_budget) return std::move(encoded_over_budget).error();
+    object.emplace("over_budget", std::move(encoded_over_budget).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsDiskCheckpoints> Codec<ServerStatsDiskCheckpoints>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsDiskCheckpoints result{};
+    const Json* field_budget_bytes = value.find("budget_bytes");
+    if (!field_budget_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'budget_bytes'");
+    }
+    if (field_budget_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_budget_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.budget_bytes = std::move(decoded).value();
+    }
+    const Json* field_bytes = value.find("bytes");
+    if (!field_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'bytes'");
+    }
+    if (field_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.bytes = std::move(decoded).value();
+    }
+    const Json* field_checkpoints = value.find("checkpoints");
+    if (!field_checkpoints) {
+        return make_error(ErrorCode::decode, "missing required field 'checkpoints'");
+    }
+    if (field_checkpoints) {
+        auto decoded = decode_value<std::uint64_t>(*field_checkpoints);
+        if (!decoded) return std::move(decoded).error();
+        result.checkpoints = std::move(decoded).value();
+    }
+    const Json* field_largest_bytes = value.find("largest_bytes");
+    if (!field_largest_bytes) {
+        return make_error(ErrorCode::decode, "missing required field 'largest_bytes'");
+    }
+    if (field_largest_bytes) {
+        auto decoded = decode_value<std::uint64_t>(*field_largest_bytes);
+        if (!decoded) return std::move(decoded).error();
+        result.largest_bytes = std::move(decoded).value();
+    }
+    const Json* field_over_budget = value.find("over_budget");
+    if (!field_over_budget) {
+        return make_error(ErrorCode::decode, "missing required field 'over_budget'");
+    }
+    if (field_over_budget) {
+        auto decoded = decode_value<bool>(*field_over_budget);
+        if (!decoded) return std::move(decoded).error();
+        result.over_budget = std::move(decoded).value();
     }
     return result;
 }
@@ -25495,6 +25583,11 @@ Result<Json> Codec<CreateWorkspaceRequest>::encode(const CreateWorkspaceRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("name", std::move(encoded).value());
     }
+    if (!value.name_source.is_absent()) {
+        auto encoded = encode_value(value.name_source);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("name_source", std::move(encoded).value());
+    }
     if (!value.origin.is_absent()) {
         auto encoded = encode_value(value.origin);
         if (!encoded) return std::move(encoded).error();
@@ -25568,6 +25661,16 @@ Result<CreateWorkspaceRequest> Codec<CreateWorkspaceRequest>::decode(const Json&
             auto decoded = decode_value<std::string>(*field_name);
             if (!decoded) return std::move(decoded).error();
             result.name = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_name_source = value.find("name_source");
+    if (field_name_source) {
+        if (field_name_source->is_null()) {
+            result.name_source = Field<NameSource>::null();
+        } else {
+            auto decoded = decode_value<NameSource>(*field_name_source);
+            if (!decoded) return std::move(decoded).error();
+            result.name_source = Field<NameSource>(std::move(decoded).value());
         }
     }
     const Json* field_origin = value.find("origin");
@@ -39629,6 +39732,67 @@ Result<AgentSessionShareChangedEvent> Codec<AgentSessionShareChangedEvent>::deco
     return result;
 }
 
+Result<Json> Codec<AppsCloudMachineEvent>::encode(const AppsCloudMachineEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("apps-cloud-machine")));
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    auto encoded_machine = encode_value(value.machine);
+    if (!encoded_machine) return std::move(encoded_machine).error();
+    object.emplace("machine", std::move(encoded_machine).value());
+    if (value.record) {
+        auto encoded = encode_value(*value.record);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("record", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<AppsCloudMachineEvent> Codec<AppsCloudMachineEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    AppsCloudMachineEvent result{};
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<AppsCloudMachineEventKind>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_machine = value.find("machine");
+    if (!field_machine) {
+        return make_error(ErrorCode::decode, "missing required field 'machine'");
+    }
+    if (field_machine) {
+        auto decoded = decode_value<std::string>(*field_machine);
+        if (!decoded) return std::move(decoded).error();
+        result.machine = std::move(decoded).value();
+    }
+    const Json* field_record = value.find("record");
+    if (field_record) {
+        if (field_record->is_null()) {
+            return make_error(ErrorCode::decode, "field 'record' must not be null");
+        }
+        auto decoded = decode_value<JsonValue>(*field_record);
+        if (!decoded) return std::move(decoded).error();
+        result.record = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("apps-cloud-machine"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<BellEvent>::encode(const BellEvent& value) {
     (void)value;
     Json::Object object;
@@ -47561,6 +47725,22 @@ Result<ZoomPaneRequestMode> Codec<ZoomPaneRequestMode>::decode(const Json& value
     return make_error(ErrorCode::decode, "unknown ZoomPaneRequestMode value");
 }
 
+Result<Json> Codec<AppsCloudMachineEventKind>::encode(const AppsCloudMachineEventKind& value) {
+    switch (value) {
+        case AppsCloudMachineEventKind::record: return Json(std::string("record"));
+        case AppsCloudMachineEventKind::live: return Json(std::string("live"));
+        case AppsCloudMachineEventKind::lost: return Json(std::string("lost"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<AppsCloudMachineEventKind> Codec<AppsCloudMachineEventKind>::decode(const Json& value) {
+    if (value == Json(std::string("record"))) return AppsCloudMachineEventKind::record;
+    if (value == Json(std::string("live"))) return AppsCloudMachineEventKind::live;
+    if (value == Json(std::string("lost"))) return AppsCloudMachineEventKind::lost;
+    return make_error(ErrorCode::decode, "unknown AppsCloudMachineEventKind value");
+}
+
 Result<Json> Codec<BrowserStateEventStatus>::encode(const BrowserStateEventStatus& value) {
     switch (value) {
         case BrowserStateEventStatus::starting: return Json(std::string("starting"));
@@ -47930,6 +48110,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
     }
     if (name.value() == "agent-session-share-changed") {
         auto decoded = decode_value<AgentSessionShareChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "apps-cloud-machine") {
+        auto decoded = decode_value<AppsCloudMachineEvent>(value);
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
@@ -48976,7 +49161,7 @@ constexpr std::array<CommandMetadata, 314> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 99> kEvents{{
+constexpr std::array<EventMetadata, 100> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-cli-frame", 12U, "agent-cli-hybrid-v1", "attach-byte", "emitted"},
@@ -48985,6 +49170,7 @@ constexpr std::array<EventMetadata, 99> kEvents{{
     {"agent-inventory-watch-ended", 12U, "agent-inventory-watch-v1", "control", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},
     {"agent-session-share-changed", 12U, "agent-session-share-events-v1", "subscribe", "emitted"},
+    {"apps-cloud-machine", 12U, "apps-v1", "control", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"bookmarks-changed", 12U, "bookmarks-v1", "subscribe", "emitted"},
     {"browser-state", 6U, "", "attach-browser", "emitted"},
