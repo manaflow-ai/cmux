@@ -11,7 +11,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { Spinner } from "../../agent-session/acpmux/conversation/icons";
+import { Spinner } from "../../kit";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneReorderable } from "./SceneReorderable";
