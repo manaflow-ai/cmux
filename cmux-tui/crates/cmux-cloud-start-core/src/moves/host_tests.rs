@@ -2,9 +2,9 @@
 //! (`CloudHandlers+Move.swift`) and `CloudPlaceFlows.Cargo.read`.
 
 use super::*;
-use serde_json::{Value, json};
+use serde_json::json;
 
-fn moved(machine: &str, host: &str, session: &str, brought_back: Option<&str>) -> (String, Value) {
+fn moved(machine: &str, host: &str, session: &str, brought_back: Option<&str>) -> Moved {
     let mut entry = json!({
         "machineID": machine, "host": host, "session": session,
         "localRoot": "/r", "localChat": "c", "remoteFolder": "/f", "remoteChat": "rc",
@@ -12,12 +12,11 @@ fn moved(machine: &str, host: &str, session: &str, brought_back: Option<&str>) -
     if let Some(back) = brought_back {
         entry["broughtBack"] = json!({ "session": back, "key": "k" });
     }
-    (format!("{host}\n{session}"), entry)
+    serde_json::from_value(entry).unwrap()
 }
 
-fn ledgers(entries: &[(String, Value)]) -> MovedChats {
-    let object: serde_json::Map<_, _> = entries.iter().cloned().collect();
-    MovedChats { moved: Some(Value::Object(object).to_string()), starting: None }
+fn ledgers(entries: &[Moved]) -> Vec<Moved> {
+    entries.to_vec()
 }
 
 fn tab(id: &str, host: &str, session: Option<&str>, local: bool) -> Tab {
@@ -33,17 +32,17 @@ fn tab(id: &str, host: &str, session: Option<&str>, local: bool) -> Tab {
 
 #[test]
 fn eligible_local_chat_on_this_mac() {
-    assert!(eligible("local", "s", true, &MovedChats::default()));
+    assert!(eligible("local", "s", true, &[]));
 }
 
 #[test]
 fn eligible_refuses_another_machines_daemon() {
-    assert!(!eligible("ssh:devbox", "s", false, &MovedChats::default()));
+    assert!(!eligible("ssh:devbox", "s", false, &[]));
 }
 
 #[test]
 fn eligible_refuses_the_chief() {
-    assert!(!eligible("chief:home", "s", true, &MovedChats::default()));
+    assert!(!eligible("chief:home", "s", true, &[]));
 }
 
 #[test]
@@ -51,12 +50,12 @@ fn eligible_cloud_chat_needs_its_ledger_entry() {
     let ledger = ledgers(&[moved("m1", "registry:a", "s", None)]);
     assert!(eligible("registry:a", "s", false, &ledger));
     assert!(!eligible("registry:a", "other", false, &ledger));
-    assert!(!eligible("registry:b", "s", true, &MovedChats::default()));
+    assert!(!eligible("registry:b", "s", true, &[]));
 }
 
 #[test]
 fn chats_skip_tabs_without_a_session() {
-    assert!(chats(&[tab("1", "local", None, true)], &MovedChats::default()).is_empty());
+    assert!(chats(&[tab("1", "local", None, true)], &[]).is_empty());
 }
 
 #[test]
@@ -67,7 +66,7 @@ fn chats_once_per_session_after_eligibility() {
         tab("2", "local", Some("s"), true),
         tab("3", "local", Some("s"), true),
     ];
-    let found = chats(&tabs, &MovedChats::default());
+    let found = chats(&tabs, &[]);
     assert_eq!(found.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), ["2"]);
 }
 
@@ -97,7 +96,7 @@ fn cloud_sessions_leave_out_brought_back_chats() {
         moved("m1", "registry:a", "s2", Some("home")),
     ]);
     assert_eq!(cloud_sessions(&ledger), ["s1"]);
-    assert!(cloud_sessions(&MovedChats::default()).is_empty());
+    assert!(cloud_sessions(&[]).is_empty());
 }
 
 #[test]
@@ -114,11 +113,8 @@ fn own_facts_before_matches_a_chat_coming_back() {
 
 #[test]
 fn own_facts_before_falls_back_to_the_last_machine() {
-    assert_eq!(
-        own_facts("s", &MovedChats::default(), Some("old"), &[]).before.as_deref(),
-        Some("old")
-    );
-    assert_eq!(own_facts("s", &MovedChats::default(), None, &[]).before, None);
+    assert_eq!(own_facts("s", &[], Some("old"), &[]).before.as_deref(), Some("old"));
+    assert_eq!(own_facts("s", &[], None, &[]).before, None);
 }
 
 #[test]

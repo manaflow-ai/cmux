@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
-use super::ledger::MovedChats;
+use super::ledger::Moved;
 use super::place::{Cargo, Machine};
 
 /// A tab record's host on a Cloud machine's acpmux (`MachineRegistry.registryHostPrefix`).
@@ -21,10 +21,10 @@ pub fn on_cloud(host: &str) -> bool {
 
 /// Whether the place actions can move this chat: one on this Mac's own acpmux (`local`; not an
 /// SSH machine's, not the Chief's), or a Cloud chat a move took there (its ledger entry is what
-/// Bring Back reads).
-pub fn eligible(host: &str, session: &str, local: bool, ledgers: &MovedChats) -> bool {
+/// Bring Back reads). `moved` is the moved-chat ledger's entries (`MovedChats::all`).
+pub fn eligible(host: &str, session: &str, local: bool, moved: &[Moved]) -> bool {
     if on_cloud(host) {
-        return ledgers.entry(host, session).is_some();
+        return moved.iter().any(|m| m.host == host && m.session == session);
     }
     local && !host.starts_with(CHIEF_HOST_PREFIX)
 }
@@ -65,12 +65,12 @@ pub struct Chat {
 
 /// The chats the place controls offer: each eligible tab's, once per session. Eligible first,
 /// then once per session: a tab that may not move never hides a later one of the same chat that may.
-pub fn chats(tabs: &[Tab], ledgers: &MovedChats) -> Vec<Chat> {
+pub fn chats(tabs: &[Tab], moved: &[Moved]) -> Vec<Chat> {
     let mut seen = BTreeSet::new();
     tabs.iter()
         .filter_map(|tab| {
             let session = tab.session.as_deref()?;
-            if !eligible(&tab.host, session, tab.local, ledgers) || !seen.insert(session) {
+            if !eligible(&tab.host, session, tab.local, moved) || !seen.insert(session) {
                 return None;
             }
             Some(Chat {
@@ -88,13 +88,8 @@ pub fn chats(tabs: &[Tab], ledgers: &MovedChats) -> Vec<Chat> {
 }
 
 /// The sessions of the chats a move took to Cloud and no Bring Back took home.
-pub fn cloud_sessions(ledgers: &MovedChats) -> Vec<String> {
-    ledgers
-        .all()
-        .into_iter()
-        .filter(|moved| moved.brought_back.is_none())
-        .map(|m| m.session)
-        .collect()
+pub fn cloud_sessions(moved: &[Moved]) -> Vec<String> {
+    moved.iter().filter(|m| m.brought_back.is_none()).map(|m| m.session.clone()).collect()
 }
 
 /// A Cloud machine as the app lists it.
@@ -121,11 +116,10 @@ pub struct OwnFacts {
 /// it holds now and whether it is gone (deleting or destroyed).
 pub fn own_facts(
     session: &str,
-    ledgers: &MovedChats,
+    ledger: &[Moved],
     last_machine: Option<&str>,
     machines: &[MachineStatus],
 ) -> OwnFacts {
-    let ledger = ledgers.all();
     let before = ledger
         .iter()
         .find(|m| {
