@@ -623,7 +623,9 @@ test("a folded row reads its cut from the ResizeObserver's report, not in the co
   };
   const report = () =>
     act(() => {
-      for (const { callback, boxes } of [...observed]) if (boxes.size > 0) callback();
+      // A report can swap the row's line node, so its observer: walk the ones observing now.
+      const now = Array.from(observed);
+      for (const { callback, boxes } of now) if (boxes.size > 0) callback();
     });
   let reads = 0;
   thoughtLayout.cut = () => {
