@@ -782,6 +782,35 @@ fn bulk_keeps_the_modes_repair() {
     }
 }
 
+/// Bulk sends fewer parities per group than input under the same mode
+/// (RFD 0164 row 106): at most [`BULK_PARITY`] per group, never none.
+#[test]
+fn bulk_sends_fewer_parities_than_input() {
+    for mode in [UltraMode::SETTING, UltraMode::Rs { group: 8, parity: 4 }] {
+        let bulk = class_cost(mode, Priority::Bulk, 0, 1000).1;
+        let input = class_cost(mode, Priority::Interactive, 0, 1000).1;
+        assert!(bulk >= 1, "{mode:?}: bulk keeps repair");
+        assert!(bulk < input, "{mode:?}: bulk {bulk} parities, input {input}");
+    }
+    // A mode already at or under the bulk cut keeps its own parities.
+    let fec = UltraMode::Fec { group: 8, parity: 2 };
+    assert_eq!(
+        class_cost(fec, Priority::Bulk, 0, 1000).1,
+        class_cost(fec, Priority::Interactive, 0, 1000).1
+    );
+    // Eight bulk datagrams in groups of four under Rs{4,4}: two parities each.
+    assert_eq!(class_cost(UltraMode::SETTING, Priority::Bulk, 0, 1000).1, 4);
+}
+
+#[test]
+fn bulk_parity_setting_reads_in_range_values_only() {
+    assert_eq!(bulk_parity_from(None), BULK_PARITY);
+    assert_eq!(bulk_parity_from(Some(" 1 ")), 1);
+    for bad in ["0", "16", "x", ""] {
+        assert_eq!(bulk_parity_from(Some(bad)), BULK_PARITY, "{bad:?}");
+    }
+}
+
 #[test]
 fn interactive_is_repaired_at_any_measured_loss() {
     for mode in REPAIR_MODES {

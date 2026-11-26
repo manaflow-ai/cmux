@@ -450,7 +450,13 @@ class GeneratedFoldTest(unittest.TestCase):
                           self.step(self.swift, name)["if"])
         self.assertEqual(self.swift["outputs"]["generated_files"],
                          "${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}")
-        self.assertEqual(self.daemon["outputs"]["generated_files"], "${{ steps.generated-files-verdict.outputs.verdict }}")
+        # daemon-test reuses a pass too (docs/ci/cmux-next-workflow-notes/2026-11-25-daemon-reuse.md).
+        self.assertEqual(self.daemon["outputs"]["generated_files"], self.swift["outputs"]["generated_files"])
+        key = self.step(self.daemon, "Fingerprint this job's inputs")["run"]
+        self.assertIn('--extra "generated_base=$([[ "$CMUX_NEXT_FOLD_GENERATED" != true ]] || git rev-parse HEAD^1)"', key)
+        for name in ("Record this pass for the same inputs", "Save the pass"):
+            self.assertIn("(env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh')",
+                          self.step(self.daemon, name)["if"])
 
     def test_the_exports_cache_accepts_a_folded_push(self):
         cache = self.jobs["swift-exports-cache"]
