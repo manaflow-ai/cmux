@@ -68,8 +68,11 @@ public actor CloudCarrierServe {
     private let socket: String
     /// How long one token read may take before it is answered as failed.
     private let readDeadline: Duration
+    /// How long the supervisor may leave a connect without a terminal answer.
+    private let connectDeadline: Duration
     private var supervisor: ChildProcess?
     private var waiters: [UInt64: CheckedContinuation<String, any Error>] = [:]
+    private var waiterDeadlines: [UInt64: Task<Void, Never>] = [:]
     private var lastWaiter: UInt64 = 0
     private var stopped = false
     /// The supervisor's hold in its connector's ``CloudCarrierStreams``: an account end tells it at once.
@@ -94,9 +97,12 @@ public actor CloudCarrierServe {
         self.init(connector: connector, socket: paths.linkSocket(machineID: connector.dial.machine))
     }
 
-    /// `tokenReadDeadline`: tests shorten ``CloudCarrierServe/tokenReadDeadline``.
-    init(connector: CloudCarrierDial.Connector, socket: String, tokenReadDeadline: Duration = CloudCarrierServe.tokenReadDeadline) {
-        (self.connector, self.socket, self.readDeadline) = (connector, socket, tokenReadDeadline)
+    /// `tokenReadDeadline` and `connectDeadline`: tests shorten the carrier's bounded waits.
+    init(connector: CloudCarrierDial.Connector, socket: String,
+         tokenReadDeadline: Duration = CloudCarrierServe.tokenReadDeadline,
+         connectDeadline: Duration = CloudCarrierServe.connectDeadline) {
+        (self.connector, self.socket, self.readDeadline, self.connectDeadline) =
+            (connector, socket, tokenReadDeadline, connectDeadline)
     }
 
     func observeOwnership(_ update: @escaping @Sendable (CloudCallerOwnership) async -> Void) { ownershipObserver = update }
@@ -110,9 +116,14 @@ public actor CloudCarrierServe {
         let waiter = lastWaiter
         return try await withCheckedThrowingContinuation { continuation in
             waiters[waiter] = continuation
+            waiterDeadlines[waiter] = Task { [weak self] in
+                try? await Task.sleep(for: self?.connectDeadline ?? .zero)
+                guard !Task.isCancelled else { return }
+                await self?.connectTimedOut(waiter)
+            }
             guard let supervisor = running() else { return }
             if !supervisor.writeInput(line: #"{"connect":\#(waiter),"keep_refusal":\#(keepingRefusal)}"#) {
-                waiters.removeValue(forKey: waiter)?.resume(throwing: Self.exited)
+                resume(waiter, with: .failure(Self.exited))
             }
         }
     }
@@ -213,7 +224,7 @@ public actor CloudCarrierServe {
             }
             // A ready line that came after an account end hands the old account's socket to no one.
             if case .success = result, connector.isFenced { result = .failure(Self.closed) }
-            for id in ids { waiters.removeValue(forKey: id)?.resume(with: result.mapError { $0 as any Error }) }
+            for id in ids { resume(id, with: result) }
         } else if let state = object["state"] as? [String: Any] {
             refusal = stopped ? Self.closed : (state["refusal"] as? [String: Any]).flatMap(CloudLinkError.init(wire:))
             answer = (state["answer"] as? String).flatMap(CloudCallerOwnership.init(rawValue:))
@@ -241,6 +252,10 @@ public actor CloudCarrierServe {
     /// with its lease held, and every connect of the session joins that wait, so an answer that never comes
     /// wedges the machine's link for good (2026-11-15).
     static let tokenReadDeadline: Duration = .seconds(75)
+
+    /// The supervisor has its own ready deadline, but the app also bounds every connect so a helper that
+    /// starts and then stops speaking cannot leave the Cloud link in `connecting` forever.
+    static let connectDeadline: Duration = .seconds(20)
 
     /// Answers the supervisor's token read `read` with the connector's environment, always: within
     /// ``tokenReadDeadline`` an access token, `fenced` or why there is none.
@@ -339,7 +354,22 @@ public actor CloudCarrierServe {
     private func finish(_ result: Result<String, CloudLinkError>) {
         let waiting = waiters
         waiters = [:]
+        for timer in waiterDeadlines.values { timer.cancel() }
+        waiterDeadlines = [:]
         for continuation in waiting.values { continuation.resume(with: result.mapError { $0 as any Error }) }
+    }
+
+    /// Fails one silent connect. A later supervisor answer finds no waiter and is ignored, so a late line
+    /// cannot resume a continuation twice or revive a link that already reported its failure.
+    private func connectTimedOut(_ waiter: UInt64) {
+        guard waiters[waiter] != nil else { return }
+        Self.log.error("carrier supervise \(self.connector.dial.machine, privacy: .public): connect \(waiter) did not answer after \(self.connectDeadline, privacy: .public)")
+        resume(waiter, with: .failure(.helperNotRunning(reason: "cmux carrier supervise did not answer connect within \(connectDeadline)")))
+    }
+
+    private func resume(_ waiter: UInt64, with result: Result<String, CloudLinkError>) {
+        waiterDeadlines.removeValue(forKey: waiter)?.cancel()
+        waiters.removeValue(forKey: waiter)?.resume(with: result.mapError { $0 as any Error })
     }
 
     /// `object` as one JSON line; nil when it does not encode (never a `{}` the supervisor skips).
