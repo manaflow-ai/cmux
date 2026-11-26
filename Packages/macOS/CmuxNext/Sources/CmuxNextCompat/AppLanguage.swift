@@ -1,3 +1,4 @@
+#if canImport(ObjectiveC)
 public import Foundation
 public import Observation
 internal import ObjectiveC
@@ -119,3 +120,4 @@ extension Bundle {
         (objc_getAssociatedObject(self, AppLanguage.key) as? AppLanguage)?.localizedBundle(for: self) ?? languagePackCopy ?? self
     }
 }
+#endif

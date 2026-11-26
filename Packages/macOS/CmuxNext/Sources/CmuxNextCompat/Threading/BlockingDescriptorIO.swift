@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Darwin
 
 /// Reads from a file descriptor, like `Darwin.read`, as a checked blocking call
@@ -68,3 +69,4 @@ public func blockingSend(_ descriptor: Int32, _ buffer: UnsafeRawPointer?, _ cou
     assertBlockingAllowed(.socketWrite, fileID: fileID, line: line)
     return Darwin.send(descriptor, buffer, count, flags)
 }
+#endif

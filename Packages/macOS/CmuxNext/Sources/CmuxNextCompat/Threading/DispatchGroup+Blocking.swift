@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Dispatch
 
 extension DispatchGroup {
@@ -27,3 +28,4 @@ extension DispatchGroup {
         return wait(timeout: timeout)
     }
 }
+#endif

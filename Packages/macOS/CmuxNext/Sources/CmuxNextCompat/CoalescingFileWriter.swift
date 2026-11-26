@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Dispatch
 public import Foundation
 
@@ -232,3 +233,4 @@ public nonisolated final class CoalescingFileWriter: Sendable {
         }
     }
 }
+#endif

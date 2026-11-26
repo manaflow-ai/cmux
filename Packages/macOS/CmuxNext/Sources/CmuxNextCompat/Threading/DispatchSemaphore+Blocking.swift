@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Dispatch
 
 extension DispatchSemaphore {
@@ -27,3 +28,4 @@ extension DispatchSemaphore {
         return wait(timeout: timeout)
     }
 }
+#endif

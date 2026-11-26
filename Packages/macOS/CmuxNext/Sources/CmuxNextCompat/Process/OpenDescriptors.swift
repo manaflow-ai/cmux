@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 package import Darwin
 import Foundation
 import os
@@ -67,3 +68,4 @@ package struct OpenDescriptors: Sendable, Equatable {
         DispatchQueue.global(qos: .utility).async { noteBudget() }
     }
 }
+#endif

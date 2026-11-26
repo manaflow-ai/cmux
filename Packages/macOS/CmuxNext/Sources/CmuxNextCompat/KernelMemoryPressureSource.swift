@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 import Dispatch
 
 /// The kernel's memory pressure: one dispatch source on the main queue, so each event reaches
@@ -58,3 +59,4 @@ public final class KernelMemoryPressureSource: MemoryPressureSource {
         }
     }
 }
+#endif

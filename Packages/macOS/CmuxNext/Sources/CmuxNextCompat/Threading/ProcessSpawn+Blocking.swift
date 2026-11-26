@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Darwin
 
 /// Spawns a process, like `posix_spawn`, as a checked blocking call
@@ -24,3 +25,4 @@ public func blockingPosixSpawn(_ pid: UnsafeMutablePointer<pid_t>?, _ path: Unsa
     assertBlockingAllowed(.processSpawn, fileID: fileID, line: line)
     return posix_spawn(pid, path, fileActions, attributes, argv, envp)
 }
+#endif

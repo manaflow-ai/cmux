@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 import Darwin
 
@@ -40,3 +41,4 @@ public final class PipeFeed: Sendable {
         queue.async { [handle] in try? handle.close() }
     }
 }
+#endif

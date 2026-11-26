@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 extension FileManager {
@@ -11,3 +12,4 @@ extension FileManager {
     @inlinable
     public static var checked: CheckedFileManager { CheckedFileManager() }
 }
+#endif

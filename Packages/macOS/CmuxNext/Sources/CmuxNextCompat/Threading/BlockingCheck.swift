@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 #if DEBUG || CMUX_BLOCKING_CHECKS
 // The inlinable check below calls pthread_main_np(), so Darwin is a public import here.
 public import Darwin
@@ -62,3 +63,4 @@ public func allowBlocking<Result, Failure: Error>(
     return try body()
     #endif
 }
+#endif

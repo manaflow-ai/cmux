@@ -1,3 +1,4 @@
+#if canImport(os)
 internal import os
 
 /// Counts the observation trackings a change wakes, for one task: a test sets a counter for the task that makes the
@@ -81,3 +82,4 @@ public struct ObservationSite: Sendable {
         #endif
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 /// The handle to the main-thread blocking detector that other modules hold: the composition root makes
 /// it once with ``forProcess()`` and passes it to what installs the sink (the opt-in hang reports, once
 /// they are wired), the `debug.blocking` control method and the Debug menu.
@@ -88,3 +89,4 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 }
+#endif

@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 /// Runs each ``ObservationStream`` evaluation as one task of the app's main-thread scheduler
 /// (plans/cmux-next/main-thread-scheduling.md, G1): the scheduler publishes it on its board with the
 /// stream's site as the owner, so the stall watchdog names it, and charges its time to the frame, so the
@@ -54,3 +55,4 @@ extension ObservationSite: Hashable {
         fileID.hasPointerRepresentation ? UInt(bitPattern: fileID.utf8Start) : UInt(fileID.unicodeScalar.value)
     }
 }
+#endif

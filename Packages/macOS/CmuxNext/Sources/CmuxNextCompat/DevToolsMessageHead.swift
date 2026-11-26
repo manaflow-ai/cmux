@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 import Foundation
 
 /// What a router needs from a raw Chrome DevTools protocol message before anyone parses it: its
@@ -67,3 +68,4 @@ public nonisolated struct DevToolsMessageHead: Sendable {
         return object["method"] as? String
     }
 }
+#endif

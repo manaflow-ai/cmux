@@ -3090,6 +3090,7 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextAgentPanePlacementTests",
     "CmuxNextChromiumRuntime",
     "CmuxNextChromiumRuntimeTests",
+    "CmuxNextCompat",
     "CmuxNextCopyMode",
     "CmuxNextHostPressure",
     "CmuxNextHostPressureTests",
@@ -3102,6 +3103,7 @@ let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxT
 
 let linuxPackageDependencies: [Package.Dependency] = [
     .package(path: "../../Shared/CmuxEgress"),
+    .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
 ]
 
 // The Apple shape comes first: scripts/cmux-next/arch_counts.py reads the first Package call.

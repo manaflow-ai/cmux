@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 extension URL {
@@ -18,3 +19,4 @@ extension URL {
         return try resourceValues(forKeys: keys)
     }
 }
+#endif

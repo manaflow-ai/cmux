@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Darwin
 internal import Foundation
@@ -35,4 +36,5 @@ private func imageUUID(_ header: UnsafePointer<mach_header_64>) -> UUID? {
     }
     return nil
 }
+#endif
 #endif

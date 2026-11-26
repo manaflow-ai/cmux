@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 internal import Darwin
 // Links Security.framework, whose symbols are resolved below.
 internal import Security
@@ -105,3 +106,4 @@ public final class LoginKeychain: Sendable {
     private static let set: Setter? = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "SecKeychainSetUserInteractionAllowed")
         .map { unsafeBitCast($0, to: Setter.self) }
 }
+#endif

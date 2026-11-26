@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 internal import Darwin
 internal import Observation
 internal import os
@@ -442,3 +443,4 @@ struct ObservationStreamNativeOptIn {
         #endif
     }()
 }
+#endif

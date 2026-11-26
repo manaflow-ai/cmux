@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 import Foundation
 
 /// Byte searches over a protocol frame's UTF-8 (`utf8Contains`, `utf8ContainsAny`, `utf8HasValue`), for the hot paths that look for a JSON name or marker in text they do
@@ -76,3 +77,4 @@ public nonisolated extension String {
         }
     }
 }
+#endif

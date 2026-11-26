@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 /// One observation per model of a list (perf-speed-of-light.md I1, I2): a change of one model's
 /// field re-runs that model's item only, and `changed` runs only when an item differs from the one
 /// handed out. The owner observes the list (which models, in what order) without reading their
@@ -126,3 +127,4 @@
         return value
     }
 }
+#endif

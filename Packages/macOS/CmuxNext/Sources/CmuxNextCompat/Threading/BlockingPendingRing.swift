@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Atomics
 
@@ -42,4 +43,5 @@ final class BlockingPendingRing: @unchecked Sendable { // crash-allow: one produ
         return call
     }
 }
+#endif
 #endif

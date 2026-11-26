@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 /// The "cmux Files (dev)" helper a DEV build embeds (docs/cmux-files-host.md): a pinned,
@@ -72,3 +73,4 @@ public nonisolated struct FilesHost: Sendable, Equatable {
         [executable.path, "run", "--", program]
     }
 }
+#endif

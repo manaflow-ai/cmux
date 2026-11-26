@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 public import Foundation
 
 /// The file operations of `FileManager.default` as checked blocking calls: in Debug, bench and Nightly
@@ -229,3 +230,4 @@ public struct CheckedFileManager: Sendable {
         return try FileManager.default.url(for: directory, in: domain, appropriateFor: url, create: shouldCreate)
     }
 }
+#endif

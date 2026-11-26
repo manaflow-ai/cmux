@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Atomics
 internal import CoreFoundation
@@ -228,4 +229,5 @@ final class BlockingViolationTable: Sendable {
         for slot in 0..<Self.siteLimit { UnsafeAtomic<Int>(at: counts + slot).store(0, ordering: .relaxed) }
     }
 }
+#endif
 #endif

@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 import Darwin
 
 /// The kernel's memory pressure level right now (`kern.memorystatus_vm_pressure_level`), read once
@@ -35,3 +36,4 @@ public struct KernelMemoryPressureLevel: Sendable {
         }
     }
 }
+#endif
