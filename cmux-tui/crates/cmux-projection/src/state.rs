@@ -116,7 +116,8 @@ pub fn update(state: &Path, at: &Path, change: impl FnOnce(&mut Record)) -> io::
 /// What the agent wrote, as one value: a hash of every path in `upper/` (its kind, size, mode,
 /// inode, modification and change times) and of the `whiteouts` file. Any write, new file,
 /// delete, rename or `chmod` changes it. Walks the upper layer and the swapped local git
-/// repository, never the projected folder. A path that cannot be read fails it, so nothing is freed on a guess.
+/// repository, never the projected folder. A disappearing path restarts the whole scan, up to
+/// three attempts. Persistent churn or an unreadable path fails it, so nothing is freed on a guess.
 ///
 /// # Errors
 /// When the upper layer cannot be read.
@@ -128,6 +129,14 @@ fn mark_with_metadata(
     state: &Path,
     metadata: &mut impl FnMut(&Path) -> io::Result<fs::Metadata>,
 ) -> io::Result<String> {
+    // Git maintenance removes temporary locks after read_dir has listed them. Restart from
+    // an empty hash rather than skipping that entry: earlier paths may have changed too.
+    for _ in 0..2 {
+        match mark_once(state, metadata) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            result => return result,
+        }
+    }
     mark_once(state, metadata)
 }
 
