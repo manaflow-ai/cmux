@@ -226,10 +226,6 @@ path = "tests/test_cmux_next_media_tour_gate.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_media_last_toured.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cmux_next_media_tree_fallback.py"
 lane = "linux-guard"
 
@@ -275,8 +271,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_control_on_jit.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins that a same-repo pull request's cmux-next control hops (push-head-preflight, portable-placement, path_route, app-compile-placement, macos-placement) take cmux-linux, the persistent pool, on attempt 1, after the fork and push arms, that no other job's pull request arm names it, and that no pull request arm names cmux-gcp-pr-control-jit-x64; run python3 tests/test_cmux_next_pr_control_on_jit.py yourself after changing those jobs' runs-on (about 2 s, no build)."
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_pr_merge_tree.py"
@@ -407,10 +402,6 @@ path = "tests/test_cmux_tui_branch_inputs.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_tui_tree_request_rerun.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
@@ -418,6 +409,10 @@ lane = "linux-guard"
 path = "tests/test_cmux_tui_election_budget.py"
 lane = "manual"
 reason = "Run by hand: python3 tests/test_cmux_tui_election_budget.py. It stayed manual under the 2026-10-23 no-new-CI rule (since lifted), and it asserts wall-clock bounds of tree-preflight's fallback owner election, so run it on an idle machine."
+
+[[test]]
+path = "tests/test_cmux_tui_fallback_lost_leg.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_feat_latest_wins.py"
@@ -493,6 +488,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_tree_handoff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_request_rerun.py"
 lane = "linux-guard"
 
 [[test]]
