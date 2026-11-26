@@ -79,6 +79,7 @@ pub(crate) mod cloud_offload;
 pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
+mod live_rows;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
 pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
@@ -241,6 +242,7 @@ pub(crate) mod outbox_stats;
 mod own_host;
 #[cfg(test)]
 mod owned_scope_bench_tests;
+pub(crate) mod owner_return;
 mod page_first;
 pub(crate) mod page_replies;
 mod paging;
@@ -258,6 +260,7 @@ mod peer_flap_soak;
 mod peer_grace;
 #[cfg(test)]
 mod peer_grace_tests;
+mod peer_idle;
 mod peer_lease;
 #[cfg(test)]
 mod peer_notice_cost_tests;
@@ -403,6 +406,7 @@ mod surge_triage;
 mod urgent_steer;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
+mod surgery_codex;
 pub mod synced;
 mod tags;
 mod tailnet_controller;
@@ -1103,6 +1107,8 @@ pub struct Hub {
     /// row before the next list, so no list rebuilds closed-session projections, and a list
     /// page copies their bytes unparsed.
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
+    /// The live sessions' last rendered rows, reused while their inputs are equal (`live_rows.rs`).
+    pub(super) live_row_cache: StdMutex<live_rows::LiveRows>,
     /// The closed sessions' chat activity, built once for every chats reader (`chat_activity.rs`).
     pub(crate) chat_activity_cache: chat_activity::ActivityCache,
     /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
@@ -1116,6 +1122,9 @@ pub struct Hub {
     /// Closed rows parsed back from their cached bytes (tests).
     #[cfg(test)]
     pub(super) closed_summary_parses: AtomicU64,
+    /// Live rows rendered because their inputs moved or none were kept (tests).
+    #[cfg(test)]
+    pub(super) live_row_renders: AtomicU64,
     /// Session summaries built, live or closed, with tools or without (tests).
     #[cfg(test)]
     pub(crate) summaries_built: AtomicU64,
@@ -1181,6 +1190,7 @@ pub struct Hub {
     /// The peers' rows, published as a snapshot (`remote_table.rs`): a reader loads it with no
     /// lock and never holds up a writer; writers (peer notices, purges) take turns.
     pub(super) remote_sessions: remote_table::RemoteTable,
+    pending_peer_routes: StdMutex<peer_idle::PendingRoutes>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
@@ -1763,6 +1773,7 @@ impl Hub {
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
+            live_row_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
             book_tee: std::sync::OnceLock::new(),
             rows: Default::default(),
@@ -1770,6 +1781,8 @@ impl Hub {
             closed_summary_builds: AtomicU64::new(0),
             #[cfg(test)]
             closed_summary_parses: AtomicU64::new(0),
+            #[cfg(test)]
+            live_row_renders: AtomicU64::new(0),
             #[cfg(test)]
             summaries_built: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
@@ -1797,6 +1810,7 @@ impl Hub {
             started_at: now_ms(),
             peers: Default::default(),
             remote_sessions: Default::default(),
+            pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),

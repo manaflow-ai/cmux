@@ -58,6 +58,7 @@ class PreflightTrustTests(unittest.TestCase):
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
             "scripts/ci/workflow_job_bounds.py",
+            "scripts/ci/check_reusable_workflow_permissions.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
