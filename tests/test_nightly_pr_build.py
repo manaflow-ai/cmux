@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import nightly_pr_build as npb  # noqa: E402
+import pr_router  # noqa: E402
 
 
 class HelpersMatchBuildScripts(unittest.TestCase):
@@ -60,6 +61,17 @@ class Route(unittest.TestCase):
     def test_own_files_route_both(self) -> None:
         self.assertEqual(npb.route([npb.WORKFLOW]), {"swift": True, "helpers": True})
         self.assertEqual(npb.route(["scripts/ci/nightly_pr_build.py"]), {"swift": True, "helpers": True})
+
+    def test_outer_router_admits_compile_and_helper_inputs(self) -> None:
+        config = pr_router.load_manifest()["nightly-pr-build.yml"]
+        for root in npb.HELPER_INPUTS:
+            path = root + "/action.yml" if (ROOT / root).is_dir() else root
+            self.assertTrue(npb.route([path])["helpers"], path)
+            self.assertTrue(pr_router.matches_filter(config, [path]) and pr_router.affects(config, [path]), path)
+        for pattern in (*npb.SWIFT_INPUTS, *npb.job_input_fingerprint.route.MAC_RELEASE_INPUTS):
+            path = pattern.replace("*", "Example")
+            self.assertTrue(npb.route([path])["swift"], path)
+            self.assertTrue(pr_router.matches_filter(config, [path]) and pr_router.affects(config, [path]), path)
 
 
 class Keys(unittest.TestCase):

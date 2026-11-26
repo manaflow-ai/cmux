@@ -248,7 +248,18 @@
     "scripts/ci/nightly_pr_build.py",
     "scripts/ci/job_input_fingerprint.py",
     "scripts/ci/cmux_next_route.py",
-    ".github/workflows/nightly-pr-build.yml"
+    ".github/workflows/nightly-pr-build.yml",
+    "scripts/cmux-next/release-derived-data-path.sh",
+    "scripts/cmux-next/stale-pcm-retry-needed.sh",
+    "scripts/cmux-next/clear-stale-scheme-build-state.sh",
+    "scripts/ci/run-xcodebuild-with-diagnostics.sh",
+    "scripts/ci/swiftpm-binary-module-guard.sh",
+    ".github/actions/setup-cmux-tui-rust/**",
+    ".github/actions/runner-cargo-home/**",
+    "scripts/ci/toolchain-r2.sh",
+    "scripts/cmux-next/build-screen-sharing-helper.sh",
+    "scripts/cmux-next/build-optchat-chief.sh",
+    "scripts/cmux-next/build-mobile-host.sh"
    ],
    "affects": [
     "Packages/**",
@@ -272,7 +283,18 @@
     "scripts/ci/nightly_pr_build.py",
     "scripts/ci/job_input_fingerprint.py",
     "scripts/ci/cmux_next_route.py",
-    ".github/workflows/nightly-pr-build.yml"
+    ".github/workflows/nightly-pr-build.yml",
+    "scripts/cmux-next/release-derived-data-path.sh",
+    "scripts/cmux-next/stale-pcm-retry-needed.sh",
+    "scripts/cmux-next/clear-stale-scheme-build-state.sh",
+    "scripts/ci/run-xcodebuild-with-diagnostics.sh",
+    "scripts/ci/swiftpm-binary-module-guard.sh",
+    ".github/actions/setup-cmux-tui-rust/**",
+    ".github/actions/runner-cargo-home/**",
+    "scripts/ci/toolchain-r2.sh",
+    "scripts/cmux-next/build-screen-sharing-helper.sh",
+    "scripts/cmux-next/build-optchat-chief.sh",
+    "scripts/cmux-next/build-mobile-host.sh"
    ],
    "affects_why": "The Nightly's app compile reads the packages, vendored sources, resources, the Xcode project and the compile script with what it sources; the helpers read cmux-tui, cmux-next-ios/rust, Native/OptChat and DiffSidecar and the cargo config. nightly_pr_build.py route narrows it per build; nothing else changes what it builds."
   }
