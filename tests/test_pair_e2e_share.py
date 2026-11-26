@@ -338,3 +338,15 @@ class BuildSpaceForTagTests(unittest.TestCase):
         import cmux_next_pair_e2e
         for tag in ("", None, "Upper", "-edge", "a_b", "x" * 65):
             self.assertIsNone(cmux_next_pair_e2e.build_space_for_tag(tag), tag)
+
+
+class ShareLaunchKeepsHelpersTests(unittest.TestCase):
+    """The Mac launch the share leg quits keeps its helpers: a tagged DEV build's `__dev-reaper`
+    otherwise SIGTERMs acpmux and its share host as the app exits (run 45886008693), which a shipped
+    app never does, so the phone read the Mac Offline."""
+
+    def test_the_share_launch_keeps_helpers(self):
+        source = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_pair_e2e.py").read_text()
+        self.assertIn('share_launch = dict(env, CMUX_DEV_KEEP_HELPERS="1")', source)
+        self.assertIn('if discovery else share_launch)', source)
+        self.assertIn('start_mac(share_launch, "-pair")', source)

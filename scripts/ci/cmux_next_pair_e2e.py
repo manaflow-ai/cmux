@@ -564,7 +564,11 @@ def run_pair(a, note, share):
             streams.append(log)
             return log
 
-        mac_log = start_mac(dict(env, CMUX_NEXT_IPHONE_APPROVE_FIRST="1") if discovery else env)
+        # The launch the share leg quits keeps its helpers: a tagged DEV build otherwise starts
+        # `cmux-tui __dev-reaper`, which SIGTERMs acpmux, and with it the share host, as the app
+        # exits (run 45886008693). A shipped app never starts it; TagTeardown ends them at the end.
+        share_launch = dict(env, CMUX_DEV_KEEP_HELPERS="1")
+        mac_log = start_mac(dict(env, CMUX_NEXT_IPHONE_APPROVE_FIRST="1") if discovery else share_launch)
         t0 = time.monotonic()
         if not wait_for(lambda: app.poll() is None and "error" not in rpc("debug.focus", timeout=5), 180):
             try:  # evidence only: a failure here never replaces the error below
@@ -642,7 +646,7 @@ def run_pair(a, note, share):
             except subprocess.TimeoutExpired:
                 app.kill()
                 app.wait(15)
-            mac_log = start_mac(env, "-pair")
+            mac_log = start_mac(share_launch, "-pair")
             if not wait_for(lambda: status().get("device_id") == mac_id, 120):
                 raise SystemExit("FAIL pairing: the restarted Mac did not register the same device id")
             asked_from = time.monotonic()
