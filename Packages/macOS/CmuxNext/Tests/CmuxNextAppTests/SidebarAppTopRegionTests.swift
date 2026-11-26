@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 @testable import CmuxNextSidebar
 import CmuxNextDesign
 import Testing
@@ -12,6 +13,7 @@ struct SidebarAppTopRegionTests {
     static let session = "s-local"
     static let machine = "sec_m_s-local"
     static let app = "sec_app_codex"
+    static let top = "sec_top"
     static let contribution = "local/setup-manaflow-ai-codex-profile#cmux.section/1"
 
     final class ContentView: NSView {
@@ -36,19 +38,28 @@ struct SidebarAppTopRegionTests {
 
     /// The document r25 placed: the app section in `region`, shown title, and the machine's workspaces (none: the
     /// setup workspace was closed before the place).
-    static func projection(region: SidebarRegion, workspaces: [String]) -> SidebarDocProjection {
+    static func projection(region: SidebarRegion, workspaces: [String], withTop: Bool = false) -> SidebarDocProjection {
         var items: [String: SidebarDocItem] = [:]
         var machineRows: [SidebarDocRow] = []
         for id in workspaces {
             items["itm_" + id] = SidebarDocItem(id: "itm_" + id, section: machine, body: .workspace(ref(id)))
             machineRows.append(SidebarDocRow(key: "itm_" + id, kind: "item", section: machine, item: "itm_" + id, ref: ref(id)))
         }
-        let records = SidebarDocRecords(sections: [
+        var sections = [
             machine: SidebarDocSection(id: machine, kind: .machine(session: session)),
             app: SidebarDocSection(id: app, kind: .app(contribution: contribution), showsTitle: true, region: region),
-        ], items: items)
+        ]
+        var topRows: [SidebarDocRow] = []
+        if withTop {
+            // The built-in top section (Home), which the r25 profile hides (`sidebar.sections.hidden: ["sec_top"]`); the
+            // app's order key ("L") sorts before it.
+            sections[top] = SidebarDocSection(id: top, kind: .builtin, region: .top)
+            items["itm_home"] = SidebarDocItem(id: "itm_home", section: top, body: .builtin("home"))
+            topRows = [SidebarDocRow(key: "itm_home", kind: "item", section: top, item: "itm_home")]
+        }
+        let records = SidebarDocRecords(sections: sections, items: items)
         let appRow = SidebarDocRow(key: app, kind: "section", section: app)
-        let rows = region == .top ? [appRow] + machineRows : machineRows + [appRow]
+        let rows = region == .top ? [appRow] + topRows + machineRows : topRows + machineRows + [appRow]
         return SidebarDocProjection(rows: rows, records: records, revision: 1)
     }
 
@@ -58,7 +69,8 @@ struct SidebarAppTopRegionTests {
     }
 
     /// The sidebar showing `projection` as the bridge does (`SidebarBridge.show`), its app's view delivered.
-    static func sidebar(_ projection: SidebarDocProjection, workspaces: [String]) -> (SidebarView, Provider, NSWindow) {
+    static func sidebar(_ projection: SidebarDocProjection, workspaces: [String],
+                        hidden: [String] = []) -> (SidebarView, Provider, NSWindow) {
         let store = SidebarDocStore(remote: nil)
         store.shown = projection
         let model = SidebarModel()
@@ -67,6 +79,7 @@ struct SidebarAppTopRegionTests {
             return nil
         }, section: { id in id == .machine(.local) ? machine : nil }, begin: { _ in [:] }, drop: { _, _ in })
         model.layout = projection.layout
+        model.sectionCustomization = SidebarProjectionCustomization(hiddenSections: hidden)
         model.setSections(raw(workspaces))
         let sidebar = SidebarView(model: model, design: DesignSettings.shared)
         let provider = Provider()
@@ -101,6 +114,16 @@ struct SidebarAppTopRegionTests {
         #expect(projection.layout.sections.first { $0.id.rawValue == Self.app }?.region == .top, "fixture: the app section is in the top region")
         let (sidebar, provider, window) = Self.sidebar(projection, workspaces: workspaces)
         Self.expectDrawn(sidebar, provider, "top, \(workspaces.count) workspaces")
+        window.close()
+    }
+
+    /// r25's settings: the profile hides the built-in top section (`sidebar.sections.hidden: ["sec_top"]`), and the
+    /// app section sorts before it in the top region. The app section still draws, in either region.
+    @Test(arguments: [(SidebarRegion.top, [String]()), (.top, ["ws-1", "ws-2"]), (.middle, []), (.middle, ["ws-1", "ws-2"])])
+    func anAppSectionDrawsWithTheTopSectionHidden(region: SidebarRegion, workspaces: [String]) {
+        let projection = Self.projection(region: region, workspaces: workspaces, withTop: true)
+        let (sidebar, provider, window) = Self.sidebar(projection, workspaces: workspaces, hidden: [Self.top])
+        Self.expectDrawn(sidebar, provider, "\(region), sec_top hidden, \(workspaces.count) workspaces")
         window.close()
     }
 
