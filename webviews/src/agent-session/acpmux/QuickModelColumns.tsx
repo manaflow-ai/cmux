@@ -1935,7 +1935,7 @@ function Columns({
                 {focus && (
                   <>
                     {ladder.length === 0 && (
-                      <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
+                      <div className="acpmux-cols-row acpmux-cols-none" aria-disabled="true">
                         <span className="acpmux-cols-name">{t("picker.effortNone")}</span>
                       </div>
                     )}

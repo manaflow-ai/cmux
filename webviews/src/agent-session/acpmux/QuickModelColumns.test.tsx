@@ -323,7 +323,12 @@ test("a model with no levels says None under Reasoning", async () => {
   await press("ArrowDown");
   expect(row("Haiku").hasAttribute("data-hl")).toBe(true);
   expect(popup().querySelector(".acpmux-cols-tune-head")?.textContent).toBe("Reasoning");
-  expect(tune().querySelector(".acpmux-cols-note")?.textContent).toBe("None");
+  // A level row's type and place, muted (Lucas 2026-11-25: None at the size of Low), never a note's.
+  const none = tune().querySelector(".acpmux-cols-none");
+  expect(none?.textContent).toBe("None");
+  expect(none?.classList.contains("acpmux-cols-row")).toBe(true);
+  expect(none?.classList.contains("acpmux-cols-note")).toBe(false);
+  expect(none?.getAttribute("aria-disabled")).toBe("true");
 });
 
 test("the models column is one plain list, Legacy models last, and Reasoning heads a column beside the search row", async () => {

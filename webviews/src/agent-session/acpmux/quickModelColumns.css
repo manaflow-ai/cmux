@@ -472,6 +472,9 @@
   white-space: normal;
 }
 .acpmux-cols-note .acpmux-cols-name { white-space: normal; overflow: visible; }
+/* A model with no levels: a level row's size, line and place (the levels' "Low"), muted, and no
+   width of its own, so a longer translation never widens the column. */
+.acpmux-cols-none { contain: inline-size; }
 .acpmux-cols-caption {
   padding: var(--ds-space-2) var(--acpmux-cols-inline) var(--ds-space-1);
   color: var(--agent-muted);
