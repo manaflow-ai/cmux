@@ -92,6 +92,8 @@ extension SidebarViewComponents {
         /// its window out again on a change, with or without a top-row tab strip; moves reach the strips through
         /// `TabStripView.updateWindowControlsAvoidance`.
         var topRow: [String]
+        /// The theme's header picture (`appearance.sidebarHeader.*`): shown or removed, and the list moves.
+        var header: BackdropSelection?
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -126,6 +128,7 @@ extension SidebarViewComponents {
             groupLineLayout = SidebarGroupLineLayout.tunable.value
             groupChromeShape = SidebarStyle.groupChromeShape
             groupLineJoinsBar = SidebarGroupLine.joinsBar
+            header = design.flourishes.sidebarHeader
             noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
             pinnedRowLeading = SidebarPinnedRowLeading.tunable.value
@@ -303,6 +306,7 @@ extension SidebarViewComponents {
         if let old = lastState?.itemInfo, old != state.itemInfo { list.patchItemInfo(from: old, to: state.itemInfo) }
         if listChanged || lastState?.treeShape != state.treeShape || lastState?.treeStates != state.treeStates { refreshNeedsYou() }
         if lastState?.cards != state.cards { cardSlot.show(state.cards); needsLayout = true }
+        if lastState?.header != state.header { showHeaderArt(state.header) }
         if chromeChanged || profilesChanged || lastState?.switcherTokens != state.switcherTokens { bandsDirty = true; needsLayout = true }
         lastState = state
     }
