@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 10u
+#define CMUX_RD_FFI_ABI_VERSION 9u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -146,9 +146,11 @@ int32_t cmux_rd_receiver_pop_frame(CmuxRdReceiver *receiver, CmuxRdFrame *out);
 /* Returns 1 and fills *out with the oldest queued message, or 0 when none is queued. */
 int32_t cmux_rd_receiver_pop_message(CmuxRdReceiver *receiver, CmuxRdMessage *out);
 
-/* Records one decode time for the feedback. `frame` is the popped frame that
-   decoded: its LTR token is acknowledged to the host (ABI 10). */
-int32_t cmux_rd_receiver_note_decode(CmuxRdReceiver *receiver, uint32_t frame, uint32_t decode_us);
+/* Records one decode time for the feedback; acknowledges no LTR token. */
+int32_t cmux_rd_receiver_note_decode(CmuxRdReceiver *receiver, uint32_t decode_us);
+/* Records one decode time of popped frame `frame`, the frame that decoded:
+   its LTR token is acknowledged to the host. */
+int32_t cmux_rd_receiver_note_frame_decode(CmuxRdReceiver *receiver, uint32_t frame, uint32_t decode_us);
 /* Asks the host for a keyframe in every feedback until one is released. */
 int32_t cmux_rd_receiver_request_keyframe(CmuxRdReceiver *receiver);
 
@@ -215,9 +217,10 @@ int32_t cmux_rd_session_tick(CmuxRdSession *session, uint64_t now_us);
    stream, or 0 when none is ready. */
 int32_t cmux_rd_session_pop_frame(CmuxRdSession *session, CmuxRdFrame *out, uint16_t *out_stream);
 int32_t cmux_rd_session_pop_message(CmuxRdSession *session, CmuxRdMessage *out);
+int32_t cmux_rd_session_note_decode(CmuxRdSession *session, uint16_t stream, uint32_t decode_us);
 /* Records one decode time of frame `frame` of `stream`, acknowledging its LTR
-   token (ABI 10). */
-int32_t cmux_rd_session_note_decode(CmuxRdSession *session, uint16_t stream, uint32_t frame, uint32_t decode_us);
+   token to the host. */
+int32_t cmux_rd_session_note_frame_decode(CmuxRdSession *session, uint16_t stream, uint32_t frame, uint32_t decode_us);
 int32_t cmux_rd_session_request_keyframe(CmuxRdSession *session, uint16_t stream);
 /* Writes the next due feedback datagram of any stream (its header names the
    stream). Returns 1 when written, 0 when none is due; call again until 0.

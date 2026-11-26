@@ -48,7 +48,7 @@ pub use upstream_ffi::*;
 pub use view_ffi::*;
 
 /// Version of the C ABI (`CMUX_RD_FFI_ABI_VERSION`).
-pub const ABI_VERSION: u32 = 10;
+pub const ABI_VERSION: u32 = 9;
 
 pub const CMUX_RD_OK: i32 = 0;
 pub const CMUX_RD_ERR_NULL: i32 = -1;
@@ -353,13 +353,32 @@ pub unsafe extern "C" fn cmux_rd_receiver_pop_message(
     unsafe { with_receiver(receiver, run) }
 }
 
-/// Records one decode time of popped frame `frame` (ABI 10: the frame that
-/// decoded, whose LTR token is acknowledged).
+/// Records one decode time, naming no frame: no LTR token is acknowledged
+/// (the app's call before `cmux_rd_receiver_note_frame_decode`).
 ///
 /// # Safety
 /// `receiver` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_receiver_note_decode(
+    receiver: *mut CmuxRdReceiver,
+    decode_us: u32,
+) -> i32 {
+    let run = |h: &mut CmuxRdReceiver| {
+        h.inner.note_decode(None, decode_us);
+        CMUX_RD_OK
+    };
+    // SAFETY: `receiver` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a receiver, so no other access overlaps.
+    unsafe { with_receiver(receiver, run) }
+}
+
+/// Records one decode time of popped frame `frame`, the frame that decoded:
+/// its LTR token is acknowledged to the host.
+///
+/// # Safety
+/// `receiver` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_receiver_note_frame_decode(
     receiver: *mut CmuxRdReceiver,
     frame: u32,
     decode_us: u32,

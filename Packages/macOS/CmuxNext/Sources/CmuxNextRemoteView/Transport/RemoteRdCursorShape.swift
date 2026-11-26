@@ -54,9 +54,4 @@ public nonisolated extension RemoteRdHello {
     static let clockCap = "clock"
     /// The stage ledger (`caps::LEDGER`): each frame's host times follow its last shard.
     static let ledgerCap = "ledger"
-    /// Long-term reference loss recovery (`caps::LTR`): the viewer acknowledges each decoded
-    /// frame's LTR token (`noteDecoded(frame:)`), so a macOS host started with `--ltr 1` repairs
-    /// a loss by coding against an acknowledged reference instead of a keyframe. A host without
-    /// `--ltr 1` does not offer it back, and the session runs as before.
-    static let ltrCap = "video.ltr"
 }

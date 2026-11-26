@@ -78,10 +78,8 @@ public nonisolated final class RemoteRdSession {
         return RemoteRdCore.message(message)
     }
 
-    /// Records one decode time of frame `frame` of `stream`, acknowledging
-    /// its LTR token to the host.
-    public func noteDecode(stream: UInt16, frame: UInt32, micros: UInt32) throws(RemoteRdCoreError) {
-        _ = try RemoteRdCoreError.check(cmux_rd_session_note_decode(handle, stream, frame, micros))
+    public func noteDecode(stream: UInt16, micros: UInt32) throws(RemoteRdCoreError) {
+        _ = try RemoteRdCoreError.check(cmux_rd_session_note_decode(handle, stream, micros))
     }
 
     /// Starts clock probes; only when the welcome lists `clock`. Idempotent.

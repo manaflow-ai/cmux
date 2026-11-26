@@ -86,10 +86,9 @@ public nonisolated final class RemoteRdCore {
         return Self.message(message)
     }
 
-    /// Records one decode time for the feedback's median. `frame` is the
-    /// popped frame that decoded: its LTR token is acknowledged to the host.
-    public func noteDecode(frame: UInt32, micros: UInt32) throws(RemoteRdCoreError) {
-        _ = try RemoteRdCoreError.check(cmux_rd_receiver_note_decode(handle, frame, micros))
+    /// Records one decode time for the feedback's median.
+    public func noteDecode(micros: UInt32) throws(RemoteRdCoreError) {
+        _ = try RemoteRdCoreError.check(cmux_rd_receiver_note_decode(handle, micros))
     }
 
     /// Asks the host for a keyframe (after a decode error or a frame gap)

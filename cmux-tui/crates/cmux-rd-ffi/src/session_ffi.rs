@@ -287,13 +287,30 @@ pub unsafe extern "C" fn cmux_rd_session_pop_message(
     unsafe { with_session(session, run) }
 }
 
-/// Records one decode time of frame `frame` of `stream` (ABI 10: the frame
-/// that decoded, whose LTR token is acknowledged).
+/// Records one decode time of `stream`, naming no frame: no LTR token is
+/// acknowledged (the app's call before `cmux_rd_session_note_frame_decode`).
 ///
 /// # Safety
 /// `session` is valid.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn cmux_rd_session_note_decode(
+    session: *mut CmuxRdSession,
+    stream: u16,
+    decode_us: u32,
+) -> i32 {
+    let run = |h: &mut CmuxRdSession| unit(h.inner.note_decode(stream, None, decode_us));
+    // SAFETY: `session` is NULL or valid by this function's contract, and the
+    // header lets one thread at a time call a session, so no other access overlaps.
+    unsafe { with_session(session, run) }
+}
+
+/// Records one decode time of frame `frame` of `stream`, the frame that
+/// decoded: its LTR token is acknowledged to the host.
+///
+/// # Safety
+/// `session` is valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_rd_session_note_frame_decode(
     session: *mut CmuxRdSession,
     stream: u16,
     frame: u32,

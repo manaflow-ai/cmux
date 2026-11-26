@@ -150,7 +150,9 @@ fn only_opened_streams_are_accepted_and_the_count_is_bounded() {
     assert_eq!(unsafe { cmux_rd_session_close_stream(s.0, 5) }, CMUX_RD_OK);
     assert_eq!(open(&s, 999), CMUX_RD_OK);
     // SAFETY: live session; stream 5 is closed now.
-    assert_eq!(unsafe { cmux_rd_session_note_decode(s.0, 5, 0, 100) }, CMUX_RD_ERR_STREAM);
+    assert_eq!(unsafe { cmux_rd_session_note_decode(s.0, 5, 100) }, CMUX_RD_ERR_STREAM);
+    // SAFETY: live session; stream 5 is closed now.
+    assert_eq!(unsafe { cmux_rd_session_note_frame_decode(s.0, 5, 0, 100) }, CMUX_RD_ERR_STREAM);
 }
 
 #[test]

@@ -349,7 +349,7 @@ fn keyframe_request_rides_feedback_until_a_keyframe() {
     // SAFETY: live receiver.
     assert_eq!(unsafe { cmux_rd_receiver_request_keyframe(r.0) }, CMUX_RD_OK);
     // SAFETY: live receiver.
-    assert_eq!(unsafe { cmux_rd_receiver_note_decode(r.0, 0, 1_500) }, CMUX_RD_OK);
+    assert_eq!(unsafe { cmux_rd_receiver_note_decode(r.0, 1_500) }, CMUX_RD_OK);
     assert!(decode_feedback(&feedback(&r, 50_000).expect("due")).need_recovery);
     for d in &frames(1, 500, 0)[0].1 {
         push(&r, d, 60_000);
@@ -573,5 +573,5 @@ fn a_decode_acknowledges_the_decoded_frames_ltr_token_only() {
 /// Reports frame `frame`'s decode.
 fn note_decode(r: &Owned, frame: u32, decode_us: u32) {
     // SAFETY: live receiver.
-    assert_eq!(unsafe { cmux_rd_receiver_note_decode(r.0, frame, decode_us) }, CMUX_RD_OK);
+    assert_eq!(unsafe { cmux_rd_receiver_note_frame_decode(r.0, frame, decode_us) }, CMUX_RD_OK);
 }
