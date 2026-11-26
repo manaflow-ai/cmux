@@ -304,6 +304,18 @@ class CliShimPrivateDirectory(unittest.TestCase):
 
         self.for_each_shell(scenario)
 
+    def test_zsh_checks_path_privacy_in_process(self) -> None:
+        # Every new tab checks each component of the shim path. With find(1)
+        # and realpath(1) that was dozens of process launches before the first
+        # prompt, each slowed by endpoint security on managed Macs.
+        zsh = shutil.which("zsh") or "/bin/zsh"
+        with new_case("cmux-shim-private-") as case:
+            inherited, _ = self.plant_inherited_root(case, 0o700, 0o700)
+            out = case.run(shells()[zsh], "setopt xtrace\n" + POSIX_DRIVER)
+            self.assertEqual(out["root"], str(inherited), out)
+            for command in ("/usr/bin/find", "realpath"):
+                self.assertNotIn(command, out["stderr"])
+
     def test_nonsticky_tmpdir_ancestor_replacement_never_runs_planted_shim(self) -> None:
         def scenario(shell, case: Case) -> None:
             # A shared non-sticky ancestor lets another local account rename a
