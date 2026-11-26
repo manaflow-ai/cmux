@@ -156,6 +156,15 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // peer would read as this daemon's.
     "_acpmux/journal_restore",
     "_acpmux/attachments_held",
+    // A call on another of the person's machines names that machine, never a chat: its
+    // `session` is the calling chat's Computer Use session key and its `name` a tool's
+    // (`computer_use_relay.rs`, `machine_files_relay.rs`). Forwarded as a chat's request, a peer
+    // that mirrors the caller's chat sent it back with `name` dropped (`forward_inner`), and the
+    // call failed as `unknown Computer Use tool ""`.
+    method::MUX_COMPUTER_USE_CALL,
+    method::MUX_COMPUTER_USE_MACHINES,
+    method::MUX_COMPUTER_USE_STATE,
+    method::MUX_MACHINE_FILES_CALL,
 ];
 
 /// The requests a chat that moved to a peer still takes here, forwarded to its copy there
@@ -197,6 +206,27 @@ pub(super) fn target(
     key: &str,
 ) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
     hub.remote_or_moved(key).filter(|(.., moved)| !moved || MOVED_FORWARDED.contains(&m))
+}
+
+/// The peer to wake for a session request. A move tombstone already names the peer before
+/// its handshake, so apply the forwarding method and hop limits without requiring a ready link.
+pub(super) fn demand_target(
+    hub: &Hub,
+    m: &str,
+    params: &Value,
+) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
+    let key = session_key(params).ok()?;
+    hub.remote_or_moved_for(key, |_| {
+        MOVED_FORWARDED.contains(&m) && moved_hops(params) < crate::hub::MAX_MOVES_FOLLOWED
+    })
+}
+
+fn moved_hops(params: &Value) -> u64 {
+    params
+        .pointer("/_meta/acpmux")
+        .and_then(|meta| meta.get(crate::hub::MOVED_HOPS_FIELD))
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
 }
 
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
@@ -479,6 +509,14 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
+    // Cloud mobile forwarding is refused by the existing gated/inner path. Skip the lazy-demand
+    // path first so a refused request cannot wake or dial a peer before that guard runs. A listing
+    // read of any other peer left undialed is answered from its last-known row, with no dial.
+    if !super::remote_guard::cloud_mobile(params)
+        && let Some(row) = super::peer_demand_wait::use_peer(hub, m, params).await
+    {
+        return Some(Ok(row));
+    }
     let reply = gated(hub, conn, m, params).await;
     // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
     // A prompt kept for its peer's link (`queue_for_link`) is sent by the outbox, which records it.
@@ -762,7 +800,7 @@ fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: 
 /// (`_acpmux/composer_set`).
 /// Clearing it or stopping typing is not, and neither is `_acpmux/draft_set`: the pane saves the
 /// last chat's draft when it switches away, unchanged, which is no one writing.
-fn composing(m: &str, params: &Value) -> bool {
+pub(super) fn composing(m: &str, params: &Value) -> bool {
     match m {
         method::MUX_TYPING => params.get("on").and_then(Value::as_bool) == Some(true),
         method::MUX_COMPOSER_SET => {
@@ -855,12 +893,7 @@ async fn forward_inner(
     {
         // A request for a chat that moved there has followed one more move: past the bound it
         // is answered here, as a chat that moved (`hub/moved_forward.rs`).
-        let moved_hops = moved.then(|| {
-            params
-                .pointer(&format!("/_meta/acpmux/{}", crate::hub::MOVED_HOPS_FIELD))
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-        });
+        let moved_hops = moved.then(|| moved_hops(params));
         if moved_hops.is_some_and(|hops| hops >= crate::hub::MAX_MOVES_FOLLOWED) {
             return Ok(None);
         }
@@ -1570,7 +1603,7 @@ fn row_will_do(params: &Value) -> bool {
 }
 
 /// A peer chat's mirrored row as a read's answer, marked so (`ROW_WILL_DO`).
-fn from_row(row: &Value, peer: &str) -> Value {
+pub(super) fn from_row(row: &Value, peer: &str) -> Value {
     let mut reply = row.clone();
     if let Some(obj) = reply.as_object_mut() {
         obj.insert("peer".into(), json!(peer));
@@ -1648,6 +1681,53 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn a_moved_chat_wakes_its_parked_destination_through_its_original_id() {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-moved-peer");
+        let hub = Hub::started_lazily_for_test(dir.path(), 1).await;
+        let id = "original-chat";
+        let meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "moved", "harness": "fake",
+            "cwd": "/work", "status": "closed", "createdAt": 1, "updatedAt": 1,
+            "movedTo": {"host": "m0", "sessionId": "m0-chat"}
+        });
+        hub.insert_test_session(serde_json::from_value(meta).unwrap());
+        let params = json!({"sessionId": id});
+        let peer = hub.peer_by_name("m0").unwrap();
+        assert!(peer.idle_parked());
+        assert!(target(&hub, method::SESSION_PROMPT, id).is_none());
+        for m in [method::SESSION_PROMPT, method::MUX_ATTACH] {
+            let (route, to, _, moved) = demand_target(&hub, m, &params).unwrap();
+            assert!(moved && Arc::ptr_eq(&peer, &route));
+            assert_eq!(to, "m0-chat");
+        }
+        assert!(demand_target(&hub, method::MUX_KILL, &params).is_none());
+        let at_limit = json!({
+            "sessionId": id, "_meta": {"acpmux": {"movedHops": crate::hub::MAX_MOVES_FOLLOWED}}
+        });
+        assert!(demand_target(&hub, method::SESSION_PROMPT, &at_limit).is_none());
+
+        // The original id's attach uses that route to start the dial. On a failed dial, the
+        // ordinary forwarding path still falls back to the local tombstone.
+        crate::peer::test_dial::refuse_all();
+        let mut settled = peer.settled();
+        let attach = super::super::peer_demand_wait::use_peer(&hub, method::MUX_ATTACH, &params);
+        tokio::pin!(attach);
+        tokio::select! {
+            biased;
+            _ = settled.changed() => {},
+            _ = &mut attach => {},
+        }
+        assert!(!crate::peer::test_dial::attempts().is_empty());
+        assert!(target(&hub, method::MUX_ATTACH, id).is_none());
+        hub.seed_peer_back(&peer, vec![]);
+        let (route, to, _, moved) = target(&hub, method::MUX_ATTACH, id).unwrap();
+        assert!(moved && Arc::ptr_eq(&peer, &route));
+        assert_eq!(to, "m0-chat");
+        hub.begin_shutdown();
+        crate::peer::test_dial::clear();
+    }
+
     /// A saved prompt's `name` is never a session's: no peer gets the library's requests.
     #[test]
     fn saved_prompts_stay_on_this_daemon() {
@@ -1689,6 +1769,21 @@ mod tests {
     #[test]
     fn a_registration_is_never_forwarded_to_a_peer() {
         assert!(!names_a_session(method::MUX_REGISTER));
+    }
+
+    /// A call on another machine is answered by the machine it reached, never forwarded to a peer
+    /// chat its `session` (the caller's chat) or `name` (a tool) happens to name: forwarded, it
+    /// came back with its tool name dropped (`unknown Computer Use tool ""`).
+    #[test]
+    fn a_machine_call_is_never_forwarded_as_a_chat_request() {
+        for m in [
+            method::MUX_COMPUTER_USE_CALL,
+            method::MUX_COMPUTER_USE_MACHINES,
+            method::MUX_COMPUTER_USE_STATE,
+            method::MUX_MACHINE_FILES_CALL,
+        ] {
+            assert!(!names_a_session(m), "{m}");
+        }
     }
 
     /// A phone's read of a peer chat keeps within the kinds an older peer takes: the sudo card's

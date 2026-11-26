@@ -357,8 +357,10 @@ def check_verdicts():
             # Pull request heads are read over git too (refs/pull/N/head), never commits/{sha}/pulls.
             git_cases = [
                 ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", [], None),
-                ("a current lane/ head with a pull request runs with no API call",
-                 "refs/heads/lane/current", {}, "false", [], head),
+                # Build on request (#53129): a pull request's head alone builds nothing; a dispatch asked for it runs.
+                ("a current lane/ head with a pull request a dispatch asked for runs",
+                 "refs/heads/lane/current", {dispatch_path: (200, {"total_count": 1, "workflow_runs": [{"id": 1}]})},
+                 "false", [dispatch_path], head),
                 ("a current lane/ head no pull request has is still superseded", "refs/heads/lane/current",
                  {dispatch_path: no_dispatch}, "true", [dispatch_path], None),
                 ("a current lane/ head another pull request's head does not match is superseded",
@@ -481,8 +483,12 @@ def check_wiring():
            "owner hand-off recheck stays off the shared workflow-token budget")
     _check((owner_wait.get("environment") or {}).get("name") == "ci-routing-agent",
            "owner-wait's protected routing token stays in its environment")
+    # cmux-next-daemon-tests enters next-cache-writer on feat-cmux-next for its R2 cargo cache (#55067); neither job
+    # enters the routing environment.
     for name in ("darwin-fallback-plan", "cmux-next-daemon-tests"):
-        _check("environment" not in all_jobs[name], f"{name} has no unused routing environment")
+        environment = all_jobs[name].get("environment")
+        environment = environment.get("name") if isinstance(environment, dict) else environment
+        _check("ci-routing-agent" not in str(environment or ""), f"{name} has no unused routing environment")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]

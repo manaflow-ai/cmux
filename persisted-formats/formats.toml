@@ -185,6 +185,9 @@ key = "cmux.acpmux.addedGitHubRepos.v1"
 key = "cmux.acpmux.backgroundFocus"
 
 [[storage_key]]
+key = "cmux.acpmux.detail"
+
+[[storage_key]]
 key = "cmux.acpmux.cloud.signedIn"
 
 [[storage_key]]
@@ -329,6 +332,9 @@ key = "cmux.agentPane.lastNewChatPlace"
 key = "cmux.agentPane.promptTops.v1"
 
 [[storage_key]]
+key = "cmux.agentPane.railCountOffset.v1"
+
+[[storage_key]]
 key = "cmux.agentPane.threadBookmarks.v1"
 
 [[storage_key]]
@@ -388,6 +394,9 @@ key = "cmux.experiments"
 
 [[storage_key]]
 key = "cmux.guest.chunkReloadAt"
+
+[[storage_key]]
+key = "cmux.home.detail"
 
 [[storage_key]]
 key = "cmux.home.presentation:"
