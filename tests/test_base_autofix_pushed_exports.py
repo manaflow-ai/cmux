@@ -1033,11 +1033,16 @@ class PrAutofixTakesTheGeneratedFilesPack(unittest.TestCase):
         condition = mac["if"].removeprefix("${{ ").removesuffix(" }}")
         # The draft-head term (tests/test_head_tier.py) is tested there; this test is about the pack.
         condition = condition.split(") && ", 1)[1]
+        # So is the label guard (tests/test_ci_label_events_skip_full_ci.py).
+        condition = condition.split(" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref", 1)[0]
 
         def runs(hit: str, result: str = "success", actions: str = "true", coming: str = "false") -> bool:
             values = {"needs.generated-exports.outputs.hit": hit, "needs.generated-exports.outputs.coming": coming,
                       "needs.action-areas.result": result,
-                      "needs.action-areas.outputs.actions": actions, "needs.action-areas.outputs.settings": "false"}
+                      "needs.action-areas.outputs.actions": actions, "needs.action-areas.outputs.settings": "false",
+                      # action-exports-linux and settings-exports-linux did not verify: this Mac job is their fallback.
+                      "needs.action-exports-linux.outputs.verified": "false",
+                      "needs.settings-exports-linux.outputs.verified": "false"}
             expression = condition.replace("!cancelled()", "True")
             for key, value in values.items():
                 expression = expression.replace(key, repr(value))
