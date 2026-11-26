@@ -1300,5 +1300,53 @@ class RouterRerunPlanTests(unittest.TestCase):
         self.assertIsNone(pr_router.router_jobs_at(runs, "manaflow-ai/cmux", ""))
 
 
+class RustWorkspacesTierTests(unittest.TestCase):
+    """rust-workspaces.yml's plan job plans no workspace on a head head_tier gives `none` (goal
+    ci-runner-min-per-day-500k): its own run only, never a caller's, and `cheap` still plans (the land carry head
+    gets no label pulse, and next_autoland needs `rust workspaces / <root>` on the head it lands)."""
+
+    def setUp(self) -> None:
+        import yaml
+        text = (ROOT / ".github" / "workflows" / "rust-workspaces.yml").read_text()
+        self.plan = yaml.safe_load(text)["jobs"]["plan"]
+        self.steps = {step.get("name"): step for step in self.plan["steps"]}
+
+    def test_the_tier_step_reads_head_tier_in_its_own_pull_request_run_and_fails_open(self) -> None:
+        step = self.steps["CI tier of this head"]
+        self.assertEqual(step.get("id"), "tier")
+        self.assertTrue(step.get("continue-on-error"))
+        self.assertIn("head_tier.py tier", step["run"])
+        for term in ("github.event_name == 'pull_request'", "base.ref == 'feat-cmux-next'", "inputs.sha == ''",
+                     "contains(github.workflow_ref, '/.github/workflows/rust-workspaces.yml@')"):
+            self.assertIn(term, step["if"])
+        self.assertEqual(self.plan["permissions"], {"actions": "read", "contents": "read"},
+                         "callers grant no more: a wider callee permission fails their run at startup")
+        names = list(self.steps)
+        self.assertLess(names.index("CI tier of this head"), names.index("Plan the workspaces this change reaches"))
+
+    def test_only_none_skips_the_lock_check_and_the_plan(self) -> None:
+        for name in ("Set up pinned Rust (lock check)", "Every Cargo.lock matches its manifests"):
+            self.assertEqual(self.steps[name].get("if"), "${{ steps.tier.outputs.tier != 'none' }}", name)
+        plan = self.steps["Plan the workspaces this change reaches"]
+        self.assertEqual(plan["env"]["TIER"], "${{ steps.tier.outputs.tier }}")
+        self.assertIn('if [[ "$TIER" == none ]]; then\n  echo "jobs=[]" >> "$GITHUB_OUTPUT"', plan["run"])
+        self.assertNotIn("cheap", plan["run"])
+
+    def test_the_skip_runs_the_plan_script_on_an_empty_tier(self) -> None:
+        """The plan step's shell: `none` writes jobs=[] and exits before the planner; an empty tier (the step
+        skipped or failed) reaches the planner."""
+        run = self.steps["Plan the workspaces this change reaches"]["run"]
+        for tier, planned in (("none", False), ("", True), ("cheap", True), ("full", True)):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                script = re.sub(r"\$\(python3 \.github/scripts/rust-workspaces\.py plan [^)]*\)",
+                                """$(echo '[{"root": "x"}]')""", run)
+                self.assertNotEqual(script, run)
+                script = script.replace("python3 -c", ": ")
+                env = {**os.environ, "TIER": tier, "GITHUB_OUTPUT": str(out), "BASE_SHA": "", "OWN_ONLY": ""}
+                subprocess.run(["bash", "-c", script], env=env, check=True, capture_output=True)
+                self.assertEqual(out.read_text().strip(), 'jobs=[{"root": "x"}]' if planned else "jobs=[]", tier)
+
+
 if __name__ == "__main__":
     unittest.main()
