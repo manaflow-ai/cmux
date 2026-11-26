@@ -6,6 +6,11 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
+// The theme route that carries Settings > Advanced > Experiments to this page (no agent bridge here):
+// `experiments.appStoreFeatures` turning on or off re-reads the Features list, which says whether the
+// tab shows.
+import "../../experiments/hostSettings";
+import { subscribeExperimentSwitches } from "../../experiments/switches";
 import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } from "./wire";
 import {
   categories,
@@ -21,6 +26,7 @@ import {
   type DiscoverShelf,
   type ExamplesStyle,
   type ListingStyle,
+  type FeaturesStyle,
 } from "./model";
 import {
   AppsOps,
@@ -30,6 +36,8 @@ import {
   type AppUpdate,
   type AppsChanged,
   type CatalogApp,
+  type FeatureRow,
+  type FeaturesList,
   type Grants,
   type InstalledApp,
   type LogLine,
@@ -54,7 +62,17 @@ export interface AppsSnapshot {
   listing: ListingStyle;
   /** How Discover's home is laid out (`browse=`); `hero` unless a DEV route asks. */
   browse: BrowseStyle;
-  /** The owner offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
+  /** How the Features tab lays out its switches (`features=`); `list` unless a DEV route asks. */
+  featuresStyle: FeaturesStyle;
+  /** Built-in features as switches (`cmux.apps.features.list`), each an existing setting. */
+  features: FeatureRow[];
+  featuresStatus: "idle" | "loading" | "ready" | "error";
+  /** `experiments.appStoreFeatures` is on (the daemon's `apps.features.list` says so): the toolbar
+   * shows the Features tab. Off by default (Leo's UI rule: a new look merges default-off). */
+  featuresEnabled: boolean;
+  /** The owner link answers no `apps.features.*` (an older daemon): the tab says so. */
+  featuresUnsupported?: boolean;
+  /** The owner link offers the Examples shelf (developer mode, or a `cmux ext dev` app). */
   examplesOffered: boolean;
   /** The shelf Discover shows; `store` whenever the owner does not offer Examples. */
   shelf: DiscoverShelf;
@@ -107,6 +125,7 @@ export class AppsStore {
   private readonly listeners = new Set<() => void>();
   private unwatch?: () => void;
   private unpage?: () => void;
+  private unswitches?: () => void;
   /**
    * Package files (icons, screenshots) as data URLs by `app\u0000path`; a failed load is "" so it
    * is not asked again.
@@ -120,6 +139,7 @@ export class AppsStore {
   private detailGeneration = 0;
   private grantsGeneration = 0;
   private logsGeneration = 0;
+  private featuresGeneration = 0;
   /**
    * The idempotency key of each action still in flight or failed with a retryable error, by op and
    * params: the person's next try of the same action sends the same key, so a retry after a
@@ -141,6 +161,10 @@ export class AppsStore {
       card: route.card,
       listing: route.listing,
       browse: route.browse,
+      featuresStyle: route.features,
+      features: [],
+      featuresStatus: "idle",
+      featuresEnabled: false,
       examplesStyle: route.examples,
       examplesOffered: false,
       shelf: route.shelf,
@@ -212,7 +236,14 @@ export class AppsStore {
         if (lifetime !== this.lifetime) return;
         this.set(failure(error));
       }
-      if (lifetime === this.lifetime) await this.reload();
+      if (lifetime === this.lifetime) {
+        // Whether the Features tab shows comes from the daemon's gate; a flip of the switch re-reads.
+        this.unswitches = subscribeExperimentSwitches(() => {
+          if (lifetime === this.lifetime) void this.loadFeatures();
+        });
+        void this.loadFeatures();
+        await this.reload();
+      }
     } finally {
       if (lifetime === this.lifetime) this.starting = false;
     }
@@ -235,8 +266,11 @@ export class AppsStore {
     ++this.detailGeneration;
     ++this.grantsGeneration;
     ++this.logsGeneration;
+    ++this.featuresGeneration;
     this.unpage?.();
     this.unpage = undefined;
+    this.unswitches?.();
+    this.unswitches = undefined;
     this.starting = false;
     this.unwatch?.();
     this.unwatch = undefined;
@@ -384,6 +418,7 @@ export class AppsStore {
     if (route.card !== this.snapshot.card) this.set({ card: route.card });
     if (route.listing !== this.snapshot.listing) this.set({ listing: route.listing });
     if (route.browse !== this.snapshot.browse) this.set({ browse: route.browse });
+    if (route.features !== this.snapshot.featuresStyle) this.set({ featuresStyle: route.features });
     if (route.app !== this.snapshot.selection) void this.select(route.app);
   }
 
@@ -696,6 +731,45 @@ export class AppsStore {
     return granted
       ? this.intent(AppsOps.grantSet, { app, scope, granted })
       : this.intent(AppsOps.grantRevoke, { app, scope });
+  }
+
+  /**
+   * Re-reads the Features tab's switches. Each is an existing setting another surface (Settings,
+   * the CLI) can change too, so the tab reads on open and when the window comes back.
+   */
+  async loadFeatures(): Promise<void> {
+    if (!this.client) return;
+    const generation = ++this.featuresGeneration;
+    if (this.snapshot.features.length === 0) this.set({ featuresStatus: "loading" });
+    try {
+      const list = await this.client.call<FeaturesList>(AppsOps.featuresList, {});
+      if (generation !== this.featuresGeneration) return;
+      const enabled = list.enabled === true;
+      this.set({
+        features: enabled ? (list.features ?? []) : [],
+        featuresStatus: "ready",
+        featuresUnsupported: false,
+        featuresEnabled: enabled,
+      });
+    } catch (error) {
+      if (generation !== this.featuresGeneration) return;
+      const unsupported = isPageError(error) && error.code === "cmux.protocol.unknown_op";
+      this.set({
+        featuresStatus: "error",
+        featuresUnsupported: unsupported,
+        ...(unsupported ? { featuresEnabled: false } : {}),
+      });
+    }
+  }
+
+  /** Turns one built-in feature on or off: its own setting, written the way Settings writes it. A
+   * switch needs only the person's click (page-router.json `gesture`), never a sheet. */
+  async setFeature(id: string, on: boolean): Promise<void> {
+    const before = this.snapshot.features;
+    // The switch moves on the click; a refusal puts it back when the list is read again.
+    this.set({ features: before.map((row) => (row.id === id ? { ...row, on } : row)) });
+    await this.intent(AppsOps.featuresSet, { id, on }, { reread: false });
+    await this.loadFeatures();
   }
 
   /** Opens the app's page: the host action `app.open` (a host verb, not a daemon op). */

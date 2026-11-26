@@ -11,6 +11,7 @@
 //! listing and writes no files.
 
 pub mod away;
+pub mod cdc;
 pub mod chat_ns;
 pub mod git;
 #[cfg(unix)]
@@ -29,6 +30,8 @@ pub mod overlay;
 pub mod peers;
 #[cfg(unix)]
 pub mod reap;
+#[cfg(unix)]
+pub mod repo_archive;
 pub mod revision;
 pub mod s3;
 #[cfg(unix)]
