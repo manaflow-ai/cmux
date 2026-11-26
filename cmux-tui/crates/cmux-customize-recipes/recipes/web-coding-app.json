@@ -13,7 +13,7 @@
     "tabs.hideLoneChatTab": true,
     "tabs.newTabPosition": "afterCurrent",
     "tabs.overflow": "scroll",
-    "agentPane.display.presentation": "messages",
+    "agentPane.display.detail": "messages",
     "agentPane.display.font.ui": "inter",
     "agentPane.display.font.size": 14,
     "agentPane.display.width": 760,
