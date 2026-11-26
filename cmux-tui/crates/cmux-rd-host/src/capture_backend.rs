@@ -119,6 +119,25 @@ impl WaylandCapture {
     }
 }
 
+/// Starts a Wayland capture: through mutter when `mutter` is given, falling back to the portal
+/// when mutter fails (remote access inhibited, a refused call, no PipeWire node), so a share
+/// that mutter will not start still starts the way it did before mutter was tried.
+#[cfg_attr(not(all(feature = "portal", target_os = "linux")), allow(dead_code))]
+pub fn mutter_else_portal<T, E: std::fmt::Display>(
+    mutter: Option<impl FnOnce() -> Result<T, E>>,
+    portal: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    if let Some(mutter) = mutter {
+        match mutter() {
+            Ok(t) => return Ok(t),
+            Err(e) => {
+                eprintln!("cmux-rd: mutter's screen cast did not start ({e}); asking the portal")
+            }
+        }
+    }
+    portal()
+}
+
 /// Which of mutter's interfaces this session bus has: (ScreenCast, RemoteDesktop). Both
 /// false in a build without the D-Bus half or with no session bus.
 #[cfg_attr(not(all(feature = "link", feature = "portal")), allow(dead_code))]
