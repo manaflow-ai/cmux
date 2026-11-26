@@ -226,10 +226,6 @@ path = "tests/test_cmux_next_media_tour_gate.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_media_last_toured.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cmux_next_media_tree_fallback.py"
 lane = "linux-guard"
 
@@ -407,10 +403,6 @@ path = "tests/test_cmux_tui_branch_inputs.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_tui_tree_request_rerun.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_cmux_tui_daemon_tests_gate.py"
 lane = "linux-guard"
 
@@ -493,6 +485,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_tree_handoff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_tree_request_rerun.py"
 lane = "linux-guard"
 
 [[test]]

@@ -39732,6 +39732,67 @@ Result<AgentSessionShareChangedEvent> Codec<AgentSessionShareChangedEvent>::deco
     return result;
 }
 
+Result<Json> Codec<AppsCloudMachineEvent>::encode(const AppsCloudMachineEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("apps-cloud-machine")));
+    auto encoded_kind = encode_value(value.kind);
+    if (!encoded_kind) return std::move(encoded_kind).error();
+    object.emplace("kind", std::move(encoded_kind).value());
+    auto encoded_machine = encode_value(value.machine);
+    if (!encoded_machine) return std::move(encoded_machine).error();
+    object.emplace("machine", std::move(encoded_machine).value());
+    if (value.record) {
+        auto encoded = encode_value(*value.record);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("record", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<AppsCloudMachineEvent> Codec<AppsCloudMachineEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    AppsCloudMachineEvent result{};
+    const Json* field_kind = value.find("kind");
+    if (!field_kind) {
+        return make_error(ErrorCode::decode, "missing required field 'kind'");
+    }
+    if (field_kind) {
+        auto decoded = decode_value<AppsCloudMachineEventKind>(*field_kind);
+        if (!decoded) return std::move(decoded).error();
+        result.kind = std::move(decoded).value();
+    }
+    const Json* field_machine = value.find("machine");
+    if (!field_machine) {
+        return make_error(ErrorCode::decode, "missing required field 'machine'");
+    }
+    if (field_machine) {
+        auto decoded = decode_value<std::string>(*field_machine);
+        if (!decoded) return std::move(decoded).error();
+        result.machine = std::move(decoded).value();
+    }
+    const Json* field_record = value.find("record");
+    if (field_record) {
+        if (field_record->is_null()) {
+            return make_error(ErrorCode::decode, "field 'record' must not be null");
+        }
+        auto decoded = decode_value<JsonValue>(*field_record);
+        if (!decoded) return std::move(decoded).error();
+        result.record = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("apps-cloud-machine"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<BellEvent>::encode(const BellEvent& value) {
     (void)value;
     Json::Object object;
@@ -47664,6 +47725,22 @@ Result<ZoomPaneRequestMode> Codec<ZoomPaneRequestMode>::decode(const Json& value
     return make_error(ErrorCode::decode, "unknown ZoomPaneRequestMode value");
 }
 
+Result<Json> Codec<AppsCloudMachineEventKind>::encode(const AppsCloudMachineEventKind& value) {
+    switch (value) {
+        case AppsCloudMachineEventKind::record: return Json(std::string("record"));
+        case AppsCloudMachineEventKind::live: return Json(std::string("live"));
+        case AppsCloudMachineEventKind::lost: return Json(std::string("lost"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<AppsCloudMachineEventKind> Codec<AppsCloudMachineEventKind>::decode(const Json& value) {
+    if (value == Json(std::string("record"))) return AppsCloudMachineEventKind::record;
+    if (value == Json(std::string("live"))) return AppsCloudMachineEventKind::live;
+    if (value == Json(std::string("lost"))) return AppsCloudMachineEventKind::lost;
+    return make_error(ErrorCode::decode, "unknown AppsCloudMachineEventKind value");
+}
+
 Result<Json> Codec<BrowserStateEventStatus>::encode(const BrowserStateEventStatus& value) {
     switch (value) {
         case BrowserStateEventStatus::starting: return Json(std::string("starting"));
@@ -48033,6 +48110,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
     }
     if (name.value() == "agent-session-share-changed") {
         auto decoded = decode_value<AgentSessionShareChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "apps-cloud-machine") {
+        auto decoded = decode_value<AppsCloudMachineEvent>(value);
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
@@ -49079,7 +49161,7 @@ constexpr std::array<CommandMetadata, 314> kCommands{{
     {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 99> kEvents{{
+constexpr std::array<EventMetadata, 100> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-cli-frame", 12U, "agent-cli-hybrid-v1", "attach-byte", "emitted"},
@@ -49088,6 +49170,7 @@ constexpr std::array<EventMetadata, 99> kEvents{{
     {"agent-inventory-watch-ended", 12U, "agent-inventory-watch-v1", "control", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},
     {"agent-session-share-changed", 12U, "agent-session-share-events-v1", "subscribe", "emitted"},
+    {"apps-cloud-machine", 12U, "apps-v1", "control", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"bookmarks-changed", 12U, "bookmarks-v1", "subscribe", "emitted"},
     {"browser-state", 6U, "", "attach-browser", "emitted"},
