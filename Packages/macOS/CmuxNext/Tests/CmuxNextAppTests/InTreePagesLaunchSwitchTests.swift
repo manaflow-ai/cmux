@@ -1,3 +1,5 @@
+import CmuxNextActions
+@testable import CmuxNextApp
 import CmuxNextControl
 import CmuxNextDesign
 import Testing
@@ -27,6 +29,26 @@ struct InTreePagesLaunchSwitchTests {
         let foreign = launch.merging(["CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"]) { a, _ in a }
         #expect(LaunchIdentity.inheritedKeys(processEnvironment: foreign, bundledEnvironment: [:])
             .contains("CMUX_CEF_RESIZE_FENCE_MS"), "another cmux's override reached this app")
+    }
+
+    /// A Release-compiled dev build (`com.cmuxterm.app.debug.<tag>`: no dev tools, so no Debug Settings file) tagged
+    /// `in-tree-pages…` runs in-tree pages by default, as its Debug twin does: the launch latched the Release path with
+    /// no tag, so `in-tree-pages-release` from the Tag Opener ran child-window pages unless `CMUX_IN_TREE_PAGES=1` was in
+    /// its environment. An untagged build, or one with another tag, keeps the default off, and the environment still
+    /// decides first.
+    @Test func aReleaseBuildTaggedInTreePagesRunsThemByDefault() {
+        #expect(!DevTools.isAvailable(bundleID: "com.cmuxterm.app.debug.in-tree-pages-release", isDebugBuild: false))
+        func decided(_ tag: String?, _ environment: [String: String] = [:]) -> (Bool, String) {
+            let inputs = DebugSettingsService.launchInTreePagesInputs(devTools: false, file: nil, tag: tag)
+            return InTreePages.decide(fileOverride: inputs.fileOverride, tag: inputs.tag, environment: environment)
+        }
+        let tagged = decided("in-tree-pages-release")
+        #expect(tagged.0, "a Release build tagged in-tree-pages-release ran child-window pages (\(tagged.1))")
+        #expect(tagged.1 == "tag")
+        #expect(!decided(nil).0)
+        #expect(!decided("itp-rs-steps").0)
+        let off = decided("in-tree-pages-release", [InTreePages.environmentKey: "0"])
+        #expect(!off.0 && off.1 == "environment")
     }
 
     /// One that another cmux's terminal passed on is that cmux's, and goes, like every other launch switch.
