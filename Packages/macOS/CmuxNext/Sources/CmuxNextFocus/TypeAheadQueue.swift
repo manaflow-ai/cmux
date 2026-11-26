@@ -23,8 +23,14 @@ public nonisolated struct TypeAheadQueue: Equatable {
     public var text: String { wire.text }
 
     /// Whether text waits for `surface`.
+    ///
+    /// The key router asks this for every key typed into a page (typing-latency path). With no text
+    /// queued for `surface` (the queue is empty or another surface's), the rule's answer is false, so
+    /// it answers without the JSON round trip through the reducer: that call was about 0.1 ms per key
+    /// at the median, with tails past 1 ms, measured on a fleet Mac.
     public func pending(for surface: String) -> Bool {
-        run(.pending(surface: surface))?.pending ?? false
+        guard wire.surface == surface, !wire.text.isEmpty else { return false }
+        return run(.pending(surface: surface))?.pending ?? false
     }
 
     /// Appends `characters` for `surface`; text for another surface, or text
