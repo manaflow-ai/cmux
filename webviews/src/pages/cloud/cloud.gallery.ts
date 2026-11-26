@@ -50,6 +50,8 @@ const samplePorts: PortForward[] = [
     port: 3000,
     host: "127.0.0.1",
     localPort: 49152,
+    scheme: "http",
+    url: "http://127.0.0.1:49152/",
     generation: 1,
     state: "up",
     reason: null,
