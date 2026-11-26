@@ -30,6 +30,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -68,6 +69,9 @@ class Ctx:
     # The side-instance copy and its pid file (none with --cli): a row that relaunches the copy needs both.
     app: Path | None = None
     pid_file: Path | None = None
+    # Where `ext new` scaffolds: a folder in no git repository, as a person's new folder is. OUT sits in the
+    # cmux checkout on a fleet Mac, where `ext new` rightly makes no repo inside another (publish.rs `git_init`).
+    fresh: Path = field(default_factory=lambda: Path(tempfile.mkdtemp(prefix="ext-rows-new-")).resolve())
 
     @property
     def globals_(self) -> list[str]:
@@ -207,6 +211,20 @@ def install_customize(ctx: Ctx, manifest: dict, files: dict[str, str]) -> dict:
     return {"version": version, "reload": reload_reply, "installed": installed,
             "record": {k: record.get(k) for k in ("id", "version", "installed", "enabled", "hidden", "grants",
                                                   "web_pages") if k in record} if record else None}
+
+
+def scaffold_folder(ctx: Ctx, name: str) -> Path:
+    """A new folder for `ext new` outside any git repository (`ctx.fresh`)."""
+    folder = ctx.fresh / name
+    shutil.rmtree(folder, ignore_errors=True)
+    return folder
+
+
+def keep_in_work(ctx: Ctx, folder: Path) -> None:
+    """A copy of a scaffold in OUT/work for the report (its `.git` left out)."""
+    if folder.is_dir():
+        shutil.rmtree(ctx.work / folder.name, ignore_errors=True)
+        shutil.copytree(folder, ctx.work / folder.name, ignore=shutil.ignore_patterns(".git", "node_modules"))
 
 
 def views(ctx: Ctx, interface: str | None = None) -> list[dict]:
@@ -387,8 +405,7 @@ def row_ext_new(ctx: Ctx) -> dict:
     `ext shot --json` loads it in the copy's daemon (`ext dev --once` with no install) and prints its scene."""
     kinds, per_kind = new_kinds(ctx), {}
     for kind in kinds:
-        folder = ctx.work / f"new-{kind}"
-        shutil.rmtree(folder, ignore_errors=True)
+        folder = scaffold_folder(ctx, f"new-{kind}")
         made = ctx.ext(["ext", "new", f"rows-{kind}", "--kind", kind, "--dir", str(folder), "--json"], timeout=60)
         shot = ctx.ext(["ext", "shot", str(folder), "--json", "--out", str(ctx.work / f"new-{kind}.png")])
         answer = shot.get("json") if isinstance(shot.get("json"), dict) else {}
@@ -404,6 +421,7 @@ def row_ext_new(ctx: Ctx) -> dict:
             "scene": scene_of(shot)[:20], "shot_exit": shot.get("exit"),
             **({"new_error": made.get("stderr") or made.get("output")} if made.get("exit") != 0 else {}),
             **({"shot_error": shot.get("stderr") or shot.get("output")} if not loaded else {})}
+        keep_in_work(ctx, folder)
     return {"checks": {f"kind_{k}": v["ok"] for k, v in per_kind.items()} | {"kinds_listed": bool(kinds)},
             "kinds": kinds, "per_kind": per_kind}
 
@@ -427,11 +445,32 @@ def daemon_session_dirs(ctx: Ctx, since: float = 0.0) -> list[Path]:
     """The copy's daemon session folders: `builds/<key>/tui/<session>` of its own build key (the side marker's
     `key=`, cmux-agent-pane-policy build_identity.rs `daemon_state_dir`), where the apps supervisor keeps its
     state (cmux-tui-core apps.rs `session_state_directory`)."""
+    by_socket = socket_session_dirs(ctx.daemon)
+    if by_socket:
+        return by_socket
     marker = (ctx.pid_file.parent / ".side-instance").read_text()
     key = re.search(r"^key=(.+)$", marker, re.M).group(1).strip()
     root = Path.home() / "Library/Application Support/cmux-next/builds" / key / "tui"
     dirs = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
     return dirs or apps_state_dirs(since)
+
+
+def socket_session_dirs(daemon_socket: str, support: Path | None = None) -> list[Path]:
+    """The session folder of the daemon listening on `daemon_socket`: `<...>/tui/<session>-<hash>`, its session
+    the socket's name (`cmux-app--da60c572.sock` keeps `tui/cmux-app--da60c572-4c066e34fc5ab100`), under
+    cmux NEXT's support roots (`builds/<key>/tui`, `tags/<tag>/tui`, or a shared `tui`). The daemon's own name
+    for it, whatever key the copy's build identity derived (the side marker's `key=` can differ)."""
+    stem = Path(daemon_socket).name.removesuffix(".sock")
+    if not stem:
+        return []
+    support = support or Path.home() / "Library/Application Support"
+    found: list[Path] = []
+    for top in ("cmux-next", "cmux", "cmux-tui"):
+        base = support / top
+        for pattern in ("tui", "*/*/tui"):
+            for tui in base.glob(pattern):
+                found.extend(p for p in tui.glob(f"{stem}-*") if p.is_dir())
+    return sorted(set(found))
 
 
 def apps_state_dirs(since: float) -> list[Path]:
@@ -776,8 +815,7 @@ def row_git_install(ctx: Ctx) -> dict:
     `catalog.get` (the consent card's fetch) of a `file://` URL, an `http://` URL ("only https repositories
     install") and an https URL on a host that is not a public name; none of them fetches. A pinned https
     install and `apps.update`'s `apps.update.needs_consent` need the network and a fetched app: not here."""
-    folder = ctx.work / "git-src"
-    shutil.rmtree(folder, ignore_errors=True)
+    folder = scaffold_folder(ctx, "git-src")
     made = ctx.ext(["ext", "new", f"rows-git{ctx.token[-4:]}", "--kind", "section", "--dir", str(folder),
                     "--json"], timeout=60)
     added = ctx.ext(["ext", "add", str(folder), "--json", "--no-install"], timeout=120)
@@ -793,6 +831,7 @@ def row_git_install(ctx: Ctx) -> dict:
     def said(reply: dict, text: str) -> bool:
         return reply.get("ok") is not True and text in json.dumps(reply.get("error"))
 
+    keep_in_work(ctx, folder)
     return {"checks": {"scaffolded": made.get("exit") == 0 and (folder / ".git").exists(),
                        "folder_added": added.get("exit") == 0 and answer.get("ok") is not False
                        and bool(answer.get("app")),
@@ -1010,7 +1049,10 @@ def main() -> int:
     ctx.work.mkdir(parents=True, exist_ok=True)
     ctx.raw_cli = raw_cli_for(cli, ctx.work)
     receipt["token"] = ctx.token
-    receipt["rows"] = run_rows(ctx, names)
+    try:
+        receipt["rows"] = run_rows(ctx, names)
+    finally:
+        shutil.rmtree(ctx.fresh, ignore_errors=True)
     ran = [r for r in receipt["rows"].values() if r["ok"] is not None]
     receipt["ok"] = bool(ran) and all(r["ok"] for r in ran)
     receipt["passed"] = sorted(n for n, r in receipt["rows"].items() if r["ok"])
