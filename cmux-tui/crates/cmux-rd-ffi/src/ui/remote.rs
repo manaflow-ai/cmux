@@ -478,7 +478,8 @@ fn status_lines(status: &Value) -> Vec<Value> {
     let state = status.get("state").and_then(Value::as_str).unwrap_or("off");
     let host = status.get("host");
     let mut lines = vec![json!({"key": "remote.status.host", "value": state})];
-    if let Some(permissions) = host.and_then(|h| h.get("permissions")).filter(|p| !p.is_null()) {
+    // A null `permissions` still shows both lines, not allowed (as the Swift dialog did).
+    if let Some(permissions) = host.and_then(|h| h.get("permissions")) {
         let granted = |key: &str| permissions.get(key).and_then(Value::as_bool) == Some(true);
         lines.push(
             json!({"key": "remote.status.accessibility", "granted": granted("accessibility")}),

@@ -367,6 +367,11 @@ fn status_lines_name_the_host_the_grants_and_each_worker() {
             {"key": "remote.status.screenSharing", "value": "running"},
         ])
     );
+    // A null `permissions` reads as both not allowed, as the Swift dialog showed it.
+    assert_eq!(
+        lines(json!({"host": {"permissions": null}}))[1],
+        json!({"key": "remote.status.accessibility", "granted": false})
+    );
 }
 
 #[test]
