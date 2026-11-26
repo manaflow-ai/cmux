@@ -123,7 +123,11 @@ pub fn migrate(settings: &Value) -> (Value, Vec<Notice>) {
             notices.push(Notice::of(entry, NoticeKind::Renamed, reason));
             continue;
         }
-        let carried = replaced_by_row(&new).and_then(|replaced| replaced.read(&value)).cloned();
+        // This old key's own entry (a row may replace several: `updates.automatic`).
+        let carried = replaced_by_row(&new)
+            .find(|replaced| replaced.old == old)
+            .and_then(|replaced| replaced.read(&value))
+            .cloned();
         let Some(carried) = carried else {
             let reason = "which has no equivalent of this value and keeps its default".to_owned();
             notices.push(Notice::of(entry, NoticeKind::Removed, reason));
