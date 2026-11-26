@@ -265,3 +265,24 @@ async fn append_latency_with_and_without_sealing() {
         println!("{row}");
     }
 }
+
+/// A chat that is purged is not packed, and what the hub remembered of its pack goes with it.
+#[test]
+fn a_purged_chat_is_not_packed_and_is_forgotten() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let hub = hub(&sessions);
+    let id = "pack-grows-d";
+    let session = chat(&hub, id);
+    let mut text = Text(13);
+    grow(&hub, &session, &sessions, (4 << 20) + (1 << 20), &mut text);
+    assert!(hub.seal_pack(id).unwrap().is_some());
+    assert!(hub.pack_checked.lock().unwrap().contains_key(id));
+    session.purged.store(true, Ordering::SeqCst);
+    assert!(hub.seal_pack(id).unwrap().is_none(), "a purged chat is not packed");
+    assert!(!hub.pack_checked.lock().unwrap().contains_key(id), "and its entry is dropped");
+    // A chat gone from the session map loses its entry too.
+    hub.pack_checked.lock().unwrap().insert("no-such-chat".to_owned(), 1);
+    assert!(hub.seal_pack("no-such-chat").unwrap().is_none());
+    assert!(!hub.pack_checked.lock().unwrap().contains_key("no-such-chat"));
+}

@@ -2801,7 +2801,12 @@ SETUP_ONLY_STEPS = {
             "scripts/download-prebuilt-ghosttykit.sh", "scripts/ci/lan_cache_fetch.py", "scripts/ensure-ghosttykit.sh",
             "scripts/ghosttykit-checksums.txt", "scripts/validate-xcframework-archive.py",
             "scripts/ensure-metal-toolchain.sh", "ghostty.h", "ghostty", "ghostty-next", ".gitmodules",
-            "scripts/install-axe-ci.sh", *XCODE_PINS),
+            "scripts/install-axe-ci.sh",
+            # ensure-ghosttykit.sh's Zig package prefetch (zig-fetch-all.sh): the package lock, its R2 mirror and
+            # cache, the archive seeder, and the release download helper behind them.
+            "scripts/cmux-next/zig-fetch-all.sh", "scripts/ci/zig-packages.lock", "scripts/ci/zig-packages-r2.sh",
+            "scripts/ci/seed-zig-package-archives.sh", "scripts/ci/r2-cache.sh",
+            "scripts/ci/github-release-download.sh", "scripts/ci/github_release_asset.py", *XCODE_PINS),
         # Picks the runner's Xcode from the pins (toolchain setup).
         "Select Xcode": ("scripts/select-ci-xcode.sh", *XCODE_PINS),
         # xcrun and xcodebuild only, of the selected Xcode: the runner's simulator runtime (toolchain setup).
@@ -6119,6 +6124,10 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
+                  # cmux-window-rules' tab group tests include_str! the shared vectors (#57843)
+                  "schemas/tab-group-rules/",
+                  # a crate the kit's manifests reach since #58214 (cmux-vnc's vnc_* JSON ops)
+                  "cmux-tui/crates/cmux-vnc/",
                   # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
                   # which reads the bundle rule from cmux-agent-pane-policy; its `testing` feature adds cmux-scope
                   "cmux-tui/crates/cmux-build-space/", "cmux-tui/crates/cmux-agent-pane-policy/",
@@ -7589,6 +7598,13 @@ WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have teste
 # while WS_CHECK_RESULT's `failed` still lists every failed step. ws_check_discount reads that count back from the log.
 WS_CHECK_DESCRIPTION = re.compile(r"(?:base red \(main [0-9a-f]{8} fails it too\) )?(\d+) of (\d+) steps failed"
                                   r"(?: \(\+(\d+) base red discounted, main ([0-9a-f]{8})\))?: (.*)", re.S)
+# Since lw#11671 (2026-11-26) a discounted status too long for 139 characters keeps its counts, base and first unit:
+# "N failed after discounting K on main SHA8: UNIT", N the run's own failed units (not steps), UNIT the first one's
+# file (a step's " [UNIT]" part, or the step when it has none). Unread, every such red was refused "names no failed
+# steps" and no per-test comparison ran: lw#12133 at fb44c444 ("4 failed after discounting 24 on main 33ce8b65:
+# test_review_pool_routing.py") and lw#12080 stopped red_not_excused on 2026-11-26. Read, its units are judged per
+# test against main like any other ws-check red: a unit that passes on main stays the head's red.
+WS_CHECK_LONG_DESCRIPTION = re.compile(r"(\d+) failed after discounting (\d+) on main ([0-9a-f]{8}): (.*)", re.S)
 # ws_check_run.py's own base pass lines (leo-workspace tools/ws-check own_base_pass reads the same ones): one "whole" or
 # "cut" line naming the main the failed units ran again on, and a "FAILED on main too" line per unit that failed there.
 WS_CHECK_BASE_PASS = re.compile(r"^ws-check base pass (?:whole: main ([0-9a-f]{40}),|cut: main ([0-9a-f]{40}): "
@@ -7627,8 +7643,18 @@ def ws_check_discount(lines: list[str], at: int, failed: list[str]) -> tuple[lis
 
 
 def ws_check_described(named: re.Match, failed: list[str], steps, lines: list[str], at: int) -> bool:
-    """Whether a ws-check status's description (NAMED, a WS_CHECK_DESCRIPTION match) is its run's WS_CHECK_RESULT: the
-    count and first step of FAILED, or the count and first unit tools/ws-check left after discounting main's reds."""
+    """Whether a ws-check status's description (NAMED, a WS_CHECK_DESCRIPTION or WS_CHECK_LONG_DESCRIPTION match) is
+    its run's WS_CHECK_RESULT: the count and first step of FAILED, or the count and first unit tools/ws-check left after
+    discounting main's reds (the long form: the unit count, discount, main and first unit's file, cut at 139)."""
+    if named.re is WS_CHECK_LONG_DESCRIPTION:
+        found = ws_check_discount(lines, at, failed)
+        if found is None or not found[0]:
+            return False
+        own, discounted, main = found
+        step, bracket, unit = own[0].partition(" [")
+        first = unit.removesuffix("]") if bracket else step
+        return ((int(named[1]), int(named[2]), named[3]) == (len(own), discounted, main[:8])
+                and bool(named[4]) and first.startswith(named[4]))
     count, total, described = int(named[1]), int(named[2]), named[5]
     if total != steps:
         return False
@@ -8145,10 +8171,10 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
     where = f"'{WS_CHECK}' on {sha}"
     if state != "failure":
         raise Refused(f"{where}: an unknown status state {state!r}")
-    named = WS_CHECK_DESCRIPTION.fullmatch(description)
+    named = WS_CHECK_DESCRIPTION.fullmatch(description) or WS_CHECK_LONG_DESCRIPTION.fullmatch(description)
     if not named:
-        raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' is "
-                      "read per test")
+        raise Refused(f"{where}: failure \"{description}\" names no failed steps; only 'N of M steps failed: ...' or "
+                      "'N failed after discounting K on main SHA8: UNIT' is read per test")
     host = WS_CHECK_REPOS[repo]
     link = re.fullmatch(r"https://github\.com/" + re.escape(host) + r"/actions/runs/(\d+)(?:/job/\d+)?/?"
                         + WS_CHECK_FLEET_JOB, found["url"])
