@@ -169,13 +169,7 @@ env:
   NIGHTLY_NEXT_TREE_AT_INSTALL: v1
   CREATE_DMG_VERSION: 8.0.0
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
-  # The cmux-next track (branch `nightly-next`). The feed base must never be
-  # main's nightly or RC feed; scripts/ci/nightly-next-guard.py refuses it.
-  # The track's one feed: each build is signed once, as cmux NIGHTLY
-  # (com.cmuxterm.app.nightly), the app the team runs (hq#7156; Leo,
-  # 2026-11-05: "THERE SHOULDN'T BE 2"). It keeps "/nightly-next/" in its
-  # path: UpdateFeedResolver classifies the track by it. Release notes sit
-  # beside it.
+  # Why: docs/ci/nightly-workflow-notes/2026-11-26-workflow-dispatch.md
   NIGHTLY_NEXT_FEED_BASE: https://files-next.cmux.com/nightly-next
   # The retired cmux NEXT-identity feed (com.cmuxterm.app.nightly.cmux-next).
   # It gets no builds, only the handover item that sends a stray install to
@@ -312,9 +306,7 @@ jobs:
             /.gitmodules
           sparse-checkout-cone-mode: false
 
-      # A second budget for decide's reads: GITHUB_TOKEN draws on the repository's Actions installation, which
-      # every cmux workflow shares and which ran dry at 01:22Z on 2026-11-21 (run 44849687076). The glaeda-route
-      # App is a separate installation with its own hourly budget. Optional: decide waits for the reset without it.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-decide-mint-a-spare-read-token-for-decide.md
       - name: Mint a spare read token for decide
         id: decide-spare-token
         if: github.repository == 'manaflow-ai/cmux' && vars.GLAEDA_ROUTE_APP_ID != ''
@@ -925,11 +917,7 @@ jobs:
           PUBLISHED_SHA: ${{ steps.decide.outputs.published_sha }}
         run: bash scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh || true
 
-  # Moves the protected branch `nightly-next` to a feat-cmux-next commit whose cmux-next.yml
-  # push run passed its Release compile. Runs only on main, in `release`, with the release App
-  # (the ruleset's only bypass actor). Guard: scripts/ci/promote-nightly-next.mjs, from this
-  # main checkout. One concurrency group keeps a single writer; decideNewest() also decides the
-  # newest request GitHub evicted (checks: read) whose commit contains this one's.
+  # Why: docs/ci/nightly-workflow-notes/2026-11-26-promote-nightly-next.md
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
@@ -1092,9 +1080,7 @@ jobs:
   await-release-surface-ack:
     name: nightly-next promotion ${{ needs.promote-nightly-next.outputs.sha }} from ${{ needs.promote-nightly-next.outputs.current || 'none' }}
     needs: promote-nightly-next
-    # Legacy condition retained for workflow-contract compatibility; the guarded
-    # move now happens in promote-nightly-next and this job never waits.
-    # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-await-release-surface-ack.md
     if: false
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
@@ -1222,12 +1208,7 @@ jobs:
       attestations: write
       id-token: write
     needs: decide
-    # The schedule skips this cloud warmer while owned pools serve pull
-    # requests (CI_PR_POOL_OWNED is 1). build-nightly-app saves the same key on
-    # every published main push, so the remaining cloud readers (main's
-    # full-suite dispatch, nightly's hosted fallback) restore at worst an
-    # older entry by prefix. It runs on Blacksmith macOS, never a hosted Mac
-    # (tests/test_ci_nightly_no_hosted_mac.py). A seed_only dispatch still warms it on demand.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-refresh-compilation-cache.md
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
@@ -2418,10 +2399,7 @@ jobs:
           DECIDE_CHANNEL: ${{ needs.decide.outputs.channel }}
         run: bash scripts/ci/nightly-steps/app-start-release-derived-data-empty.sh
 
-      # Reuse the unsigned app of an earlier nightly-next build on the same inputs
-      # (scripts/ci/nightly_release_product_reuse.py has the key and trust rules). A hit skips the
-      # steps that only feed xcodebuild; stamping, signing and notarization always run.
-      # vars.CI_NIGHTLY_NEXT_PRODUCT_REUSE=0 switches the lookup and the record off.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-look-up-the-nightly-app-compiled-on-the-sa.md
       - name: Look up the nightly app compiled on the same inputs
         id: nightly-product
         if: inputs.nightly_next_unsigned_run == '' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.notary_probe != 'true'
@@ -2692,11 +2670,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
         run: python3 scripts/ci/background_build.py join --state "$RUNNER_TEMP/nightly-helper-builds" chromium-engine
 
-      # The run cannot publish once a job publish-nightly needs, running beside
-      # this one, has failed (run 40460194731 compiled and uploaded for 65 min
-      # after its Ghostty helper failed): stop and give the Mac back. One read
-      # of this attempt's jobs; a read error carries on. NIGHTLY_PUBLISH_PEERS
-      # is derived from the needs graph by tests/test_nightly_stop_if_publish_doomed.py.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-stop-when-the-run-can-no-longer-publish-be-2.md
       - name: Stop when the run can no longer publish (before the compile)
         if: (inputs.nightly_next_unsigned_run == '') && steps.nightly-product.outputs.hit != 'true' && !env.LEFT_SLOT
         env:
@@ -2877,11 +2851,7 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.notary_test_browser_data == 'true'
         run: bash scripts/ci/nightly-steps/browser-data-proof-start.sh
 
-      # The run cannot publish once a job publish-nightly needs, running beside
-      # this one, has failed (run 40460194731 compiled and uploaded for 65 min
-      # after its Ghostty helper failed): stop and give the Mac back. One read
-      # of this attempt's jobs; a read error carries on. NIGHTLY_PUBLISH_PEERS
-      # is derived from the needs graph by tests/test_nightly_stop_if_publish_doomed.py.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-stop-when-the-run-can-no-longer-publish-be.md
       - name: Stop when the run can no longer publish (before the upload)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
         env:
@@ -2923,10 +2893,7 @@ jobs:
           retention-days: 1
           overwrite: true
 
-      # Every nightly-next build's dSYMs: sentry-dsyms-nightly uploads them, and keep-published-dsyms
-      # keeps a published build's on R2 (Sentry reads 403'd, nightly 38005665577). 21 days: an
-      # unsigned resume (7) plus notarization recovery (14). resume-unsigned-nightly.py reads
-      # this artifact's name as the build's source commit.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-app-upload-unsigned-nightly-app-retry.md
       - &x48
         name: Keep the nightly-next dSYMs for publication
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.build_only != 'true') && !env.LEFT_SLOT
@@ -3014,10 +2981,7 @@ jobs:
         run: python3 scripts/ci/background_build.py stop --state "$RUNNER_TEMP/nightly-helper-builds"
 
   build-nightly-remote-daemon:
-    # Pure Go (CGO_ENABLED=0), manifests and uploads do not need the app builder, so it
-    # builds beside build-nightly-app (its `if`), on the Ghostty helper's owned Mac pick,
-    # else the owned nightly-only Mac pool (the all-nightly reservation on NEXT's first attempt; run
-    # 41683652930 took blacksmith-32vcpu-ubuntu-2404), else the nightly-only pool: never Blacksmith. Resume already retained these exact assets in build-nightly-app.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-remote-daemon.md
     needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]
     # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
     if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.one_job != 'true' && needs.decide.outputs.build_only != 'true'"
@@ -3619,11 +3583,7 @@ jobs:
 
       - &thin-bundle-to-the-variant-arch
         name: Thin bundle to the variant architecture
-        # The fast build is already compiled arm64, but the downloaded cmux-tui
-        # client can still be universal. Thin every non-universal artifact before
-        # signing so the architecture gate remains meaningful. The Chromium
-        # engine artifact is arm64 only: an x86_64 variant drops it first and
-        # reports the browser unavailable.
+        # Why: docs/ci/nightly-workflow-notes/2026-11-26-prepare-nightly-variant-primary-reuse-a-successful-primary-p.md
         if: ${{ (env.PREPARE_FALLBACK != 'true' || steps.reuse.outputs.exists != 'true') && (matrix.variant != 'universal') }}
         run: bash scripts/ci/nightly-steps/prepare-thin-bundle.sh
 
@@ -3690,11 +3650,7 @@ jobs:
           overwrite: true
 
 
-  # The fallback preparation, and the preparation result every later job reads
-  # (needs.prepare-nightly-variant): success after a primary success (a no-op leg) or after
-  # its own preparation. Until 2026-10-31 a separate prepare-nightly-variant job only echoed
-  # that result, one more queued hop on the signing path (4.8 min queued for a 0 s job in
-  # run 41187578702 attempt 2).
+  # Why: docs/ci/nightly-workflow-notes/2026-11-26-prepare-nightly-variant.md
   prepare-nightly-variant:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-nightly-remote-daemon, resolve-nightly-cmux-tui-client, prepare-nightly-variant-primary]
     # Never skipped: a skipped fallback skips signing and publishing (runs 40154003204,
@@ -4062,11 +4018,7 @@ jobs:
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
 
-      # macOS /bin/bash 3.2 exits 0 on a parse error in a script with an EXIT
-      # trap (runs 39014131817, 39014922771). Parse every script this job can
-      # run before any signing or notarization. An unsigned resume builds an
-      # older tree: the checker and the workflow come from the signing control
-      # (this run's commit), the scripts from the build tree.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-sign-notarize-nightly-install-the-current-signing-keyc.md
       - &x55
         name: Parse signing and notarize scripts with /bin/bash 3.2
         if: ${{ !env.LEFT_SLOT }}
@@ -4510,11 +4462,7 @@ jobs:
           SHARED_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.SPARKLE_PRIVATE_KEY || '' }}
           NIGHTLY_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track != 'nightly-next' && secrets.NIGHTLY_SPARKLE_PRIVATE_KEY || '' }}
           NEXT_SPARKLE_PRIVATE_KEY: ${{ needs.decide.outputs.track == 'nightly-next' && secrets.SPARKLE_NEXT_PRIVATE_KEY || '' }}
-          # cmux-next items carry a release-ring sparkle:channel, which only
-          # cmux-next builds allow; every other build ignores them. With
-          # NIGHTLY_NEXT_DEV_RING=on a new build starts on Dev (cmux-next-dev)
-          # and moves to Nightly (cmux-next) on a canary pass
-          # (scripts/ci/nightly_next_ring.py, nightly-next-verdict.yml).
+          # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-sign-notarize-nightly-upload-pending-notarization-reco.md
           SPARKLE_CHANNEL: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next') || '' }}
           # nightly-next-one writes the item full-only and builds the deltas after the feed. Why: docs/ci/nightly-workflow-notes.md#note-31
           NIGHTLY_NEXT_DELTAS_AFTER_FEED: ${{ needs.decide.outputs.one_job == 'true' && needs.decide.outputs.track == 'nightly-next' && 'true' || '' }}
@@ -4761,12 +4709,7 @@ jobs:
 
   verify-final-dmg-nightly:
     name: Verify final nightly DMG (${{ matrix.variant }})
-    # The final-DMG half of verify-signed-nightly, on its own runner so the two
-    # halves run at the same time (each statically verifies an artifact with the same bundle
-    # id, so they cannot share one runner). No environment and no secrets:
-    # this job statically verifies the final DMG (#21024). publish-nightly
-    # publishes this run's build only when both jobs passed, and only the DMG
-    # bytes this job verified.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-verify-final-dmg-nightly.md
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly, pick-nightly-sign-runner]
     if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
@@ -4988,13 +4931,7 @@ jobs:
       - name: Claim the whole Mac for signing
         run: ./scripts/ci/signing-runner-claim.sh
 
-      # notarize-nightly-dmg.sh runs the bundle notice check after Apple
-      # accepts, and that check reads ghostty-next/build.zig.zon. Without the
-      # submodule, run 38669958906 skipped five accepted builds.
-      # Release App first, github.token as the fallback (scripts/ci/gh_app_token.sh): the App is
-      # its own actor, so a limit that every workflow's github.token shares does not refuse it.
-      # Later jobs reuse three of these steps by YAML alias (*gh-app-token-read, -write, -install-tooling):
-      # GitHub refuses a workflow file over 512,000 bytes before any job starts.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-recover-nightly-next-notarization-claim-the-whole-mac-for-si.md
       - &gh-app-token-read
         name: Mint the release App token for this job's gh calls
         id: gh-app-token
@@ -5616,11 +5553,7 @@ jobs:
       # Another run already published the recovered build, or the final gate
       # refused (see refused): this run published nothing.
       already_published: ${{ steps.recheck.outputs.already_published == 'true' || steps.gate.outputs.refused == 'true' }}
-      # The final gate refused: a recovered build failed its lineage check, or
-      # this pipeline is not the nightly-next writer (NIGHTLY_NEXT_WRITER read
-      # live is not mac, or is unreadable).
-      # A superseded build (recheck or feed CAS) publishes nothing and is no failure: every job that would
-      # republish it reads refused, and report-nightly-failure reads refusal_reason, which it leaves empty.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-nightly.md
       refused: ${{ steps.gate.outputs.refused == 'true' || steps.recheck.outputs.superseded == 'true' || steps.upload_next_appcasts.outputs.publication_refused == 'true' }}
       refusal_reason: ${{ steps.gate.outputs.refusal_reason }}
       # For publish-nightly-next-github: what to publish and the release body's parts.
@@ -5842,12 +5775,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: nightly-out
 
-      # One nightly-next feed writer at a time across runs (publish-lease.sh), from the first
-      # feed read to the read-back. TTL 15 minutes, renewed every minute by a heartbeat that
-      # dies with the job, so a dead holder blocks the feed one TTL, inside its 30-minute
-      # freshness bound; publish-release-notes passes the same TTL, since a waiter judges
-      # expiry by its own. Max hold: this job's 180-minute timeout. The wait (60 minutes) is
-      # added to the timeout.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-nightly-download-ssh-daemon-assets-for-publication.md
       - &x81
         name: Take the nightly-next publish lease
         id: lease
@@ -5935,11 +5863,7 @@ jobs:
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && !env.LEFT_SLOT
         run: bash .publish-tooling/scripts/ci/nightly-steps/publish-guard-nightly-next.sh
 
-      # cx-f76kf: decide reads NIGHTLY_NEXT_WRITER only when the run starts, and
-      # the HQ Linux pipeline publishes nightly-next while it is linux, so the
-      # gate reads it again live. vars.* is fixed at run start and GITHUB_TOKEN
-      # cannot read variables: the release App reads it (Variables: read).
-      # A failed mint leaves the token empty, and the gate refuses.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-nightly-upload-branch-nightly-artifacts-retry.md
       - &x87
         name: Mint release App token
         id: writer-token
@@ -6361,10 +6285,7 @@ jobs:
         id: order
         run: bash .publish-tooling/scripts/ci/nightly-steps/github-publish-still-newest.sh
 
-      # The mutable state, only for the live feed's newest build. A failed write here leaves the immutable
-      # assets above published and the job green (continue-on-error); the next build's run writes them.
-      # One names writer at a time across runs, push or dispatch (the names job's group did this): its own
-      # R2 lease (publish-lease.sh), which never cancels a waiter. Each write runs still-newest inside it.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-nightly-next-github-take-the-release-names-lease.md
       - name: Take the release names lease
         id: names_lease
         if: steps.order.outputs.newest == 'true'
@@ -6554,10 +6475,7 @@ jobs:
           SENTRY_PROJECT: cmuxterm-macos
         run: bash .publish-tooling/scripts/upload-sentry-dsyms.sh "$RUNNER_TEMP/dsyms"
 
-  # The deltas' slow part, BinaryDelta (494 s of generate-nightly-deltas' 15-min whole-Mac hold on run
-  # 42149108998), needs no key. This job builds the delta files with no secret, on a light nightly-only
-  # runner of the nightly mini, so the keyed job below only reuses and signs them. Optional like the deltas:
-  # a failure leaves every delta to the keyed job, which builds what it lacks as before.
+  # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-nightly-deltas.md
   build-nightly-deltas:
     needs: [published-build]
     if: always() && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_source != 'recovered' && needs.published-build.outputs.publish_refused != 'true' && vars.NIGHTLY_DELTAS != 'off' && needs.published-build.outputs.run_tail == 'true'
@@ -6697,10 +6615,7 @@ jobs:
     steps:
       - *hold-the-whole-mac
 
-      # The kept clone remembers the last checkout's sparse mode. After the signer's pattern checkout
-      # (core.sparseCheckout=true, no cone setting) git reads the cone request below as the one pattern
-      # `scripts`, so the root .xcode-version stays out and Select Xcode fails here (runs 42819750253,
-      # 42829570644: no deltas). The warm checkout's manual sparse test runs this step.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-generate-nightly-deltas.md
       - &forget-kept-sparse-mode
         name: Forget the kept clone's sparse-checkout mode
         if: runner.environment == 'self-hosted'
@@ -6840,10 +6755,7 @@ jobs:
       cancel-in-progress: false
     # Why: docs/ci/nightly-workflow-notes.md#note-47
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.ref != 'refs/heads/nightly-next' && 'cmux-gcp-nightly-jit-x64' || vars.CI_NIGHTLY_MINI_PUBLISHER == 'ubuntu-24.04' && 'cmux-gcp-nightly-jit-x64' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned_pool || 'glaeda-trusted-next-signing' }}
-    # It holds the publish group, so a hang must not hold it for the default 6 h. nightly-next
-    # makes no gh call here (deltas and feed go to R2) and took at most 1.3 minutes in 56 runs;
-    # other tracks keep the default, as their release uploads may wait out the rate limit.
-    # One-mini mode adds glaeda's capacity wait (tests/test_nightly_mini_gate_timeouts.py).
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-republish-nightly-deltas.md
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && needs.published-build.outputs.track == 'nightly-next' && 135 || needs.published-build.outputs.track == 'nightly-next' && 15 || 360 }}
     permissions:
       contents: write
@@ -6981,9 +6893,7 @@ jobs:
           path: .publish-tooling
           sparse-checkout: scripts/ci
 
-      # The glaeda-route App's read-only token, as decide mints it on the same runner: its own hourly budget. With
-      # github.token alone the shared budget ran dry and the pick fell back to cmux15 (run 45575194160: HTTP 403), so
-      # a second build waited 10.5 min behind the first. Optional: the pick falls back to github.token without it.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-pick-nightly-next-signer-mint-a-spare-read-token-for-the-pic.md
       - name: Mint a spare read token for the pick
         id: pick-spare-token
         if: vars.GLAEDA_ROUTE_APP_ID != '' && github.ref == 'refs/heads/nightly-next'
@@ -7398,10 +7308,7 @@ jobs:
         continue-on-error: true
         env: {GH_TOKEN: "${{ github.token }}", GH_BUDGET_WAIT_MAX_SECONDS: "0"}
         run: bash .publish-tooling/scripts/ci/timeout.sh 60 gh workflow run nightly-next-tick.yml --repo "$GITHUB_REPOSITORY" --ref main
-      # One Apple round: the DMG's ticket, stapled to the DMG. The app inside carries no ticket of its own
-      # (CMUX_STAPLE_APP_IN_DMG=false); Gatekeeper finds its ticket online, and the verify step below requires
-      # Gatekeeper to call it notarized. Apple gets 40 minutes; a slower build fails this job and the loop's
-      # retry builds again (no hand-off).
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-notarize-app-ticket-through-final-dmg.md
       - name: Notarize app ticket through final DMG
         if: ${{ !env.LEFT_SLOT }}
         id: notarize-nightly
@@ -7602,13 +7509,7 @@ jobs:
       - *x41
       - *x50
       - *x72
-      # The deltas follow the feed in this job, off the critical path to it (the item above was written full-only),
-      # and never fail the build: every step here continues on error, and each one's `if` names what it needs.
-      # The two that hold the signing key carry no `!cancelled()`, so a failed claim skips them
-      # (tests/test_ci_signing_owned_mac.py).
-      # The delta build signs what the keyless prebuild made when it finished beside the checks, else builds them.
-      # The signing key reaches only the delta build, after a third stray-process check; nothing from the bundle runs
-      # in these steps (test_nightly_next_one_job.py under tests). Why: docs/ci/nightly-workflow-notes.md#note-31
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-refuse-stray-processes-before-secrets-delta.md
       - name: Refuse stray processes before secrets (deltas)
         id: deltas-stray
         if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT && !env.NEWER_PUSH_WAITING"
@@ -7650,10 +7551,7 @@ jobs:
           # The tail's own revise (R2 upload, merge into the live item, prune, guard, then write-feed
           # --same-build: only while the live feed still serves this build).
           bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
-      # A refused publication is red, not green: run 45607031207 built and signed, its shelf check died (ENOSPC),
-      # the gate refused, and the job showed green with nothing published, so a 3.5 h stall read as healthy
-      # (2026-11-25). A stand-down (writer linux or none, a known-bad commit), a superseded build and a left slot
-      # publish nothing on purpose and stay green.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-fail-when-this-build-s-publication-was-refu.md
       - name: Fail when this build's publication was refused
         if: "always() && !cancelled() && !env.LEFT_SLOT && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && (steps.gate.outputs.refusal_reason != '' || steps.upload_next_appcasts.outputs.publication_refused == 'true')"
         env:
@@ -7686,10 +7584,7 @@ jobs:
           sparse-checkout: |
             scripts/ci
             scripts/cmux-next/lib
-      # Run 45562645699 (2026-11-25): github.token's hour was spent, so this dispatch and dispatch-published-in's
-      # slept in gh_budget_wait.sh until its reset (18.4 and 12.9 min, both out at 07:54Z) though the feed was
-      # live at 44.9 min. Each App installation has its own hour: a refused dispatch moves to cmux-bot, then the CI
-      # pools, at once (GH_TOKEN_SPARE, GH_TOKEN_SPARES), and waits for a reset only when every one refuses.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-wake-nightly-next-tick.md
       - &mint-dispatch-pools
         name: Mint the CI pool's tokens
         continue-on-error: true
@@ -8035,11 +7930,7 @@ jobs:
   published-in:
     needs: [published-build, publish-nightly-next-github, generate-nightly-deltas, republish-nightly-deltas]
     if: "!cancelled() && github.ref == 'refs/heads/nightly-next' && needs.published-build.outputs.comment == 'true' && needs.published-build.outputs.run_tail == 'true'"
-    # A paced job of up to five hours of GitHub API calls: it needs no Mac. On the nightly mini it held a Mac for
-    # hours (Leo, 2026-11-25: "freeing up the Mac's from doing things that don't need Mac's asap"). Its token writes
-    # pull requests, so never the shared persistent cmux-linux pool: the owned one-job JIT VM on every attempt, like
-    # the other tail jobs (test_nightly_owned_minis_only.HOSTED_TAIL_JOBS). Tail only (run_tail), so a VM start never
-    # holds the push group. Never Blacksmith.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-in.md
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}
     # Each write is paced at 7.5 s under GitHub's hourly content limit.
     # A shared edit plus a legacy deletion for all 1,000 allowed PRs takes
@@ -8103,11 +7994,7 @@ jobs:
         with:
           ref: ${{ needs.published-build.outputs.resolve_build_sha }}
           persist-credentials: false
-      # Only the published span: a full fetch of every branch and tag did not
-      # finish inside this job's timeout (run 37526646874).
-      # The span starts at the newest build whose signed notes were published (its "head"), not at
-      # the last published app: a build whose notes failed to publish then loses no highlight to
-      # the next one (2026-10-12: 3821558930001 had no notes and its highlights were never shown).
+      # Why: docs/ci/nightly-workflow-notes/2026-11-26-sign-release-notes.md
       - *wait-through-github-api-rate-l
 
       - *older-tree-step-scripts-plain
@@ -8151,11 +8038,7 @@ jobs:
           overwrite: true
 
   publish-release-notes:
-    # Still publish-nightly's lock: the notes writes (notes/index.json and the
-    # rest) have no compare-and-swap, so only that lock keeps an older build's
-    # checked notes from landing after a newer publish. It is publish-nightly's
-    # R2 lease, not a concurrency group: a group cancelled the older pending job
-    # (run 41436891188). nightly-next only (if:), so no group at all.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-release-notes.md
     needs: [published-build, sign-release-notes, pick-nightly-sign-runner]
     if: "!cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.sign-release-notes.result == 'success'"
     environment: ${{ github.ref == 'refs/heads/nightly-next' && 'release-next' || 'release' }}
@@ -8213,11 +8096,7 @@ jobs:
         run: bash .publish-tooling/scripts/ci/nightly-steps/release-notes-upload-to-r2.sh
       - *release-the-nightly-next-publi
 
-  # The nightly reel (scripts/cmux-next/media/reel.py): each pull request in this
-  # build's signed notes with its tour's "after" clip and a title card, joined
-  # into one video, and a page listing them, on the pr-media branch at
-  # nightly-next/<build>/. Evidence only: no job needs this one, and it never
-  # reports the nightly as failed.
+  # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-nightly-reel.md
   publish-nightly-reel:
     needs: [published-build, publish-release-notes, pick-nightly-sign-runner]
     if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.published-build.outputs.track == 'nightly-next' && needs.publish-release-notes.result == 'success'"
@@ -8329,10 +8208,7 @@ jobs:
       - name: Ask the push group for the newest head
         run: bash scripts/ci/nightly-steps/retry-ask-push-group.sh
 
-  # The nightly's webview type check red with no machine fix (fixit-compile): fixit-handoff.yml, dispatched on
-  # feat-cmux-next, names the culprit and pushes its revert when clear, else opens the revert's pull request. Leo,
-  # 2026-11-22: "if the fix is clear i think you guys should be able to unilaterally push commits directly." A job of
-  # its own that only dispatches; check-nightly-webviews stays read-only.
+  # Why: docs/ci/nightly-workflow-notes/2026-11-26-fixit-handoff.md
   fixit-handoff:
     needs: [resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one]
     if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true') }}
@@ -8475,12 +8351,7 @@ jobs:
 
   close-nightly-failure-issue:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, publish-nightly, resolve-nightly-cmux-tui-client, published-build, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
-    # always(): a skipped notes job must not skip this job silently; the
-    # conditions below decide. nightly-next closes only with its notes published,
-    # unless it published a recovered build, which has none (cx-urd.69). A
-    # recovered build can follow this run's own failed build, which reports.
-    # It closes in the run that ran the notes and deltas (run_tail): on nightly-next, the dispatched one. There
-    # it cannot see the run that published, so push_clean says none of that run's jobs failed.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-26-close-nightly-failure-issue.md
     if: always() && needs.published-build.result == 'success' && needs.published-build.outputs.run_tail == 'true' && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.push_clean == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.published-build.outputs.track != 'nightly-next' || needs.published-build.outputs.publish_source == 'recovered' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.
