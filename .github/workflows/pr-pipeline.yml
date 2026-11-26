@@ -39,8 +39,9 @@ jobs:
     # Above setup (10 min), the tool downloads (3 min), the waves of the slowest step (6 min; steps two at
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, coderouter, web-production-build and the four web test
     # shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min, the acpmux instruction
-    # counts 40 min), with room for the checkout, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 325
+    # counts 40 min, the nightly and cmux-tui release guards 20 min), with room for the checkout, so a slow step is
+    # reported by the runner, not cut here.
+    timeout-minutes: 345
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.

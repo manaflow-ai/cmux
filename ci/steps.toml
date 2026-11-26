@@ -259,6 +259,34 @@ python3 tests/test_mac_live_delivery.py
 python3 tests/test_r2_upload_requests.py
 '''
 
+# ci-guards.yml's release-notary group (the nightly, signing and cmux-tui publication guards), which a
+# feat-cmux-next pull request reached only through cmux-next-guards.yml's ci-guard-group: a Tier B
+# pull_request_skip job (scripts/ci/affected-jobs.json), so it was skipped there. #53861, #56394, #53840 and
+# #54859 added nightly.yml jobs and #55067 a cmux-tui-artifacts.yml one without the guard lists naming them, and
+# the guards went red only on the feat-cmux-next push. A change to a nightly or cmux-tui workflow, the step
+# coverage list or one of the guard tests now runs the release-notary steps it reaches before the merge.
+[step.nightly-guards]
+job = "linux"
+# Alone: its steps run at once on every CPU (8 on the pool, 175-359 s for the whole guard group there).
+alone = true
+timeout = 1200
+title = "Nightly and cmux-tui release guards"
+about = "the release-notary guard steps (nightly routing, signing runners, owned minis, step coverage, cmux-tui publication) that a change to the nightly or cmux-tui workflows reaches"
+inputs = [
+  ".github/workflows/nightly*.yml",
+  ".github/workflows/cmux-tui*.yml",
+  ".github/nightly-step-coverage.json",
+  "tests/test_nightly_*",
+  "tests/test_cmux_tui_*",
+  "tests/test_ci_recovery_runs_after_a_timeout.py",
+  "scripts/ci/nightly_guard_steps.py",
+  "tests/test_nightly_guard_steps.py",
+]
+run = '''
+python3 tests/test_nightly_guard_steps.py
+python3 scripts/ci/nightly_guard_steps.py
+'''
+
 [step.skill-contracts]
 job = "linux"
 timeout = 300
