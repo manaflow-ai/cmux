@@ -139,7 +139,8 @@ class AutoResumeLinuxJobsOnBash32Tests(unittest.TestCase):
         for job, name, kind in cases:
             script = step(job, name)
             for bash in bashes():
-                for present, expected in ((("x86_64", "universal"), "x86_64\nuniversal\n"), ((), "")):
+                # Nightly is arm64 only: the download loop asks for arm64 and nothing else.
+                for present, expected in ((("arm64", "x86_64", "universal"), "arm64\n"), ((), "")):
                     with self.subTest(job=job, bash=bash, present=present), \
                             tempfile.TemporaryDirectory() as directory:
                         root = Path(directory)
@@ -167,6 +168,7 @@ class AutoResumeLinuxJobsOnBash32Tests(unittest.TestCase):
             for tamper in (False, True):
                 with self.subTest(bash=bash, tamper=tamper), tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
+                    # Nightly publishes arm64 only; stray x86_64/universal inputs are ignored.
                     for variant in ("arm64", "x86_64", "universal"):
                         folder = root / "verified" / f"accepted-{variant}-TEST"
                         folder.mkdir(parents=True)
@@ -177,7 +179,7 @@ class AutoResumeLinuxJobsOnBash32Tests(unittest.TestCase):
                         (folder / feed).write_text("<rss/>\n", encoding="utf-8")
                         digest = hashlib.sha256(payload).hexdigest()
                         recorded = digest.upper()
-                        if tamper and variant == "x86_64":
+                        if tamper and variant == "arm64":
                             recorded = hashlib.sha256(b"other").hexdigest().upper()
                         (folder / "cmux-nightly-notarization-recovery.json").write_text(json.dumps(
                             {"build": 123, "immutable_path": f"x/{immutable}", "final_dmg_sha256": recorded}),
@@ -191,12 +193,18 @@ class AutoResumeLinuxJobsOnBash32Tests(unittest.TestCase):
                     result = run_step(bash, script, root, env)
                     if tamper:
                         self.assertNotEqual(result.returncode, 0)
-                        self.assertIn("x86_64 stapled DMG SHA-256 mismatch", result.stderr)
+                        self.assertIn("arm64 stapled DMG SHA-256 mismatch", result.stderr)
                     else:
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertEqual((root / "github.env").read_text(encoding="utf-8"), "NIGHTLY_BUILD=123\n")
-                        self.assertEqual((root / "nightly-out/cmux-nightly-macos.dmg").read_bytes(),
-                                         b"stapled-universal")
+                        self.assertEqual((root / "nightly-out/cmux-nightly-macos-arm64.dmg").read_bytes(),
+                                         b"stapled-arm64")
+                        # The frozen universal download and the x86_64/universal/legacy
+                        # feeds are never assembled, so publication never rewrites them.
+                        for frozen in ("cmux-nightly-macos.dmg", "cmux-nightly-macos-x86_64.dmg",
+                                       "cmux-nightly-macos-universal.dmg", "appcast.xml",
+                                       "appcast-x86_64.xml", "appcast-universal.xml"):
+                            self.assertFalse((root / "nightly-out" / frozen).exists(), frozen)
 
 
 if __name__ == "__main__":
