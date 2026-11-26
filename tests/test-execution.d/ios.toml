@@ -63,6 +63,14 @@ path = "tests/test_ios_link_ffi_key.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_live_lease_owner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_mobile_core_package_mac_when_asked.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ios_placeholder_bounds.py"
 lane = "linux-guard"
 
@@ -84,8 +92,18 @@ path = "tests/test_ios_sim_create.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_sim_logic_xctestrun.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_sim_logic_xctestrun.py"
+
+[[test]]
 path = "tests/test_ios_sim_runtime.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_snappy.py"
+lane = "manual"
+reason = "No workflow step runs it yet. Run it yourself: python3 -I tests/test_ios_snappy.py"
 
 [[test]]
 path = "tests/test_ios_testflight_archive_log.py"
@@ -126,12 +144,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ios_workflow_dispatch_ref.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_png_opaque.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_snappy.py"
-lane = "manual"
-reason = "No workflow step runs it yet. Run it yourself: python3 -I tests/test_ios_snappy.py"
