@@ -34,10 +34,12 @@
 // after their imports have loaded Base UI, and bun shares one module cache across files, so the
 // first file to import src/ui would turn Base UI's layout effects off for every file after it
 // (popovers and dialogs that never open). Load that one module here with a stand-in document.
+import { resolveBaseUiDependency } from "./support/baseUiDependency";
+
 const scope = globalThis as Record<string, unknown>;
 const hadDocument = "document" in scope;
 if (!hadDocument) scope.document = {};
-await import("@base-ui/utils/useIsoLayoutEffect");
+await import(resolveBaseUiDependency("@base-ui/utils/useIsoLayoutEffect", import.meta.path));
 if (!hadDocument) delete scope.document;
 export {};
 
@@ -63,6 +65,13 @@ export {};
   writePaneProtocol({ log: () => {} });
   const { writeAcpmuxProtocol } = await import("../scripts/acpmux-protocol-codegen");
   writeAcpmuxProtocol({ log: () => {} });
+}
+
+// React reads its commit hook once, when react-dom loads: install the row render counter
+// (support/commitRenders.ts) first, so a jsdom test can count which rows a change rendered.
+{
+  const { installRowRenderCounter } = await import("./support/commitRenders");
+  installRowRenderCounter();
 }
 
 // React's scheduler keeps its queue private, and react-dom copies its entry points when it first
@@ -98,7 +107,7 @@ export {};
   // of the run. session-info-subagent-card-stays failed so behind session-info-motion in one
   // `bun test` process, and passed alone. Loaded here, after react-dom, which it imports: the copy
   // Base UI itself resolves (a dependency of @base-ui/react, not of this package).
-  await import(Bun.resolveSync("@floating-ui/react-dom", Bun.resolveSync("@base-ui/react/tooltip", import.meta.path)));
+  await import(resolveBaseUiDependency("@floating-ui/react-dom", import.meta.path));
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];
