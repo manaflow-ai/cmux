@@ -960,6 +960,7 @@ pub mod automatic;
 pub mod closing_panes;
 pub mod divider_insert;
 pub mod floating_panes;
+pub mod geometry;
 
 pub mod group_hover_summary;
 pub mod keep_awake;
