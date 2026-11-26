@@ -258,7 +258,6 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         .accessibilityElement(children: .combine)
     }
 
-    @ViewBuilder
     /// Rows a cold open painted from the relay cache (RFD 0142 R2) say so, and since when, until
     /// the live link replaces them. An overlay, so nothing below it moves when it goes.
     @ViewBuilder
@@ -278,6 +277,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
         }
     }
 
+    @ViewBuilder
     private var newPill: some View {
         let count = list.newAbove + store.unseenNewIDs.count
         // The pill stays through its jump: had it gone at the tap, a second tap on the same spot
