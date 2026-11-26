@@ -136,7 +136,12 @@ fn a_cards_reset_in_one_edit_is_one_entry_and_one_undo() {
         .map(|key| Edit { target: Target::Key(key.to_string()), kind: EditKind::Reset })
         .collect();
     store.apply(Op::Edit { edits, meta: meta(Origin::App) }).result.expect("the reset applies");
-    assert_eq!(scratch.file().pointer("/appearance"), None, "{}", scratch.text());
+    let file = scratch.file();
+    assert_eq!(file.pointer("/appearance/backgroundOpacity"), None, "{}", scratch.text());
+    assert_eq!(file.pointer("/appearance/background"), None, "{}", scratch.text());
+    // The reset changed the background shown, so the one it replaced is a
+    // recent one, one click back (`record_background`).
+    assert_eq!(file.pointer("/appearance/backgroundRecents"), Some(&json!(["daily"])));
     assert_eq!(store.history().len(), entries + 1, "one entry for the card");
 
     undo(&mut store, Origin::App).expect("one undo");
