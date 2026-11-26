@@ -61,8 +61,29 @@ pub(crate) async fn route(
             Check::Refuse(text) => return Err(refusal(&target, text)),
             Check::Queue(why) => unchecked = why,
         }
+    } else if !target.contains('/')
+        && !valid_role(&target)
+        && hub.resolve(&target).is_err()
+        && let Some(mesh) = hub.mesh.get()
+        && let Ok(Ok(book)) = tokio::time::timeout(BOOK_WAIT, mesh.sessions()).await
+        && let Some(key) = qualified(&book, &target)
+    {
+        target = key;
+        request["sessionId"] = json!(target);
     }
     Ok((target, unchecked))
+}
+
+/// A bare session id no session here holds, as `HOST/ID` when exactly one live session on the
+/// hub's book has that id. The hub routes only a qualified address: a send to the bare id was
+/// queued, accepted (exit 0) and then failed in the outbox with `mesh.unknown_recipient` after
+/// all its attempts, so a scripted wake to a peer's session by its id never arrived.
+pub(crate) fn qualified(book: &AddressBook, target: &str) -> Option<String> {
+    let mut found = book.sessions.iter().filter(|s| s.session_id == target);
+    match (found.next(), found.next()) {
+        (Some(s), None) => Some(format!("{}/{}", s.host, s.session_id)),
+        _ => None,
+    }
 }
 
 /// The send's answer says which session it went to when that is not the one asked for, and

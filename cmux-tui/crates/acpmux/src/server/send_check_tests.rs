@@ -28,6 +28,16 @@ fn book(daemons: &[&str], sessions: Vec<BookSession>) -> AddressBook {
 }
 
 #[test]
+fn a_bare_peer_session_id_is_qualified_with_its_host() {
+    let b = book(&["far"], vec![row("far", "lane", &[], &[])]);
+    assert_eq!(qualified(&b, "id-lane"), Some("far/id-lane".into()));
+    assert_eq!(qualified(&b, "id-other"), None);
+    // Two hosts listing one id is not a single session: left as it was.
+    let b = book(&["a", "b"], vec![row("a", "lane", &[], &[]), row("b", "lane", &[], &[])]);
+    assert_eq!(qualified(&b, "id-lane"), None);
+}
+
+#[test]
 fn a_live_session_on_the_book_is_queued_checked() {
     let b = book(&["far"], vec![row("far", "lane", &[], &[])]);
     assert_eq!(in_book(&b, "far/lane"), Check::Queue(None));
