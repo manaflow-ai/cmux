@@ -138,6 +138,11 @@ if [[ -n "$before_ref" ]]; then
   git cat-file -e "$before_ref^{commit}" 2>/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} origin "$before_ref"
   git worktree add -q --detach "$work/before" "$before_ref"
   echo "PAIRMATRIX-BEFORE ref=$(git -C "$work/before" rev-parse HEAD)"
+  # The before tree runs under this checkout's harness (cmux-fault: the shapers, their profiles and
+  # invariants), so a before row and this head's row differ only by the code under test; a shaper
+  # change would otherwise split them into two series (cmux#59268).
+  cp -R cmux-tui/crates/cmux-fault/. "$work/before/cmux-tui/crates/cmux-fault/"
+  echo "PAIRMATRIX-HARNESS cmux-fault from=$(git rev-parse --short=12 HEAD)"
   canary before-start
   tag="before-"
   pairs_at "$work/before"

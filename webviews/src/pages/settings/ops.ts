@@ -647,6 +647,9 @@ export type GitHubConnectionState = {
   }>;
   /** The Sign In button's title while nobody is signed in to cmux; null (or absent from an older host) otherwise. */
   signIn?: string | null;
+  /** The optional personal GitHub CLI login shown below the App connection. */
+  cliSignIn?: string;
+  cliSignInDetail?: string;
   /** With `signIn`: what it signs in to ("Signs in to cmux.com"), the line under the button. */
   signInBackend?: string | null;
 };
