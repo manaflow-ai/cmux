@@ -41,6 +41,46 @@ const LIVE_CLIENT: std::time::Duration = std::time::Duration::from_secs(30);
 static PROGRESS: LazyLock<Mutex<HashMap<String, (std::time::Instant, Value)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// The steps of one move request (a finish, a stage's finish, a prepare), timed: one
+/// `acpmux::move_steps` line when it ends, at info once it took a second, else at debug. A slow
+/// move then says which step grew with the history (cmux#54461: a 250 MB move's target finish
+/// took 169 s and nothing said where).
+pub(in crate::hub) struct MoveSteps {
+    what: &'static str,
+    started: std::time::Instant,
+    last: std::time::Instant,
+    steps: Vec<(&'static str, std::time::Duration)>,
+}
+
+impl MoveSteps {
+    pub(in crate::hub) fn new(what: &'static str) -> Self {
+        let now = std::time::Instant::now();
+        Self { what, started: now, last: now, steps: Vec::new() }
+    }
+
+    /// The step that ends now.
+    pub(in crate::hub) fn step(&mut self, name: &'static str) {
+        let now = std::time::Instant::now();
+        self.steps.push((name, now - self.last));
+        self.last = now;
+    }
+}
+
+impl Drop for MoveSteps {
+    fn drop(&mut self) {
+        let total = self.started.elapsed();
+        let steps: Vec<String> =
+            self.steps.iter().map(|(n, d)| format!("{n} {}ms", d.as_millis())).collect();
+        let steps = steps.join(", ");
+        let ms = total.as_millis() as u64;
+        if total >= std::time::Duration::from_secs(1) {
+            tracing::info!(target: "acpmux::move_steps", what = self.what, ms, "{steps}");
+        } else {
+            tracing::debug!(target: "acpmux::move_steps", what = self.what, ms, "{steps}");
+        }
+    }
+}
+
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }

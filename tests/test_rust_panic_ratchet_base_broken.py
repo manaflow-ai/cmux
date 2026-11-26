@@ -62,14 +62,14 @@ class BaseBrokenRatchet(unittest.TestCase):
         path.write_text("\n".join(json.dumps(i) for i in [*items, {"reason": "build-finished", "success": success}]))
         return str(path)
 
-    def run_ratchet(self, head_items, changed):
+    def run_ratchet(self, head_items, changed, reasonless=()):
         head = self.write("head.jsonl", [artifact("alpha"), *head_items], True)
         base = self.write("base.jsonl", [artifact("alpha")], False)
         err = io.StringIO()
         with unittest.mock.patch.object(self.ratchet, "changed_files", lambda root: frozenset(changed)), \
                 unittest.mock.patch.object(sys, "argv", ["ratchet", "--clippy-json", head,
                                                          "--base-clippy-json", base, "--repo", str(self.tmp)]), \
-                unittest.mock.patch.object(self.ratchet, "allow_without_reason", lambda root: []), \
+                unittest.mock.patch.object(self.ratchet, "allow_without_reason", lambda root: list(reasonless)), \
                 contextlib.redirect_stderr(err):
             code = self.ratchet.main()
         return code, err.getvalue()
@@ -89,6 +89,25 @@ class BaseBrokenRatchet(unittest.TestCase):
 
     def test_no_known_changed_files_charges_the_change_as_before(self):
         code, err = self.run_ratchet([hit("alpha", "crates/alpha/src/drift.rs", 3)], set())
+        self.assertEqual(code, 1, err)
+
+
+    # A reasonless allow the base already had (#55909's cmux-layout-reducer-ffi) charged every PR, since the
+    # scan walks the whole tree: only one in a file the change touched is the change's.
+    BAD = "cmux-tui/crates/alpha/src/lib.rs:510: allow(cast_possible_truncation) needs reason = \"...\""
+
+    def test_a_reasonless_allow_in_an_untouched_file_is_the_base_s(self):
+        code, err = self.run_ratchet([], {"crates/beta/src/other.rs"}, [self.BAD])
+        self.assertEqual(code, 0, err)
+        self.assertIn("the base's red, not this change's", err)
+
+    def test_a_reasonless_allow_in_a_touched_file_is_the_change_s(self):
+        code, err = self.run_ratchet([], {"crates/alpha/src/lib.rs"}, [self.BAD])
+        self.assertEqual(code, 1, err)
+        self.assertIn("needs reason", err)
+
+    def test_a_reasonless_allow_with_no_known_changed_files_still_fails(self):
+        code, err = self.run_ratchet([], set(), [self.BAD])
         self.assertEqual(code, 1, err)
 
 

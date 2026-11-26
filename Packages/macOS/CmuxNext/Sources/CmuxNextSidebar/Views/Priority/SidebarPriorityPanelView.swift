@@ -76,7 +76,7 @@ final class SidebarPriorityPanelView: NSView {
         archivedMore.isHidden = true
         document.addSubview(archivedHeader)
         document.addSubview(archivedMore)
-        SystemScrollers.followThin(scroll)
+        SystemScrollers.followThin(scroll, scrollOnly: true)
         empty.isHidden = true
         filterBar.isHidden = true
         filterBar.onAction = { [weak self] action in self?.onAction?(action) }

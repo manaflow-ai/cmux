@@ -121,5 +121,33 @@ class Judge(unittest.TestCase):
         self.assertTrue(any(b.startswith("p95_ms") for b in pu.breaches(slow, pu.BUDGETS)))
 
 
+
+class CronRows(unittest.TestCase):
+    """The perf cron's rows (part power-user-native): per class, frame p95/p99 on the refresh budget, each count
+    rule summed with its budget, and a burst the run could not measure (a hang) as a row of its own."""
+
+    def test_rows_per_class_with_budgets(self):
+        report = {"budgets": pu.BUDGETS, "bursts": [
+            {"class": "tab", "index": 0, "refresh_ms": R, "p95_ms": 8.0, "p99_ms": 9.0, "long": 0, "blank_frames": 0,
+             "flashes": 0, "shift_frames": 3, "lost": 1, "lag_run": 0, "reloads": 0},
+            {"class": "tab", "index": 1, "refresh_ms": R, "p95_ms": 20.0, "p99_ms": 40.0, "long": 1, "blank_frames": 0,
+             "flashes": 0, "shift_frames": 0, "lost": 0, "lag_run": 0, "reloads": 2},
+            {"class": "resize", "index": 0, "error": "run deadline"}]}
+        rows = {r["name"]: r for r in pu.cron_rows(report)}
+        self.assertEqual((rows["power_user.native.tab.p95"]["p95"], rows["power_user.native.tab.p95"]["budget"]),
+                         (20.0, round(1.5 * R, 2)))
+        self.assertEqual(rows["power_user.native.tab.shift_frames"]["p95"], 3)
+        self.assertEqual(rows["power_user.native.tab.lost"]["budget"], 0)
+        self.assertEqual(rows["power_user.native.tab.reloads"]["p95"], 2)
+        self.assertEqual(rows["power_user.native.tab.not_measured"]["p95"], 0)
+        self.assertEqual(rows["power_user.native.resize.not_measured"]["p95"], 1)
+        self.assertNotIn("power_user.native.resize.p95", rows)
+        self.assertIn("1 bursts not measured", pu.incomplete(report)[0]["reason"])
+
+    def test_launch_failure_is_incomplete(self):
+        self.assertEqual(pu.cron_rows({"bursts": []}), [])
+        self.assertIn("launch", pu.incomplete({"error": "launch: timeout", "bursts": []})[0]["reason"])
+        self.assertEqual(pu.incomplete({"bursts": [{"class": "tab", "index": 0, "p95_ms": 8}]}), [])
+
 if __name__ == "__main__":
     unittest.main()

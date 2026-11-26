@@ -5,6 +5,7 @@ import CmuxMobileBrowserStream
 import CmuxMobileDesign
 import CmuxMobileLinkFFI
 import CmuxMobileModel
+import CmuxMobileTransport
 import CmuxMobileScreenSharing
 import Observation
 import QuartzCore
@@ -34,8 +35,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
     /// From the published tabs (`tabs`), not the workspace: a Mac publish
     /// that changes nothing the kit shows does not re-run the tabs screen.
+    /// Read from every listed tab, not the overview's filtered `tabs`: a tab the filter hides can
+    /// still be the one on screen (it opened from a notification or Search).
     public var activeTabID: String? {
-        if let selectedTabID, tabs.contains(where: { $0.id == selectedTabID }) { return selectedTabID }
+        flushStale()
+        if let selectedTabID, listedTabs.contains(where: { $0.id == selectedTabID }) { return selectedTabID }
         return openingTabID
     }
     /// The workspace's opening tab as of the last `refreshTabs()`.
@@ -61,6 +65,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored var surfaces: [String: AgentChatSurface] = [:]
     /// Each chat tab's composer draft, kept across rebuilds and launches (nil: not kept).
     @ObservationIgnored var drafts: ComposerDraftStore? = .shared
+    /// Where the person was, kept across launches: a chat tab opens at its kept reading place
+    /// and keeps it as they read (nil: not kept).
+    @ObservationIgnored var lastPlace: LastPlaceMemory? = .shared
     /// Toggle Terminal and Chat (WorkspaceTabsSource+TerminalChat.swift): the face each paired tab
     /// shows, once the person chose one (else Rust's default).
     var chosenFaces: [String: TabFace] = [:]
@@ -179,11 +186,51 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// and the next read rebuilds it, so code that changes the store and
     /// reads the tabs in the same turn sees the change; otherwise the
     /// rebuild runs on the next turn.
+    ///
+    /// The overview's pane filter (`PaneFilterSetting`, Rust's `pane_filter_apply`) applies here, so
+    /// the grid, its zoom, the toolbar's swipe between tabs and Close All all see the same tabs.
+    /// The tab on screen always shows. Every listed tab stays reachable from Search and the Panes page.
     public var tabs: [TabsKitTab] {
+        flushStale()
+        return shownTabs().tabs
+    }
+    /// Every tab the workspace lists, before the pane filter.
+    var allTabs: [TabsKitTab] {
         flushStale()
         return listedTabs
     }
-    private var listedTabs: [TabsKitTab] = []
+    /// What the pane filter hides now (the header's "3 of 7").
+    public var paneFilterResult: PaneFilterResult {
+        flushStale()
+        return shownTabs().result
+    }
+    private var listedTabs: [TabsKitTab] = [] {
+        didSet { listVersion &+= 1 }
+    }
+    /// The pane filter's choice (shared by every workspace; tests pass their own).
+    @ObservationIgnored var paneFilter = PaneFilterSetting.shared
+    @ObservationIgnored private var listVersion = 0
+    @ObservationIgnored private var shown: (key: ShownKey, tabs: [TabsKitTab], result: PaneFilterResult)?
+    private struct ShownKey: Equatable {
+        var listVersion: Int
+        var active: String?
+        var filter: PaneFilter
+    }
+
+    /// The filtered list, rebuilt only when the list, the tab on screen or the filter changes:
+    /// one linear pass, so its cost per pane stays constant however many the Mac has.
+    private func shownTabs() -> (tabs: [TabsKitTab], result: PaneFilterResult) {
+        let filter = paneFilter.filter
+        let active = activeTabID
+        let key = ShownKey(listVersion: listVersion, active: active, filter: filter)
+        if let shown, shown.key == key { return (shown.tabs, shown.result) }
+        let kinds = listedTabs.map { PaneKind(entries[$0.id]?.tab.kind) }
+        let activeIndex = active.flatMap { id in listedTabs.firstIndex { $0.id == id } }.map(UInt32.init)
+        let result = paneFilterApply(kinds: kinds, active: activeIndex, filter: filter)
+        let tabs = result.filtering ? result.shown.map { listedTabs[Int($0)] } : listedTabs
+        shown = (key, tabs, result)
+        return (tabs, result)
+    }
     /// The workspace's list changed since the last `refreshTabs()` (set synchronously by
     /// the observation, before the rebuild task runs).
     @ObservationIgnored private var listStale = false
@@ -326,7 +373,6 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // The phone-side Screen Sharing tab (Open as Tab), after the Mac's tabs.
         if isScreenSharingTabListed { next.append(screenSharingKitTab) }
         if next != listedTabs { listedTabs = next }
-        if isSingleTab != (next.count == 1) { isSingleTab = next.count == 1 }
         if preparingCards { prepareTerminalCards(workspace.tabs) }
     }
 
@@ -488,7 +534,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             )
         case .terminal:
             let directory = tab.subtitle ?? workspace.directory
-            // "Reattaching…" replaces the directory in the pill only after a slow reattach (P5).
+            // "Can't connect" or "Mac offline" replaces the directory in the pill only after the quiet bound (P5);
+            // a reattach still under way says nothing (Leo, 2026-11-24).
             let status = terminal.statusSubtitle(for: tab)
             return TabsKitTab(
                 id: tab.id, kind: .terminal, title: tab.title, subtitle: directory,
@@ -550,6 +597,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         guard workspaceTab(id) != nil else { return }
         // verify/e2e: the touch that switches tabs (the rig's tab_switch t0).
         ConnectTimeline.shared.event("tab_activate", detail: id)
+        if id != activeTabID { snapshotPage(activeTabID) }
         selectedTabID = id
         store.noteOpened(tabID: id, in: workspaceID)
         if heldTranscriptTab != nil { holdActiveTranscript(true) }
@@ -587,8 +635,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
         // A working agent or a program running in the tab: a phone close ends
         // its terminal with no way back. Ask first, exactly as the Mac's tab
         // close does (TabCloseGuard), from the Mac's own process state.
-        guard await confirmClose([tab], in: workspace) else { return false }
-        return await closeConfirmed(tab, in: workspace)
+        // One trace per Close Tab (PhoneTrace): its question's read and the close, against the
+        // one round trip a close needs.
+        return (try? await PhoneTrace.action("close-tab", floorRoundTrips: 1) {
+            guard await confirmClose([tab], in: workspace) else { return false }
+            return await closeConfirmed(tab, in: workspace)
+        }) ?? false
     }
 
     /// The tabs Close Tabs to the Left (`left`) or to the Right closes for `tab`, in order: the
@@ -619,16 +671,28 @@ public final class WorkspaceTabsSource: TabsDataSource {
             CmuxMobileTheme.standard.haptics.error()
             return false
         }
+        // The tab leaves the grid at once, as on the Mac; the Mac's answer only confirms it. A
+        // refusal puts it back where it was, still selected if it was.
+        let position = store.workspace(id: workspaceID)?.tabs.firstIndex { $0.id == id }
+        let wasSelected = selectedTabID == id
+        let movesSelection = wasSelected || selectedTabID == nil
+        let next = removeTabHere(id)
+        // The kit reads `tabs` as soon as this returns (Safari's timing).
+        refreshTabs()
+        // Only the closed tab moves the choice: one that is only missing for now (a partial
+        // list) comes back on screen when it is listed again.
+        if movesSelection { selectedTabID = next?.id }
         do {
             try await creator.backend.closeTab(tab, in: workspace)
         } catch {
+            removedHere.remove(id)
+            if let position { store.insertTab(tab, at: position, in: workspaceID) }
+            if wasSelected { selectedTabID = id }
+            refreshTabs()
             show(TabNotice(action: .close(title: tab.title), macName: macName, reason: Self.message(error)))
             CmuxMobileTheme.standard.haptics.error()
             return false
         }
-        let next = removeTabHere(id)
-        // The kit reads `tabs` as soon as this returns (Safari's timing).
-        refreshTabs()
         dropDraft(id)
         surfaces[id] = nil
         browsers[id] = nil
@@ -637,12 +701,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         streamed.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
         native.drop(tab: id, macID: store.workspace(id: workspaceID)?.macID)
-        // Only the closed tab moves the choice: one that is only missing for now (a partial
-        // list) comes back on screen when it is listed again.
-        if selectedTabID == id || selectedTabID == nil {
-            selectedTabID = next?.id
-            if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
-        }
+        if movesSelection, let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         if heldTranscriptTab != nil { holdActiveTranscript(true) }
         return true
     }
@@ -930,6 +989,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         let id = tab.id
         if tab.kind == .browser, !streamed.isLive, browsers[id] == nil { browsers[id] = BrowserTabModel(url: tab.url) }
+        if tab.kind == .browser, streamed.isLive { placeNewBrowserTab(tab, announce: true) }
         refreshTabs()
         // A new chat opens ready to type (SPEC 6.2; ChatGPT, Claude and Grok
         // open a new chat with the keyboard up).
@@ -994,6 +1054,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
             let key = ComposerDraftStore.key(macID: macID, tabID: id)
             surface.text = drafts.text(for: key) ?? ""
             surface.onTextChange = { [weak drafts] text in drafts?.save(text, for: key) }
+        }
+        // The reading place of the last run, from the phone's own file (never the network).
+        if let lastPlace {
+            let workspaceID = workspaceID
+            surface.restoreAnchor = lastPlace.readingAnchor(workspaceID: workspaceID, tabID: id)
+            surface.onReadingAnchor = { [weak lastPlace] anchor in
+                lastPlace?.noteReading(workspaceID: workspaceID, tabID: id, anchor: anchor)
+            }
         }
         // `/fork` and an earlier prompt's Edit and Resend open their copy as a tab beside it.
         surface.tabActions = AgentChatTabActions(
@@ -1080,6 +1148,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 store.appendTab(opened, to: workspaceID)
             }
             if !streamed.isLive, browsers[opened.id] == nil { browsers[opened.id] = BrowserTabModel(url: opened.url) }
+            if streamed.isLive { placeNewBrowserTab(opened, announce: !request.opensInBackground) }
             if request.opensInBackground {
                 show("Opened in a new tab.")
             } else {
@@ -1121,6 +1190,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func card(for kit: TabsKitTab) -> some View {
         WorkspaceTabCard(source: self, tabID: kit.id, insets: lastInsets)
+            // The layout-shift count: a drawn card must not move or resize while the grid settles.
+            .layoutShiftTracked("tabcard.\(kit.id)", in: .window)
     }
 
     /// A card is one accessibility element ("build, tab"), so its split map's
@@ -1155,14 +1226,21 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// catch up once the grid shows or stops.
     @ObservationIgnored private var cardFeeds: [String: AgentCardFeed] = [:]
     @ObservationIgnored let rasterizer = AgentCardRasterizer()
-    /// A grid card's width over the page's (TabsKit's two-column card, or a
+    /// A grid card's width over the page's (TabsKit's column card, or a
     /// lone tab's larger card): the resolution an agent card's picture is drawn at.
+    /// TabsKit's own geometry decides it (`TabsKitOverviewGeometry`), from the tabs the grid
+    /// shows (after the pane filter) and its column count: a fixed two-column guess drew an
+    /// unfolded screen's three- and four-column cards too large, and a lone card on a wide
+    /// page past TabsKit's cap.
     var cardScale: CGFloat {
         let w = max(1, pageWidth)
-        return isSingleTab ? (w * 2 / 3).rounded() / w : ((w - 48) / 2).rounded(.down) / w
+        let shown = tabs
+        let pins = pinnedTabIDs
+        let pinned = pins.isEmpty ? 0 : (shown.firstIndex { !pins.contains($0.id) } ?? shown.count)
+        return TabsKitOverviewGeometry.cardWidth(pageWidth: w, columns: overviewColumns, cards: shown.count, pinned: pinned) / w
     }
-    /// One tab listed (TabsKit draws its card larger).
-    private(set) var isSingleTab = false
+    /// The grid's columns (the page's `overview_columns`, set by `WorkspaceScreen`).
+    var overviewColumns = 2
     @ObservationIgnored private var gridShown = false
     @ObservationIgnored private var gridScrolling = false
     /// Cards follow their chats only while the grid rests (settled and still,
@@ -1256,7 +1334,20 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The tab's last-known picture (nil: signed out, or no workspace yet).
     func snapshotEntry(_ tabID: String) -> TabSnapshotEntry? {
         guard let macID = (workspaceSnapshot ?? listedWorkspace)?.macID else { return nil }
-        return snapshots.key(macID: macID, tabID: tabID).map { snapshots.entry($0) }
+        return snapshots.key(macID: macID, tabID: tabID).map { key in
+            let entry = snapshots.entry(key)
+            // A card built for a picture the cache let go (a memory warning, the oldest of many tabs, a tab
+            // past the first read) asks the disk again: its picture comes back, never a blank card.
+            if entry.image == nil { snapshots.warm([key]) }
+            return entry
+        }
+    }
+
+    /// Reads one tab's last-known picture from disk if it is not in memory (a card appearing).
+    func warmSnapshot(_ tabID: String) {
+        guard let macID = (workspaceSnapshot ?? listedWorkspace)?.macID,
+              let key = snapshots.key(macID: macID, tabID: tabID) else { return }
+        snapshots.warm(key)
     }
 
     /// Reads the tabs' last-known pictures from disk, nearest the active tab
@@ -1312,15 +1403,27 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if !inactive.isEmpty { terminal.overviewWillAppear(inactive: inactive) }
         warmSnapshots()
         guard let id = activeTabID else { freezeStreams(true); return }
-        let active = workspaceTab(id)
-        if let tab = active, tab.kind == .browser { keepSnapshots(of: browser(tab), tab: id) }
-        if let tab = active, tab.kind == .simulator, let model = simulator(tab) { keepSnapshots(of: model, tab: id) }
         // A streamed page holds still from the first shrinking frame; its snapshot
-        // below is the held frame, kept as the tab's last-known picture.
+        // is the held frame, kept as the tab's last-known picture.
+        snapshotPage(id, freezingStreams: true)
         freezeStreams(true)
-        if let tab = active, tab.kind == .browser { browser(tab).takeSnapshot() }
-        if let tab = active, tab.kind == .simulator, let model = simulator(tab) { model.takeSnapshot() }
         if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
+    }
+
+    /// A browser or simulator page takes the picture its card shows while it is still on screen:
+    /// when the grid opens on it, and when a swipe or tap leaves it for another tab. Taken only at
+    /// the grid's opening, a page left by a swipe kept the blank globe (or the picture of an
+    /// older visit) on its card, since an off-screen web view takes no snapshot. At the grid's
+    /// opening the streams freeze between keeping and taking, so the picture is the held frame.
+    /// The picture is also kept as the tab's last-known one (`keepSnapshots`).
+    func snapshotPage(_ id: String?, freezingStreams: Bool = false) {
+        guard let id, let tab = workspaceTab(id) else { return }
+        let model: (any BrowserTabState)?
+        if tab.kind == .browser { model = browser(tab) } else if tab.kind == .simulator { model = simulator(tab) } else { model = nil }
+        guard let model else { return }
+        keepSnapshots(of: model, tab: id)
+        if freezingStreams { freezeStreams(true) }
+        model.takeSnapshot()
     }
 
     /// The streamed pages held on one frame while the grid shows.
@@ -1588,6 +1691,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 store.appendTab(opened, to: workspaceID)
             }
             if !streamed.isLive, browsers[opened.id] == nil { browsers[opened.id] = BrowserTabModel(url: url) }
+            if streamed.isLive {
+                var typed = opened
+                if typed.url == nil { typed.url = url }
+                placeNewBrowserTab(typed, announce: true)
+            }
             return opened.id
         } catch let error as WorkspaceCreationError where error.isForPerson {
             show(named(error.message))
@@ -1617,6 +1725,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 store.appendTab(created, to: workspaceID)
             }
             if created.kind == .browser, !streamed.isLive, browsers[created.id] == nil { browsers[created.id] = BrowserTabModel(url: created.url) }
+            if created.kind == .browser, streamed.isLive { placeNewBrowserTab(created, announce: true) }
             refreshTabs()
             if created.kind == .agent { surface(created.id).composerFocused = true }
             activate(created.id)
@@ -1693,6 +1802,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == opened.id }) != true {
                 store.appendTab(opened, to: workspaceID)
             }
+            // The terminal sent it to the Mac on purpose (Open on Mac, a Mac-only address): no rule moves it.
+            native.keepWhereItIs(tab: opened.id, macID: workspace.macID)
             activate(opened.id)
             openedTab = opened.id
         } catch let error as WorkspaceCreationError where error.isForPerson {
@@ -1723,10 +1834,19 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// Drag in the grid: here at once, then on the Mac (`move-tab` to the place of the
     /// tab it lands on); a refusal puts it back.
+    /// The grid lists only the tabs the pane filter shows: a drop on its slot `index` takes the
+    /// Mac position of the shown tab there (after the last shown tab past the end).
+    func workspaceIndex(forGridIndex index: Int, in workspace: Workspace) -> Int {
+        let shown = tabs
+        guard shown.count != listedTabs.count else { return index }
+        let anchor = shown.indices.contains(index) ? shown[index].id : shown.last?.id
+        return anchor.flatMap { id in workspace.tabs.firstIndex { $0.id == id } } ?? index
+    }
+
     public func moveTab(_ id: TabsKitTab.ID, to index: Int) {
         // The Screen Sharing tab lists after the Mac's tabs: a drop on its slot is the Mac's last.
         guard let workspace, !workspace.tabs.isEmpty else { return }
-        let index = min(index, workspace.tabs.count - 1)
+        let index = min(workspaceIndex(forGridIndex: index, in: workspace), workspace.tabs.count - 1)
         guard let creator, let tab = workspaceTab(id),
               let from = workspace.tabs.firstIndex(where: { $0.id == id }), from != index,
               workspace.tabs.indices.contains(index) else { return }
@@ -2515,19 +2635,30 @@ struct WorkspaceTabPage: View {
                 .onAppear {
                     source.remember(context.safeAreaInsets, pageSize: context.pageSize)
                     source.pageAppeared(tabID)
+                    ScreenSharingOrientation.shared.tabPage(tabID, shows: context.isOnPage)
                 }
+                // Every tab page turns with the phone while it is full screen (Leo, 2026-11-23:
+                // "why do we not have a horizontal mode?"): a swipe to a browser or chat tab,
+                // or an address-bar edit, keeps the phone sideways; the tab grid is portrait.
+                .onChange(of: context.isOnPage) { _, onPage in
+                    ScreenSharingOrientation.shared.tabPage(tabID, shows: onPage)
+                }
+                .onDisappear { ScreenSharingOrientation.shared.tabPage(tabID, shows: false) }
         }
     }
 
     @ViewBuilder
     private func page(_ tab: WorkspaceTab, _ workspace: Workspace) -> some View {
         let insets = context.safeAreaInsets
+        // What scrolls under the chrome follows it (a collapsed top bar gives its band back);
+        // a surface with a fixed size (the streamed browser and simulator) keeps the resting insets.
+        let chromeInsets = context.chromeInsets
         switch tab.kind {
         case .agent:
             let surface = source.surface(tab.id)
             AgentChatTranscript(
                 store: source.chatStore(tab, workspace), surface: surface,
-                topInset: insets.top + 8,
+                topInset: chromeInsets.top + 8,
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
             .background(CmuxMobileChatBackdrop())
@@ -2540,13 +2671,13 @@ struct WorkspaceTabPage: View {
         case .terminal:
             // Claude Code and Codex: the terminal and a View Only chat of its session, both parked;
             // the page menu's Show Chat / Show Terminal row swaps them.
-            TerminalChatPage(source: source, tab: tab, workspace: workspace, topInset: insets.top,
+            TerminalChatPage(source: source, tab: tab, workspace: workspace, topInset: chromeInsets.top,
                              reportScroll: { context.reportScroll(fingerDelta: $0) }) {
                 terminalPage(tab, workspace)
             }
         case .browser:
             if let model = source.nativeBrowser(tab) {
-                NativeBrowserPage(model: model, macName: source.macName, insets: insets,
+                NativeBrowserPage(model: model, macName: source.macName, insets: chromeInsets,
                                   isZoomGestureActive: context.isZoomGestureActive,
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
                                   canMirror: source.canMirror(tab), mirror: { source.mirrorFromMac(tab.id) })
@@ -2554,7 +2685,7 @@ struct WorkspaceTabPage: View {
                 StreamedBrowserPage(model: model, insets: insets, lastKnown: source.snapshotEntry(tab.id)?.image?.cgImage,
                                     reportScroll: { context.reportScroll(fingerDelta: $0) })
             } else {
-                BrowserPage(model: source.localBrowser(tab), insets: insets, isZoomGestureActive: context.isZoomGestureActive,
+                BrowserPage(model: source.localBrowser(tab), insets: chromeInsets, isZoomGestureActive: context.isZoomGestureActive,
                             reportScroll: { context.reportScroll(fingerDelta: $0) })
             }
         case .simulator:
@@ -2601,10 +2732,12 @@ struct WorkspaceTabPage: View {
     private var terminalContext: TerminalTabContext {
         let context = context
         let tabID = tabID
-        return TerminalTabContext(safeAreaInsets: context.safeAreaInsets, isInteractive: context.isInteractive,
+        return TerminalTabContext(safeAreaInsets: context.safeAreaInsets, chromeTop: context.chromeInsets.top,
+                                  isInteractive: context.isInteractive,
                                   isZoomGestureActive: context.isZoomGestureActive,
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
-                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } })
+                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } },
+                                  isOnPage: context.isOnPage)
     }
 }
 
@@ -2646,14 +2779,17 @@ struct WorkspaceTabAccessory: View {
 /// the keyboard is up; an interactive dismissal drags the keyboard under the
 /// toolbar before it reports 0, so the row followed it down, then jumped
 /// back up. This lifts the row by however far it would sink, as a render
-/// effect (no layout feedback). A collapsed toolbar rests lower, so the
-/// floor applies only with the toolbar expanded.
+/// effect (no layout feedback). A collapsed bottom toolbar rests lower, so
+/// there the floor applies only with it expanded; a top toolbar's collapse
+/// leaves the bottom alone, so the floor always holds
+/// (`PageChromeInsets.accessoryRestsOnBar`).
 struct AccessoryFloor: ViewModifier {
     let context: TabsKitContentContext
 
     func body(content: Content) -> some View {
         let floor = context.pageSize.height - context.safeAreaInsets.bottom
-        let applies = !context.isToolbarCollapsed && floor > 0
+        let applies = PageChromeInsets.accessoryRestsOnBar(edge: context.toolbarEdge, collapsed: context.isToolbarCollapsed)
+            && floor > 0
         content.visualEffect { effect, proxy in
             effect.offset(y: applies ? -Self.overshoot(maxY: proxy.frame(in: .global).maxY, floor: floor) : 0)
         }
@@ -2671,8 +2807,16 @@ struct WorkspaceTabCard: View {
     @Environment(\.tabsKitCardPageSize) private var kitPageSize
     let tabID: String
     let insets: EdgeInsets
+    @AppStorage(CmuxMobilePreferences.Key.tabCardMonograms) private var monograms = CmuxMobilePreferences.defaultTabCardMonograms
 
     var body: some View {
+        // Its last-known picture read from disk as it appears: a tab past the list's first warm,
+        // or one evicted from memory since, still shows its picture (not a stand-in).
+        face.onAppear { source.warmSnapshot(tabID) }
+    }
+
+    @ViewBuilder
+    private var face: some View {
         // Its own tab's entry (one card re-runs when its tab changes), and
         // values only: no host or store is made here.
         if tabID == WorkspaceTabsSource.screenSharingTabID {
@@ -2733,24 +2877,36 @@ struct WorkspaceTabCard: View {
                 // A page not shown in this launch has no snapshot of its own: its last-known picture stands in.
                 let lastKnown = source.snapshotEntry(tab.id)?.image
                 if let model = source.nativeBrowser(tab) {
-                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id)
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id, host: (model.url ?? tab.url)?.host())
                 } else if let model = source.streamedBrowser(tab) {
-                    // Laid out as its page is: the card covers an opening page (`isContentReady`).
-                    StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage)
+                    // Site monograms (off by default) stand in for the globe until the first frame.
+                    if model.snapshot == nil, lastKnown == nil,
+                       monograms, SiteMonogram.letter(tab.url?.host()) != nil {
+                        SiteMonogramFace(host: tab.url?.host())
+                            .modifier(TabCardFaceRecord(tabID: tab.id, face: "placeholder"))
+                    } else {
+                        // Laid out as its page is: the card covers an opening page (`isContentReady`).
+                        StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage)
+                            .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
+                    }
                 } else {
                     // The tab's model only if its page was shown: a card never makes a web view.
-                    BrowserCard(model: source.existingBrowser(tab.id), insets: insets, lastKnown: lastKnown, tabID: tab.id)
+                    let model = source.existingBrowser(tab.id)
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id, host: (model?.url ?? tab.url)?.host())
                 }
             case .simulator:
                 if let model = source.simulator(tab) {
-                    StreamedBrowserCard(model: model, placeholder: "iphone", fit: true,
-                                        lastKnown: source.snapshotEntry(tab.id)?.image?.cgImage)
+                    let lastKnown = source.snapshotEntry(tab.id)?.image
+                    StreamedBrowserCard(model: model, fit: true, lastKnown: lastKnown?.cgImage)
+                        .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
                 } else if let image = source.snapshotEntry(tab.id)?.image {
                     ZStack { Color.black; Image(uiImage: image).resizable().interpolation(.medium).scaledToFit() }
                         .accessibilityHidden(true)
+                        .modifier(TabCardFaceRecord(tabID: tab.id, face: "lastKnown"))
                 } else {
-                    Image(systemName: "iphone").font(.system(size: 72, weight: .light)).foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // No picture yet: the card's background, never a stand-in glyph.
+                    Color.cmuxMobileBackground
+                        .modifier(TabCardFaceRecord(tabID: tab.id, face: "placeholder"))
                 }
             }
     }

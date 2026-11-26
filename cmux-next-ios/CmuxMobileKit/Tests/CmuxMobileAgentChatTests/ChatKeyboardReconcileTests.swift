@@ -15,6 +15,13 @@ import CmuxMobileSupport
         let center = NotificationCenter()
         let tracker = MobileKeyboardFrameTracker(notificationCenter: center)
         tracker.keyboardOwnerPresent = { false }
+        // This test's window has no scene, so UIKit's keyboard layout guide never
+        // moves for a posted frame (the iOS 26 simulator kept the dock at rest, CI run
+        // 45364817994). The dock then follows the notified frames, the path a stalled
+        // guide takes; set before the controller is made, restored after.
+        let stalled = ChatTranscriptController.layoutGuideStalls
+        ChatTranscriptController.layoutGuideStalls = true
+        defer { ChatTranscriptController.layoutGuideStalls = stalled }
         let store = AgentChatStore(source: SmoothChatTests.Silent())
         let surface = AgentChatSurface()
         let controller = ChatTranscriptController(
@@ -22,13 +29,30 @@ import CmuxMobileSupport
             empty: AnyView(EmptyView()), dock: AnyView(Color.clear.frame(height: 96)), jump: nil,
             keyboardTracker: tracker
         )
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        // The kit's test host has no window scene (connectedScenes is empty there), so the window
+        // is made without one when none exists. The posted frame is then built from the view's
+        // own space through the screen space notifiedTop converts from, so the keyboard top lands
+        // 374 pt up whatever that window's screen mapping is. This test (#46792) never ran green
+        // on base: the posted frame left the dock at rest (866), see #53107.
+        let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map { UIWindow(windowScene: $0) } ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
         window.rootViewController = controller
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()
         defer { window.isHidden = true }
 
-        let shown = CGRect(x: 0, y: 500, width: 402, height: 374)
+        let bounds = controller.view.bounds
+        let inView = CGRect(x: 0, y: bounds.maxY - 374, width: bounds.width, height: 374)
+        let shown = controller.view.convert(inView, to: window.screen.coordinateSpace)
+        // Preconditions for the notified fallback, with their values: the guide rests full width
+        // at the bottom (no real keyboard), and the posted frame reads back where it was built.
+        let guide = controller.view.keyboardLayoutGuide.layoutFrame
+        #expect(guide.width >= bounds.width - 1 && guide.minY > inView.minY + 40,
+                "guide at rest: \(guide) in \(bounds), scene=\(scene != nil)")
+        let back = controller.view.convert(shown, from: window.screen.coordinateSpace)
+        #expect(abs(back.minY - inView.minY) < 1 && abs(back.width - inView.width) < 1,
+                "posted frame reads back: \(back) from \(shown), built \(inView)")
         let userInfo: [AnyHashable: Any] = [
             UIResponder.keyboardFrameEndUserInfoKey: NSValue(cgRect: shown),
             UIResponder.keyboardAnimationDurationUserInfoKey: 0.0,
@@ -43,7 +67,10 @@ import CmuxMobileSupport
         }
         controller.view.layoutIfNeeded()
         let dock = try #require(controller.view.subviews.compactMap { $0 as? PassthroughView }.first)
-        #expect(dock.frame.maxY < controller.view.bounds.maxY - 100, "the shown keyboard lifts the stale dock")
+        let after = controller.view.keyboardLayoutGuide.layoutFrame
+        let views = controller.view.subviews.map { "\(type(of: $0)) \($0.frame)" }.joined(separator: "; ")
+        #expect(dock.frame.maxY < controller.view.bounds.maxY - 100,
+                "the shown keyboard lifts the stale dock: dock \(dock.frame), guide \(after), shown \(shown), bounds \(controller.view.bounds), window=\(controller.view.window != nil), subviews: \(views)")
         #expect(tracker.isShown)
         // The controller is detached when the tracker learns the hide. Its
         // own keyboard observer cannot consume a notification it never got.

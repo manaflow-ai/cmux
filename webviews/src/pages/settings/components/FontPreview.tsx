@@ -13,6 +13,7 @@ import {
   FONT_PREVIEWS,
   PREVIEW_INPUTS,
   TEXT_SPECIMEN,
+  UI_SPECIMEN,
   familyStack,
   numberOr,
   type ChoicePreview,
@@ -125,9 +126,12 @@ function FamilySample({ preview, value }: { preview: FamilyPreview; value: unkno
   const size = useNumber(preview.size, 13);
   const name =
     typeof value === "string" && value ? value : preview.fallback && typeof fallback === "string" ? fallback : null;
+  const specimen = preview.specimen ?? "code";
   return (
-    <div className="font-sample" data-font-sample={name ?? ""} data-size={size}>
-      <span style={{ fontFamily: familyStack(name), fontSize: `${size}px` }}>{CODE_SPECIMEN}</span>
+    <div className="font-sample" data-font-sample={name ?? ""} data-size={size} data-specimen={specimen}>
+      <span style={{ fontFamily: familyStack(name, specimen), fontSize: `${size}px` }}>
+        {specimen === "text" ? UI_SPECIMEN : CODE_SPECIMEN}
+      </span>
     </div>
   );
 }

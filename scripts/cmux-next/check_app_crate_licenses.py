@@ -64,13 +64,16 @@ FIRST_PARTY_GPL = {
     "cmux-daemon-conn-core",
     "cmux-daemon-launch-core",
     "cmux-health-core",
+    "cmux-keymap",
     "cmux-launch-image",
+    "cmux-pane-pictures",
     "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",
     "cmux-sdk",
     "cmux-sdk-ffi",
     "cmux-terminal-prediction",
+    "cmux-url-input",
     "cmux-window-rules",
 }
 

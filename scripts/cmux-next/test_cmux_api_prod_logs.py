@@ -407,5 +407,20 @@ class PrivateOutputTests(unittest.TestCase):
         self.assertEqual(output.getvalue(), "")
 
 
+class RefusalWhyTests(unittest.TestCase):
+    def test_rate_limited_refusal_names_its_quota(self):
+        why = logs.refusal_why({"x-ratelimit-remaining": "0", "x-ratelimit-resource": "core",
+                                "x-ratelimit-reset": "1795570000"})
+        self.assertEqual(why, " (rate limited: remaining=0 resource=core reset=1795570000)")
+
+    def test_permission_refusal_says_not_rate_limited(self):
+        self.assertEqual(logs.refusal_why({"x-ratelimit-remaining": "4812", "x-ratelimit-resource": "core"}),
+                         " (not rate limited: remaining=4812 resource=core)")
+
+    def test_no_headers_or_odd_values_add_nothing(self):
+        self.assertEqual(logs.refusal_why(None), "")
+        self.assertEqual(logs.refusal_why({"x-ratelimit-resource": "core; token=ghs_x"}), "")
+
+
 if __name__ == "__main__":
     unittest.main()

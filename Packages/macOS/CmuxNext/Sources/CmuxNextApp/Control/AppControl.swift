@@ -139,6 +139,8 @@ final class AppControl {
             }.withDeadline(.fixed(.seconds(45))),
             // Installed Chrome extensions, shortcuts and toolbar badges.
             .mainActor("browser.extensions") { [weak services] _ in .value(services.map { ExtensionControl.report($0) } ?? .null) },
+            // `browser.import_offer`: where the Chrome import card stands, read-only (a NIGHTLY read-back; BrowserImportOfferReadout).
+            .mainActor("browser.import_offer") { [weak services] _ in .value(services?.onboarding.browserImportOffer.readout() ?? .null) },
             // `apps.views`: each open extension view and the words it shows now (read-only).
             .mainActor("apps.views") { [weak services] call in .value(services?.apps.client.viewsReport(app: call.params["app"]?.stringValue) ?? .null) },
             // Ghostty config keys and keybind actions cmux does not apply (R92).
@@ -153,12 +155,14 @@ final class AppControl {
         // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
         // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
         service.router.register(perfProbes.methods())
+        // A browser tab's and its popups' pending prompts in Release too (BrowserPromptsControl), for login-flow checks on a NIGHTLY.
+        service.router.register(BrowserPromptsControl.methods(services))
         // Diagnostics for tagged DEV builds; a release build registers none (ControlRouter drops them: Configuration.allowsDebugMethods).
         #if DEBUG || CMUX_BENCH_HOOKS
         // The newest action runs and the over-budget counters (zero-latency.md, the budget contract).
         service.router.register([budget.method(registry: registry)])
         service.router.register(DebugHibernationControl.methods(services))
-        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod(), services.healthFeeds.debugMethod()])  // debug.chief_pet, debug.act_as_me, debug.app_health_card: captures
+        service.router.register([services.chiefPetMini.debugMethod(), services.personInput.actAsMe.debugMethod()])  // debug.chief_pet, debug.act_as_me: captures
         service.router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugRequestLatencyMethod()] + services.daemon.creationHold.methods + services.daemon.closeReadHold.methods)
         terminalDisplayProbe.terminals = { [weak services] in services?.cache.terminals.map { ($0.key, $0.value.session) } ?? [] }
         service.router.register([
@@ -321,6 +325,12 @@ final class AppControl {
             .mainActor("debug.cef_pages") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(debugCEFPagesReport(services))
+            },
+            // Every live agent page by the owner that holds it, and the ones with no tab that still draw (AgentTabs+Liveness).
+            .mainActor("debug.agent_pages") { [weak services] call in
+                guard let tabs = services?.madeAgentTabs else { return .value(.null) }
+                let swept = call.params["sweep"]?.boolValue == true ? tabs.sweepOrphans() : 0 // {sweep: true}: as a tab's release does a second later
+                return .value(tabs.livePages.report(owner: tabs.pageOwner(), swept: swept))
             },
             // A DevTools method on one of cmux's own Chromium pages by browser id (bench_power.py idle-chats).
             .async("debug.cef_page_devtools") { [weak services] call in

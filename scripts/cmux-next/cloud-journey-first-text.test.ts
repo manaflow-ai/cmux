@@ -46,6 +46,23 @@ describe("create to streamed first text", () => {
     expect(steps[1].fields).not.toHaveProperty("create_to_first_text_ms");
   });
 
+  test("the guest's own times ride the marker into guest_ms; the old bare marker still counts", async () => {
+    let now = 0;
+    const timing = new FirstTextTiming(() => now);
+    timing.mark("create");
+    const steps: Step[] = [];
+    now = 5000;
+    await observeFirstText(async () => ({ code: 0, stdout: "@@first-text 2400 900\n", stderr: "" }), "s", 5000, timing, (s) => steps.push(s));
+    expect(steps[0].fields?.guest_ms).toEqual({ first_token: 2400, first_thought: 900 });
+    const bare = new FirstTextTiming(() => now);
+    bare.mark("create");
+    await observeFirstText(async () => ({ code: 0, stdout: "@@first-text 2400 -1\n", stderr: "" }), "s", 5000, bare, (s) => steps.push(s));
+    expect(steps[1].fields?.guest_ms).toEqual({ first_token: 2400 });
+    bare.guest("harness_spawn", null);
+    bare.guest("first_token", 1); // first write wins
+    expect(bare.fields().guest_ms).toEqual({ first_token: 2400 });
+  });
+
   function runTail(program: string, budget = 2000) {
     const dir = mkdtempSync(join(tmpdir(), "journey-first-text-"));
     try {
@@ -67,13 +84,13 @@ data = ${JSON.stringify(text)}.encode()
 for b in data: os.write(1, bytes([b]))
 time.sleep(10) # a turn whose end must never be awaited`);
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("@@first-text");
+    expect(result.stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);
     expect(result.stdout).not.toContain("héllo");
   });
 
   test("accepts the live session/update shape", () => {
     const live = { method: "session/update", params: chunk().msg.params };
-    expect(runTail(`print('{"kind":"turn_started"}', flush=True)\nprint(${JSON.stringify(JSON.stringify(live))}, flush=True)`).stdout.trim()).toBe("@@first-text");
+    expect(runTail(`print('{"kind":"turn_started"}', flush=True)\nprint(${JSON.stringify(JSON.stringify(live))}, flush=True)`).stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);
   });
 
   test.each([
@@ -282,7 +299,7 @@ await done;
   test("skips an oversized line and resumes on the next assistant chunk", () => {
     const result = runTail(`print('{"kind":"turn_started"}', flush=True)\nos.write(1, b'x' * 1100000 + b'\\n')\nprint(${JSON.stringify(JSON.stringify(chunk()))}, flush=True)`);
     expect(result.status).toBe(0);
-    expect(result.stdout.trim()).toBe("@@first-text");
+    expect(result.stdout.trim()).toMatch(/^@@first-text \d+ -?\d+$/);
   });
 
   test("preserves completion ms; either leg exports first-text fields under its model", () => {

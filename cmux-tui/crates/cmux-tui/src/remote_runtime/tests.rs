@@ -12,6 +12,8 @@ mod initial_route_budget;
 mod last_good_route;
 #[cfg(unix)]
 mod ssh_forced_command;
+#[cfg(unix)]
+mod warm_standby;
 
 /// Binds a stream socket at `path` that never listens, as a crashed
 /// client leaves it. A connect to it is refused even while the returned
