@@ -467,11 +467,14 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
 
   const measure = async (page: Page, step: string, play: () => Promise<void>, seeded: boolean) => {
     const composerBefore = await composerBottom(page);
+    const dump = (tag: string) => page.evaluate((sel) => [...document.querySelectorAll<HTMLElement>(sel)].filter((r) => r.getBoundingClientRect().height > 0).slice(-8).map((r) => `${r.dataset.rowId ?? r.getAttribute("aria-label") ?? r.className.slice(0,30)}|${(r.textContent ?? "").slice(0, 40)}|${Math.round(r.getBoundingClientRect().top)}`), TRANSCRIPT_ROW).then((rows) => { if (process.env.FLOW_DEBUG) console.log("DBG", tag, step, "\n  " + rows.join("\n  ")); });
+    await dump("before");
     await takeCls(page);
     await page.evaluate(() => window.cmuxBoxTracker!.start());
     if (seeded) await page.evaluate(SEED, seedArgs);
     await play();
     await settle(page);
+    await dump("after");
     const shift: BoxShift = await page.evaluate(() => window.cmuxBoxTracker!.stop());
     const follow = shift.follow!;
     return {
