@@ -82,7 +82,10 @@ public final class MainActorObservation {
             // main-proof: delivered on the main thread: the main queue (queue: .main), or `atOnce` after the Thread.isMainThread check above.
             MainActor.assumeIsolated { handler(read(note)) }
             #else
-            // crash-allow: the notification is read only inside the main-queue delivery below, on this same delivery.
+            // A main-queue post reads the notification in this same call; a post from another thread hands this
+            // copy (a struct) to the main queue and reads it there after the post, the handoff Darwin's
+            // `queue: .main` makes: the center never touches the posted notification again.
+            // crash-allow: one owner at a time: the posting call hands its copy to the main-queue read, nothing else holds it.
             nonisolated(unsafe) let note = note
             if atOnce {
                 MainQueueDelivery.ifOnMain { handler(read(note)) } // drops a post off the main queue, as on Darwin
