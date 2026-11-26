@@ -112,6 +112,7 @@ on:
       - "web/app/globals.css"
       - "schemas/settings/file-keys.json"
       - "schemas/sidebar-layout-engine/vectors.json"
+      - "schemas/sidebar-layout-fold/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review, labeled]
   workflow_call:
