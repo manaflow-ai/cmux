@@ -6660,6 +6660,9 @@
         "answers": {
           "description": "A question's answers, by question."
         },
+        "forkCheckpoint": {
+          "description": "The copy the app made of this Cloud machine for the request's `forkOffer`: `{machine, fork, forkMs}`; the person only, with an allow (fork_risky.rs)."
+        },
         "optionId": {
           "description": "The option chosen; absent cancels the request.",
           "type": [
