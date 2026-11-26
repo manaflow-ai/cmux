@@ -21,7 +21,7 @@ export type SessionInfoGroupId = "about" | "made" | "running";
 export const GROUP_SECTIONS: Readonly<Record<SessionInfoGroupId, readonly SessionInfoSectionId[]>> = {
   about: ["environment", "context", "usage", "connectors", "carried"],
   made: ["changes", "sources", "outputs"],
-  running: ["subagents", "tasks", "alsoHere"],
+  running: ["subagents", "tasks"],
 };
 
 const GROUPS = Object.keys(GROUP_SECTIONS) as SessionInfoGroupId[];
@@ -44,7 +44,6 @@ export const DEFAULT_ORDER: readonly SessionInfoSectionId[] = [
   "tasks",
   "sources",
   "outputs",
-  "alsoHere",
   MORE_LINE,
   "changes",
   "usage",
