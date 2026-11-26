@@ -259,11 +259,12 @@ describe("cmux VM image apt index", () => {
       const bin = path.join(dir, "bin");
       mkdirSync(bin);
       // Fake curl: logs its URL; the edge answers only when EDGE_OK=1, the origin always writes 4 bytes.
+      // Like curl, a -S in its flags prints the error: an edge miss is expected and must stay quiet.
       writeFileSync(path.join(bin, "curl"), `#!/bin/bash
-out=""; url=""
-while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; -C|--connect-timeout|--retry) shift 2;; -*) shift;; *) url="$1"; shift;; esac; done
+out=""; url=""; loud=0
+while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; -C|--connect-timeout|--retry) shift 2;; -*S*) loud=1; shift;; -*) shift;; *) url="$1"; shift;; esac; done
 echo "$url" >> "${dir}/log"
-case "$url" in ${PINNED_MIRROR}/*) [ "\${EDGE_OK:-0}" = 1 ] || exit 22;; esac
+case "$url" in ${PINNED_MIRROR}/*) [ "\${EDGE_OK:-0}" = 1 ] || { [ $loud = 1 ] && echo "curl: (22) The requested URL returned error: 404" >&2; exit 22; };; esac
 printf abcd > "$out"
 `, { mode: 0o755 });
       const sha = "a".repeat(64);
@@ -274,6 +275,7 @@ printf abcd > "$out"
         rmSync(path.join(dir, "log"), { force: true });
         const result = await runChild("bash", ["-c", command], { timeout: 20_000, env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ...env } });
         expect(result.status).toBe(0);
+        expect(result.stderr).toBe("");
         return readFileSync(path.join(dir, "log"), "utf8").trim().split("\n");
       };
       expect(await run({ EDGE_OK: "1" })).toEqual([`${PINNED_MIRROR}/${sha}`]);

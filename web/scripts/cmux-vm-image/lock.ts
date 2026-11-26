@@ -777,7 +777,7 @@ export const PINNED_MIRROR = "https://ci-cache-next.cmux.com/v1/any/pinned";
 
 /** Download a pinned file to `dest`: whole file kept, partial one continued, edge copy by sha256 first, origin after. */
 export function pinnedFetchCommand(dest: string, sha256: string, size: number, url: string): string {
-  const edge = `{ test -n "\${CMUX_PINNED_MIRROR-x}" && curl -fsSL --connect-timeout 5 --retry 2 -C - -o ${dest} "\${CMUX_PINNED_MIRROR:-${PINNED_MIRROR}}/${sha256}"; }`;
+  const edge = `{ test -n "\${CMUX_PINNED_MIRROR-x}" && curl -fsL --connect-timeout 5 --retry 2 -C - -o ${dest} "\${CMUX_PINNED_MIRROR:-${PINNED_MIRROR}}/${sha256}"; }`;
   return `{ test "$(stat -c %s ${dest} 2>/dev/null)" = ${size} || ${edge} || curl -fsSL --retry 3 -C - -o ${dest} ${sq(url)}; }`;
 }
 
