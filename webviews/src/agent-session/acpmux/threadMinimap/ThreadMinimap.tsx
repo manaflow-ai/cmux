@@ -17,6 +17,7 @@ import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordi
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { trailingTimer } from "../../../ui/trailingTimer";
 import { useRailPlacement } from "./useRailPlacement";
+import { learnPromptCount, seededPromptCount } from "./railCountSeed";
 import { usePromptMarks } from "./promptMarks";
 import { HOVER_INTENT, useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
@@ -25,9 +26,9 @@ import {
   highlightBubble,
   MOTION_SCROLL_EVENT,
   reducedMotion,
+  scrollRunning,
   settleScroll,
   stopScroll,
-  scrollRunning,
 } from "./scrollMotion";
 import { RAIL_SCROLLS_ATTRIBUTE } from "./railWheel";
 import { wheelPixels } from "../wheelPassThrough";
@@ -330,7 +331,7 @@ function ThreadMinimapView({
   source,
   earlier = PromptHeads.EMPTY,
   later = PromptHeads.EMPTY,
-  promptCount,
+  promptCount: summaryCount,
   loadThrough,
   loadPromptIndex,
   sessionId,
@@ -409,6 +410,14 @@ function ThreadMinimapView({
   /// The transcript's values this render draws (MinimapSource): the latest it rendered.
   const values = source.current!;
   const { rows, layout, change, scrollTop, scrolls } = values;
+  /// The rows the rail lays out while the prompt index is out: the summary's count less what it was
+  /// over by when the index last named this chat's prompts (railCountSeed.ts). The summary counts
+  /// turns, and a carried or watched turn has no prompt of its own, so a chat whose two differ moved
+  /// every tick and its band when the index answered, seconds after a restart.
+  const promptCount = seededPromptCount(sessionId, summaryCount);
+  /// The summary's count while it stood in for the index, learned against the rail's rows the frame
+  /// the index (or the last older page) replaces it.
+  const counted = useRef<{ sessionId?: string; count: number } | undefined>(undefined);
   // Every streamed token is a new `rows`: `turns` then changes with the live reply (the card reads
   // it), while `ticks` stays as long as the prompts do, so the tick list below renders nothing.
   const read = useMemo(
@@ -417,7 +426,21 @@ function ThreadMinimapView({
   );
   useLayoutEffect(() => {
     turnReader.commit(read);
-  }, [turnReader, read]);
+    if (summaryCount !== undefined) {
+      counted.current = { sessionId, count: summaryCount };
+      return;
+    }
+    const was = counted.current;
+    counted.current = undefined;
+    // Every row the model reads, before the rail folds or filters them: the count stands in for the
+    // same rows (model.ts `withEarlier`).
+    if (was && was.sessionId === sessionId && !read.pendingCount)
+      learnPromptCount(
+        sessionId,
+        was.count,
+        (read.earlier?.length ?? 0) + read.turns.length + (read.later?.length ?? 0),
+      );
+  }, [turnReader, read, sessionId, summaryCount]);
   const loadedTurns = read.turns;
   /// What the rail shows (railShow.ts `RailShow`), one setting for every rail: picked from its
   /// right-click menu or its head control, so every pane changes at once.
@@ -1648,6 +1671,21 @@ function ThreadMinimapView({
   /// The rail going (a short chat, no room): its keyboard tick, hover and card go with it, so the rail
   /// that comes back draws none of them. Only on the change, so a rail that mounts hidden cools nothing.
   const wasShown = useRef(shown);
+  /// The chat this pane last drew without the rail for want of a prompt (none yet) or the arm (off):
+  /// only a rail appearing in it fades in (threadMinimap.css), as a new chat's first prompt does. A
+  /// chat opened, switched to or drawn again after a restart, its prompts on the first frame, paints
+  /// its rail final, as it paints its rows (Leo, 2026-11-25: "and then the scroll rail re-rednered").
+  const drawnWithout = useRef<{ sessionId?: string } | undefined>(undefined);
+  const arrival = useRef<{ sessionId?: string; fade: boolean } | undefined>(undefined);
+  if (!shown) arrival.current = undefined;
+  else if (!arrival.current || arrival.current.sessionId !== sessionId)
+    arrival.current = { sessionId, fade: drawnWithout.current?.sessionId === sessionId };
+  const fadeIn = arrival.current?.fade === true;
+  useLayoutEffect(() => {
+    // Read from the chat's prompts and the arm, not the view's height: a restart's first frame can
+    // draw before the view is measured, and its rail, prompts known all along, must not fade.
+    drawnWithout.current = !shown && (arm !== "compact" || known < MIN_PROMPTS) ? { sessionId } : undefined;
+  });
   useLayoutEffect(() => {
     const went = wasShown.current && !shown;
     wasShown.current = shown;
@@ -1792,6 +1830,7 @@ function ThreadMinimapView({
           data-scrubbing={scrubbing || undefined}
           data-reduce={reduce || undefined}
           data-snap={snap || undefined}
+          data-arrive={fadeIn || undefined}
           onPointerLeave={(event) => {
             if (scrub.current?.moved) return;
             pointerY.current = undefined;
