@@ -89,6 +89,12 @@ pub trait Desktop {
     fn cursor(&mut self) -> Option<crate::cursor::CursorSample> {
         None
     }
+    /// The source's rect on the screen, `[x, y, width, height]` in screen pixels, where this
+    /// desktop knows it (Linux X11: the picked monitor, the whole screen or the shared window
+    /// where it is now). `None`: it does not say.
+    fn source_rect(&self) -> Option<[u32; 4]> {
+        None
+    }
 }
 
 /// Whether this OS's desktop can report the cursor as metadata (`Desktop::cursor`), so a
