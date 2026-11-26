@@ -262,12 +262,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&auto_archive::plan(&request)).map_err(|_| ERR_INVALID)?
             }
-            b"sidebar_automatic_plan" => {
-                use cmux_layout_reducer::automatic;
-                let request: automatic::Request =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&automatic::plan(&request)).map_err(|_| ERR_INVALID)?
-            }
             b"sidebar_settle_plan" => {
                 use cmux_layout_reducer::settle;
                 let request: settle::Request =
@@ -649,6 +643,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if window_rules::handles(operation) => {
                 window_rules::respond(operation, request)?
             }
+            b"mobile_host" => cmux_mobile_host_core::respond(request).map_err(|_| ERR_INVALID)?,
             operation if tab_strip::handles(operation) => tab_strip::respond(operation, request)?,
             _ => return Err(ERR_INVALID),
         };

@@ -8,10 +8,12 @@
 //! - [`HypervisorDriver`]: the verbs, one implementation per hypervisor. libvirt first
 //!   ([`libvirt::LibvirtDriver`], which also covers Proxmox's QEMU/KVM); `qm` and Firecracker follow.
 //! - [`lease::LeaseBook`]: the leases, persisted, judged into pause-to-disk or destroy actions.
-//! - [`source::CommandSource`]: where commands come from. Until the hub's command lease
-//!   (RFD 0100 step 4) is served, the only source is a local spool (`machine hypervisor apply`).
+//! - [`source::CommandSource`]: where commands come from: a local spool (`machine hypervisor
+//!   apply`), or with `serve --source hub` the hub's command lease ([`hub::HubSource`], RFD 0100
+//!   step 4) with this joined machine's own credential.
 //! - [`serve`]: the loop that ties them together.
 
+pub mod hub;
 pub mod lease;
 pub mod libvirt;
 pub mod pods;
