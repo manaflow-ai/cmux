@@ -14,6 +14,9 @@ final class BrowserPromptDialogs {
     private var shown: (prompt: ObjectIdentifier, dialog: Int)?
     private let center: CmuxDialogCenter
 
+    /// True while a dialog of a prompt is on screen.
+    var isShowing: Bool { shown != nil }
+
     init(center: CmuxDialogCenter = .shared) {
         self.center = center
     }
@@ -58,16 +61,16 @@ final class BrowserPromptDialogs {
         case .credentials(let host, let realm):
             return BrowserHTTPAuth.spec(host: host, realm: realm, isSecure: true, failedBefore: false, user: nil)
         case .alert(let message):
-            return CmuxDialogSpec(title: title, lines: [message], buttons: [ok], identifier: identifier)
+            return CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: [message], buttons: [ok], identifier: identifier)
         case .confirm(let message):
-            return CmuxDialogSpec(title: title, lines: [message], buttons: [cancel, ok], identifier: identifier)
+            return CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: [message], buttons: [cancel, ok], identifier: identifier)
         case .textInput(let message, let defaultText):
-            return CmuxDialogSpec(title: title, lines: [message],
+            return CmuxDialogSpec(usesTransientMaterial: true, title: title, lines: [message],
                                   fields: [.text("text", initial: defaultText ?? "")], buttons: [cancel, ok], identifier: identifier)
         case .beforeUnload(let isReload):
             // Chrome's dialog: the page's own text never shows (spec).
             let leave = CmuxDialogButton(id: "ok", title: isReload ? Strings.beforeUnloadReload : Strings.beforeUnloadLeave, role: .default)
-            return CmuxDialogSpec(title: isReload ? Strings.beforeUnloadReloadTitle : Strings.beforeUnloadLeaveTitle,
+            return CmuxDialogSpec(usesTransientMaterial: true, title: isReload ? Strings.beforeUnloadReloadTitle : Strings.beforeUnloadLeaveTitle,
                                   lines: [Strings.beforeUnloadMessage], buttons: [cancel, leave], identifier: "browser.dialog.beforeunload")
         }
     }
@@ -83,7 +86,7 @@ final class BrowserPromptDialogs {
         }
     }
 
-    private func dismissShown() {
+    func dismissShown() {
         guard let shown else { return }
         self.shown = nil
         center.dismiss(shown.dialog)

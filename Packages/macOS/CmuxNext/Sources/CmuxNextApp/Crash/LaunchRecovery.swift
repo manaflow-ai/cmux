@@ -1,3 +1,4 @@
+import CmuxNextControl
 import CmuxNextCrashReporting
 import Foundation
 
@@ -50,6 +51,14 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
     /// running (`kill -9`, jetsam, power loss) did not crash; its next
     /// launch restores the same way, without the restart notice.
     var crashed: Bool { signal != nil || exception != nil }
+
+    /// A signal-less, unrequested end after a high-footprint snapshot is the
+    /// launch marker's only reliable indication of an OOM kill: SIGKILL and
+    /// jetsam do not run the app's signal handler.
+    var wasLikelyOOM: Bool {
+        guard signal == nil, exception == nil, !endedAsAsked else { return false }
+        return (context?.footprintMegabytes ?? 0) >= MemoryPressureReporter.defaultHighFootprintMegabytes
+    }
 }
 
 /// How this launch follows the previous one. Pure: `AppRunMarker` supplies
@@ -57,7 +66,7 @@ nonisolated struct PreviousRun: Codable, Equatable, Sendable {
 nonisolated enum LaunchRecovery: Equatable, Sendable {
     /// The previous run quit normally, was asked to (a quit that had begun,
     /// or a requested-quit signal recorded before `QuitSignal` ran), or was
-    /// killed with no handler running (`kill -9`, jetsam, power loss).
+    /// killed with no handler running and no high-footprint OOM evidence.
     case clean
     /// The previous run ended unexpectedly: restore everything and show the
     /// notice.
@@ -78,6 +87,7 @@ nonisolated enum LaunchRecovery: Equatable, Sendable {
 
     static func decide(previous: PreviousRun?) -> LaunchRecovery {
         guard let previous, !previous.endedAsAsked else { return .clean }
+        if previous.wasLikelyOOM { return .restarted(previous) }
         if previous.recovery, !previous.survived { return .restartedSafely(previous) }
         return previous.crashed ? .restarted(previous) : .clean
     }
@@ -102,10 +112,9 @@ nonisolated enum LaunchRecovery: Equatable, Sendable {
     var isRestart: Bool { previous != nil }
 
     /// This launch follows a restart loop (`restartedSafely`).
-    var isSafeRestart: Bool {
-        if case .restartedSafely = self { return true }
-        return false
-    }
+    var isSafeRestart: Bool { if case .restartedSafely = self { true } else { false } }
+
+    var startsUpdaterBeforeWindows: Bool { isSafeRestart } // in a restart loop, once settings are read: not after a first frame the build may never reach
 
     /// The restored tabs whose page stays unloaded until the person reloads it: after a restart
     /// loop, the pages the quick-ending run had started (one of them may be what ended it).

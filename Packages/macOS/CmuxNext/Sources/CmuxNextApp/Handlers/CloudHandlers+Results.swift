@@ -61,39 +61,15 @@ extension CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if !captured { CloudPresenter.failure(error, in: window(context)) }
-                return .failure(ActionWorkFailure(log: "\(label): \(CloudStrings.errorText(error))", reason: CloudStrings.errorText(error)))
+                return .failure((error as? ActionWorkFailure).flatMap { $0.code == nil ? nil : $0 } ?? ActionWorkFailure(log: "\(label): \(CloudStrings.errorText(error))", reason: CloudStrings.errorText(error))) // a coded refusal (`agent.limit_reached`) keeps its code
             }
         }
         guard let pendingAfter else { return context.services.registry.track(result: inner) }
         // task-owner: the action run's answer: the work's, or `pending` once the wait ends.
         let task: ActionResultWork = Task { @MainActor in
-            await firstAnswer(inner, within: pendingAfter) ?? .success(pending.merging(["pending": .bool(true)]) { field, _ in field })
+            await inner.firstAnswer(within: pendingAfter) ?? .success(pending.merging(["pending": .bool(true)]) { field, _ in field })
         }
         context.services.registry.track(result: task)
-    }
-
-    /// `work`'s answer if it comes within `wait`, else nil (the work keeps
-    /// running). Both sides yield into one stream and the first value wins:
-    /// awaiting an unstructured task's `value` ignores cancellation, so a
-    /// task group racing it would wait for the work to end anyway. The stream
-    /// keeps only the first of its two values.
-    static func firstAnswer(_ work: ActionResultWork, within wait: Duration) async -> Result<[String: ActionResultValue], ActionWorkFailure>? {
-        let (answers, continuation) = AsyncStream<Result<[String: ActionResultValue], ActionWorkFailure>?>
-            .makeStream(bufferingPolicy: .bufferingOldest(1))
-        // task-owner: relays the work's answer; it ends with the work (a yield after finish is dropped).
-        Task { continuation.yield(await work.value) }
-        // task-owner: the answer deadline; cancelled below once an answer is in.
-        let deadline = Task {
-            // wakeup-allow: one-shot answer deadline; cancelled when the work answers first
-            try? await Task.sleep(for: wait)
-            continuation.yield(nil)
-        }
-        defer {
-            deadline.cancel()
-            continuation.finish()
-        }
-        for await answer in answers { return answer }
-        return nil
     }
 
     /// `cloud new-machine` from a CLI or MCP: the run answers once the server
@@ -108,6 +84,8 @@ extension CloudHandlers {
         let registry = context.services.registry
         guard registry.isCapturingWork else { return }
         let creations = context.services.cloud.creations
+        // When the caller asked: a machine the server made well before it is a reused one, and says so.
+        let askedAt = Date().timeIntervalSince1970
         // task-owner: the action run; it ends when the create settles or the wait ends.
         let task: ActionResultWork = Task { @MainActor in
             // concurrency-allow: the observation task is cancelled by the bounded race below
@@ -124,7 +102,7 @@ extension CloudHandlers {
             // A refusal a paid plan lifts answers `cloud.plan.required` and names the plan, so a CLI or
             // agent caller can start that plan's checkout; a declined or dismissed create is refused.
             var facts: [String: Any] = ["creationId": creation.id.uuidString.lowercased(), "workspaceId": creation.workspaceID as Any,
-                                        "plan": creation.planRefusal?.plan as Any, "machine": creation.session.map(machineFacts) as Any]
+                                        "plan": creation.planRefusal?.plan as Any, "machine": creation.session.map(machineFacts) as Any, "askedAt": askedAt]
             switch settled {
             case .pending?, nil: break
             case .created?: facts["state"] = "created"
@@ -164,7 +142,8 @@ extension CloudHandlers {
         return ["id": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue,
                 "displayName": machine.displayName as Any, "sizeName": machine.size?.name as Any, "cpu": machine.size?.cpu as Any,
                 "memoryMb": machine.size?.memoryMb as Any, "idlePauseMinutes": machine.idlePauseMinutes as Any,
-                "ipv4": machine.address?.ipv4 as Any, "ipv6": machine.address?.ipv6 as Any].compacted
+                "ipv4": machine.address?.ipv4 as Any, "ipv6": machine.address?.ipv6 as Any,
+                "createdAt": machine.createdAt?.timeIntervalSince1970 as Any].compacted
     }
 
     /// The longest a CLI or agent `cloud exec` runs its command (the Cloud
@@ -204,7 +183,7 @@ extension CloudHandlerRules {
 
     /// The refusal when the rules do not answer (the app's FFI is missing an op): the action does nothing.
     static var unanswered: String {
-        String(localized: "cloud.operationUnavailable", defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module)
+        String(localized: "cloud.operationUnavailable", defaultValue: "This action is unavailable for this Cloud machine.", bundle: .module.inAppLanguage)
     }
 
     func arg(_ check: String, _ invocation: ActionInvocation, port names: CloudPortNames? = nil, extra: [String: Any] = [:]) throws -> Any {

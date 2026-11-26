@@ -27,6 +27,13 @@
 //! when the service is dropped (the change channel closes). The text is user data, as the
 //! transcripts it is read from: it is saved only to `chat-index/text-v1.json` (0600), at most every
 //! [`SAVE_EVERY`], so a restart does not read every transcript again; chats turned off empty it.
+//!
+//! At the bound a pass costs what it does below it: an older chat let go of to make room is not a
+//! reason to write the saved copy (only a chat gone from the chat index is: its text leaves the
+//! disk at once), so the copy is rewritten at most every [`SAVE_EVERY`] however fast newer chats
+//! grow; and the first chat past the bound is remembered with its size, so a pass does not read
+//! its transcript again only to let it go once more. A save after chats were let go of logs how
+//! many and their bytes.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -101,6 +108,10 @@ struct Doc {
     /// case-blind pass would miss what `Needle` finds there, so this doc takes `Needle`'s.
     #[serde(skip)]
     folds_to_ascii: bool,
+    /// The ASCII-lowercased byte trigrams of `text` (a superset: text let go of keeps its bits),
+    /// so a query's pass skips a doc that cannot hold one of its words without reading its text.
+    #[serde(skip)]
+    trigrams: Trigrams,
 }
 
 impl Doc {
@@ -120,10 +131,17 @@ impl Doc {
                     continue;
                 }
                 bytes = bytes.saturating_add(flat.len() + 1);
+                let turn = u32::try_from(turn).unwrap_or(u32::MAX).saturating_add(first_turn);
                 if bytes > CHAT_BYTES {
+                    // A newest message past the bound alone (a pasted log) keeps its newest
+                    // text, so its chat is still found.
+                    if newest_first.is_empty() {
+                        let tail = newest_tail(&flat, CHAT_BYTES.saturating_sub(1)).to_owned();
+                        bytes = tail.len().saturating_add(1);
+                        newest_first.push((turn, answer, tail));
+                    }
                     break 'turns;
                 }
-                let turn = u32::try_from(turn).unwrap_or(u32::MAX).saturating_add(first_turn);
                 newest_first.push((turn, answer, flat));
             }
         }
@@ -134,6 +152,7 @@ impl Doc {
             first_turn,
             live: 0,
             folds_to_ascii: false,
+            trigrams: Trigrams::default(),
         };
         for (turn, answer, flat) in newest_first.into_iter().rev() {
             let start = u32::try_from(doc.text.len()).unwrap_or(u32::MAX);
@@ -145,8 +164,20 @@ impl Doc {
         doc
     }
 
+    /// The flags and the trigram set read off the whole text (a new or read back doc).
     fn read_folds(&mut self) {
         self.folds_to_ascii = folds_to_ascii(&self.text);
+        self.trigrams = Trigrams::of(&self.text);
+    }
+
+    /// A transcript's index stamp may move when its metadata changes even though the searchable
+    /// text did not. Such a stamp update must not make the saved copy rewrite every held chat.
+    fn same_content(&self, other: &Self) -> bool {
+        self.text == other.text
+            && self.messages == other.messages
+            && self.first_turn == other.first_turn
+            && self.live == other.live
+            && self.folds_to_ascii == other.folds_to_ascii
     }
 
     /// Turn `turn` and every one after it are replaced by `turns` (numbered from `turn`), the
@@ -156,6 +187,7 @@ impl Doc {
         let cut = self.messages.partition_point(|m| m.turn < turn);
         self.text.truncate(self.messages.get(cut).map_or(self.text.len(), |m| m.start as usize));
         self.messages.truncate(cut);
+        let appended = self.text.len();
         for (number, t) in (turn..).zip(turns) {
             for (answer, text) in [(false, &t.prompt), (true, &t.answer)] {
                 let flat = flatten(text);
@@ -169,6 +201,14 @@ impl Doc {
                 self.text.push_str(&flat);
                 self.text.push('\n');
             }
+        }
+        // The cut text keeps its bits (a superset only lets a doc through to its pass); the added
+        // text adds its own, or the set is read again once the text outgrew it (doubling, so the
+        // reads cost what the added text does over time).
+        if self.trigrams.fits(self.text.len()) {
+            self.trigrams.add(&self.text.as_bytes()[appended.saturating_sub(2)..]);
+        } else {
+            self.trigrams = Trigrams::of(&self.text);
         }
         self.first_turn = first;
         let live = self.messages.partition_point(|m| m.turn < first);
@@ -185,11 +225,19 @@ impl Doc {
             return;
         }
         let fits = self.messages.partition_point(|m| len - m.start as usize > CHAT_BYTES);
-        let keep = fits.max(self.live as usize);
-        let cut = self.messages.get(keep).map_or(len, |m| m.start as usize);
+        let mut keep = fits.max(self.live as usize);
+        let mut cut = self.messages.get(keep).map_or(len, |m| m.start as usize);
+        // The newest message past the bound alone keeps its newest text, as `of_turns` keeps it.
+        if keep == self.messages.len() && self.messages.len() > self.live as usize {
+            keep = self.messages.len().saturating_sub(1);
+            cut = len.saturating_sub(newest_tail(&self.text, CHAT_BYTES).len());
+        }
         self.text.drain(..cut);
         self.messages.drain(..keep);
         let cut = u32::try_from(cut).unwrap_or(u32::MAX);
+        if let Some(first) = self.messages.first_mut() {
+            first.start = first.start.max(cut);
+        }
         for message in &mut self.messages {
             message.start -= cut;
         }
@@ -225,6 +273,12 @@ impl Doc {
         self.text.get(start..end).unwrap_or_default()
     }
 
+    /// Whether the text may hold `matcher`'s words: false only when the ASCII pass would find
+    /// nothing, read off the trigram set without reading the text.
+    fn may_hold(&self, matcher: &Matcher) -> bool {
+        matcher.ascii.is_none() || self.folds_to_ascii || self.trigrams.may_hold(&matcher.trigrams)
+    }
+
     /// The newest message that holds every word, and how many messages do.
     fn find(&self, needle: &Needle, matcher: &Matcher) -> Option<Matched> {
         let mut found: Option<Matched> = None;
@@ -234,6 +288,9 @@ impl Doc {
             found = Some(Matched { message, matches });
         };
         let ascii = matcher.ascii.as_deref().filter(|_| !self.folds_to_ascii);
+        if !self.may_hold(matcher) {
+            return None;
+        }
         let Some((first, rest)) = ascii.and_then(<[_]>::split_first) else {
             (self.live as usize..self.messages.len())
                 .filter(|&i| needle.find(self.message(i)).is_some())
@@ -264,6 +321,66 @@ impl Doc {
     }
 }
 
+/// Fewer held bytes than this are searched on the calling thread: below it, starting threads
+/// costs about what the pass does.
+const PAR_MIN_BYTES: usize = 4 * 1024 * 1024;
+/// The most threads one pass takes.
+const PAR_MAX_THREADS: usize = 8;
+/// Docs a thread claims at a time: small enough that one thread left with the largest docs does
+/// not hold the pass up, large enough that the shared counter is not contended.
+const PAR_CHUNK: usize = 16;
+
+/// `f` over every doc, on up to [`PAR_MAX_THREADS`] threads when they hold at least
+/// [`PAR_MIN_BYTES`] of text: a query's first key reads all held text (up to [`TOTAL_BYTES`]),
+/// one core's pass over which is most of a keystroke's time. Threads claim [`PAR_CHUNK`] docs
+/// at a time, so a few large docs do not leave the rest idle. The order of the results is not
+/// the docs' order (the caller collects them into a map).
+fn par_filter_map<R: Send>(
+    docs: &[(&String, &Arc<Doc>)],
+    f: impl Fn(&(&String, &Arc<Doc>)) -> Option<R> + Sync,
+) -> Vec<R> {
+    let bytes: usize = docs.iter().map(|(_, doc)| doc.text.len()).sum();
+    let threads = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZeroUsize::get)
+        .min(PAR_MAX_THREADS)
+        .min(docs.len().div_ceil(PAR_CHUNK));
+    if threads <= 1 || bytes < PAR_MIN_BYTES {
+        return docs.iter().filter_map(&f).collect();
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let work = || {
+        let mut out = Vec::new();
+        loop {
+            let from = next.fetch_add(PAR_CHUNK, std::sync::atomic::Ordering::Relaxed);
+            let Some(chunk) = docs.get(from..(from + PAR_CHUNK).min(docs.len())) else {
+                break;
+            };
+            if chunk.is_empty() {
+                break;
+            }
+            out.extend(chunk.iter().filter_map(&f));
+        }
+        out
+    };
+    std::thread::scope(|scope| {
+        let helpers: Vec<_> = (1..threads).map(|_| scope.spawn(work)).collect();
+        let mut out = work();
+        for helper in helpers {
+            // A panicking `f` panics the caller, as the one-thread pass would.
+            out.extend(helper.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)));
+        }
+        out
+    })
+}
+
+/// At most the last `max` bytes of `text`, cut on a character boundary.
+fn newest_tail(text: &str, max: usize) -> &str {
+    let start = (text.len().saturating_sub(max)..=text.len())
+        .find(|&at| text.is_char_boundary(at))
+        .unwrap_or(text.len());
+    text.get(start..).unwrap_or_default()
+}
+
 /// Whether `text` holds a letter that lowercases to ASCII (`İ`, the Kelvin sign).
 fn folds_to_ascii(text: &str) -> bool {
     !text.is_ascii()
@@ -274,21 +391,103 @@ fn folds_to_ascii(text: &str) -> bool {
 /// searcher per word, longest first (the rarest likely, so the first pass stops least).
 struct Matcher {
     ascii: Option<Vec<AhoCorasick>>,
+    /// Every trigram of every ASCII word ([`Trigrams::key`]): a doc missing one holds no hit.
+    trigrams: Vec<u32>,
 }
 
 impl Matcher {
     fn new(needle: &Needle) -> Self {
         let mut words: Vec<&String> = needle.words().iter().collect();
         if !words.iter().all(|word| word.is_ascii()) {
-            return Self { ascii: None };
+            return Self { ascii: None, trigrams: Vec::new() };
         }
+        let mut trigrams: Vec<u32> =
+            words.iter().flat_map(|word| word.as_bytes().windows(3).map(Trigrams::key)).collect();
+        trigrams.sort_unstable();
+        trigrams.dedup();
         words.sort_by_key(|word| std::cmp::Reverse(word.len()));
         let ascii = words
             .into_iter()
             .map(|word| AhoCorasick::builder().ascii_case_insensitive(true).build([word.as_str()]))
             .collect::<Result<Vec<_>, _>>()
             .ok();
-        Self { ascii }
+        Self { ascii, trigrams }
+    }
+}
+
+/// Fewest and most bits in a doc's trigram set: one bit per byte of text between them, so a
+/// 256 KiB doc ([`CHAT_BYTES`]) holds 8 KiB of bits and a short one 128 bytes.
+const TRIGRAM_MIN_BITS: usize = 1 << 10;
+const TRIGRAM_MAX_BITS: usize = 1 << 16;
+
+/// A one-hash Bloom filter of a text's ASCII-lowercased byte trigrams. An ASCII word matched
+/// case-blind is a run of bytes whose lowercase is the word's, so each of the word's trigrams is one
+/// of the text's: a missing bit proves no match, a set bit proves nothing (the pass confirms it).
+#[derive(Clone, Debug, Default)]
+struct Trigrams {
+    bits: Vec<u64>,
+}
+
+impl PartialEq for Trigrams {
+    /// Derived from the text, so it never makes two docs differ.
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Trigrams {}
+
+impl Trigrams {
+    fn of(text: &str) -> Self {
+        let bits = text.len().next_power_of_two().clamp(TRIGRAM_MIN_BITS, TRIGRAM_MAX_BITS);
+        let mut set = Self { bits: vec![0; bits / 64] };
+        set.add(text.as_bytes());
+        set
+    }
+
+    /// The trigram `t` (three bytes) as one number, ASCII letters lowercased.
+    fn key(t: &[u8]) -> u32 {
+        match t {
+            [a, b, c] => {
+                u32::from(a.to_ascii_lowercase()) << 16
+                    | u32::from(b.to_ascii_lowercase()) << 8
+                    | u32::from(c.to_ascii_lowercase())
+            }
+            _ => 0,
+        }
+    }
+
+    fn bit(&self, key: u32) -> usize {
+        let len = self.bits.len() * 64;
+        // Fibonacci hashing: the top bits of the product, as many as the set has.
+        (key.wrapping_mul(0x9E37_79B1) >> (32 - len.trailing_zeros())) as usize
+    }
+
+    /// Whether the set was sized for at least `len` bytes of text (or is at its most).
+    fn fits(&self, len: usize) -> bool {
+        let bits = self.bits.len() * 64;
+        bits != 0 && (len <= bits || bits >= TRIGRAM_MAX_BITS)
+    }
+
+    fn add(&mut self, bytes: &[u8]) {
+        if self.bits.is_empty() {
+            return;
+        }
+        for t in bytes.windows(3) {
+            let bit = self.bit(Self::key(t));
+            if let Some(word) = self.bits.get_mut(bit / 64) {
+                *word |= 1 << (bit % 64);
+            }
+        }
+    }
+
+    /// Whether the text may hold every trigram in `keys`; an empty set (never read) may hold any.
+    fn may_hold(&self, keys: &[u32]) -> bool {
+        self.bits.is_empty()
+            || keys.iter().all(|&key| {
+                let bit = self.bit(key);
+                self.bits.get(bit / 64).is_some_and(|word| word & (1 << (bit % 64)) != 0)
+            })
     }
 }
 
@@ -315,6 +514,8 @@ pub struct ChatText {
     /// The generation of the text: a window recomputes when it moves.
     changed: tokio::sync::watch::Sender<u64>,
     path: PathBuf,
+    /// The most text held: [`TOTAL_BYTES`] (tests hold less).
+    total: usize,
 }
 
 #[derive(Default)]
@@ -328,9 +529,20 @@ struct Inner {
     /// Every chat was read once since the daemon started (a query before then may find more later).
     filled: bool,
     saved_at: Option<Instant>,
+    /// The first chat past the bound at the last pass, the stamp it was read at and its text's
+    /// bytes: while it is unchanged and still does not fit, it is not read again.
+    edge: Option<(String, Stamp, usize)>,
+    /// Chats let go of to hold the bound since the last save, and their bytes (logged then).
+    evicted: (usize, usize),
+    /// How many saves were written and their bytes (tests count a pass's writes with it).
+    #[cfg(test)]
+    saves: (usize, usize),
     /// How many docs searches read (tests count a query's work with it).
     #[cfg(test)]
     scanned: usize,
+    /// How many of those had their text read: the rest the trigram set ruled out.
+    #[cfg(test)]
+    read: usize,
 }
 
 /// The saved copy as it is written: the held docs, borrowed.
@@ -359,7 +571,14 @@ impl ChatText {
             follows: Mutex::default(),
             changed: tokio::sync::watch::channel(0).0,
             path,
+            total: TOTAL_BYTES,
         }
+    }
+
+    /// [`Self::new`] holding at most `total` bytes of text, so a test reaches the bound quickly.
+    #[cfg(test)]
+    pub(crate) fn with_total(path: PathBuf, total: usize) -> Self {
+        Self { total: total.min(TOTAL_BYTES), ..Self::new(path) }
     }
 
     /// Takes the text an earlier run saved; a missing, damaged or older copy is read past.
@@ -378,7 +597,7 @@ impl ChatText {
         };
         // A doc another build wrote, or a damaged one, is left out: each holds its own bound, and
         // every message starts inside its text, in order.
-        let mut room = TOTAL_BYTES;
+        let mut room = self.total;
         let docs = saved
             .docs
             .into_iter()
@@ -430,17 +649,31 @@ impl ChatText {
         read: &dyn Fn(&ChatEntry) -> Option<Vec<Turn>>,
         following: bool,
     ) {
-        let mut room = TOTAL_BYTES;
+        let mut room = self.total;
         let mut kept: HashSet<String> = HashSet::new();
         let mut read_since_publish = 0_usize;
         for chat in chats {
             let key = key_text(&chat.entry.key());
             let stamp = Stamp::of(&chat.entry);
-            let (held, has_doc) = {
+            let (held, has_doc, edge) = {
                 let inner = lock(&self.inner);
                 let doc = inner.docs.get(&key);
-                (doc.filter(|doc| doc.stamp == stamp).map(|doc| doc.text.len()), doc.is_some())
+                let edge = inner
+                    .edge
+                    .as_ref()
+                    .filter(|(edge, at, _)| *edge == key && *at == stamp)
+                    .map(|(_, _, bytes)| *bytes);
+                (
+                    doc.filter(|doc| doc.stamp == stamp).map(|doc| doc.text.len()),
+                    doc.is_some(),
+                    edge,
+                )
             };
+            // The chat that did not fit last pass, unchanged since: while it still does not fit it
+            // is not read, only to be let go of again.
+            if !has_doc && edge.is_some_and(|bytes| bytes > room) {
+                break;
+            }
             let bytes = match held {
                 Some(bytes) => bytes,
                 None => {
@@ -454,37 +687,49 @@ impl ChatText {
                         continue;
                     };
                     let mut inner = lock(&self.inner);
-                    let bytes = match edit {
+                    let (bytes, changed) = match edit {
                         follow::Read::Whole { first, turns } => {
                             let doc = Doc::of_turns(stamp, &turns, first);
                             let bytes = doc.text.len();
                             if bytes > room {
+                                inner.edge = Some((key, stamp, bytes));
                                 break;
                             }
+                            let changed =
+                                inner.docs.get(&key).is_none_or(|old| !old.same_content(&doc));
                             inner.docs.insert(key.clone(), Arc::new(doc));
-                            bytes
+                            (bytes, changed)
                         }
                         follow::Read::Tail { from, first, turns } => {
                             // Edited in place: the kept search answer is let go of first, so it
                             // holds no copy of the doc and the edit copies nothing (a search
                             // still running elsewhere keeps its own copy).
-                            inner.answer = None;
-                            let Some(doc) = inner.docs.get_mut(&key) else { continue };
-                            let doc = Arc::make_mut(doc);
-                            doc.stamp = stamp;
-                            doc.edit(from, &turns, first);
-                            doc.text.len()
+                            let (bytes, changed) = {
+                                let Some(doc) = inner.docs.get_mut(&key) else { continue };
+                                let doc = Arc::make_mut(doc);
+                                let before = doc.clone();
+                                doc.stamp = stamp;
+                                doc.edit(from, &turns, first);
+                                (doc.text.len(), !before.same_content(doc))
+                            };
+                            if changed {
+                                inner.answer = None;
+                            }
+                            (bytes, changed)
                         }
                     };
-                    read_since_publish += 1;
-                    if read_since_publish >= BATCH {
-                        self.publish(&mut inner);
-                        read_since_publish = 0;
+                    if changed {
+                        read_since_publish += 1;
+                        if read_since_publish >= BATCH {
+                            self.publish(&mut inner);
+                            read_since_publish = 0;
+                        }
                     }
                     bytes
                 }
             };
             if bytes > room {
+                lock(&self.inner).edge = Some((key, stamp, bytes));
                 break;
             }
             room -= bytes;
@@ -492,28 +737,71 @@ impl ChatText {
         }
         lock(&self.follows).retain(|key, _| kept.contains(key));
         let mut inner = lock(&self.inner);
-        let before = inner.docs.len();
-        inner.docs.retain(|key, _| kept.contains(key));
-        let removed = inner.docs.len() != before;
-        if read_since_publish > 0 || removed || !inner.filled {
+        // A chat let go of is either gone from the chat index (deleted, its root removed, chats
+        // off) or still listed but past the bound, older than every chat held.
+        let listed: HashSet<String> = if inner.docs.keys().any(|key| !kept.contains(key)) {
+            chats.iter().map(|chat| key_text(&chat.entry.key())).collect()
+        } else {
+            HashSet::new()
+        };
+        let (mut gone, mut evicted) = (false, (0_usize, 0_usize));
+        inner.docs.retain(|key, doc| {
+            if kept.contains(key) {
+                return true;
+            }
+            if listed.contains(key) {
+                evicted = (evicted.0 + 1, evicted.1 + doc.text.len());
+            } else {
+                gone = true;
+            }
+            false
+        });
+        inner.evicted = (inner.evicted.0 + evicted.0, inner.evicted.1 + evicted.1);
+        let initial_fill = !inner.filled;
+        let content_changed = read_since_publish > 0 || gone || evicted.0 > 0;
+        if content_changed || initial_fill {
             inner.filled = true;
             self.publish(&mut inner);
+            if !content_changed {
+                inner.dirty = false;
+            }
         }
-        // A chat gone (deleted, its root removed, chats off) leaves the saved copy at once, not at the
-        // next timed save: its text is not kept on disk past it.
-        let due = removed || inner.saved_at.is_none_or(|at| at.elapsed() >= SAVE_EVERY);
+        // A chat gone leaves the saved copy at once, not at the next timed save: its text is not
+        // kept on disk past it. A chat let go of for room is still listed and its transcript still
+        // on disk: it waits for the timed save, so at the bound the copy is rewritten at most every
+        // [`SAVE_EVERY`], however fast newer chats grow.
+        let due = gone || inner.saved_at.is_none_or(|at| at.elapsed() >= SAVE_EVERY);
         if !(inner.dirty && due) {
             return;
         }
         inner.dirty = false;
         inner.saved_at = Some(Instant::now());
+        let evicted = std::mem::take(&mut inner.evicted);
         // The docs are shared, not copied: the lock is let go before the write.
         let held: Vec<(String, Arc<Doc>)> =
             inner.docs.iter().map(|(key, doc)| (key.clone(), doc.clone())).collect();
         drop(inner);
+        let held_bytes: usize = held.iter().map(|(_, doc)| doc.text.len()).sum();
         let docs = held.iter().map(|(key, doc)| (key.as_str(), &**doc)).collect();
-        if let Err(error) = save(&self.path, &Saved { schema: SCHEMA, docs }) {
-            tracing::warn!(%error, "chat text: not saved");
+        match save(&self.path, &Saved { schema: SCHEMA, docs }) {
+            Ok(written) => {
+                #[cfg(test)]
+                {
+                    let mut inner = lock(&self.inner);
+                    inner.saves = (inner.saves.0 + 1, inner.saves.1 + written);
+                }
+                if evicted.0 > 0 {
+                    tracing::info!(
+                        evicted_chats = evicted.0,
+                        evicted_bytes = evicted.1,
+                        held_chats = held.len(),
+                        held_bytes,
+                        written_bytes = written,
+                        "chat text: at its bound; the oldest chats were let go of since the last save"
+                    );
+                }
+            }
+            Err(error) => tracing::warn!(%error, "chat text: not saved"),
         }
     }
 
@@ -566,13 +854,20 @@ impl ChatText {
             let matched = doc.find(needle, &matcher)?;
             Some((key.clone(), Found { doc: doc.clone(), matched }))
         };
-        let found: HashMap<String, Found> = match &narrowed {
-            Some(last) => last.iter().filter_map(|(key, found)| search(key, &found.doc)).collect(),
-            None => inner.docs.iter().filter_map(|(key, doc)| search(key, doc)).collect(),
+        let docs: Vec<(&String, &Arc<Doc>)> = match &narrowed {
+            Some(last) => last.iter().map(|(key, found)| (key, &found.doc)).collect(),
+            None => inner.docs.iter().collect(),
         };
+        let found: HashMap<String, Found> =
+            par_filter_map(&docs, |&(key, doc)| search(key, doc)).into_iter().collect();
         #[cfg(test)]
         {
             inner.scanned += narrowed.as_ref().map_or(inner.docs.len(), |last| last.len());
+            let read = match &narrowed {
+                Some(last) => last.values().filter(|f| f.doc.may_hold(&matcher)).count(),
+                None => inner.docs.values().filter(|doc| doc.may_hold(&matcher)).count(),
+            };
+            inner.read += read;
         }
         let found = Arc::new(found);
         inner.answer = Some((needle.words().to_vec(), inner.generation, found.clone()));
@@ -603,10 +898,22 @@ impl ChatText {
         lock(&self.inner).filled
     }
 
+    /// How many saves were written and how many bytes they wrote.
+    #[cfg(test)]
+    pub(crate) fn saves(&self) -> (usize, usize) {
+        lock(&self.inner).saves
+    }
+
     /// How many docs searches have read so far.
     #[cfg(test)]
     pub(crate) fn scanned(&self) -> usize {
         lock(&self.inner).scanned
+    }
+
+    /// How many docs searches read the text of (past the trigram set) so far.
+    #[cfg(test)]
+    pub(crate) fn read(&self) -> usize {
+        lock(&self.inner).read
     }
 
     /// How many chats and bytes of text are held.
@@ -620,14 +927,16 @@ impl ChatText {
 /// home there may be another daemon's now, and the text is user data. Under a held home the
 /// write goes through the folder this daemon locked (`home_fs`), not its path, so a home replaced
 /// after the check passed never gets the text: it lands in the folder that was moved away, or
-/// nowhere. Whole or not at all: a synced temporary copy renamed over the file.
-fn save(path: &Path, saved: &Saved) -> anyhow::Result<()> {
+/// nowhere. Whole or not at all: a synced temporary copy renamed over the file. The bytes written.
+fn save(path: &Path, saved: &Saved) -> anyhow::Result<usize> {
     let checked = crate::config::refuse_lost_home(path);
     if let Some(hook) = SAVE_CHECKED.get() {
         hook(checked.is_ok());
     }
     checked?;
-    Ok(crate::home_fs::write_index_file(path, &serde_json::to_vec(saved)?)?)
+    let bytes = serde_json::to_vec(saved)?;
+    crate::home_fs::write_index_file(path, &bytes)?;
+    Ok(bytes.len())
 }
 
 /// Test seam: called on the saving thread between a save's home check and its write, with
@@ -641,6 +950,10 @@ pub static SAVE_CHECKED: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::ne
 #[cfg(test)]
 #[path = "text_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "text_scale_bench_tests.rs"]
+mod text_scale_bench;
 
 #[cfg(test)]
 #[path = "follow_tests.rs"]

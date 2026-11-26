@@ -289,11 +289,11 @@ fn missing_shards_wake_the_receiver_after_the_reorder_grace() {
     assert_eq!(fb.nacks[0].indexes, vec![0]);
     assert!(!fb.need_recovery);
     assert!(feedback(&r, 30_000).is_none(), "no same-tick retry loop");
-    assert!(feedback(&r, 79_999).is_none(), "a lost request retries on the feedback cadence");
+    assert!(feedback(&r, 79_999).is_none(), "a lost request retries after 50 ms with no RTT known");
     let retry = decode_feedback(&feedback(&r, 80_000).expect("bounded NACK retry"));
     assert_eq!(retry.nacks[0].indexes, vec![0]);
-    // The repair arrives one 50 ms RTT after the first request, before the
-    // 100 ms on-time frame deadline; no replacement keyframe is needed.
+    // The repair arrives one 50 ms RTT after the first request, inside the
+    // window (no RTT known yet: the 200 ms ceiling); no recovery is needed.
     push(&r, &sent[1].1[0], 80_000);
     let ready = pop_all(&r);
     assert_eq!(ready.len(), 1);
@@ -314,11 +314,19 @@ fn loss_produces_nacks_then_recovery() {
     for d in sent[1].1.iter().skip(1) {
         push(&r, d, 1_000);
     }
+    // The link stays live (frame 1's datagrams again, dropped as duplicates):
+    // the missing shard is loss, not a hold.
+    for t in (6_000..50_000).step_by(5_000) {
+        push(&r, &sent[0].1[0], t);
+    }
     // NACK after nack_after_us (5 ms) at the next due feedback (50 ms interval).
     let fb = decode_feedback(&feedback(&r, 50_000).expect("due"));
     assert_eq!(fb.nacks.len(), 1);
     assert_eq!(fb.nacks[0].frame, 2);
     assert_eq!(fb.nacks[0].indexes, vec![0]);
+    for t in (50_000..=200_000).step_by(5_000).chain([201_001]) {
+        push(&r, &sent[0].1[0], t);
+    }
     // The deadline (200 ms) names the next wakeup, then the frame is lost.
     // SAFETY: live receiver.
     let deadline = unsafe { cmux_rd_receiver_next_deadline_us(r.0) };
@@ -371,7 +379,8 @@ fn a_panic_poisons_only_that_receiver() {
     let other = receiver(CMUX_RD_CARRIER_DATAGRAM);
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
-    let rc = with_receiver(r.0, |_| panic!("boom"));
+    // SAFETY: a live receiver from cmux_rd_receiver_new; this test is its only user.
+    let rc = unsafe { with_receiver(r.0, |_| panic!("boom")) };
     std::panic::set_hook(hook);
     assert_eq!(rc, CMUX_RD_ERR_PANIC);
     // SAFETY: live (poisoned) receiver.
@@ -391,7 +400,10 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         include_str!("line_reader_ffi.rs"),
         include_str!("session_ffi.rs"),
         include_str!("upstream_ffi.rs"),
-        include_str!("bulk_ffi.rs")
+        include_str!("bulk_ffi.rs"),
+        include_str!("clipboard_ffi.rs"),
+        include_str!("record_ffi.rs"),
+        include_str!("view_ffi.rs")
     );
     let declared: std::collections::BTreeSet<&str> = header
         .lines()
@@ -418,6 +430,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_ERR_STREAM", CMUX_RD_ERR_STREAM),
         ("CMUX_RD_ERR_CONSENT", CMUX_RD_ERR_CONSENT),
         ("CMUX_RD_ERR_FULL", CMUX_RD_ERR_FULL),
+        ("CMUX_RD_ERR_TOO_LARGE", CMUX_RD_ERR_TOO_LARGE),
+        ("CMUX_RD_ERR_IO", CMUX_RD_ERR_IO),
     ] {
         assert!(header.contains(&format!("#define {name} ({value})")), "{name}");
     }
@@ -427,6 +441,8 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
         ("CMUX_RD_BULK_MAX_TRANSFERS", CMUX_RD_BULK_MAX_TRANSFERS),
         ("CMUX_RD_BULK_FRAME_MAX", CMUX_RD_BULK_FRAME_MAX),
         ("CMUX_RD_BULK_CREDIT_MAX", CMUX_RD_BULK_CREDIT_MAX),
+        ("CMUX_RD_CLIPBOARD_MAX_TEXT", CMUX_RD_CLIPBOARD_MAX_TEXT),
+        ("CMUX_RD_CLIPBOARD_FRAME_MAX", CMUX_RD_CLIPBOARD_FRAME_MAX),
     ] {
         assert!(header.contains(&format!("#define {name} {value}u")), "{name}");
     }
@@ -445,7 +461,7 @@ fn header_declares_exactly_the_exported_functions_and_codes() {
     // Layouts on 64-bit targets (the Swift tests check the imported layouts).
     assert_eq!(size_of::<CmuxRdFrame>(), 40);
     assert_eq!(size_of::<CmuxRdMessage>(), 24);
-    assert_eq!(size_of::<CmuxRdStats>(), 24);
+    assert_eq!(size_of::<CmuxRdStats>(), 32);
     assert_eq!(size_of::<CmuxRdInputEvent>(), 48);
     assert_eq!(size_of::<CmuxRdUpstreamStats>(), 32);
     assert_eq!(size_of::<CmuxRdLine>(), 120);
@@ -507,4 +523,21 @@ fn a_flood_of_empty_control_messages_is_bounded() {
     }
     // Each message costs its overhead, so the queue budget ends the session.
     assert_eq!(rc, CMUX_RD_ERR_FAILED);
+}
+
+#[test]
+fn a_frame_is_ready_in_the_push_that_completes_it() {
+    // A long deadline: release must not wait on it or on a tick.
+    let mut r = Receiver::new(Carrier::Datagram, 10_000_000, 5_000);
+    for (_, datagrams) in frames(3, 3000, 1) {
+        // The parity shard goes last: the frame is complete before it.
+        let (last, rest) = datagrams.split_last().expect("datagrams");
+        for d in rest {
+            r.push_datagram(d, 0).expect("push");
+        }
+        assert_eq!(r.ready_frames(), 1, "ready without parity or a tick");
+        r.push_datagram(last, 0).expect("late parity");
+        assert_eq!(r.ready_frames(), 1);
+        assert!(r.pop_frame().is_some());
+    }
 }

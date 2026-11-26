@@ -260,24 +260,21 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       "inline refusal",
     );
     expect(starts[0]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
+    if (!remoteStart && !trust) {
+      // A local start that fails before any chat opened comes back to New Tab, the failure said in
+      // place (Retry, Details) and the prompt still in its field, never the chat view's empty-chat
+      // hero (Leo, 2026-11-17: "this is an old a** deprecated view. this should not have been shown.";
+      // test/new-tab-start-frames.test.ts).
+      await until(() => !!host.querySelector(".nt-field"), "the failed local start is back on New Tab");
+      await until(() => promptValue() === "inspect the failed build", "the refused prompt is kept in New Tab's field");
+      expect(host.querySelector("[data-error-detail]")?.textContent).toContain("agent unavailable");
+      expect(prompts).toHaveLength(0);
+      return;
+    }
     if (!remoteStart) {
       // A local start becomes its chat at once, with the prompt queued in it (Leo 2026-10-30: "I
-      // SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN CHATS"): the refusal shows in the chat, and the
-      // prompt is never lost, back in the chat's composer.
+      // SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN CHATS"); Trust is asked in the chat.
       await until(() => !host.querySelector(".nt-field"), "the local start becomes its chat");
-      if (!trust) {
-        // The refusal says why in the chat, and the prompt is still on the page (its failed row or the
-        // chat's composer): nothing typed is lost.
-        await until(() => !!host.textContent?.includes("agent unavailable"), "the chat says why it did not start");
-        const kept = () =>
-          host.textContent?.includes("inspect the failed build") ||
-          [...host.querySelectorAll<HTMLElement>("[contenteditable='true']")].some((node) =>
-            node.textContent?.includes("inspect the failed build"),
-          );
-        await until(() => !!kept(), "the refused prompt is kept");
-        expect(prompts).toHaveLength(0);
-        return;
-      }
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust in the chat");
       await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary")!.click());
       await until(() => prompts.length === 1, "Trust sends the prompt exactly once");
@@ -404,3 +401,76 @@ test("Return twice while a start has not answered asks once", async () => {
   expect(prompts).toHaveLength(1);
   expect(prompts[0].prompt[0].text).toBe("fix the flaky upload test");
 }, 15_000);
+
+// The 2026-11-12 failure as a person met it (#44964): the app's relay refused every chat's start
+// frame, and each chat said only "Couldn't start <agent>: Something went wrong, so that didn't go
+// through." Typed on New Tab, a start the host refuses says the start was blocked, and the refusal
+// (the param the relay refused, its code) waits under Details.
+for (const remoteStart of [false, true])
+  test(`a host-refused ${remoteStart ? "SSH" : "local"} start says the start was blocked, the refused param under Details`, async () => {
+    const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
+    type Answer = (method: string, params: Record<string, any>) => Promise<any>;
+    const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
+    const answer = proto.answer;
+    restoreAnswer = () => (proto.answer = answer);
+    const starts: Record<string, any>[] = [];
+    proto.answer = async function (method, params) {
+      if (method === "session/new") {
+        starts.push(params);
+        // The relay's refusal frame (AcpmuxPaneMethods.refusal) for a frame that broke its params rule.
+        throw Object.assign(new Error("Refused by the cmux host"), {
+          data: {
+            code: "transport.intent_invalid",
+            origin: "native",
+            detail: 'unknown _meta.acpmux key "launchProfile"',
+          },
+        });
+      }
+      const result = await answer.call(this, method, params);
+      return method === "_acpmux/status"
+        ? { ...result, peers: [{ name: "devbox", kind: "ssh", connected: true }] }
+        : result;
+    };
+    const { createRoot } = await import("react-dom/client");
+    const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
+    Object.assign(dom.window, {
+      webkit: {
+        messageHandlers: {
+          agentSession: {
+            postMessage: (message: { method: string }) =>
+              Promise.resolve({
+                ok: true,
+                value:
+                  message.method === "ready"
+                    ? {
+                        protocolVersion: 1,
+                        transport: "mock",
+                        newSession: true,
+                        machineName: "Mac",
+                        newTab: { template: "minimal", layout: "b", lastAgent: "claude", cwd: "/tmp/demo-project" },
+                      }
+                    : undefined,
+              }),
+          },
+        },
+      },
+    });
+    root = createRoot(host);
+    await act(async () => root!.render(<AcpmuxApp />));
+    await until(() => !!(dom.window as any).cmuxAcpmuxActions?.["chat.new"], "mock handshake");
+    if (remoteStart) await pickDevbox();
+    const { editor } = await writePrompt("inspect the failed build");
+    await act(async () =>
+      editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    );
+    await until(() => starts.length === 1, "session/new refused");
+    const details = () => [...host.querySelectorAll("[data-error-detail]")].map((node) => node.textContent ?? "");
+    await until(
+      () => details().some((text) => text.includes('unknown _meta.acpmux key "launchProfile"')),
+      "the refused param under Details",
+    );
+    const alerts = [...host.querySelectorAll('[role="alert"]')].map((node) => node.textContent ?? "").join("\n");
+    expect(alerts).toContain(t("transport.intentInvalidStart"));
+    expect(alerts).not.toContain(t("transport.intentInvalid"));
+    expect(details().some((text) => text.includes("code transport.intent_invalid"))).toBe(true);
+  }, 15_000);

@@ -25,6 +25,12 @@ public struct TerminalFileTransfer: Sendable {
         guard !policyBlocked() else { throw CancellationError() }
         guard let gate else { return initialTarget }
         guard let resolved = await gate.value() else { throw CancellationError() }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.targetResolved(from: initialTarget.surface.rawValue, surface: resolved.surface.rawValue,
+                                                    terminalResourceID: resolved.terminalResourceID?.rawValue)
+        }
+        #endif
         return resolved
     }
 

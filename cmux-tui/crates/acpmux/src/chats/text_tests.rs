@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -98,6 +98,25 @@ fn a_long_chat_keeps_its_newest_messages() {
     assert_eq!(turns.last(), Some(&3), "the newest turn is held");
     assert!(!turns.contains(&0), "the oldest is left out");
     assert!(doc.message(doc.messages.len() - 1).starts_with("prompt3"));
+}
+
+/// A newest message past the bound alone (a pasted 50 MB log) keeps its newest text: the chat
+/// was held with no text at all, so no word of it was found (`text_scale_bench`).
+#[test]
+fn a_message_past_the_bound_alone_keeps_its_newest_text() {
+    let words = needle("tailword");
+    // Two-byte characters, so the cut falls inside one.
+    let huge = format!("headword {} tailword", "é".repeat(CHAT_BYTES));
+    let stamp = Stamp { updated_ms: 0, messages: None };
+    let read = Doc::new(stamp, &[turn("start", "short"), turn("paste", &huge)]);
+    let mut edited = Doc::new(stamp, &[turn("start", "short")]);
+    edited.edit(1, &[turn("paste", &huge)], 0);
+    for doc in [read, edited] {
+        assert!(doc.is_sound(), "{} bytes", doc.text.len());
+        let found = doc.find(&words, &Matcher::new(&words)).expect("the newest text is found");
+        assert_eq!(doc.messages[found.message as usize].turn, 1);
+        assert!(doc.find(&needle("headword"), &Matcher::new(&needle("headword"))).is_none());
+    }
 }
 
 #[test]
@@ -226,6 +245,19 @@ fn the_text_is_saved_private_and_read_back_and_chats_off_empty_it() {
 }
 
 #[test]
+fn a_stamp_only_change_does_not_rewrite_the_saved_text() {
+    let text = index();
+    let turns = vec![turn("x", "same searchable content")];
+    text.update(&[chat("a", 1)], &|_| Some(turns.clone()));
+    let saved = text.saves();
+
+    // The chat index stamp moved, but the transcript content did not.
+    text.update(&[chat("a", 2)], &|_| Some(turns.clone()));
+    assert_eq!(text.saves(), saved, "a metadata-only stamp update rewrote the text index");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+#[test]
 fn a_gone_chat_leaves_the_saved_copy_at_once_and_the_first_pass_marks_it_filled() {
     let text = index();
     assert!(!text.filled(), "nothing read yet");
@@ -240,6 +272,78 @@ fn a_gone_chat_leaves_the_saved_copy_at_once_and_the_first_pass_marks_it_filled(
     let off = ChatText::new(text.path.clone());
     off.load();
     assert_eq!(off.held(), (0, 0), "chats off: nothing saved");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+/// Leo's history holds more text than the bound, so every pass runs at it: the newest chat grows
+/// and the oldest held chat is let go of. Before, each such pass rewrote the whole saved copy (up
+/// to 128 MB, every pass the text thread ran) and read the first chat past the bound again only to
+/// let it go. Now a pass at the bound writes nothing until the timed save and reads only the chat
+/// that changed; a chat gone from the chat index still leaves the saved copy at once.
+#[test]
+fn at_the_bound_a_pass_writes_nothing_and_reads_only_what_changed() {
+    const OLDER: usize = 60;
+    const PASSES: i64 = 300;
+    let path = std::env::temp_dir().join(format!("acpmux-text-{}.json", uuid::Uuid::now_v7()));
+    let text = ChatText::with_total(path, 40 * 1024);
+    let reads = Cell::new(0_usize);
+    // The newest chat has as many turns as its time says (~20 bytes each); every older chat has
+    // ten (~1.2 KB).
+    let read = |entry: &ChatEntry| {
+        reads.set(reads.get() + 1);
+        let (turns, answer) = if entry.session_id == "new" {
+            (entry.updated_ms, "ok".to_owned())
+        } else {
+            (10, "answer ".repeat(14))
+        };
+        Some(
+            (0..turns)
+                .map(|t| turn(&format!("prompt {t} of {}", entry.session_id), &answer))
+                .collect(),
+        )
+    };
+    let older: Vec<IndexedChat> = (0..OLDER).map(|c| chat(&format!("c{c:02}"), 1)).collect();
+    let list = |turns: i64| {
+        let mut chats = vec![chat("new", turns)];
+        chats.extend(older.iter().cloned());
+        chats
+    };
+    text.update(&list(10), &read);
+    let (_, held) = text.held();
+    assert!(held <= 40 * 1024 && held > 30 * 1024, "the first fill holds up to the bound: {held}");
+    let first = (text.saves(), reads.get());
+    let held_at_first = text.held().0;
+    for turns in 11..10 + PASSES {
+        text.update(&list(turns), &read);
+    }
+    let (chats, bytes) = text.held();
+    assert!(bytes <= 40 * 1024, "the bound holds: {bytes}");
+    assert!(chats < held_at_first, "the newest chat grew, so older chats were let go of");
+    assert_eq!(
+        text.saves(),
+        first.0,
+        "no pass at the bound rewrote the saved copy ({} bytes written by the first)",
+        first.0.1
+    );
+    assert_eq!(
+        reads.get() - first.1,
+        usize::try_from(PASSES - 1).unwrap(),
+        "each pass read only the chat that changed, not the chat past the bound"
+    );
+    // Newest first: the newest chats are found, the oldest let go of are not.
+    assert!(text.search(&needle("prompt of new")).contains_key("codex:new"));
+    assert!(text.search(&needle("prompt of c00")).contains_key("codex:c00"));
+    assert!(text.search(&needle("prompt of c59")).is_empty());
+    let every = text.search(&needle("prompt of")).len();
+    assert_eq!(every, chats, "every held chat and only those");
+    // A chat gone leaves the saved copy at once, within the timed save's interval.
+    let mut without_c00 = list(10 + PASSES);
+    without_c00.remove(1);
+    text.update(&without_c00, &read);
+    assert_eq!(text.saves().0, first.0.0 + 1, "a chat gone is written out now");
+    let again = ChatText::new(text.path.clone());
+    again.load();
+    assert!(again.search(&needle("prompt of c00")).is_empty(), "c00's text left the saved copy");
     let _ = std::fs::remove_file(&text.path);
 }
 
@@ -392,4 +496,107 @@ fn a_held_save_interrupted_before_its_rename_leaves_the_old_copy() {
             assert_eq!(kept.unwrap(), "old", "an interrupted save changed the old copy");
         },
     );
+}
+
+#[test]
+fn a_pass_over_much_text_on_many_threads_finds_what_one_thread_finds() {
+    // Past PAR_MIN_BYTES so the pass takes threads; docs of uneven size so chunks finish apart.
+    let filler = "lorem ipsum dolor sit amet ".repeat(1_000);
+    let docs: Vec<(String, Arc<Doc>)> = (0..400)
+        .map(|n| {
+            let mut turns = vec![turn("start", &filler[..(n % 7 + 1) * 3_000])];
+            if n % 13 == 0 {
+                turns.push(turn("needle here", &format!("planted Zebrafinch {n}")));
+            }
+            turns.push(turn("end", &filler[..(n % 5 + 1) * 2_000]));
+            (
+                format!("chat-{n}"),
+                Arc::new(Doc::new(Stamp { updated_ms: 0, messages: None }, &turns)),
+            )
+        })
+        .collect();
+    let refs: Vec<(&String, &Arc<Doc>)> = docs.iter().map(|(k, d)| (k, d)).collect();
+    let bytes: usize = refs.iter().map(|(_, d)| d.text.len()).sum();
+    assert!(bytes >= PAR_MIN_BYTES, "{bytes} bytes take one thread");
+    let words = needle("zebrafinch planted");
+    let matcher = Matcher::new(&words);
+    let find =
+        |&(key, doc): &(&String, &Arc<Doc>)| doc.find(&words, &matcher).map(|m| (key.clone(), m));
+    let mut many = par_filter_map(&refs, find);
+    let mut one: Vec<_> = refs.iter().filter_map(find).collect();
+    many.sort_by(|a, b| a.0.cmp(&b.0));
+    one.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(many.len(), 400_usize.div_ceil(13));
+    assert_eq!(many, one);
+    // Below the bound the pass stays on this thread and still finds every doc.
+    assert_eq!(par_filter_map(&refs[..26], find).len(), 2);
+}
+
+#[test]
+fn the_trigram_set_never_drops_a_hit_and_a_word_no_chat_says_reads_no_text() {
+    let mut seed = 11_u64;
+    let vocabulary: Vec<String> = (0..400)
+        .map(|i| {
+            let len = 2 + i % 9;
+            (0..len).map(|j| char::from(b'a' + ((i * 7 + j * 3) % 26) as u8)).collect::<String>()
+        })
+        .collect();
+    let chats: Vec<IndexedChat> = (0..60).map(|n| chat(&format!("c{n}"), n)).collect();
+    // Uneven sizes, mixed case: a short chat, and long ones past the set's most bits.
+    let said: HashMap<String, Vec<Turn>> = (0..60)
+        .map(|n| {
+            let mut s = seed.wrapping_add(n as u64);
+            let count = [5, 60, 2_000, 30_000][n % 4];
+            let mut text = words(&mut s, count, &vocabulary);
+            if n % 3 == 0 {
+                text = text.to_uppercase();
+            }
+            (format!("c{n}"), vec![turn("q", &text)])
+        })
+        .collect();
+    let text = index();
+    text.update(&chats, &|entry| said.get(&entry.session_id).cloned());
+    let plain = |query: &str| {
+        let words = needle(query);
+        let unfiltered = Matcher { trigrams: Vec::new(), ..Matcher::new(&words) };
+        let mut keys: Vec<String> = lock(&text.inner)
+            .docs
+            .iter()
+            .filter(|(_, doc)| doc.find(&words, &unfiltered).is_some())
+            .map(|(key, _)| key.clone())
+            .collect();
+        keys.sort();
+        keys
+    };
+    for _ in 0..300 {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let a = &vocabulary[(seed >> 33) as usize % vocabulary.len()];
+        let b = &vocabulary[(seed >> 13) as usize % vocabulary.len()];
+        // A word, two words, and a piece of a word across a word's end.
+        for query in [a.clone(), format!("{a} {b}"), format!("{} {}", &a[1..], &b[..2])] {
+            let mut found: Vec<String> = text.search(&needle(&query)).keys().cloned().collect();
+            found.sort();
+            assert_eq!(found, plain(&query), "{query}");
+        }
+    }
+    let (scanned, read) = (text.scanned(), text.read());
+    assert!(text.search(&needle("zqxjvw")).is_empty());
+    assert_eq!(text.scanned() - scanned, 60, "every chat is asked");
+    assert_eq!(text.read() - read, 0, "no chat's text is read for a word none says");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+#[test]
+fn an_edited_doc_keeps_finding_old_and_added_words_through_its_trigram_set() {
+    let stamp = Stamp { updated_ms: 0, messages: None };
+    let mut doc = Doc::new(stamp, &[turn("first", "Alpha")]);
+    // Grow past the set's first size, so it is read again off the whole text.
+    let long = "filler words here ".repeat(200);
+    doc.edit(1, &[turn(&long, "Bravo"), turn("x", "charlie")], 0);
+    for word in ["alpha", "BRAVO", "Charlie", "filler"] {
+        let words = needle(word);
+        assert!(doc.find(&words, &Matcher::new(&words)).is_some(), "{word}");
+    }
+    let words = needle("zqxjvw");
+    assert!(!doc.may_hold(&Matcher::new(&words)));
 }

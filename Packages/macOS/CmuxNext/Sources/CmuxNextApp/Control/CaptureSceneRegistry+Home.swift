@@ -6,6 +6,7 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextFeedClient
 import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextHomeModel
 import CmuxNextPages
 import CmuxNextSettings
@@ -17,6 +18,8 @@ extension CaptureSceneRegistry {
     static let homeChiefScene = "home-chief"
     /// `home-chief` with a long draft: the field grows up into the first-run panel.
     static let homeChiefLongDraftScene = "home-chief-long-draft"
+    /// `home-chief` with the Chief's profile open on a tab, as its name pill's click opens it.
+    static let profileScenes: [String: HomeChiefProfileTab] = ["home-chief-profile-details": .details, "home-chief-profile-computer": .computer]
     /// The long draft: enough lines to take most of the column.
     static let longDraftText = (1...24).map { "Line \($0) of a long message to the Chief" }.joined(separator: "\n")
 
@@ -26,7 +29,7 @@ extension CaptureSceneRegistry {
     /// failed, a done and a working agent, then waits until the app shows
     /// them all: each state reached the mirror, and the first-run panel shows
     /// a row for each status. An error names what never appeared.
-    func showHomeChief(windowID: String, longDraft: Bool = false) async -> CmuxNextSettings.JSONValue {
+    func showHomeChief(windowID: String, longDraft: Bool = false, profile: HomeChiefProfileTab? = nil) async -> CmuxNextSettings.JSONValue {
         guard let controller = services.windows.controller(for: windowID) else {
             return .object(["error": .string("capture window is gone")])
         }
@@ -62,7 +65,7 @@ extension CaptureSceneRegistry {
         }
         page.show(ConversationID(chief))
         // An empty field: an earlier long-draft scene in this app leaves its draft there.
-        page.host.flatMap(HomePageTab.transcript(in:))?.debugSetDraft("")
+        page.host.flatMap(HomeNativeTranscriptView.first(in:))?.debugSetDraft("")
         let statuses: Set<HomeAgentGlance.Status> = Set(agents.map(\.0.status)).union([.needsYou])
         let start = ContinuousClock.now
         frames.start()
@@ -70,7 +73,7 @@ extension CaptureSceneRegistry {
             until: {
                 guard terminal.tab.agent?.state == .blocked, agents.allSatisfy({ $0.0.reached($0.1) }),
                       let host = page.host, host.window != nil, !host.isHiddenOrHasHiddenAncestor,
-                      let transcript = HomePageTab.transcript(in: host), transcript.debugFirstRunShown else { return false }
+                      let transcript = HomeNativeTranscriptView.first(in: host), transcript.debugFirstRunShown else { return false }
                 return statuses.isSubset(of: transcript.debugFirstRunAgents.filter(\.shown).map(\.status))
             },
             start: start,
@@ -78,7 +81,7 @@ extension CaptureSceneRegistry {
             deadline: 10_000,
         )
         let frameStats = frames.stop()
-        let transcript = page.host.flatMap(HomePageTab.transcript(in:))
+        let transcript = page.host.flatMap(HomeNativeTranscriptView.first(in:))
         var report: [String: CmuxNextSettings.JSONValue] = ["chief": .string(chief), "home_frames": frameStats]
         report["shown"] = page.shown.map { CmuxNextSettings.JSONValue.string($0.rawValue) } ?? .null
         report["first_run_shown"] = .bool(transcript?.debugFirstRunShown ?? false)
@@ -87,20 +90,14 @@ extension CaptureSceneRegistry {
         report["agents"] = .array((transcript?.debugFirstRunAgents ?? []).map { row in
             .object(["tab": .string(row.id), "title": .string(row.title), "status": .string("\(row.status)"), "shown": .bool(row.shown)])
         })
-        guard settled != nil else {
-            report["error"] = .string("Home's first-run panel did not show every status before the deadline")
-            clearShowcaseAgent(windowID: windowID)
-            return .object(report)
+        func failed(_ why: String) -> CmuxNextSettings.JSONValue {
+            report["error"] = .string(why); clearShowcaseAgent(windowID: windowID); return .object(report)
         }
-        if longDraft {
-            guard let transcript else {
-                report["error"] = .string("no Home transcript to put the long draft in")
-                clearShowcaseAgent(windowID: windowID)
-                return .object(report)
-            }
-            return await growField(transcript, report: report, windowID: windowID)
-        }
-        return .object(report)
+        guard settled != nil else { return failed("Home's first-run panel did not show every status before the deadline") }
+        if let profile, page.host?.openProfile(profile) != true { return failed("the Chief's profile did not open") }
+        guard longDraft else { return .object(report) }
+        guard let transcript else { return failed("no Home transcript to put the long draft in") }
+        return await growField(transcript, report: report, windowID: windowID)
     }
 
     /// `home-chief-long-draft`: puts a long draft in the field, waits until the field has grown
@@ -186,7 +183,7 @@ extension CaptureSceneRegistry {
             owner: { _, body in capture.owner(body) }, isSignedIn: { true }, ownInstall: { "inst_capture_mac" },
             presenceKeys: { throw CancellationError() })
         bridge.start()
-        let section = { controller.window?.contentView.flatMap(HomePageTab.transcript(in:))?.pinnedSection as? FeedNeedsYouSection }
+        let section = { controller.window?.contentView.flatMap(HomeNativeTranscriptView.first(in:))?.pinnedSection as? FeedNeedsYouSection }
         frames.start()
         let shown = await frames.settled(until: { (section()?.waiting ?? 0) > 0 }, start: .now, window: 100, deadline: 8_000)
         var report: [String: CmuxNextSettings.JSONValue] = ["shown_frames": frames.stop(), "connected": .bool(capture.connected)]
@@ -205,7 +202,7 @@ extension CaptureSceneRegistry {
             capture.notifyPending()
         }
         report["acpmux_and_feed"] = .array((capture.infoReads + capture.ops).map { .string($0) })
-        report["view"] = .string((try? await services.feed.daemon.view(.needsYou)).map { "transcript \(controller.window?.contentView.flatMap(HomePageTab.transcript(in:)) != nil) pinned \(services.settings?.snapshot.homeNeedsYouInChief ?? false) settled \($0.isSettled) \($0.connection?.state ?? "-") \($0.connection?.reason ?? "-") needs_you \($0.items(in: "needs_you").count)" } ?? "unread")
+        report["view"] = .string((try? await services.feed.daemon.view(.needsYou)).map { "transcript \(controller.window?.contentView.flatMap(HomeNativeTranscriptView.first(in:)) != nil) pinned \(services.settings?.snapshot.homeNeedsYouInChief ?? false) settled \($0.isSettled) \($0.connection?.state ?? "-") \($0.connection?.reason ?? "-") needs_you \($0.items(in: "needs_you").count)" } ?? "unread")
         guard shown != nil, case .object(let drawn)? = row, drawn["matched"]?.boolValue == true else {
             return .object(report.merging(["error": .string("Needs you never drew the prompt"), "scene": .string(scene)]) { $1 })
         }

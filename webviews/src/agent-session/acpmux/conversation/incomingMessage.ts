@@ -119,6 +119,9 @@ export type IncomingMessage = {
   effort?: string;
   /// A person edited it while it waited (acpmux `editedBy`): still the sender's message.
   edited?: true;
+  /// The name people call the sender, its given handle (acpmux `fromDisplayName`,
+  /// prompt_provenance.rs): the line reads it before the session name it was known by.
+  displayName?: string;
   /// What the sender wrote.
   text: string;
   /// When acpmux recorded it (an inbox message's `at`, ms): a group's hover lists by it.
@@ -507,12 +510,14 @@ function promptOf(
   const fromHarness = trimmed(provenance?.fromHarness) ?? trimmed(claimed?.fromHarness) ?? trimmed(msg?.fromHarness);
   const fromModel = trimmed(provenance?.fromModel) ?? trimmed(msg?.fromModel);
   const fromEffort = trimmed(provenance?.fromEffort) ?? trimmed(msg?.fromEffort);
+  const fromDisplayName = trimmed(provenance?.fromDisplayName);
   const edited = provenance?.editedBy ? { edited: true as const } : {};
   const harness = {
     ...edited,
     ...(fromHarness && { harness: fromHarness }),
     ...(fromModel && { model: fromModel }),
     ...(fromEffort && { effort: fromEffort }),
+    ...(fromDisplayName && { displayName: fromDisplayName }),
   };
   // acpmux's notice of the chat's inbox: its threads, never its text for the agent; one that names
   // no thread is bookkeeping.
@@ -1086,8 +1091,9 @@ function historyInbox(text: string): { notice: AgentNotice; body: string } | und
   return { notice: { sender: "inbox", severity: "info", title, links: [] }, body };
 }
 
-/// Claude Code's line before an envelope it delivers, by itself or with the agent busy.
-const PREFACE = /^Another Claude session sent a message(?: while you were working)?:\s*/;
+/// Claude Code's line before an envelope it delivers, by itself or with the agent busy, in either
+/// wording it uses ("Another Claude session …" or "A peer session …").
+const PREFACE = /^(?:Another Claude session|A peer session) sent a message(?: while you were working)?:\s*/;
 
 /// `<cross-session-message from="…" from-name="…" from-mode="…">body</cross-session-message>`,
 /// closed by the first closing tag.

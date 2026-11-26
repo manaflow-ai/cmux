@@ -118,6 +118,9 @@ SIGNING_JOBS, UNRESOLVED_SIGNING_JOBS = picker_signing_jobs()
 GLAEDA_EXCLUSIVE_JOBS = SIGNING_JOBS | {("nightly.yml", "promote-nightly-next"), ("nightly.yml", "promote-nightly-next-acked")}
 OWNED_PICKER = "scripts/ci/signing_runner.py"
 BLACKSMITH_PICKER = "scripts/ci/nightly_sign_runner.py"
+# nightly-next-one's signer pick (docs/ci/nightly-workflow-notes.md#note-33): a pin of the signer label plus one signer
+# runner's label, or the signer label alone; read like OWNED_PICKER's owned output (test_the_signer_pick_never_widens).
+SIGNER_PICKER = "scripts/ci/nightly_next_signer_pick.py"
 CLAIM = "scripts/ci/signing-runner-claim.sh"
 CLAIM_GATE_NAME = "Hold the whole Mac before any credential"
 CLAIM_GATE_ID = "claim-gate"
@@ -146,8 +149,8 @@ ATTEMPT_OUTPUT = "${{ github.run_attempt }}"
 # step; signed_ok (true only when every step passed) says, unless the old feed already had the build (skip) or Apple
 # already holds its submission (pending: a second signer would submit it again). On
 # 2026-10-29 it failed codesign on a mini after its claim (errSecInternalComponent) and, its twin skipped, the run
-# published nothing to the old feed. The other twins sign only after a refused claim: release and the v0.64.25 repair
-# publish from inside the signing job, so a second signer after a failed one could publish twice.
+# published nothing to the old feed. The other twins sign only after a refused claim: release publishes
+# from inside the signing job, so a second signer after a failed one could publish twice.
 FALLBACK_ON_FAILURE: dict[tuple[str, str], str] = {}
 # Nightly workflows have no Blacksmith twin at all (twin_failures).
 NIGHTLY_WORKFLOW = re.compile(r"nightly|notarization")
@@ -276,7 +279,10 @@ def picker_scripts(jobs: dict, needed: str, output: str) -> list[str]:
     found = []
     for step_id in dict.fromkeys(STEP_OUTPUT.findall(value)):
         run = steps.get(step_id, "")
-        if OWNED_PICKER in run:  # its `owned` output names a mini; `runner` and `alternate` are nightly_sign_runner's
+        if SIGNER_PICKER in run:
+            found.append(SIGNER_PICKER if re.search(rf"steps\.{re.escape(step_id)}\.outputs\.pin\b", value)
+                         else f"steps.{step_id} ({run.strip()[:60]})")
+        elif OWNED_PICKER in run:  # its `owned` output names a mini; `runner` and `alternate` are nightly_sign_runner's
             owned = re.search(rf"steps\.{re.escape(step_id)}\.outputs\.owned(?:_pool)?\b", value) is not None
             found.append(OWNED_PICKER if owned else BLACKSMITH_PICKER)
         else:
@@ -388,7 +394,7 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                     continue  # the picker's own attempt number (attempt_clauses()), not a runner label
                 scripts = picker_scripts(jobs, needed, output)
                 for script in scripts:
-                    if script == OWNED_PICKER:
+                    if script in (OWNED_PICKER, SIGNER_PICKER):
                         owned_reads.append(f"needs.{needed}.outputs.{output}")
                     elif script != BLACKSMITH_PICKER:
                         failures.append(f"{label}: runs-on reads needs.{needed}.outputs.{output}, from {script}; a "
@@ -482,10 +488,12 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
 EXCLUSIVE_EXEMPT: dict[tuple[str, str], str] = {
     ("cmux-next-dev-daily.yml", "sign-blacksmith"):
         "sign's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
+    ("cmux-tui-team-signed.yml", "sign"):
+        "signs the Team-signed tree on a literal Blacksmith label only (keychain rule 7); no route reaches an owned Mac",
+    ("cmux-tui-team-signed.yml", "sign-helper"):
+        "signs the Screen Sharing helper on sign's literal Blacksmith label only (cmux#47936); no route reaches an owned Mac",
     ("release.yml", "build-sign-notarize-blacksmith"):
         "build-sign-notarize's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
-    ("repair-v0-64-25-helper-rpaths.yml", "repair-blacksmith"):
-        "repair's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
     # The one entry that may keep an owned route: the keychain guard's rule 7b proves it (GATED_SECRET_JOBS).
     ("stable-next.yml", "sign"):
         "rule 7b (keychain guard GATED_SECRET_JOBS): it reads its signing secrets only when SIGN is developer-id, "
@@ -505,7 +513,7 @@ def owned_pick_reads(jobs: dict, runs_on: str) -> list[str]:
     for needed, output in dict.fromkeys(NEEDS_OUTPUT.findall(runs_on)):
         if str(((jobs.get(needed) or {}).get("outputs") or {}).get(output, "")).strip() == ATTEMPT_OUTPUT:
             continue
-        if OWNED_PICKER in picker_scripts(jobs, needed, output):
+        if {OWNED_PICKER, SIGNER_PICKER} & set(picker_scripts(jobs, needed, output)):
             reads.append(f"needs.{needed}.outputs.{output}")
     return reads
 
@@ -638,6 +646,40 @@ class SigningOwnedMacTests(unittest.TestCase):
                                 lambda token, repo: {}, NOW)
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(values["owned_pool"], "")
+
+    def test_the_signer_pick_never_widens(self) -> None:
+        """nightly-next-one reads SIGNER_PICKER's pin like an owned pick: whatever the census and holders say, the pin
+        starts with the signer label and adds at most one runner label of a runner carrying it."""
+        import importlib.util
+        import random
+        spec = importlib.util.spec_from_file_location("nightly_next_signer_pick", ROOT / SIGNER_PICKER)
+        picker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(picker)
+        rng = random.Random(17011)
+        names = ["cmux15-glaeda", "cmux15-glaeda-1", "ultra1-glaeda", "ultra1-glaeda-1", "ultra2-glaeda",
+                 "cmux7s-mac-mini-glaeda", "cmux15-glaeda-nightly-only-4"]
+        for _ in range(500):
+            runners = []
+            for index, name in enumerate(names):
+                labels = [{"name": f"glaeda-runner-{name}"}]
+                if rng.random() < 0.7:
+                    labels.append({"name": signing_runner.SIGNER_LABEL})
+                runners.append({"id": index + 1, "name": name, "status": rng.choice(("online", "offline")),
+                                "busy": rng.random() < 0.5, "labels": labels})
+            holders = [{"name": "nightly-next-one", "status": rng.choice(("queued", "pending", "in_progress")),
+                        "runner_name": rng.choice(["", *names]),
+                        "labels": [signing_runner.SIGNER_LABEL, f"glaeda-runner-{rng.choice(names)}"]}
+                       for _ in range(rng.randint(0, 3))]
+            host, pin, _ = picker.pick(runners, holders)
+            labels = json.loads(pin)
+            self.assertIn(host, ("cmux15", "ultra1"))
+            self.assertEqual(labels[0], signing_runner.SIGNER_LABEL)
+            self.assertLessEqual(len(labels), 2)
+            if len(labels) == 2:
+                carrier = next(r for r in runners if f"glaeda-runner-{r['name']}" == labels[1])
+                self.assertIn(signing_runner.SIGNER_LABEL, {label["name"] for label in carrier["labels"]})
+                self.assertEqual(carrier["status"], "online")
+                self.assertTrue(carrier["name"].startswith(host + "-glaeda"))
 
     def test_workflows(self) -> None:
         failures, owned_jobs = check(workflows())
@@ -1508,13 +1550,7 @@ class PresenceConditionTests(unittest.TestCase):
         """Dropping the condition must not drop the variable that actually gives the label."""
         runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && vars.SOME_SHARED_RUNNER {self.END}"
         self.assertEqual(self.label_variables(runs_on), ["SOME_SHARED_RUNNER"])
-        job = {"runs-on": runs_on,
-               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
-                          "run": claim_gate_for("nightly.yml")},
-                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
-        found: list[str] = []
-        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
-        self.assertTrue(any("picks its runner from vars.SOME_SHARED_RUNNER" in why for why in found), found)
+        # #53754 deleted rule 7 (a signing job's runs-on vars checks); what it asserted of check_job is gone.
 
     def test_a_variable_both_tested_and_read_is_still_checked(self) -> None:
         """Whether or not the condition is dropped, a variable that can give the label still faces checks.
@@ -1534,13 +1570,7 @@ class PresenceConditionTests(unittest.TestCase):
         before. Only MODE_VARIABLES names are dropped now."""
         runs_on = f"${{{{ vars.BAD != '' && 'macos-26' {self.END}"
         self.assertEqual(self.label_variables(runs_on), ["BAD"])
-        job = {"runs-on": runs_on,
-               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
-                          "run": claim_gate_for("nightly.yml")},
-                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
-        found: list[str] = []
-        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
-        self.assertTrue(any("picks its runner from vars.BAD" in why for why in found), found)
+        # #53754 deleted rule 7 (a signing job's runs-on vars checks); what it asserted of check_job is gone.
         self.assertNotIn("BAD", keychain_guard.MODE_VARIABLES)
 
     def test_a_mode_variable_selecting_a_literal_is_not_dropped(self) -> None:
@@ -1548,13 +1578,7 @@ class PresenceConditionTests(unittest.TestCase):
         runs-on), so a mode clause that selects a literal keeps the mode variable in view and fails."""
         runs_on = f"${{{{ vars.CI_NIGHTLY_MINI != '' && 'macos-26' {self.END}"
         self.assertEqual(self.label_variables(runs_on), ["CI_NIGHTLY_MINI"])
-        job = {"runs-on": runs_on,
-               "steps": [{"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash",
-                          "run": claim_gate_for("nightly.yml")},
-                         {"run": f"bash {CLAIM}"}, OwnedRouteVariableTests.SPARKLE]}
-        found: list[str] = []
-        keychain_guard.check_job("nightly.yml generate-nightly-deltas", job, found)
-        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_MINI" in why for why in found), found)
+        # #53754 deleted rule 7 (a signing job's runs-on vars checks); what it asserted of check_job is gone.
 
     def test_a_mode_variable_selecting_the_signer_label_is_dropped(self) -> None:
         """The one literal a mode clause may select is the signer's own label, the value runner_label_policy
@@ -1608,17 +1632,8 @@ class OwnedRouteVariableTests(unittest.TestCase):
     def gate(self, workflow: str) -> dict:
         return {"name": CLAIM_GATE_NAME, "id": CLAIM_GATE_ID, "shell": "bash", "run": claim_gate_for(workflow)}
 
-    def test_a_job_outside_the_exclusive_class_may_not_read_the_variable(self) -> None:
-        job = {"runs-on": self.RUNS_ON, "steps": [self.gate("other.yml"), self.SPARKLE]}
-        found = self.failures("other.yml sign", job)
-        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_SIGN_RUNNER" in why for why in found), found)
-
-    def test_a_job_in_the_class_without_the_verbatim_gate_may_not_read_it(self) -> None:
-        gate = self.gate("nightly.yml")
-        gate["run"] = gate["run"].replace("exit 1", "exit 0")
-        job = {"runs-on": self.RUNS_ON, "steps": [gate, {"run": f"bash {CLAIM}"}, self.SPARKLE]}
-        found = self.failures("nightly.yml generate-nightly-deltas", job)
-        self.assertTrue(any("picks its runner from vars.CI_NIGHTLY_SIGN_RUNNER" in why for why in found), found)
+    # #53754 deleted rule 7: a job outside the exclusive class or without the verbatim gate may read a runner
+    # variable, so the two tests that it may not are gone.
 
     def test_a_gated_job_still_needs_the_claim_script_before_its_secret(self) -> None:
         gate = self.gate("nightly.yml")
@@ -1721,17 +1736,7 @@ class OwnedRouteVariableTests(unittest.TestCase):
     def test_an_owned_variable_only_tested_in_a_condition_is_not_the_route(self) -> None:
         """router-review F1 at 1e9095d099b: the waiver is for the variable that gives the label. Tested in a
         condition, it lets whatever it selects be the label, and the claim gate does nothing on a hosted Mac."""
-        for runs_on in ("${{ vars.CI_NIGHTLY_SIGN_RUNNER != '' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}",
-                        "${{ vars.CI_NIGHTLY_SIGN_RUNNER && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}",
-                        "${{ vars.CI_NIGHTLY_SIGNING_POOL == 'x' && vars.SOME_SHARED_RUNNER || "
-                        "'blacksmith-6vcpu-macos-26' }}",
-                        "${{ vars.CI_SIDE_LANE_RUNNER != '' && 'macos-26' }}"):
-            with self.subTest(runs_on=runs_on):
-                job = {"runs-on": runs_on,
-                       "steps": [self.gate("nightly.yml"), {"run": f"bash {CLAIM}"}, self.SPARKLE]}
-                found = self.failures("nightly.yml generate-nightly-deltas", job)
-                self.assertTrue(any("picks its runner from vars." in why or "other than as" in why
-                                    for why in found), found)
+        # #53754 deleted rule 7, so a runs-on whose variable is only tested in a condition is no longer refused.
         # the tree's shape: the variable gives the label, after a mode test or among alternatives
         for runs_on in ("${{ vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
                         "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}",

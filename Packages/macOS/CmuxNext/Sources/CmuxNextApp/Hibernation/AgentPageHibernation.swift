@@ -91,6 +91,11 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
         let cache = services.cache
         isRendering = { [weak cache] key in cache?.isRendering(key) ?? true }
+        pages.pairedFace = { [weak services, weak cache] key in // Toggle Terminal and Chat: a chat whose pane draws its terminal face
+            guard let services, let cache, let (tab, pane) = services.locateTab(AgentTabKey(relaunchStorageKey: key).key), tab.kind != .pty,
+                  let session = TerminalChatHandler.chatSession(of: tab, services: services)?.agentSessionId else { return false }
+            return pane.tabs.contains { $0.kind == .pty && $0.agent?.harnessSessionID == session && cache.isRendering($0.id) }
+        }
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
             guard let cache else { return }
             self?.sync(cache.presentationChanges.changedKeys) { cache.isRendering($0) }
@@ -105,7 +110,6 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     // The planner's surface, as the App and the tests call it.
     var hasDeadline: Bool { pages.hasDeadline }
     var frozen: Set<String> { pages.frozen }
-    var hasFreezeDeadline: Bool { pages.hasFreezeDeadline }
     func update(setting: BrowserHibernationSetting, pressure: MemoryPressureLevel) { pages.update(setting: setting, pressure: pressure) }
     func sync(_ changed: Set<String>? = nil, _ isRendering: (String) -> Bool) {
         let changed = changed.map { ids in
@@ -114,14 +118,9 @@ final class AgentPageHibernation: HiddenChatPagesHost {
         }
         pages.sync(changed) { let scoped = AgentTabKey(relaunchStorageKey: $0); return !scoped.machine.isEmpty || isRendering(scoped.key) } // the cache keys renderers by tab id: a page whose id two machines share stays awake
     }
-    func forget(_ key: String) { pages.forget(key) }
     func replan() { pages.replan() }
     func keepsPage(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? { pages.keepsPage(key, onScreen: onScreen) }
     func keepsAwake(_ key: String, onScreen: Bool = true) -> HibernationPlanner.Exemption? { pages.keepsAwake(key, onScreen: onScreen) }
-    @discardableResult
-    func releaseForWorkspace(_ key: String) -> HibernationPlanner.Exemption? { pages.releaseForWorkspace(key) }
-    func pageBuilt(_ key: String) { pages.pageBuilt(key) }
-    func holdAwake(_ held: Bool) { pages.holdAwake(held) }
 
     // MARK: HiddenChatPagesHost
 
@@ -149,10 +148,7 @@ final class AgentPageHibernation: HiddenChatPagesHost {
     func pageIsUntouchedNewTab(_ key: String) -> Bool {
         guard let tabs = store() else { return false }
         let scoped = scopedKey(key, in: tabs)
-        guard let view = tabs.existingView(scoped.key, machine: scoped.machine),
-              let page = view.model.newTab, !view.model.userTouched, !view.model.remoteChat,
-              page.draft?.isEmpty != false, view.model.sessionId == nil, tabs.sessions[scoped] == nil,
-              !view.model.shell.hasRuns, !view.showsCrashNotice,
+        guard let view = tabs.existingView(scoped.key, machine: scoped.machine), view.isUntouchedNewTab, tabs.sessions[scoped] == nil,
               let (record, _) = tabs.record(for: tabs.resolvedKey(scoped)), record.session == nil,
               tabs.hostKind(record, listedHere: true) == .local,
               tabs.daemon(for: tabs.resolvedKey(scoped))?.isLocal != false else { return false }

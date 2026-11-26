@@ -73,10 +73,11 @@ pub async fn pair(
         "agent_policy": agent_policy,
         "os": std::env::consts::OS,
         "arch": std::env::consts::ARCH,
-        "version": crate::hub::VERSION,
+        "version": crate::build_info::VERSION,
     });
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
+        .default_headers(cmux_build_space::headers()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(30))
         .user_agent(concat!("cmux-hand/", env!("CARGO_PKG_VERSION")))

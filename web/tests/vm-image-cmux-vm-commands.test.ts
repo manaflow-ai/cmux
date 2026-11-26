@@ -1,13 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { aptUpdateCommand } from "../scripts/cmux-vm-image/apt-update";
 import * as bake from "../scripts/cmux-vm-image/bake";
 import { cmuxTuiSourceFromLock, GUEST_DIR } from "../scripts/cmux-vm-image/bake";
-import { CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry } from "../scripts/cmux-vm-image/lock";
-import { imageLeftoversCommand, programChecksCommand, programProblems, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
-import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand } from "../scripts/cmux-vm-image/daemon-uptime";
+import { aptDebFetchCommand, aptLocalInstallCommand, aptPins, CURRENT_BIN, profileCommand, programInstallCommand, readInputsLock, storeEntry, UBUNTU_ARCHIVE } from "../scripts/cmux-vm-image/lock";
+import { imageLeftoversCommand, programChecksCommand, programProblems, rolesOffFontsOnCommand, secretScanCommand, storeCommandPathSnippet } from "../scripts/cmux-vm-image/smoke";
+import { daemonHoldCommand, daemonUptimeProblems, forcedRebindCommand, legacyErrorFilter } from "../scripts/cmux-vm-image/daemon-uptime";
 import { GH_SHIM } from "../scripts/cmux-vm-image/github-auth";
 import { runChild } from "./helpers/run-child";
 import { CMUX_CLOUD_HOME, CMUX_TUI_LEGACY_HOME } from "../services/vms/drivers/cmuxTuiDaemon";
@@ -50,6 +51,26 @@ describe("cmux VM image guest commands", () => {
     await bashSyntax(imageLeftoversCommand());
     // Existence only: the leftover scan never reads or prints a sign-in file's contents.
     expect(imageLeftoversCommand()).not.toMatch(/\b(cat|head -c|grep [^|]*credentials)\b/);
+  });
+
+  // Rolls 45541312694 and 45561599772 failed the smoke on an unbound VM's refusal line, which names no migration.
+  test("daemon uptime journal filter: the migration refusal matches, other refusals do not", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "uptime-journal-"));
+    try {
+      const log = path.join(dir, "journal.log");
+      writeFileSync(log, [
+        "cmux-host: cloud: auto-session machine: refused vm.unbound",
+        "cmux-host: carrier ticket: refused vm.unbound in 4 ms",
+        "cmux-host: session host started",
+        "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains",
+      ].join("\n") + "\n");
+      const result = await runChild("bash", ["-c", legacyErrorFilter(log)], { timeout: 20_000 });
+      expect(result.stdout.trim().split("\n")).toEqual([
+        "previous remote daemon authorization state requires explicit migration; verify that no legacy cmux-tui process remains",
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   // Bake run 41701438675 passed with a session host that crash-looped after any rebind (cmux#34128).
@@ -157,16 +178,151 @@ describe("cmux VM image apt index", () => {
     expect(bake.APT_UPDATE_COMMAND).toBe(aptUpdateCommand({ log: "/tmp/apt-update.log", sources: "/etc/apt/sources.list.d/ubuntu.sources", saved: "/tmp/ubuntu.sources.snapshot" }));
   });
 
-  test("an empty index is reported as one apt index problem, not the first pin", () => {
+  test("download batches are sized from the lock's .debs, and every missing pin is named at once", () => {
     const pins = { acl: "2.3.2-1build1.1", curl: "8.5.0-2ubuntu10.16", git: "1:2.43.0-1ubuntu7.4" };
-    expect(() => bake.aptDownloadBatches(pins, new Map())).toThrow(
-      "apt index has no size for 3 of 3 locked pins (acl=2.3.2-1build1.1, curl=8.5.0-2ubuntu10.16, git=1:2.43.0-1ubuntu7.4)",
+    const deb = (size: number) => ({ path: "pool/main/a/acl/acl_2.3.2-1build1.1_amd64.deb", sha256: "0".repeat(64), size });
+    expect(() => bake.aptDownloadBatches(pins, {})).toThrow(
+      "apt.ubuntu.debs has no .deb for 3 of 3 locked pins (acl=2.3.2-1build1.1, curl=8.5.0-2ubuntu10.16, git=1:2.43.0-1ubuntu7.4)",
     );
-    expect(() => bake.aptDownloadBatches(pins, new Map([["acl=2.3.2-1build1.1", 1], ["git=1:2.43.0-1ubuntu7.4", 1]]))).toThrow(
-      "apt index has no size for 1 of 3 locked pins (curl=8.5.0-2ubuntu10.16)",
-    );
-    expect(bake.aptDownloadBatches(pins, new Map(Object.entries(pins).map(([n, v]) => [`${n}=${v}`, 1])))).toHaveLength(1);
+    expect(() => bake.aptDownloadBatches(pins, { "acl=2.3.2-1build1.1": deb(1), "git=1:2.43.0-1ubuntu7.4": deb(1) })).toThrow("no .deb for 1 of 3 locked pins (curl=8.5.0-2ubuntu10.16)");
+    const all = Object.fromEntries(Object.entries(pins).map(([n, v]) => [`${n}=${v}`, deb(10)]));
+    expect(bake.aptDownloadBatches(pins, all)).toHaveLength(1);
+    expect(bake.aptDownloadBatches(pins, all, 15).map((b) => b.pins.length)).toEqual([1, 1, 1]);
   });
+
+  // Image roll 44263286356 (2026-11-18): batch 3 of 5 (13 debs, 6.3 MB) hit the guest's 5-minute exec cap on a slow
+  // mirror (status 124) and failed the bake; the fetch keeps every verified .deb, so a second run finishes the batch.
+  test("a download batch that fails is run again, keeping what it fetched, up to APT_FETCH_ATTEMPTS times", async () => {
+    const vm = {} as Parameters<typeof bake.fetchAptBatch>[1];
+    const fakeLog = (failures: number) => {
+      const calls: string[] = [];
+      const lines: string[] = [];
+      return {
+        calls,
+        lines,
+        log: (line: string) => void lines.push(line),
+        step: async (_vm: unknown, label: string) => {
+          calls.push(label);
+          if (calls.length <= failures) throw new Error(`step ${label} failed`);
+          return "debs 13: kept 9, archive 4, snapshot 0";
+        },
+      };
+    };
+    const once = fakeLog(1);
+    await bake.fetchAptBatch(once, vm, "apt-ubuntu-download-3-of-5", "fetch");
+    expect(once.calls).toEqual(["apt-ubuntu-download-3-of-5", "apt-ubuntu-download-3-of-5-try-2"]);
+    expect(once.lines.join("\n")).toContain("apt-ubuntu-download-3-of-5 failed (try 1 of 3)");
+
+    const never = fakeLog(99);
+    await expect(bake.fetchAptBatch(never, vm, "apt-ubuntu-download-3-of-5", "fetch")).rejects.toThrow("step apt-ubuntu-download-3-of-5-try-3 failed");
+    expect(never.calls).toHaveLength(bake.APT_FETCH_ATTEMPTS);
+    expect(bake.APT_FETCH_ATTEMPTS).toBe(3);
+  });
+
+  // Image rolls 45109809346 and 45113664312 (2026-11-23): GitHub release downloads ran at about 100 KB/s, and
+  // store-codex (109 MB) hit the guest's 5-minute exec cap (status 124) twice. A store install now continues its
+  // partial download on the next run, skips a whole one, and drops a whole file with the wrong sha256.
+  test("a store install resumes its download and is run again up to STORE_FETCH_ATTEMPTS times", async () => {
+    const codex = lock.programs.find((p) => p.name === "codex")!;
+    const dl = `/tmp/cmux-dl/${codex.sha256}`;
+    const command = programInstallCommand(codex);
+    expect(command).toContain(`test "$(stat -c %s ${dl} 2>/dev/null)" = ${codex.size} || curl -fsSL --retry 3 -C - -o ${dl} `);
+    expect(command).toContain(`sha256sum -c --quiet - || { rm -f ${dl}; false; }`);
+    expect(command).not.toContain(`rm -f ${dl} ${dl}.tgz ${dl}.sums && mkdir`);
+
+    const vm = {} as Parameters<typeof bake.installStoreProgram>[1];
+    const calls: string[] = [];
+    const lines: string[] = [];
+    const L = {
+      log: (line: string) => void lines.push(line),
+      step: async (_vm: unknown, label: string) => {
+        calls.push(label);
+        if (calls.length <= 3) throw new Error(`step ${label} failed`);
+        return "store codex 0.160.0 443961079";
+      },
+    };
+    await bake.installStoreProgram(L, vm, "store-codex", command);
+    expect(calls).toEqual(["store-codex", "store-codex-try-2", "store-codex-try-3", "store-codex-try-4"]);
+    expect(lines.join("\n")).toContain("store-codex failed (try 1 of 6); running it again, keeping the part it downloaded");
+
+    const never = { ...L, step: async (_vm: unknown, label: string) => { throw new Error(`step ${label} failed`); } };
+    await expect(bake.installStoreProgram(never, vm, "store-codex", command)).rejects.toThrow("step store-codex-try-6 failed");
+    expect(bake.STORE_FETCH_ATTEMPTS).toBe(6);
+  });
+
+  // Image roll 45126299464 (2026-11-23): the bake and smoke passed, and the sbom step hit the guest's 5-minute exec
+  // cap (status 124) because syft's 29 MB download from GitHub releases ran at about 100 KB/s. syft now downloads in
+  // its own resumed step, run again like a store program, before the scan.
+  test("syft downloads in its own resumed step: a whole file is kept, a partial one continues, a bad one is removed", async () => {
+    const syft = lock.tools.syft;
+    const command = bake.syftFetchCommand(syft, "/tmp/cmux-out-syft");
+    expect(command).toContain(`test "$(stat -c %s /tmp/cmux-out-syft/syft.tgz 2>/dev/null)" = ${syft.size} || curl -fsSL --retry 3 -C - -o /tmp/cmux-out-syft/syft.tgz `);
+    expect(command).toContain(`${syft.sha256} /tmp/cmux-out-syft/syft.tgz | sha256sum -c --quiet - || { rm -f /tmp/cmux-out-syft/syft.tgz; false; }`);
+    expect(command).toContain("tar -xzf /tmp/cmux-out-syft/syft.tgz -C /tmp/cmux-out-syft syft");
+    await bashSyntax(command);
+  });
+
+  // Bake run 43932356313 (2026-11-16): the snapshot's index update hit its cap, the archive fallback had replaced
+  // ca-certificates 20260816ubuntu0.24.04.1 with .2, and the system layer failed with "apt index has no size".
+  test("the Ubuntu closure is fetched by content (archive, then the dated snapshot) and installed with no index", async () => {
+    const lock = readInputsLock();
+    const { ubuntu } = lock.apt;
+    const pin = `ca-certificates=${ubuntu.packages["ca-certificates"]}`;
+    const deb = ubuntu.debs[pin]!;
+    const fetch = aptDebFetchCommand(ubuntu.debs, [pin], ubuntu.uri, bake.APT_DEB_DIR);
+    const archiveUrl = `'http://archive.ubuntu.com/ubuntu/${deb.path}'`;
+    const snapshotUrl = `'${ubuntu.uri}${deb.path}'`;
+    expect(fetch).toContain(`${deb.sha256} ${deb.size} ${archiveUrl} ${snapshotUrl}`);
+    expect(fetch).toContain("sha256sum -c --quiet -");
+    expect(fetch).not.toContain("apt-get");
+    expect(() => aptDebFetchCommand(ubuntu.debs, ["ca-certificates=0"], ubuntu.uri, bake.APT_DEB_DIR)).toThrow("apt.ubuntu.debs has no .deb for ca-certificates=0");
+    await bashSyntax(fetch);
+    const install = aptLocalInstallCommand(ubuntu.debs, aptPins(ubuntu.packages), bake.APT_DEB_DIR, "/tmp/apt.log");
+    expect(install).toContain("-o Dir::Etc::sourcelist=/dev/null");
+    expect(install).toContain(`'${bake.APT_DEB_DIR}/${deb.path.split("/").pop()}'`);
+    expect(install).not.toMatch(/'[a-z0-9.+-]+=[^']+'/);
+    await bashSyntax(install);
+  });
+
+  // Bake run 43939465959: #44696 bakes openbox (role display-wm) with the agent tools, and smoke still refused it.
+  test("smoke refuses openbox only on an image without the agent tools", async () => {
+    const command = rolesOffFontsOnCommand();
+    expect(command).toContain("{ test -x /opt/cmux/agent-tools/bin/cmux-cua || ! command -v openbox >/dev/null; }");
+    // Roll 3641: #56284 bakes ffmpeg, and smoke still refused it.
+    expect(command).toContain("command -v ffprobe >/dev/null");
+    expect(command).not.toContain("! command -v ffmpeg");
+    await bashSyntax(command);
+  });
+
+  test("the fetch keeps a file with the locked sha256, takes the next mirror when one fails, and fails when none serves it", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "apt-deb-fetch-"));
+    try {
+      const body = "a locked deb";
+      const sha256 = createHash("sha256").update(body).digest("hex");
+      writeFileSync(path.join(dir, "served.deb"), body);
+      const deb = { path: "pool/main/x/x/x_1_all.deb", sha256, size: body.length };
+      // The archive URL cannot answer here; the snapshot is a file:// mirror of the pool file.
+      mkdirSync(path.join(dir, "mirror/pool/main/x/x"), { recursive: true });
+      writeFileSync(path.join(dir, "mirror/pool/main/x/x/x_1_all.deb"), body);
+      const run = async (snapshot: string, debs = { "x=1": deb }) => {
+        const command = aptDebFetchCommand(debs, ["x=1"], snapshot, path.join(dir, "out")).replaceAll(UBUNTU_ARCHIVE, `file://${dir}/no-archive/`);
+        return runChild("sh", ["-c", command], { timeout: 20_000, env: { PATH: "/usr/bin:/bin" } });
+      };
+      const fetched = await run(`file://${dir}/mirror/`);
+      expect(fetched.status).toBe(0);
+      expect(fetched.stdout).toContain("debs 1: kept 0, archive 0, snapshot 1");
+      expect(readFileSync(path.join(dir, "out/x_1_all.deb"), "utf8")).toBe(body);
+      const kept = await run(`file://${dir}/nowhere/`);
+      expect(kept.stdout).toContain("debs 1: kept 1, archive 0, snapshot 0");
+      rmSync(path.join(dir, "out"), { recursive: true });
+      const wrong = await run(`file://${dir}/mirror/`, { "x=1": { ...deb, sha256: "f".repeat(64) } });
+      expect(wrong.status).not.toBe(0);
+      expect(wrong.stdout).toContain("no mirror served x=1 with its locked sha256");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+    // curl retries each dead mirror (--retry 2), so three runs take several seconds.
+  }, 60_000);
 
   test("the image carries the agent sign-in files the Mac app's Cloud sign-in sources", async () => {
     expect(bake.AGENT_SIGN_IN_FILES.map((f) => f.path)).toEqual(["/etc/cmux/agent-auth.sh", "/etc/cmux/claude-onboarding.py"]);
@@ -309,13 +465,15 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     };
     const loginEnv = at('L.step(vm, "acpmux-login-env"');
     const checks = at('L.step(vm, "acpmux-harness-checks", acpmuxHarnessChecksDoneCommand())');
+    const probes = at('L.step(vm, "acpmux-probes-quiet", acpmuxProbesQuietCommand())');
     const clean = at('L.step(vm, "clean"');
     const tmpEmpty = at('L.step(vm, "tmp-empty"');
     const warm = at('"drop-cache-warm-bind-path"');
     const writers = at('L.step(vm, "tmp-no-writer", tmpWritersCommand())');
     const ready = at('L.step(vm, "snapshot-ready", snapshotReadyCommand())');
     expect(loginEnv).toBeLessThan(checks);
-    expect(checks).toBeLessThan(clean);
+    expect(checks).toBeLessThan(probes);
+    expect(probes).toBeLessThan(clean);
     expect(clean).toBeLessThan(tmpEmpty);
     expect(warm).toBeLessThan(writers);
     expect(writers).toBeLessThan(ready);
@@ -338,6 +496,50 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
     expect(wait).not.toMatch(/sleep (?!1;)\d/);
     expect(wait).toContain("acpmux's harness check did not finish");
   });
+
+  test("waits for acpmux's model probes (cwd in the unattended folder) to exit before clean", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "acpmux-unattended-"));
+    const { spawn } = await import("node:child_process");
+    const run = (limit: number) => runChild("bash", ["-c", bake.acpmuxProbesQuietCommand(limit, dir)], { timeout: 30_000 });
+    try {
+      const idle = await run(3);
+      expect(idle.stdout).toContain("acpmux-probes-quiet after 0s");
+      expect(idle.status).toBe(0);
+      // A probe that exits within the bound: the wait returns once it is gone.
+      const short = spawn("sleep", ["2"], { cwd: dir, stdio: "ignore" });
+      await new Promise((r) => setTimeout(r, 200));
+      const waited = await run(10);
+      expect(waited.status).toBe(0);
+      expect(waited.stdout).toMatch(/acpmux-probes-quiet after [1-9]\d*s/);
+      short.kill("SIGKILL");
+      // A probe still running at the bound: named, then stopped, and the step passes.
+      const stuck = spawn("sleep", ["300"], { cwd: dir, stdio: "ignore" });
+      const gone = new Promise((r) => stuck.once("exit", (_code, signal) => r(signal)));
+      try {
+        await new Promise((r) => setTimeout(r, 200));
+        const late = await run(2);
+        expect(late.status).toBe(0);
+        expect(late.stdout).toContain("model probes still run after 2s; stopping them");
+        expect(late.stdout).toContain(`probe pid ${stuck.pid}: sleep 300`);
+        expect(late.stdout).toContain("acpmux-probes-quiet after 2s (stopped the rest)");
+        expect(await gone).toBe("SIGTERM");
+      } finally {
+        stuck.kill("SIGKILL");
+      }
+      // A probe that ignores TERM is killed too.
+      const deaf = spawn("bash", ["-c", "trap '' TERM; sleep 300 & wait"], { cwd: dir, stdio: "ignore" });
+      try {
+        await new Promise((r) => setTimeout(r, 300));
+        const hard = await run(1);
+        expect(hard.status).toBe(0);
+        expect(hard.stdout).toContain("(stopped the rest)");
+      } finally {
+        deaf.kill("SIGKILL");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   async function writers(dir: string) {
     return runChild("bash", ["-c", bake.tmpWritersCommand([dir])], { timeout: 30_000 });
@@ -374,6 +576,8 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
       expect(out).toContain(`open by pid ${holder.pid}: sleep 300`);
       expect(out).toContain(`named by pid ${namer.pid}:`);
       expect(out).toContain("processes of");
+      expect(out).not.toContain("Usage:");
+      expect(out.trimEnd().split("\n").at(-1)).toContain(`written after clean: ${leftover}`);
     } finally {
       holder.kill("SIGKILL");
       namer.kill("SIGKILL");

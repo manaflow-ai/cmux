@@ -6,7 +6,7 @@
     reason = "fault injection and test assertions"
 )]
 use super::*;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
 
 const SEED: &str = include_str!("../../../acpmux-book/src/translate/fixtures/seed-turn.ndjson");
@@ -40,7 +40,7 @@ fn fixture(book: &Path, turns: u64) -> ChatConfig {
     fs::write(book.join("source.ndjson"), corpus(turns)).unwrap();
     config_at(book)
 }
-fn catch_up(config: ChatConfig) {
+pub(crate) fn catch_up(config: ChatConfig) {
     let mut state = open_state(config).unwrap();
     while !read_source(&mut state).unwrap() {}
     checkpoint(&mut state).unwrap();
@@ -110,6 +110,7 @@ fn hidden_settle_discards_every_other_body_field() {
         group: None,
         at: 0,
         open: false,
+        entering: false,
         bytes: 0,
         lines: 0,
         fields: BTreeMap::from([
@@ -122,10 +123,15 @@ fn hidden_settle_discards_every_other_body_field() {
     let result = rows(home.path());
     let value: serde_json::Value = serde_json::from_slice(&result[0].1).unwrap();
     assert_eq!(value["body"], serde_json::json!({"hidden": true}));
+    assert_eq!(value["phase"], "leaving");
 }
 
+/// A turn's end does not checkpoint on the line that ends it: the checkpoint syncs the book's
+/// files on the actor's thread, and the next turn's lines, sent as soon as the reply came (a
+/// queued prompt, a script), waited for it (the agent-turn bench, back to back: the pane's change
+/// 3.3 ms after the reply, against 1.2 ms with a pause between turns).
 #[test]
-fn no_op_lines_do_not_checkpoint_and_turn_end_does() {
+fn neither_no_op_lines_nor_a_turn_end_checkpoint_on_their_line() {
     let home = tempfile::tempdir().unwrap();
     let config = fixture(home.path(), 1);
     let mut state = open_state(config).unwrap();
@@ -139,10 +145,33 @@ fn no_op_lines_do_not_checkpoint_and_turn_end_does() {
             assert_eq!(before, after, "usage-only line writes no checkpoint");
         }
         if index == 8 {
-            assert_ne!(before, after, "turn end checkpoints");
+            assert_eq!(before, after, "a turn's end checkpointed before the lines after it");
         }
         place = end;
     }
+}
+
+/// The turn's end is checkpointed all the same, once the source is quiet.
+#[test]
+fn a_running_actor_checkpoints_a_turn_end_once_its_source_is_quiet() {
+    let home = tempfile::tempdir().unwrap();
+    let config = fixture(home.path(), 1);
+    let end = fs::metadata(home.path().join("source.ndjson")).unwrap().len();
+    let actor = ChatActor::spawn(config);
+    wait_health(&actor.handle, crate::life::Health::Running);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let place = loop {
+        let place = log::saved_checkpoint(home.path())
+            .unwrap()
+            .and_then(|saved| Checkpoint::from_recovered(&saved).ok())
+            .and_then(|checkpoint| checkpoint.cursors.first().map(|cursor| cursor.place));
+        if place == Some(end) || Instant::now() >= deadline {
+            break place;
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    actor.join();
+    assert_eq!(place, Some(end), "the running actor never checkpointed the turn's end");
 }
 
 #[test]
@@ -635,6 +664,29 @@ fn truncated_source_cursor_rebuilds_with_a_new_edition() {
 }
 
 #[test]
+fn a_book_an_older_translator_wrote_rebuilds_from_raw() {
+    let home = tempfile::tempdir().unwrap();
+    let config = fixture(home.path(), 2);
+    catch_up(config.clone());
+    let (mut log, recovered) = Log::open(home.path(), Options::default()).unwrap();
+    let mut saved = Checkpoint::from_recovered(&recovered).unwrap();
+    saved.translator_version = translate::VERSION - 1;
+    let open: Vec<u64> = saved.open.iter().map(|open| open.body.row).collect();
+    saved.write(&mut log, &open).unwrap();
+    drop(log);
+    let actor = ChatActor::spawn(config);
+    wait_health(&actor.handle, crate::life::Health::Running);
+    actor.join();
+    assert_eq!(log::CheckpointHead::read(home.path()).unwrap().unwrap().edition, 2);
+    let rebuilt = rows(home.path());
+    // The rebuilt rows are this translator's: the turn-end notice names its result's seq.
+    assert!(rebuilt.iter().any(|(_, row)| String::from_utf8_lossy(row).contains(r#""seq":9"#)));
+    let clean = tempfile::tempdir().unwrap();
+    catch_up(fixture(clean.path(), 2));
+    assert_eq!(rebuilt, rows(clean.path()));
+}
+
+#[test]
 fn a_damaged_checkpoint_head_uses_injected_random_edition_once() {
     let home = tempfile::tempdir().unwrap();
     let config = fixture(home.path(), 2).with_edition_random(Arc::new(|| 77));
@@ -646,73 +698,114 @@ fn a_damaged_checkpoint_head_uses_injected_random_edition_once() {
     assert_eq!(log::CheckpointHead::read(home.path()).unwrap().unwrap().edition, 77);
 }
 
-fn percentile(values: &mut [u128]) -> u128 {
-    values.sort_unstable();
-    values[(values.len() * 95 / 100).min(values.len() - 1)]
-}
-
 #[test]
 #[ignore = "Linux gate-profile ratio fixture: 40 and 2M settled rows"]
 fn actor_line_and_checkpoint_open_gate() {
-    let mut measures = Vec::new();
+    use acpmux_book::gate_rounds;
+
+    let mut homes = Vec::new();
+    let mut fixtures = Vec::new();
     for count in [40u64, 2_000_000] {
         let home = tempfile::tempdir().unwrap();
         let config = ChatConfig::new("gate", home.path(), Harness::V1);
         let mut state = open_state(config.clone()).unwrap();
-        // Feed the actual translator and body/log writer. The synthetic source has
-        // no persistent raw cursor; checkpoint once after setup, outside measurement.
+        // Feed the actual translator and body/log writer, as the actor books a chat it reads:
+        // each setup line names its range of the source `open_state` put in `raw.map`. A row
+        // with no raw range is a daemon-created change that the log syncs on its own, one disk
+        // sync per row: 2M of them took 53 minutes of the nightly's 85 (cmux run 44942085835).
+        // The measured lines below keep the empty range they always had. Checkpoint once after
+        // setup, outside measurement.
+        let file = state.raw_file;
+        assert_ne!(file, 0, "open_state names the source in raw.map");
+        let mut place = 0u64;
         for seq in 1..=count {
             let line = format!(
                 "{{\"seq\":{seq},\"at\":1000,\"dir\":\"mux\",\"kind\":\"stopped\",\"msg\":{{}}}}"
             );
-            apply_ops(&mut state, line.as_bytes(), 0, 0, 0, false).unwrap();
+            // The line's newline is part of its span, as `read_source` applies it.
+            let span = line.len() as u64 + 1;
+            state.raw_place = place + span;
+            apply_ops(&mut state, line.as_bytes(), file, place, span, false).unwrap();
+            place += span;
         }
         assert_eq!(state.log.max_row(), count);
+        assert!(
+            state.log.stats().syncs < count / 1000 + 64,
+            "setup synced the log once per row: {} syncs",
+            state.log.stats().syncs
+        );
         checkpoint(&mut state).unwrap();
-        let mut rounds = Vec::new();
-        let mut all = Vec::new();
-        for round in 0..5u64 {
+        homes.push(home);
+        fixtures.push((count, config, state));
+    }
+
+    // Alternate small and god rounds so each side sees the same host conditions.
+    let mut line_rounds = [Vec::new(), Vec::new()];
+    for round in 0..5u64 {
+        for side in 0..2 {
+            let (count, _, state) = &mut fixtures[side];
             let mut samples = Vec::new();
             for sample in 1..=100u64 {
-                let seq = count + round * 100 + sample;
+                let seq = *count + round * 100 + sample;
                 let line = format!(
                     "{{\"seq\":{seq},\"at\":1000,\"dir\":\"mux\",\"kind\":\"stopped\",\"msg\":{{}}}}"
                 );
                 let start = Instant::now();
-                apply_ops(&mut state, line.as_bytes(), 0, 0, 0, false).unwrap();
+                apply_ops(state, line.as_bytes(), 0, 0, 0, false).unwrap();
                 samples.push(start.elapsed().as_nanos());
             }
-            all.extend(samples.iter().copied());
-            rounds.push(percentile(&mut samples));
+            line_rounds[side].push(samples);
         }
-        let line_best = *rounds.iter().min().unwrap();
-        let line_all = percentile(&mut all);
+    }
+    for (count, _, state) in &fixtures {
+        assert_eq!(state.log.max_row(), *count + 500);
+    }
+
+    let mut configs = Vec::new();
+    for (count, config, mut state) in fixtures {
         checkpoint(&mut state).unwrap();
-        drop(state);
-        let mut rounds = Vec::new();
-        let mut all = Vec::new();
-        for _ in 0..5 {
+        configs.push((count, config));
+    }
+
+    // Checkpoint opens alternate sides as well; the open path must not read a row suffix.
+    let mut open_rounds = [Vec::new(), Vec::new()];
+    for _round in 0..5 {
+        for side in 0..2 {
             let mut samples = Vec::new();
             for _ in 0..50 {
                 let start = Instant::now();
-                let opened = open_state(config.clone()).unwrap();
+                let opened = open_state(configs[side].1.clone()).unwrap();
                 samples.push(start.elapsed().as_nanos());
                 assert_eq!(opened.log.stats().bytes_read, 0);
                 drop(opened);
             }
-            all.extend(samples.iter().copied());
-            rounds.push(percentile(&mut samples));
+            open_rounds[side].push(samples);
         }
-        measures.push((line_best, line_all, *rounds.iter().min().unwrap(), percentile(&mut all)));
     }
-    let (small, god) = (measures[0], measures[1]);
-    for (name, small, god, all) in [
-        ("v2.pr03a3.actor_line", small.0, god.0, god.1),
-        ("v2.pr03a3.checkpoint_open", small.2, god.2, god.3),
-    ] {
-        println!(
+    let measurements =
+        [("v2.pr03a3.actor_line", &line_rounds), ("v2.pr03a3.checkpoint_open", &open_rounds)].map(
+            |(name, rounds)| {
+                gate_rounds::report(name, &[("small", &rounds[0]), ("god", &rounds[1])]);
+                (
+                    name,
+                    gate_rounds::best_p95(&rounds[0]),
+                    gate_rounds::best_p95(&rounds[1]),
+                    gate_rounds::all_p95(&rounds[1]),
+                )
+            },
+        );
+    let mut gate_output = std::env::var_os("V2_GATE_OUT")
+        .map(|path| fs::OpenOptions::new().create(true).append(true).open(path).unwrap());
+    for (name, small, god, all) in measurements {
+        let line = format!(
             "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"god_p95_all\":{all},\"unit\":\"ns\"}}"
         );
+        println!("{line}");
+        if let Some(output) = gate_output.as_mut() {
+            writeln!(output, "{line}").unwrap();
+        }
+    }
+    for (name, small, god, all) in measurements {
         assert!((god as f64) <= small as f64 * 1.2, "{name} best p95");
         assert!((all as f64) <= small as f64 * 2.0, "{name} aggregate p95");
     }
@@ -915,4 +1008,288 @@ fn history_permits_are_two_in_turn_and_a_stop_never_waits_for_one() {
     drop((second, other));
     assert_eq!(permits.held(), 0);
     assert!(permits.acquire(&go).is_some());
+}
+
+/// Each logged line of the state's source, as a card lists it.
+fn logged_lines(state: &mut ActorState) -> Vec<translate::RawLine> {
+    let chunk = state.source.read_chunk(0).unwrap();
+    chunk
+        .lines()
+        .map(|line| {
+            let line = line.unwrap();
+            translate::RawLine { place: line.start, span: line.end - line.start }
+        })
+        .collect()
+}
+
+/// Settles a card row `id` with `bodies` sent just before it, as one line's ops.
+fn settle_card(state: &mut ActorState, id: u64, bodies: Vec<(BodyField, BodySource)>) {
+    let mut ops = bodies
+        .into_iter()
+        .map(|(field, source)| translate::Op {
+            raw: translate::RawRange { offset: 0, length: 0 },
+            change: Change::Body { id, field, append: false, source },
+        })
+        .collect::<Vec<_>>();
+    let row = OwnedRow {
+        id,
+        rev: 1,
+        kind: RowKind::Card,
+        turn: None,
+        group: None,
+        at: 0,
+        open: false,
+        entering: false,
+        bytes: 0,
+        lines: 0,
+        fields: BTreeMap::from([("tool".into(), "\"Read\"".into())]),
+    };
+    let raw = translate::RawRange { offset: 0, length: 0 };
+    ops.push(translate::Op { raw, change: Change::Row(row) });
+    apply_changes(state, ops, b"", 0, 0, 0).unwrap();
+}
+
+/// The body of the settled row `id`.
+fn settled_body(book: &Path, id: u64) -> serde_json::Value {
+    rows(book)
+        .iter()
+        .map(|(_, bytes)| serde_json::from_slice::<serde_json::Value>(bytes).unwrap())
+        .find(|row| row["id"] == id)
+        .map(|row| row["body"].clone())
+        .unwrap()
+}
+
+fn msgs(raw: &[u8], count: usize) -> Vec<serde_json::Value> {
+    raw.split(|b| *b == b'\n')
+        .take(count)
+        .map(|line| serde_json::from_slice::<serde_json::Value>(line).unwrap()["msg"].clone())
+        .collect()
+}
+
+// Above every row id the one-turn corpus settles, and small: the log indexes rows by id.
+const CARD: u64 = 1000;
+
+#[test]
+fn card_records_are_each_listed_lines_msg_in_order() {
+    let home = tempfile::tempdir().unwrap();
+    let mut state = open_state(fixture(home.path(), 1)).unwrap();
+    let lines = logged_lines(&mut state).into_iter().take(3).collect::<Vec<_>>();
+    settle_card(&mut state, CARD, vec![(BodyField::Records, BodySource::Records(lines))]);
+    assert_eq!(state.config.card_reads_missed.load(Ordering::Relaxed), 0);
+    drop(state);
+    let body = settled_body(home.path(), CARD);
+    assert_eq!(body["records"], serde_json::Value::Array(msgs(&corpus(1), 3)));
+    assert_eq!(body["tool"], "Read");
+    assert!(body.get("lacks").is_none(), "{body}");
+}
+
+#[test]
+fn a_record_that_no_longer_reads_is_left_out_counted_and_the_actor_reads_on() {
+    let home = tempfile::tempdir().unwrap();
+    let config = fixture(home.path(), 1);
+    let missed = config.card_reads_missed.clone();
+    let mut state = open_state(config).unwrap();
+    while !read_source(&mut state).unwrap() {}
+    // The rows one turn settles, from another book: this one is open.
+    let other = tempfile::tempdir().unwrap();
+    catch_up(fixture(other.path(), 1));
+    let before = rows(other.path()).len();
+    let mut lines = logged_lines(&mut state).into_iter().take(3).collect::<Vec<_>>();
+    // The middle line's span no longer matches: the log under it changed.
+    lines[1].span += 1;
+    settle_card(&mut state, CARD, vec![(BodyField::Records, BodySource::Records(lines))]);
+    assert_eq!(missed.load(Ordering::Relaxed), 1);
+    // A later line still applies: the actor keeps reading.
+    let source = home.path().join("source.ndjson");
+    let mut raw = fs::OpenOptions::new().append(true).open(source).unwrap();
+    raw.write_all(&corpus(2)[corpus(1).len()..]).unwrap();
+    drop(raw);
+    while !read_source(&mut state).unwrap() {}
+    drop(state);
+    assert!(rows(home.path()).len() > before + 1, "the second turn did not settle");
+    let body = settled_body(home.path(), CARD);
+    let expected = msgs(&corpus(1), 3);
+    assert_eq!(body["records"], serde_json::json!([expected[0], expected[2]]));
+    assert_eq!(body["lacks"], 1);
+    assert_eq!(body["tool"], "Read");
+}
+
+#[test]
+fn a_card_field_string_is_cut_on_a_character_as_the_translator_cuts_it() {
+    let home = tempfile::tempdir().unwrap();
+    fs::create_dir_all(home.path()).unwrap();
+    // `é` takes bytes 9 and 10: a cap of 10 falls inside it.
+    let text = format!("{}é tail", "a".repeat(9));
+    let line = serde_json::json!({
+        "seq": 1, "at": 1000, "dir": "mux", "kind": "user_message",
+        "msg": {"promptId": "p1", "turnId": "t1", "text": text, "n": [1, {"b": 2}]},
+    });
+    fs::write(home.path().join("source.ndjson"), format!("{line}\n")).unwrap();
+    let mut state = open_state(config_at(home.path())).unwrap();
+    let logged = logged_lines(&mut state)[0];
+    let field = |key: &'static str, cap| BodySource::RawField {
+        place: logged.place,
+        span: logged.span,
+        key,
+        cap,
+    };
+    settle_card(
+        &mut state,
+        CARD,
+        vec![(BodyField::Card("title"), field("text", 10)), (BodyField::Card("n"), field("n", 1))],
+    );
+    assert_eq!(state.config.card_reads_missed.load(Ordering::Relaxed), 0);
+    drop(state);
+    let body = settled_body(home.path(), CARD);
+    assert_eq!(translate::cut(&text, 10), "aaaaaaaaa");
+    assert_eq!(body["title"], translate::cut(&text, 10));
+    assert_eq!(body["n"], serde_json::json!([1, {"b": 2}]), "a value that is no string is copied");
+    assert!(body.get("lacks").is_none(), "{body}");
+}
+
+#[test]
+fn a_card_field_whose_line_is_gone_is_absent_and_lacked() {
+    let home = tempfile::tempdir().unwrap();
+    let mut state = open_state(fixture(home.path(), 1)).unwrap();
+    let gone = BodySource::RawField { place: 1 << 30, span: 10, key: "text", cap: 64 };
+    settle_card(&mut state, CARD, vec![(BodyField::Card("title"), gone)]);
+    assert_eq!(state.config.card_reads_missed.load(Ordering::Relaxed), 1);
+    drop(state);
+    let body = settled_body(home.path(), CARD);
+    assert!(body.get("title").is_none(), "{body}");
+    assert_eq!(body["lacks"], 1);
+    assert_eq!(body["tool"], "Read");
+}
+
+#[test]
+fn a_page_is_counted_in_the_mailbox_with_every_member_it_carries() {
+    let page: Page = serde_json::from_value(serde_json::json!({"sid": "s", "stream": "chat:c"}))
+        .expect("a page");
+    let mut keyed = page.clone();
+    keyed.keys = Some(
+        (0..1000)
+            .map(|n| {
+                crate::wire::PageKey::Summary(crate::wire::ListKey {
+                    last_activity: n,
+                    chat_id: format!("chat-{n:060}"),
+                    origin: "o".repeat(64),
+                    past: false,
+                })
+            })
+            .collect(),
+    );
+    let count = |page: Page| {
+        let (reply, _rx) = Reply::channel("page", None, None);
+        Request::Page { page: Box::new(page), person: [0; 16], reply }.bytes()
+    };
+    let (plain, keyed_len) = (count(page), count(keyed.clone()));
+    let encoded = serde_json::to_vec(&keyed).expect("encodes").len();
+    assert!(keyed_len >= plain + encoded - 64, "1,000 keys of {encoded} bytes counted {keyed_len}");
+}
+
+/// A Claude reply's image block of 40 KB settles out of line, and its row still names the
+/// image's size: the page reserves the box from the window alone, before it reads the blob, so a
+/// decoded image never changes a row's height (agent-transcript-clean-slate.md, "One row log").
+#[test]
+fn an_image_row_out_of_line_names_its_size_in_its_head() {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path();
+    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    png.extend(640u32.to_be_bytes());
+    png.extend(160u32.to_be_bytes());
+    png.extend([8, 6, 0, 0, 0]);
+    png.resize(30_000, 7);
+    // Standard base64, so the test needs no encoder crate.
+    const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut data = String::new();
+    for chunk in png.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+        for i in 0..4 {
+            data.push(if i <= chunk.len() {
+                ABC[(n >> (18 - 6 * i) & 63) as usize] as char
+            } else {
+                '='
+            });
+        }
+    }
+    let lines = [
+        serde_json::json!({"type":"user","uuid":"u1","timestamp":"2026-11-23T00:00:00Z",
+            "message":{"role":"user","content":"draw it"}}),
+        serde_json::json!({"type":"assistant","uuid":"a1","timestamp":"2026-11-23T00:00:01Z",
+            "message":{"id":"m1","role":"assistant","content":[{"type":"image",
+                "source":{"type":"base64","media_type":"image/png","data":data}}],
+                "stop_reason":"end_turn"}}),
+    ];
+    let mut raw = Vec::new();
+    for line in &lines {
+        serde_json::to_writer(&mut raw, line).unwrap();
+        raw.push(b'\n');
+    }
+    fs::write(book.join("source.ndjson"), raw).unwrap();
+    let source = book.join("source.ndjson");
+    let config =
+        ChatConfig::new("chat", book, Harness::Claude).with_source_factory(Arc::new(move || {
+            source::FileSource::open(&source).map(|raw| Box::new(raw) as Box<dyn source::RawSource>)
+        }));
+    catch_up(config);
+    let image = rows(book)
+        .into_iter()
+        .map(|(_, text)| serde_json::from_slice::<serde_json::Value>(&text).unwrap())
+        .find(|row| row["kind"] == "image")
+        .expect("an image row");
+    assert!(image["blob"]["bytes"].as_u64().unwrap() > 16 * 1024, "{image}");
+    assert_eq!(image["body"], serde_json::json!({"h":160,"w":640}), "{image}");
+}
+
+/// The bench's row-store stand-in (webviews/bench/first-load-after-restart.bench.ts, `ROWS=1`):
+/// the first window a reload's `chat.rows.open` gets for a recorded chat, as the store makes it.
+/// Run by hand: `ACPMUX_BENCH_SOURCE=chat.ndjson ACPMUX_BENCH_WINDOW=out.json cargo test -p
+/// acpmux-core bench_first_window -- --ignored`.
+#[test]
+#[ignore = "bench helper, run by hand"]
+fn bench_first_window() {
+    let source = PathBuf::from(std::env::var_os("ACPMUX_BENCH_SOURCE").unwrap());
+    let out = PathBuf::from(std::env::var_os("ACPMUX_BENCH_WINDOW").unwrap());
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    fs::create_dir_all(&book).unwrap();
+    fs::copy(&source, book.join("source.ndjson")).unwrap();
+    catch_up(config_at(&book));
+    let mut state = open_state(config_at(&book)).unwrap();
+    while !read_source(&mut state).unwrap() {}
+    let (frame, _) =
+        stream::window(&mut state, "bench", &stream::person_id(None), log::Anchor::End, 0).unwrap();
+    fs::write(&out, frame.payload()).unwrap();
+}
+
+/// The settled row ids of the first window a reload gets for `source`.
+fn first_window_ids(source: &[u8]) -> Vec<u64> {
+    let home = tempfile::tempdir().unwrap();
+    let book = home.path().join("book");
+    fs::create_dir_all(&book).unwrap();
+    fs::write(book.join("source.ndjson"), source).unwrap();
+    catch_up(config_at(&book));
+    let mut state = open_state(config_at(&book)).unwrap();
+    while !read_source(&mut state).unwrap() {}
+    let (frame, _) =
+        stream::window(&mut state, "test", &stream::person_id(None), log::Anchor::End, 0).unwrap();
+    let window: serde_json::Value = serde_json::from_slice(frame.payload()).unwrap();
+    window["rows"].as_array().unwrap().iter().map(|row| row["id"].as_u64().unwrap()).collect()
+}
+
+/// A reload mid-turn draws no settled row the turn's end folds away: the open turn's work comes
+/// folded, as the same rows come once it ends.
+#[test]
+fn a_reload_mid_turn_draws_nothing_the_turns_end_folds_away() {
+    let ended = corpus(2);
+    let text = String::from_utf8(ended.clone()).unwrap();
+    // The last turn without its end record: its work settled, its last reply still open.
+    let lines = text.lines().count();
+    let open: String = text.lines().take(lines - 1).map(|line| format!("{line}\n")).collect();
+    let after = first_window_ids(&ended);
+    let during = first_window_ids(open.as_bytes());
+    assert!(!during.is_empty());
+    for id in &during {
+        assert!(after.contains(id), "row {id} drawn mid-turn folds away: {during:?} {after:?}");
+    }
 }

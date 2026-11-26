@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest"
 import { personalTeamIdFor, userIdFor } from "../src/domains/user.ts"
 import type { Env } from "../src/env.ts"
 import { TOKEN_MINT_DEADLINE_MS, tokenMintDeadline } from "../src/http.ts"
-import { stackTeamsOf } from "../src/stack-team-heal.ts"
+import { HEAL_WINDOW_MS, stackTeamsOf } from "../src/stack-team-heal.ts"
 import { selectTeam } from "../src/team-select.ts"
 import { listUserTeams } from "../src/user-teams.ts"
 import { call, PROJECT, stackWorld, teamIdOf, teamStub, useStack } from "./team-stack-support.ts"
@@ -71,6 +71,46 @@ describe("user.teams.list mirrors a Stack team the webhook never synced", { time
 })
 
 /**
+ * #48467, 2026-11-23: "leo@cmux.com is in my team now but i cant imessage him on chief". Accepting an invite writes
+ * Stack only; when its webhook never reaches TeamDO, the inviter (already confirmed) never triggered a sync, so
+ * team.members.list left the new teammate out (Home did not list him, dm.open refused him as sharing no team).
+ * user.teams.list now syncs a confirmed team from Stack once per window.
+ */
+describe("user.teams.list syncs a team the person is already in, so a teammate who joined in Stack is listed", { timeout: 60_000 }, () => {
+  it("lists the new teammate after the next window's list, and asks Stack no more than once per window", async () => {
+    const w = stackWorld()
+    const stackTeam = crypto.randomUUID()
+    const me = crypto.randomUUID()
+    const leo = crypto.randomUUID()
+    await useStack(stackTeam, w)
+    w.teams.set(stackTeam, "cmux")
+    w.members.set(`${stackTeam}:${me}`, "Austin")
+    const token = await sessionToken(me, "Austin")
+    expect((await call(token, "/v1/ops", { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })).body.ok).toBe(true)
+    const principal = { identity: `test:${me}`, kind: "session" as const, user: userIdFor(PROJECT, me), stack_user_id: me }
+    const team = teamIdOf(stackTeam)
+    const names = async () => {
+      const r = await call(token, "/v1/read", { op: "team.members.list", params: { limit: 200 } }, team)
+      expect(r.status, JSON.stringify(r.body)).toBe(200)
+      return (r.body.value.members as Array<{ display_name: string }>).map((m) => m.display_name).sort()
+    }
+    const t0 = 10 * HEAL_WINDOW_MS
+    const list = (now: number) => listUserTeams(workerEnv, principal, { stack: w.fake, pace: async () => true, now: () => now })
+    await list(t0)
+    expect(await names()).toEqual(["Austin"])
+    // Leo accepts the invite: Stack has him, and no webhook reaches TeamDO.
+    w.members.set(`${stackTeam}:${leo}`, "Leo")
+    const before = w.calls()
+    await list(t0 + 1_000)
+    expect(w.calls(), "a list inside the window asked Stack again").toBe(before)
+    expect(await names()).toEqual(["Austin"])
+    // The next window's list syncs the team the person is already in.
+    await list(t0 + HEAL_WINDOW_MS + 1)
+    expect(await names()).toEqual(["Austin", "Leo"])
+  })
+})
+
+/**
  * Leo's NIGHTLY, 2026-11-11: `cmux whoami` printed "cmux Cloud refused a token for team -" (auth.forbidden)
  * while `cmux vm ls` worked. The app mints its install token for its active Stack team; UserDO.redeem asked
  * that team's TeamDO, which had never mirrored the team from Stack, so it answered "not a member". Two other
@@ -88,7 +128,7 @@ describe("a team-scoped check syncs a Stack team the webhook never mirrored", { 
     const ensured = (await call(token, "/v1/ops", { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })).body
     expect(ensured.ok).toBe(true)
     const user = ensured.value.id as string
-    return { w, me, token, user, team: teamIdOf(stackTeam) }
+    return { w, me, token, user, stackTeam, team: teamIdOf(stackTeam) }
   }
   const post = async (path: string, token: string, body: unknown) => {
     const res = await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
@@ -136,6 +176,28 @@ describe("a team-scoped check syncs a Stack team the webhook never mirrored", { 
     expect(await selectTeam(workerEnv, p, s.team, none)).toMatchObject({ ok: false, code: "team.not_member" })
     const fake = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }
     expect(await selectTeam(workerEnv, p, s.team, fake)).toMatchObject({ ok: true, principal: { team: s.team } })
+  })
+
+  // Leo's NIGHTLY on production, 2026-11-15: the app's Codex holder named the active team by its Stack id, and every
+  // Codex login delivery was refused "x-cmux-team must name a team id". A session's Stack team id now selects that
+  // team, still only for a member.
+  it("a session's x-cmux-team may name the team by its Stack id, and only a member gets it", async () => {
+    const s = await setup("By Stack id")
+    const p = { identity: `test:${s.me}`, kind: "session" as const, user: s.user, team: personalTeamIdFor(s.user), stack_user_id: s.me }
+    const fake = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }
+    expect(await selectTeam(workerEnv, p, s.stackTeam, fake)).toMatchObject({ ok: true, principal: { team: s.team } })
+    expect(await selectTeam(workerEnv, p, s.stackTeam.toUpperCase(), fake)).toMatchObject({ ok: true, principal: { team: s.team } })
+    // A Stack team the caller is not in: refused as its team_ id would be.
+    const other = crypto.randomUUID()
+    await useStack(other, s.w)
+    s.w.teams.set(other, "Not mine")
+    expect(await selectTeam(workerEnv, p, other, fake)).toMatchObject({ ok: false, code: "team.not_member" })
+    // Anything else that is not a team id stays refused.
+    expect(await selectTeam(workerEnv, p, "not-a-team", fake)).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // An install token never selects another team, by either id.
+    const install = { ...p, kind: "install" } as unknown as Parameters<typeof selectTeam>[1]
+    expect(await selectTeam(workerEnv, install, s.stackTeam, fake)).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await selectTeam(workerEnv, install, s.team, fake)).toMatchObject({ ok: false, message: "an install token acts only in the team it was minted for" })
   })
 
   // Review F1: healing one team took the person's Stack read for the window, and the next user.teams.list got an
@@ -229,6 +291,26 @@ describe("a team-scoped mint answers within its budget whatever Stack does", { t
     expect(next.json.team).toBe(s.team)
     // One Stack read served both mints (the retry waited on the running heal instead of finding no teams).
     expect(held.calls()).toBe(1)
+  })
+
+  // prod 2026-11-24: Stack unread (no pace token, or its read failed) refused a member's own team as auth.forbidden on
+  // every mint, and the failed read was kept for the window. Unread is retryable; the next mint with Stack readable succeeds.
+  type Unread = readonly [string, { listUserTeams: (u: string) => Promise<string[]> }, () => Promise<boolean>]
+  const unread: Unread[] = [
+    ["no pace token", { listUserTeams: async (): Promise<string[]> => [] }, async (): Promise<boolean> => false],
+    ["a Stack read that fails", { listUserTeams: async (): Promise<string[]> => { throw new Error("stack 503") } }, async (): Promise<boolean> => true],
+  ]
+  it.each(unread)("%s answers a retryable owner.unreachable, never auth.forbidden, and the next readable mint succeeds", async (_, stack, pace) => {
+    const s = await setup("Unread Stack")
+    await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack, pace, now: () => Date.now() }))
+    const mint = await macInstall(s)
+    const first = await mint(s.team)
+    expect(first.status, JSON.stringify(first.json)).toBe(503)
+    expect(errorOf(first)).toMatchObject({ code: "owner.unreachable", retryable: true })
+    await runIn(userDO(s), async (instance) => void (instance.stackHeal = { stack: s.w.fake, pace: async () => true, now: () => Date.now() }))
+    const next = await mint(s.team)
+    expect(next.status, JSON.stringify(next.json)).toBe(200)
+    expect(next.json.team).toBe(s.team)
   })
 
   // Review F2: a sync queued behind the Stack pace answered "queued" first and "duplicate" on the retry (TeamDO keeps the

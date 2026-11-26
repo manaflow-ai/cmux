@@ -8,8 +8,16 @@
 
 use serde::{Deserialize, Serialize};
 
+#[path = "tabs_approval.rs"]
+pub mod approval;
+#[path = "tabs_draft.rs"]
+pub mod draft;
 #[path = "tabs_panes.rs"]
 pub mod panes;
+#[path = "tabs_place.rs"]
+pub mod place;
+#[path = "tabs_plus_menu.rs"]
+pub mod plus_menu;
 
 // MARK: New tab kind
 
@@ -58,6 +66,9 @@ pub struct NewTabFacts {
     pub follows_setting: bool,
     /// A shown pane whose daemon holds agent tabs (so also the New Tab page).
     pub can_host_agent: bool,
+    /// The person works terminal-first (`tabs.newTabTemplate` `terminal`, picked at the first run,
+    /// cmux#48416): their Cmd-T opens a terminal, not the New Tab page.
+    pub terminal_first: bool,
 }
 
 /// The kind of the selected tab, as the person sees it: an agent tab gets an
@@ -78,12 +89,16 @@ pub fn same_kind(facts: &NewTabFacts) -> NewTabKind {
     NewTabKind::Terminal
 }
 
-/// What a new tab opens: a person's Cmd-T always the New Tab page (Leo
-/// 2026-10-12), else [`same_kind`]. An agent tab or the page needs a pane
+/// What a new tab opens: a person's Cmd-T the New Tab page (Leo
+/// 2026-10-12), or a terminal for a person who chose to work terminal-first
+/// (cmux#48416), else [`same_kind`]. An agent tab or the page needs a pane
 /// that hosts agent tabs; elsewhere a terminal.
 pub fn new_tab_kind(facts: &NewTabFacts) -> NewTabKind {
-    let kind =
-        if facts.user && facts.follows_setting { NewTabKind::Page } else { same_kind(facts) };
+    let kind = match (facts.user && facts.follows_setting, facts.terminal_first) {
+        (true, true) => NewTabKind::Terminal,
+        (true, false) => NewTabKind::Page,
+        (false, _) => same_kind(facts),
+    };
     match kind {
         NewTabKind::Agent | NewTabKind::Page if !facts.can_host_agent => NewTabKind::Terminal,
         kind => kind,
@@ -356,6 +371,11 @@ pub struct ToggleFacts {
     pub hand_off_open: bool,
     /// Now, in seconds since 1970 (`hand_off`'s clock).
     pub now: f64,
+    /// A chat: the device asking cannot start a terminal for its session (the phone, which has
+    /// no `acpmux resume-here`; a Mac whose chat runs on another machine's acpmux). With no
+    /// terminal running the session, such a chat is only a chat and offers no toggle (Leo,
+    /// 2026-11-17: "just... stop showijg the toggle on gui").
+    pub cannot_start_terminal: bool,
 }
 
 /// A chat's session handed to a new terminal (its acpmux run stopped, the
@@ -395,6 +415,25 @@ pub enum TerminalChatToggle {
     /// Not returned since the mid-turn hand-off: a chat mid-turn resumes in a terminal too.
     /// Kept so an app built against the older route still decodes every answer.
     Busy,
+    /// A chat no terminal runs, on a device that cannot start one (`cannot_start_terminal`):
+    /// only a chat, so no toggle shows, never a dead end a person can tap into.
+    NoTerminal,
+}
+
+impl TerminalChatToggle {
+    /// Whether the tab shows the toggle (the Mac's tab right-click row, the phone's Show Chat /
+    /// Show Terminal row): only on half of a live pair, a terminal running its session or a
+    /// chat a terminal runs (or one an earlier Toggle is handing to a terminal). A chat no
+    /// terminal runs is a GUI chat and shows none (Leo, 2026-11-17: "just... stop showing the
+    /// toggle on gui"); Toggle's key and palette entry still resume it in a terminal.
+    pub fn shows_toggle(&self) -> bool {
+        matches!(
+            self,
+            TerminalChatToggle::ToChat { .. }
+                | TerminalChatToggle::ToTerminal { .. }
+                | TerminalChatToggle::HandingOff { .. }
+        )
+    }
 }
 
 pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
@@ -430,6 +469,10 @@ pub fn terminal_chat_toggle(facts: &ToggleFacts) -> TerminalChatToggle {
         if lasts {
             return TerminalChatToggle::HandingOff { tab: hand_off.tab.clone() };
         }
+    }
+    // Nothing here can start the terminal: the chat is only a chat.
+    if facts.cannot_start_terminal {
+        return TerminalChatToggle::NoTerminal;
     }
     // Mid-turn too: the new terminal waits for the turn instead of cutting it off.
     TerminalChatToggle::ResumeInTerminal { harness, session }

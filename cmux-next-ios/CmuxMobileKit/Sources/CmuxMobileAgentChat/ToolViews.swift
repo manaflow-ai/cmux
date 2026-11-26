@@ -4,6 +4,7 @@ import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
+import UIKit
 
 /// Opens the diff viewer (`fileID` nil = the file list).
 public struct OpenDiffAction: Sendable {
@@ -43,9 +44,27 @@ struct ToolRowView: View {
             } label: {
                 header
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressLine)
+            // Keep row actions on the tappable header. Expanded output owns text selection.
+            .contextMenu {
+                if openFile.isAvailable {
+                    ForEach(Array(call.locations.prefix(5).enumerated()), id: \.offset) { _, location in
+                        Button("Open \((location.path as NSString).lastPathComponent)", systemImage: "doc.text.magnifyingglass") {
+                            openFile(location.path, line: location.line)
+                        }
+                    }
+                }
+                if let path = call.locations.first?.path {
+                    Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
+                }
+            }
             // The 44 pt target overlaps the gaps between rows (a 32 pt row in the layout).
             .padding(.vertical, -6)
+            // Its pictures always show: a screenshot or an image the agent sent is what the
+            // row is, not output to open (`outputText` left them out, so they drew nothing).
+            if call.hasImages {
+                ToolOutputImages(call: call)
+            }
             if expanded {
                 // Grows down from under the row, never slides in over it.
                 ToolOutputView(call: call)
@@ -53,19 +72,6 @@ struct ToolRowView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        // The files the call read or wrote open in the preview (long press).
-        .contextMenu {
-            if openFile.isAvailable {
-                ForEach(Array(call.locations.prefix(5).enumerated()), id: \.offset) { _, location in
-                    Button("Open \((location.path as NSString).lastPathComponent)", systemImage: "doc.text.magnifyingglass") {
-                        openFile(location.path, line: location.line)
-                    }
-                }
-            }
-            if let path = call.locations.first?.path {
-                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = path }
-            }
-        }
     }
 
     private var header: some View {
@@ -111,6 +117,12 @@ struct ToolRowView: View {
     }
 }
 
+/// What an expanded tool call draws under its card: nothing while its cut output's rest is read
+/// (the head stays in the card), a Try Again line only once the read failed.
+enum ToolOutputFooter {
+    static func shows(cut: Bool, failed: Bool) -> Bool { cut && failed }
+}
+
 /// Expanded output: a code card; bash shows `$ command` first; capped at 12 lines. An output
 /// the Mac sent cut (a page's oversized one) shows its head and reads the rest as it opens.
 struct ToolOutputView: View {
@@ -122,20 +134,17 @@ struct ToolOutputView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             card
-            if call.outputCut != nil {
-                if loadFailed {
-                    Button("Couldn't load the full output. Try Again") {
-                        loadFailed = false
-                        Task { loadFailed = !(await loadFull(call)) }
-                    }
-                    .font(.footnote)
-                    .padding(.leading, 26)
-                } else {
-                    Text("Loading the full output…")
-                        .font(.footnote)
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, 26)
+            // The head the Mac sent stays drawn while the rest is read, and the whole text
+            // takes its place in the same card (capped at the same height): no "Loading the full
+            // output…" line that comes and goes under it. Leo, 2026-11-24: "wer need to chase
+            // all these placeholders doen and prevent them". Only a failed read adds a line.
+            if ToolOutputFooter.shows(cut: call.outputCut != nil, failed: loadFailed) {
+                Button("Couldn't load the full output. Try Again") {
+                    loadFailed = false
+                    Task { loadFailed = !(await loadFull(call)) }
                 }
+                .font(.footnote)
+                .padding(.leading, 26)
             }
         }
         .task(id: call.outputCut) {
@@ -153,12 +162,84 @@ struct ToolOutputView: View {
         } else if !output.isEmpty {
             CodeCard(language: call.locations.first.map { ($0.path as NSString).pathExtension } ?? nil, code: output,
                      title: call.locations.first?.path ?? call.title, maxHeight: 12 * 19 + 60)
+        } else if call.hasImages {
+            // Its pictures are drawn under its line (`ToolOutputImages`).
+            EmptyView()
         } else {
             Text(call.isRunning ? "Loading output…" : "No output.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .padding(.leading, 26)
         }
+    }
+}
+
+/// The pictures in a call's output (ACP `image` blocks), each drawn as the image it is, fit in
+/// `maxHeight`. One whose bytes do not decode shows what it is (its type and size), never a
+/// waiting state. Plain SwiftUI images, so a tab card's still draws them too.
+struct ToolOutputImages: View {
+    let call: ACPToolCall
+    static let maxHeight: CGFloat = 240
+    /// The pictures one row draws (a call rarely holds more than one or two).
+    static let maxShown = 8
+
+    var body: some View {
+        let images = Array(call.images.prefix(Self.maxShown))
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(images.indices, id: \.self) { index in // visible-only: at most maxShown (8) pictures of one call, in the order the call holds them
+                let image = images[index]
+                if let picture = ToolImageCache.image(key: "\(call.id)#\(index)", base64: image.data) {
+                    Image(uiImage: picture)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 320, maxHeight: Self.maxHeight, alignment: .leading)
+                        .clipShape(.rect(cornerRadius: 12, style: .continuous))
+                        .accessibilityLabel(Text("Image"))
+                } else {
+                    Label(ToolImageCache.describe(mimeType: image.mimeType, base64: image.data), systemImage: "photo")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.leading, 26)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Decoded tool output pictures, by call and index: decoded once (downscaled to what a row
+/// shows), not on every pass of a row's body.
+@MainActor
+enum ToolImageCache {
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+    /// Keys whose bytes did not decode: not tried again on every pass.
+    private static var failed: Set<String> = []
+
+    static func image(key: String, base64: String) -> UIImage? {
+        if let image = cache.object(forKey: key as NSString) { return image }
+        guard !failed.contains(key) else { return nil }
+        guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters), let full = UIImage(data: data) else {
+            failed.insert(key)
+            return nil
+        }
+        // A row shows at most 320 x 240 pt: the decoded bitmap need not be bigger (3x).
+        let longest = max(full.size.width, full.size.height)
+        let image = longest > 960
+            ? full.preparingThumbnail(of: CGSize(width: full.size.width * 960 / longest, height: full.size.height * 960 / longest)) ?? full
+            : full
+        cache.setObject(image, forKey: key as NSString)
+        return image
+    }
+
+    /// "PNG image, 34 KB": what an image whose bytes do not decode is.
+    static func describe(mimeType: String, base64: String) -> String {
+        let kind = mimeType.split(separator: "/").last.map { $0.uppercased() } ?? "Image"
+        let bytes = Int64(base64.utf8.count) * 3 / 4
+        return "\(kind) image, \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"
     }
 }
 
@@ -206,7 +287,7 @@ struct ToolGroupView: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressLine)
             .padding(.vertical, -6)
             // The header's 44 pt target overlaps the first call's: the header
             // wins, so a tap on it always closes the group.
@@ -243,6 +324,7 @@ struct ToolGroupView: View {
 /// Collapsed "Thought" row; expands to the reasoning text in label2. While
 /// the agent thinks it shows the last three lines until the person closes it.
 struct ThoughtRow: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let text: String
     let isLive: Bool
     /// The transcript's key for the person's choice (its rows are reused cells).
@@ -286,17 +368,18 @@ struct ThoughtRow: View {
                 .frame(minHeight: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressLine)
             .padding(.vertical, -6)
             if expanded {
                 // Opened by the person: all of it. Opened because it is live: its newest
                 // lines (a line limit alone keeps the first three, which stop changing).
-                Text(choice.chosen == true ? text : DisclosureChoice.liveTail(of: text))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(choice.chosen == true ? nil : 3)
-                    // Wrapped, the tail can be more than three lines: cut its start, never its newest words.
-                    .truncationMode(.head)
+                let font = NativeTextStyles(category: UIContentSizeCategory(typeSize)).font(.subheadline)
+                SelectableText(choice.chosen == true ? text : DisclosureChoice.liveTail(of: text),
+                               font: font, color: .secondaryLabel)
+                    .fixedSize(horizontal: false, vertical: true)
+                    // Clip the full label from the top so the overlay hits the same visible word.
+                    .frame(maxHeight: choice.chosen == true ? nil : ceil(font.lineHeight * 3), alignment: .bottom)
+                    .clipped()
                     .padding(.leading, 26)
                     .transition(.disclosureReveal)
             }
@@ -347,7 +430,7 @@ struct DiffSnippet: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
         .frame(height: 44)
-        .background(Color.cmuxMobileCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
     }
 
     /// Opens the diff once the turn's changes are ready (the cache has them, or computes
@@ -379,7 +462,14 @@ struct DiffSnippet: View {
                 .frame(height: 44)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
+            .contextMenu {
+                Button("Open Diff", systemImage: "arrow.up.right.square") { open(file.id) }
+                if openFile.isAvailable, file.status != .deleted {
+                    Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
+                }
+                Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
+            }
             .accessibilityLabel(Text("Edited \(file.fileName), \(file.additions) additions, \(file.deletions) deletions. Open diff"))
             ScrollView(.horizontal) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -387,7 +477,9 @@ struct DiffSnippet: View {
                         HStack(alignment: .firstTextBaseline, spacing: 0) {
                             Text(line.kind == .added ? "+" : (line.kind == .removed ? "−" : " "))
                                 .frame(width: 14, alignment: .leading)
-                            Text(line.text.isEmpty ? " " : line.text)
+                            SelectableText(line.text.isEmpty ? " " : line.text,
+                                           font: .monospacedSystemFont(ofSize: codeSize, weight: .regular),
+                                           color: UIColor(color(line)), lineSpacing: 4)
                         }
                         .foregroundStyle(color(line))
                     }
@@ -416,17 +508,7 @@ struct DiffSnippet: View {
                 .padding(.bottom, 2)
             }
         }
-        .background(Color.cmuxMobileCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
-        }
-        .contextMenu {
-            Button("Open Diff", systemImage: "arrow.up.right.square") { open(file.id) }
-            if openFile.isAvailable, file.status != .deleted {
-                Button("Open File", systemImage: "doc.text.magnifyingglass") { openFile(file.path) }
-            }
-            Button("Copy Path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
-        }
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
     }
 
     private func color(_ line: DiffLine) -> Color {
@@ -468,7 +550,7 @@ struct EditedFilesCard: View {
                 .frame(minHeight: 48)
                 .contentShape(.rect)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             Divider().padding(.leading, 16)
             ForEach(changeSet.files) { file in
                 Button {
@@ -513,10 +595,10 @@ struct EditedFilesCard: View {
                     .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
             }
         }
-        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
     }
 }
 #endif

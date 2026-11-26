@@ -281,7 +281,7 @@ mod tests {
 
     fn hybrid(phone: &str, pairing: bool, closed: bool) -> (Hybrid, watch::Sender<Option<String>>) {
         let (closed_tx, link_closed) = watch::channel(closed.then(|| "closed".to_owned()));
-        let carrier = Arc::new(NoCarrier);
+        let carrier = Arc::new(NoCarrier(cmux_mobile_link::media::CarrierKind::WireGuardUdp));
         let video = cmux_mobile_link::media::VideoOut::start(carrier, Default::default(), None);
         let hybrid = Hybrid {
             phone: phone.into(),
@@ -296,11 +296,11 @@ mod tests {
         (hybrid, closed_tx)
     }
 
-    struct NoCarrier;
+    struct NoCarrier(cmux_mobile_link::media::CarrierKind);
 
     impl cmux_mobile_link::media::MediaCarrier for NoCarrier {
         fn kind(&self) -> cmux_mobile_link::media::CarrierKind {
-            cmux_mobile_link::media::CarrierKind::WireGuardUdp
+            self.0
         }
         fn twcc_ext_id(&self) -> u8 {
             1
@@ -345,5 +345,51 @@ mod tests {
         link.auth.begin();
         link.auth.end(true);
         assert_eq!(refusal(Some(&link), "phone"), None);
+    }
+
+    /// An Annex-B access unit: SPS and an IDR slice, or one non-IDR slice.
+    fn frame(keyframe: bool, at_us: u64) -> cmux_mobile_link::media::OutgoingFrame {
+        let mut au = Vec::new();
+        if keyframe {
+            au.extend_from_slice(&[0, 0, 0, 1, 0x67, 0x42, 0xc0, 0x1f, 0, 0, 0, 1, 0x65]);
+        } else {
+            au.extend_from_slice(&[0, 0, 0, 1, 0x41]);
+        }
+        au.resize(au.len() + 200, 0xab);
+        cmux_mobile_link::media::OutgoingFrame { access_unit: bytes::Bytes::from(au), capture_us: at_us }
+    }
+
+    /// verify/hybrid-link.md: killing the media session moves the tab's
+    /// video back into the tunnel at once, at a keyframe. The session dies
+    /// moments after video moved onto it (the switch's own keyframe ask
+    /// just went out): the loss still asks the source for a keyframe at
+    /// once, and that keyframe goes into the tunnel.
+    #[tokio::test]
+    async fn losing_the_media_route_moves_video_into_the_tunnel_at_once_with_a_keyframe() {
+        use cmux_mobile_link::media::{CarrierKind, VideoOut};
+        let video = VideoOut::start(Arc::new(NoCarrier(CarrierKind::WireGuardUdp)), Default::default(), None);
+        let mut claim = video.claim();
+        let mut active = video.active();
+        claim.send(frame(true, 0)).await.unwrap();
+        assert_eq!(*active.borrow_and_update(), Some(CarrierKind::WireGuardUdp));
+        let ask = Duration::from_millis(100);
+        // The media session comes up: the source is asked for a keyframe and video moves onto it.
+        let (_up, health) = watch::channel(true);
+        let route = video.add_route(Arc::new(NoCarrier(CarrierKind::WebRtcTrack)), health);
+        tokio::time::timeout(ask, claim.keyframes.recv()).await.expect("asked to switch").unwrap();
+        claim.send(frame(false, 16_000)).await.unwrap();
+        claim.send(frame(true, 33_000)).await.unwrap();
+        assert_eq!(*active.borrow_and_update(), Some(CarrierKind::WebRtcTrack));
+        // The session is killed right away.
+        drop(route);
+        tokio::time::timeout(ask, claim.keyframes.recv())
+            .await
+            .expect("route loss asks for a keyframe at once")
+            .unwrap();
+        // Frames before that keyframe are dropped; the keyframe goes into the tunnel.
+        claim.send(frame(false, 50_000)).await.unwrap();
+        assert_eq!(*active.borrow_and_update(), Some(CarrierKind::WebRtcTrack));
+        claim.send(frame(true, 66_000)).await.unwrap();
+        assert_eq!(*active.borrow_and_update(), Some(CarrierKind::WireGuardUdp));
     }
 }

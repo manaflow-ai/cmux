@@ -7,6 +7,7 @@ extension PageWebView {
     /// The tab closed: cancels subscriptions and stops the bridge.
     public func close() {
         isClosed = true
+        overlayStartTimer.cancel()
         _ = claimState.end()
         router.close()
         bridge.uninstall()
@@ -80,6 +81,8 @@ extension PageWebView {
         if error.domain == NSURLErrorDomain, error.code == NSURLErrorCancelled { return }
         if error.domain == "WebKitErrorDomain", error.code == 102 { return } // frame load interrupted by a policy change
         healthFeed?.pageLoadFailed(self)
+        // An overlay's document that failed to load: every page falls back to the bundle, this one now.
+        if overlayStartFailed("its load failed (\(error.localizedDescription))") { reloadAfterCrashes() }
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -111,6 +114,8 @@ extension PageWebView {
     /// its host shows the crash notice instead (``reloadsAfterCrash``). Logged at error level
     /// either way, with what follows.
     func contentProcessTerminated() {
+        // Before anything else: the page shows nothing from here until a new document paints.
+        onDocumentWillChange?(rendererRestartPending ? .rendererRestart : .contentEnded)
         loaded = false
         router.reset()
         if rendererRestartPending {
@@ -120,6 +125,12 @@ extension PageWebView {
             return reloadPage()
         }
         healthFeed?.pageCrashed(self)
+        // An overlay's document that ended before its page code spoke: every page falls back to the
+        // bundle, and this one reloads from it now instead of showing the crash notice.
+        if overlayStartFailed("its web content process ended") {
+            logger.error("page \(self.descriptor.id, privacy: .public) ended before it started from the overlay; reloading bundled")
+            return reloadAfterCrashes()
+        }
         guard reloadsAfterCrash else {
             // A renderer that crashed before the page reached the host leaves the Chromium start
             // deadline armed: its fallback would load the page in WebKit by itself.
@@ -148,6 +159,8 @@ extension PageWebView {
         guard chromiumSession == nil else { return reloadPage() }
         // Chromium ended while the notice showed: the page reopens in WebKit now.
         webKitLoadsOnReload = false
+        onDocumentWillChange?(.reload)
+        documentStarted()
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 }

@@ -20,8 +20,14 @@ public final class LayoutModel {
     public private(set) var activeScreenID: ScreenID?
     /// The focused pane. Client-local; drives the focus ring and column reveal.
     public private(set) var focusedPane: PaneID?
-    /// Dims panes other than the focused one.
-    public var dimsInactivePanes = false
+    /// Pins `layout.fadeInactivePanes` (tests, the demo); nil follows cmux.json.
+    public var dimsInactivePanesOverride: Bool?
+    /// Dims panes other than the focused one (cmux.json `layout.fadeInactivePanes`): the
+    /// override, else the live setting while `followsDesignMetrics` is on, else off. Setting it pins it.
+    public var dimsInactivePanes: Bool {
+        get { dimsInactivePanesOverride ?? (followsDesignMetrics ? DesignSettings.shared.fadeInactivePanes : false) }
+        set { dimsInactivePanesOverride = newValue }
+    }
     /// Pins the column centering mode (tests, the demo); nil follows
     /// cmux.json `layout.centerFocusedColumn` through `DesignSettings`.
     public var centerFocusedColumnOverride: CenterFocusedColumn?
@@ -149,10 +155,30 @@ public final class LayoutModel {
     /// Panes that need attention (an unread notification), with the mark
     /// the overlay draws. Set by the App from daemon unread state.
     public var attention: [PaneID: AttentionMark] = [:]
-    /// Panes whose mark the last `attention` change removed because the person
-    /// went into the pane (a click, a key, an open): their ring blinks out, as
-    /// cmux classic's dismiss flash did. Set by the App just before `attention`.
+    /// Panes whose mark went because the person went into the pane (a focus, a click, a key, an open):
+    /// their ring blinks out, as cmux classic's dismiss flash did. A pane stays in it until it rings
+    /// again, so a later pass cannot turn the blink into a fade (``setAttention(_:readByEntry:)``).
     public var attentionReadByEntry: Set<PaneID> = []
+    /// The layout just came on screen (a workspace switch): its rings wait for the frame that shows its content, so no
+    /// ring draws on the overlay before the workspace it belongs to (cmux#46908). The App lets them go after that commit.
+    /// The marks stay meanwhile: a ring read by the switch starts its dismiss blink, which shows once the hold ends.
+    public var holdsAttentionUntilShown = false {
+        didSet { if holdsAttentionUntilShown != oldValue { attentionWhileHeld = holdsAttentionUntilShown ? attention : [:] } }
+    }
+    /// The rings a held layout's chrome takes (``holdsAttentionUntilShown``): the App's newest marks, and a ring read
+    /// by going in during the hold (the switch's own entry), kept so its dismiss blink plays once the hold ends. It
+    /// follows the marks, not the chrome's parked state: a pane that rang while its workspace was parked has its ring
+    /// on the chrome before the switch reads it, or the ring never shows at all (cmux#56125).
+    public internal(set) var attentionWhileHeld: [PaneID: AttentionMark] = [:]
+    /// Reads the ringing `pane` the person just went into (the focus entered it, or a click with `true`),
+    /// when they look at this layout and the policy reads its ring so; true when it did
+    /// (``enterAttention(_:click:)``). Set by the App.
+    @ObservationIgnored public var readsAttentionOnEntry: (PaneID, Bool) -> Bool = { _, _ in false }
+    /// The ring generation of each pane the focus entered (``enterAttention(_:click:)``): its ring stays out
+    /// while the read is on its way, and comes back only with a newer one.
+    @ObservationIgnored var enteredAttention: [PaneID: UInt64] = [:]
+    /// The App's marks as last set (``setAttention(_:readByEntry:)``), before the entered rings are left out.
+    @ObservationIgnored public internal(set) var attentionMarks: [PaneID: AttentionMark] = [:]
 
     /// Panes whose frame currently intersects the visible viewport of the
     /// active screen. Hosted views stay alive while not visible; use this to
@@ -182,7 +208,7 @@ public final class LayoutModel {
     /// Each canvas screen's viewport, reported by its view: fitting and revealing read it.
     @ObservationIgnored var canvasViewports: [ScreenID: CGSize] = [:]
 
-    /// Receives every intent. Set by the App (or `MockLayoutSource`).
+    /// Receives every intent. Set by the App.
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
     @ObservationIgnored var splitOverrides: [SplitID: GestureOverride] = [:]
@@ -205,11 +231,6 @@ public final class LayoutModel {
     @ObservationIgnored var replies = TransactionReplies()
     /// Whether the app can send an ended value's command now (`EndedValues`); nil sends every one.
     @ObservationIgnored public var sendsNow: (@MainActor (LayoutIntent) -> Bool)?
-    /// A pane whose shown content the next structural change moves into the pane it adds, until an
-    /// uptime (`handOffContent(of:)`).
-    @ObservationIgnored var contentHandoff: (pane: PaneID, until: TimeInterval)?
-    static let contentHandoffWindow: TimeInterval = 3
-
 
     /// The last daemon snapshot, without local overrides. Restored when a
     /// transaction is rejected.
@@ -231,7 +252,7 @@ public final class LayoutModel {
         let previous = daemonScreens
         // Shown closes whose pane leaves the daemon's tree now: their column widths are reconciled
         // across the closes still pending (`noteLandedColumnClose`), not taken from the raw trees.
-        let landed = Set(paneCloses.keys.filter { pane in !newScreens.contains { $0.layout.contains(pane) } })
+        let landed = Set(paneCloses.keys.filter { pane in !newScreens.contains { $0.contains(pane) } })
         noteLandedCloses(from: previous, to: newScreens, landed: landed) // before the overlay below reads them
         defer {
             applyCloseSizing(from: previous, to: newScreens, landed: landed)
@@ -249,7 +270,7 @@ public final class LayoutModel {
         if activeScreenID == nil || !screens.contains(where: { $0.id == activeScreenID }) {
             activeScreenID = screens.first?.id
         }
-        if let focusedPane, screens.contains(where: { $0.layout.contains(focusedPane) }) {
+        if let focusedPane, screens.contains(where: { $0.contains(focusedPane) }) {
             return
         }
         // The focused pane closed. The app's focus coordinator picks the successor right after
@@ -339,7 +360,14 @@ public final class LayoutModel {
     }
 
     public func screen(containing pane: PaneID) -> LayoutScreen? {
-        screens.first { $0.layout.contains(pane) }
+        screens.first { $0.contains(pane) }
+    }
+
+    /// Shows `screens` as `body` changes them, ahead of the daemon's next snapshot (a floating pane's released frame).
+    func showLocally(_ body: (inout [LayoutScreen]) -> Void) {
+        var shown = screens
+        body(&shown)
+        if shown != screens { screens = shown }
     }
 
     // MARK: Focus and screens
@@ -372,8 +400,11 @@ public final class LayoutModel {
         lastFocusSource = source
         if focusRingEarned != (source == .keyboard) { focusRingEarned = source == .keyboard }
         focusedPane = pane
+        enterAttention(pane)
         // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
         if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) }
+        // A floating pane that gets the focus comes to the front.
+        if let raise = LayoutFloatingPane.raise(pane, in: screen.floating, source: source) { emit(raise) }
         if notify { emit(.focus(pane)) }
     }
 
@@ -395,7 +426,7 @@ public final class LayoutModel {
     public func selectScreen(_ id: ScreenID) {
         guard activeScreenID != id, let screen = screens.first(where: { $0.id == id }) else { return }
         activeScreenID = id
-        if focusedPane.map({ !screen.layout.contains($0) }) ?? true {
+        if focusedPane.map({ !screen.contains($0) }) ?? true {
             dismissFocusRing()
             focusedPane = screen.layout.panes.first
         }
@@ -430,16 +461,6 @@ public final class LayoutModel {
         updateScreen(where: { $0.ratio(of: split) != nil }) { $0.settingRatio(ratio, for: split) }
         splitOverrides[split] = GestureOverride(value: ratio, transaction: transaction, ended: phase == .ended)
         if phase == .ended { expectReply(transaction); emit(.setSplitRatio(split, ratio: ratio, transaction: transaction, phase: phase)) }
-    }
-
-    /// Equalizes `split` so every cell in its same-axis chain gets equal size. An explicit
-    /// equalize springs (`explicitReflowUntil`); the sizing that follows a split or a close moves
-    /// with that gesture instead.
-    public func equalizeSplit(_ split: SplitID) {
-        guard let tree = screens.lazy.compactMap({ $0.layout.tree(containing: split) }).first,
-              let ratio = tree.equalizedRatio(for: split) else { return }
-        explicitReflowUntil = ProcessInfo.processInfo.systemUptime + Self.explicitReflowWindow
-        setSplitRatio(split, ratio: ratio, transaction: .make(), phase: .ended)
     }
 
     /// Drops the sent (ended) ratio overrides of `splits`: a newer change owns their ratios now. A

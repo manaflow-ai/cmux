@@ -73,6 +73,44 @@ struct TurnStateFeedListFollowTests {
         #expect(follow.cursor?.epoch == "run-a")
     }
 
+    /// A machine enrolled while the app ran: its chats came only in a follow, which kept their rows
+    /// but not their lanes, so `open-tab --host walk-remote` was refused as no peer's (the reconnect
+    /// probe, 2026-11-15) and no later push brought the lane back.
+    @Test func aFollowGivesAPeersChatItsLaneAndTakesItWhenItGoes() throws {
+        guard case .page(var held, _) = try message(["jsonrpc": "2.0", "id": 2, "result": [
+            "listSeq": 4, "listEpoch": "run-a", "sessions": [summary("a", indicator: "working", title: "A")],
+        ]]) else { Issue.record("the first page is not read as a page"); return }
+        var peerChat = summary("walk-remote/x", indicator: "working", title: "X", peer: "walk-remote")
+        peerChat["name"] = "walk-remote/reconnect-chat"
+        peerChat["lane"] = ["state": "idle"]
+        guard case .follow(let came) = try message(["jsonrpc": "2.0", "id": 2, "result": [
+            "follow": true, "listSeq": 9, "listEpoch": "run-a", "more": false, "sessions": [peerChat],
+        ]]) else { Issue.record("a follow is not read as a follow"); return }
+        held.lay(came)
+        #expect(held.lanes["walk-remote/x"]?.peer == "walk-remote", "a peer's chat that came in a follow has its lane")
+        #expect(held.lanes.values.peerSession("reconnect-chat", on: "walk-remote") == .session("walk-remote/x"))
+        guard case .follow(let went) = try message(["jsonrpc": "2.0", "id": 2, "result": [
+            "follow": true, "listSeq": 12, "listEpoch": "run-a", "more": false, "sessions": [],
+            "gone": [["sessionId": "walk-remote/x", "peer": "walk-remote"]],
+        ]]) else { Issue.record("a follow is not read as a follow"); return }
+        held.lay(went)
+        #expect(held.lanes["walk-remote/x"] == nil, "a gone peer chat's lane goes")
+        #expect(held.lanes.values.peerSession("reconnect-chat", on: "walk-remote") == .notAPeer)
+    }
+
+    /// acpmux tells a watch it dropped pushes as `_acpmux/lagged {dropped}` (`server/fanout.rs`,
+    /// `Conn::left_out_too_large`), never with `watch: true`: read only so, no lag was ever the
+    /// watch's and a dropped push (a new peer's chat) stayed lost.
+    @Test func acpmuxsOwnLagNoticeIsTheWatchs() throws {
+        guard case .lagged = try message(["jsonrpc": "2.0", "method": "_acpmux/lagged", "params": ["dropped": 3]]) else {
+            Issue.record("a watch's lag as acpmux sends it is not read"); return
+        }
+        guard case .lagged = try message(["jsonrpc": "2.0", "method": "_acpmux/lagged",
+                                          "params": ["dropped": 1, "reason": "message_too_large"]]) else {
+            Issue.record("a notice left out as too large is not read as a lag"); return
+        }
+    }
+
     @Test func aResetIsAFirstListOfTheNewRun() throws {
         guard case .page(let page, let continued) = try message(["jsonrpc": "2.0", "id": 2, "result": [
             "reset": true, "listSeq": 3, "listEpoch": "run-b", "sessions": [summary("z", indicator: "working", title: "Z")],
@@ -108,7 +146,7 @@ struct TurnStateFeedListFollowTests {
         follow.rewind(to: ("run-a", 10))
         #expect((follow.watchParams["afterSeq"] as? UInt64) == 10)
 
-        guard case .change(_, _, _, _, _, _, _, _, _, _, _, _, _, let listSeq) = try message([
+        guard case .change(_, _, _, _, _, _, _, _, _, _, _, _, _, let listSeq, _) = try message([
             "jsonrpc": "2.0", "method": "_acpmux/session_changed",
             "params": ["sessionId": "a", "kind": "status", "listSeq": 13, "session": summary("a", indicator: "working", title: "A")],
         ]) else { Issue.record("a push is not read"); return }
@@ -135,7 +173,7 @@ struct TurnStateFeedListFollowTests {
         // Even with a position held, a daemon that never named the capability is asked the whole list.
         follow.listed(seq: 5, epoch: "run-a")
         #expect(follow.watchParams.keys.sorted() == ["enabled"])
-        // Only a watch's lag is the list's; another lag is left as before.
+        // Only a watch's lag is the list's; an attached session's (`sessionIds`) is left as before.
         let lagged = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "method": "_acpmux/lagged", "params": ["sessionIds": ["a"]]])
         #expect(AgentTurnStateFeed.Message(line: lagged) == nil)
         guard case .lagged = try message(["jsonrpc": "2.0", "method": "_acpmux/lagged", "params": ["watch": true]]) else {

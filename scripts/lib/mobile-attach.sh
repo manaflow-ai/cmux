@@ -1,16 +1,13 @@
 # shellcheck shell=bash
-# Shared helpers for iOS dev launches: tag -> identity, the app-receipt
-# readiness gate, and the older tagged-Mac pairing helpers. Sourced by
-# scripts/dev-setup.sh, scripts/mobile-dev-launch.sh, scripts/verify-iphone-auth.sh,
-# and the reload scripts so the bundle-id / socket derivation lives in exactly
-# ONE place (it MUST match reload.sh / cmux-debug-cli.sh exactly).
+# Shared helpers for iOS dev launches: tag -> identity and the app-receipt
+# readiness gate. Sourced by scripts/dev-setup.sh, scripts/mobile-dev-launch.sh,
+# scripts/verify-iphone-auth.sh, scripts/run-iroh-release-gate.sh and the
+# reload scripts so the bundle-id / slug derivation lives in exactly ONE place
+# (it MUST match reload.sh / cmux-debug-cli.sh exactly).
 #
-# The pairing helpers (cmux_attach_enable_pairing_host, cmux_attach_ensure_mac,
-# cmux_attach_mint_url) remain only for scripts/dev-setup.sh and
-# scripts/run-iroh-release-gate.sh. The cmux-next Mac app no longer serves
-# mobile.attach_ticket.create, so they have no working target on this branch.
-#
-# The attach URL is a bearer credential: callers must never print it.
+# The tagged-Mac pairing helpers (enable the pairing host, ensure the Mac,
+# mint an attach ticket) are gone: the cmux-next Mac app no longer runs the
+# iroh phone listener (mobile.attach_ticket.create / mobile.rpc.ready).
 
 # Resolve the backend shared by a tagged Mac and its mobile build. Localhost
 # remains the default for ordinary simulator work. Physical-device dogfood can
@@ -54,17 +51,41 @@ cmux_attach_tag_has_alnum() {
 # Cloud registry/presence instance tags are capped at 64 JavaScript UTF-16
 # units. Slugs are ASCII, so shell character count is the same measurement.
 # Reject instead of truncating because truncation could collapse two tagged
-# builds onto the same instance identity.
+# builds onto the same instance identity. The same slug names a dev build's
+# space on cmux-mobile-api (`X-Cmux-Build-Space: dev:<slug>`,
+# cmux-next-ios/PROTOCOL.md "Build spaces"), which refuses a slug over 64 and
+# `default` the same way, so the two never disagree on a tag.
 cmux_attach_tag_within_cloud_limit() {
   local slug
   slug="$(cmux_attach__slug_raw "$1")"
   (( ${#slug} <= 64 ))
 }
 
+# Tags that already name an app of their own, so no tagged dev build may take one: `default` is the stable
+# app instance (cmux-mobile-api refuses dev:default too); `dev` is cmux Dev (dev.cmux.mobile.dev,
+# cmux-next-ios/scripts/try.sh, whose fallback for an older commit builds in dev:dev); `demo` and `prod` are
+# demo-build.sh's Demo and Production installs (dev.cmux.mobile.demo, dev.cmux.mobile.prod). A Mac tagged
+# one of them would take that app for its own tag's phone, and a hand-off would install over it.
+CMUX_ATTACH_RESERVED_TAGS="default dev demo prod"
+
+# True iff the tag's slug is one of CMUX_ATTACH_RESERVED_TAGS.
+cmux_attach_tag_reserved() {
+  local slug
+  slug="$(cmux_attach__slug_raw "$1")"
+  [[ -n "$slug" && " $CMUX_ATTACH_RESERVED_TAGS " == *" $slug "* ]]
+}
+
 # Validate a dev-build tag before it selects an app bundle, socket, or cloud
 # presence identity. "default" is the stable app instance sentinel, so allowing
 # a dev tag to sanitize to that value would make the dev build impersonate the
 # stable instance even though its bundle and socket are otherwise isolated.
+#
+# A tag must be canonical: its own slug (lowercase ASCII letters, digits and
+# single inner dashes, at most 64). The tag is the build space `dev:<slug>` of
+# its Mac and iPhone builds, and the slug maps foo_bar, foo.bar, Foo-Bar and
+# foo--bar to one space, so two tasks with "different" tags would share one
+# space and pair with each other's builds. Every spelling but the slug itself
+# is refused, with the slug to use instead.
 cmux_attach_validate_dev_tag() {
   local tag="$1" slug
   if ! cmux_attach_tag_has_alnum "$tag"; then
@@ -72,12 +93,23 @@ cmux_attach_validate_dev_tag() {
     return 1
   fi
   slug="$(cmux_attach__slug_raw "$tag")"
-  if [[ "$slug" == "default" ]]; then
-    echo "error: --tag must not sanitize to 'default'; that tag is reserved for the stable app instance" >&2
-    return 1
-  fi
+  case "$slug" in
+    default)
+      echo "error: --tag must not sanitize to 'default'; that tag is reserved for the stable app instance" >&2
+      return 1 ;;
+    dev)
+      echo "error: --tag dev is the cmux Dev app's (dev.cmux.mobile.dev, cmux-next-ios/scripts/try.sh); pick another tag" >&2
+      return 1 ;;
+    demo|prod)
+      echo "error: --tag $slug is demo-build.sh's $([[ $slug == demo ]] && echo Demo || echo Production) install (dev.cmux.mobile.$slug); pick another tag" >&2
+      return 1 ;;
+  esac
   if ! cmux_attach_tag_within_cloud_limit "$tag"; then
     echo "error: --tag must sanitize to at most 64 characters" >&2
+    return 1
+  fi
+  if [[ "$tag" != "$slug" ]]; then
+    echo "error: --tag '$tag' is not a canonical tag: a tag is lowercase letters, digits and single dashes inside, as it is its builds' cloud build space (dev:$slug, which every spelling of it would share); use --tag $slug" >&2
     return 1
   fi
 }
@@ -90,7 +122,7 @@ cmux_attach__bundle_seg() {
   printf '%s' "$cleaned"
 }
 
-# The tagged macOS Debug app's bundle id (the iOS pairing host lives on the Mac).
+# The tagged macOS Debug app's bundle id.
 cmux_attach_mac_bundle_id() {
   printf 'com.cmuxterm.app.debug.%s' "$(cmux_attach__bundle_seg "$1")"
 }
@@ -136,31 +168,6 @@ print(uuid.uuid5(uuid.NAMESPACE_URL, f"cmux-ios-dogfood-client:{bundle_id}:{targ
 PY
 }
 
-# The tagged Mac app's debug socket path.
-cmux_attach_socket_path() {
-  printf '/tmp/cmux-debug-%s.sock' "$(cmux_attach__slug "$1")"
-}
-
-# Remove a stale socket only for one validated tagged-build identity. Callers
-# must first prove the exact tagged app process has exited. Refuse regular files
-# and symlinks so this cleanup cannot delete an unrelated path substituted at
-# the tag's predictable socket location.
-cmux_attach_remove_stale_socket() {
-  local tag="$1" sock
-  cmux_attach_validate_dev_tag "$tag" || return 1
-  sock="$(cmux_attach_socket_path "$tag")"
-  if [[ -L "$sock" ]]; then
-    echo "error: refusing to remove symlink at tagged socket path: $sock" >&2
-    return 1
-  fi
-  if [[ -e "$sock" ]] && [[ ! -S "$sock" ]]; then
-    echo "error: refusing to remove non-socket at tagged socket path: $sock" >&2
-    return 1
-  fi
-  [[ -S "$sock" ]] || return 0
-  rm -f -- "$sock"
-}
-
 # The locally-built tagged macOS Debug .app bundle path (cloud/local reloads both
 # download/install here). Both the DerivedData dir AND the .app basename use the
 # sanitized slug, matching reload.sh (`APP_NAME="cmux DEV ${TAG_SLUG}"`); the raw
@@ -170,65 +177,6 @@ cmux_attach_mac_app_path() {
   slug="$(cmux_attach__slug "$1")"
   printf '%s/Library/Developer/Xcode/DerivedData/cmux-%s/Build/Products/Debug/cmux DEV %s.app' \
     "$HOME" "$slug" "$slug"
-}
-
-# Enable the opt-in iOS pairing host on the tagged Mac bundle. Must be written
-# BEFORE the Mac app launches (read in applicationDidFinishLaunching). The first
-# bind per bundle id triggers a one-time macOS "Local Network" prompt.
-cmux_attach_enable_pairing_host() {
-  local tag="$1" bundle_id
-  bundle_id="$(cmux_attach_mac_bundle_id "$tag")"
-  defaults write "$bundle_id" mobile.iOSPairingHost.enabled -bool true
-}
-
-# Return the normalized email currently authenticated on one exact tagged Mac.
-# The tagged socket and bundled CLI are selected by cmux-debug-cli.sh, so this
-# can never read the stable app or another agent's tag.
-cmux_attach_mac_auth_account() {
-  local tag="$1" repo_root="$2" slug status
-  slug="$(cmux_attach__slug "$tag")"
-  status="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" auth status --json 2>/dev/null)" \
-    || return 1
-  AUTH_STATUS="$status" /usr/bin/python3 - <<'PY'
-import json
-import os
-
-try:
-    status = json.loads(os.environ["AUTH_STATUS"])
-except (KeyError, TypeError, ValueError):
-    raise SystemExit(1)
-user = status.get("user")
-email = user.get("email") if isinstance(user, dict) else None
-if status.get("signed_in") is not True or not isinstance(email, str) or not email.strip():
-    raise SystemExit(1)
-print(email.strip().lower(), end="")
-PY
-}
-
-# Ask the tagged Mac for its authoritative post-bootstrap auth status. The
-# `auth.status` RPC awaits AuthCoordinator bootstrap, which includes session
-# restore and DEBUG auto-login, so this is one lifecycle-owned check rather
-# than a shell polling loop.
-cmux_attach_wait_for_mac_auth_account() {
-  local tag="$1" repo_root="$2" expected="$3" actual=""
-  expected="$(printf '%s' "$expected" | tr '[:upper:]' '[:lower:]')"
-  expected="${expected#"${expected%%[![:space:]]*}"}"
-  expected="${expected%"${expected##*[![:space:]]}"}"
-  if [[ -z "$expected" ]]; then
-    echo "error: tagged Mac auth check requires a non-empty expected account" >&2
-    return 1
-  fi
-  actual="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
-  if [[ "$actual" == "$expected" ]]; then
-    echo "==> tagged Mac auth profile verified ($expected)" >&2
-    return 0
-  fi
-  if [[ -n "$actual" ]]; then
-    echo "error: tagged Mac '$tag' authenticated as '$actual', expected '$expected'" >&2
-  else
-    echo "error: tagged Mac '$tag' did not reach signed-in auth status for '$expected'" >&2
-  fi
-  return 1
 }
 
 # Resolve metadata from the bundle that is actually installed on the target.
@@ -301,253 +249,6 @@ import time
 
 print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) // 1_000_000)
 '
-}
-
-# Terminate one exact tagged Mac bundle through LaunchServices. The helper uses
-# NSRunningApplication plus NSWorkspace termination notifications, so callers
-# never infer process identity from a command-line regex or a sleep loop.
-# Tests can replace this function with a deterministic fake; production callers
-# must provide the repository root so the helper source is unambiguous.
-cmux_attach_terminate_bundle_app() {
-  local bundle_id="$1" repo_root="$2" timeout="${3:-5}"
-  local helper="${CMUX_ATTACH_TERMINATE_BUNDLE_HELPER:-}"
-  if [[ -z "$helper" ]]; then
-    [[ -n "$repo_root" ]] || {
-      echo "error: tagged Mac termination requires the repository root" >&2
-      return 1
-    }
-    helper="$repo_root/scripts/terminate-bundle-app.swift"
-  fi
-  [[ -f "$helper" ]] || {
-    echo "error: tagged Mac termination helper is missing: $helper" >&2
-    return 1
-  }
-  /usr/bin/swift "$helper" "$bundle_id" "$timeout"
-}
-
-# Launch one tagged bundle with its own LSEnvironment plus the selected
-# non-secret auth contract. NSWorkspace.OpenConfiguration is the supported
-# environment propagation path for LaunchServices; unlike `open --env`, it
-# reports launch errors to the caller.
-cmux_attach_launch_bundle_app() {
-  local app="$1" repo_root="$2" auth_profile="${3:-}" credentials_file="${4:-}"
-  local helper="${CMUX_ATTACH_LAUNCH_BUNDLE_HELPER:-}"
-  if [[ -z "$helper" ]]; then
-    [[ -n "$repo_root" ]] || {
-      echo "error: tagged Mac launch requires the repository root" >&2
-      return 1
-    }
-    helper="$repo_root/scripts/launch-bundle-app.swift"
-  fi
-  [[ -f "$helper" ]] || {
-    echo "error: tagged Mac launch helper is missing: $helper" >&2
-    return 1
-  }
-  local launch_args=("$app")
-  [[ -n "$auth_profile" ]] && launch_args+=(--auth-profile "$auth_profile")
-  [[ -n "$credentials_file" ]] && launch_args+=(--credentials-file "$credentials_file")
-  /usr/bin/swift "$helper" "${launch_args[@]}"
-}
-
-# Ensure the tagged Mac app is running AND its iOS pairing listener
-# is actually bound, so a ticket can be minted. Enables the pairing host, then:
-#   - socket down  -> launch the local tagged build and wait for the socket.
-#   - socket up    -> the pairing default is only read at launch, so a live
-#                     socket does NOT prove the listener is bound. Probe by
-#                     minting; if it already works, done. If not, relaunch only
-#                     this exact tagged app so the startup-only pairing setting
-#                     takes effect. Calling ensure-mac is the explicit opt-in.
-# Args: <tag> [<repo_root>] [<target>] (repo_root enables the mint readiness
-# probe). Returns
-# 0 if the Mac is ready to mint a usable target-specific ticket, 1 otherwise.
-# Never force-kills a running app by default.
-cmux_attach_ensure_mac() {
-  local tag="$1" repo_root="${2:-}" target="${3:?attach target is required}" force_relaunch="${4:-0}"
-  local auth_profile="${5:-}" credentials_file="${6:-}" expected_account="${7:-}"
-  local sock app mint_attempts _i current_account="" stopped_exact_tagged_app=0
-  sock="$(cmux_attach_socket_path "$tag")"
-  app="$(cmux_attach_mac_app_path "$tag")"
-  cmux_attach_enable_pairing_host "$tag" || true
-
-  stop_exact_tagged_app() {
-    [[ -d "$app" ]] || return 0
-    local bundle_id
-    bundle_id="$(cmux_attach_mac_bundle_id "$tag")"
-    echo "==> stopping exact tagged Mac app before applying the auth contract ($tag)" >&2
-    # The bundle id is derived from the same sanitized tag used by the app and
-    # socket. This is required even when the socket is down: `open` reuses an
-    # existing process and cannot apply a new profile to it.
-    cmux_attach_terminate_bundle_app "$bundle_id" "$repo_root" 5 || {
-      echo "error: tagged Mac app '$tag' did not stop before applying a new auth profile" >&2
-      return 1
-    }
-    stopped_exact_tagged_app=1
-    return 0
-  }
-
-  # A caller that explicitly requests force-relaunch needs a clean process,
-  # regardless of whether the old process still publishes its socket.
-  if [[ "$force_relaunch" == "1" ]]; then
-    stop_exact_tagged_app || return 1
-  fi
-
-  if [[ -S "$sock" ]]; then
-    if [[ "$force_relaunch" != "1" ]]; then
-      if [[ -n "$expected_account" ]]; then
-        current_account="$(cmux_attach_mac_auth_account "$tag" "$repo_root" 2>/dev/null || true)"
-      fi
-      # Quick probe (2 attempts ~1s): reuse only a listener whose selected
-      # account already matches this launch contract.
-      if [[ -n "$repo_root" ]] \
-          && { [[ -z "$expected_account" ]] || [[ "$current_account" == "$expected_account" ]]; } \
-          && [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" 2)" ]]; then
-        return 0
-      fi
-    fi
-    # A tagged app is running but its pairing listener is not ready (launched
-    # before the startup-only default was set, prompt pending, or briefly
-    # busy). `cmux_attach_ensure_mac` is itself the explicit authorization to
-    # relaunch this tag. Bundle identity keeps stable cmux and every other DEV
-    # tag untouched.
-    if [[ ! -d "$app" ]]; then
-      echo "warning: tagged Mac app for '$tag' is running but not ready, and there is no local build to relaunch; auto-pair unavailable. Re-run without --attach for an intentionally unpaired launch." >&2
-      return 1
-    fi
-    if [[ "$stopped_exact_tagged_app" -eq 0 ]]; then
-      echo "==> relaunching exact tagged Mac app to bind the pairing listener ($tag)" >&2
-      stop_exact_tagged_app || return 1
-    fi
-  fi
-
-  if [[ ! -d "$app" ]]; then
-    echo "warning: tagged Mac app for '$tag' not found locally ($app); cannot auto-pair. Build it (scripts/reload-cloud.sh --tag $tag) then re-run, or pass --no-attach." >&2
-    return 1
-  fi
-  echo "==> launching tagged Mac app to arm pairing ($tag)" >&2
-  if [[ -n "$auth_profile" || -n "$credentials_file" || -n "$expected_account" ]]; then
-    [[ -n "$auth_profile" && -n "$expected_account" ]] || {
-      echo "error: selected Mac auth launch requires profile and expected account" >&2
-      return 1
-    }
-  fi
-  cmux_attach_launch_bundle_app "$app" "$repo_root" "$auth_profile" "$credentials_file" || {
-    echo "error: tagged Mac app '$tag' could not be launched" >&2
-    return 1
-  }
-  for _i in $(seq 1 60); do
-    if [[ -S "$sock" ]]; then
-      if [[ -z "$repo_root" ]]; then
-        return 0
-      fi
-      if [[ -n "$expected_account" ]] \
-          && ! cmux_attach_wait_for_mac_auth_account "$tag" "$repo_root" "$expected_account"; then
-        return 1
-      fi
-      mint_attempts="${CMUX_ATTACH_MINT_MAX_ATTEMPTS:-20}"
-      if [[ -n "$(cmux_attach_mint_url "$tag" 60 "$repo_root" "$target" "$mint_attempts")" ]]; then
-        return 0
-      fi
-      if [[ "$target" == "physical_device" ]]; then
-        echo "warning: tagged Mac app for '$tag' launched, but no trusted Iroh ticket became ready." >&2
-      else
-        echo "warning: tagged Mac app for '$tag' launched, but its iOS pairing ticket did not become ready." >&2
-      fi
-      return 1
-    fi
-    sleep 0.2
-  done
-  echo "warning: tagged Mac socket $sock did not appear after launch; auto-pair unavailable (signing in only)." >&2
-  return 1
-}
-
-# Mint a short-TTL Mac-scoped attach URL against the tagged socket. Echoes the
-# URL on stdout (bearer credential; do not log). Args: <tag> <ttl_seconds>
-# <repo_root> <simulator_injection|physical_device>. The Mac owns route selection
-# and URL encoding for the target. Polls the mint RPC until routes are bound.
-# A physical-device ticket is usable with an authenticated Iroh route or with
-# the exact non-loopback Tailscale route selected by MobileAttachTarget. Both
-# paths authenticate the phone to the Mac before any mobile operation.
-cmux_attach_mint_url() {
-  local tag="$1" ttl="$2" repo_root="$3" target="$4" max="${5:-20}"
-  local sock slug payload cli_output cli_stderr url node_status cli_status _i
-  local cli_stderr_file
-  local last_reason="route_not_ready" saw_no_iroh=0
-  case "$target" in
-    simulator_injection|physical_device) ;;
-    *) echo "error: invalid attach target '$target'" >&2; return 1 ;;
-  esac
-  sock="$(cmux_attach_socket_path "$tag")"
-  # cmux-debug-cli.sh rejects CMUX_TAG outside [A-Za-z0-9._-] and re-sanitizes it
-  # to the same slug used for the socket. Pass the slug so tags needing
-  # sanitization (e.g. "Fix Foo" -> "fix-foo") are not rejected before minting.
-  slug="$(cmux_attach__slug "$tag")"
-  for _i in $(seq 1 "$max"); do
-    if [[ ! -S "$sock" ]]; then
-      last_reason="control_socket_unavailable"
-      sleep 0.5
-      continue
-    fi
-    # The bundled CLI may emit harmless startup diagnostics on stderr while
-    # still returning a valid JSON response on stdout. Keep the two streams
-    # separate so those diagnostics cannot turn a successful ticket response
-    # into a false malformed-response failure.
-    cli_stderr_file="$(mktemp "${TMPDIR:-/tmp}/cmux-attach-stderr.XXXXXX")"
-    cli_status=0
-    cli_output="$(CMUX_TAG="$slug" "$repo_root/scripts/cmux-debug-cli.sh" rpc mobile.attach_ticket.create \
-      "{\"ttl_seconds\":${ttl},\"scope\":\"mac\",\"target\":\"${target}\"}" \
-      2>"$cli_stderr_file")" || cli_status=$?
-    cli_stderr="$(cat "$cli_stderr_file")"
-    rm -f "$cli_stderr_file"
-    if [[ "$cli_status" -ne 0 ]]; then
-      case "$cli_output$cli_stderr" in
-        *"Mobile host routes are not available yet"*) last_reason="host_routes_unavailable" ;;
-        *"Requested mobile host route is not available"*) last_reason="requested_route_unavailable" ;;
-        *"Selected mobile host routes cannot be represented"*) last_reason="route_representation_unavailable" ;;
-        *) last_reason="attach_rpc_unavailable" ;;
-      esac
-    elif [[ -n "$cli_output" ]]; then
-      payload="$cli_output"
-      node_status=0
-      url="$(
-        PAYLOAD="$payload" ATTACH_TARGET="$target" node --input-type=module <<'NODE' 2>/dev/null
-const payload = JSON.parse(process.env.PAYLOAD);
-const routes = payload?.ticket?.routes;
-if (process.env.ATTACH_TARGET === "physical_device") {
-  const hasIroh = Array.isArray(routes) && routes.some((route) => route?.kind === "iroh");
-  const hasTailscale = Array.isArray(routes) && routes.some((route) => route?.kind === "tailscale");
-  if (!hasIroh && !hasTailscale) process.exit(2);
-}
-if (typeof payload.attach_url === "string") process.stdout.write(payload.attach_url);
-NODE
-      )" || node_status=$?
-      if [[ "$node_status" -eq 2 ]]; then
-        # The legacy listener can publish Tailscale before asynchronous Iroh
-        # broker registration finishes. Remember that the Mac is reachable,
-        # but keep polling for the encrypted route until the readiness window
-        # closes.
-        saw_no_iroh=1
-        last_reason="iroh_route_unavailable"
-      elif [[ "$node_status" -ne 0 ]]; then
-        last_reason="malformed_response"
-      elif [[ -z "$url" ]]; then
-        last_reason="ticket_url_missing"
-      fi
-      if [[ -n "$url" ]]; then
-        printf '%s' "$url"
-        return 0
-      fi
-    else
-      last_reason="empty_response"
-    fi
-    # Empty output, malformed output, and a valid ticket that has not gained an
-    # Iroh route yet are all transient during startup. Poll to the deadline.
-    sleep 0.5
-  done
-  printf 'warning: attach readiness exhausted: %s\n' "$last_reason" >&2
-  if [[ "$saw_no_iroh" -eq 1 ]]; then
-    return 2
-  fi
-  return 1
 }
 
 # --- app-receipt readiness ----------------------------------------------------

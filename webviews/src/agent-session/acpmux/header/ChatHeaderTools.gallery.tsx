@@ -16,6 +16,7 @@ import type { NativeRowToolsHost } from "./useNativeRowTools";
 import type { NativeRowNeedsYou } from "./nativeRowTools";
 import { NeedsYouButton } from "../needsYou/NeedsYou";
 import { FORK_ICON } from "../icons/forkIcon";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 type HeaderToolsProps = {
   /// `more`: the chat menu ⋮'s box width; the rest of the tool size stays at its trailing side.
@@ -680,7 +681,7 @@ const motionVariants = {
     props: motionBase("animated-cue"),
   },
   "motion-cue-plate-60ms": {
-    note: "Header motion: cue. Terminal's split just opened: 60 ms in, its pressed plate is growing out of the glyph on the one spring (240 ms).",
+    note: `Header motion: cue. Terminal's split just opened: 60 ms in, its pressed plate is growing out of the glyph on the one spring (${MOTION_MS.large} ms).`,
     props: motionBase("animated-cue"),
     play: motionLit(["splitRight"], 60),
   },
@@ -695,6 +696,7 @@ const motionVariants = {
     play: motionArrive(50),
   },
   "motion-spring-arrive-120ms": {
+    // motion-allow: a still's time into the motion, not a duration
     note: "Header motion: spring. 120 ms in: Changes is almost at full size (never past it), its neighbours nearly there.",
     props: { ...motionBase("animated-spring"), hasChanges: false },
     play: motionArrive(120),

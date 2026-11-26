@@ -4,16 +4,22 @@
 //! [`ENV`] (acpmux `agent_tools::UPSTREAMS_ENV`): their exact command, args
 //! and env, already scoped to the session. This server starts each one as a
 //! stdio MCP client on first use and lists its tools as
-//! `<prefix>_<tool>` (`cmux-cua` is `cua`), so `cmux_docs` finds them and a
+//! `<prefix>_<tool>` (`cmux-computer-use` is `cu`), so `cmux_docs` finds them and a
 //! `cmux_exec` script calls them through `Server::call`, under the same
 //! allowlist as every other tool. A list from an earlier start
 //! (`upstream_listing.rs`) answers `tools/list` without starting the server,
-//! so a chat that never calls one of its tools never starts it.
+//! so a chat that never calls one of its tools never starts it. The Computer
+//! Use server's list is the catalog compiled into this binary
+//! (`cmux_computer_use::tools`, through acpmux), the same one its bridge
+//! serves, so it never needs a start to be listed.
 //!
 //! Servers whose specs name the same `shared` launch (acpmux's own five, `acpmux tools-mcp`,
 //! `tools_mcp.rs`) run in one process: each sends its requests with its name in `_meta`
 //! ([`acpmux::tools_mcp::SERVER_META`]), and each answer goes back to the request that waits
 //! for it, so a call that waits (a secret card) holds no other server's call.
+//!
+//! A spec with `http` names a loopback streamable HTTP endpoint instead (acpmux's daemon serving
+//! those servers, `upstream_http.rs`): no process, the same `_meta` routing.
 
 use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, BufReader, Write};
@@ -25,8 +31,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 
-use super::computer_use_gate::{self, Gate};
+#[path = "upstream_http.rs"]
+pub(super) mod upstream_http;
 use cmux_json::JsonSet as _;
+use upstream_http::Http;
 
 /// The env acpmux gives the `cmux` server: a JSON array of
 /// `{name, command, args, env}`.
@@ -41,6 +49,11 @@ const START_BACKOFF: Duration = Duration::from_secs(60);
 /// One call, unless the spec says (`callTimeoutSecs`: acpmux gives the
 /// secret card, which waits for the person, an hour).
 const CALL_TIMEOUT: Duration = Duration::from_secs(300);
+/// A server's process ends after this long with no call; its tools stay listed and the next
+/// call starts it again. A harness keeps an idle chat's `cmux mcp serve` running for days (one
+/// Codex app-server held 15 on Leo's Mac, 2026-11-14), and each kept its computer use proxy and
+/// acpmux's servers running under it: 90 processes, about 300 MB, for chats no one used.
+pub(super) const IDLE_STOP: Duration = Duration::from_secs(10 * 60);
 const PROTOCOL_VERSION: &str = "2025-06-18";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,6 +65,8 @@ pub(super) struct Spec {
     pub call_timeout: Duration,
     /// The process it runs in with other servers (acpmux's `shared`), instead of its own.
     pub shared: Option<Launch>,
+    /// The loopback HTTP endpoint it is served at (acpmux's daemon), instead of a process.
+    pub http: Option<Http>,
 }
 
 /// A process to start: its command, args and env.
@@ -100,7 +115,8 @@ pub(super) fn specs(value: Option<std::ffi::OsString>) -> Vec<Spec> {
                 .as_u64()
                 .map_or(CALL_TIMEOUT, |secs| Duration::from_secs(secs.clamp(1, 24 * 3600)));
             let shared = item.get("shared").and_then(Launch::from_json);
-            Some(Spec { name, command, args, env, call_timeout, shared })
+            let http = item.get("http").and_then(Http::from_json);
+            Some(Spec { name, command, args, env, call_timeout, shared, http })
         })
         .collect()
 }
@@ -129,36 +145,29 @@ pub(super) fn without_rules(description: &str) -> &str {
     description
 }
 
-/// The tool name prefix of server `name`: `cmux-cua` is `cua`.
+/// The tool name prefix of server `name`: `cmux-secrets` is `secrets`,
+/// `cmux-computer-use` is `cu` (`cu_screenshot`).
 fn prefix(name: &str) -> String {
+    if name == acpmux::computer_use::tools::SERVER_NAME {
+        return acpmux::computer_use::tools::TOOL_PREFIX.to_owned();
+    }
     let name = name.strip_prefix("cmux-").unwrap_or(name);
     name.chars()
         .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '_' })
         .collect()
 }
 
-/// The rules the model gets for server `spec`: cmux's own rules for its
-/// computer use server ([`acpmux::agent_tools::CUA_RULES`]) first, then the
-/// server's `initialize` instructions. The helper v2 bridge has the same name
-/// (its spec names the endpoint folder), but no target guard yet: its chats
-/// get no cmux rules, which promise one.
-pub(super) fn rules(spec: &Spec, own: Option<&str>) -> Option<String> {
-    let own = own.filter(|text| !text.trim().is_empty());
-    let v2 = spec.env.iter().any(|(key, _)| key == acpmux::cua_v2::ENDPOINT_DIR_ENV);
-    let cmux =
-        (spec.name == acpmux::cua_v2::SERVER_NAME && !v2).then_some(acpmux::agent_tools::CUA_RULES);
-    match (cmux, own) {
-        (Some(cmux), Some(own)) => Some(format!("{cmux}\n\n{own}")),
-        (Some(cmux), None) => Some(cmux.to_owned()),
-        (None, own) => own.map(str::to_owned),
-    }
+/// The rules the model gets for server `spec`: its own `initialize`
+/// instructions (the Computer Use server's are `tools::INSTRUCTIONS`).
+pub(super) fn rules(_spec: &Spec, own: Option<&str>) -> Option<String> {
+    own.filter(|text| !text.trim().is_empty()).map(str::to_owned)
 }
 
 /// One server: started on first use, again after it dies or times out.
 pub(super) struct Upstream {
     spec: Spec,
     pub prefix: String,
-    conn: Option<Arc<Conn>>,
+    conn: Option<Link>,
     /// Its tools as the server lists them (original names).
     tools: Option<Vec<Value>>,
     pub instructions: Option<String>,
@@ -167,21 +176,65 @@ pub(super) struct Upstream {
     failed: Option<(String, Instant)>,
     /// Where lists from earlier starts are kept (`upstream_listing.rs`).
     listings: Option<PathBuf>,
+    /// The Computer Use server only: this server's client has its own
+    /// Computer Use (Codex), so the `cu_*` tools are its second choice
+    /// (acpmux `computer_use::mcp::defers_to_own_computer_use`). The bridge
+    /// cannot tell by itself: its client is this server, named `cmux`.
+    defer: bool,
+    /// When it last started or answered a call: its process ends [`IDLE_STOP`] after
+    /// ([`stop_idle`]).
+    used: Instant,
 }
 
 /// Why a request has no result.
-enum Failure {
+pub(super) enum Failure {
     /// The server answered with a JSON-RPC error: the call did not run and
     /// the connection is fine.
     Refused(String),
     /// No answer (timeout, exit, closed pipe): the call may have run.
     Lost(String),
+    /// Never reached (an HTTP server that is down, or ended the session): the call did not run,
+    /// and the next one starts again.
+    Unsent(String),
 }
 
 impl Failure {
-    fn message(self) -> String {
+    pub(super) fn message(self) -> String {
         match self {
-            Failure::Refused(message) | Failure::Lost(message) => message,
+            Failure::Refused(message) | Failure::Lost(message) | Failure::Unsent(message) => {
+                message
+            }
+        }
+    }
+}
+
+/// How an upstream is reached: its process (its own or a shared one), or its HTTP endpoint.
+#[derive(Clone)]
+enum Link {
+    Process(Arc<Conn>),
+    Http(Arc<upstream_http::Client>),
+}
+
+impl Link {
+    fn alive(&self) -> bool {
+        match self {
+            Link::Process(conn) => conn.alive(),
+            // Each request connects again: a server that went down is a failed request.
+            Link::Http(_) => true,
+        }
+    }
+
+    fn notify(&self, method: &str) -> Result<(), String> {
+        match self {
+            Link::Process(conn) => conn.notify(method),
+            Link::Http(client) => client.notify(method, START_TIMEOUT),
+        }
+    }
+
+    fn request(&self, method: &str, params: Value, timeout: Duration) -> Result<Value, Failure> {
+        match self {
+            Link::Process(conn) => conn.request(method, params, timeout),
+            Link::Http(client) => client.request(method, params, timeout),
         }
     }
 }
@@ -221,6 +274,11 @@ impl Conn {
             .args(&launch.args)
             // This server's own folding and allowlist stay with it.
             .env_remove(ENV)
+            .env_remove(super::TERMINAL_AGENT_ENV)
+            // A guest mode this server inherited (a person's own `cmux` entry that `cmux acp
+            // desktop link` wrote, merged by Codex into this server) never reaches a folded
+            // server: the acpmux server would list no tools inside a chat.
+            .env_remove(acpmux::desktop_link::GUEST_ENV)
             .envs(launch.env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -343,7 +401,46 @@ impl Upstream {
     pub(super) fn new(spec: Spec) -> Self {
         let prefix = prefix(&spec.name);
         let listings = super::upstream_listing::default_dir();
-        Self { spec, prefix, conn: None, tools: None, instructions: None, failed: None, listings }
+        Self {
+            spec,
+            prefix,
+            conn: None,
+            tools: None,
+            instructions: None,
+            failed: None,
+            listings,
+            defer: false,
+            used: Instant::now(),
+        }
+    }
+
+    /// Whether this is the Computer Use server (`cu_*`).
+    pub(super) fn is_computer_use(&self) -> bool {
+        self.spec.name == acpmux::computer_use::tools::SERVER_NAME
+    }
+
+    /// Marks the `cu_*` tools second choice for a client with its own
+    /// Computer Use (only the Computer Use server takes it).
+    pub(super) fn set_defer(&mut self, defer: bool) {
+        self.defer = defer && self.is_computer_use();
+    }
+
+    /// Ends its process when it has had no call for `idle`, keeping its tools listed (the next
+    /// call starts it again). While a process runs, how long until it would be idle; `None`
+    /// when none runs.
+    pub(super) fn stop_if_idle(&mut self, idle: Duration) -> Option<Duration> {
+        // An HTTP upstream has no process to end.
+        if !matches!(self.conn, Some(Link::Process(_))) {
+            return None;
+        }
+        let left = idle.saturating_sub(self.used.elapsed());
+        if left.is_zero() {
+            // The child ends with its connection (`Conn::drop`); a shared one once no other
+            // server holds it.
+            self.conn = None;
+            return None;
+        }
+        Some(left)
     }
 
     /// The same server with its stored lists kept in `dir` (none: never stored).
@@ -351,6 +448,13 @@ impl Upstream {
     pub(super) fn with_listings(mut self, dir: Option<PathBuf>) -> Self {
         self.listings = dir;
         self
+    }
+
+    /// The pid of its running process (tests kill it).
+    #[cfg(test)]
+    pub(super) fn pid(&self) -> Option<u32> {
+        let Some(Link::Process(conn)) = self.conn.as_ref() else { return None };
+        Some(conn.child.lock().unwrap_or_else(PoisonError::into_inner).id())
     }
 
     /// Whether the server's process runs.
@@ -376,6 +480,11 @@ impl Upstream {
             self.instructions = rules(&self.spec, stored.instructions.as_deref());
             self.tools = Some(stored.tools);
         }
+        if self.tools.is_none() && self.spec.name == acpmux::computer_use::tools::SERVER_NAME {
+            let catalog = acpmux::computer_use::tools::mcp_list();
+            self.tools = catalog.get("tools").and_then(Value::as_array).cloned();
+            self.instructions = rules(&self.spec, Some(acpmux::computer_use::tools::INSTRUCTIONS));
+        }
         if self.tools.is_none() {
             if self.failed.as_ref().is_some_and(|(_, at)| at.elapsed() < START_BACKOFF) {
                 return Vec::new();
@@ -388,7 +497,18 @@ impl Upstream {
                 return Vec::new();
             }
         }
+        if self.is_computer_use() {
+            // The rules the person's agent gets: Codex keeps its own Computer
+            // Use first (acpmux `computer_use/mcp.rs`), whatever the bridge
+            // told this server, whose client name is `cmux`.
+            self.instructions = Some(if self.defer {
+                acpmux::computer_use::mcp::DEFER_INSTRUCTIONS.to_owned()
+            } else {
+                acpmux::computer_use::tools::INSTRUCTIONS.to_owned()
+            });
+        }
         let server = self.spec.name.clone();
+        let defer_prefix = if self.defer { acpmux::computer_use::mcp::DEFER_PREFIX } else { "" };
         self.tools
             .iter()
             .flatten()
@@ -409,7 +529,10 @@ impl Upstream {
                     .filter(|r| !r.trim().is_empty())
                     .map(|r| format!("{RULES_BREAK}{server}{RULES_LABEL}{r}"))
                     .unwrap_or_default();
-                tool.set("description", json!(format!("[{server}] {description}{rules}")));
+                tool.set(
+                    "description",
+                    json!(format!("[{server}] {defer_prefix}{description}{rules}")),
+                );
                 tool.set("name", json!(name));
                 Some(tool)
             })
@@ -442,14 +565,21 @@ impl Upstream {
         if !self.conn.as_ref().is_some_and(|conn| conn.alive()) {
             self.start().map_err(|error| (error, "not_run"))?;
         }
+        self.used = Instant::now();
         let mut params = json!({"name": tool, "arguments": arguments});
         if let (Some(meta), Some(fields)) = (meta, params.as_object_mut()) {
             fields.insert("_meta".to_owned(), meta.clone());
         }
         let timeout = cap.map_or(self.spec.call_timeout, |cap| cap.min(self.spec.call_timeout));
-        match self.request("tools/call", params, timeout) {
+        let answered = self.request("tools/call", params, timeout);
+        self.used = Instant::now();
+        match answered {
             Ok(result) => Ok(result),
             Err(Failure::Refused(error)) => Err((error, "not_run")),
+            Err(Failure::Unsent(error)) => {
+                self.conn = None;
+                Err((error, "not_run"))
+            }
             Err(Failure::Lost(error)) => {
                 // A dead or late server starts again on the next call (a shared one once no
                 // other server holds it); the call itself may have run.
@@ -472,25 +602,45 @@ impl Upstream {
         self.conn = None;
         // The key before the start: a list is stored only for the command it came from.
         let key = self.listings.as_ref().and_then(|_| super::upstream_listing::key(&self.spec));
-        self.conn = Some(match &self.spec.shared {
-            Some(launch) => Conn::shared(launch, &self.prefix)?,
-            None => {
+        self.conn = Some(match (&self.spec.http, &self.spec.shared) {
+            (Some(http), _) => Link::Http(Arc::new(upstream_http::Client::new(http)?)),
+            (None, Some(launch)) => Link::Process(Conn::shared(launch, &self.prefix)?),
+            (None, None) => {
                 let spec = &self.spec;
-                let own = Launch {
+                let mut own = Launch {
                     command: spec.command.clone(),
                     args: spec.args.clone(),
                     env: spec.env.clone(),
                 };
-                Arc::new(Conn::start(&own, &self.prefix)?)
+                // The Computer Use bridge names its caller on the person's approval
+                // cards by its MCP client, which is this server ("cmux"): the agent's
+                // own name goes in its env instead, unless the spec names one.
+                let label = acpmux::computer_use::mcp::LABEL_ENV;
+                if self.is_computer_use()
+                    && !own.env.iter().any(|(k, _)| k == label)
+                    && let Some(client) = super::chat_tools::client_name()
+                {
+                    own.env.push((label.to_owned(), client.to_owned()));
+                }
+                Link::Process(Arc::new(Conn::start(&own, &self.prefix)?))
             }
         });
+        // Its own client's name as `title`: a Computer Use server cmux does not start itself (the
+        // acpmux gateway's or a shared helper's) labels the person's approval cards with it, the
+        // name the bridge's own env carries when cmux starts it (`LABEL_ENV` above).
+        let mut client_info = json!({"name": "cmux", "version": env!("CARGO_PKG_VERSION")});
+        if self.is_computer_use()
+            && let Some(client) = super::chat_tools::client_name()
+        {
+            client_info["title"] = json!(client);
+        }
         let init = self
             .request(
                 "initialize",
                 json!({
                     "protocolVersion": PROTOCOL_VERSION,
                     "capabilities": {},
-                    "clientInfo": {"name": "cmux", "version": env!("CARGO_PKG_VERSION")},
+                    "clientInfo": client_info,
                 }),
                 START_TIMEOUT,
             )
@@ -517,6 +667,7 @@ impl Upstream {
         }
         self.tools = Some(tools);
         self.failed = None;
+        self.used = Instant::now();
         Ok(())
     }
 
@@ -524,7 +675,8 @@ impl Upstream {
         self.conn.as_ref().ok_or("not started")?.notify(method)
     }
 
-    /// One request, for this server: in a shared process its name goes in `_meta`.
+    /// One request, for this server: in a shared process or at an HTTP endpoint (both route by
+    /// it) its name goes in `_meta`.
     fn request(
         &mut self,
         method: &str,
@@ -532,7 +684,7 @@ impl Upstream {
         timeout: Duration,
     ) -> Result<Value, Failure> {
         let conn = self.conn.clone().ok_or_else(|| Failure::Lost("not started".into()))?;
-        if self.spec.shared.is_some()
+        if (self.spec.shared.is_some() || self.spec.http.is_some())
             && let Some(fields) = params.as_object_mut()
             && let Some(meta) = fields.entry("_meta").or_insert_with(|| json!({})).as_object_mut()
         {
@@ -563,6 +715,15 @@ impl Proxied {
         }
     }
 
+    /// Marks its `cu_*` tools second choice (see [`Upstream::set_defer`]) and
+    /// lists them again.
+    pub(super) fn set_defer(&mut self, defer: bool) {
+        if let Ok(mut upstream) = self.inner.lock() {
+            upstream.set_defer(defer);
+        }
+        self.listed.clear();
+    }
+
     /// Lists its tools again, unless a call holds it: then the last list.
     pub(super) fn refresh(&mut self) {
         if let Ok(mut upstream) = self.inner.try_lock() {
@@ -574,6 +735,32 @@ impl Proxied {
     pub(super) fn lists(&self, name: &str) -> bool {
         self.listed.iter().any(|tool| tool["name"] == name)
     }
+}
+
+/// Ends each server's process once it has had no call for `idle` ([`IDLE_STOP`]), on a thread
+/// that sleeps until the next one could be idle and ends once every server is dropped. A server
+/// a call holds is skipped: the call marks it used when it ends.
+pub(super) fn stop_idle(
+    servers: Vec<Weak<Mutex<Upstream>>>,
+    idle: Duration,
+) -> std::io::Result<std::thread::JoinHandle<()>> {
+    std::thread::Builder::new().name("cmux-mcp-upstream-idle".into()).spawn(move || {
+        loop {
+            let mut next = idle;
+            let mut any = false;
+            for server in &servers {
+                let Some(server) = server.upgrade() else { continue };
+                any = true;
+                if let Ok(mut upstream) = server.try_lock() {
+                    next = next.min(upstream.stop_if_idle(idle).unwrap_or(idle));
+                }
+            }
+            if !any {
+                return;
+            }
+            std::thread::sleep(next.max(Duration::from_millis(10)));
+        }
+    })
 }
 
 /// Claude Code's name of the tool call a `tools/call` runs for (`_meta`), which its PreToolUse
@@ -595,43 +782,28 @@ pub(super) struct ProxiedCall {
     pub arguments: Value,
     /// What it passes on of its caller's `_meta` ([`passed_meta`]).
     pub meta: Option<Value>,
-    /// A computer use call's setup check (`computer_use_gate`).
-    pub gate: Gate,
 }
 
 impl ProxiedCall {
-    /// The server's result, or a tool error with the call's state. A
-    /// computer use call first waits for setup when it is not done.
+    /// The server's result, or a tool error with the call's state.
     pub(super) fn run(self, cap: Option<Duration>) -> Value {
-        if let Gate::Check(check) = self.gate
-            && let Some(result) = check.run()
-        {
-            return result;
-        }
         let mut upstream = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Err(message) = upstream.connect() {
+        let server = upstream.name().to_owned();
+        let failed = |message: String, state: &'static str| {
             let error = json!({"code": "upstream.failed",
-                "message": format!("{}: {message}", upstream.name()),
-                "details": {}, "retryable": true});
-            return super::tool_error(super::envelope(error, "not_run", None));
+                "message": format!("{server}: {message}"),
+                "details": {}, "retryable": state == "not_run"});
+            super::tool_error(super::envelope(error, state, None))
+        };
+        if let Err(message) = upstream.connect() {
+            return failed(message, "not_run");
         }
         let Some(tool) = upstream.owns(&self.name) else {
-            let error = json!({"code": "upstream.failed", "message": format!(
-                "{}: the server no longer lists {}", upstream.name(), self.name),
-                "details": {}, "retryable": true});
-            return super::tool_error(super::envelope(error, "not_run", None));
+            return failed(format!("the server no longer lists {}", self.name), "not_run");
         };
         match upstream.call(&tool, self.arguments, self.meta.as_ref(), cap) {
             Ok(result) => result,
-            Err((message, state)) => {
-                let error = json!({
-                    "code": "upstream.failed",
-                    "message": format!("{}: {message}", upstream.name()),
-                    "details": {},
-                    "retryable": state == "not_run",
-                });
-                super::tool_error(super::envelope(error, state, None))
-            }
+            Err((message, state)) => failed(message, state),
         }
     }
 }
@@ -672,6 +844,7 @@ impl<B: super::Backend> super::Server<B> {
         let name = params["name"].as_str()?;
         if self.config.as_ref().is_some_and(|path| super::refusal(path).is_some())
             || self.allowed.as_ref().is_some_and(|allowed| !allowed.contains(name))
+            || (self.computer_use_only && !super::code_mode::computer_use::is_tool(name))
         {
             return None;
         }
@@ -702,26 +875,8 @@ impl<B: super::Backend> super::Server<B> {
             return None;
         }
         let inner = proxied.inner.clone();
-        let computer_use = if proxied.name == computer_use_gate::SERVER {
-            name.strip_prefix(proxied.prefix.as_str())
-                .and_then(|rest| rest.strip_prefix('_'))
-                .map(str::to_owned)
-        } else {
-            None
-        };
         let arguments = Value::Object(arguments.clone());
-        let gate = match computer_use {
-            Some(tool) => computer_use_gate::gate(
-                &tool,
-                &arguments,
-                self.backend.app_caller(),
-                super::super::app::caller_from(|key| std::env::var(key).ok()),
-                // The time the script has left, not its whole limit.
-                self.call_deadline.map(|end| end.saturating_duration_since(Instant::now())),
-            ),
-            None => Gate::Run,
-        };
         let meta = self.call_meta.clone();
-        Some(ProxiedCall { inner, name: name.to_owned(), arguments, meta, gate })
+        Some(ProxiedCall { inner, name: name.to_owned(), arguments, meta })
     }
 }

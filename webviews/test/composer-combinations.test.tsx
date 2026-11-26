@@ -11,8 +11,9 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { settleReact } from "./support/domTeardown";
 import { JSDOM } from "jsdom";
-import { act } from "react";
+import { act, useState } from "react";
 import type { Root } from "react-dom/client";
+import type { RunMode } from "../src/agent-session/acpmux/sandboxRun";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -99,8 +100,10 @@ afterAll(async () => {
 const HOME = "/Users/me";
 /// Where the page starts before any pick: a scratch folder, so every folder below is a real pick.
 const SCRATCH = `${HOME}/scratch`;
+const CLOUD_REPO = "acme/cmux";
+const REPOSITORY = `${HOME}/Projects/cmux`;
 const FOLDERS = {
-  repository: { cwd: `${HOME}/Projects/cmux`, label: "cmux" },
+  repository: { cwd: REPOSITORY, label: "cmux", repo: { name: "cmux", root: REPOSITORY, github: CLOUD_REPO } },
   // The folder holding the person's projects, not one repository (Leo's ~/Projects).
   projects: { cwd: `${HOME}/Projects`, label: "Projects" },
   none: undefined,
@@ -190,10 +193,13 @@ async function renderPage(cell: Cell, calls: Call[]) {
     });
     return true;
   };
-  root ??= createRoot(host);
-  await act(async () =>
-    root!.render(
-      <QueryClientProvider client={new QueryClient()}>
+  const queryClient = new QueryClient();
+  function Page() {
+    const [mode, setMode] = useState<RunMode>(
+      cell.where === "cloud" && cell.folder === "none" ? "cloud" : "persistent",
+    );
+    return (
+      <QueryClientProvider client={queryClient}>
         <NewTabScreen
           snapshot={noChat()}
           home={HOME}
@@ -212,37 +218,56 @@ async function renderPage(cell: Cell, calls: Call[]) {
           onOpenSession={() => {}}
           onShowAll={() => {}}
           environments
-          runMode={{
-            mode: cell.where === "cloud" ? "cloud" : "persistent",
-            onMode: () => {},
-          }}
+          runMode={{ mode, onMode: setMode }}
           onCloud={onCloud}
         />
-      </QueryClientProvider>,
-    ),
-  );
+      </QueryClientProvider>
+    );
+  }
+  root ??= createRoot(host);
+  await act(async () => root!.render(<Page />));
   await settle();
 }
 
-/// The folder chooser on the page: picks the cell's folder, or No folder.
+/// The folder chooser picks the cell's folder or starts without one.
 async function pickFolder(folder: FolderPick) {
-  const button = host.querySelector<HTMLButtonElement>(".nt-env .acpmux-project-button");
+  const button = host.querySelector<HTMLButtonElement>('.nt-location [aria-label="Folder"]');
   expect(button, "no folder chooser on the page").toBeTruthy();
   await act(async () => button!.click());
   await settle();
   const wanted = FOLDERS[folder];
-  const rows = [...dom.window.document.querySelectorAll<HTMLElement>('[role="option"]')];
-  const row = wanted
-    ? rows.find(
+  const rows = () => [...dom.window.document.querySelectorAll<HTMLElement>('[role="option"]')];
+  let row = wanted
+    ? rows().find(
         (candidate) =>
           candidate.textContent?.trim().startsWith(wanted.label) && !candidate.textContent?.includes("No folder"),
       )
-    : rows.find((candidate) => candidate.textContent?.includes("No folder"));
+    : rows().find((candidate) => candidate.textContent?.trim() === "No folder");
+  if (!wanted && !row) {
+    expect(button!.textContent).toContain("No folder");
+    const add = rows().find((candidate) => candidate.textContent?.trim() === "Add project…");
+    expect(add).toBeTruthy();
+    await act(async () => add!.click());
+    await settle();
+    row =
+      dom.window.document.querySelector<HTMLElement>('.acpmux-add-project-palette [data-source="empty"]') ?? undefined;
+  }
   expect(
     row,
-    `no "${wanted?.label ?? "No folder"}" row in the folder chooser: ${rows.map((r) => r.textContent).join(" | ")}`,
+    `no "${wanted?.label ?? "No folder or Empty project"}" row in the folder chooser: ${rows()
+      .map((r) => r.textContent)
+      .join(" | ")}`,
   ).toBeTruthy();
   await act(async () => row!.click());
+  await settle();
+}
+
+async function pickCloudMode() {
+  const button = host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
+  await act(async () => button!.click());
+  await settle();
+  const choice = dom.window.document.querySelector<HTMLElement>('.acpmux-env-popover [data-mode="cloud"]');
+  await act(async () => (choice!.closest<HTMLElement>('[role="option"]') ?? choice!).click());
   await settle();
 }
 
@@ -303,6 +328,7 @@ for (const cell of CELLS) {
     const calls: Call[] = [];
     await renderPage(cell, calls);
     await pickFolder(cell.folder);
+    if (cell.where === "cloud" && cell.folder !== "none") await pickCloudMode();
     if (cell.mode === "widest") await pickWidestMode(cell.harness);
     const prompt = `combination ${cellName(cell)}`;
     await send(prompt);
@@ -313,18 +339,21 @@ for (const cell of CELLS) {
       expect(calls.filter((call) => call.method === "chat.new" || call.method === "chat.send")).toEqual([]);
       const starts = calls.filter((call) => call.method === "cloud.startChat");
       expect(starts.length).toBe(1);
-      // The agent picked, and the folder picked: copied to the machine, or its home with nothing copied.
+      // A folder of this Mac picked here starts the Cloud chat in that folder (projected or copied onto the machine),
+      // a checkout of a GitHub repository too: never a clone that needs GitHub access on the machine (cmux#55104).
+      // No folder starts in the machine's home.
       expect(starts[0]!.params).toMatchObject({
         task: prompt,
         harness: cell.harness,
       });
       if (folder) expect(starts[0]!.params.cwd).toBe(folder);
-      else expect(starts[0]!.params).toMatchObject({ home: true });
-      expect(starts[0]!.params.cwd).not.toBe(SCRATCH);
-      // The account the chat runs in is the app's active one: the Where control names it before Send.
+      else {
+        expect(starts[0]!.params).toMatchObject({ home: true });
+        expect(starts[0]!.params.cwd).toBeUndefined();
+      }
+      // The Where control says Cloud and nothing else, never the team (https://github.com/manaflow-ai/cmux/issues/45695).
       const where = host.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] button');
-      const named = `${where?.getAttribute("aria-label") ?? ""} ${where?.textContent ?? ""}`;
-      expect(named).toContain(TEAMS[cell.team].name);
+      expect(where?.textContent?.trim()).toBe("Cloud");
       return;
     }
 

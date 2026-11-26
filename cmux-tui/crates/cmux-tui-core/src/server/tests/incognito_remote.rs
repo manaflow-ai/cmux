@@ -560,6 +560,22 @@ fn known_of(data: &Value) -> Value {
 }
 
 #[test]
+fn screen_device_identity_changes_keep_the_workspace_tree_cached() {
+    let mux = test_mux();
+    let app = app(&mux);
+    create(&mux, &app, "visible-space", false);
+    let first = listed_since(&mux, &app, json!({}));
+    let known = known_of(&first);
+    for device in [Some("screen-device".to_string()), None] {
+        mux.emit(MuxEvent::ScreenDeviceChanged(device));
+        let after = listed_since(&mux, &app, known.clone());
+        assert_eq!(after["unchanged"], true, "identity is not a workspace field: {after}");
+        assert_eq!(after["tree_revision"], known["tree_revision"]);
+    }
+    mux.shutdown();
+}
+
+#[test]
 fn a_remote_devices_known_never_moves_with_an_incognito_workspace() {
     // hq#8813: the daemon's tree revision counts every change, so a phone
     // that held it would see an incognito workspace's changes as a revision
@@ -783,7 +799,7 @@ fn a_remote_devices_page_counts_with_the_view_its_rows_were_read_with() {
             // After the view was read, before the rows are.
             create(&mux, &app, "page-private", true);
         }
-        Ok(list_workspaces_reply_first(&mux, 50, view)?.0)
+        Ok(list_workspaces_reply_first(&mux, 50, 0, view)?.0)
     })
     .unwrap();
     assert_eq!(reads, 2, "the page was not read again with the new view: {reply}");

@@ -7,7 +7,7 @@
 use crate::no_panic::LockExt;
 use crate::peer_link::{
     Backoff, Heard, Link, LinkTimings, PeerState, SilenceBudget, SleepWatch, WAKE_PROBE,
-    write_deadline,
+    write_within,
 };
 use crate::rpc::{Message, RpcError, method};
 use cmux_json::JsonSet as _;
@@ -33,16 +33,23 @@ pub(crate) use carriers::paired_install;
 #[path = "peer_carrier.rs"]
 mod carrier;
 pub use dual::DualStats;
+#[path = "peer_dialer.rs"]
+mod dialer;
 #[path = "peer_features.rs"]
 mod features;
+pub use features::{PEER_FEATURES, PeerFeature, gating as features_gating};
 #[path = "peer_health.rs"]
-mod health;
+pub(crate) mod health;
 #[path = "peer_overlay.rs"]
 pub(crate) mod overlay;
+#[path = "peer_tailnet.rs"]
+mod tailnet_path;
 
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
 mod hub_path;
+#[path = "peer_network.rs"]
+pub(crate) mod network;
 #[path = "peer_ssh.rs"]
 mod ssh_errors;
 #[path = "peer_tokens.rs"]
@@ -50,10 +57,17 @@ mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
 use wanted::BackoffWait;
+pub use wanted::{WAKE_ENV, WakeHook};
+#[path = "peer_controls.rs"]
+mod controls;
+#[path = "peer_list_read.rs"]
+mod list_read;
 #[path = "peer_runtime.rs"]
 mod runtime;
 #[path = "peer_runtime_io.rs"]
 mod runtime_io;
+#[path = "peer_runtime_requests.rs"]
+mod runtime_requests;
 pub(crate) use runtime_io::{
     ATTACH_RETRY_AFTER, lends_over, page_max_seq, refuses_attach, replayable,
 };
@@ -76,6 +90,11 @@ mod restart_tests;
 #[cfg(test)]
 #[path = "peer_handshake_tests.rs"]
 mod handshake_tests;
+#[cfg(test)]
+#[path = "peer_hub_behind_tests.rs"]
+mod hub_behind_tests;
+#[path = "peer_liveness.rs"]
+pub mod liveness;
 #[cfg(test)]
 #[path = "peer_liveness_tests.rs"]
 mod liveness_tests;
@@ -138,6 +157,10 @@ pub fn hidden_attach_after(id: &str, after: u64) -> Value {
 #[derive(Debug)]
 pub enum PeerNotice {
     Connected,
+    /// The link's whole list (and the changes held while it came) went just before this: a
+    /// link sends it before `Connected`, one after a far restart or a path switch after it
+    /// (`Peer::lists_after_ready`).
+    Listed,
     Disconnected(String),
     /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
     Restarting,
@@ -164,7 +187,29 @@ pub enum PeerNotice {
     },
 }
 
-#[cfg(test)]
+impl PeerNotice {
+    /// What it is, for counts (`gauges.peerNotices.kinds`): the variant, and a changed row's kind
+    /// or a notification's method.
+    pub(crate) fn label(&self) -> String {
+        match self {
+            Self::SessionChanged { kind, .. } => format!("changed:{kind}"),
+            Self::Notification { method, .. } => format!("note:{method}"),
+            Self::SessionsPatch { .. } => "patch".into(),
+            Self::Sessions(_) => "list".into(),
+            other => {
+                format!("{other:?}").split(['(', ' ', '{']).next().unwrap_or("other").to_owned()
+            }
+        }
+    }
+
+    /// A list's (or a follow's patch's) bytes of row text; None for any other notice.
+    pub(crate) fn list_bytes(&self) -> Option<u64> {
+        let (Self::Sessions(rows) | Self::SessionsPatch { rows, .. }) = self else { return None };
+        Some(rows.iter().map(|row| row.len() as u64).sum())
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
 impl PeerNotice {
     /// A list of `rows`, each sent as its text, as a link sends it.
     pub(crate) fn sessions_from_values(rows: Vec<Value>) -> Self {
@@ -176,6 +221,55 @@ impl PeerNotice {
 #[cfg(test)]
 pub(crate) fn parse_rows(rows: &[Arc<str>]) -> Vec<Value> {
     rows.iter().map(|row| serde_json::from_str(row).unwrap_or(Value::Null)).collect()
+}
+
+#[cfg(test)]
+impl Peer {
+    /// A test that stands in for a listener from before the early request: no first request goes
+    /// out with the upgrade, as after the real refusal (`early_refused`).
+    #[cfg(test)]
+    pub(crate) fn refuse_early(&self) {
+        self.early_refused.store(true, Ordering::SeqCst);
+    }
+
+    /// Test stand-in for the far daemon: answers every request this peer's link would write with
+    /// `result` until one is `m`, and gives that one's line. No `serve` runs: the frames are read
+    /// off the link's queue as `serve` would read them.
+    pub(crate) async fn answer_until_for_tests(&self, m: &str, result: Value) -> Value {
+        let mut out = self.out_rx.lock().await;
+        let Some(out) = out.as_mut() else { return Value::Null };
+        // A queue that closed gives Null, which no test takes for the request it waits on.
+        while let Some(frame) = out.recv().await {
+            let line: Value = serde_json::from_str(&frame.line).unwrap_or(Value::Null);
+            if let Some(key) = frame.key
+                && let Some(reply) = self.pending.lock().await.remove(&key)
+            {
+                let _ = reply.send(Ok(result.clone()));
+            }
+            if line.get("method").and_then(Value::as_str) == Some(m) {
+                return line;
+            }
+        }
+        Value::Null
+    }
+
+    /// The link's socket open, as `run` leaves it once a handshake begins: requests on it are
+    /// queued for the far daemon (the test reads them with `answer_until_for_tests`).
+    pub(crate) fn open_link_for_tests(&self) {
+        self.open.store(true, Ordering::SeqCst);
+    }
+
+    /// How many of the frames queued on the link now and not read yet are requests `m`.
+    pub(crate) async fn queued_for_tests(&self, m: &str) -> usize {
+        let mut out = self.out_rx.lock().await;
+        let Some(out) = out.as_mut() else { return 0 };
+        let mut count = 0;
+        while let Ok(frame) = out.try_recv() {
+            let line: Value = serde_json::from_str(&frame.line).unwrap_or(Value::Null);
+            count += usize::from(line.get("method").and_then(Value::as_str) == Some(m));
+        }
+        count
+    }
 }
 
 /// A row as a list carries it: its compact JSON.
@@ -218,6 +312,8 @@ pub struct Peer {
     /// Unique per `Peer` instance; a replacement under the same name gets a
     /// new one.
     pub generation: u64,
+    /// Fixed before registry publication; leased instances must never persist session rows.
+    pub(crate) leased: bool,
     pub url: String,
     token: Option<String>,
     /// The peer's peer token (`server/peer_auth.rs`), sent with `token`.
@@ -234,6 +330,8 @@ pub struct Peer {
     /// The peer's config names its own route (`wireguard` or `linkHost`): no overlay path is
     /// found or recalled for it (`peer_overlay.rs`).
     explicit_route: AtomicBool,
+    /// The opt-in tailnet path (`peer_tailnet.rs`).
+    tailnet: StdMutex<tailnet_path::State>,
     /// The cmux link's socket when known ahead of its registration (tests); else read per dial.
     link_socket: std::sync::OnceLock<std::path::PathBuf>,
     /// The peer's paths and which one carries the link (`peer_paths.rs`), made on first use.
@@ -288,19 +386,19 @@ pub struct Peer {
     cancelled: Arc<StdMutex<crate::request_cancel::Cancelled>>,
     /// Accepted prompt identities survive transport loss; reconnect only reads their outcome.
     prompts: Arc<StdMutex<HashMap<String, PendingPrompt>>>,
-    /// The handshake finished on the live link (`initialize` and `_acpmux/watch` answered, the
-    /// sessions listed): what `connected` reports. False from the moment the link drops.
+    /// The handshake finished on the live link (`initialize` answered, and the sessions listed on a
+    /// first link): what `connected` reports. False from the moment the link drops.
     pub connected: AtomicBool,
-    /// The hub applied this link's session list (its `Connected` notice, which follows the
+    /// The hub applied this link's session list (its `Listed` notice, which follows the
     /// list): until then a name missing from the rows may only not be listed yet, so a
     /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
-    /// hub's `Disconnected`.
+    /// hub's `Disconnected`, and from its `Connected` until this link's list is in.
     pub rows_ready: AtomicBool,
-    /// One more than the link epoch whose session list the hub applied last (its `Connected`
+    /// One more than the link epoch whose session list the hub applied last (its `Listed`
     /// notice), 0 before any: the rows are that link's ([`Self::rows_current`]).
     rows_link: AtomicU64,
-    /// The links whose `Connected` notice is on its way to the hub, oldest first: the hub takes
-    /// one with each `Connected` it applies, so it knows which link's list that one follows.
+    /// The links whose `Listed` notice is on its way to the hub, oldest first: the hub takes
+    /// one with each `Listed` it applies, so it knows which link's list that one follows.
     listed_links: StdMutex<std::collections::VecDeque<u64>>,
     /// The WebSocket is open, handshake or not: only the handshake's own requests go out
     /// while it is open and not `connected`.
@@ -327,6 +425,9 @@ pub struct Peer {
     /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
+    /// The daemon's `peerWake` command, shared by every peer and swapped on a config reload
+    /// (`Peer::wake` runs it once per wake window).
+    wake_hook: std::sync::OnceLock<WakeHook>,
     /// This Mac lends the peer its GitHub login (`PeerConfig` `githubBroker`,
     /// `github_broker.rs`), and how many of its actions may run at once: the slots of its name
     /// (`owner_slots`), which a reconnect's new peer shares with the old one.
@@ -335,6 +436,10 @@ pub struct Peer {
     /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
     /// serving this daemon as a peer: the only link a GitHub action is taken on.
     github_link: AtomicU64,
+    /// Whether this link asks for the legacy `_acpmux/watch`. Controls remain state-only while
+    /// this is true; cut E will clear it for a watchless link and publish those controls.
+    watch_active: AtomicBool,
+    controls: StdMutex<Option<controls::Open>>,
     /// Wakes this peer's running GitHub actions when lending ends (`githubBroker` off, the link
     /// ended, the peer stopped), so they stop then rather than run on.
     github_revoked: tokio::sync::Notify,
@@ -358,11 +463,15 @@ pub struct Peer {
     session_auth: AtomicBool,
     /// The features the peer listed at its last handshake (`lists`).
     features: StdMutex<Vec<String>>,
+    /// The mirror of the peer's list stream into the index (`peer_dialer.rs`).
+    mirror: dialer::MirrorLink,
     /// One more than the link epoch whose handshake listed `sessionResume`
     /// (`server/requests/session_open.rs`); 0 when the last handshake did not.
     session_resume_link: AtomicU64,
     /// The peer lists `session-messages-v1`: its prompt acceptances name the message they kept.
     session_messages: AtomicBool,
+    /// The peer serves agent byte channels (`server/channels.rs`, `agent-channels-v1`).
+    agent_channels: AtomicBool,
     /// The peer lists `personStop` (`server/requests/person_stop.rs`).
     pub(crate) person_stop: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
@@ -374,9 +483,16 @@ pub struct Peer {
     read_tokens: tokens::TokenCache,
     /// A link of this peer was connected once: a later read runs before its tunnel opens.
     linked_once: AtomicBool,
+    /// A link of this instance published a whole list, and every link since ended only for a far
+    /// restart or a path switch, which leave the rows usable (`Peer::lists_after_ready`).
+    whole_list: AtomicBool,
     /// An ssh attempt timed out in the banner exchange since the link was last ready: the host
     /// is slow, and its attempts get the long connect deadline (`ssh_connect_secs`).
     slow_banner: AtomicBool,
+    /// The last connect attempt failed because the remote refused this computer's ssh login
+    /// (a key or password it does not take, a host key that does not match): the next attempts
+    /// wait minutes (`Backoff::login_refused`), and no ask or open chat cuts the wait.
+    login_refused: AtomicBool,
     /// From the WebSocket opening until `stale_token` cleared it: callers'
     /// requests and notifications are refused, so none goes out on a link
     /// that is dropped to reconnect as a peer, or waits to go out on the next.
@@ -407,7 +523,7 @@ pub struct Peer {
     /// repeat and dropped. It lasts only until the chat's first newer live frame, or the next
     /// request about the chat (a `session/load` sends its history again, which is no repeat).
     replay_tail: StdMutex<HashMap<String, u64>>,
-    notices: mpsc::Sender<(String, u64, PeerNotice)>,
+    notices: crate::peer_notice_outbox::NoticeOutbox,
     stop: AtomicBool,
     /// A replacement requested now attempts immediately, even if its cache is parked.
     retry_immediately: AtomicBool,
@@ -415,6 +531,10 @@ pub struct Peer {
     stop_signal: Notify,
     /// Broadcasts explicit stop/replacement to callers waiting for a reconnect.
     stop_changed: tokio::sync::watch::Sender<bool>,
+    /// This computer's network changes (`peer_network.rs`), read only by `run`'s task: a live link
+    /// is probed at once, a backoff wait ends at once. One receiver for the peer's life, so a change
+    /// made while a link was being dialed still reaches it.
+    network: StdMutex<tokio::sync::watch::Receiver<u64>>,
     /// A client waits on the peer: reconnects come within seconds (`peer_wanted.rs`).
     wanted: wanted::Wanted,
     /// Counts connect attempts that settled (ready or failed), bumped by the
@@ -428,6 +548,9 @@ pub struct Peer {
     /// How long this peer's links may stay silent: longer for one that answers late. Made from
     /// `timings` at the first link, so a test can set them first.
     silence: StdMutex<Option<SilenceBudget>>,
+    /// A link dialed while the last one sat silent past its budget, and opened first
+    /// (`Peer::serve_heard`): the next connect serves it instead of dialing.
+    replacement: StdMutex<Option<(crate::peer_paths::Via, carriers::Opened)>>,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
     /// The last successful cache write still records an outage that Connected must clear.
@@ -462,6 +585,11 @@ pub struct Peer {
     /// watch's reply, and the changes after it, until then, and drops them when the
     /// initialize reply says the watch was not the one to ask.
     pipelined_key: StdMutex<Option<String>>,
+    /// The `initialize` that went out with the upgrade request: its id and its answer
+    /// (`early_initialize`); the handshake takes it instead of asking again.
+    /// A listener refused the upgrade with a request behind it: none is sent early again.
+    early_refused: AtomicBool,
+    early_init: StdMutex<Option<(i64, oneshot::Receiver<Result<Value, RpcError>>)>>,
     /// Whether the last handshake's peer listed [`HANDSHAKE_PIPELINE_FEATURE`]; kept past the
     /// link's end, unlike `features`, for the next link's handshake.
     pipelines: AtomicBool,
@@ -476,6 +604,9 @@ pub struct Peer {
     /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
     /// text (more when the peer compresses them, `frame_compress.rs`).
     received: ReceivedBytes,
+    /// The current link's transport read progress (`Heard::read`), from its open: a read
+    /// forwarded on it waits while bytes keep arriving (`Peer::link_read`).
+    link_read: StdMutex<cmux_deadline::Progress>,
 }
 
 /// What a link received: frame bytes and JSON text bytes, from its open.
@@ -504,25 +635,23 @@ impl ReceivedBytes {
 }
 
 impl Peer {
-    /// Reads every page after the watch reply `first` with `_acpmux/sessions {cursor}` on link
-    /// `link`; the reader gathers their rows (`watch_key`). A cursor given twice, or one that is
-    /// not a string, is an error that ends the handshake, never a loop or a short list.
-    async fn watch_pages(&self, first: Value, tools: bool, link: u64) -> Result<(), RpcError> {
-        let (mut seen, mut next) = (HashSet::new(), page_cursor(&first)?);
-        while let Some(cursor) = next {
-            if !seen.insert(cursor.clone()) {
-                let why = format!("the peer gave the watch page cursor {cursor:?} twice");
-                return Err(RpcError::internal(why));
-            }
-            let params = json!({"withTools": tools, "cursor": cursor});
-            let page = self.watch_request_on(method::MUX_SESSIONS, params, link).await?;
-            next = page_cursor(&page)?;
-        }
-        Ok(())
+    /// Drops the list position the hub's copy of the peer's list is current to, so the next
+    /// link reads the whole list rather than what changed after it (`hub/peer_closed_bound.rs`:
+    /// a follow cannot bring back a closed row the hub left out).
+    pub(crate) fn forget_list_cursor(&self) {
+        *self.list_cursor.lock_or_recover() = None;
     }
-}
 
-impl Peer {
+    #[cfg(test)]
+    pub(crate) fn set_list_cursor_for_test(&self, cursor: Option<(String, u64)>) {
+        *self.list_cursor.lock_or_recover() = cursor;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn list_cursor_for_test(&self) -> Option<(String, u64)> {
+        self.list_cursor.lock_or_recover().clone()
+    }
+
     /// Reads the watch list on link `link` in pages of a count of rows, without tools:
     /// `_acpmux/watch {limit}`, then `_acpmux/sessions {limit, cursor}` (the keyset pages every
     /// peer serves, those from before #28182 too). The reader gathers their rows (`watch_key`).
@@ -643,10 +772,6 @@ impl Peer {
     }
 }
 
-/// The longest a handshake reading its watch list in pages may take in all: each page moves its
-/// deadline on by the handshake's own (`LinkTimings::handshake`), never past this.
-const HANDSHAKE_MOST: Duration = Duration::from_secs(300);
-
 /// The rows of the first watch page read by count (`Peer::watch_row_pages`): about 5 MB
 /// without tools at the incident's row sizes (2.3 KB).
 const WATCH_FIRST_ROWS: u64 = 2048;
@@ -703,6 +828,11 @@ fn too_large(e: &RpcError) -> bool {
 const SSH_CONNECT_SECS: u64 = 3;
 const SSH_CONNECT_SLOW_SECS: u64 = 20;
 
+/// ssh's own keepalive on the tunnel (`tunnel_argv`): a probe each interval, the tunnel ends after
+/// this many unanswered. A backstop under the link's 2 s ping (`peer::liveness`).
+const SSH_ALIVE_INTERVAL_SECS: u64 = 15;
+const SSH_ALIVE_COUNT_MAX: u64 = 3;
+
 /// An attempt still connecting this long after it began is begun again when a client asks for
 /// the peer (`Peer::connect_once`): one sent into a network that was down waits out TCP's
 /// retransmit backoff, while a new one connects at once.
@@ -751,15 +881,15 @@ fn connect_timed_out(after: Duration) -> String {
 }
 
 fn stopped_reading(budget: Duration) -> String {
-    format!("peer stopped reading (a send waited {}s)", budget.as_secs())
+    format!("peer stopped reading (a send moved no byte for {}s)", budget.as_secs())
 }
 
-/// Why a write that timed out (`write_deadline`) dropped the link: a wake probe whose deadline
+/// Why a write that timed out (`write_within`) dropped the link: a wake probe whose deadline
 /// passed, else the send budget.
 fn write_late(budget: Duration, wake_probe: Option<tokio::time::Instant>) -> String {
     match wake_probe {
         Some(probe) if probe <= tokio::time::Instant::now() => {
-            format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs())
+            "no answer to the wake probe after this computer woke".to_owned()
         }
         _ => stopped_reading(budget),
     }
@@ -859,18 +989,15 @@ fn check_ssh_part(part: &str, what: &'static str) -> Result<(), &'static str> {
 /// so the destination is never read as one.
 /// `connect_secs` is ssh's ConnectTimeout (`Peer::ssh_connect_secs`).
 pub fn tunnel_argv(destination: &str, port: u16, connect_secs: u64) -> Vec<String> {
-    let mut argv: Vec<String> = [
-        "-o",
-        "BatchMode=yes",
-        "-o",
-        "ServerAliveInterval=15",
-        "-o",
-        "ServerAliveCountMax=3",
-        "-o",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
+    let mut argv: Vec<String> = vec![
+        "-o".into(),
+        "BatchMode=yes".into(),
+        "-o".into(),
+        format!("ServerAliveInterval={SSH_ALIVE_INTERVAL_SECS}"),
+        "-o".into(),
+        format!("ServerAliveCountMax={SSH_ALIVE_COUNT_MAX}"),
+        "-o".into(),
+    ];
     argv.push(format!("ConnectTimeout={connect_secs}"));
     argv.push("-W".into());
     argv.push(format!("127.0.0.1:{port}"));
@@ -897,23 +1024,7 @@ pub fn read_config_argv(destination: &str, connect_secs: u64) -> Vec<String> {
     .collect()
 }
 
-/// Whether a direct (not ssh) peer URL may carry the peer token: `wss://`,
-/// or `ws://` to a loopback host. Over plain `ws://` to any other host the
-/// token would cross a network in clear, and the peer serves it as Web
-/// anyway (`server/peer_auth.rs`). An `ssh://` peer connects through a
-/// tunnel to the remote's loopback, so it always may.
-pub fn carries_peer_token(url: &str) -> bool {
-    let Ok(uri) = url.parse::<tokio_tungstenite::tungstenite::http::Uri>() else { return false };
-    let host = uri.host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']');
-    match uri.scheme_str() {
-        Some("wss") => true,
-        Some("ws") => {
-            host.eq_ignore_ascii_case("localhost")
-                || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.to_canonical().is_loopback())
-        }
-        _ => false,
-    }
-}
+pub use crate::ws_auth::carries_peer_token;
 
 /// The output of `read_config_argv`: the config bytes and the peer token
 /// (None when absent or not a 64-digit hex token).
@@ -1526,9 +1637,23 @@ pub(crate) mod test_dial {
     pub(crate) type Attempt = (tokio::time::Instant, u64);
 
     thread_local!(static ATTEMPTS: RefCell<Option<Vec<Attempt>>> = const { RefCell::new(None) });
+    thread_local!(static AUTH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) });
 
     pub(crate) fn refuse_all() {
         ATTEMPTS.with(|a| *a.borrow_mut() = Some(Vec::new()));
+        AUTH.with(|a| a.set(false));
+    }
+
+    /// Every dial fails as ssh does when the remote refuses this computer's key or password
+    /// (`Permission denied`), and is recorded.
+    pub(crate) fn refuse_login_all() {
+        refuse_all();
+        AUTH.with(|a| a.set(true));
+    }
+
+    /// Whether the dials fail as a refused login.
+    pub(super) fn login_refused() -> bool {
+        AUTH.with(|a| a.get())
     }
 
     /// The dials so far; dials keep failing.
@@ -1539,6 +1664,7 @@ pub(crate) mod test_dial {
     /// Dials go out for real again.
     pub(crate) fn clear() {
         ATTEMPTS.with(|a| *a.borrow_mut() = None);
+        AUTH.with(|a| a.set(false));
     }
 
     pub(super) fn refused() -> bool {

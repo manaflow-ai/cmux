@@ -77,6 +77,8 @@ EXEMPT = {
         "builds nothing here",
     ("stable-next.yml", "smoke-27"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
     ("stable-next.yml", "smoke-26"): "launches the signed cmux NEXT Stable DMG; builds nothing, no Xcode",
+    ("cmux-tui-team-signed.yml", "sign"):
+        "codesigns published tree binaries with the OS's /usr/bin/codesign; compiles nothing, no Xcode",
     ("nightly.yml", "decide"):
         "control job: attempt 1 of a nightly-next push takes the owned nightly slot "
         "(CI_NIGHTLY_NEXT_BUILD_RUNNER); git, github-script and Python only, no Xcode",
@@ -109,13 +111,12 @@ EXEMPT = {
         "compile-check; the compile runs on a fleet worker, never with this "
         "runner's Xcode",
     ("cmux-next.yml", "app-compile-fleet"):
-        "build-fleet gateway: checks nothing out and only runs cmux-ci "
-        "compile-check; the compile runs on a fleet worker, never with this "
-        "runner's Xcode",
-    ("cmux-next.yml", "fast-tier-fleet"):
-        "build-fleet gateway: checks nothing out and only runs cmux-ci "
-        "run (package-test-lane.sh suites); the suites build on a fleet "
-        "worker, never with this runner's Xcode",
+        "reads the build fleet's posted compile result (fleet_compile_result.py); "
+        "the compile runs on a fleet worker, not on this runner",
+    ("cmux-next.yml", "fast-tier-fleet-mac"):
+        "mac fallback build-fleet gateway: checks nothing out and only runs "
+        "cmux-ci run (package-test-lane.sh suites); the suites build on a "
+        "fleet worker, never with this runner's Xcode",
     ("cmux-next.yml", "release-compile-fast"):
         "build-fleet gateway: checks nothing out and only runs cmux-ci "
         "compile-check --release; the compile runs on a fleet worker, never "

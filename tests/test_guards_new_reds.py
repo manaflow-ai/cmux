@@ -22,12 +22,14 @@ import run_ci_guards  # noqa: E402
 
 
 class NewReds(unittest.TestCase):
-    def run_it(self, head, base):
+    def run_it(self, head, base, *, base_complete=True):
         with tempfile.TemporaryDirectory() as tmp:
             paths = []
             for name, results in (("head", head), ("base", base)):
                 path = Path(tmp) / f"{name}.json"
                 if results is not None:
+                    if name == "base" and not base_complete:
+                        results = {"_cmux_complete": False, **results}
                     path.write_text(json.dumps(results))
                 paths.append(str(path))
             return subprocess.run([sys.executable, str(SCRIPT), *paths], capture_output=True, text=True)
@@ -191,17 +193,42 @@ class NewReds(unittest.TestCase):
 
     def test_no_first_base_pass_means_no_flake_verdict_from_a_later_replay(self):
         # #41414 review F2: a later base replay that fails a test proves the base flaps on it only when the first
-        # replay passed it. A missing or unreadable first result, or a first replay whose file timed out (it names no
-        # test), followed by a replay that names the test red, turned "no base result is the change's" into a pass.
+        # replay passed it. A missing or unreadable first result stays unknown, never a flake. A first replay whose
+        # file timed out (it names no test) followed by replays that name the test red is no flake either: the base
+        # failed it by name, so it is red on the base too (cmux#50088), never excused as flaky.
         red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
         file = red.split(" > ")[0]
         for first in ("unreadable", {file: False}, {f"{file} > other": False, file: False}):
             done = self.run_again({red: False}, first, {red: False})
-            self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
-            self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
-            self.assertIn(f"webview test red step (new): {red}", done.stdout)
+            self.assertNotIn(f"webview test red step (flaky): {red}", done.stdout)
+            if first == "unreadable":
+                self.assertEqual(done.returncode, 1, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"webview test red step (unknown): {red}", done.stdout)
+            else:
+                self.assertEqual(done.returncode, 0, f"{first}: {done.stdout}{done.stderr}")
+                self.assertIn(f"webview test red step (base): {red}", done.stdout)
             listed = self.run_again({red: False}, first, {red: False}, new_files=True)
-            self.assertEqual(listed.stdout.splitlines(), [file], first)
+            self.assertEqual(listed.stdout.splitlines(), [], first)
+
+    def test_a_red_the_first_replay_timed_out_on_is_the_bases_when_every_later_replay_fails_it(self):
+        # cmux#50088 (job 137410904472): feel-plan-tray.test.ts timed out on the first base replay, naming the tests
+        # it finished; both later base replays failed "five drags in a row" by name with the head's own numbers, and
+        # the compare called it the change's.
+        file = "test/feel-plan-tray.test.ts"
+        red = f"{file} > feel: plan tray rim drag > five drags in a row, up and down: each follows the hand, none jumps"
+        other = f"{file} > feel: plan tray rim drag > a click on the rim (no drag) moves and changes nothing"
+        head = {red: False, other: False, file: False}
+        first = {other: False, file: False}
+        done = self.run_again(head, first, {red: False, other: False, file: False}, {red: False, file: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn(f"::warning title=Webview test red on the base too::{red}", done.stdout)
+        self.assertIn(f"webview test red step (base): {red}", done.stdout)
+        # One later replay that passes it, or none that names it: still the change's.
+        for again in (({red: False}, {red: True}), ({file: False},), ({file: False}, {file: False})):
+            done = self.run_again(head, first, *again)
+            self.assertEqual(done.returncode, 1, f"{again}: {done.stdout}{done.stderr}")
+            self.assertIn(f"webview test red step (new): {red}", done.stdout)
         # A first replay whose file passed whole (it names no passing test) did pass it.
         done = self.run_again({red: False}, {file: True}, {red: False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
@@ -243,23 +270,108 @@ class NewReds(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("::warning title=Guard red on the base too::lint", done.stdout)
 
-    def test_a_new_step_that_fails_is_the_changes(self):
+    def test_a_step_that_fails_on_a_completed_base_is_the_changes(self):
         done = self.run_it({"new step": False}, {})
         self.assertEqual(done.returncode, 1)
+
+    def test_a_step_with_no_base_result_is_unknown_not_new(self):
+        # Detector for the cut-pass class: an absent base entry must never become a `new` line.
+        done = self.run_it({"cut step": False}, None)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (unknown): cut step", done.stdout)
+        self.assertNotIn("guard red step (new): cut step", done.stdout)
+        self.assertIn("0 guard steps red on this change", done.stdout)
+
+    def test_a_partial_base_keeps_finished_green_new_and_missing_unknown(self):
+        done = self.run_it({"cut step": False, "finished green": False}, {"finished green": True}, base_complete=False)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("guard red step (new): finished green", done.stdout)
+        self.assertIn("guard red step (unknown): cut step", done.stdout)
+        self.assertNotIn("guard red step (new): cut step", done.stdout)
+
+    def test_a_file_the_cut_base_replay_never_reached_is_unknown_not_the_changes(self):
+        # react-apps-base-check's first base replay stops at the job's budget (CMUX_WEB_TEST_STOP_AT). Job
+        # 137225088381 replayed 152 files one at a time and was cancelled at the 55 minutes with no verdict; cut
+        # instead, the files it never reached have no base result, and their reds must not read as the change's.
+        reached, cut = "test/reached.test.ts", "test/cut.test.ts"
+        head = {f"{reached} > a": False, f"{cut} > b": False, cut: False}
+        with tempfile.TemporaryDirectory() as tmp:
+            files, base, head_path = Path(tmp) / "files", Path(tmp) / "base.json", Path(tmp) / "head.json"
+            files.write_text(f"{reached}\n{cut}\n")
+            base.write_text(json.dumps({f"{reached} > a": True}))
+            head_path.write_text(json.dumps(head))
+            marked = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                                     str(files), str(base)], capture_output=True, text=True)
+            self.assertEqual(marked.returncode, 0, marked.stdout + marked.stderr)
+            self.assertIn(f"  {cut}", marked.stdout)
+            self.assertEqual(json.loads(base.read_text())["_cmux_unreached"], [cut])
+            done = subprocess.run([sys.executable, str(SCRIPT), "--label", "Webview test", str(head_path), str(base)],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn(f"webview test red step (new): {reached} > a", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut} > b", done.stdout)
+            self.assertIn(f"webview test red step (unknown): {cut}", done.stdout)
+            self.assertNotIn(f"(new): {cut}", done.stdout)
+            listed = subprocess.run([sys.executable, str(SCRIPT), "--new-files", str(head_path), str(base)],
+                                    capture_output=True, text=True)
+            self.assertEqual(listed.stdout.splitlines(), [reached])
+            # A replay that reached every file is left as it was.
+            base.write_text(json.dumps({f"{reached} > a": True, cut: True}))
+            subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"), "--mark-unreached",
+                            str(files), str(base)], check=True, capture_output=True)
+            self.assertNotIn("_cmux_unreached", json.loads(base.read_text()))
+
+    def test_the_first_base_replay_never_stops_before_the_head_reds(self):
+        # cmux#53976, run 45519691376 job 138896898305: the job started 00:59:13, the replay's setup (bundles,
+        # browsers) took it to 01:24:09, and the fixed REPLAY_RESERVE put CMUX_WEB_TEST_STOP_AT at 01:25:53. Its one
+        # head-red file was "NOT RUN ... past CMUX_WEB_TEST_STOP_AT", so a red from the base had no base verdict
+        # and failed the job. The first replay holds only head reds: it gets a whole file's time from when it starts.
+        started, now = 1_700_000_000, 1_700_000_000 + 1496
+
+        def stop_at(*args):
+            done = subprocess.run([sys.executable, str(ROOT / "scripts/ci/webviews_test_results.py"),
+                                   "--first-replay-stop-at", *map(str, args)], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            return done.stdout.strip()
+
+        at = int(stop_at(started, 55, 1700, now))
+        self.assertGreaterEqual(at, now + 900)  # the runner's per-file ceiling
+        self.assertLessEqual(at, started + 55 * 60 - 120)  # never past the verdict's margin
+        # With time to spare the reserve for the head re-run still holds.
+        self.assertEqual(int(stop_at(started, 55, 1700, started + 60)), started + 55 * 60 - 1700)
+        # Late in the job it ends at the verdict's margin, not past the job's timeout.
+        self.assertEqual(int(stop_at(started, 55, 1700, started + 50 * 60)), started + 55 * 60 - 120)
+        # No job clock: no stop.
+        self.assertEqual(stop_at(0, 55, 1700, now), "")
 
     def test_a_step_the_change_fixes_is_said(self):
         done = self.run_it({"lint": True}, {"lint": False})
         self.assertEqual(done.returncode, 0)
         self.assertIn("fixed by this change: lint", done.stdout)
 
-    def test_no_base_results_means_every_red_is_the_changes(self):
+    def test_no_base_results_are_deferred_to_the_merge_gate(self):
         done = self.run_it({"lint": False}, None)
         self.assertEqual(done.returncode, 1)
         self.assertIn("no base results", done.stdout)
+        self.assertIn("guard red step (unknown): lint", done.stdout)
 
     def test_no_head_results_fails(self):
         done = self.run_it(None, {"lint": True})
         self.assertEqual(done.returncode, 1)
+
+
+class IncrementalGuardResults(unittest.TestCase):
+    def test_a_completed_step_is_written_before_the_run_finishes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "guards-base.json"
+            unit = run_ci_guards.Unit("workflow-guard-tests", "ci", [])
+            step = run_ci_guards.Step("finished", "", {}, None)
+            writer = run_ci_guards.IncrementalResults(path, root)
+            writer.add(run_ci_guards.StepResult(unit, step, True, 0.1, ""))
+            self.assertEqual(json.loads(path.read_text()), {"_cmux_complete": False, "finished": True})
+            writer.complete()
+            self.assertEqual(json.loads(path.read_text()), {"_cmux_complete": True, "finished": True})
 
 
 class RedStepsForTheBaseRerun(unittest.TestCase):
@@ -469,6 +581,98 @@ class ANewItemInABaseRedStepIsTheChanges(unittest.TestCase):
         done = self.compare(self.outputs(old, "41"), self.outputs(old, "93"), base_failures=False)
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertIn("14 guard steps red on this change, 0 red on the base too", done.stdout)
+
+    def test_interpreter_shutdown_noise_is_not_a_new_failure_name(self):
+        # cmux#43507 (job 132737397395): "Validate base-red excusal" failed the same way on both sides, but the head's
+        # output also held CPython's shutdown warning `sys:1: ResourceWarning: unclosed file <...>`, so `sys:0` was a
+        # name the base's failure lacked and the step was charged to the change. Shutdown noise names nothing.
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old, "41")
+        head[self.WIRED] += ("\n" + "." * 40 + "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>"
+                             "\nResourceWarning: Enable tracemalloc to get the object allocation traceback"
+                             "\nsys:1: ResourceWarning: unclosed <socket.socket fd=7, family=2, type=1, proto=6>")
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+
+    def test_a_real_new_name_beside_shutdown_noise_is_still_the_changes(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old + ["tests/test_portable_jobs_bring_their_python.py"], "41")
+        head[self.WIRED] += "\nsys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>"
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("tests/test_portable_jobs_bring_their_python.py", done.stdout)
+        self.assertNotIn("sys:0", done.stdout)
+
+
+class AWarningLineIsNotAFailureName(unittest.TestCase):
+    """hq#11346, hq#11216: "Validate base-red excusal for gh-merge-green" failed the same way on the head and the base,
+    but the head's output also held CPython's `sys:1: ResourceWarning: unclosed file <...>`, so `sys:0` was a name the
+    base's failure lacked and the guard group charged the step to the change (#43287, #43307, #43573, #43445). Any
+    Python warning line (`<file>:<line>: <Category>Warning: ...`, its source echo, the bare tracemalloc hint) names
+    nothing that failed. A real new name beside one still counts, and a failure that is only warnings stays unexcused."""
+
+    WIRED = ANewItemInABaseRedStepIsTheChanges.WIRED
+    NOISE = [
+        "." * 40 + "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>",
+        "ResourceWarning: Enable tracemalloc to get the object allocation traceback",
+        "sys:1: ResourceWarning: unclosed <socket.socket fd=7, family=2, type=1, proto=6>",
+        "<ROOT>/scripts/ci/base_red_excuse.py:812: DeprecationWarning: datetime.datetime.utcnow() is deprecated",
+        "  now = datetime.datetime.utcnow()",
+        "<frozen importlib._bootstrap>:488: RuntimeWarning: numpy.ndarray size changed",
+        "/usr/lib/python3/dist-packages/urllib3/connectionpool.py:1100: urllib3.exceptions.InsecureRequestWarning: "
+        "Unverified HTTPS request is being made to host 'example.invalid'",
+        "  warnings.warn(",
+        "tests/test_keychain.py:41: UserWarning: keychain_probe_skipped fell back to the login keychain",
+    ]
+
+    def setUp(self):
+        self.cases = ANewItemInABaseRedStepIsTheChanges()
+
+    def compare(self, head, base):
+        return self.cases.compare(head, base)
+
+    def outputs(self, unwired, seed):
+        return self.cases.outputs(unwired, seed)
+
+    def test_warning_lines_beside_the_bases_own_failure_are_excused(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old, "41")
+        head[self.WIRED] += "\n" + "\n".join(self.NOISE)
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("sys:0", done.stdout)
+        self.assertIn("0 guard steps red on this change, 14 red on the base too", done.stdout)
+
+    def test_a_real_new_name_beside_warning_lines_is_still_the_changes(self):
+        old = ["tests/test_cargo_locks.py"]
+        head = self.outputs(old + ["tests/test_portable_jobs_bring_their_python.py"], "41")
+        head[self.WIRED] += "\n" + "\n".join(self.NOISE)
+        done = self.compare(head, self.outputs(old, "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"::error title=Guard red on this change::{self.WIRED}", done.stdout)
+        self.assertIn("its head failure names what the base's does not: tests/test_portable_jobs_bring_their_python.py",
+                      done.stdout)
+        self.assertNotIn("sys:0", done.stdout)
+
+    def test_a_failure_that_is_only_warnings_is_not_excused(self):
+        # Fails closed: the step is red but its output names nothing once the warnings are gone, so the head and base
+        # failures cannot be compared.
+        head = self.outputs(["tests/test_cargo_locks.py"], "41")
+        head[self.WIRED] = "\n".join(self.NOISE)
+        done = self.compare(head, self.outputs(["tests/test_cargo_locks.py"], "93"))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn(f"{self.WIRED}: red on the base too, but its failures cannot be compared", done.stdout)
+
+    def test_a_warning_category_inside_a_failure_line_keeps_the_test_name(self):
+        import guards_new_reds
+
+        names = guards_new_reds.failure_names([
+            "FAILED tests/test_keychain.py::test_probe - DeprecationWarning: probe() is deprecated",
+            "sys:1: ResourceWarning: unclosed file <_io.BufferedReader name=6>",
+        ])
+        self.assertIn("tests/test_keychain.py::test_probe", names)
+        self.assertFalse({name for name in names if name.startswith("sys")}, names)
 
 
 if __name__ == "__main__":

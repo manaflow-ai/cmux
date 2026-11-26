@@ -209,6 +209,39 @@ import Testing
         await sync.bind(nil, macID: "mac")
     }
 
+    /// The setup's one write carries the Mac's order and pins (`list-personal`,
+    /// `sidebar_layout.get`): the first list is the settled one, read once.
+    @Test(.timeLimit(.minutes(1))) func setupBatchCarriesArrangement() async throws {
+        let channel = ReplayDaemonChannel()
+        defer { channel.finish() }
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        let prepared = await WorkspaceSync.prepare(channel, deviceID: "test", deviceName: "iPhone")
+        #expect(await prepared.replies.value.count == WorkspaceSync.setupCount + 2)
+        #expect(channel.listPersonalRequests == 1)
+        #expect(channel.sidebarLayoutRequests == 1)
+        await sync.bind(prepared, macID: "mac")
+        #expect(sync.tree?.workspaces.first?.id == "one")
+        #expect(sync.lastError == nil)
+        await sync.refresh()
+        #expect(channel.listPersonalRequests == 1)
+        #expect(channel.sidebarLayoutRequests == 1)
+        await sync.bind(nil, macID: "mac")
+    }
+
+    /// An arrangement read that never answers costs the order and pins only, never the list.
+    @Test(.timeLimit(.minutes(1))) func unansweredArrangementKeepsTheList() async throws {
+        let channel = ReplayDaemonChannel(dropCommand: "list-personal")
+        defer { channel.finish() }
+        let sync = WorkspaceSync(deviceID: "test", deviceName: "iPhone")
+        let prepared = await WorkspaceSync.prepare(channel, deviceID: "test", deviceName: "iPhone",
+                                                   authorizationTimeout: .zero, replyTimeout: .milliseconds(50))
+        await sync.bind(prepared, macID: "mac")
+        #expect(sync.tree?.workspaces.first?.id == "one")
+        #expect(sync.daemon != nil)
+        #expect(!channel.isClosed)
+        await sync.bind(nil, macID: "mac")
+    }
+
     @Test(.timeLimit(.minutes(1)), arguments: ["identify", "list-agents", "list-workspaces"])
     func unansweredSetupClosesReaderAndAllowsRetry(command: String) async throws {
         let channel = ReplayDaemonChannel(dropCommand: command)

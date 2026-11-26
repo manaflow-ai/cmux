@@ -1,4 +1,5 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
+import { mockAgentKeys } from "./mockAgentKeys";
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
 import type {
   AccountsCmux,
@@ -7,14 +8,17 @@ import type {
   CloudEnvironmentsState,
   HarnessesState,
   HostLists,
+  IntegrationRow,
   ProviderAccount,
 } from "./ops";
-import { minutesAgo } from "../../gallery/clock";
-import { categories } from "./categories";
-import { PERSONALIZATION_KEYS } from "./personalizationParts";
+import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
+import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
+import { categories, categoryOf, defaultCategory, isCategory } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
+import { mockDevicesState, mockDomains } from "./mockProvider";
+import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
 import VAN_GOGH_STARRY_NIGHT from "../../gallery/fixtures/art/van-gogh-starry-night.jpg?inline";
@@ -114,6 +118,8 @@ const host: Partial<HostLists> = {
       active: true,
       color: "#7F5FA8",
       color_key: "research build machine",
+      // A Remote machine's AutoCloud enrollment (_acpmux/autocloud_enroll there), off: opt-in for customers.
+      autocloud: { on: false, error: null },
     },
     // A Cloud machine cmux made: its Dedicated agent machine switch (acpmux vmHost), on by default.
     {
@@ -195,6 +201,26 @@ const rowShapeMachines: HostLists["machines"] = [
     vm_host: { on: true, busy: false, error: null },
   },
 ];
+/** One Remote machine with its AutoCloud enrollment in `autocloud`, for the autocloud-* variants. */
+function autoCloudMachines(autocloud: NonNullable<HostLists["machines"][number]["autocloud"]>): HostLists["machines"] {
+  return [
+    {
+      id: "sample-remote-mac",
+      title: "Studio Mac",
+      subtitle: "Online · Remote",
+      active: true,
+      color: "#7F5FA8",
+      color_key: "studio mac",
+      autocloud,
+    },
+  ];
+}
+const macCaps = ["arm64", "macos", "xcode", "ios-simulator", "gpu-metal"];
+const autoCloudPlay = async (ctx: Parameters<NonNullable<SettingsPageVariant["play"]>>[0]) => {
+  const card = ctx.find({ selector: '[data-card="machines"]' });
+  card.setAttribute("data-gallery-capture", "");
+  card.scrollIntoView({ block: "center" });
+};
 const rowShapeEnvironments: CloudEnvironmentsState = {
   available: true,
   loading: false,
@@ -216,9 +242,31 @@ const input = (selector: string, value: string): PageFixtureStep => ({ selector,
 const wait = (selector: string): PageFixtureStep => ({ selector, action: "wait" });
 const row = (key: string) => `[data-row-key="${key}"]`;
 const focusComputerUse: PageFixtureStep = {
-  // Guided Setup's button (Restart Helper when the helper failed): it shows in every phase.
-  selector: '[data-card="computer-use"] [data-action-row] button',
+  // The mode picker's checked mode: it shows in every phase.
+  selector: '[data-card="computer-use"] [data-mode][data-checked] input',
   action: "focus",
+};
+const focusApprovals: PageFixtureStep = {
+  selector: '[data-card="computer-use"] [data-approval] button',
+  action: "focus",
+};
+const focusDenied: PageFixtureStep = {
+  selector: '[data-card="computer-use"] [data-denied-input]',
+  action: "focus",
+};
+const computerUseReady = {
+  phase: "ready" as const,
+  accessibility: true,
+  screen_recording: false,
+  helper: null,
+  engine: "cmux Computer Use 1.0",
+  worker: { state: "running" as const, pid: 4242 },
+  approvals: [],
+  running_apps: [
+    { id: "com.apple.Safari", name: "Safari" },
+    { id: "com.apple.Notes", name: "Notes" },
+    { id: "com.figma.Desktop", name: "Figma" },
+  ],
 };
 const customValues: Record<string, unknown> = Object.fromEntries(
   schema.rows.map((setting) => {
@@ -250,12 +298,18 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     return [setting.key, value];
   }),
 );
-const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = {}): SettingsPageVariant => ({
-  section,
-  host,
-  accounts: accounts(),
-  ...extra,
-});
+/** A `link-<app>` row of `agent hook status` (cmux-tui agent_hook_links.rs). */
+function linkRow(app: string, path: string, state: IntegrationRow["state"]): IntegrationRow {
+  return { id: `link-${app}`, path, state, reason: null, detail: null, error: null };
+}
+
+const variant = (section: string, extra: Omit<SettingsPageVariant, "section"> = {}): SettingsPageVariant => {
+  // A section that is neither a category id nor one of its aliases opens General (categoryOf), so
+  // a state's steps wait for a card that is never drawn: say which section is wrong instead.
+  if (!isCategory(section) && categoryOf(section) === defaultCategory)
+    throw new Error(`settings gallery: ${JSON.stringify(section)} is not a Settings category or alias`);
+  return { section, host, accounts: accounts(), ...extra };
+};
 /** The Endpoint form captured in view (the tab sits below the Agents list), once `ready` shows. */
 const showEndpoint =
   (ready = "[data-agents-endpoint]") =>
@@ -268,9 +322,9 @@ const showEndpoint =
 /** States whose fixture steps change the page's height on purpose (the scope switch drops the
  * All Workspaces tiles; a refused name opens its error line), so the rows below them move. They are
  * measured in pages.settings-motion, whose layout shift is recorded, not held at 0 (#41237: on
- * Personalization those rows are in view). */
+ * Appearance those rows are in view). */
 export const heightChangingVariants: Record<string, SettingsPageVariant> = {
-  "backdrops-workspace": variant("personalization", {
+  "backdrops-workspace": variant("appearance", {
     focus: "appearance.background",
     workspace: "ws-1",
     options: {
@@ -281,10 +335,12 @@ export const heightChangingVariants: Record<string, SettingsPageVariant> = {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
     },
-    steps: [
-      wait('[data-card="backdrop"] .backdrop-scope'),
-      { selector: '[aria-label="This Workspace (Research)"]', action: "click" },
-    ],
+    play: async (ctx) => {
+      const selector = ".backdrop-scope label:last-child";
+      await ctx.waitFor(() => ctx.document.querySelector(selector));
+      await ctx.click({ selector });
+      await ctx.waitFor(() => ctx.document.querySelector(`${selector} input:checked`));
+    },
     note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
   }),
   "theme-file-refused": variant("theme", {
@@ -313,10 +369,33 @@ const variants: Record<string, SettingsPageVariant> = {
     options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
     note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
   }),
+  // Taste Board #15: Beta chips on experimental rows (appearance.settingsBetaChips, off by default).
+  "beta-chips-off": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    note: "Beta chips off (the default): the Experimental page and its sidebar entry exactly as today.",
+  }),
+  "beta-chips-on": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on: each experimental row's title and the Experimental sidebar entry carry a small Beta chip.",
+  }),
+  "beta-chips-on-labs": variant("experimental", {
+    focus: "labs.previewFeatures",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, scrolled to the Labs rows (Preview Features, Voice Room, Live Code).",
+  }),
+  "beta-chips-on-general": variant("general", {
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, on an everyday page: no row gets a chip; only the Experimental sidebar entry does.",
+  }),
+  "agent-tools": variant("agents", {
+    focus: "agents.cmuxMcp",
+    note: "Give Agents cmux’s Tools (on by default) with its Claude Code and Codex switches, each coding agent on this Mac, and the manual lines for agents started elsewhere.",
+  }),
 };
 for (const category of categories) {
-  // The theme studio (every bundled theme) is Personalization's since the Theme page moved there.
-  const allThemes = category.id === "personalization";
+  // The theme studio (every bundled theme) is Appearance's since the Theme page moved there.
+  const allThemes = category.id === "appearance";
   // Variant names are lower kebab case: the New Tab category's id is newTab.
   const name = category.id.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
   variants[name] = variant(category.id, { allThemes });
@@ -324,11 +403,7 @@ for (const category of categories) {
   // Every group gets a scroll/focus target, including controls below the initial viewport.
   for (const [index, group] of category.groups.entries())
     variants[`${name}-group-${index + 1}`] = variant(category.id, {
-      // A key Personalization draws opens Personalization (routeSection), so another page's group
-      // focuses its first row that page draws itself.
-      focus: (category.id === "personalization"
-        ? group.rows[0]
-        : (group.rows.find((row) => !PERSONALIZATION_KEYS.includes(row.key)) ?? group.rows[0]))!.key,
+      focus: group.rows[0]!.key,
       options: { values: customValues },
       note: `${group.title.text}: customized controls, focused and scrolled into view.`,
     });
@@ -348,6 +423,10 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 
+/// A window's reset time `minutes` after the stage clock (installGalleryClock, GALLERY_NOW), so the
+/// reset labels and even-pace marks read the same in every capture.
+const resetsIn = (minutes: number) => GALLERY_NOW / 1000 + minutes * 60;
+
 // Synthetic accounts only (example.com addresses): the CLI logins and one added Codex account.
 const providerAccounts: ProviderAccount[] = [
   {
@@ -362,11 +441,12 @@ const providerAccounts: ProviderAccount[] = [
     email: "alex@example.com",
     enabled: true,
     builtin: true,
-    // Read when Settings opened (`_acpmux/account/usage`); no reset times, so the capture holds still.
+    // Read when Settings opened (`_acpmux/account/usage`); reset times on the stage clock, so the
+    // capture holds still. Both under even pace (40% and 71% of their windows gone).
     usage: {
       windows: [
-        { id: "session", usedPercent: 22, windowMins: 300 },
-        { id: "weekly", usedPercent: 41, windowMins: 10080 },
+        { id: "session", usedPercent: 22, windowMins: 300, resetsAt: resetsIn(180) },
+        { id: "weekly", usedPercent: 41, windowMins: 10080, resetsAt: resetsIn(2 * 1440) },
       ],
       plan: "pro",
       credits: { balance: "56766" },
@@ -384,7 +464,11 @@ const providerAccounts: ProviderAccount[] = [
     email: "sam@example.com",
     enabled: false,
     builtin: false,
-    usage: { windows: [{ id: "session", usedPercent: 87.5, windowMins: 300 }], plan: "plus" },
+    // Ahead of even pace: 87.5% used with 20% of the 5 hours gone.
+    usage: {
+      windows: [{ id: "session", usedPercent: 87.5, windowMins: 300, resetsAt: resetsIn(240) }],
+      plan: "plus",
+    },
   },
   {
     id: "claude-login",
@@ -398,6 +482,14 @@ const providerAccounts: ProviderAccount[] = [
     email: "alex@example.com",
     enabled: true,
     builtin: true,
+    // Claude's windows carry no length (claude_stdio/usage_limits.rs); the mark reads it by id. The
+    // 5-hour window is near its reset (80% gone, 58% used); the week is ahead (29% gone, 70% used).
+    usage: {
+      windows: [
+        { id: "session", usedPercent: 58, resetsAt: resetsIn(60) },
+        { id: "weekly", usedPercent: 70, resetsAt: resetsIn(5 * 1440) },
+      ],
+    },
   },
 ];
 
@@ -416,7 +508,7 @@ const codexHarness: HarnessesState["harnesses"] = [
 
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
-    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch and, for Codex, its plan's 5-hour and weekly usage read at rest, and Codex offers Add account.",
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch and each signed-in account's 5-hour and weekly usage read at rest, with an even-pace mark on every bar (ChatGPT 2's and Claude's week run ahead of it, in the warning color), and Codex offers Add account.",
     harnesses: {
       loading: false,
       problem: null,
@@ -459,6 +551,60 @@ Object.assign(variants, {
     focus: "agents.integrations",
     integrations: { loading: false, problem: "unavailable", command: "cmux agent hook install", providers: [] },
   }),
+  // "Your other apps": the cmux MCP server in Claude desktop, Claude Code and Codex
+  // (`agent hook status` link- rows), above the hooks.
+  "agents-integrations-links": variant("agents", {
+    note: "Your other apps: Claude desktop connected, Claude Code not yet, Codex linked by another cmux build (Reconnect).",
+    focus: "agents.integrations",
+    integrations: {
+      loading: false,
+      problem: null,
+      command: "cmux agent hook install",
+      providers: [
+        linkRow("claude-desktop", "~/Library/Application Support/Claude/claude_desktop_config.json", "installed"),
+        linkRow("claude-code", "~/.claude.json", "absent"),
+        linkRow("codex", "~/.codex/config.toml", "partial"),
+        { id: "claude", path: "~/.claude/settings.json", state: "installed", reason: null, detail: null, error: null },
+        { id: "codex", path: "~/.codex/hooks.json", state: "absent", reason: null, detail: null, error: null },
+      ],
+    },
+  }),
+  "agents-integrations-links-blocked": variant("agents", {
+    note: "Your other apps: Codex already has a server named cmux that cmux did not add (no Connect); Claude desktop's settings file is unreadable.",
+    focus: "agents.integrations",
+    integrations: {
+      loading: false,
+      problem: null,
+      command: "cmux agent hook install",
+      providers: [
+        {
+          ...linkRow(
+            "claude-desktop",
+            "~/Library/Application Support/Claude/claude_desktop_config.json",
+            "unavailable",
+          ),
+          reason: "unreadable",
+        },
+        { ...linkRow("codex", "~/.codex/config.toml", "conflict"), reason: "not_owned" },
+      ],
+    },
+  }),
+  "agents-integrations-links-error": variant("agents", {
+    note: "Your other apps: Connect on Claude Code failed because its CLI is not on the login PATH; the row says what to run.",
+    focus: "agents.integrations",
+    integrations: {
+      loading: false,
+      problem: null,
+      command: "cmux agent hook install",
+      providers: [
+        {
+          ...linkRow("claude-code", "~/.claude.json", "absent"),
+          error: "link-claude-code: the claude CLI is not on PATH; run: claude mcp add-json --scope user cmux '{…}'",
+        },
+        linkRow("codex", "~/.codex/config.toml", "installed"),
+      ],
+    },
+  }),
   "agents-harnesses-account-added": variant("agents", {
     note: "Codex right after Add account: ChatGPT 3 has a shadow home of its own, waits for its sign-in, and is on for routing.",
     harnesses: {
@@ -493,48 +639,57 @@ Object.assign(variants, {
       ],
     },
   }),
-  // Remove asks first, in the row. Three states of the one flow: the question open on an added
-  // Codex login (shadow home), on a Claude API-key account, and a signed-out account whose usage
-  // read before its sign-out is no longer shown.
-  "agents-harnesses-account-remove-confirm": variant("agents", {
-    note: "Remove on ChatGPT 2 asks first, in its row: only cmux's record goes; the login folder and the CLI's own sign-in stay.",
-    harnesses: { loading: false, problem: null, accounts: providerAccounts, harnesses: codexHarness },
-    steps: [
-      wait('[data-account="codex-2"] [data-account-action="remove"]'),
-      click('[data-account="codex-2"] [data-account-action="remove"]'),
-      wait('[data-account="codex-2"] [data-account-remove-confirm]'),
-    ],
-  }),
-  "agents-harnesses-account-remove-confirm-key": variant("agents", {
-    note: "Remove on a Claude API-key account asks the same question; says the API key stays where it is stored.",
-    harnesses: {
-      loading: false,
-      problem: null,
-      accounts: [
-        ...providerAccounts,
-        {
-          id: "claude-key",
-          family: "claude",
-          name: "Work key",
-          home: null,
-          defaultHome: "~/.claude",
-          shadowOf: null,
-          signedIn: true,
-          plan: null,
-          email: null,
-          enabled: true,
-          builtin: false,
-          key: true,
+  // Per-account usage (feature map `usage-per-account`, Leo 2026-11-23: "Per-account 5-hour and weekly
+  // limits and the last cache-miss cause"): a Claude account's newest saved windows, and its usage
+  // block's hover line naming the last prompt cache miss (the `title`, read by the capture as
+  // `data-cache-miss`).
+  ...Object.fromEntries(
+    (
+      [
+        ["expired", "the 5-hour cache window lapsed between turns", true],
+        ["model", "a model switch started a new cache", true],
+        ["compaction", "only a miss is known yet: no windows, the hover line alone", false],
+      ] as const
+    ).map(([cause, why, windows]) => [
+      `agents-harnesses-claude-usage-miss-${cause}`,
+      variant("agents", {
+        note: `Claude's account row shows the 5-hour and weekly limits its chats last saved; hovering the usage names the last cache miss: ${cause} (${why}).`,
+        harnesses: {
+          loading: false,
+          problem: null,
+          accounts: providerAccounts.map((account) =>
+            account.id === "claude-login"
+              ? {
+                  ...account,
+                  usage: {
+                    windows: windows
+                      ? [
+                          { id: "session", usedPercent: 34, windowMins: 300 },
+                          { id: "weekly", usedPercent: 18, windowMins: 10080 },
+                        ]
+                      : [],
+                    plan: "max",
+                    lastCacheMiss: { cause, at: minutesAgo(12) },
+                  },
+                }
+              : account,
+          ),
+          harnesses: [
+            {
+              id: "claude",
+              name: null,
+              kind: "claude-stdio",
+              source: "path",
+              problem: null,
+              version: "2.0.9",
+              checkedAt: minutesAgo(54),
+            },
+          ],
         },
-      ],
-      harnesses: [{ id: "claude", name: null, kind: "claude-stdio", source: "path", problem: null, version: "2.0.9" }],
-    },
-    steps: [
-      wait('[data-account="claude-key"] [data-account-action="remove"]'),
-      click('[data-account="claude-key"] [data-account-action="remove"]'),
-      wait('[data-account="claude-key"] [data-account-remove-confirm]'),
-    ],
-  }),
+      }),
+    ]),
+  ),
+  // A signed-out account whose usage read before its sign-out is no longer shown.
   "agents-harnesses-account-signed-out": variant("agents", {
     note: "ChatGPT 2 after its sign-out: Sign In comes back and the usage read before it is no longer shown.",
     harnesses: {
@@ -546,6 +701,25 @@ Object.assign(variants, {
       harnesses: codexHarness,
     },
   }),
+  // Logins done right (Leo, 2026-11-22: "this is simply logins, done righr."): on a host that signs
+  // in in place, the harness row's Sign In shows the code under the row, not a terminal tab.
+  "agents-harnesses-sign-in-in-place": variant("agents", {
+    note: "Codex's Sign In on a host that signs in in place: the code under the row, waiting for the approval.",
+    accounts: accounts({}, { signInAccounts: ACCOUNT_LISTS.signedOut }),
+    signInHold: true,
+    harnesses: {
+      loading: false,
+      problem: null,
+      accounts: providerAccounts.map((account) =>
+        account.id === "codex-login" ? { ...account, signedIn: false, email: null, plan: null } : account,
+      ),
+      harnesses: codexHarness,
+    },
+    steps: [
+      click('[data-harness="codex"] [data-harness-action="signIn"]'),
+      wait('[data-harness-sign-in="codex"] .signin[data-state="waiting"]'),
+    ],
+  }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",
     harnesses: { loading: false, problem: "unreachable", harnesses: [] },
@@ -554,9 +728,9 @@ Object.assign(variants, {
     note: "Harnesses while the first look has found nothing yet: it says it is checking.",
     harnesses: { loading: true, problem: null, harnesses: [] },
   }),
-  // Change Background… (cx-t2x.4): the picker on Personalization, with its Opacity slider.
-  backdrops: variant("personalization", {
-    focus: "personalization.background",
+  // Change Background… (cx-t2x.4): the picker on Appearance, with its Opacity slider.
+  backdrops: variant("appearance", {
+    focus: "appearance.background",
     options: { values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 } },
     host: {
       ...host,
@@ -575,9 +749,21 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
-  // Leo, 11-07: the profile menu's Personalization…, every visual choice on one page under a jump bar.
-  "personalization-background": variant("personalization", {
-    focus: "personalization.background",
+  // David Beyer (Nov 20) could not find a sidebar font size: General opens on one Text Size and density pick.
+  "general-text-size": variant("general", {
+    note: "General's first card: Text Size (five Aa steps) and density, the pick Set Up cmux offers too.",
+  }),
+  "general-text-size-larger": variant("general", {
+    options: { values: { "appearance.metrics.chromeFontSize": 16, "appearance.density": "comfortable" } },
+    note: "Text Size at Larger with Comfortable density: the steps follow the density's own body size.",
+  }),
+  // One settings area (David Beyer, 2026-11-20): the sidebar's short top level, then More opened.
+  "sidebar-more": variant("general", {
+    steps: [click(".sidebar-more"), wait('.sidebar-more[aria-expanded="true"]')],
+    note: "The sidebar's More opened from General: the pages a person opens less often, below the short top level.",
+  }),
+  "appearance-background": variant("appearance", {
+    focus: "appearance.background",
     workspace: "ws-1",
     options: {
       values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 },
@@ -587,26 +773,17 @@ Object.assign(variants, {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
     },
-    steps: [wait('[data-part="background"] [data-card="backdrop"]')],
-    note: "Change Background… opens Personalization on its Background part: the same art picker, Material and Opacity as Appearance.",
+    steps: [wait('[data-card="backdrop"]')],
+    note: "Change Background… opens Appearance on its background picker: the art, Material and Opacity, for a workspace.",
   }),
-  "personalization-chief": variant("personalization", {
-    focus: "personalization.chief",
-    options: { values: { "home.chiefPetEnabled": true, "home.chiefPetMascot": "fox" } },
-    note: "Personalization on the Chief's look: the Chief Pet card, shown, with the Fox picked.",
-  }),
-  "personalization-text": variant("personalization", {
-    focus: "personalization.text",
-    options: { values: { "appearance.density": "cozy", "agentPane.display.transcriptView": "thinking" } },
-    note: "Personalization on Text and Density: the density tiles, the chat fonts and the transcript view.",
-  }),
-  "personalization-sounds": variant("personalization", {
-    focus: "personalization.sounds",
-    note: "Personalization on Sounds: the notification sound, its volume and when it plays.",
+  "appearance-density": variant("appearance", {
+    focus: "card.density",
+    options: { values: { "appearance.density": "cozy" } },
+    note: "Appearance on its density card: the density tiles and Text Size.",
   }),
   // Leo, 10-19: Appearance's floating Undo, Redo and Reset, after a background pick (Undo names it).
-  "appearance-undo-bar": variant("personalization", {
-    focus: "personalization.background",
+  "appearance-undo-bar": variant("appearance", {
+    focus: "appearance.background",
     host: {
       ...host,
       derived: { "appearance.backgroundOpacity": 1 },
@@ -619,6 +796,19 @@ Object.assign(variants, {
       { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
     ],
     note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
+  }),
+  // Leo, 11-19: "make sure you can recover and stuff. for all customizations". The Reset menu open on
+  // Personalization with a background and an accent set: Reset <card> for each card of the page.
+  "appearance-reset-cards": variant("personalization", {
+    options: {
+      values: {
+        "appearance.background": "daily",
+        "appearance.backgroundOpacity": 0.6,
+        "appearance.accent": "#4F7DF2",
+      },
+    },
+    steps: [wait("[data-appearance-bar]"), click('[data-menu="appearance-reset"]'), wait('[role="menuitem"]')],
+    note: "The Reset menu: Restore How It Was, Reset to Defaults, then Reset App Theme, Reset Window Background and Reset Density and Motion; a card with nothing set is dimmed. Each reset only its card's keys, as one Undo step.",
   }),
   // The floating bar's Presets menu open: Solid, Frosted, Glass and Clear, the current one checked.
   "appearance-presets": variant("appearance", {
@@ -641,8 +831,8 @@ Object.assign(variants, {
     steps: [wait(row("appearance.surfaces.sidebar.opacity"))],
     note: "Surfaces: each unset opacity shows the window's 80% as its value and each unset color the window's color under an Inherits window badge; no row reads a truncated default label.",
   }),
-  "backdrops-pending": variant("personalization", {
-    focus: "personalization.background",
+  "backdrops-pending": variant("appearance", {
+    focus: "appearance.background",
     options: { values: { "appearance.background": "system:/S/Sonoma.heic" } },
     host: {
       ...host,
@@ -689,8 +879,8 @@ Object.assign(variants, {
     steps: [wait('[data-card="backdrop"]'), { selector: '[data-card="backdrop"] .backdrop-pending', action: "focus" }],
     note: "Backgrounds while macOS is still downloading one wallpaper: the selected tile is ready and the pending tile stays visibly dimmed with its download affordance.",
   }),
-  "backdrops-empty": variant("personalization", {
-    focus: "personalization.background",
+  "backdrops-empty": variant("appearance", {
+    focus: "appearance.background",
     options: { values: { "appearance.background": "none" } },
     host: { ...host, backdrops: [] },
     // With no artwork the picker hides (useBackdropsShown) and the setting draws as its plain row.
@@ -698,8 +888,8 @@ Object.assign(variants, {
     note: "No artwork returned yet: the picker stays hidden and Background is its plain row, so the setting stays usable while the host list loads or is unavailable.",
   }),
   // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
-  "backdrops-link": variant("personalization", {
-    focus: "personalization.background",
+  "backdrops-link": variant("appearance", {
+    focus: "appearance.background",
     host: {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
@@ -714,8 +904,8 @@ Object.assign(variants, {
   // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
   // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
   // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
-  "curated-art": variant("personalization", {
-    focus: "personalization.background",
+  "curated-art": variant("appearance", {
+    focus: "appearance.background",
     options: {
       values: { "appearance.background": "van-gogh-starry-night" },
     },
@@ -826,9 +1016,38 @@ Object.assign(variants, {
     ],
     note: "The background picker grouped into Dark Art, Museum Icons, Calm and Doré, credited, one picked.",
   }),
-  // Browse More Art (cx-t2x.8): a search across the open museum collections, sample answers.
-  "art-browser": variant("personalization", {
+  // What's New living-wallpapers (#45080): the Living wallpapers group as the app sends it
+  // (BackdropCatalog+Page.swift: id shader:<name>, collection "shaders"), Currents picked. Their
+  // thumbnails are stills the app renders with Metal at run time; the gallery has none, so each
+  // tile draws its empty framed box.
+  "living-wallpapers": variant("personalization", {
     focus: "personalization.background",
+    options: { values: { "appearance.background": "shader:currents" } },
+    host: {
+      ...host,
+      backdrops: [
+        ["currents", "Currents", "Live · the pointer stirs the ink"],
+        ["ripples", "Ripples", "Live · click to drop a ripple"],
+        ["aurora", "Aurora", "Live · the light leans toward the pointer"],
+        ["field", "Dot Field", "Live · the pointer pushes the dots aside"],
+        ["aero", "Aero", "Live · bubbles drift aside from the pointer"],
+      ].map(([id, title, attribution]) => ({
+        id: `shader:${id}`,
+        title: title!,
+        attribution: attribution!,
+        collection: "shaders",
+        collection_title: "Living wallpapers",
+      })),
+    },
+    steps: [
+      wait('[data-card="backdrop"] [data-collection="shaders"]'),
+      { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
+    ],
+    note: "Settings > Personalization > Background with Currents picked under Living wallpapers: Currents, Ripples, Aurora, Dot Field and Aero, each saying what the pointer does.",
+  }),
+  // Browse More Art (cx-t2x.8): a search across the open museum collections, sample answers.
+  "art-browser": variant("appearance", {
+    focus: "appearance.background",
     options: {
       values: { "appearance.background": "starryNight" },
       museumArt: [
@@ -871,13 +1090,12 @@ Object.assign(variants, {
           ),
       ]),
     ),
-    steps: [
-      wait('[data-card="backdrop"]'),
-      click('[data-card="backdrop"] button[aria-expanded]'),
-      input('[data-card="art-browser"] input[type="search"]', "night"),
-      click('[data-card="art-browser"] button[type="submit"]'),
-      wait('[data-card="art-browser"] .backdrop-grid'),
-    ],
+    play: async (ctx) => {
+      await ctx.click({ selector: '[data-card="backdrop"] button[aria-expanded]' });
+      await ctx.type("night", { selector: '[data-card="art-browser"] input[type="search"]' });
+      await ctx.click({ selector: '[data-card="art-browser"] button[type="submit"]' });
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="art-browser"] .backdrop-grid'));
+    },
     note: "Browse More Art: a search answered by three open collections, each work with its source.",
   }),
   "terminal-shell-unknown": variant("terminal", {
@@ -899,6 +1117,59 @@ Object.assign(variants, {
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
   "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
+  "autocloud-off": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({ on: false, error: null }),
+    },
+    note: "A Remote machine not in AutoCloud: Off, where to turn it on, the always-on idle note (customers' default).",
+    play: autoCloudPlay,
+  }),
+  "autocloud-accepting": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: true,
+        error: null,
+        accepting: true,
+        owner_idle: true,
+        policy: { teams: [], agents: [], hours: null },
+        caps: macCaps,
+      }),
+    },
+    note: "Enrolled and taking work while the owner is away: the owner-only policy and the Mac's capability badges.",
+    play: autoCloudPlay,
+  }),
+  "autocloud-owner-active": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: true,
+        error: null,
+        accepting: false,
+        owner_idle: false,
+        policy: {
+          teams: ["Sample team"],
+          agents: ["claude", "codex"],
+          hours: { from: 22, to: 7 },
+        },
+        caps: macCaps,
+      }),
+    },
+    note: "Enrolled with a team, agents and overnight hours, waiting because the owner is using it.",
+    play: autoCloudPlay,
+  }),
+  "autocloud-error": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: false,
+        error: "Studio Mac did not answer.",
+      }),
+    },
+    note: "The machine's AutoCloud report could not be read: its error under the idle note.",
+    play: autoCloudPlay,
+  }),
   "machines-row-shape": variant("accounts", {
     host: { ...host, machines: rowShapeMachines },
     options: { values: { "appearance.machineColors": { "research build machine": "#7F5FA8" } } },
@@ -909,7 +1180,7 @@ Object.assign(variants, {
       card.scrollIntoView({ block: "center" });
     },
   }),
-  "cloud-environments-row-shape": variant("accounts", {
+  "cloud-environments-row-shape": variant("cloud", {
     environments: rowShapeEnvironments,
     note: "One failed Cloud Environment row with status, repository, error log and actions.",
     play: async (ctx) => {
@@ -940,6 +1211,18 @@ Object.assign(variants, {
       card.scrollIntoView({ block: "center" });
     },
   }),
+  "extensions-edited": variant("extensions", {
+    note: "Settings > Extensions: an extension's declared settings (switch, choice, text, number), Compact rows just turned on.",
+    steps: [
+      wait('[data-extension-setting="compact"] [role="switch"]'),
+      click('[data-extension-setting="compact"] [role="switch"]'),
+    ],
+    play: async (ctx) => {
+      const card = ctx.find({ selector: '[data-card="extensions"]' });
+      card.setAttribute("data-gallery-capture", "");
+      card.scrollIntoView({ block: "center" });
+    },
+  }),
   "profile-editor": variant("browser", {
     steps: [
       click('[data-profile="p-work"] .host-toggle'),
@@ -963,6 +1246,34 @@ Object.assign(variants, {
   "updates-channel-open": variant("updates", {
     steps: [click(`${row("updates.channel")} .ui-select-button`), wait(".ui-select-popup .ui-menu-item")],
     note: "Settings > Updates, the Update Channel menu open over the Check Every row.",
+  }),
+  // What's New update-when-idle (#47272): Update When Idle turned on, its idle minutes below it.
+  "update-when-idle": variant("updates", {
+    focus: "updates.installWhenIdle",
+    options: { values: { "updates.installWhenIdle": true, "updates.installWhenIdleMinutes": 15 } },
+    note: "Settings > Updates with Update When Idle on: a downloaded update installs after 15 idle minutes.",
+  }),
+  // What's New needs-you-glow (#46884): Needs You Look set to Glow instead of the default Badge.
+  "needs-you-glow": variant("notifications", {
+    focus: "notifications.attention.mark",
+    options: { values: { "notifications.attention.mark": "glow" } },
+    note: "Settings > Notifications with Needs You Look set to Glow: a waiting tab or sidebar row glows in place of its badge.",
+  }),
+  // What's New custom-notification-sound (https://github.com/manaflow-ai/cmux/issues/55219): a sound
+  // of the person's own picked with Custom Sound… (the menu's last item) and a Sound Duration.
+  "custom-notification-sound": variant("notifications", {
+    focus: "notifications.sounds.maxSeconds",
+    options: {
+      values: { "notifications.sound": "My Chime", "notifications.sounds.maxSeconds": 3 },
+      domains: { ...mockDomains, sounds: [...mockDomains.sounds, "My Chime"] },
+    },
+    note: "Sound set to a custom file (My Chime) and Sound Duration at 3 s.",
+  }),
+  // What's New agent-blocked-notification: Agent Blocked delivery set to Banner (default Off).
+  "agent-blocked-banner": variant("notifications", {
+    focus: "notifications.delivery.blocked",
+    options: { values: { "notifications.delivery.blocked": "banner" } },
+    note: "Settings > Notifications with Agent Blocked set to Banner: an agent that turns Blocked posts a banner.",
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
@@ -1152,67 +1463,64 @@ Object.assign(variants, {
       ],
     },
   }),
-  // Agents > Computer Use Setup (ComputerUseCard): off (grants unknown), every grant given, none.
-  // Focusing the card's first button scrolls it into view.
-  "computer-use-off": variant("agents", {
-    host: { ...host, computer_use: { phase: "off", accessibility: null, screen_recording: null, helper: null } },
-    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "Computer Use off: the switch, then Guided Setup offering to turn it on; no grant rows.",
+  // Settings > Computer Use (ComputerUseCard): the default (Full access, one grant missing, the
+  // engine's deny list), every grant given with saved approvals, Look only, Off, a failed worker,
+  // a policy lock and a short custom deny list. Focusing the mode picker scrolls the card into view.
+  "computer-use-default": variant("computerUse", {
+    host: { ...host, computer_use: computerUseReady },
+    steps: [wait('[data-card="computer-use"] [data-mode]'), focusComputerUse],
+    note: "Full access by default: status (engine, Accessibility allowed, Screen Recording with Grant Access, worker running), the five modes, the denied apps.",
   }),
-  "computer-use-failed": variant("agents", {
+  "computer-use-granted": variant("computerUse", {
+    host: {
+      ...host,
+      computer_use: {
+        ...computerUseReady,
+        screen_recording: true,
+        approvals: [
+          { app_id: "com.apple.Safari", name: "Safari", decision: "always" },
+          { app_id: "com.figma.Desktop", name: "Figma", decision: "always" },
+          { app_id: "com.apple.MobileSMS", name: "Messages", decision: "never" },
+        ],
+      },
+    },
+    options: { values: { "computerUse.mode": "approvedApps" } },
+    steps: [wait('[data-card="computer-use"] [data-approval]'), focusApprovals],
+    note: "Approved apps with every grant given: Saved Approvals lists Always Allow and Never, each with Forget.",
+  }),
+  "computer-use-look-only": variant("computerUse", {
+    host: { ...host, computer_use: { ...computerUseReady, screen_recording: true } },
+    options: { values: { "computerUse.mode": "lookOnly" } },
+    steps: [wait('[data-card="computer-use"] [data-mode="lookOnly"][data-checked]'), focusComputerUse],
+    note: "Look only: screenshots and reading, no clicks or typing.",
+  }),
+  "computer-use-off": variant("computerUse", {
+    host: { ...host, computer_use: { ...computerUseReady, phase: "off", worker: { state: "stopped" } } },
+    options: { values: { "computerUse.mode": "off" } },
+    steps: [wait('[data-card="computer-use"] [data-mode="off"][data-checked]'), focusComputerUse],
+    note: "Off: the status says pick a mode to turn it on; no grant or worker rows.",
+  }),
+  "computer-use-failed": variant("computerUse", {
     host: { ...host, computer_use: { phase: "failed", accessibility: null, screen_recording: null, helper: null } },
     steps: [
       wait('[data-card="computer-use"]'),
-      {
-        selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]',
-        action: "focus",
-      },
+      { selector: '[data-card="computer-use"] [data-action="palette.computerUse.restart"]', action: "focus" },
     ],
-    note: "The helper did not respond. Restart Helper is the only action.",
+    note: "The worker did not respond: Restart is the only status action.",
   }),
-  "computer-use-granted": variant("agents", {
+  "computer-use-policy-locked": variant("computerUse", {
     host: {
       ...host,
-      computer_use: { phase: "ready", accessibility: true, screen_recording: true, helper: "cmux Computer Use" },
+      computer_use: { phase: "disabled_by_policy", accessibility: null, screen_recording: null, helper: null },
     },
-    steps: [wait('[data-card="computer-use"] [data-granted="true"]'), focusComputerUse],
-    note: "Computer Use ready: Accessibility and Screen Recording both allowed.",
+    steps: [wait('[data-card="computer-use"][data-phase="disabled_by_policy"]'), focusComputerUse],
+    note: "A managed policy turned Computer Use off on this Mac: no Grant or Restart; the rows still show.",
   }),
-  "computer-use-host-unverified": variant("agents", {
-    host: {
-      ...host,
-      computer_use: {
-        phase: "ready",
-        accessibility: true,
-        screen_recording: true,
-        helper: "cmux Computer Use",
-        host_unverified: true,
-      },
-    },
-    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "The legacy helper can't verify this build (not team-signed): legacy Computer Use is off.",
-  }),
-  "computer-use-upstream-fallback": variant("agents", {
-    host: {
-      ...host,
-      computer_use: {
-        phase: "ready",
-        accessibility: true,
-        screen_recording: true,
-        helper: "cmux Computer Use",
-        upstream_fallback: true,
-      },
-    },
-    steps: [wait('[data-card="computer-use"]'), focusComputerUse],
-    note: "Driver Upstream in a build without its helper: Legacy runs, and the status line says so.",
-  }),
-  "computer-use-not-granted": variant("agents", {
-    host: {
-      ...host,
-      computer_use: { phase: "ready", accessibility: false, screen_recording: false, helper: "cmux Computer Use" },
-    },
-    steps: [wait('[data-card="computer-use"] [data-granted="false"]'), focusComputerUse],
-    note: "Computer Use ready but neither grant given: both rows say Not Allowed.",
+  "computer-use-custom-deny-list": variant("computerUse", {
+    host: { ...host, computer_use: { ...computerUseReady, screen_recording: true } },
+    options: { values: { "computerUse.deniedApps": ["com.apple.Terminal", "com.1password.*", "name:Notes"] } },
+    steps: [wait('[data-card="computer-use"] [data-denied-app="name:Notes"]'), focusDenied],
+    note: "A short custom deny list: Restore Defaults is enabled; Add a Running App offers Safari, Notes and Figma.",
   }),
   // Settings > Agents > Agent Harnesses (BRING-YOUR-OWN-HARNESS).
   "agents-harnesses": variant("agents", {
@@ -1264,6 +1572,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="codex"]'),
       { selector: '[data-harness-update-card="codex"] [data-harness-action="updateCard"]', action: "focus" },
@@ -1328,6 +1637,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="claude"]'),
       { selector: "[data-harness-update-command]", action: "focus" },
@@ -1365,6 +1675,7 @@ Object.assign(variants, {
         },
       ],
     },
+    options: { values: { "labs.previewFeatures": true } },
     steps: [
       wait('[data-harness-update-card="codex"]'),
       { selector: '[data-agent-update-job="exited"]', action: "focus" },
@@ -1380,13 +1691,13 @@ Object.assign(variants, {
     steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
     note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
   }),
-  // Settings > Personalization > Chief with the pet off (the default): the Chief's character stays checked.
-  "chief-pet-off": variant("personalization", {
+  // Settings > Chief's look with the pet off (the default): the Chief's character stays checked.
+  "chief-pet-off": variant("chief", {
     focus: "home.chiefPetMascot",
     note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
   }),
-  // Settings > Personalization > Chief with Mochi, the first animated set, picked and the pet shown.
-  "chief-pet-mochi": variant("personalization", {
+  // Settings > Chief's look with Mochi, the first animated set, picked and the pet shown.
+  "chief-pet-mochi": variant("chief", {
     focus: "home.chiefPetMascot",
     options: { values: { "home.chiefPetMascot": "mochi", "home.chiefPetEnabled": true } },
     note: "Chief Pet with Mochi picked: the preview and the checked card show its static frame.",
@@ -1518,6 +1829,10 @@ Object.assign(variants, {
   }),
   "agents-empty": variant("agents", { agents: { harnesses: [] }, note: "No harness: the empty line." }),
   "accounts-empty": variant("accounts", { accounts: accounts({}, { groups: [], cmux: cmuxSignedOut }) }),
+  "accounts-sign-in-in-place": variant("accounts", {
+    accounts: accounts({}, { signInAccounts: ACCOUNT_LISTS.signedOut }),
+    note: "A host that signs in in place: GitHub, ChatGPT and Claude accounts; Add account or Sign in shows the code in the row (variant A).",
+  }),
   "accounts-cmux-signing-in": variant("accounts", {
     accounts: accounts({}, { cmux: cmuxSigningIn }),
     note: "Sign In to cmux in progress: open it in the browser, or cancel.",
@@ -1712,6 +2027,7 @@ const githubConnection = {
   busy: false,
   connect: "Connect GitHub",
   disconnect: "Disconnect",
+  reconfigure: "Reconfigure",
   confirm: "Disconnect GitHub? Agents will lose access through this connection.",
   cancel: "Cancel",
   refresh: "Refresh",
@@ -1720,6 +2036,7 @@ const githubConnection = {
     {
       id: "sample-github",
       canDisconnect: true,
+      canReconfigure: true,
       account: "sample-team",
       status: "Connected",
       permissions: ["contents:write", "pull_requests:write"],
@@ -1761,6 +2078,19 @@ variants["github-connect-empty"] = variant("accounts", {
     },
   ),
 });
+// Settings > Accounts > Team agent keys (TeamAgentKeysCard.tsx): admin, member, signed out,
+// personal team and a conflict refusal, each with the app's copy (mockAgentKeys.ts).
+for (const [state, agentKeys] of Object.entries(mockAgentKeys)) {
+  // Variant names are lower kebab case: the mock's `signedOut` is `signed-out` here.
+  const name = state.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+  variants[`team-agent-keys-${name}`] = variant("accounts", {
+    accounts: accounts({}, { agentKeys }),
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector('[data-card="team-agent-keys"]'));
+      ctx.document.querySelector<HTMLElement>('[data-card="team-agent-keys"]')!.scrollIntoView({ block: "center" });
+    },
+  });
+}
 variants["github-connect-pending"] = variant("accounts", {
   accounts: accounts(
     {},
@@ -1783,6 +2113,63 @@ variants["github-connect-confirm"] = variant("accounts", {
   },
 });
 
+const screenSharingDevices = mockDevicesState();
+const localFirstUseDevices = {
+  ...screenSharingDevices,
+  thisDevice: screenSharingDevices.thisDevice ? { ...screenSharingDevices.thisDevice, sharesText: null } : null,
+  sharing: screenSharingDevices.sharing
+    ? {
+        ...screenSharingDevices.sharing,
+        on: false,
+        permissions: screenSharingDevices.sharing.permissions.map((permission) => ({ ...permission, granted: false })),
+      }
+    : null,
+};
+variants["devices-screen-sharing-local"] = variant("devices", {
+  devices: localFirstUseDevices,
+  note: "First use: Share is visible while Mac Screen is off and Screen Recording plus Accessibility still need permission.",
+});
+variants["devices-screen-sharing-remote"] = variant("devices", {
+  devices: {
+    ...localFirstUseDevices,
+    others: localFirstUseDevices.others.map((device) =>
+      device.id === "dev-macbook"
+        ? {
+            ...device,
+            name: "Research MacBook Pro — Office Display",
+            online: true,
+            presence: "Online",
+            sharesText: "Shares Mac Screen",
+            screenAction: { kind: "view", title: "View screen", disabled: false },
+          }
+        : device,
+    ),
+  },
+  note: "An online Mac has a direct View screen action; phones retain their access picker.",
+});
+variants["devices-screen-sharing-offline"] = variant("devices", {
+  devices: screenSharingDevices,
+  note: "An offline Mac keeps its disabled View screen affordance while its name and captions remain readable.",
+});
+
+for (const { name, scale } of pageDensities) {
+  variants[`density-${name}`] = variant("appearance", {
+    note: `${name}: scaled content, controls and navigation, with centered disclosure content and concentric corners on hover.`,
+    play: async (ctx) => {
+      await pageDensityPlay(scale)(ctx);
+      await ctx.hover({ selector: ".content .more-options" });
+    },
+  });
+  variants[`density-${name}-disclosure-open`] = variant("appearance", {
+    note: `${name}: centered disclosure content with its rows open.`,
+    play: async (ctx) => {
+      await pageDensityPlay(scale)(ctx);
+      await ctx.click({ selector: ".content .more-options" });
+      await ctx.hover({ selector: ".content .more-options" });
+    },
+  });
+}
+
 export default settingsPageEntry({
   id: "pages.settings",
   anchors: [{ selector: "[data-settings-search]" }, { selector: '[data-section-link="general"]' }],
@@ -1793,11 +2180,19 @@ export default settingsPageEntry({
   widths: { narrow: 480, normal: 1000, wide: 1440 },
   covers: [
     "page:cmux.settings",
+    "pages/shared/pageDensity.css",
+    "pages/settings/look.css",
+    "pages/settings/refined.css",
+    "pages/settings/layout.css",
+    "pages/settings/styles.css",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AccountSignInSection.tsx",
     "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
+    "pages/settings/components/AgentToolsCard.tsx",
+    "pages/settings/components/McpServersCard.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
@@ -1824,6 +2219,7 @@ export default settingsPageEntry({
     "pages/settings/components/SearchField.tsx",
     "pages/settings/components/SearchResults.tsx",
     "pages/settings/components/SectionActions.tsx",
+    "pages/settings/components/BetaChip.tsx",
     "pages/settings/components/SectionList.tsx",
     "pages/settings/components/SectionRoute.tsx",
     "pages/settings/components/SectionView.tsx",
@@ -1836,6 +2232,7 @@ export default settingsPageEntry({
     "pages/settings/components/ThemePreview.tsx",
     "pages/settings/components/AppIllustration.tsx",
     "pages/settings/components/ThemeStudio.tsx",
+    "pages/settings/components/ExtensionsCard.tsx",
     "pages/settings/components/WorktreeSetupCard.tsx",
     "pages/settings/editors/AccentRowEditor.tsx",
     "pages/settings/editors/ChoiceOrNumberEditor.tsx",

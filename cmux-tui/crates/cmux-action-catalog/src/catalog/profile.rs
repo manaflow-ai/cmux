@@ -7,6 +7,11 @@ use crate::text::t;
 
 const GROUP: &str = "ProfileActionCatalog";
 
+/// A session (machine) of the home session's registry, by id; the App lists its personal state's
+/// sessions (`PersonalStore.sessions`), the ones a space can follow.
+#[rustfmt::skip]
+const FOLLOW_SESSION: Argument = Argument { name: "session", title: t("ProfileActions", "argument.space.followSession", "Session"), kind: ArgKind::String, required: true, suggestions: Some(Suggestions { source: "personalSessions", pinned: &[], other_title: None, allows_multiple: false }), is_target_name: false, is_target_description: false, is_supplied_by_target: false, asked_in_palette: false };
+
 #[rustfmt::skip]
 pub static ACTIONS: &[Action] = &[
     Action {
@@ -14,10 +19,11 @@ pub static ACTIONS: &[Action] = &[
         group: GROUP,
         title: t("ProfileActions", "action.space.new", "New Space"),
         keywords: &["room", "profile", "space", "create"],
+        default_shortcut: Some(Shortcut { key: "n", modifiers: CTRL | OPT | CMD }),
         category: "workspace",
         symbol: "circle.badge.plus",
         surfaces: PALETTE | KEYBOARD | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menus: &[Placement::at("sidebarBackground", "create", 6).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         arguments: &[args::NAME.optional(), args::COLOR.optional(), args::ICON.optional()],
         cli_name: "space create",
         main_menu: Some("window"),
@@ -46,7 +52,7 @@ pub static ACTIONS: &[Action] = &[
         category: "workspace",
         symbol: "eyeglasses",
         surfaces: PALETTE | KEYBOARD | MENU | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "create", 6).folder("new")], ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
         arguments: &[args::NAME.optional()],
         cli_name: "space new-incognito",
         main_menu: Some("window"),
@@ -475,6 +481,37 @@ pub static ACTIONS: &[Action] = &[
         arguments: &[args::SPACE_2],
         targets: &["workspace"],
         cli_name: "workspace move-to-space",
+        ..Action::DEFAULT
+    },
+    // A catalog request row (`Action::request`): the app sends the daemon's `room.unpin`, no handler of its own.
+    Action {
+        id: "workspace.unpinFromSpace",
+        group: GROUP,
+        title: t("ProfileActions", "action.workspace.unpinFromSpace", "Unpin Workspace from Space"),
+        keywords: &["room", "profile", "space", "unpin", "remove"],
+        category: "workspace",
+        symbol: "pin.slash",
+        surfaces: PALETTE | KEYBOARD,
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        targets: &["workspace"],
+        cli_name: "room unpin",
+        request: Some(Request { lane: RequestLane::Session, operation: "room.unpin", params: &[RequestParam { name: "workspace", source: ParamSource::Target("workspace") }] }),
+        ..Action::DEFAULT
+    },
+    // Follow Session in Space: the space shows that session's workspaces that are pinned to no
+    // other space (data-model 3.2), as `cmux room <room> follow --sessions …` (the daemon's verb,
+    // set-profile-follows). The picked session joins the ones the space follows already.
+    Action {
+        id: "space.followSession",
+        group: GROUP,
+        title: t("ProfileActions", "action.space.followSession", "Follow Session in Space…"),
+        keywords: &["room", "profile", "space", "follow", "session", "machine", "workspaces", "show"],
+        category: "workspace",
+        symbol: "eye",
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("ownerVerb")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        arguments: &[FOLLOW_SESSION],
+        targets: &["room"],
+        cli_name: "action space-follow-session",
         ..Action::DEFAULT
     },
     Action {

@@ -147,9 +147,9 @@ test("there is no Search | Ask switch and no Tab hint", async () => {
   const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   expect(editor.getAttribute("aria-describedby")).toBeNull();
   expect(field.getAttribute("aria-describedby")).toBeNull();
-  expect(editor.getAttribute("aria-label")).toBe("Ask anything or type a URL");
+  expect(editor.getAttribute("aria-label")).toBe("Type a question, command, or URL");
   const placeholder = field.querySelector<HTMLElement>(".acpmux-md-placeholder")!;
-  expect(placeholder.textContent).toBe("Ask anything or type a URL");
+  expect(placeholder.textContent).toBe("Type a question, command, or URL");
   expect(placeholder.hidden).toBe(false);
   expect(placeholder.querySelector(".acpmux-md-placeholder-key")).toBeNull();
 });
@@ -194,10 +194,11 @@ test("Tab steps the suggestions, and Shift-Tab is not consumed", async () => {
 // it is the browser's again.
 test("Tab on the last row moves focus on instead of wrapping", async () => {
   const editor = await type(await render([]), "ff");
-  // Up from the top row goes back to the text; from there Up takes the create strip's first
-  // action, and → twice its last, the last row.
-  for (const name of ["ArrowUp", "ArrowUp", "ArrowRight", "ArrowRight"]) await key(editor, name);
+  await key(editor, "Tab");
+  await key(editor, "Tab");
+  expect(selected()).toBe("Search the web for ff");
   const event = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   await act(async () => void editor.dispatchEvent(event));
   expect(event.defaultPrevented).toBe(false);
+  expect(selected()).toBe("Search the web for ff");
 });

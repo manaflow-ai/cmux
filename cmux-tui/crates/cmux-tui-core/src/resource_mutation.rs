@@ -17,6 +17,13 @@ use crate::{PaneId, State, SurfaceId};
 
 type StateApply = Box<dyn FnOnce(&mut State) + Send + 'static>;
 
+#[cfg(test)]
+thread_local! {
+    /// Whole state clones that [`ResourceMutationPlan::stage`] made on this
+    /// thread for a closure step.
+    static STAGED_STATE_CLONES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 /// State rows written in the plan's transaction after its patch applies.
 /// It may finalize the result and add changes (state resources and fresh
 /// upserts of resources whose only change is a state field).
@@ -115,6 +122,8 @@ impl ResourceMutationPlan {
     pub(crate) fn stage(&mut self, state: &mut State) -> State {
         match std::mem::replace(&mut self.state_step, StateStep::Staged) {
             StateStep::Apply(apply) => {
+                #[cfg(test)]
+                STAGED_STATE_CLONES.with(|clones| clones.set(clones.get() + 1));
                 let before = state.clone();
                 apply(state);
                 before
@@ -127,12 +136,21 @@ impl ResourceMutationPlan {
         }
     }
 
-    /// Declare that the state step changes only focus: the active
+    /// Whole state clones that [`Self::stage`] made on this thread for a
+    /// closure step (test hook).
+    #[cfg(test)]
+    pub(crate) fn staged_state_clones_for_test() -> u64 {
+        STAGED_STATE_CLONES.with(std::cell::Cell::get)
+    }
+
+    /// Declare that the state step adds, removes or reorders no column, dock
+    /// flag, column pane or pane tab. It changes only focus (the active
     /// workspace, screen, pane and tab, a stack's expanded pane and focus
-    /// stamps. It adds, removes or reorders no column, dock flag, column pane
-    /// or pane tab, so no dock rule can refuse it and [`Self::stage_checked`]
-    /// skips scanning every workspace's columns and cloning the state (a
-    /// cost that grew with the session, ask-bdd706af47).
+    /// stamps), or only the sizes, the divider flags or the zoom of one
+    /// screen. No dock rule can refuse such a step, so
+    /// [`Self::stage_checked`] skips scanning every workspace's columns and
+    /// cloning the state (a cost that grew with the session,
+    /// ask-bdd706af47).
     pub(crate) fn keeping_dock_columns(mut self) -> Self {
         self.keeps_dock_columns = true;
         self

@@ -136,7 +136,16 @@ pub struct Since {
 pub enum ResumeSize {
     Within(u64),
     Over,
+    /// A header on the way to the record after the cursor is not the next record's (or the log
+    /// ends first): the resume would stop at it, so its size is not known. The caller sends a
+    /// window and rebuilds the book, as for a record a read refused.
+    Damaged,
 }
+
+/// A group row of a page of turns and its checked text. A group row `folds.idx` lists has
+/// none when its index entry is missing or its record is refused: a hole that keeps its place
+/// and its row slot.
+type TurnRead = (RowRef, Vec<u8>);
 
 /// The segment bytes one read covers, including record headers and CRCs.
 #[derive(Clone, Copy)]
@@ -182,10 +191,22 @@ struct Budget {
     one_read: bool,
 }
 
+/// The open turn's fold, which `folds.idx` does not list until the turn ends: its group row and
+/// the ranges its fold shows now (what the group row will carry as `out`). A read folds the
+/// turn's settled rows by it as it folds a closed turn's, so a chat opened mid-turn draws the
+/// work already folded instead of drawing it and folding it away when the turn ends.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct LiveFold {
+    pub group: u64,
+    pub out: Vec<(u64, u64)>,
+}
+
 /// Per-request fold state shared by all directions of a window walk.
 struct FoldRead<'a> {
     index: Option<&'a Folds>,
     open: &'a [u64],
+    /// The open turn's fold, from its group to the book's last row.
+    live: Option<FoldEntry>,
     ranges: BTreeMap<u64, Vec<(u64, u64)>>,
     /// Exact group records already checked while reading their visible ranges, with their
     /// text. The sole writer cannot change them during this request, so neither validation
@@ -209,13 +230,42 @@ struct FoldCursor {
 
 impl<'a> FoldRead<'a> {
     fn new(index: Option<&'a Folds>, open: &'a [u64]) -> Self {
-        Self { index, open, ranges: BTreeMap::new(), validated: BTreeMap::new(), cursor: None }
+        Self {
+            index,
+            open,
+            live: None,
+            ranges: BTreeMap::new(),
+            validated: BTreeMap::new(),
+            cursor: None,
+        }
+    }
+
+    /// Folds the open turn too, up to `max_row`. Its ranges come from the translator, not
+    /// from its group row, which is not settled.
+    fn with_live(mut self, live: Option<&LiveFold>, max_row: u64) -> Self {
+        if let Some(live) = live
+            && live.group != 0
+        {
+            self.live = Some(FoldEntry { group: live.group, last: max_row.max(live.group) });
+            self.ranges.insert(live.group, live.out.clone());
+        }
+        self
+    }
+
+    /// The closed fold or the open turn holding `row_id`, if any.
+    fn locate(&mut self, row_id: u64) -> Result<Option<FoldEntry>, Error> {
+        if let Some(live) = self.live
+            && row_id >= live.group
+        {
+            return Ok(Some(live));
+        }
+        self.locate_closed(row_id)
     }
 
     /// The closed fold holding `row_id`, if any. The first call searches the index; later
     /// calls step from the cursor to neighbouring entries, one 16-byte read each, and a row
     /// in the gap the cursor spans reads nothing.
-    fn locate(&mut self, row_id: u64) -> Result<Option<FoldEntry>, Error> {
+    fn locate_closed(&mut self, row_id: u64) -> Result<Option<FoldEntry>, Error> {
         let Some(index) = self.index else { return Ok(None) };
         let mut cursor = match self.cursor {
             Some(cursor) => cursor,
@@ -520,6 +570,19 @@ impl Log {
         folds: Option<&Folds>,
         open_folds: &[u64],
     ) -> Result<Window, Error> {
+        self.read_window_live(anchor, rows, max_bytes, folds, open_folds, None)
+    }
+
+    /// [`Log::read_window`] with the open turn's fold, `live`, stepped over as a closed one is.
+    pub fn read_window_live(
+        &mut self,
+        anchor: Anchor,
+        rows: usize,
+        max_bytes: usize,
+        folds: Option<&Folds>,
+        open_folds: &[u64],
+        live: Option<&LiveFold>,
+    ) -> Result<Window, Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
@@ -530,7 +593,7 @@ impl Log {
             one_read: false,
         };
         let mut out = Vec::with_capacity(budget.rows.min(512));
-        let mut fold_read = FoldRead::new(folds, open_folds);
+        let mut fold_read = FoldRead::new(folds, open_folds).with_live(live, self.max_row);
         let mut result = match anchor {
             Anchor::End => {
                 let lo =
@@ -618,11 +681,25 @@ impl Log {
         folds: Option<&Folds>,
         open_folds: &[u64],
     ) -> Result<Window, Error> {
+        self.read_page_live(edge, max_bytes, fold, folds, open_folds, None)
+    }
+
+    /// [`Log::read_page`] with the open turn's fold, `live`: folded as a closed one is, and a
+    /// page of it may be asked for by its group.
+    pub fn read_page_live(
+        &mut self,
+        edge: Edge,
+        max_bytes: usize,
+        fold: Option<u64>,
+        folds: Option<&Folds>,
+        open_folds: &[u64],
+        live: Option<&LiveFold>,
+    ) -> Result<Window, Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
         if let Some(group) = fold {
-            return self.read_fold_page(edge, max_bytes, group, folds, open_folds);
+            return self.read_fold_page(edge, max_bytes, group, folds, open_folds, live);
         }
         let mut budget = Budget {
             rows: MAX_ROWS,
@@ -631,7 +708,7 @@ impl Log {
             one_read: folds.is_none(),
         };
         let mut out = Vec::new();
-        let mut fold_read = FoldRead::new(folds, open_folds);
+        let mut fold_read = FoldRead::new(folds, open_folds).with_live(live, self.max_row);
         let mut result = match edge {
             Edge::Before(id) => {
                 let id = self.normalize_anchor(id, &mut fold_read)?;
@@ -658,10 +735,11 @@ impl Log {
         group: u64,
         folds: Option<&Folds>,
         open_folds: &[u64],
+        live: Option<&LiveFold>,
     ) -> Result<Window, Error> {
         let mut opened = open_folds.to_vec();
         opened.push(group);
-        let mut fold_read = FoldRead::new(folds, &opened);
+        let mut fold_read = FoldRead::new(folds, &opened).with_live(live, self.max_row);
         // The request's one search; the walk inside the fold reads no other entry.
         let Some(fold) = fold_read.locate(group)?.filter(|entry| entry.group == group) else {
             return Err(Error::InvalidInput("fold is not in folds.idx"));
@@ -744,23 +822,24 @@ impl Log {
         let mut next =
             if up { Some(first_after).filter(|at| *at < count) } else { before_end.checked_sub(1) };
         let mut bytes_left = Self::bound(max_bytes, MAX_PAGE_BYTES) as u64;
-        let mut taken: Vec<(RowRef, Option<Vec<u8>>)> = Vec::new();
-        let mut looked = 0usize;
+        let mut taken: Vec<(u64, Option<TurnRead>)> = Vec::new();
         while let Some(at) = next
-            && looked < MAX_ROWS
+            && taken.len() < MAX_ROWS
         {
             let Some(fold) = folds.entry_at(at)? else { break };
-            if let Some(entry) = self.entry(fold.group) {
-                let len = u64::from(entry.len).saturating_add(super::RECORD_OVERHEAD as u64);
-                if len > bytes_left && !taken.is_empty() {
-                    break;
+            let read = match self.entry(fold.group) {
+                Some(entry) => {
+                    let len = u64::from(entry.len).saturating_add(super::RECORD_OVERHEAD as u64);
+                    if len > bytes_left && !taken.is_empty() {
+                        break;
+                    }
+                    bytes_left = bytes_left.saturating_sub(len);
+                    let row = RowRef::of(fold.group, 0, &entry);
+                    self.read_row_bytes(&row)?.map(|text| (row, text))
                 }
-                bytes_left = bytes_left.saturating_sub(len);
-                let row = RowRef::of(fold.group, 0, &entry);
-                let text = self.read_row_bytes(&row)?;
-                taken.push((row, text));
-            }
-            looked = looked.saturating_add(1);
+                None => None,
+            };
+            taken.push((fold.group, read));
             next = if up {
                 Some(at.saturating_add(1)).filter(|at| *at < count)
             } else {
@@ -776,37 +855,42 @@ impl Log {
             taken.reverse();
         }
         let mut result = Window {
-            lo: taken.first().map_or(id, |(row, _)| row.row_id),
-            hi: taken.last().map_or(id, |(row, _)| row.row_id),
+            lo: taken.first().map_or(id, |(group, _)| *group),
+            hi: taken.last().map_or(id, |(group, _)| *group),
             has_before,
             has_after,
             ..Window::default()
         };
-        for (row, text) in taken {
-            match text {
-                Some(text) => {
+        for (group, read) in taken {
+            match read {
+                Some((row, text)) => {
                     let start = result.bytes.len();
                     result.bytes.extend_from_slice(&text);
                     result.at.push(start..result.bytes.len());
                     result.rows.push(row);
                 }
-                None => result.refused.push(row.row_id),
+                None => result.refused.push(group),
             }
         }
         Ok(result)
     }
 
-    /// Measures the bytes a resume starts from, without reading a record. Cursors in the
-    /// same sparse block share an upper bound; a span across three segments is always over.
+    /// Measures the bytes a resume reads, from the record after `cursor` to the end, without
+    /// reading a record's text: the records between `seq.idx`'s entry and the cursor cost a
+    /// header read each ([`Log::since_start`]). A span across three segments is always over.
     /// At most one closed segment's metadata is read. The actor uses a 1 MiB cap.
-    pub fn resume_size(&self, cursor: u64, cap: u64) -> Result<ResumeSize, Error> {
+    pub fn resume_size(&mut self, cursor: u64, cap: u64) -> Result<ResumeSize, Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
         if cursor >= self.last_seq {
             return Ok(ResumeSize::Within(0));
         }
-        let (seg, offset) = self.resume_start(cursor)?;
+        // A header that is not the next record's: the resume reads up to it and stops, so
+        // its size is not known here, and the book is damaged.
+        let Some((seg, offset)) = self.since_start(cursor)? else {
+            return Ok(ResumeSize::Damaged);
+        };
         let bytes = match self.tail.seg.checked_sub(seg) {
             Some(0) => self.tail.len.checked_sub(offset),
             Some(1) => {
@@ -838,10 +922,48 @@ impl Log {
         }
     }
 
+    /// Where the record after `cursor` starts: from `seq.idx`'s entry at or before the cursor,
+    /// one read of a header (40 bytes) a record, at most 255, so neither a resume nor its
+    /// measure reads or counts the records before its cursor, whatever their size. `None`
+    /// when a header on the way is not the next record's or the log ends first.
+    fn since_start(&mut self, cursor: u64) -> Result<Option<(u32, u64)>, Error> {
+        let slot = cursor.saturating_add(1) / SEQ_STRIDE;
+        let (mut seg, mut offset) = self.resume_start(cursor)?;
+        let mut expected = if slot == 0 { 1 } else { slot.saturating_mul(SEQ_STRIDE) };
+        let mut head = [0u8; HEADER_LEN];
+        while expected <= cursor {
+            let read = match self.read_segment(seg, offset, &mut head) {
+                Ok(read) => read,
+                Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                    return Ok(None);
+                }
+                Err(error) => return Err(error),
+            };
+            if read == 0 {
+                // The end of a segment: the next record starts the next one.
+                if seg >= self.tail.seg {
+                    return Ok(None);
+                }
+                seg = seg.saturating_add(1);
+                offset = super::SEGMENT_HEADER_LEN;
+                continue;
+            }
+            let Some(header) = head.get(..read).and_then(Header::parse) else {
+                return Ok(None);
+            };
+            if header.seq != expected {
+                return Ok(None);
+            }
+            expected = expected.saturating_add(1);
+            offset = offset.saturating_add(header.record_len() as u64);
+        }
+        Ok(Some((seg, offset)))
+    }
+
     /// The records after `cursor`, in change order: at most `max_bytes` of record bytes
     /// ([`MAX_FRAME_BYTES`] at most), always at least one when one exists. Starts at the
-    /// `seq.idx` entry at or before the cursor, so it reads what was missed (and at most 255
-    /// records before it), never the book. A cursor at or past the last seq gets nothing.
+    /// record after the cursor ([`Log::since_start`]), so it reads what was missed, never the
+    /// book. A cursor at or past the last seq gets nothing.
     /// Bytes alone bound a resume: it has no row count cap ([`MAX_ROWS`] bounds windows and
     /// pages only).
     pub fn since(&mut self, cursor: u64, max_bytes: usize) -> Result<Since, Error> {
@@ -857,10 +979,12 @@ impl Log {
         if cursor >= self.last_seq {
             return Ok(since);
         }
-        let slot = cursor.saturating_add(1) / SEQ_STRIDE;
-        let (mut seg, mut offset) = self.resume_start(cursor)?;
+        let Some((mut seg, mut offset)) = self.since_start(cursor)? else {
+            since.stopped_on_refusal = true;
+            return Ok(since);
+        };
         let mut left = Self::bound(max_bytes, MAX_FRAME_BYTES) as u64;
-        let mut expected = if slot == 0 { 1 } else { slot.saturating_mul(SEQ_STRIDE) };
+        let mut expected = cursor.saturating_add(1);
         let mut chunk = vec![0u8; RESUME_CHUNK];
         loop {
             let read = match self.read_segment(seg, offset, &mut chunk) {

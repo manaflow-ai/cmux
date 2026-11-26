@@ -11,6 +11,26 @@ final class ChiefVoiceRecordUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// The microphone input (no synthetic audio standing in for audio already sent): on iOS 26
+    /// the button showed Messages' dictation microphone and took no touches, so a hold never
+    /// recorded. It takes the tap (the hold hint) from the start on every iOS.
+    @MainActor
+    func testRecordButtonTakesTouchesBeforeAnyAudioWasSent() throws {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-demo", "chief-open"]
+        app.launch()
+
+        let record = app.buttons["conversation.composer.record"]
+        XCTAssertTrue(record.waitForExistence(timeout: 30), "record button is an accessible button\n\(app.debugDescription)")
+        XCTAssertTrue(wait(for: record, "hittable == true", timeout: 30), "record button takes touches")
+        attach(app, "mic-rest")
+        record.tap()
+        let hint = app.staticTexts["conversation.recording.holdHint"]
+        XCTAssertTrue(hint.waitForExistence(timeout: 3), "a tap shows the hold hint")
+        attach(app, "mic-tap-hint")
+    }
+
     @MainActor
     func testTapHintsHoldRecordsAndLocks() throws {
         let app = XCUIApplication()

@@ -1503,3 +1503,49 @@ async fn an_inbox_message_withdrawn_during_a_hold_stays_withdrawn_through_a_cras
     let (now, kinds, kept) = withdrawn_during_a_hold_then_crashed(0).await;
     assert!(!now, "the withdrawn message is back in the inbox: {kinds:?}, {kept} kept");
 }
+
+/// A restore dates its chat (`count_restored`) with no record of the hub's own: it is told
+/// before the next list read, as any change no record carries is, so the kept list order
+/// (`list_order.rs`) is still every chat sorted after it. Before, nothing told the row log, and
+/// the restored chat kept its old place: under a chat it is now newer than, and out of the
+/// usage pass's chats of the last day (`usage_view.rs`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_restore_that_dates_its_chat_moves_it_in_the_kept_order() {
+    let (hub, session) = hub_at(0).await;
+    let now = crate::store::now_ms();
+    let other: crate::store::SessionMeta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "other", "name": "other", "harness": "fake",
+        "cwd": "/tmp", "status": "closed", "createdAt": 1, "updatedAt": now + 1_000_000_000,
+    }))
+    .unwrap();
+    hub.store.save(&other).unwrap();
+    hub.insert_test_session(other);
+    let sorted = |hub: &Hub| {
+        let mut rows: Vec<(u64, String)> = hub
+            .session_handles()
+            .iter()
+            .map(|s| (s.read_meta(|m| m.updated_at), s.id.clone()))
+            .collect();
+        rows.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        rows.into_iter().map(|(_, id)| id).collect::<Vec<_>>()
+    };
+    assert_eq!(hub.kept_order_for_test(), sorted(&hub), "the kept order before the restore");
+    assert_eq!(hub.kept_order_for_test().first().map(String::as_str), Some("other"));
+    let last = session.seq.load(Ordering::SeqCst);
+    let records = json!([chunk(last + 1, now + 2_000_000_000)]);
+    hub.journal_restore(&restore_params(&session, records)).await.unwrap();
+    assert_eq!(session.read_meta(|m| m.updated_at), now + 2_000_000_000, "the restore dated it");
+    assert_eq!(hub.kept_order_for_test(), sorted(&hub), "the kept order after the restore");
+}
+
+/// A restore's file path is the chat's own uploads folder's, as the platform spells it: on
+/// Windows that is drive-qualified, and its `Prefix` component is not a reason to refuse it.
+#[test]
+fn an_upload_path_in_the_chats_folder_is_accepted_as_the_platform_spells_it() {
+    let dir = super::file_uploads::session_dir("chat-1").unwrap();
+    let file = dir.join("a.txt");
+    let file = file.to_str().unwrap();
+    assert_eq!(super::journal_restore::upload_path("chat-1", file), Some(dir.join("a.txt")));
+    assert!(super::journal_restore::upload_path("chat-1", dir.to_str().unwrap()).is_none());
+    assert!(super::journal_restore::upload_path("chat-2", file).is_none());
+}

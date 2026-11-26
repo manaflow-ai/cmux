@@ -99,24 +99,26 @@ struct AgentChatDestinationsTests {
         var chosen: String?
         registry.bind("palette.newAgentChatOn", run: { chosen = $0["host"]?.targetValue?.id })
         let descriptor = try #require(ActionCatalog.all.first { $0.id == "palette.newAgentChatOn" })
-        let source = PaletteSourcesBridge.agentChatTargets(Self.source, next: EmptyTargets())
+        let source = Self.source.paletteTargets(next: EmptyTargets())
         let flow = PaletteArgumentFlow(registry: registry, descriptor: descriptor, targets: source)
         guard case .push(let page) = flow.effect(collected: ActionInvocation()) else { Issue.record("no chooser"); return }
         let provider = try #require(page.providers.first)
         #expect(provider.immediateItems?.first?.id == "option:local")
         #expect(provider.refreshesOnOpen)
         let items = await provider.items()
-        let offline = try #require(items.first { $0.id == "option:build-box" })
-        #expect(!offline.isEnabled)
-        #expect(offline.subtitle == "reconnecting")
+        // A redialing peer is neither greyed nor labelled (Leo, 2026-11-24: "the graying out of workspaces, nah").
+        let redialing = try #require(items.first { $0.id == "option:build-box" })
+        #expect(redialing.isEnabled)
+        #expect(redialing.subtitle == nil)
         let peer = try #require(items.first { $0.id == "option:dev-box" })
-        guard case .perform(let pick) = peer.primary.effect else { Issue.record("no pick"); return }
+        // A row's run is decided when it is picked (`.deferred`, #42286), as the palette does with `resolved()`.
+        guard case .perform(let pick) = peer.primary.effect.resolved() else { Issue.record("no pick"); return }
         pick()
         #expect(chosen == "dev-box")
         let cloud = try #require(items.first { $0.id == "option:cloud-machine:" + Self.sameNameCloudID })
         #expect(cloud.isEnabled)
         #expect(items.contains { $0.id == "option:cloud-peer" })
-        guard case .perform(let pickCloud) = cloud.primary.effect else { Issue.record("no Cloud pick"); return }
+        guard case .perform(let pickCloud) = cloud.primary.effect.resolved() else { Issue.record("no Cloud pick"); return }
         pickCloud()
         #expect(chosen == "cloud-machine:" + Self.sameNameCloudID, "the chooser forwards the stable Cloud ID, not its matching peer name")
         #expect(items.first { $0.id == "option:cloud-machine:vm-ready" }?.isEnabled == true)

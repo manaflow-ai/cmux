@@ -1,4 +1,5 @@
 //! One v1 list mark queue and one summary builder, until chat actors own rows.
+mod refused;
 mod summary;
 use super::*;
 #[cfg(test)]
@@ -80,6 +81,10 @@ struct TeeState {
     remote_submits: AtomicU64,
     origin_writes: AtomicU64,
     all: AtomicBool,
+    /// The remote origins the index refused past its bound (`refused.rs`), and whether it holds
+    /// any: an admitted origin's submit reads the flag alone.
+    refused: std::sync::Mutex<refused::Refused>,
+    refused_any: AtomicBool,
     #[cfg(test)]
     walk_peak_page_bytes: AtomicU64,
     #[cfg(test)]
@@ -381,7 +386,7 @@ impl Expiries {
 }
 
 fn session_by_id(v1: &Hub, id: &str) -> Option<Arc<Session>> {
-    v1.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+    v1.session_get(id)
 }
 
 fn stalled_deadline(
@@ -447,7 +452,7 @@ fn drain_marks(v1: &Hub, v2: &V2, state: &TeeState, expiries: &mut Expiries) {
         }
     }
     for (peer, id) in state.take_remote(BATCH.saturating_sub(used)) {
-        if submit_remote_id(v1, v2, &peer, &id, state.remote_ready.load(Ordering::Acquire)) {
+        if submit_remote_id(v1, v2, state, &peer, &id) {
             state.remote_submits.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -466,12 +471,23 @@ fn remote_row_summary(v1: &Hub, peer: &str, id: &str) -> Option<std::io::Result<
 }
 
 /// Submits or removes `(peer, id)`; answers whether it wrote to the index's queue.
-fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str, remote_ready: bool) -> bool {
-    if v2.hub.source(peer) == Some(Source::Mirror) {
+fn submit_remote_id(v1: &Hub, v2: &V2, state: &TeeState, peer: &str, id: &str) -> bool {
+    let source = v2.hub.source(peer);
+    if source == Some(Source::Mirror) {
         return false;
+    }
+    if source.is_some() && state.refused_any.load(Ordering::Acquire) {
+        let mut refused = state.refused.lock().unwrap_or_else(|e| e.into_inner());
+        refused.admitted(&v2.hub, peer);
+        state.refused_any.store(!refused.is_empty(), Ordering::Release);
     }
     match remote_row_summary(v1, peer, id) {
         Some(Ok(summary)) => {
+            if source.is_none() {
+                let mut refused = state.refused.lock().unwrap_or_else(|e| e.into_inner());
+                refused.note(&v2.hub, peer);
+                state.refused_any.store(!refused.is_empty(), Ordering::Release);
+            }
             if let Err(error) = v2.hub.submit_from(Source::V1, summary) {
                 tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote summary");
             }
@@ -481,7 +497,7 @@ fn submit_remote_id(v1: &Hub, v2: &V2, peer: &str, id: &str, remote_ready: bool)
             tracing::warn!(peer, session_id = id, %error, "v2 list tee could not build a remote summary");
             false
         }
-        None if remote_ready => {
+        None if state.remote_ready.load(Ordering::Acquire) => {
             if let Err(error) = v2.hub.remove_from(Source::V1, peer, id) {
                 tracing::warn!(peer, session_id = id, %error, "v2 list tee rejected a remote removal");
             }
@@ -635,6 +651,8 @@ pub(crate) fn start_v2_tee(
     });
     let handle = Arc::new(TeeHandle { state: state.clone() });
     let task = async move {
+        let mut slots_seen = v2.hub.origin_slots_freed();
+        let mut refusals_seen = v2.hub.origins_refused();
         let (mut expiries, initial_complete) = reconcile(&v1, &v2, &state).await;
         let mut rebuild_seen = v2.hub.rebuild_count();
         if rebuild_seen != 0 {
@@ -644,6 +662,9 @@ pub(crate) fn start_v2_tee(
         let mut rebuild_retry_secs = 1_u64;
         if v1.config.read().await.peers.is_empty() {
             state.remote_ready();
+        }
+        if !v2.allows_surfaces(&["list", "peers"]) {
+            write_off_mirror_marks(&v1, &v2).await;
         }
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
         let mut remote_reconciled = false;
@@ -672,10 +693,30 @@ pub(crate) fn start_v2_tee(
                 reconcile_remote(&v1, &v2, &state).await;
                 remote_reconciled = true;
             }
+            // One atomic load a turn: the writer refused a submit since the last, so a refusal
+            // the tee could not tell holds the next freed slot's whole reconcile (`refused.rs`).
+            let refusals = v2.hub.origins_refused();
+            if refusals != refusals_seen {
+                refusals_seen = refusals;
+                refused::moved(&v2.hub, &state);
+            }
+            // One atomic load a turn: the writer dropped an origin's source or record since the
+            // last, so the origins the index refused are offered again (`refused.rs`).
+            let slots = v2.hub.origin_slots_freed();
+            if slots != slots_seen {
+                slots_seen = slots;
+                if state.refused_any.load(Ordering::Acquire)
+                    && refused::release(&v1, &v2.hub, &state)
+                    && remote_reconciled
+                {
+                    reconcile_remote(&v1, &v2, &state).await;
+                }
+            }
             let clock_tick = tokio::select! {
                 biased;
                 _ = tick.tick() => true,
                 _ = state.notify.notified() => false,
+                _ = v1.link_v2.handed_back_ready.notified() => false,
                 _ = async {
                     if let Some(deadline) = rebuild_retry_at {
                         tokio::time::sleep_until(deadline.into()).await;
@@ -743,11 +784,62 @@ pub(crate) fn start_v2_tee(
                     tokio::task::yield_now().await;
                 }
             }
+            walk_handed_back(&v1, &v2, &state);
             drain_marks(&v1, &v2, &state, &mut expiries);
             tokio::task::yield_now().await;
         }
     };
     (handle, task)
+}
+
+/// With `peers` off no mirror runs here, and v1 holds every origin. An origin whose mark a
+/// mirror left on an earlier run opens as the mirror's (decision 264), so it is taken over as
+/// v1, which writes the mark off: a later run with `peers` on walks rather than resumes past
+/// the rows v1 wrote meanwhile. Once the writer has handled each takeover, the tee walks those
+/// origins' rows as it does a hand-back's.
+async fn write_off_mirror_marks(v1: &Hub, v2: &V2) {
+    let mut asked = Vec::new();
+    for record in v2.hub.snapshot().mirror_marks() {
+        let before = v2.hub.takeover_turns(&record.origin);
+        match v2.hub.takeover(&record.origin, Source::V1) {
+            Ok(()) => asked.push((record.origin, before)),
+            Err(error) => {
+                tracing::warn!(origin = %record.origin, %error, "v2 list tee could not write off a mirror mark");
+            }
+        }
+    }
+    // Applied, held with a leaving origin, or refused: each is a turn of the writer's.
+    v2.hub
+        .wait_mirror_until(|hub| {
+            asked.iter().all(|(origin, before)| hub.takeover_turns(origin) != *before)
+        })
+        .await;
+    for (origin, _) in &asked {
+        v1.link_v2.hand_back(origin);
+    }
+}
+
+/// Marks every row of each origin a mirror handed back (`link_v2::Shared::hand_back`): v1's
+/// rows are submitted again and the v2 rows v1 does not hold leave, so the origin's rows end
+/// equal to v1's list.
+fn walk_handed_back(v1: &Hub, v2: &V2, state: &TeeState) {
+    let origins: HashSet<String> = v1.link_v2.take_handed_back().into_iter().collect();
+    if origins.is_empty() {
+        return;
+    }
+    for row in v1.remote_sessions.snapshot().values() {
+        if origins.contains(&row.peer)
+            && let Some(id) = row.summary.session_id()
+        {
+            state.mark_remote(&row.peer, id);
+        }
+    }
+    let index = v2.hub.snapshot();
+    for origin in &origins {
+        for id in index.origin_chat_ids(origin) {
+            state.mark_remote(origin, id);
+        }
+    }
 }
 
 pub(crate) struct V1PageProvider {
@@ -781,9 +873,13 @@ impl acpmux_core::hub::PageProvider for V1PageProvider {
 #[cfg(all(test, target_os = "linux"))]
 mod gates;
 #[cfg(test)]
+mod handback_tests;
+#[cfg(test)]
 mod hub_rows_tests;
 #[cfg(test)]
 mod roundtrip_tests;
+#[cfg(test)]
+mod slot_release_tests;
 #[cfg(test)]
 mod snapshot_tests;
 #[cfg(test)]

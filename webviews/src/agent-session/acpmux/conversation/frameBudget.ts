@@ -14,12 +14,24 @@
 // Once the frames have held their budget for HEALTHY_FOR the mark goes, and the chat moves again: the
 // hysteresis keeps a frame's motion from turning the mode back on and off.
 //
-// Cost: one frame callback while the chat is busy, none while it is idle (IDLE_FRAMES after the last
-// poke the loop stops, minimal or not), and O(frames in a second) per frame at most. A chat that
+// Cost: one frame callback while the chat is busy, none while it is idle, and O(frames in a second) per
+// frame at most. The loop stops, minimal or not, once QUIET_FRAMES frames in a row come in budget with no
+// poke between them (a commit the chat drew in time: about 200 ms of frames, not 1.5 s of a chat at rest),
+// or IDLE_FRAMES after the last poke when its frames keep missing. A chat that
 // goes idle in its minimal motion reads no frames to prove it healthy: with no work for HEALTHY_FOR
-// it is (one timer, not up to 600 frames of a chat at rest), and the mark goes. Stop condition:
+// it is (one timer, not up to 600 frames of a chat at rest), and the mark goes, but only when its
+// loop stopped on QUIET_FRAMES in budget. A chat whose loop ran out of IDLE_FRAMES with its frames
+// still missing (a loaded machine, whose next record comes in a few seconds) stays
+// minimal: before, two idle seconds took the mark away whatever the load, and the next record
+// came back in on its 80 ms fade, held at its first keyframe through the first frame
+// (entranceClock.ts), so at 4 fps it was invisible for 250 ms to 1 s after it drew (Leo's NIGHTLY,
+// 2026-11-16: "it shuold be instant even under load"). Its next poke reads frames again; once
+// QUIET_FRAMES of them come in budget, the timer runs and the mark goes. Stop condition:
 // `dispose` ends the loop, the timer and the observer and takes the mark away; a hidden page counts
 // no gap (it draws none).
+
+import { slackTimersFor } from "../../../pages/shared/slackTimers";
+import { frameTally } from "./frameTally";
 
 /// The mark on the chat (or on any element over it, as the gallery's variants and a test page set it).
 export const CHAT_MOTION_ATTR = "data-chat-motion";
@@ -32,6 +44,7 @@ export const FULL_MOTION = "full";
 const FRAME = 1000 / 60;
 /// What the frames may miss over WINDOW (ms, each gap's time past two frames, summed) before the
 /// chat goes minimal: about seven dropped frames in a second.
+// motion-allow: a dropped-frame budget, not a motion
 export const MISSED_ENTER_MS = 120;
 /// The misses must spread over at least this much of the window (ms, first to last): load the chat
 /// keeps meeting, not one burst. A single long task (a long chat's first draw, a page of history)
@@ -41,9 +54,16 @@ export const SUSTAINED_MS = 250;
 export const WINDOW = 1000;
 /// How long the frames hold their budget (no gap past two frames) before the chat moves again (ms).
 export const HEALTHY_FOR = 2000;
-/// With no poke for this many frames (1.5 s at 60 Hz) the loop stops: an idle chat runs no frame
-/// callback. Counted in frames, not time, so a page whose clock stands still (a test's) ends it too.
+/// With no poke for this many frames (1.5 s at 60 Hz) the loop stops, even while its frames miss: an idle
+/// chat runs no frame callback. Counted in frames, not time, so a page whose clock stands still (a test's)
+/// ends it too.
 export const IDLE_FRAMES = 90;
+/// This many frames in a row in budget (no gap past two frames) with no poke between them: the chat drew
+/// its work in time and is at rest, and the loop stops (200 ms at 60 Hz). Its misses so far stay in the
+/// window (FrameBudgetState), so load that keeps poking between quiet spells still adds up to minimal.
+/// Before, every commit read IDLE_FRAMES frames: 51 to 63 of the 5 s at rest after a chat switch
+/// (bench/chat-switch.bench.ts, chat_switch.*.idle_wakeups).
+export const QUIET_FRAMES = 12;
 /// A gap past this is the page coming back from hidden or a machine asleep, not a busy frame (ms).
 const AWAY_GAP = 5000;
 
@@ -182,20 +202,19 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
       if (handle >= 0 && typeof view?.cancelAnimationFrame === "function") view.cancelAnimationFrame(handle);
     },
   };
-  const later =
-    clock?.later ??
-    ((callback: () => void, ms: number) =>
-      typeof view?.setTimeout === "function" ? view.setTimeout(callback, ms) : -1);
-  const cancelLater =
-    clock?.cancelLater ??
-    ((handle: number) => {
-      if (handle >= 0 && typeof view?.clearTimeout === "function") view.clearTimeout(handle);
-    });
+  // The rest is a deadline that may run up to a heartbeat late: on the page's shared timer it rides a
+  // beat instead of waking a chat at rest by itself (slackTimers.ts).
+  const timers = view ? slackTimersFor(view) : undefined;
+  const later = clock?.later ?? ((callback: () => void, ms: number) => timers?.later(callback, ms) ?? -1);
+  const cancelLater = clock?.cancelLater ?? ((handle: number) => timers?.cancel(handle));
   const state = new FrameBudgetState();
   let handle: number | undefined;
   let rest: number | undefined;
   let last: number | undefined;
   let left = 0;
+  // Frames in a row in budget with no poke since the one before (QUIET_FRAMES), and a poke since the last frame.
+  let quiet = 0;
+  let poked = false;
   let disposed = false;
   // A page an automated browser drives (`navigator.webdriver`: the motion tests, on a runner whose
   // load is not the chat's) keeps its motion unless it asks for the budget (`cmuxFrameBudget: "on"`).
@@ -212,15 +231,25 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
     handle = undefined;
     if (disposed) return;
     const now = time.now();
-    if (doc.visibilityState === "hidden") last = undefined;
-    else if (last !== undefined && state.frame(at - last, now)) apply();
+    const gap = doc.visibilityState === "hidden" || last === undefined ? undefined : at - last;
+    if (gap !== undefined) {
+      // The always-on frame tally (frameTally.ts): what `cmux debug perf frames` and the frame goal read.
+      frameTally.note(gap);
+      if (state.frame(gap, now)) apply();
+    }
     last = doc.visibilityState === "hidden" ? undefined : at;
+    quiet = !poked && gap !== undefined && gap <= 2 * FRAME ? quiet + 1 : 0;
+    poked = false;
     // Idle: stop reading. Still minimal: the chat is healthy once it has done no work for HEALTHY_FOR.
-    left -= 1;
+    // Only a loop that stopped on QUIET_FRAMES in budget saw the chat draw its work in time; one that ran out of
+    // IDLE_FRAMES with its frames still missing is a loaded chat, which stays minimal for its next record.
+    const settled = quiet >= QUIET_FRAMES;
+    left = settled ? 0 : left - 1;
     if (left > 0) handle = time.frame(tick);
     else {
       last = undefined;
-      if (state.minimal && rest === undefined) {
+      quiet = 0;
+      if (state.minimal && rest === undefined && settled) {
         const next = later(() => {
           rest = undefined;
           if (!disposed && left <= 0 && state.rested()) apply();
@@ -252,6 +281,8 @@ export function createFrameBudget(chat: Element, clock?: Clock): FrameBudget {
     poke() {
       if (disposed) return;
       left = IDLE_FRAMES;
+      quiet = 0;
+      poked = true;
       if (rest !== undefined) cancelLater(rest);
       rest = undefined;
       if (handle === undefined) {

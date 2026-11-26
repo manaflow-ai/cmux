@@ -3,6 +3,7 @@ import CmuxMobileTransport
 import Foundation
 import Observation
 import OSLog
+import Synchronization
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "daemon")
 
@@ -17,6 +18,13 @@ public final class WorkspaceSync {
         didSet { tabsBySurface = nil }
     }
     public private(set) var identity: String?
+    /// What the phone shows of this Mac (the tree, its activity times, its
+    /// order and pins) is the last link's: unbound, or bound again and its
+    /// first answer not in yet. Kept on screen meanwhile, never cleared, and
+    /// replaced by the new link's values as they arrive (Leo, 2026-11-22:
+    /// "shit shouldnt somehow instantly dissipate after i navigate away for
+    /// like one second").
+    public private(set) var isStale = false
     public private(set) var lastError: String? {
         didSet { if lastError != oldValue { onErrorChanged?() } }
     }
@@ -55,6 +63,10 @@ public final class WorkspaceSync {
     @ObservationIgnored private var pendingChanged = false
     @ObservationIgnored private var initializing = false
     @ObservationIgnored private var dirty = false
+    /// The daemon takes `known` on `list-workspaces` (`list-workspaces-known-v1` in its
+    /// `identify`): a list then answers `unchanged` when the held tree is current. An older
+    /// daemon (and the Mac lane in front of it, which refuses a field it does not know) never gets it.
+    @ObservationIgnored private var listsKnown = false
     @ObservationIgnored private var agents = AgentStates()
     /// When each surface's agent last started a turn the person prompted (Jump to Last
     /// Prompt), kept across reconnects as the Mac's `AgentRoster.lastPromptBySurface` is.
@@ -78,6 +90,8 @@ public final class WorkspaceSync {
     @ObservationIgnored public private(set) var connectionSerial = 0
     @ObservationIgnored private let deviceID: String
     @ObservationIgnored private let deviceName: String
+    /// Which Macs take the first window (`ListFirstWindow`); tests use their own suite.
+    @ObservationIgnored var firstWindowDefaults: UserDefaults = .standard
 
     public init(deviceID: String, deviceName: String) {
         self.deviceID = deviceID
@@ -98,8 +112,10 @@ public final class WorkspaceSync {
         client = nil
         connectionSerial += 1
         let serial = connectionSerial
-        activity = [:]
+        // The activity times stay with the rows they date until the next
+        // link's list replaces them: only the title repeats are per link.
         titles = [:]
+        if tree != nil { isStale = true }
         if channel == nil {
             lastError = nil
             identity = nil
@@ -110,7 +126,9 @@ public final class WorkspaceSync {
             await channel.close(code: "eof", reason: "binding superseded")
             return
         }
-        let prepared = await Self.prepare(channel, deviceID: deviceID, deviceName: deviceName)
+        let prepared = await Self.prepare(channel, deviceID: deviceID, deviceName: deviceName,
+                                          firstWindow: ListFirstWindow.honors(macID, defaults: firstWindowDefaults),
+                                          macID: macID)
         guard connectionSerial == serial, !Task.isCancelled else {
             prepared.replies.cancel()
             await prepared.client.close()
@@ -125,18 +143,55 @@ public final class WorkspaceSync {
     public struct Prepared: Sendable {
         let client: DaemonClient
         let replies: Task<[Result<DaemonClient.ReceivedLine, any Error>], Never>
+        /// The setup list carried `known` (`setupSendsKnown`).
+        var sentKnown = false
+        /// The setup list asked for the first window (`ListFirstWindow`).
+        var sentFirstWindow = false
+        /// The setup list sent the revision of the tree this process held for the Mac (`heldKnown`).
+        var sentHeld: WorkspaceProjection.KnownTree?
     }
 
+    /// The revision of the last whole tree each Mac's list gave this process, so the setup batch
+    /// of the next link to that Mac (a redial: a foreground return, a network change) can send it
+    /// as `known`. Written before `identify` answers, like `setupSendsKnown`.
+    nonisolated static let heldKnown = Mutex<[String: WorkspaceProjection.KnownTree]>([:])
+
+    /// Records what `projection` now holds for `macID` (nil: a list with no revision).
+    nonisolated static func noteHeld(_ known: WorkspaceProjection.KnownTree?, macID: String) {
+        heldKnown.withLock { $0[macID] = known }
+    }
+
+    /// Whether the last daemon this process identified takes `known` on `list-workspaces`.
+    /// The setup batch is written before `identify` answers, so its list carries `known` (`{}`:
+    /// the reply then has the tree's revision, and `refresh()`'s check after it costs the
+    /// daemon's `unchanged` line, not the whole tree again) only on this word from the last
+    /// connection. A Mac that refuses it gets its list again without it (`bind`).
+    nonisolated static let setupSendsKnown = Mutex(false)
+
     /// Starts `channel`'s client and sends the whole setup in one write (one
-    /// round trip, not five): declare the client, identify, subscribe, list
-    /// agents, list workspaces. The daemon answers a connection's lines in
+    /// round trip, not eight): declare the client, identify, subscribe, list
+    /// agents, list workspaces, then the Mac's order and pins (`list-personal`,
+    /// `sidebar_layout.get`), so the first list drawn is already the settled one
+    /// (they came three serial round trips later from `refresh()`). The daemon answers a connection's lines in
     /// order; events after the subscribe wait in the client's stream. Does not
     /// wait for the answers (a Mac that pairs holds them until `auth` passes).
+    /// With `firstWindow` (the Mac advertised `list-workspaces-page-v1` last time) the list
+    /// is the first window only (`ListFirstWindow`); the whole tree follows after it is drawn.
     public nonisolated static func prepare(
         _ channel: any LinkChannel, deviceID: String, deviceName: String,
+        firstWindow: Bool = false,
+        macID: String? = nil,
         authorizationTimeout: Duration = LinkPairing.authorizationTimeout,
-        replyTimeout: Duration = DaemonClient.defaultDeadline
+        replyTimeout: Duration = DaemonClient.defaultDeadline,
+        sendsKnown: Bool? = nil
     ) async -> Prepared {
+        let sendsKnown = sendsKnown ?? setupSendsKnown.withLock { $0 }
+        // A redial to a Mac whose tree this process holds sends that tree's revision: a Mac
+        // that has not changed answers `unchanged` and the phone keeps what it shows (no whole
+        // tree, no first window) (Leo, 2026-11-24: "deltas can be sipped and maintained").
+        let held = sendsKnown ? macID.flatMap { id in heldKnown.withLock { $0[id] } } : nil
+        let listParams = held.map { Self.listParams(known: $0, sendsKnown: true) }
+            ?? Self.setupListParams(sendsKnown: sendsKnown, firstWindow: firstWindow)
         let client = DaemonClient(channel: channel, orderedEvents: true)
         await client.start()
         let replies = Task.detached { () -> [Result<DaemonClient.ReceivedLine, any Error>] in
@@ -144,19 +199,21 @@ public final class WorkspaceSync {
                 ("set-client-info", [
                     "name": deviceName, "kind": "ios", "device_kind": "iphone", "device_name": deviceName, "device_id": deviceID,
                     // `page-tabs-v1`: the Mac's page tabs read as their page (a phone tab is a simulator tab).
-                    "capabilities": ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"],
+                    "capabilities": WorkspaceSync.clientCapabilities,
                 ]),
                 ("identify", [:]),
                 ("subscribe", ["tree_events": "deltas"]),
                 ("list-agents", [:]),
-                ("list-workspaces", [:]),
-            ], deadline: authorizationTimeout + replyTimeout)
+                ("list-workspaces", listParams),
+                ("list-personal", [:]),
+            ], resources: [("sidebar_layout.get", [:])], deadline: authorizationTimeout + replyTimeout)
             // This eager batch can be held behind auth's human approval. Only
             // setup gets that grace; subsequent daemon reads keep their normal bound.
             ConnectTimeline.shared.mark("first_daemon_response")
             return replies
         }
-        return Prepared(client: client, replies: replies)
+        return Prepared(client: client, replies: replies, sentKnown: sendsKnown, sentFirstWindow: firstWindow && held == nil,
+                        sentHeld: held)
     }
 
     /// Binds a prepared `daemon` channel for `macID` and publishes its list
@@ -165,13 +222,22 @@ public final class WorkspaceSync {
         stopUpdates()
         let oldClient = client
         initializing = true
+        // The same Mac's projection, kept for a setup list answered `unchanged`.
+        let heldProjection = macID == self.macID && tree != nil ? projection : nil
         projection = WorkspaceProjection()
         let projection = projection
-        activity = [:]
+        // The same Mac again (a redial): its activity times, order and pins
+        // stay, marked stale (`isStale`, `arrangementStale`), for the first
+        // list to keep and the next reads to replace. Another Mac's never do.
+        if macID != self.macID {
+            activity = [:]
+            arrangement = nil
+        }
+        if tree != nil { isStale = true }
         titles = [:]
         agents.bySurface = [:]
-        arrangement = nil
         arrangementStale = true
+        listsKnown = false
         self.macID = macID
         let client = prepared.client
         self.client = client
@@ -202,7 +268,8 @@ public final class WorkspaceSync {
         // A missing transport reply invalidates the subscription. A server's
         // explicit rejection is different: keep its live channel so a later
         // workspace event can recover the baseline without another bind.
-        let transportError = replies.compactMap { result -> (any Error)? in
+        // The arrangement's two reads (after the setup's five) are best effort, as in `refresh()`.
+        let transportError = replies.prefix(Self.setupCount).compactMap { result -> (any Error)? in
             if case .failure(let error) = result { return error }
             return nil
         }.first
@@ -219,31 +286,88 @@ public final class WorkspaceSync {
                 return
             }
             identity = setup.identity
+            listsKnown = setup.listsKnown
+            Self.setupSendsKnown.withLock { $0 = setup.listsKnown }
+            ListFirstWindow.note(macID, honors: setup.pages, defaults: firstWindowDefaults)
             // A reconnect's list counts a prompt only by its own time (a turn already running
             // when the link came back is not a new prompt at the moment it is seen).
             for (surface, state) in setup.agents.bySurface where state.updatedAt != nil {
                 notePrompt(surface, from: agents.bySurface[surface], to: state)
             }
             agents.bySurface = setup.agents.bySurface
-            let snapshot = try replies[4].get()
-            let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
-            let next = try await projection.reset(snapshot: snapshot.data, macID: macID,
-                                                  previous: known.isEmpty ? cached : known,
+            if replies.count == Self.setupCount + 2, case .success(let personal) = replies[Self.setupCount],
+               case .success(let layout) = replies[Self.setupCount + 1] {
+                // Read on this connection after the subscribe: events before the first of the
+                // two replies are already in it.
+                let next = await Task.detached { Self.arrangement(personal: personal.data, layout: layout.data) }.value
+                guard self.client === client, !Task.isCancelled else {
+                    await closeFailedClient(client)
+                    return
+                }
+                arrangement = next
+                arrangementStale = false
+                arrangementSequence = personal.sequence
+            }
+            var snapshot = try replies[4].get()
+            if prepared.sentKnown || prepared.sentFirstWindow, (try? Self.check(snapshot.data)) == nil {
+                // Sent `known` or `limit` on the last Mac's word and this one refused it: list
+                // again with only what this connection's `identify` advertised.
+                snapshot = try await client.requestOrdered("list-workspaces", params: Self.setupListParams(
+                    sendsKnown: setup.listsKnown, firstWindow: setup.pages))
+                guard self.client === client, !Task.isCancelled else {
+                    await closeFailedClient(client)
+                    return
+                }
+            }
+            var next: DaemonTree
+            if let sent = prepared.sentHeld, Self.isUnchanged(snapshot.data), let heldProjection,
+               await heldProjection.known == sent, let current = tree {
+                // The Mac's tree is the one this phone holds: keep it, with this link's agents
+                // and arrangement, instead of reading it again.
+                self.projection = heldProjection
+                let update = try await heldProjection.updateAgents(agents: agents, activity: activity)
+                let rearranged = await heldProjection.rearrange(arrangement)
+                next = rearranged ?? update?.tree ?? current
+                guard self.client === client, !Task.isCancelled else {
+                    await closeFailedClient(client)
+                    return
+                }
+            } else {
+                if prepared.sentHeld != nil, Self.isUnchanged(snapshot.data) {
+                    // `unchanged`, but this sync no longer holds that tree: read it whole.
+                    snapshot = try await client.requestOrdered("list-workspaces", params: Self.setupListParams(
+                        sendsKnown: setup.listsKnown, firstWindow: false))
+                    guard self.client === client, !Task.isCancelled else {
+                        await closeFailedClient(client)
+                        return
+                    }
+                }
+                let known = (tree?.workspaces ?? []).filter { $0.macID == macID }
+                let kept = known.isEmpty ? cached : known
+                next = try await projection.reset(snapshot: snapshot.data, macID: macID,
+                                                  previous: kept,
                                                   agents: agents, activity: activity, arrangement: arrangement)
-            guard self.client === client, !Task.isCancelled else {
-                await closeFailedClient(client)
-                return
+                guard self.client === client, !Task.isCancelled else {
+                    await closeFailedClient(client)
+                    return
+                }
+                Self.noteHeld(await projection.known, macID: macID)
+                // A first window: draw it over the rows already held; the whole tree follows
+                // from `refresh()` below, in the background.
+                if ListFirstWindow.isPartial(snapshot.data) { next = ListFirstWindow.drawn(next, keeping: kept) }
             }
             // Setup subscribed before its list. Replay every setup event;
             // reply arrival is not a watermark for the captured snapshot.
             discardBeforeSnapshot()
             tree = next
+            isStale = false
             lastError = nil
             initializing = false
             onTree?(next)
             onTerminalOutput?(nil)
             drain()
-            // The Mac's own order and pins follow in one more round trip.
+            // The Mac's order and pins came with the setup; a Mac that failed either read
+            // gets them here (`arrangementStale`), and the list is checked once more.
             Task {
                 guard self.client === client else { return }
                 await refresh()
@@ -455,7 +579,7 @@ public final class WorkspaceSync {
         }
     }
 
-    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates) {
+    private nonisolated static func decodeSetup(_ replies: [Result<Data, any Error>]) throws -> (identity: String?, agents: AgentStates, listsKnown: Bool, pages: Bool) {
         _ = try check(replies[0].get())
         let identify = try check(replies[1].get())["data"] as? [String: Any]
         _ = try check(replies[2].get())
@@ -466,7 +590,8 @@ public final class WorkspaceSync {
             }
         }
         let identity = identify.map { "\($0["app"] as? String ?? "cmux-tui") \($0["version"] as? String ?? "") protocol \($0["protocol"] as? Int ?? 0)" }
-        return (identity, agents)
+        let capabilities = identify?["capabilities"] as? [String] ?? []
+        return (identity, agents, capabilities.contains(Self.knownCapability), capabilities.contains(ListFirstWindow.capability))
     }
 
     public func refresh() async {
@@ -500,12 +625,32 @@ public final class WorkspaceSync {
                     }
                     await loadArrangementIfStale(client)
                     let coveredThrough = await client.receivedPosition
-                    let reply = try await client.requestOrdered("list-workspaces")
+                    // What the phone holds goes back as `known` ({} before a whole list gave
+                    // a revision), so a current tree costs the daemon's ~300-byte `unchanged`
+                    // answer instead of the whole tree (1.7 MB at 1,000 workspaces).
+                    let held = listsKnown ? await projection.known : nil
+                    let sendsKnown = listsKnown
+                    let params = Self.listParams(known: held, sendsKnown: sendsKnown)
+                    let reply = try await client.requestOrdered("list-workspaces", params: params)
                     guard self.client === client, !Task.isCancelled else { return }
+                    if sendsKnown, Self.isUnchanged(reply.data) {
+                        let next = await projection.rearrange(arrangement)
+                        guard self.client === client, !Task.isCancelled else { return }
+                        snapshotSequence = coveredThrough
+                        if reloadArrangement { arrangementSequence = arrangementCoveredThrough }
+                        discardBeforeSnapshot()
+                        lastError = nil
+                        if let next {
+                            tree = next
+                            onTree?(next)
+                        }
+                        continue
+                    }
                     let next = try await projection.reset(snapshot: reply.data, macID: macID,
                                                           previous: tree?.workspaces ?? [], agents: agents,
                                                           activity: activity, arrangement: arrangement)
                     guard self.client === client, !Task.isCancelled else { return }
+                    if !macID.isEmpty { Self.noteHeld(await projection.known, macID: macID) }
                     snapshotSequence = coveredThrough
                     if reloadArrangement { arrangementSequence = arrangementCoveredThrough }
                     discardBeforeSnapshot()
@@ -545,22 +690,29 @@ public final class WorkspaceSync {
         arrangementStale = false
         let personal = try? await client.request("list-personal")
         let layout = try? await client.resourceRequest("sidebar_layout.get", deadline: .seconds(10))
-        let next = await Task.detached {
-            var next = SidebarArrangement()
-            if let personal, let reply = try? Self.check(personal) {
-                next.rows = SidebarArrangement.rows(personal: reply)
-                next.groups = SidebarArrangement.groups(personal: reply)
-                next.rooms = SidebarArrangement.rooms(personal: reply)
-                next.roomPins = SidebarArrangement.roomPins(personal: reply)
-            }
-            if let layout, let reply = try? Self.checkResource(layout) {
-                next.pins = SidebarArrangement.pins(layout: reply)
-            }
-            return next
-        }.value
+        let next = await Task.detached { Self.arrangement(personal: personal, layout: layout) }.value
         // Bound to another Mac meanwhile: not this one's.
         guard self.client === client else { return }
         arrangement = next
+    }
+
+    /// The setup batch's requests before the arrangement's two (`prepare`).
+    nonisolated static let setupCount = 5
+
+    /// The Mac's order, groups, rooms and pins from `list-personal` and `sidebar_layout.get`
+    /// replies; a missing or failed one leaves its part empty.
+    nonisolated static func arrangement(personal: Data?, layout: Data?) -> SidebarArrangement {
+        var next = SidebarArrangement()
+        if let personal, let reply = try? check(personal) {
+            next.rows = SidebarArrangement.rows(personal: reply)
+            next.groups = SidebarArrangement.groups(personal: reply)
+            next.rooms = SidebarArrangement.rooms(personal: reply)
+            next.roomPins = SidebarArrangement.roomPins(personal: reply)
+        }
+        if let layout, let reply = try? checkResource(layout) {
+            next.pins = SidebarArrangement.pins(layout: reply)
+        }
+        return next
     }
 
     /// Throws a `cmux.protocol/2` failure; returns the response object.
@@ -574,6 +726,36 @@ public final class WorkspaceSync {
         return object
     }
 
+    /// The daemon's capability for `known` on `list-workspaces`.
+    nonisolated static let knownCapability = "list-workspaces-known-v1"
+
+    /// `list-workspaces`' params: the held tree as `known` (`{}` before a revision) when the
+    /// daemon takes it, else none. Built off the main actor so the dictionary starts in its own
+    /// region and can be sent to the client.
+    nonisolated static func listParams(known held: WorkspaceProjection.KnownTree?, sendsKnown: Bool) -> [String: Any] {
+        guard sendsKnown else { return [:] }
+        var known: [String: Any] = [:]
+        if let held { known = held.params }
+        return ["known": known]
+    }
+
+    /// The setup batch's `list-workspaces` params: `known` (`{}`) when the daemon takes it, and
+    /// the first window's `limit` when it takes that (`ListFirstWindow`). A first window carries
+    /// no `tree_revision`, so the `refresh()` after it sends `known: {}` and gets the whole tree.
+    nonisolated static func setupListParams(sendsKnown: Bool, firstWindow: Bool) -> [String: Any] {
+        listParams(known: nil, sendsKnown: sendsKnown).merging(ListFirstWindow.params(honors: firstWindow)) { $1 }
+    }
+
+    /// Whether `reply` is the daemon's `{"unchanged": true}` answer to a `known` (the held
+    /// tree is current). Only a short line can be one, so a whole tree is not parsed twice.
+    nonisolated static func isUnchanged(_ reply: Data) -> Bool {
+        guard reply.count < 4096,
+              let object = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+              object["ok"] as? Bool != false else { return false }
+        let data = object["data"] as? [String: Any] ?? object
+        return data["unchanged"] as? Bool == true
+    }
+
     /// Throws a daemon error line; returns the parsed reply object.
     @discardableResult
     nonisolated static func check(_ reply: Data) throws -> [String: Any] {
@@ -582,5 +764,79 @@ public final class WorkspaceSync {
             throw DaemonReplyError(message: object["error"] as? String ?? "request failed", code: object["error_code"] as? String)
         }
         return object
+    }
+}
+
+// MARK: - One-request catch-up (`catch-up` link service)
+
+extension WorkspaceSync {
+    /// What the phone's `daemon` line lists in `set-client-info`; a `catch-up` lists the same
+    /// for its own read, so its tree reads as this line's does.
+    nonisolated static let clientCapabilities = ["conversation-tabs-v1", "agent-session-tabs-v1", "page-tabs-v1"]
+
+    /// Where a `catch-up` starts: the held tree's `known` and the line position its answer will
+    /// cover (taken before the channel opens, as ``refresh()`` takes it before its list). Nil
+    /// while the line sets up or lists, or on a daemon that does not take `known`: today's
+    /// list answers then.
+    func catchUpStart() async -> (known: WorkspaceProjection.KnownTree?, coveredThrough: UInt64)? {
+        guard let client, !initializing, refreshTask == nil, listsKnown else { return nil }
+        let known = await projection.known
+        return (known, await client.receivedPosition)
+    }
+
+    /// Applies a `catch-up` reply's tree (`data`, the daemon's `list-workspaces` answer) as
+    /// ``refresh()`` applies its own list's: `unchanged` keeps the tree and orders it again, a
+    /// whole tree replaces it. False when it was not applied (a list ran meanwhile, the line
+    /// changed): the caller lists as today.
+    @discardableResult
+    func applyCatchUp(_ data: Data, unchanged: Bool, coveredThrough: UInt64) async -> Bool {
+        guard let client, !initializing, refreshTask == nil else { return false }
+        let projection = projection
+        let task = Task { [weak self] () -> Bool in
+            guard let self else { return false }
+            await updateTask?.value
+            defer {
+                if self.client === client {
+                    refreshTask = nil
+                    // A refresh() asked while this applied lists after it, as its own loop would.
+                    if dirty {
+                        dirty = false
+                        Task { await self.refresh() }
+                    } else {
+                        drain()
+                    }
+                }
+            }
+            guard self.client === client, !Task.isCancelled else { return false }
+            if unchanged {
+                let next = await projection.rearrange(arrangement)
+                guard self.client === client, !Task.isCancelled else { return false }
+                snapshotSequence = max(snapshotSequence, coveredThrough)
+                discardBeforeSnapshot()
+                lastError = nil
+                if let next {
+                    tree = next
+                    onTree?(next)
+                }
+                return true
+            }
+            do {
+                let next = try await projection.reset(snapshot: data, macID: macID,
+                                                      previous: tree?.workspaces ?? [], agents: agents,
+                                                      activity: activity, arrangement: arrangement)
+                guard self.client === client, !Task.isCancelled else { return false }
+                snapshotSequence = max(snapshotSequence, coveredThrough)
+                discardBeforeSnapshot()
+                tree = next
+                lastError = nil
+                onTree?(next)
+                return true
+            } catch {
+                log.error("catch-up tree: \(String(describing: error), privacy: .public)")
+                return false
+            }
+        }
+        refreshTask = Task { _ = await task.value }
+        return await task.value
     }
 }

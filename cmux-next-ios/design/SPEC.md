@@ -224,8 +224,11 @@ all three apps). Settings row icons 17 pt in a 22 pt frame.
 ### 2.6 Haptics (`CmuxMobileHaptics`)
 
 SwiftUI `.sensoryFeedback`, or `UIFeedbackGenerator` from UIKit code. All gated by Settings >
-Haptic feedback (Claude has this toggle, `claude-08-settings-bottom`; ChatGPT FAQ documents its own).
-Also respect the system haptics switch (automatic) and skip all haptics in Low Power Mode (ChatGPT does).
+Haptic feedback, **default off** (Leo, 2026-11-23: "ive turned off all haptics already, so dont inject
+haptic noise when i havent asked for it. ever."). Also respect the system haptics switch (automatic) and
+skip all haptics in Low Power Mode (ChatGPT does). Every call goes through the gate; no raw
+`UIFeedbackGenerator`, `.sensoryFeedback`, `AudioServicesPlaySystemSound` or `playInputClick` outside
+the gate files (`design/haptics-audit.md` lists every site).
 
 | Event | Feedback |
 | --- | --- |
@@ -239,8 +242,8 @@ Also respect the system haptics switch (automatic) and skip all haptics in Low P
 | Team switch, chip/segment change, picker change | `.selection` |
 | Sidebar crosses the open threshold during a pan | `.impact(weight: .light, intensity: 0.5)` once per crossing |
 | Copy | `.impact(weight: .light, intensity: 0.7)` + icon swap |
-| Joystick step | `.selection`, throttled to 30 Hz |
-| Key bar key | `.impact(weight: .light, intensity: 0.5)` (setting "Key clicks", default on) |
+| Joystick step | none (a key press follows the keyboard's own Keyboard Feedback setting, which no app can read) |
+| Key bar key | none. Setting "Key clicks" (default off) plays the system key click sound only when turned on |
 | Pull to refresh trigger | system |
 | Long press menus, toggles | system |
 
@@ -331,7 +334,7 @@ TabView(selection: $tab) {
 
 ### 3.3 Team sidebar (push-aside drawer)
 
-Scope: team switching only (Stack Auth teams) plus "Invite to team". No navigation destinations,
+Scope: team switching only (Stack Auth teams) plus Invite. No navigation destinations,
 no recents (that is the tab bar's job).
 
 Geometry (measured ChatGPT 330, Claude 320 on a 440 pt screen):
@@ -384,10 +387,12 @@ Swipe rules (app-wide, user decision 2026-10-13, `verify/swipes.md`):
 
 Content (top to bottom):
 
-1. Header row, 20 pt side margin, centered at the toolbar line: "cmux" wordmark text
-   (`sidebarTitle`) leading; trailing 44 pt glass circle `plus` → menu: "Create team",
-   "Join with invite link". (Header layout is `chatgpt-03-sidebar`.)
-2. Section label "Teams" (`meta`, `label2`), 20 pt margin, 24 pt above the first row.
+1. Header row, 20 pt side margin, centered at the toolbar line: the title "Teams"
+   (`sidebarTitle`, one line) leading, no brand wordmark (Aziz 2026-11-18: the app icon
+   already says cmux). Trailing: the 44 pt glass circle `plus` → menu: "Create team",
+   "Join with invite link".
+   (Header layout is `chatgpt-03-sidebar`.)
+2. No section label: the header names the list; 16 pt above the first row.
 3. Team rows (`List` style plain, no separators), each 60 pt:
    - Leading avatar 36 x 36, rounded square radius 10 continuous: team color fill with the
      emoji (22 pt) centered, or the team initial (`headline`, `onAccent`-style white) if no emoji.
@@ -403,14 +408,16 @@ Content (top to bottom):
    - Context menu (long press): "Change color and emoji" (`paintpalette`), "Invite to team"
      (`person.badge.plus`), "Copy team name", divider, "Leave team" (destructive, confirmation
      alert). Pattern: `grok-15-row-context-menu`.
-4. Row "Invite to team" (`person.badge.plus`, `body`), 48 pt, after the team list. Opens the
-   share sheet with the Stack invitation URL from `POST /v1/teams/:teamId/invites` (show a
-   `ProgressView` in the row while fetching).
-5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area):
-   - Leading: primary capsule "Invite" with `person.badge.plus` (48 h, `accent` fill,
-     `onAccent` text, `cta` font). Measured `claude-01-sidebar` "New session".
-   - Trailing: 48 pt circle avatar of the signed-in user (initials on `surfaceRaised`, like
-     Claude's "AA"), opens Settings > Account and closes the drawer.
+4. No "Invite to team" row under the list (it read as another team and did not say which
+   team it invited to). Instead, a bottom toolbar item at the trailing edge (Aziz
+   2026-11-19): "Invite" (`person.badge.plus` + "Invite" in a 44 pt glass capsule, 20 pt
+   margin, 8 pt above the bottom safe area, for the selected team; VoiceOver "Invite to
+   <team>"; spinner while the link is made; glyph only, in a 44 pt circle, at accessibility
+   text sizes; absent for the personal space). It opens the share sheet with the Stack invitation
+   URL from `POST /v1/teams/:teamId/invites`; another team is invited from its row's
+   context menu.
+5. Bottom bar (pinned, 20 pt margins, 8 pt above the bottom safe area): only Invite, at the
+   trailing edge (item 4). The account lives in Settings, not here.
 
 Team switch: tap row → `.selection` haptic, row highlight moves (`snap`), drawer closes
 (`drawer`), then the shell crossfades (`gentle`) to the new team's data; lists show skeletons
@@ -762,6 +769,11 @@ pill (Chief model is configured on the Mac). Everything below applies to both un
   bottom content inset = composer height + 16.
 - Empty (new session): centered glyph (agent avatar 48) + `title3` "What should <agent> do?"
   + `rowSubtitle` "<workspace> on <Mac>". Composer focused only if the user tapped "new".
+  The first time a new chat shows, the mark, title, subtitle and composer rise in
+  (`NewChatEntrance.rise`: 10-14 pt + fade, mark from 90%, 50 ms apart, spring response 0.5 /
+  damping 0.84, settled by ~450 ms). Render only: the composer takes typing from frame 0; the
+  start pose holds through the first drawn frame; Reduce Motion draws it at rest. At launch the
+  shell arrives from 104% on a 0.55 / 0.86 spring as the launch mark leaves.
   (`claude-05-composer-focused`, Grok "Ask Anything" home `grok-01`.)
 - History loads newest-first in pages of 50 turns; older pages prepend while keeping the scroll
   offset (anchor on the first visible turn id). Top-of-history: `meta` "Session started
@@ -833,13 +845,11 @@ When the agent requests permission (ACP `session/request_permission`):
 
 - `PlanCard`: `surface` radius 20; header `list.bullet.clipboard` + "Plan" (`headline`) +
   trailing `meta` step count; body markdown capped at 10 lines with fade + "Show full plan"
-  (opens a `.large` sheet with the full plan and the same actions); todo-style plans render each
-  step with a 16 pt status glyph (`circle`, `circle.dotted` animated while in progress,
-  `checkmark.circle.fill` in `success`).
+  (opens a `.large` sheet with the full plan and the same actions). An agent's to-do list (ACP
+  `plan` updates) is not shown.
 - Actions when the agent awaits approval (ExitPlanMode / plan mode): "Approve plan"
   (`PrimaryCapsule.inline`), "Keep planning" (`SecondaryCapsule.inline`); the composer stays
   available to send feedback.
-- Live todo updates animate checkmarks with `.symbolEffect(.bounce)` once.
 
 ### 6.8 Diffs in the transcript
 
@@ -885,8 +895,9 @@ pulsing (new content below).
 | Alert style (mode change notice) | `claude-04-new-session-alert` |
 
 No reference exists for tool rows, permission and question cards, or plans: compare against
-Claude's and Codex's own mobile session views when captured (TapKit only with explicit
-permission), and against Cursor iOS / T3 Code App Store screenshots.
+Claude's and Codex's own mobile session views when captured (from the user's real phone only
+when the user explicitly asks and the phone is connected), and against Cursor iOS / T3 Code
+App Store screenshots.
 
 ---
 
@@ -938,13 +949,16 @@ in the available area (above the composer when one exists): symbol 28 pt `label`
 
 ### 7.4 Offline and reconnecting
 
-- Connection banner (global overlay under the toolbar, centered, 8 pt below the toolbar line):
-  glass capsule 36 h, padding 14, `footnote` semibold:
-  - Reconnecting: small `ProgressView` + "Reconnecting to <Mac>…". Shown only after 1.5 s of
-    disconnection (most blips heal silently).
-  - Offline (no network): `wifi.slash` + "You're offline".
-  - Mac offline: `moon.zzz` + "<Mac> is offline". Tap → sheet with last seen time and "Wake
-    with Wake-on-LAN" (when supported, future) / "Retry".
+- Connection chip (`ConnectionChip`, a global overlay under the toolbar, centered, 8 pt below
+  the toolbar line): glass capsule 26 h, padding 10, `meta` semibold, one or two words, never a
+  sentence; the sentence is its VoiceOver label. It floats over the content and takes no room:
+  showing or hiding it moves nothing (Leo, 2026-11-21: "stop layout shifting"). Shown only after
+  the 10 s quiet gate (`QuietStatusGate`; most blips heal silently).
+  - Reconnecting: spinner + "Reconnecting".
+  - Offline (no network): `wifi.slash` + "Offline"; the chip is a Retry button.
+  - Mac offline: `moon.zzz` + "Mac offline"; the chip is a Retry button.
+- A state with a sentence to read or an action (signed out, pairing, a failed refresh) is the
+  wider banner (glass, 36 h, `footnote` semibold), also an overlay that moves nothing.
   - Recovered: `checkmark` + "Connected" for 1.5 s then hides.
   Enter/exit: move from y - 12 + opacity, `snappy`. Never more than one banner.
 - Stale data: lists keep the last snapshot visible with rows at full opacity; a `meta` "Updated
@@ -1054,7 +1068,7 @@ Tab root, `NavigationStack`, toolbar: leading drawer circle, principal "Settings
 | (Account card, no header) | Avatar 40 (initials) + name (`body` semibold) + email (`footnote` `label2`) + chevron → Account page (name, email, linked sign-in methods with badges Apple / Google / GitHub / Email, "Delete account" red at the bottom). Pattern `claude-07-settings`, `grok-12-settings`. |
 | Team | "<Team name>" row with team avatar (28) → Team page: Color and icon (3.4), Members (read-only list from Stack, owner badge), Invite to team, Leave team (red). Footer: "Color and icon are yours only; teammates choose their own." (prefs are per user per team, PROTOCOL.md) |
 | Connection | Transport: inline `Picker` menu "WebRTC" / "WireGuard" (value trailing with `chevron.up.chevron.down`, like Codex "Follow-up behavior: Queue"). Footer: "Switching reconnects to your Macs." / Paired Macs → page: rows with `StatusDot` + name + `footnote` "Online · WebRTC direct" / "Last seen 3h ago", swipe to Unpair; "Pair a Mac" row with `plus` in `label` (not blue; Codex uses blue "Add connection", `chatgpt-14`); "Disconnect all" trailing in the section header as `label2` text button. / Show connection details (toggle: shows path type, RTT, relay in the terminal title menu). |
-| Terminal | Font size (stepper 9–24, live preview row in the terminal theme), Theme (picker of Ghostty themes with swatches; default follows the Mac's theme), Key bar (page: reorder and toggle keys, 10.4), Composer: "Dismiss keyboard after sending" (toggle, on), "Follow-up while running" (Queue / Steer), "Wrap code and diff lines" (toggle, off), "Key clicks" (toggle, on). |
+| Terminal | Font size (stepper 9–24, live preview row in the terminal theme), Theme (picker of Ghostty themes with swatches; default follows the Mac's theme), Key bar (page: reorder and toggle keys, 10.4), Composer: "Dismiss keyboard after sending" (toggle, on), "Follow-up while running" (Queue / Steer), "Wrap code and diff lines" (toggle, off), "Key clicks" (toggle, off; plays the system key click sound, never a haptic). |
 | Appearance | Three tiles Light / Dark / System (`claude-08-settings-bottom`): 96 x 64 rounded previews radius 14, selected 2 pt `label` stroke and the label in `label` semibold (Claude uses blue; we use label). Haptic feedback toggle. |
 | Notifications | Allow notifications (system status row → opens iOS Settings if denied), Questions and permissions (toggle), Finished tasks (toggle), Errors (toggle), Live Activities ("One per agent" / "Only when waiting" / "Off", menu picker; Codex "Live Activities: One per remote"). |
 | Security | Require Face ID (toggle; footer "Require Face ID or passcode to open mobile on this device.", `chatgpt-15-codex-settings-bottom`). |
@@ -1096,14 +1110,16 @@ dictation). Codex and our own REFERENCES.md: "Terminal screen = chat screen".
 
 From bottom to top, inside one `GlassEffectContainer(spacing: 8)`, side margin 8:
 
-1. Key bar (only while the keyboard is up; hidden when a hardware keyboard is attached, like
-   Blink and Termius): 44 h glass capsule, horizontally scrollable middle with fixed ends:
+1. Key bar (only while the soft keyboard is up; hidden when it is down or a hardware keyboard is
+   attached, like Blink and Termius; Leo, 2026-11-23: "why are those things always showing?"). It is
+   never counted in the terminal's resting height, so the PTY keeps its rows as the keyboard comes and
+   goes. 44 h row, style per `KeyBarStyle` (caps, strip, inset; see `design/terminal-key-row.md`), horizontally scrollable middle with fixed ends:
    - Leading fixed: `esc` (Esc), `ctrl` (sticky modifier: tap = one-shot, highlighted
      `fillSelected`; double tap = lock, `accent` fill), `alt`.
    - Middle (scrolls): `tab`, `⇧tab` (Termius added Shift-Tab for Claude Code modes), `|`, `~`,
      `/`, `-`, `` ` ``, `{`, `}`, `[`, `]`, `^C`, `^D`, `^Z`, `^L`, `^R`, tmux prefix (`^B`).
-     Each key cap 40 x 34, radius 10, `fill`, label `subheadline` mono; press: `fillPressed` +
-     scale 0.92 (`snap`), key-click haptic.
+     Each key target at least 44 x 44 (Leo: "the buttons are really small"), glyph 17 pt, label
+     16 pt mono; press: `fillPressed` + scale 0.92 (`snap`), no haptic.
    - Trailing fixed: joystick (10.3), then `keyboard.chevron.compact.down` (hide keyboard).
 2. Composer row (always visible): a one-line glass capsule 48 h (`CmuxMobileComposer` collapsed metrics)
    with `+` (Photos, Camera, Files → uploads to the Mac and inserts the path; Paste image),
@@ -1122,12 +1138,12 @@ bottom safe area and the key bar is hidden.
 
 ### 10.3 Joystick
 
-- 36 pt glass circle in the key bar with a 14 pt `label2` dot (thumb). Touch and drag: the
-  thumb follows the finger within a 28 pt radius; direction quantized to 4 ways (8 with a
+- 44 pt glass circle in the key bar with a 14 pt `label2` dot (thumb). Touch and drag: the
+  thumb follows the finger within a 22 pt radius; direction quantized to 4 ways (8 with a
   setting); sends arrow keys while held.
 - Gears (Termius): distance from center 8–16 pt = gear 1 (repeat every 160 ms), 16–24 pt =
   gear 2 (80 ms), > 24 pt = gear 3 (30 ms). First key fires immediately on crossing 8 pt.
-  `.selection` haptic per key at gears 1–2, every 4th key at gear 3.
+  No haptic (2.6).
 - Release: thumb returns with `springBack`.
 - Alternative (Termius): long-press-and-slide on the space bar is a system gesture we cannot
   intercept; long press on the terminal surface in direct mode with no selection intent
@@ -1156,13 +1172,13 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 (view) and `WorkspaceInbox.swift` (sections, status, search, folding; unit tested).
 
 - Toolbar: leading drawer, inline title "Workspaces" with a `navigationSubtitle`: the
-  filtered Mac and its presence; else "Updating…" when a refresh takes over 1.5 s; else
-  "N need you"; else with 2+ Macs "2 of 3 Macs online". Trailing glass capsule: the Mac
-  filter (only with 2+ Macs) and New Workspace.
+  filtered Mac's name; else "N need you"; else nothing. No presence, link or "2 of 3 Macs
+  online" words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
+  stuff"). Never that a refresh runs. Trailing glass capsule: the Mac filter (only with 2+
+  Macs) and New Workspace.
 - Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Macs, then
-  each Mac (online first, `desktopcomputer`; the model has no Mac kind) titled with its name
-  and subtitled with its presence ("Online" / "Last seen 2h ago", plus the link line in live
-  mode). Not an inline `Picker`: it drops the subtitles. Filtered fills the symbol
+  each Mac (online first) titled with its name and a green (online) or red (offline) dot; its
+  presence words are the VoiceOver value only. Not an inline `Picker`: it drops the dots. Filtered fills the symbol
   (`line.3.horizontal.decrease.circle.fill`). Remembered per team
   (`cmuxMobile.workspaces.macFilter.<team>`). In live mode, picking an online Mac the phone is not
   linked to links it.
@@ -1230,7 +1246,10 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 - States (live mode reads each Mac's `MacDataMachine` phase): team loading with no cache, or
   the linked Mac dialing with nothing known → `SkeletonList`. Last-known (snapshot) rows show
   at 55 % opacity with no agent state (never "is waiting" from a cache) until the Mac
-  answers; while the link connects the subtitle reads "Updating…" after 1.5 s. An online Mac
+  answers; while the link connects nothing says it updates (Leo, 2026-11-24: "they dont need
+  to know that it's updating before they KNOW it's updating"): no subtitle, chip or hairline
+  over rows the phone has, on Workspaces, Agent Chats, Home or an agent chat; only a fact the
+  person can act on speaks (the Offline or Mac offline chip, `ConnectionChip.Kind.paints`). An online Mac
   whose dial failed with nothing known is a "<Mac> · Can't connect" line (Retry); filtered to
   it, "Can't connect to <Mac>" + Retry. Team failed → "Couldn't load workspaces" + Retry. Filtered online Mac with none → "No workspaces on <Mac>" + New Workspace; filtered
   offline Mac → "<Mac> is offline"; live, filtered to an online Mac the phone is not linked to
@@ -1388,7 +1407,6 @@ Every transition in the app. "System" means do not customize.
 | Tool row expand/collapse | `smooth`; chevron rotation 0 → 90 degrees | |
 | Permission card / question card arrival | Rise 16 pt + fade, `snappy`; composer ↔ action bar crossfade `snap` + height `smooth` | |
 | Card resolved → summary row | `smooth` height collapse + crossfade | |
-| Plan step check | `.symbolEffect(.bounce)` once | |
 | Jump-to-bottom show/hide | Scale 0.85 ↔ 1 + opacity, `snap`; emerges from composer via glass morph | |
 | Scroll to bottom | `.smooth(duration: 0.35)` | |
 | Copy confirmation | Symbol replace doc.on.doc → checkmark, revert after 1.5 s | |

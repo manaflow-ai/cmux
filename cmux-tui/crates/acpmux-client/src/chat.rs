@@ -16,6 +16,7 @@ use serde_json::value::RawValue;
 /// The most rows a chat's window or page holds, a refused row counted as one.
 pub const MAX_CHAT_ROWS: usize = 400;
 /// The most `blob` requests one handle holds unanswered.
+/// Measured: each reply is up to MAX_BLOB_READ (256 KiB) held until read: 16 MiB a handle.
 pub const MAX_PENDING_BLOBS: usize = 64;
 
 /// A chat stream's change. None depends on the list's row type.
@@ -67,7 +68,8 @@ pub struct ChatSubRequest {
     pub window: Option<u16>,
 }
 
-/// `chat_page`'s request: before or after a rowId, and a fold to read as open.
+/// `chat_page`'s request: before or after a rowId, and a fold to read as open, or `turns`: the
+/// settled turns' group rows alone.
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatPageRequest {
@@ -78,6 +80,8 @@ pub struct ChatPageRequest {
     pub after: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fold: Option<u64>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turns: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_bytes: Option<u32>,
 }
@@ -303,6 +307,9 @@ where
         if chat.page.is_some() {
             return Err(FrameError::RequestInFlight);
         }
+        if request.turns && request.fold.is_some() {
+            return Err(FrameError::Refused("a page of turns names no fold"));
+        }
         let (side, row_id) = match (request.before, request.after) {
             (Some(row_id), None) => (PageSide::Before, row_id),
             (None, Some(row_id)) => (PageSide::After, row_id),
@@ -311,6 +318,7 @@ where
         let mut page = Page::new(request.sid, chat.request.stream.clone(), side, row_id);
         page.edition = Some(edition);
         page.fold = request.fold;
+        page.turns = request.turns;
         if let Some(max_bytes) = request.max_bytes {
             page.max_bytes = max_bytes.min(wire::MAX_PAGE_BYTES as u32);
         }
@@ -532,10 +540,26 @@ where
             return;
         };
         let sid = page.sid.clone();
-        if self.chats.get_mut(&sid).and_then(|chat| chat.page.take()).is_none() {
+        let Some(asked) = self.chats.get_mut(&sid).and_then(|chat| chat.page.take()) else {
             // A reply to no page out on this connection.
             self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
             self.charge_frame_now(Some(&sid), frame_bytes);
+            return;
+        };
+        if asked.turns && !page.turns {
+            // A daemon from before `turns` answered an ordinary page: its rows are not turns.
+            self.charge_frame_now(Some(&sid), frame_bytes);
+            self.push_change(
+                Change::Chat(ChatChange::Error {
+                    sid: Some(sid),
+                    method: "page".into(),
+                    id: None,
+                    code: "turns_unsupported".into(),
+                }),
+                None,
+                0,
+                false,
+            );
             return;
         }
         if over_bound(&page.rows, page.refused.len()) {

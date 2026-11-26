@@ -30,7 +30,8 @@ import { toolResult } from "./toolResult";
 import { withoutLinks } from "./webSourceList";
 import { stripsEnvelopeImages } from "../toolImages";
 import { foldFind } from "../../../find/fold";
-import { rowsWithLiveOutput } from "../liveToolOutput";
+import { isRunPart } from "./runPartId";
+import { rowsDrawnNow } from "../liveThought";
 import { clearAdaptiveFind, paintAdaptiveFind, type FindColors } from "../../../ui/findPaint";
 
 export { foldFind };
@@ -311,7 +312,7 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
     if (!open) return NO_MATCHES;
     // While Find is open the pane draws every output update (ChatFindScope.tsx); a running
     // command's output from before it opened is in liveToolOutput.ts, not `rows`.
-    const result = findMatchesIncremental(rowsWithLiveOutput(rows), query, matchesCache.current, attachmentView);
+    const result = findMatchesIncremental(rowsDrawnNow(rows), query, matchesCache.current, attachmentView);
     matchesCache.current = result.cache;
     return result.matches;
   }, [open, rows, query, attachmentView]);
@@ -402,14 +403,19 @@ export const AFTER_SEND = ":after:";
 
 /** Where the transcript draws match row `rowId`: the row or its fold copy (isFindRow), else the
  * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. A row a
- * prompt sent mid-turn split (AFTER_SEND) draws in two places: `holds` picks the one with the match.
- * Any other row draws in one place, the first, as before. */
+ * prompt sent mid-turn split (AFTER_SEND), or a long run cut into parts (RUN_PART), draws in several
+ * places: `holds` picks the one with the match. Any other row draws in one place, the first, as before. */
 export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string, holds?: (row: AcpmuxRow) => boolean): number {
   const at = rows.findIndex((row) => isFindRow(row, rowId));
   if (at < 0) return rows.findIndex((row) => isCardOf(row, rowId));
   if (!holds || holds(rows[at]!)) return at;
   for (let next = at + 1; next < rows.length; next += 1)
-    if (rows[next]!.id.includes(AFTER_SEND) && isFindRow(rows[next]!, rowId) && holds(rows[next]!)) return next;
+    if (
+      (rows[next]!.id.includes(AFTER_SEND) || isRunPart(rows[next]!)) &&
+      isFindRow(rows[next]!, rowId) &&
+      holds(rows[next]!)
+    )
+      return next;
   return at;
 }
 

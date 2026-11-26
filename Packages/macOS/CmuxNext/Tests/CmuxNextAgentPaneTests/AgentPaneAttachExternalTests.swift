@@ -17,6 +17,7 @@ struct AgentPaneAttachExternalTests {
 
     private static func model() -> AgentPaneModel {
         let model = AgentPaneModel(host: NoHost())
+        model.hasHandshake = true
         model.onLocalPaths = { true }
         return model
     }
@@ -114,6 +115,32 @@ struct AgentPaneAttachExternalTests {
 
     /// Send to cmux Chat takes the image files Finder selected, and keeps a picture's bytes under
     /// Chat Uploads as a file the route can hand on.
+    /// A file another app names is read only when it is a regular file within the limit: a symlink
+    /// (to a file cmux may read and the other app may not), a folder or a file over the limit gives
+    /// nothing (Daybreak nightly cmux-app-41).
+    @Test nonisolated func anExternalFileIsReadOnlyWhenItIsARegularFileNotASymlink() throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("external-\(UUID().uuidString)")
+        let folder = base.appendingPathComponent("docs")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        let png = Data([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+        let image = base.appendingPathComponent("Screenshot.png")
+        try png.write(to: image)
+        #expect(AgentPaneModel.readExternalRegularFile(image, limit: 64) == png)
+        #expect(AgentPaneModel.externalFile(image)?.type == "image/png")
+        let secret = image.deletingLastPathComponent().appendingPathComponent("secret.txt")
+        try Data("secret".utf8).write(to: secret)
+        let link = image.deletingLastPathComponent().appendingPathComponent("Looks Like.png")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: secret)
+        #expect(AgentPaneModel.readExternalRegularFile(link, limit: 64) == nil)
+        #expect(AgentPaneModel.externalFile(link) == nil)
+        #expect(AgentPaneModel.readExternalRegularFile(folder, limit: 64) == nil)
+        #expect(AgentPaneModel.readExternalRegularFile(image, limit: png.count - 1) == nil)
+        let empty = image.deletingLastPathComponent().appendingPathComponent("Empty.png")
+        try Data().write(to: empty)
+        #expect(AgentPaneModel.readExternalRegularFile(empty, limit: 64) == Data())
+    }
+
     @Test func theServiceTakesImageFilesAndKeepsAPicture() async throws {
         #expect(AgentPaneDroppedPaths.imageFiles(["/tmp/a.png", "/tmp/b.txt", "/tmp/c.HEIC", "/tmp/docs"]).map(\.path)
             == ["/tmp/a.png", "/tmp/c.HEIC"])
@@ -163,6 +190,17 @@ struct AgentPaneAttachExternalTests {
 
     /// Files that come while a new chat opens for earlier ones join them: one new chat, not two;
     /// a chat that could not start leaves nothing waiting.
+    /// The chat that took files answers when it took them, so the screenshot-into-chat probe times a door from
+    /// the app's stamp, not its 250 ms reads of the composer.
+    @Test func theReadbackOfTheChatThatTookFilesCarriesWhenItTookThem() {
+        let at = Date(timeIntervalSince1970: 1_795_350_000.25)
+        let state = AgentPaneExternalAttach.stamped(AgentPaneExternalAttach.noComposer, attachedAt: at)
+        #expect(state.objectValue?["attached_at_ms"] == .number(1_795_350_000_250))
+        #expect(state.objectValue?["attachments"] == .array([]))
+        #expect(AgentPaneExternalAttach.stamped(AgentPaneExternalAttach.noComposer, attachedAt: nil) == AgentPaneExternalAttach.noComposer)
+        #expect(AgentPaneExternalAttach.stamped(.null, attachedAt: at) == .null)
+    }
+
     @Test func filesWhileANewChatOpensJoinIt() {
         let route = AgentPaneExternalAttach()
         var opened = 0
@@ -177,5 +215,34 @@ struct AgentPaneAttachExternalTests {
         let refused = AgentPaneExternalAttach()
         refused.attach([URL(fileURLWithPath: "/tmp/a.png")], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
         #expect(!refused.waitsForChat)
+    }
+
+    /// Files whose chat never came, or was not made, are not lost: they go with the next files (the
+    /// open door's image after a cold launch, then the service's). A chat opened for files that have
+    /// since gone with a later one takes none.
+    @Test func filesWhoseChatNeverCameGoWithTheNextOnes() {
+        var clock = ContinuousClock.now
+        let route = AgentPaneExternalAttach(now: { clock })
+        var callbacks: [@MainActor (AgentPaneView?) -> Void] = []
+        let open: (@escaping @MainActor (AgentPaneView?) -> Void) -> Bool = { made in
+            callbacks.append(made)
+            return true
+        }
+        let a = URL(fileURLWithPath: "/tmp/shot-open.png"), b = URL(fileURLWithPath: "/tmp/shot-service.png")
+        let c = URL(fileURLWithPath: "/tmp/shot-share.png")
+        route.attach([a], claimed: nil, target: nil, openChat: open, show: { _ in })
+        clock += AgentPaneExternalAttach.openingLimit + .seconds(5)
+        route.attach([b], claimed: nil, target: nil, openChat: open, show: { _ in })
+        #expect(callbacks.count == 2)
+        #expect(route.waitingFiles == [a, b])
+        callbacks[0](nil) // the first chat's late failure leaves the files to the second
+        #expect(route.waitingFiles == [a, b] && route.waitsForChat)
+        callbacks[1](nil) // not made: kept for the next files
+        #expect(!route.waitsForChat && route.waitingFiles == [a, b])
+        route.attach([c], claimed: nil, target: nil, openChat: open, show: { _ in })
+        #expect(callbacks.count == 3 && route.waitingFiles == [a, b, c])
+        let refused = AgentPaneExternalAttach()
+        refused.attach([a], claimed: nil, target: nil, openChat: { _ in false }, show: { _ in })
+        #expect(!refused.waitsForChat && refused.waitingFiles == [a])
     }
 }

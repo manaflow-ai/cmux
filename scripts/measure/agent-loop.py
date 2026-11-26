@@ -142,6 +142,7 @@ class Loop:
 
     # The fresh home: this run's overlay, settings file and Debug Settings with the overlay toggle on.
     def prepare(self, env: dict) -> None:
+        smoke.login_keychain(env)  # a person's home has one: no Safe Storage Keychain dialog (cmuxterm-hq#11994)
         home = Path(env["HOME"])
         config = home / ".config" / "cmux" / "cmux-next.json"
         overlay = home / "Library" / "Application Support" / "cmux-next" / "web-overlay"
@@ -228,8 +229,19 @@ class Loop:
         if not self.step("base-overlay", self.base_overlay["exit"] == 0, **self.base_overlay):
             return self.result["failures"]
         opened = rpc(self.sock, "settings.open", {}, timeout=30)
-        time.sleep(3)  # harness: the Settings page loads
-        self.step("settings", isinstance(opened, dict) and "error" not in opened, reply=opened)
+        # Until the Settings page has painted (debug.page), at most 30 s. A build that does not answer
+        # debug.page is not waited on: the apply's probe below waits on the page's own log line.
+        painted, deadline = None, time.monotonic() + 30
+        while time.monotonic() < deadline:
+            page = rpc(self.sock, "debug.page", {"page": "cmux.settings"}, timeout=10)
+            if isinstance(page, dict) and "method" in str(page.get("error") or "").lower():
+                break  # no debug.page on this build; a page not made yet is another error, waited out
+            page = page if isinstance(page, dict) else {}
+            painted = bool(page.get("painted"))
+            if painted:
+                break
+            time.sleep(0.2)
+        self.step("settings", isinstance(opened, dict) and "error" not in opened, reply=opened, painted=painted)
 
         first, never = nonce(), nonce()
         self.step("base", logged(self.sock, first) is False, word=first)

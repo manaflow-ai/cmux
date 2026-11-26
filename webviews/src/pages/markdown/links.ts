@@ -91,12 +91,18 @@ export interface HeadingTarget {
   pos: number;
 }
 
+/** Each document's headings (`headingTargets`): every anchor link asks, and a walk per link made a file of many links quadratic. */
+const targetsByDoc = new WeakMap<ProseNode, readonly HeadingTarget[]>();
+
 /** Every heading of a document with its GitHub anchor, in order. */
-export function headingTargets(doc: ProseNode): HeadingTarget[] {
+export function headingTargets(doc: ProseNode): readonly HeadingTarget[] {
+  const cached = targetsByDoc.get(doc);
+  if (cached) return cached;
   const slugger = new Slugger();
   const out: HeadingTarget[] = [];
   doc.descendants((node, pos) => {
-    if (node.type.name !== "heading") return true;
+    // A paragraph holds no heading: its text is not walked.
+    if (node.type.name !== "heading") return !node.isTextblock;
     out.push({
       slug: slugger.slug(node.textContent),
       text: node.textContent,
@@ -105,7 +111,39 @@ export function headingTargets(doc: ProseNode): HeadingTarget[] {
     });
     return false;
   });
+  targetsByDoc.set(doc, out);
   return out;
+}
+
+/** The anchor (`githubSlug`, before `-1` suffixes) of each heading in `from`..`to` of `doc`, in order. */
+export function headingAnchorsBetween(doc: ProseNode, from: number, to: number): string[] {
+  const out: string[] = [];
+  doc.nodesBetween(from, to, (node) => {
+    if (node.type.name !== "heading") return !node.isTextblock;
+    out.push(githubSlug(node.textContent));
+    return false;
+  });
+  return out;
+}
+
+/** Each document's heading slugs (`hasHeading`); an edit that kept the headings passes them on (`keepHeadings`). */
+const slugsByDoc = new WeakMap<ProseNode, ReadonlySet<string>>();
+
+/** Whether a heading of `doc` has the anchor `anchor`, as `findHeading` finds one. */
+export function hasHeading(doc: ProseNode, anchor: string): boolean {
+  let slugs = slugsByDoc.get(doc);
+  if (!slugs) {
+    slugs = new Set(headingTargets(doc).map((target) => target.slug));
+    slugsByDoc.set(doc, slugs);
+  }
+  const wanted = anchor.trim();
+  return slugs.has(wanted) || slugs.has(githubSlug(wanted));
+}
+
+/** `after` has the same heading anchors as `before` (an edit kept them): `hasHeading` needs no walk of it. */
+export function keepHeadings(before: ProseNode, after: ProseNode): void {
+  const slugs = slugsByDoc.get(before);
+  if (slugs) slugsByDoc.set(after, slugs);
 }
 
 /** The heading an anchor names (exact slug, then case-insensitive), or undefined. */
@@ -185,10 +223,10 @@ export class LinkResolver {
   }
 }
 
-/** Relative link paths in a document (link marks and images), for `LinkResolver.request`. */
-export function relativeLinkPaths(doc: ProseNode): Set<string> {
+/** Relative link paths in a document, or between two positions (link marks and images), for `LinkResolver.request`. */
+export function relativeLinkPaths(doc: ProseNode, from = 0, to = doc.content.size): Set<string> {
   const paths = new Set<string>();
-  doc.descendants((node) => {
+  doc.nodesBetween(from, to, (node) => {
     for (const mark of node.marks) {
       if (mark.type.name !== "link") continue;
       const link = parseLink(String(mark.attrs.href ?? ""));

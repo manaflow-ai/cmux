@@ -105,6 +105,11 @@ impl Daemon {
     }
 
     fn restart(&mut self) {
+        self.restart_with_stderr(Stdio::inherit());
+    }
+
+    /// [`Self::restart`], with the daemon's log going to `stderr`.
+    fn restart_with_stderr(&mut self, stderr: Stdio) {
         standalone_holder_is_current();
         let _ = fs::remove_file(&self.socket);
         let child = Command::new(&self.binary)
@@ -121,7 +126,7 @@ impl Daemon {
             .env_remove("SSH_CLIENT")
             .env_remove("SSH_TTY")
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
+            .stderr(stderr)
             .spawn()
             .unwrap();
         self.child = Some(child);
@@ -600,6 +605,68 @@ fn a_standalone_holder_that_hangs_before_ready_falls_back_to_the_built_in_holder
         started.elapsed()
     );
     let _ = fs::remove_file(&stand_in);
+}
+
+/// CMUX-571: with the holder on, a holder that cannot serve
+/// this session must never cost a terminal. Here its token cannot be read or
+/// written (`holder.token` is a directory), so no holder service can start:
+/// a new terminal runs on a terminal host of its own, the path every terminal
+/// took before the holder, and takes input.
+#[test]
+fn a_holder_that_cannot_start_sends_new_terminals_to_a_host_of_their_own() {
+    let mut daemon = Daemon::start();
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+            "name": "on-holder", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    daemon.track(surface);
+    let shell = shell_pid(&daemon.socket, surface);
+    let holder = parent_of(shell);
+    assert!(
+        holder > 1 && !command_line(holder).contains("__terminal-host"),
+        "the first terminal runs on the holder"
+    );
+    let token = walk(&daemon.dir.join("state"))
+        .into_iter()
+        .find(|path| path.file_name().is_some_and(|name| name == "holder.token"))
+        .expect("the holder service wrote its token");
+
+    // The session ends with its holder and shell; its next start finds no
+    // usable token.
+    daemon.sigkill();
+    for pid in [shell, holder] {
+        // SAFETY: SIGKILL of the shell and holder this test's daemon started.
+        unsafe { libc::kill(pid, libc::SIGKILL) };
+    }
+    fs::remove_file(&token).unwrap();
+    fs::create_dir(&token).unwrap();
+    daemon.restart();
+
+    let created = request(
+        &daemon.socket,
+        json!({"cmd": "run", "argv": ["/bin/cat"], "new_workspace": true,
+            "name": "fallback", "cols": 80, "rows": 24}),
+    );
+    let surface = created["surface"].as_u64().unwrap();
+    daemon.track(surface);
+    send(&daemon.socket, surface, "on-a-host");
+    screen_contains(&daemon.socket, surface, "on-a-host");
+    // The shell's nearest ancestors: its terminal host, not a holder.
+    let mut ancestors = Vec::new();
+    let mut pid = shell_pid(&daemon.socket, surface);
+    for _ in 0..3 {
+        pid = parent_of(pid);
+        if pid <= 1 {
+            break;
+        }
+        ancestors.push(command_line(pid));
+    }
+    assert!(
+        ancestors.iter().any(|args| args.contains("__terminal-host")),
+        "the terminal runs on a host of its own: {ancestors:?}"
+    );
 }
 
 /// Two terminals start and take input, on a holder that is not the
@@ -1393,3 +1460,10 @@ fn walk(dir: &Path) -> Vec<PathBuf> {
     }
     out
 }
+
+#[path = "holder_terminals/holder_late_start.rs"]
+mod holder_late_start;
+#[path = "holder_terminals/quick_terminal.rs"]
+mod quick_terminal;
+#[path = "holder_terminals/scale.rs"]
+mod scale;

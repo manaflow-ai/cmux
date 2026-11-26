@@ -25,8 +25,8 @@ public final class WindowRegistryStore {
     /// (TYPING UNDER LOAD F6: every row read the whole registry).
     public let incognitoByWorkspace = ObservedMap<String, Bool>()
     /// The close-selection rule's state for the workspaces of every window: who opened which, and the pick after a
-    /// close (`WindowCloseSelection`). One instance for all windows is safe: a workspace has one owner window
-    /// (`WindowRegistry.owner(of:)`), so no relation of one window can be ended by a selection change of another.
+    /// close (`WindowCloseSelection`). One instance for all windows: each relation is keyed by its window, and a window
+    /// that lists a workspace as a guest answers for it as its owner does (`repairSelection`).
     @ObservationIgnored public let closeSelection = WindowCloseSelection()
     /// The window that lists each workspace (`WindowRegistry.owner(of:)`), observed one workspace at a time: nil while
     /// no window lists it. An observer of ONE workspace (its link places, its shown name) reads its own entry, never
@@ -37,8 +37,34 @@ public final class WindowRegistryStore {
     /// answer for. Plain, not observed: the next refresh compares against it, so an answer that did not change costs
     /// no read or write of an observed entry.
     @ObservationIgnored private var answered: [String: (incognito: Bool, owner: String?)] = [:]
+    /// Windows that list no guests (shared spaces, `WindowManager.shareSpaces`) until they next enter a space outside a
+    /// gather: those a Move Space to This Window took workspaces from and left open, and a window opened for moved
+    /// content while it waits for a space of its own (`holdOwnSpace`). Not saved: a relaunch shares again.
+    @ObservationIgnored public private(set) var gatherSources: Set<String> = []
+    @ObservationIgnored private var gathering = false
 
     public init() {}
+
+    /// Runs `body`, a Move Space into window `id` that takes workspaces from `givers`: the givers stop viewing shared
+    /// spaces, `id` views them again, and a space the gather's own repairs give a window does not end its entry.
+    @discardableResult
+    public func gather<T>(into id: String, from givers: [String], _ body: () throws -> T) rethrows -> T {
+        gatherSources.remove(id)
+        gatherSources.formUnion(givers)
+        gathering = true
+        defer {
+            gathering = false
+            gatherSources = gatherSources.filter { value.window($0) != nil }
+        }
+        return try body()
+    }
+
+    /// Window `id` entered a space (`WindowState.onProfileChange`): outside a gather it views shared spaces again.
+    public func spaceEntered(_ id: String) { if !gathering { gatherSources.remove(id) } }
+
+    /// Window `id`, opened for moved content on the space that content left, lists only its own workspaces until it
+    /// enters a space (its own, once they are pinned there): it is no view of the space it is leaving (#45984).
+    public func holdOwnSpace(_ id: String) { gatherSources.insert(id) }
 
     /// Whether window `id` is one the launch brings back (the launch window, or one of the `saved` windows the
     /// restore opens) while the launch runs. Only such a window stands in for its rows (saved rows, the connecting
@@ -68,7 +94,7 @@ public final class WindowRegistryStore {
     /// share storage (the compare is O(windows) then); a reconcile writes each list again, and the compare reads them.
     private static func sameAnswers(_ old: WindowRegistry, _ new: WindowRegistry) -> Bool {
         old.incognito == new.incognito && old.discarding == new.discarding && old.windows.count == new.windows.count
-            && zip(old.windows, new.windows).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs }
+            && zip(old.windows, new.windows).allSatisfy { $0.id == $1.id && $0.workspaceIDs == $1.workspaceIDs && $0.guests == $1.guests }
     }
 
     /// Drops every launch-snapshot membership (the restore): each window's readers hear only their own window's entry.
@@ -115,7 +141,7 @@ public final class WindowRegistryStore {
 
     /// The ones of `ids` (a window's parked workspaces) that window `id` does not list, for its `showWorkspace` (one
     /// run, counted in `closeWork`): one lookup of the owner index for each, never a set of the window's whole list
-    /// (826 ids per workspace switch and per close in the person's session). Its own list is searched only for an id
+    /// (826 ids per workspace switch and per close in a large session). Its own list is searched only for an id
     /// another window lists first (a broken invariant, `WindowRegistry.violations`); a window not registered yet
     /// answers from its launch snapshot (`provisional`), as `members(of:)` does.
     public func unlisted(_ ids: some Sequence<String>, in id: String) -> Set<String> { // perf-hot: 0.01ms workspace-switch (O(parked))
@@ -127,7 +153,7 @@ public final class WindowRegistryStore {
         for workspace in ids {
             closeWork.shownIDs += 1
             let owner = registry.owner(of: workspace)
-            if owner == id { continue }
+            if owner == id || window?.guests.contains(workspace) == true { continue }
             var listed = launch.contains(workspace)
             if let window, owner != nil {
                 closeWork.shownIDs += window.workspaceIDs.count
@@ -142,9 +168,9 @@ public final class WindowRegistryStore {
     public func owner(ofWorkspace workspaceID: String) -> String? { ownerByWorkspace[workspaceID] }
 
     /// Writes the window kind and owner of each workspace whose answer changed, and of no other: one new workspace
-    /// writes its own two entries, in a session of 826 workspaces as in one of 60 (`membershipWork.answerWrites`).
+    /// writes its own two entries, in a large session as in one of 60 (`membershipWork.answerWrites`).
     /// A write of an equal value notified nobody before too, but it read its slot through the observation registrar
-    /// (a key path made for each read): 2 x 827 of them were 2.5 ms of main thread per new workspace at 826
+    /// (a key path made for each read): two per workspace, 2.5 ms of main thread per new workspace in a large session
     /// (NEW WORKSPACE 800). The walk that is left compares plain values: one dictionary read per listed workspace.
     private func refreshWorkspaceAnswers() {
         var next: [String: (incognito: Bool, owner: String?)] = [:]
@@ -152,7 +178,7 @@ public final class WindowRegistryStore {
         // The first window that lists a workspace owns it (`WindowRegistry.owner(of:)`).
         for window in value.windows {
             let incognito = value.isIncognito(window.id)
-            for id in window.workspaceIDs where next[id] == nil { next[id] = (incognito: incognito, owner: window.id) }
+            for id in window.workspaceIDs where next[id] == nil && !window.guests.contains(id) { next[id] = (incognito: incognito, owner: window.id) }
         }
         for id in value.discarding { next[id] = (incognito: true, owner: next[id]?.owner) }
         for (id, old) in answered where next[id] == nil {

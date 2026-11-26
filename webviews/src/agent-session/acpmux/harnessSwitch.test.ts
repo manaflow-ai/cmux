@@ -192,3 +192,211 @@ test("a new chat still sends every pick its session differs on before the first 
   expect(calls.slice(0, 3).sort()).toEqual(["config effort=high", "mode acceptEdits", "model opus"]);
   expect(calls[3]).toBe("send fix the tests");
 });
+
+/** A port whose opened session runs `sonnet` in `default`, effort `high` (the old model's levels). */
+function openedPort(calls: string[]): SwitchPort {
+  let open = false;
+  return {
+    ...trustRefusingPort(),
+    shown: () =>
+      open
+        ? {
+            sessionId: "s1",
+            harness: "claude",
+            model: "sonnet",
+            modeId: "default",
+            empty: true,
+            configOptions: [
+              {
+                id: "effort",
+                category: "thought_level",
+                currentValue: "high",
+                options: [{ value: "low" }, { value: "high" }],
+              },
+            ],
+          }
+        : undefined,
+    create: async () => "s1",
+    open: async (sessionId) => {
+      open = true;
+      return sessionId;
+    },
+    send: async (text) => void calls.push(`send ${text}`),
+    // The agent answers a model switch a few turns later than an option pick.
+    setModel: async (model) => {
+      for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+      calls.push(`model ${model}`);
+    },
+    setMode: async (mode) => void calls.push(`mode ${mode}`),
+    setConfig: async (configId, value) => void calls.push(`config ${configId}=${value}`),
+  };
+}
+
+test("a new chat's held model goes before its effort, which goes even when the old model did not list it", async () => {
+  // A model switch resets an effort the new model lacks (cmux-codex-acp set_option): an effort that
+  // landed first was reset, and the chat ran on the model's default level, not the one picked (Leo
+  // 2026-11-17: picks "don't randomly change to other things").
+  const calls: string[] = [];
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(openedPort(calls));
+  const started = harnessSwitch.switchTo("claude", "/work", { model: "opus", options: { effort: "xhigh" } });
+  harnessSwitch.pickMode("bypassPermissions");
+  const sent = harnessSwitch.send("fix the tests");
+  await started;
+  await sent;
+  expect(calls[0]).toBe("model opus");
+  expect(calls.slice(1, 3).sort()).toEqual(["config effort=xhigh", "mode bypassPermissions"]);
+  expect(calls[3]).toBe("send fix the tests");
+});
+
+test("the chips keep a new chat's held picks until its session reports them", async () => {
+  // The switch ends (its prompt goes) once the agent answered each pick, before the session's own
+  // report of them: the chips went from the pick back to the start value, then to the pick again.
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(openedPort([]));
+  const started = harnessSwitch.switchTo("claude", "/work", { model: "opus", options: { effort: "xhigh" } });
+  harnessSwitch.pickMode("bypassPermissions");
+  const sent = harnessSwitch.send("fix the tests");
+  await started;
+  await sent;
+  const reported = (model: string, mode: string, effort: string): AcpmuxSnapshot =>
+    ({
+      sessionId: "s1",
+      rows: [],
+      catalog: [],
+      summary: {
+        sessionId: "s1",
+        turnCount: 1,
+        harness: "claude",
+        model,
+        modes: { availableModes: [{ id: "default" }, { id: "bypassPermissions" }], currentModeId: mode },
+        configOptions: [
+          {
+            id: "effort",
+            category: "thought_level",
+            currentValue: effort,
+            options: [{ value: "low" }, { value: "high" }, { value: "xhigh" }],
+          },
+        ],
+      },
+    }) as unknown as AcpmuxSnapshot;
+  const chips = (snapshot: AcpmuxSnapshot) => {
+    const summary = applySwitch(snapshot, harnessSwitch.view()).summary!;
+    return [summary.model, summary.modes?.currentModeId, summary.configOptions?.[0]?.currentValue];
+  };
+  // Before the session's report: the picks, not what the session started on.
+  const before = reported("sonnet", "default", "high");
+  harnessSwitch.reconcile(before);
+  expect(chips(before)).toEqual(["opus", "bypassPermissions", "xhigh"]);
+  // The report names them: nothing is left to draw over it.
+  const after = reported("opus", "bypassPermissions", "xhigh");
+  harnessSwitch.reconcile(after);
+  expect(harnessSwitch.view().settling).toBeUndefined();
+  expect(chips(after)).toEqual(["opus", "bypassPermissions", "xhigh"]);
+  // A value set elsewhere later shows as it is.
+  expect(chips(reported("opus", "default", "low"))).toEqual(["opus", "default", "low"]);
+});
+
+/// A port whose open answers undefined (a newer open of the same chat won, issue 44964) while the
+/// chat is on screen, attached or not as `attached` says.
+function supersededOpenPort(attached: boolean, calls: string[]): SwitchPort {
+  let open = false;
+  return {
+    ...trustRefusingPort(),
+    shown: () => (open ? { sessionId: "s1", harness: "claude", empty: true } : undefined),
+    create: async () => "s1",
+    open: async () => {
+      open = true;
+      return undefined;
+    },
+    attached: async (sessionId) => attached && open && sessionId === "s1",
+    send: async (text) => void calls.push(`send ${text}`),
+  };
+}
+
+test("an open a newer open of the same chat won still sends the first prompt to the chat on screen", async () => {
+  const calls: string[] = [];
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(supersededOpenPort(true, calls));
+  const started = harnessSwitch.switchTo("claude", "/work");
+  const sent = harnessSwitch.send("fix the tests");
+  expect(await started).toBe("s1");
+  await sent;
+  expect(calls).toEqual(["send fix the tests"]);
+  expect(harnessSwitch.view().intent?.phase).not.toBe("failed");
+});
+
+test("an open that answers undefined with its chat not attached still fails", async () => {
+  const calls: string[] = [];
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(supersededOpenPort(false, calls));
+  const started = harnessSwitch.switchTo("claude", "/work");
+  const sent = harnessSwitch.send("fix the tests");
+  void sent?.catch(() => undefined);
+  await started;
+  expect(calls).toEqual([]);
+  expect(harnessSwitch.view().intent?.phase).toBe("failed");
+});
+
+// cmux#45946: the session a pick on a sessionless page started, for the Cloud start that replaces it.
+test("pickSession answers the session a deferred pick started, once its start settles", async () => {
+  let answer: (id: string) => void = () => undefined;
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect({
+    ...trustRefusingPort(),
+    create: () => new Promise<string | undefined>((resolve) => (answer = (id) => resolve(id))),
+  });
+  expect(await harnessSwitch.pickSession(10)).toBeUndefined();
+  void harnessSwitch.switchTo("codex", null, { deferred: true, model: "gpt-6.1-sol" });
+  const picked = harnessSwitch.pickSession(5000);
+  answer("codex-session");
+  expect(await picked).toBe("codex-session");
+  // Settled already: answered at once.
+  expect(await harnessSwitch.pickSession(0)).toBe("codex-session");
+  harnessSwitch.cancel();
+  expect(await harnessSwitch.pickSession(0)).toBeUndefined();
+});
+
+test("pickSession gives up on a start that never answers, and answers none for a failed or Trust-held pick", async () => {
+  const stuck = new HarnessSwitch();
+  stuck.connect(startingPort());
+  void stuck.switchTo("codex", null, { deferred: true });
+  expect(await stuck.pickSession(20)).toBeUndefined();
+  const trust = new HarnessSwitch();
+  trust.connect(trustRefusingPort());
+  void trust.switchTo("claude", "/work/untrusted", { deferred: true });
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(await trust.pickSession(1000)).toBeUndefined();
+});
+
+test("a mode picked on a harness comes back when the pane switches away and back to it", async () => {
+  // agent-pane-picks-hold (real acpmux): Full access on Codex, Claude Code, back to Codex read "Mode".
+  const calls: string[] = [];
+  let shown: ReturnType<SwitchPort["shown"]>;
+  let next = 0;
+  const harnessOf = new Map<string, string>();
+  const port: SwitchPort = {
+    ...trustRefusingPort(),
+    shown: () => shown,
+    create: async (harness) => {
+      const id = `s${++next}`;
+      harnessOf.set(id, harness);
+      return id;
+    },
+    open: async (sessionId) => {
+      shown = { sessionId, harness: harnessOf.get(sessionId), modeId: "agent", empty: true, configOptions: [] };
+      return sessionId;
+    },
+    setMode: async (mode) => void calls.push(`mode ${mode}`),
+  };
+  const harnessSwitch = new HarnessSwitch();
+  harnessSwitch.connect(port);
+  void harnessSwitch.switchTo("codex", "/work");
+  harnessSwitch.pickMode("agent-full-access");
+  void harnessSwitch.switchTo("claude", "/work");
+  const back = harnessSwitch.switchTo("codex", "/work");
+  expect(await back).toBeDefined();
+  expect(shown?.harness).toBe("codex");
+  expect(calls).toEqual(["mode agent-full-access"]);
+});

@@ -4,11 +4,12 @@ name: gallery health
 # reports ready, crashes the renderer, or whose play cannot reach it fails this check unless
 # scripts/gallery-matrix/broken-allowlist.json names it with why. On a pull request, a red state that is red the
 # same way on the base it merged with is the base's: the check warns on it and passes (base reds
-# are warnings, not failures). A crash, a cut-short render, or no base result still fails. A pull request, and each push to
-# feat-cmux-next, renders the entries it touches (touched.ts; everything for a global stylesheet or
-# a change to the checker). Both run only when a path the gallery render reads changes (the list
-# below; tests/test_ci_gallery_health_merge_ref.py keeps it in step with touched.ts and with the
-# files the gallery imports from outside webviews/). The workflow-level filter is safe because no
+# are warnings, not failures). A crash, a cut-short render, or no base result still fails. A pull request
+# (when the trigger is put back) renders the entries it touches (touched.ts; everything for a global
+# stylesheet or a change to the checker). The post-merge batch renders every entry. Both run only when a
+# path the gallery render reads changes: the suite's `paths` in .github/post-merge-batch.json, which
+# scripts/gallery-matrix/unplaced.py also reads (tests/test_ci_gallery_health_merge_ref.py keeps it in step
+# with touched.ts and with the files the gallery imports from outside webviews/). A filter is safe because no
 # ruleset requires this check: a pull request that changes none of these paths gets no gallery
 # health check at all, never a pending one, and next-autoland gates on the check only where it ran.
 # If this check is ever made required, move the filter into a router job first (cmux-next.yml
@@ -25,207 +26,28 @@ name: gallery health
 # cmux-next-resource-budget-dispatch.yml does for cmux-next-perf-bench.yml).
 
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened]
-    paths:
-      # What a gallery render reads, and nothing else (2026-11-05 CI audit, cmuxterm-hq
-      # plans/ci/baggage-2026-11-05.md): the webviews UI sources and the gallery's own build, the
-      # files outside webviews/ they import or read (galleryHost.ts, gen-strings.mjs),
-      # the lockfiles of both installs, the checker and this workflow. webviews/test, webviews/bench,
-      # the other webviews scripts and the repository's root bun.lock render nothing here.
-      # Scripts are listed file by file, not by folder: the build scripts the gallery build runs or
-      # imports, and the modules health.ts loads. Benches, capture tools, dev-slot helpers, the
-      # matrix's other tools, their tests and the docs beside them render nothing. A webviews/src
-      # Markdown file renders only as a gallery fixture (src/gallery/fixtures/). The test keeps the
-      # lists in step with what the build and the checker import.
-      - "webviews/src/**"
-      - "!webviews/src/**/*.test.ts"
-      - "!webviews/src/**/*.test.tsx"
-      - "!webviews/src/**/*.md"
-      - "webviews/src/gallery/fixtures/**"
-      - "webviews/dev-server/**"
-      - "webviews/scripts/gallery/entries.ts"
-      - "webviews/scripts/gallery/manifest.ts"
-      - "webviews/scripts/gallery/touched.ts"
-      - "webviews/scripts/agent-pane/artifactRuntimePlugin.mjs"
-      - "webviews/scripts/agent-pane/bundle.mjs"
-      - "webviews/scripts/agent-pane/jsonParsePlugin.mjs"
-      - "webviews/scripts/agent-pane/katexStylePlugin.mjs"
-      - "webviews/scripts/agent-pane/reactCompilerPlugin.mjs"
-      - "webviews/scripts/agent-pane/tailwind-css.mjs"
-      - "webviews/scripts/agent-pane/tailwindCompile.mjs"
-      - "webviews/scripts/bundle-metafile.mjs"
-      - "webviews/scripts/pages/gen-design-scale.mjs"
-      - "webviews/scripts/pages/gen-feature-tips.mjs"
-      - "webviews/scripts/pages/gen-strings.mjs"
-      - "webviews/scripts/pages/split-strings.mjs"
-      - "webviews/test/latency/mock-host.ts"
-      - "webviews/vite.config.ts"
-      - "webviews/vite.config.gallery.ts"
-      - "webviews/reactCompiler.mjs"
-      - "webviews/package.json"
-      - "webviews/bun.lock"
-      - "webviews/bunfig.toml"
-      - "webviews/tsconfig.json"
-      - "config/vite-plus/**"
-      - "webviews/scripts/lint/effect-cleanup.mjs"
-      - "webviews/scripts/lint/perf-footguns.mjs"
-      - "scripts/gallery-matrix/broken-allowlist.json"
-      - "scripts/gallery-matrix/bun.lock"
-      - "scripts/gallery-matrix/geometry-collector.ts"
-      - "scripts/gallery-matrix/geometry-containers.ts"
-      - "scripts/gallery-matrix/geometry.ts"
-      - "scripts/gallery-matrix/health.ts"
-      - "scripts/gallery-matrix/invariant-baseline.json"
-      - "scripts/gallery-matrix/invariant-baseline.ts"
-      - "scripts/gallery-matrix/package.json"
-      - "scripts/gallery-matrix/ready-budgets.json"
-      - "scripts/gallery-matrix/ready-budgets.ts"
-      - "scripts/gallery-matrix/runner.ts"
-      - "scripts/gallery-matrix/shift-baseline.json"
-      - "scripts/gallery-matrix/shift-baseline.ts"
-      - "scripts/gallery-matrix/unplaced.py"
-      - "scripts/gallery-matrix/upload-set.ts"
-      - "scripts/cmux-next/build-agent-pane-web.sh"
-      - "scripts/ci/test_reds.py"
-      - "scripts/ci/ensure-system-chrome.sh"
-      - ".github/actions/playwright-apt-cache/**"
-      - ".github/workflows/gallery-health.yml"
-      - "schemas/gallery/**"
-      - "schemas/agent-pane/wake-state.json"
-      - "schemas/design-scale/**"
-      - "design/icons/neko-candidates/**"
-      - "schemas/type-scale/**"
-      - "schemas/motion-scale/**"
-      - "schemas/layout-grid/**"
-      - "schemas/theme/slots.json"
-      - "schemas/sync-motion/**"
-      - "schemas/settings/settings-schema.json"
-      - "schemas/theme/slots.json"
-      - "Resources/ghostty/themes/**"
-      - "Resources/cmux-themes/**"
-      - "Resources/markdown-viewer/**"
-      - "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/**"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/BrowserProfileActions.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/HistoryActions.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/RemoteActions.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/KeybindingsPage.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Passwords.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/PairInvite.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextResources/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextResources/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
-      - "web/data/model-catalog/**"
-      - "release-notes/next/highlights/**"
-  push:
-    branches: [feat-cmux-next]
-    paths:
-      - "webviews/src/**"
-      - "!webviews/src/**/*.test.ts"
-      - "!webviews/src/**/*.test.tsx"
-      - "!webviews/src/**/*.md"
-      - "webviews/src/gallery/fixtures/**"
-      - "webviews/dev-server/**"
-      - "webviews/scripts/gallery/entries.ts"
-      - "webviews/scripts/gallery/manifest.ts"
-      - "webviews/scripts/gallery/touched.ts"
-      - "webviews/scripts/agent-pane/artifactRuntimePlugin.mjs"
-      - "webviews/scripts/agent-pane/bundle.mjs"
-      - "webviews/scripts/agent-pane/jsonParsePlugin.mjs"
-      - "webviews/scripts/agent-pane/katexStylePlugin.mjs"
-      - "webviews/scripts/agent-pane/reactCompilerPlugin.mjs"
-      - "webviews/scripts/agent-pane/tailwind-css.mjs"
-      - "webviews/scripts/agent-pane/tailwindCompile.mjs"
-      - "webviews/scripts/bundle-metafile.mjs"
-      - "webviews/scripts/pages/gen-design-scale.mjs"
-      - "webviews/scripts/pages/gen-feature-tips.mjs"
-      - "webviews/scripts/pages/gen-strings.mjs"
-      - "webviews/scripts/pages/split-strings.mjs"
-      - "webviews/test/latency/mock-host.ts"
-      - "webviews/vite.config.ts"
-      - "webviews/vite.config.gallery.ts"
-      - "webviews/reactCompiler.mjs"
-      - "webviews/package.json"
-      - "webviews/bun.lock"
-      - "webviews/bunfig.toml"
-      - "webviews/tsconfig.json"
-      - "config/vite-plus/**"
-      - "webviews/scripts/lint/effect-cleanup.mjs"
-      - "webviews/scripts/lint/perf-footguns.mjs"
-      - "scripts/gallery-matrix/broken-allowlist.json"
-      - "scripts/gallery-matrix/bun.lock"
-      - "scripts/gallery-matrix/geometry-collector.ts"
-      - "scripts/gallery-matrix/geometry-containers.ts"
-      - "scripts/gallery-matrix/geometry.ts"
-      - "scripts/gallery-matrix/health.ts"
-      - "scripts/gallery-matrix/invariant-baseline.json"
-      - "scripts/gallery-matrix/invariant-baseline.ts"
-      - "scripts/gallery-matrix/package.json"
-      - "scripts/gallery-matrix/ready-budgets.json"
-      - "scripts/gallery-matrix/ready-budgets.ts"
-      - "scripts/gallery-matrix/runner.ts"
-      - "scripts/gallery-matrix/shift-baseline.json"
-      - "scripts/gallery-matrix/shift-baseline.ts"
-      - "scripts/gallery-matrix/unplaced.py"
-      - "scripts/gallery-matrix/upload-set.ts"
-      - "scripts/cmux-next/build-agent-pane-web.sh"
-      - "scripts/ci/test_reds.py"
-      - "scripts/ci/ensure-system-chrome.sh"
-      - ".github/actions/playwright-apt-cache/**"
-      - ".github/workflows/gallery-health.yml"
-      - "schemas/gallery/**"
-      - "schemas/agent-pane/wake-state.json"
-      - "schemas/design-scale/**"
-      - "design/icons/neko-candidates/**"
-      - "schemas/type-scale/**"
-      - "schemas/motion-scale/**"
-      - "schemas/layout-grid/**"
-      - "schemas/theme/slots.json"
-      - "schemas/sync-motion/**"
-      - "schemas/settings/settings-schema.json"
-      - "schemas/theme/slots.json"
-      - "Resources/ghostty/themes/**"
-      - "Resources/cmux-themes/**"
-      - "Resources/markdown-viewer/**"
-      - "Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/**"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/BrowserProfileActions.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/HistoryActions.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextActions/RemoteActions.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/KeybindingsPage.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/MobilePairing.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Passwords.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/PairInvite.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextResources/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextHistory/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextResources/Resources/Localizable.xcstrings"
-      - "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings"
-      - "web/data/model-catalog/**"
-      - "release-notes/next/highlights/**"
+  # Not on pull requests (2026-11-21, CI time map): the 16 render shards were ~75,000 runner-minutes a day,
+  # 89% of them on pull requests, at a 3% miss rate (cmuxterm-hq#16094). Nor on each push to feat-cmux-next
+  # (2026-11-21, the post-merge batch tier, RFD 0023 in cmuxterm-hq): the post-merge batch
+  # (cmux-next-post-merge.yml, suite gallery-health) calls it with the tip once a window, when the commits
+  # since the last batch touched a path the render reads, and renders every entry with no base (as the
+  # nightly dispatch does), so a red there fails and the batch bisects it to the merge that made it. The
+  # paths list lives in that suite of .github/post-merge-batch.json: what a gallery render reads, and nothing
+  # else (2026-11-05 CI audit, cmuxterm-hq plans/ci/baggage-2026-11-05.md): the webviews UI sources and the
+  # gallery's own build, the files outside webviews/ they import or read (galleryHost.ts, gen-strings.mjs),
+  # the lockfiles of both installs, the checker and this workflow. Scripts are listed file by file. The
+  # PR-only parts below (the base gallery job, the base replay) stay, so putting `pull_request:` (branches
+  # [feat-cmux-next], types opened/synchronize/reopened, that paths list) back is the whole revert.
+  workflow_call:
+    inputs:
+      sha:
+        description: "The commit to render (the post-merge batch's tip or a bisect probe's commit). Empty: the event's own."
+        type: string
+        default: ""
+      only:
+        description: "The one job id to run (a bisect probe): health. Empty: every job."
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       screenshots:
@@ -237,14 +59,14 @@ permissions:
   contents: read
 
 concurrency:
-  # A push renders only what it touched, so a later push must not cancel it; nor may a push and the
-  # nightly dispatch of the same commit cancel each other.
-  group: gallery-health-${{ github.event.pull_request.number || format('{0}-{1}', github.event_name, github.sha) }}
+  # The nightly dispatch and a post-merge batch run (or bisect probe) of the same commit must not cancel
+  # each other: under the batch caller github.sha is the caller's tip, so the batch keys on inputs.sha.
+  group: gallery-health-${{ github.event.pull_request.number || format('{0}-{1}', inputs.sha && format('batch-{0}', inputs.only) || github.event_name, inputs.sha || github.sha) }}
   cancel-in-progress: true
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   # The base gallery, built once a run while the shards render the head (~5 minutes, so it is ready before any
@@ -256,12 +78,13 @@ jobs:
   base-gallery:
     name: base gallery
     if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
           # restores); a dispatch needs only the tip. Only a push compares with `before`, which may be any
           # depth back. Full history took ~90 s of every shard's ~95 s checkout (2026-11-11 timing records).
@@ -277,11 +100,15 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+            /examples/gallery/
+            /examples/looks/
             /scripts/
             /.github/
             /config/vite-plus/
             /schemas/
             /design/icons/neko-candidates/
+            /first-party-apps/*/preview/**
             /Resources/ghostty/themes/
             /Resources/cmux-themes/
             /Resources/markdown-viewer/
@@ -291,12 +118,33 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
+            /first-party-apps/*/preview/scenes.json
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -311,7 +159,9 @@ jobs:
           git restore --source="$base" --staged --worktree -- . ':(exclude)scripts/gallery-matrix'
           cd webviews
           bun install --frozen-lockfile
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+          # A base is only replayed to excuse the head's reds: a translation the base lacked (one a later
+          # push added) must not stop its build, or no red is excused (2026-11-21, base 22d99c7425).
+          CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
           echo "$base" > "$RUNNER_TEMP/base-gallery/base-sha.txt"
           echo "built the base gallery of $base: $(find "$RUNNER_TEMP/base-gallery" -type f | wc -l) files"
 
@@ -326,31 +176,28 @@ jobs:
           # of this name already exists: without this the upload fails and the rerun goes red.
           overwrite: true
 
-  health:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    # The 16 vCPU pool (its next member is 32 vCPU when 16 starts nothing): a shard's render is CPU-bound, about
-    # three quarters of each case is the stage's page loading and mounting in a fresh renderer, and on 4 vCPU the
-    # four workers held the CPU at 91% (#41952's shards: per-case p50 1.0-1.6 s against 583 ms alone, render 4-6
-    # min of a 7-11 min job). Same 73 cases, same runner code (2026-11-13, AMD EPYC, 8 cores x 2 threads): 4 vCPU
-    # with 4 workers 30.5 s, 8 with 8 17.3 s, 16 with 12 13.4 s. Reusing a context per worker or merging the reads
-    # after ready saved 6% at most: the page load is the cost, so a shard gets more cores, not less setup
-    # (ask-378f0fa70e).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16 }}
-    timeout-minutes: 45
-    # Sixteen shards, so a shard runs in under 10 minutes as the gallery grows: at eight, with three
-    # cases at once, a shard's render took 9 to 13 minutes and its job 11 to 17 (run 42946512341,
-    # 2026-11-11). With four, a full render took ~27 minutes and its base replay ~14 more.
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+  # Picks the entries this run renders and sizes the health matrix to them (2026-11-22, CI time map): sixteen
+  # shards started on every run, so a push that touched one entry paid sixteen checkouts, installs and gallery
+  # builds to render a few dozen cases (most push runs, ~20 runner-minutes each), and a full render past 16 x
+  # MAX_CASES_PER_SHARD failed shard 0 on every run ("outgrows its shards", 13,002 cases on 2026-11-22). Now a
+  # run gets ceil(cases / MAX_CASES_PER_SHARD) shards, at most MAX_SHARDS, and a run that renders nothing
+  # starts none.
+  plan:
+    name: plan
+    if: ${{ (inputs.only == '' || inputs.only == 'health') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    outputs:
+      all: ${{ steps.entries.outputs.all }}
+      ids: ${{ steps.entries.outputs.ids }}
+      cases: ${{ steps.size.outputs.cases }}
+      shards: ${{ steps.size.outputs.shards }}
+      split: ${{ steps.size.outputs.split }}
     steps:
-      # A pull request renders its merge with base (the event's merge ref), as the other PR gates do:
-      # a branch cut before a base fix must not keep failing on what base already fixed. A push
-      # renders the pushed commit.
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ inputs.sha || '' }}
           # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
           # restores); a dispatch needs only the tip. Only a push compares with `before`, which may be any
           # depth back. Full history took ~90 s of every shard's ~95 s checkout (2026-11-11 timing records).
@@ -366,11 +213,15 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+            /examples/gallery/
+            /examples/looks/
             /scripts/
             /.github/
             /config/vite-plus/
             /schemas/
             /design/icons/neko-candidates/
+            /first-party-apps/*/preview/**
             /Resources/ghostty/themes/
             /Resources/cmux-themes/
             /Resources/markdown-viewer/
@@ -380,57 +231,43 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
+            /first-party-apps/*/preview/scenes.json
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            /.gitmodules
           persist-credentials: false
 
-      - name: Resolve the head and the merge
-        id: resolve
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          BEFORE: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          merge=$(git rev-parse HEAD)
-          if [ "$EVENT" = pull_request ]; then
-            # The merge ref moves with each push; a stale one renders another head.
-            [ "$(git rev-parse HEAD^2)" = "$PR_HEAD" ] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again"; exit 1; }
-            head=$PR_HEAD
-            base=$(git rev-parse HEAD^1)
-          elif [ "$EVENT" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            # A push is judged against the tip it replaced (the event's `before`): a state red there
-            # too was red before this push and is a warning here; only a state this push turned red
-            # fails it, so the red names the push that caused it.
-            head=$merge
-            base=$BEFORE
-          else
-            # The nightly dispatch, or a new branch tip with no previous commit: no base, so every
-            # red state fails. The dispatch's full render is what keeps an old red from hiding.
-            head=$merge
-            base=
-          fi
-          { echo "head_sha=$head"; echo "merge_sha=$merge"; echo "base_sha=$base"; } >> "$GITHUB_OUTPUT"
-          echo "head $head, rendering $merge${base:+ (merged with base $base)}"
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
-      - name: Cache Playwright's apt packages
-        continue-on-error: true
-        uses: ./.github/actions/playwright-apt-cache
-        with:
-          engines: chromium
-
       - name: Choose the entries to render
         id: entries
         env:
-          EVENT: ${{ github.event_name }}
+          EVENT: ${{ inputs.sha != '' && 'workflow_dispatch' || github.event_name }}
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
@@ -446,7 +283,7 @@ jobs:
             # The merge's first parent is the base it was merged with: the diff is the pull request's change.
             git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
           elif [ "$EVENT" = workflow_dispatch ]; then
-            # The nightly full render of the base: render everything.
+            # The nightly full render of the base, or a post-merge batch run: render everything.
             echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
           elif git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             git diff --name-only "$BEFORE" HEAD > "$RUNNER_TEMP/changed.txt"
@@ -477,74 +314,272 @@ jobs:
             echo 'ids=' >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Size the matrix to the cases
+        id: size
+        env:
+          ALL: ${{ steps.entries.outputs.all }}
+          IDS: ${{ steps.entries.outputs.ids }}
+          # Held in step with "Hold each shard within its time budget" (tests/test_ci_gallery_health_merge_ref.py).
+          MAX_CASES_PER_SHARD: "800"
+          MAX_SHARDS: "32"
+          # A push's full render runs a slice of the full split, not all of it (2026-11-23, Leo 2026-11-21 ~03:55Z:
+          # "id rather we simply cut shit now and revisit later"). Most pushes that render everything touch no
+          # entry: a string catalog, a theme or a CI sweep that edits every workflow (9 of 15 runs, 23:23Z-00:55Z
+          # 11-22, each 17 shards; full renders were about 75% of the workflow's runner time). Each such push
+          # renders PUSH_FULL_SHARDS shards of the 17, and the next one the next slice (by run number), so a
+          # stretch of pushes still covers every case. The off switch: the repository variable
+          # GALLERY_HEALTH_PUSH_FULL_SHARDS set to `all` renders every shard again; a number sets the slice. A
+          # dispatch (the full render of a ref) and a push that touched entries are unchanged.
+          EVENT: ${{ github.event_name }}
+          PUSH_FULL_SHARDS: ${{ vars.GALLERY_HEALTH_PUSH_FULL_SHARDS || '2' }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          cd webviews
+          if [ "$ALL" = true ]; then
+            bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/manifest.json"
+          elif [ -n "$IDS" ]; then
+            bun scripts/gallery/manifest.ts --frame component --entries "$IDS" --out "$RUNNER_TEMP/manifest.json"
+          else
+            echo '[]' > "$RUNNER_TEMP/manifest.json"
+          fi
+          cases=$(jq length "$RUNNER_TEMP/manifest.json")
+          shards=$(( (cases + MAX_CASES_PER_SHARD - 1) / MAX_CASES_PER_SHARD ))
+          [ "$shards" -le "$MAX_SHARDS" ] || shards=$MAX_SHARDS
+          echo "cases=$cases" >> "$GITHUB_OUTPUT"
+          echo "split=$shards" >> "$GITHUB_OUTPUT"
+          echo "$cases cases to render: $shards shard(s) of at most $MAX_CASES_PER_SHARD (at most $MAX_SHARDS shards)"
+          slice=${PUSH_FULL_SHARDS:-all}
+          if [ "${EVENT:-}" = push ] && [ "$ALL" = true ] && [[ "$slice" =~ ^[0-9]+$ ]] && [ "$slice" -gt 0 ] \
+              && [ "$slice" -lt "$shards" ]; then
+            # Consecutive runs take consecutive slices, wrapping, so ceil(shards / slice) full-render pushes cover all.
+            start=$(( (${RUN_NUMBER:-0} * slice) % shards ))
+            echo "shards=$(jq -cn --argjson n "$shards" --argjson k "$slice" --argjson s "$start" \
+              '[range($k) | (. + $s) % $n]')" >> "$GITHUB_OUTPUT"
+            echo "a push's full render: $slice of the $shards shards, from shard $start (GALLERY_HEALTH_PUSH_FULL_SHARDS=all renders every shard)"
+          else
+            echo "shards=$(jq -cn --argjson n "$shards" '[range($n)]')" >> "$GITHUB_OUTPUT"
+          fi
+
+  health:
+    needs: plan
+    if: ${{ (inputs.only == '' || inputs.only == 'health') && needs.plan.outputs.shards != '[]' && needs.plan.outputs.shards != '' }}
+    # The 16 vCPU pool (its next member is 32 vCPU when 16 starts nothing): a shard's render is CPU-bound, about
+    # three quarters of each case is the stage's page loading and mounting in a fresh renderer, and on 4 vCPU the
+    # four workers held the CPU at 91% (#41952's shards: per-case p50 1.0-1.6 s against 583 ms alone, render 4-6
+    # min of a 7-11 min job). Same 73 cases, same runner code (2026-11-13, AMD EPYC, 8 cores x 2 threads): 4 vCPU
+    # with 4 workers 30.5 s, 8 with 8 17.3 s, 16 with 12 13.4 s. Reusing a context per worker or merging the reads
+    # after ready saved 6% at most: the page load is the cost, so a shard gets more cores, not less setup
+    # (ask-378f0fa70e).
+    # A pull request's shards take the 8 vCPU pool, a dispatch's full render keeps 16 (2026-11-18): the
+    # Blacksmith org vCPU cap starved every pool, and 16 shards of 16 vCPU asked 256 vCPU of it per push.
+    # From the numbers above, 8 vCPU renders the 73 cases in 17.3 s against 13.4 s, at 138 vCPU-seconds
+    # against 214: a shard takes about a third longer and the run 35% fewer vCPU-seconds, at half the peak.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 45
+    # As many shards as the run's cases need (the plan job): at most MAX_CASES_PER_SHARD each, so a shard runs in
+    # under 10 minutes as the gallery grows. At eight fixed shards, with three cases at once, a shard's render took
+    # 9 to 13 minutes and its job 11 to 17 (run 42946512341, 2026-11-11); a full render is ~17 shards now.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    steps:
+      # A pull request renders its merge with base (the event's merge ref), as the other PR gates do:
+      # a branch cut before a base fix must not keep failing on what base already fixed. A push
+      # renders the pushed commit.
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.sha || '' }}
+          # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
+          # restores); a dispatch needs only the tip. Only a push compares with `before`, which may be any
+          # depth back. Full history took ~90 s of every shard's ~95 s checkout (2026-11-11 timing records).
+          # Quoted: in an expression `cond && 0 || 2` is always 2, because 0 is falsy and `||` takes the
+          # right side. The string '0' is truthy, so a push really fetches full history.
+          fetch-depth: ${{ github.event_name == 'push' && '0' || '2' }}
+          filter: blob:none
+          # Only what a render reads: the folders and files of the `paths` list above (every routed path
+          # is inside these; tests/test_ci_gallery_health_merge_ref.py keeps it so), and scripts/ and
+          # .github/ for this job's own tools. The whole tree minus verify/ fetched ~600 MB of blobs this
+          # job never opens (cmux-tui, Packages' Swift, web/, docs): ~60 s of every shard's ~8-minute job
+          # (2026-11-11 timing records). `git restore ... -- .` in the base replay keeps to these paths.
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /webviews/
+            /cmux-tui/crates/acpmux/spec/acpmux-protocol.json
+            /examples/gallery/
+            /examples/looks/
+            /scripts/
+            /.github/
+            /config/vite-plus/
+            /schemas/
+            /design/icons/neko-candidates/
+            /first-party-apps/*/preview/**
+            /Resources/ghostty/themes/
+            /Resources/cmux-themes/
+            /Resources/markdown-viewer/
+            /Packages/Shared/CmuxAgentQuestion/Sources/CmuxAgentQuestion/Fixtures/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /web/data/model-catalog/
+            /release-notes/next/highlights/
+            /first-party-apps/*/preview/scenes.json
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
+            /.gitmodules
+          persist-credentials: false
+
+      - name: Resolve the head and the merge
+        id: resolve
+        env:
+          # A post-merge batch run (inputs.sha set) is a full render with no base, as the nightly dispatch is,
+          # whatever event started the batch.
+          EVENT: ${{ inputs.sha != '' && 'workflow_dispatch' || github.event_name }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          merge=$(git rev-parse HEAD)
+          if [ "$EVENT" = pull_request ]; then
+            # The merge ref moves with each push; a stale one renders another head.
+            [ "$(git rev-parse HEAD^2)" = "$PR_HEAD" ] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again"; exit 1; }
+            head=$PR_HEAD
+            base=$(git rev-parse HEAD^1)
+          elif [ "$EVENT" = push ] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            # A push is judged against the tip it replaced (the event's `before`): a state red there
+            # too was red before this push and is a warning here; only a state this push turned red
+            # fails it, so the red names the push that caused it.
+            head=$merge
+            base=$BEFORE
+          else
+            # The nightly dispatch, or a new branch tip with no previous commit: no base, so every
+            # red state fails. The dispatch's full render is what keeps an old red from hiding.
+            head=$merge
+            base=
+          fi
+          { echo "head_sha=$head"; echo "merge_sha=$merge"; echo "base_sha=$base"; } >> "$GITHUB_OUTPUT"
+          echo "head $head, rendering $merge${base:+ (merged with base $base)}"
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Cache Playwright's apt packages
+        continue-on-error: true
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
+      # The plan job chose the entries and sized the matrix; a shard only installs what its build needs.
+      - name: Install the webviews packages
+        id: install
+        working-directory: webviews
+        run: bun install --frozen-lockfile
+
       # Merge-time signal for the job's own time (cmuxterm-hq docs/handbook/fast-job-outgrows-its-budget.md):
       # the gallery grows a few cases with most pull requests, and at a fixed shard count each shard's
       # render grows with it, from ~15 to ~24 minutes in four days before anyone saw it (2026-11-07..11).
       # A full render of 11,424 cases over 16 shards (714 a shard) ran its job in about 8.5 minutes at p90
-      # against a 10-minute budget (2026-11-11). The pull request that takes a shard past
-      # MAX_CASES_PER_SHARD fails here, naming the shard count that fits, so the matrix grows with the
-      # gallery instead of the job's time. Shard 0 only: one error, not sixteen.
+      # against a 10-minute budget (2026-11-11). The plan job sizes the matrix to MAX_CASES_PER_SHARD, so this
+      # fails only when a run needs more than its MAX_SHARDS, naming the shard count that fits. It judges the
+      # cases this run renders (the plan's count), not a full render's: a one-entry push runs one shard. Shard 0
+      # only: one error, not one a shard.
       - name: Hold each shard within its time budget
-        # Before the render and the base replay: the replay restores the base's webviews/, which would then be
-        # counted. It goes on so the render still gives its verdict; "Fail past the case budget" fails the job.
+        # It goes on so the render still gives its verdict; "Fail past the case budget" fails the job.
         id: cap
-        if: ${{ !cancelled() && matrix.shard == 0 && steps.entries.outcome == 'success' }}
+        if: ${{ !cancelled() && strategy.job-index == 0 && steps.install.outcome == 'success' }}
         continue-on-error: true
         env:
-          SHARDS: ${{ strategy.job-total }}
+          CASES: ${{ needs.plan.outputs.cases }}
+          # The full split, which a push's full render starts only a slice of (the plan job).
+          SHARDS: ${{ needs.plan.outputs.split || strategy.job-total }}
           MAX_CASES_PER_SHARD: "800"
         run: |
           set -euo pipefail
-          cd webviews
-          bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/full-manifest.json"
-          cases=$(jq length "$RUNNER_TEMP/full-manifest.json")
-          per=$(( (cases + SHARDS - 1) / SHARDS ))
-          need=$(( (cases + MAX_CASES_PER_SHARD - 1) / MAX_CASES_PER_SHARD ))
-          echo "a full render is $cases cases: $per a shard over $SHARDS shards (at most $MAX_CASES_PER_SHARD)"
+          per=$(( (CASES + SHARDS - 1) / SHARDS ))
+          need=$(( (CASES + MAX_CASES_PER_SHARD - 1) / MAX_CASES_PER_SHARD ))
+          echo "this run renders $CASES cases: $per a shard over $SHARDS shards (at most $MAX_CASES_PER_SHARD)"
           if [ "$per" -gt "$MAX_CASES_PER_SHARD" ]; then
-            echo "::error title=gallery health outgrows its shards::a full render is $cases cases, $per a shard over $SHARDS shards; past $MAX_CASES_PER_SHARD a shard's job runs over its 10-minute budget. Raise the matrix in .github/workflows/gallery-health.yml (and --shard-count) to $need shards."
+            echo "::error title=gallery health outgrows its shards::this run renders $CASES cases, $per a shard over $SHARDS shards; past $MAX_CASES_PER_SHARD a shard's job runs over its 10-minute budget. Raise MAX_SHARDS in the plan job of .github/workflows/gallery-health.yml to $need shards."
             exit 1
           fi
 
       # GITHUB_ENV takes effect in the next step: resolve the browser before either head or base
       # renders, so both use the same executable instead of comparing Chrome with headless-shell.
       - name: Setup gallery browser
-        if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
+        if: ${{ needs.plan.outputs.all == 'true' || needs.plan.outputs.ids != '' }}
         working-directory: scripts/gallery-matrix
         run: |
           set -euo pipefail
           bun install --frozen-lockfile
           "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+          # The UI font is the macOS system font (SF Pro), which Linux lacks: without the pin the stack
+          # falls to DejaVu Sans, a much wider face, so every stage wraps and sizes text unlike the Mac.
+          # Inter, as the browser tests draw it (B7 webviews-linux-parity, scripts/gallery-matrix/parity.py).
+          "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       # A red here is judged state by state against the base in the next step, so the step goes on.
       - name: Render the gallery and judge it
         id: render
-        if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
+        if: ${{ needs.plan.outputs.all == 'true' || needs.plan.outputs.ids != '' }}
         continue-on-error: true
         # A render that stalls stops here with time left for the judge and the upload, instead of the job's
         # 45 minutes cancelling it with no verdict. With sixteen shards a render takes about 5 minutes.
         timeout-minutes: 20
         env:
-          ALL: ${{ steps.entries.outputs.all }}
-          IDS: ${{ steps.entries.outputs.ids }}
+          ALL: ${{ needs.plan.outputs.all }}
+          IDS: ${{ needs.plan.outputs.ids }}
           SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ needs.plan.outputs.split || strategy.job-total }}
           CMUX_GALLERY_IN_VM: "1"
         run: |
           set -euo pipefail
           cd webviews
           if [ "$ALL" = true ]; then
             bun scripts/gallery/manifest.ts --frame component --out "$RUNNER_TEMP/manifest.json"
+            subset=""
           else
             bun scripts/gallery/manifest.ts --frame component --entries "$IDS" --out "$RUNNER_TEMP/manifest.json"
+            # Build only the entries this render reads (galleryEntrySubset in webviews/dev-server/galleryHost.ts),
+            # as the base replay below does: each of 16 shards built all ~3,200 gallery modules (~55-85 s) to
+            # render a handful of touched entries. The ids come from the manifest, not $IDS: --entries matches
+            # by prefix, so the manifest can hold entries $IDS does not name exactly. A mock-app entry, or an
+            # empty list, builds everything.
+            subset="$(jq -r '[.[].params.entry // empty] | unique | join(",")' "$RUNNER_TEMP/manifest.json")"
           fi
-          CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+          CMUX_GALLERY_ENTRIES="$subset" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           # Three workers per four vCPUs past 8: two threads share each core there, and 12 workers on 16
           # vCPU rendered as fast as 16 with a lower p90 (3.0 s against 4.3) and less ready-CPU drift.
           cpus=$(nproc)
           workers=$(( cpus > 8 ? cpus * 3 / 4 : cpus ))
           bun health.ts --manifest "$RUNNER_TEMP/manifest.json" --gallery-dir "$RUNNER_TEMP/gallery" \
-            --output-dir "$RUNNER_TEMP/health" --shard-count 16 --shard-index "$SHARD" --concurrency "$workers"
+            --output-dir "$RUNNER_TEMP/health" --shard-count "$SHARDS" --shard-index "$SHARD" --concurrency "$workers"
 
       # The base gallery the "base gallery" job built for this run. Not there yet, or failed: the judge step
       # builds the red entries itself.
@@ -620,7 +655,8 @@ jobs:
           else
             rm -rf "$RUNNER_TEMP/base-gallery"
             echo "::group::base gallery build"
-            CMUX_GALLERY_ENTRIES="$entries" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
+            # Best-effort strings, as in the base gallery job: a translation the base lacked fails no replay.
+            CMUX_STRINGS_BEST_EFFORT=1 CMUX_GALLERY_ENTRIES="$entries" CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/base-gallery" bun run gallery:build
             echo "::endgroup::"
           fi
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"

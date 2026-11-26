@@ -212,9 +212,9 @@ struct ViewedToggle: View {
                 .frame(width: 44, height: 44)
                 .contentShape(.rect)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.cmuxPressFillTinted)
         .accessibilityLabel(isViewed ? "Viewed" : "Mark as viewed")
-        .sensoryFeedback(.selection, trigger: isViewed)
+        .cmuxMobileSensoryFeedback(.selection, trigger: isViewed)
     }
 }
 

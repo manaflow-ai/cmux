@@ -14,8 +14,8 @@ use super::{ActorState, ChatError};
 use crate::conn::{Offer, OfferSink, Reply};
 use crate::wire::{
     Anchor, AnchorSide, Blob, BlobHead, ChatPageResult, ChatWindow, Cursor, Frame, FrameKind,
-    MAX_REPLAY_FRAME_BYTES, OpenRow, Page, PageSide, Position, QueueHead, QueueItem, RawJson,
-    blob_frame,
+    MAX_REPLAY_FRAME_BYTES, OpenRow, Page, PageSide, Position, PresencePerson, QueueHead,
+    QueueItem, RawJson, blob_frame,
 };
 use acpmux_book::log::{self, Log, MAX_BLOB_READ, MAX_FRAME_BYTES, MAX_PAGE_BYTES, MAX_ROWS};
 use acpmux_book::translate::{QueueEntry, prompt_hash};
@@ -122,10 +122,16 @@ pub(super) struct Subscribers {
     /// Escaped text appended to each open row since it was last offered.
     text: BTreeMap<u64, Vec<u8>>,
     flush_at: Option<Instant>,
+    /// The latest presence replacement, coalesced with text on the same 16 ms boundary.
+    presence: Option<(Vec<PresencePerson>, usize)>,
     /// Ops of the change being applied, encoded once, comma-joined.
     ops: Vec<u8>,
     /// The queue changed in the batch of lines being applied.
     queue_changed: bool,
+    /// A read for a subscriber refused a record, or a resume could not be measured past a
+    /// damaged header: the book is rebuilt from raw at the end of this step. The rebuild keeps
+    /// the edition, so the subscribers, kept through it, resume from the seq each last took.
+    refused: bool,
 }
 
 impl Drop for Subscribers {
@@ -160,6 +166,7 @@ impl Subscribers {
     pub(super) fn reopened(&mut self, edition: u32) {
         self.text.clear();
         self.flush_at = None;
+        self.presence = None;
         self.ops.clear();
         for sub in &mut self.list {
             sub.phase = match &sub.phase {
@@ -278,10 +285,17 @@ pub(super) fn end(state: &mut ActorState, conn: u64, sid: &str) {
     state.subs.list.retain(|sub| !(sub.conn == conn && sub.sid == sid));
 }
 
+/// Forgets subscribers their connection let go of, whose `end` never came (a full mailbox
+/// refused it, or the connection closed): none holds the actor past its idle exit.
+pub(super) fn prune(state: &mut ActorState) {
+    state.subs.list.retain(|sub| sub.sink.control(&sub.sid).is_some());
+}
+
 /// One step for each subscriber with one to take, and the held text when its time came.
 pub(super) fn step(state: &mut ActorState) -> Result<(), ChatError> {
     if state.subs.flush_at.is_some_and(|at| at <= Instant::now()) {
         flush_text(state, None);
+        flush_presence(state);
     }
     if !state.ready {
         return Ok(());
@@ -297,6 +311,11 @@ pub(super) fn step(state: &mut ActorState) -> Result<(), ChatError> {
         if state.subs.list.len() == before {
             at += 1;
         }
+    }
+    // A record a window, a resume or a page refused, or a header a resume's measure could not
+    // pass: the book is rebuilt from raw (rule 16).
+    if std::mem::take(&mut state.subs.refused) {
+        return Err(ChatError::Book(log::Error::Rebuild("a read refused a record")));
     }
     Ok(())
 }
@@ -329,6 +348,7 @@ fn fail(state: &mut ActorState, at: usize) {
 fn send_window(state: &mut ActorState, at: usize, anchor: log::Anchor, rows: usize) {
     // Text held for live subscribers goes out first: this window holds it.
     flush_text(state, None);
+    flush_presence(state);
     let Some(sub) = state.subs.list.get(at) else { return };
     let (sid, person) = (sub.sid.clone(), sub.person);
     match window(state, &sid, &person, anchor, rows) {
@@ -355,17 +375,22 @@ pub(super) fn window(
     rows: usize,
 ) -> Result<(Frame, u64), ChatError> {
     let (seen, folds) = person_state(state, person);
-    let read = state.log.read_window(
+    // The open turn's settled work comes folded, as it will be when the turn ends: only its
+    // open rows stream in.
+    let live = state.translate.open_fold();
+    let read = state.log.read_window_live(
         anchor,
         Log::bound(if rows == 0 { MAX_ROWS } else { rows }, MAX_ROWS),
         MAX_FRAME_BYTES,
         Some(&state.folds),
         &folds,
+        live.as_ref(),
     )?;
     let rows = row_texts(&read)?;
     let open = open_rows(state)?;
     let queue = queue_head(state);
     let cursor = state.log.last_seq();
+    state.subs.refused |= !read.refused.is_empty();
     let window = ChatWindow {
         sid: sid.to_owned(),
         cursor,
@@ -421,7 +446,8 @@ fn open_rows(state: &mut ActorState) -> Result<Vec<OpenRow>, ChatError> {
 /// An open row as sent: its encoded row, and its body's length when the body was left out.
 type OpenRowOut = (Vec<u8>, Option<u64>);
 
-/// One open row's text: its body inline when it fits `left`, else `{}` and the body's length.
+/// One open row's text: its body inline when it fits `left`, else its fields' head
+/// ([`acpmux_book::translate::OwnedRow::head`]) and the body's length.
 fn open_row(
     state: &ActorState,
     id: u64,
@@ -445,7 +471,11 @@ fn open_row(
         }
         encoded.clear();
     }
-    row.as_row("{}").encode(None, &mut encoded).map_err(|_| ChatError::Response)?;
+    // The row's own fields stand for the body left out (an image's size among them).
+    let head = row.head();
+    if row.as_row(&head).encode(None, &mut encoded).is_err() {
+        row.as_row("{}").encode(None, &mut encoded).map_err(|_| ChatError::Response)?;
+    }
     Ok(Some((encoded, Some(len))))
 }
 
@@ -500,9 +530,16 @@ fn resume_step(
     checked: bool,
 ) -> Result<(), ChatError> {
     if !checked {
-        // Missed too much: one fresh window at the end, with no record read to decide it.
+        // Missed too much: one fresh window at the end, with no record's text read to decide
+        // it. A header on the way that is not the next record's: the window too, and the book
+        // is rebuilt after this step, as for a record a read refused.
         match state.log.resume_size(cursor, MISSED_LIMIT) {
             Ok(log::ResumeSize::Over) => {
+                send_window(state, at, log::Anchor::End, MAX_ROWS);
+                return Ok(());
+            }
+            Ok(log::ResumeSize::Damaged) => {
+                state.subs.refused = true;
                 send_window(state, at, log::Anchor::End, MAX_ROWS);
                 return Ok(());
             }
@@ -527,8 +564,11 @@ fn resume_step(
         fail(state, at);
         return Ok(());
     }
-    // A refused record ends the resume: the rows before it go out, then a window, no `end`.
+    // A refused record ends the resume: the rows before it go out, then a window, no `end`;
+    // the book is rebuilt after this step. A rebuild from the same raw keeps its edition, so
+    // the subscriber resumes from the window's cursor and a later window holds the row.
     let stop = since.stopped_on_refusal || !refused.is_empty();
+    state.subs.refused |= stop;
     let mut ops = Vec::new();
     let mut last = cursor;
     let mut ranges = ranges.into_iter();
@@ -630,6 +670,16 @@ pub(super) fn text(state: &mut ActorState, row_id: u64, value: &str) {
     state.subs.flush_at.get_or_insert_with(|| Instant::now() + COALESCE);
 }
 
+/// Holds the latest complete presence set until the chat stream's 16 ms coalescing boundary.
+/// The stream supplies the chat identity, so the op itself carries no `chatId` or sequence.
+pub(super) fn presence(state: &mut ActorState, participants: Vec<PresencePerson>, trimmed: usize) {
+    if !state.subs.any_live() {
+        return;
+    }
+    state.subs.presence = Some((participants, trimmed));
+    state.subs.flush_at.get_or_insert_with(|| Instant::now() + COALESCE);
+}
+
 /// The queue changed: its head goes out once, after the batch of lines that changed it, so a
 /// `queued` and the `queue_order` behind it are one op.
 pub(super) fn queue_changed(state: &mut ActorState) {
@@ -664,18 +714,90 @@ pub(super) fn flush_text(state: &mut ActorState, row: Option<u64>) {
         Some(row) => state.subs.text.remove(&row).map(|text| (row, text)).into_iter().collect(),
         None => std::mem::take(&mut state.subs.text).into_iter().collect(),
     };
-    if state.subs.text.is_empty() {
+    if state.subs.text.is_empty() && state.subs.presence.is_none() {
         state.subs.flush_at = None;
     }
     if pieces.is_empty() {
         return;
     }
+    // Frames of at most 256 KB: a row's text past that goes out in pieces, in order, each cut
+    // where it decodes on its own.
     let seq = state.log.last_seq();
     let mut ops = Vec::new();
     for (row, text) in pieces {
-        op_text(&mut ops, seq, row, &text);
+        let mut rest = text.as_slice();
+        while !rest.is_empty() {
+            let (piece, after) = rest.split_at(text_cut(rest, TEXT_PIECE));
+            if !ops.is_empty() && ops.len() + piece.len() + TEXT_OP_OVERHEAD > TEXT_PIECE {
+                offer_live(state, &ops, seq);
+                ops.clear();
+            }
+            op_text(&mut ops, seq, row, piece);
+            rest = after;
+        }
     }
     offer_live(state, &ops, seq);
+}
+
+fn flush_presence(state: &mut ActorState) {
+    let Some((participants, trimmed)) = state.subs.presence.take() else { return };
+    if !state.subs.any_live() {
+        return;
+    }
+    #[derive(serde::Serialize)]
+    struct PresenceOp {
+        op: &'static str,
+        participants: Vec<PresencePerson>,
+        #[serde(skip_serializing_if = "presence_trimmed_is_zero")]
+        trimmed: usize,
+    }
+    let mut ops = Vec::new();
+    comma(&mut ops);
+    if serde_json::to_writer(&mut ops, &PresenceOp { op: "presence", participants, trimmed })
+        .is_ok()
+    {
+        offer_live(state, &ops, state.log.last_seq());
+    }
+}
+
+fn presence_trimmed_is_zero(value: &usize) -> bool {
+    *value == 0
+}
+
+/// The most of a row's held text one op carries: a frame's worth, less the op and the delta
+/// around it.
+const TEXT_PIECE: usize = MAX_REPLAY_FRAME_BYTES - 1024;
+/// A text op's bytes besides its text: `{"op":"text","seq":N,"rowId":N,"text":""}` and a comma.
+const TEXT_OP_OVERHEAD: usize = 96;
+
+/// Where held text (a JSON string's content, as stored) is cut at or before `max`: never
+/// inside an escape, between a surrogate pair's halves or inside a character, so each piece
+/// decodes on its own. At least one whole unit, so a cut always moves on.
+fn text_cut(escaped: &[u8], max: usize) -> usize {
+    let mut at = 0;
+    while let Some(&byte) = escaped.get(at) {
+        let step = match byte {
+            b'\\' if escaped.get(at + 1) == Some(&b'u') => {
+                let high = escaped
+                    .get(at + 2..at + 6)
+                    .and_then(|hex| std::str::from_utf8(hex).ok())
+                    .and_then(|hex| u16::from_str_radix(hex, 16).ok());
+                let paired = high.is_some_and(|high| (0xD800..0xDC00).contains(&high))
+                    && escaped.get(at + 6..at + 8) == Some(b"\\u");
+                if paired { 12 } else { 6 }
+            }
+            b'\\' => 2,
+            0x00..=0x7f => 1,
+            0xc0..=0xdf => 2,
+            0xe0..=0xef => 3,
+            _ => 4,
+        };
+        if at + step > max {
+            return if at == 0 { step.min(escaped.len()) } else { at };
+        }
+        at += step;
+    }
+    escaped.len()
 }
 
 fn offer_live(state: &mut ActorState, ops: &[u8], seq: u64) {
@@ -692,9 +814,14 @@ fn offer_live(state: &mut ActorState, ops: &[u8], seq: u64) {
             at += 1;
             continue;
         }
+        // A frame that cannot be built is this subscriber's drop: it resumes from its cursor,
+        // never goes on with ops missing.
         let keep = match delta(&sub.sid, None, ops) {
             Ok(frame) => offer(sub, frame, seq),
-            Err(_) => true,
+            Err(_) => {
+                sub.sink.dropped(&sub.sid);
+                false
+            }
         };
         if keep {
             at += 1;
@@ -715,9 +842,19 @@ pub(super) fn page(state: &mut ActorState, page: Page, person: PersonId, reply: 
         Some((PageSide::After, Position::Row(id))) => log::Edge::After(*id),
         _ => return reply.error("invalid_params", "a chat page is before or after a rowId"),
     };
-    let (_, folds) = person_state(state, &person);
     let max = Log::bound(page.max_bytes as usize, MAX_PAGE_BYTES);
-    let read = match state.log.read_page(edge, max, page.fold, Some(&state.folds), &folds) {
+    let read = if page.turns {
+        if page.fold.is_some() {
+            return reply.error("bad_request", "a page of turns names no fold");
+        }
+        // The group rows `folds.idx` lists; the open turn's is in the window, not here.
+        state.log.read_turns(edge, max, &state.folds)
+    } else {
+        let (_, folds) = person_state(state, &person);
+        let live = state.translate.open_fold();
+        state.log.read_page_live(edge, max, page.fold, Some(&state.folds), &folds, live.as_ref())
+    };
+    let read = match read {
         Ok(read) => read,
         Err(error) => return reply.error("read_failed", &error.to_string()),
     };
@@ -732,7 +869,9 @@ pub(super) fn page(state: &mut ActorState, page: Page, person: PersonId, reply: 
         has_before: read.has_before,
         has_after: read.has_after,
         refused: read.refused,
+        turns: page.turns,
     };
+    state.subs.refused |= !result.refused.is_empty();
     match Frame::json(FrameKind::Page, &result) {
         Ok(frame) => reply.answer(frame),
         Err(error) => reply.error("read_failed", &error.to_string()),

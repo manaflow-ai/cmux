@@ -232,3 +232,39 @@ fn find_string_walks_members_and_skips_nested_values() {
     assert_eq!(find_string(line, &[b"msg", b"promptId"]), None);
     assert_eq!(find_string(&line[..20], &[b"msg", b"text"]), None);
 }
+
+#[test]
+fn a_raw_body_s_text_is_read_in_pieces_with_escapes_cut_anywhere_and_nothing_past_it() {
+    // Text all of two-byte escapes, behind prefixes of each parity: some piece ends between an
+    // escape's backslash and the byte it escapes.
+    for prefix in 0..4 {
+        let text = format!("{}{}", "p".repeat(prefix), "\\\"🙂é".repeat(400 * 1024 / 8));
+        let msg = serde_json::json!({"kind": "mux", "event": "user_message",
+            "msg": {"promptId": "p", "text": text, "trailer": "z".repeat(4 << 20)}});
+        let mut bytes = serde_json::to_vec(&msg).unwrap();
+        bytes.push(b'\n');
+        let escaped = serde_json::to_vec(&text).unwrap();
+        let mut line = Line::new(bytes);
+        let Some(read) = read_text(&mut line, 0).unwrap() else { panic!("no text in the head") };
+        assert!(read == escaped, "prefix {prefix}: the text read is not the line's");
+        let decoded: String = serde_json::from_slice(&read).unwrap();
+        assert_eq!(decoded, text);
+        assert!(
+            line.read() <= HEAD_READ + escaped.len() + TEXT_READ,
+            "prefix {prefix}: {} bytes read for {} of text; the 4 MiB after it are not read",
+            line.read(),
+            escaped.len()
+        );
+    }
+}
+
+#[test]
+fn a_raw_body_s_text_past_the_head_or_cut_off_is_none_or_refused() {
+    // `json!` writes keys in order: `head` comes before `msg`.
+    let late = serde_json::json!({"kind": "mux", "head": "q".repeat(2 * HEAD_READ),
+        "msg": {"text": "late"}});
+    let mut line = Line::new(serde_json::to_vec(&late).unwrap());
+    assert_eq!(read_text(&mut line, 0).unwrap(), None);
+    let mut cut = Line::new(br#"{"kind":"mux","msg":{"text":"never closed"#.to_vec());
+    assert_eq!(read_text(&mut cut, 0).unwrap_err().kind(), io::ErrorKind::InvalidData);
+}

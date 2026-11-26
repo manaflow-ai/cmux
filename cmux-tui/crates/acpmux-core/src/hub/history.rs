@@ -9,7 +9,13 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
+#[cfg(test)]
+mod replay_tests;
+
 const CREDIT_WINDOW_BYTES: usize = 1024 * 1024;
+// Keep ordinary replay spans and their wire envelopes below large-allocation
+// sizes. One larger operation may exceed this target, never the wire budget.
+const REPLAY_FRAME_TARGET_BYTES: usize = 64 * 1024;
 // Every encoded op is longer than 32 bytes, including an empty gone at seq 0.
 const MIN_OP_BYTES: usize = 32;
 
@@ -29,6 +35,11 @@ pub(super) struct History {
     first: u64,
     tail: usize,
     used: usize,
+    /// While the ring is empty: the ops `(committed, through]` the writer has published and
+    /// appends next ([`History::hold`]). Until the index moves past `through`, readers take
+    /// `committed` as the newest op, not the published seq, so a read between the publish
+    /// and the append waits for the op instead of finding it missing.
+    held: Option<(u64, u64)>,
     #[cfg(test)]
     encoded_ops: AtomicUsize,
     #[cfg(test)]
@@ -57,6 +68,8 @@ pub(super) struct PeerHistory {
     last: u64,
     tail: usize,
     used: usize,
+    /// Ops encoded in peer form: one per local change, whatever the number of peers.
+    encodes: u64,
 }
 
 /// A comma-separated span of the already encoded operations in the ring.
@@ -153,7 +166,9 @@ impl HistorySnapshot {
         if count == 0 {
             return None;
         }
-        let max_bytes = max_bytes.min(256 * 1024);
+        let first_entry = self.entries.get((self.head + offset) % self.entries.len())?;
+        let max_bytes =
+            first_entry.len.max(REPLAY_FRAME_TARGET_BYTES).min(max_bytes.min(256 * 1024));
         #[cfg(test)]
         let _copy_permit = RawCopyPermit::new(&self.raw_copy_permit, &self.raw_copy_waiting);
         let mut out = Vec::with_capacity(max_bytes.min(self.used.saturating_add(count)));
@@ -217,6 +232,7 @@ impl History {
             first: 0,
             tail: 0,
             used: 0,
+            held: None,
             #[cfg(test)]
             encoded_ops: AtomicUsize::new(0),
             #[cfg(test)]
@@ -340,6 +356,21 @@ impl History {
         self.first_seq().and_then(|first| first.checked_add(self.len as u64 - 1))
     }
 
+    /// The newest op a reader may take as recorded, with the index published at `published`:
+    /// the ring's last; on an empty ring, the op before the held ones while they are what
+    /// is published, else `published` (a cursor before it lagged).
+    pub(super) fn recorded_through(&self, published: u64) -> u64 {
+        self.last_seq().unwrap_or(match self.held {
+            Some((committed, through)) if published <= through => committed,
+            _ => published,
+        })
+    }
+
+    /// The writer is about to publish the ops `(committed, through]` and append them next.
+    pub(super) fn hold(&mut self, committed: u64, through: u64) {
+        self.held = Some((committed, through));
+    }
+
     fn clear(&mut self) {
         self.head = 0;
         self.len = 0;
@@ -360,6 +391,8 @@ impl History {
     }
 
     pub(super) fn append(&mut self, item: &ListItem) -> serde_json::Result<()> {
+        // Appended, or failed and cleared: either way readers stop waiting for the hold.
+        self.held = None;
         let op = match item {
             ListItem::Summary(event) => {
                 Op::Summary { seq: event.seq, summary: event.summary.as_ref() }
@@ -557,11 +590,16 @@ impl PeerHistory {
             last: start,
             tail: 0,
             used: 0,
+            encodes: 0,
         }
     }
 
     pub(super) fn last_seq(&self) -> u64 {
         self.last
+    }
+
+    pub(super) fn encodes(&self) -> u64 {
+        self.encodes
     }
 
     pub(super) fn can_resume(&self, cursor: u64) -> bool {
@@ -610,6 +648,7 @@ impl PeerHistory {
     }
 
     fn append_bytes(&mut self, seq: u64, bytes: &[u8]) -> io::Result<()> {
+        self.encodes += 1;
         if bytes.len() > self.bytes.len() {
             self.clear(self.last);
             return Err(io::Error::other("peer list op exceeds history byte capacity"));

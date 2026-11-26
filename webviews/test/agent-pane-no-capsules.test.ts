@@ -9,6 +9,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
+import { MODEL_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
 const page = path.resolve(
   import.meta.dir,
@@ -27,6 +28,9 @@ const SHAPES = new Set([
   // App scene ABI drawing primitives, not agent-pane controls. Badge labels still use small-radius rects.
   ".cmux-app-scene-circle",
   ".cmux-app-scene-capsule",
+  // An extension's animated ProgressView bar (js/ABI.md Motion), a progress bar by nature.
+  ".cmux-app-scene-progress-track",
+  ".cmux-app-scene-progress-fill",
   ".acpmux-switch",
   ".acpmux-quick-fast-toggle",
   // The model menu's columns (QuickModelColumns.tsx): the Fast switch's track, and the account
@@ -55,7 +59,7 @@ const SHAPES = new Set([
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-model .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-effort .acpmux-picker-button",
   ":is(.acpmux-composer-bar,.nt-pickers) .acpmux-access .acpmux-picker-button",
-  ".acpmux-model .acpmux-picker-button",
+  MODEL_PICKER,
   ".acpmux-effort .acpmux-picker-button",
   ".acpmux-access .acpmux-picker-button",
   '.nt-screen[data-template="cards"][data-pill] .nt-box',

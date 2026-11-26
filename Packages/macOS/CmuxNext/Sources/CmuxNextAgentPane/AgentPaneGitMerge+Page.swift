@@ -3,8 +3,8 @@ public import Foundation
 /// The GitHub page's Merge and its reads (CmuxNextGitHubViewer): the page shows one pull request by
 /// its link, with no checkout of its branch on this Mac, so its merge is pinned to the head the page
 /// showed rather than to this Mac's HEAD (the PR chip's merge, AgentPaneGitMerge.swift). It is the
-/// normal merge path: `gh pr merge <url> --<method> --match-head-commit <head>`, with the user's
-/// default method, never an override. GitHub's own rules (required checks and reviews, a merge
+/// normal merge path: GitHub's merge API pinned to `<head>` (`sha`), with the repository's default
+/// method for the viewer, never an override. GitHub's own rules (required checks and reviews, a merge
 /// queue) still decide; this refuses only what GitHub itself says cannot merge now.
 public extension AgentPaneGitPullRequest {
     /// What the page's Merge did.
@@ -14,30 +14,21 @@ public extension AgentPaneGitPullRequest {
         case refused(String)
     }
 
-    nonisolated static let pageMergeFields = "url,number,state,isDraft,mergeStateStatus,headRefOid"
-
     /// Merges the pull request at `url` (an https pull request address) when GitHub still has it
-    /// at `head`, the commit the page showed; nothing is pushed and no branch is deleted.
+    /// at `head`, the commit the page showed; nothing is pushed and no branch is deleted. It runs
+    /// through acpmux (``AgentPaneGitHub``): the cmux GitHub App's token, or the person's `gh`.
     @concurrent static func mergeShown(url: String, head: String) async -> PageMerge {
-        guard isPullRequestURL(url), isCommit(head) else { return .refused(mergeChangedMessage) }
-        guard let gh = gitHubCLI() else { return .refused(noGitHubCLIMessage) }
-        let home = NSHomeDirectory()
-        let cli = { (arguments: [String]) in
-            await AgentPaneGitProcess.output(arguments, executable: gh, directory: home, timeout: networkTimeout, network: true)
+        guard isPullRequestURL(url), isCommit(head), let pull = AgentPaneGitHubREST.pullRequest(url) else { return .refused(mergeChangedMessage) }
+        let view: MergeView
+        switch await mergeView(pull.repository, pull.number) {
+        case .failure(let refusal): return .refused(refusal.message)
+        case .success(let read): view = read
         }
-        let view = await cli(["pr", "view", url, "--json", pageMergeFields])
-        guard view.status == 0, let object = AgentPaneGitReviewThread.object(in: view.text) else { return .refused(message(view)) }
-        if let refusal = pageMergeRefusal(object, url: url, head: head) { return .refused(refusal) }
-        let how = await method(gh: gh, in: home, url: url)
-        let merged = await cli(["pr", "merge", url, "--\(how)", "--match-head-commit", head])
-        guard merged.status == 0 else { return .refused(message(merged)) }
-        // A base branch with a merge queue takes it into the queue, not merged yet.
-        let after = await cli(["pr", "view", url, "--json", "state"])
-        let state = (AgentPaneGitReviewThread.object(in: after.text)?["state"] as? String)?.uppercased()
-        return .merged(queued: state != "MERGED")
+        if let refusal = pageMergeRefusal(view.pullRequest, url: url, head: head) { return .refused(refusal) }
+        return await mergePinned(pull.repository, pull.number, head: head, method: view.method)
     }
 
-    /// Why `view` (`gh pr view --json` ``pageMergeFields``) cannot merge at `head` now, nil when it
+    /// Why `view` (``mergeView(_:_:)``'s pull request) cannot merge at `head` now, nil when it
     /// can: it must be the pull request at `url`, open, not a draft, still at `head`, and GitHub's
     /// merge state must not say it is blocked, behind, conflicting or not worked out yet. A red
     /// check GitHub does not require (`UNSTABLE`) merges, as GitHub's own button lets it.
@@ -60,26 +51,29 @@ public extension AgentPaneGitPullRequest {
     }
 
     /// Re-runs the failed jobs of the Actions run `run` in `repository` (`owner/name`) through
-    /// gh's normal path (`gh run rerun <run> --failed`); nil when GitHub took it, else its reason.
+    /// GitHub's re-run-failed-jobs API; nil when GitHub took it, else its reason.
     @concurrent static func rerunFailed(repository: String, run: Int) async -> String? {
         let parts = repository.split(separator: "/").map(String.init)
         guard run > 0, parts.count == 2,
               parts.allSatisfy({ !$0.hasPrefix("-") && $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-._".contains($0)) } }) else {
             return mergeChangedMessage
         }
-        guard let gh = gitHubCLI() else { return noGitHubCLIMessage }
-        let outcome = await AgentPaneGitProcess.output(["run", "rerun", String(run), "--failed", "--repo", repository],
-                                                       executable: gh, directory: NSHomeDirectory(), timeout: networkTimeout, network: true)
-        return outcome.status == 0 ? nil : message(outcome)
+        let answer = await AgentPaneGitHubREST.call(["op": "run.rerunFailed", "repo": repository, "run": run])
+        return answer.ok ? nil : answer.refusal
     }
 
-    /// gh's output for `arguments` in the home folder, for the page's reads beyond the card's
-    /// fields (a pull request's body and conversation); nil when gh is missing, fails or times out.
-    @concurrent static func pageRead(_ arguments: [String]) async -> Data? {
-        guard let gh = gitHubCLI() else { return nil }
-        let outcome = await AgentPaneGitProcess.output(arguments, executable: gh, directory: NSHomeDirectory(),
-                                                       timeout: networkTimeout, network: true)
-        guard outcome.status == 0 else { return nil }
-        return Data(outcome.text.utf8)
+    /// A read-only GraphQL query's answer for the page's reads beyond the card's fields (a pull
+    /// request's body and conversation, its checks), through acpmux; nil when it did not work.
+    @concurrent static func pageRead(_ repository: String, query: String, variables: [String: any Sendable],
+                                     scope: String = "pulls") async -> Data? {
+        let answer = await AgentPaneGitHubREST.graphql(repository, query, variables, scope: scope)
+        return answer.ok ? answer.body : nil
+    }
+
+    /// `GET repos/{repository}/{path}` for the page (an Actions job, its log's last `tail` bytes),
+    /// through acpmux; nil when it did not work.
+    @concurrent static func pageGet(_ repository: String, _ path: String, tail: Int? = nil) async -> Data? {
+        let answer = await AgentPaneGitHubREST.get(repository, path, tail: tail)
+        return answer.ok ? answer.body : nil
     }
 }

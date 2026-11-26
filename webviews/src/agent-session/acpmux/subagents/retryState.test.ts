@@ -9,7 +9,6 @@ import {
   SUBAGENT_RETRY,
   sessionRetry,
   subagentRetry,
-  askPrompt,
   isRetryContinuation,
   readRetry,
   retryActionOf,
@@ -193,29 +192,27 @@ describe("the fold keeps a subagent's retry", () => {
 test("acpmux's continuations are recognized; a person's prompt is not", () => {
   expect(isRetryContinuation({ _meta: { provenance: { kind: "auto_resume", attempt: 1, manual: true } } })).toBe(true);
   expect(isRetryContinuation({ _meta: { provenance: { kind: "subagent_retry", subagentId: "a" } } })).toBe(true);
+  expect(isRetryContinuation({ _meta: { provenance: { kind: "subagent_resume", subagentId: "a" } } })).toBe(true);
   expect(isRetryContinuation({ _meta: { provenance: { kind: "subsession_message" } } })).toBe(false);
   expect(isRetryContinuation({})).toBe(false);
 });
 
 describe("which rows get which Retry", () => {
-  const failed: RetryTarget = {
-    id: "a",
-    parent: null,
-    name: "Push relay",
-    task: "Push relay for GCP lane bundles",
-    state: "failed",
-  };
+  const failed: RetryTarget = { id: "a", parent: null, state: "failed" };
 
-  test("a Task subagent acpmux can retry goes to acpmux; one it cannot is asked of the parent", () => {
+  // Leo, 2026-11-14: "we maybe want to remove the "ask parent to retry" if we haven't already".
+  test("a Task subagent acpmux can retry goes to acpmux; one it cannot offers no Retry", () => {
     expect(retryActionOf({ ...failed, retryable: true })).toBe("daemon");
-    expect(retryActionOf(failed)).toBe("ask");
-    expect(retryActionOf({ ...failed, retryable: false })).toBe("ask");
+    expect(retryActionOf(failed)).toBeUndefined();
+    expect(retryActionOf({ ...failed, retryable: false })).toBeUndefined();
     expect(retryActionOf({ ...failed, state: "disconnected", retryable: true })).toBe("daemon");
+    expect(subagentRetry(failed)).toEqual({ kind: "failed" });
   });
 
-  test("a sub-session goes to acpmux; another family's shell run is asked of the parent", () => {
+  test("a sub-session goes to acpmux; another family's shell run offers no Retry", () => {
     expect(retryActionOf({ ...failed, child: "s2" })).toBe("daemon");
-    expect(retryActionOf({ ...failed, harness: "codex" })).toBe("ask");
+    expect(retryActionOf({ ...failed, harness: "codex" })).toBeUndefined();
+    expect(retryActionOf({ ...failed, harness: "codex", retryable: true })).toBeUndefined();
   });
 
   test("no Retry for a finished, running, stopped, nested or already-retrying row", () => {
@@ -226,21 +223,13 @@ describe("which rows get which Retry", () => {
     expect(retryActionOf({ ...failed, retryable: true, retry: { attempt: 1, of: 4 } })).toBeUndefined();
   });
 
-  test("the ask names the failed task and its description in one line", () => {
-    expect(askPrompt(failed, translate)).toBe(
-      'The subagent "Push relay" (Push relay for GCP lane bundles) failed on a transient error. Run it again.',
-    );
-    expect(askPrompt({ ...failed, task: "Push relay" }, translate)).toBe(
-      'The subagent "Push relay" failed on a transient error. Run it again.',
-    );
-    expect(askPrompt({ ...failed, task: "Push relay\nfor GCP\n\nlane bundles" }, translate)).toBe(
-      'The subagent "Push relay" (Push relay for GCP lane bundles) failed on a transient error. Run it again.',
-    );
+  test('the catalog has no "Ask parent to retry" and none of its prompts', () => {
+    for (const key of ["retry.askParent", "retry.ask", "retry.askTask"]) expect(translate(key as never)).toBe(key);
   });
 });
 
-describe("Retry reaches acpmux, else the parent", () => {
-  const failed: RetryTarget = { id: "a", parent: null, name: "Overview", state: "failed", retryable: true };
+describe("Retry reaches acpmux, and only acpmux", () => {
+  const failed: RetryTarget = { id: "a", parent: null, state: "failed", retryable: true };
   const deps = (reject?: unknown) => {
     const calls: unknown[] = [];
     return {
@@ -249,118 +238,93 @@ describe("Retry reaches acpmux, else the parent", () => {
         calls.push([method, params]);
         return reject ? Promise.reject(reject) : Promise.resolve({ promptId: "p", kind: "subagent" });
       },
-      send: (text: string) => {
-        calls.push(["send", text]);
-        return Promise.resolve();
-      },
     };
   };
 
   test("a subagent's Retry names it to acpmux; a sub-session's names its own session", async () => {
     const CHAT = "c1";
     const d = deps();
-    expect(await runRetry(failed, CHAT, d, translate)).toBeUndefined();
-    expect(await runRetry({ ...failed, child: "s2" }, CHAT, d, translate)).toBeUndefined();
+    expect(await runRetry(failed, CHAT, d)).toBeUndefined();
+    expect(await runRetry({ ...failed, child: "s2" }, CHAT, d)).toBeUndefined();
     expect(d.calls).toEqual([
       [RETRY_METHOD, { sessionId: "c1", subagentId: "a" }],
       [RETRY_METHOD, { sessionId: "s2" }],
     ]);
   });
 
-  test("a daemon without the method falls back to the ask", async () => {
+  test("a daemon without the method, or one that cannot retry a subagent, says Retry failed", async () => {
     const CHAT = "c2";
     const d = deps({ code: -32601 });
-    expect(await runRetry(failed, CHAT, d, translate)).toBeUndefined();
-    expect(d.calls[1]).toEqual(["send", 'The subagent "Overview" failed on a transient error. Run it again.']); // A sub-session is never asked of the parent: only acpmux retries a chat's turn.
+    expect(await runRetry(failed, CHAT, d)).toBe("retry.failed");
+    expect(d.calls).toHaveLength(1);
     const sub = deps({ code: -32601 });
-    expect(await runRetry({ ...failed, child: "s2" }, CHAT, sub, translate)).toBe("retry.failed");
+    expect(await runRetry({ ...failed, child: "s2" }, CHAT, sub)).toBe("retry.failed");
     expect(sub.calls).toHaveLength(1);
+    const old = deps({ code: "retry.subagent_unsupported" });
+    expect(await runRetry(failed, CHAT, old)).toBe("retry.failed");
+    expect(old.calls).toHaveLength(1);
   });
 
-  test("acpmux's refusals are short notes, never an ask", async () => {
+  test("acpmux's refusals are short notes", async () => {
     const CHAT = "c3";
-    expect(await runRetry(failed, CHAT, deps({ code: "retry.busy" }), translate)).toBe("retry.busy");
+    expect(await runRetry(failed, CHAT, deps({ code: "retry.busy" }))).toBe("retry.busy");
     const d = deps({ code: -32000, reason: "retry.nothing_failed" });
-    expect(await runRetry(failed, CHAT, d, translate)).toBe("retry.nothingFailed");
+    expect(await runRetry(failed, CHAT, d)).toBe("retry.nothingFailed");
     expect(d.calls).toHaveLength(1);
-    expect(await runRetry(failed, CHAT, deps({ code: "native.timed_out" }), translate)).toBe("retry.failed");
+    expect(await runRetry(failed, CHAT, deps({ code: "native.timed_out" }))).toBe("retry.failed");
   });
 
   test("runRetry keeps no state: acpmux's busy refusal is the second Retry's answer", async () => {
     const CHAT = "c4";
     const busy = deps({ code: "retry.busy" });
     const other = { ...failed, id: "refused" };
-    expect(await runRetry(other, CHAT, busy, translate)).toBe("retry.busy");
-    expect(await runRetry(other, CHAT, busy, translate)).toBe("retry.busy");
+    expect(await runRetry(other, CHAT, busy)).toBe("retry.busy");
+    expect(await runRetry(other, CHAT, busy)).toBe("retry.busy");
     expect(busy.calls).toHaveLength(2);
   });
 
-  test("acpmux's capabilities gate the call: named and missing asks the parent, never probes", async () => {
+  test("acpmux's capabilities gate the call: named and missing offers no Retry, never probes", async () => {
     const d = { ...deps(), capabilities: new Set(["turn-retry-v1"]) };
     const CHAT = "caps";
-    await runRetry(failed, CHAT, d, translate);
-    await runRetry({ ...failed, id: "child", child: "s3" }, CHAT, d, translate);
-    expect(d.calls.map((call) => (call as unknown[])[0])).toEqual(["send", RETRY_METHOD]);
+    expect(await runRetry(failed, CHAT, d)).toBeUndefined();
+    await runRetry({ ...failed, id: "child", child: "s3" }, CHAT, d);
+    expect(d.calls).toEqual([[RETRY_METHOD, { sessionId: "s3" }]]);
     const both = { ...deps(), capabilities: new Set(["turn-retry-v1", "subagent-retry-v1"]) };
-    await runRetry({ ...failed, id: "sub" }, CHAT, both, translate);
+    await runRetry({ ...failed, id: "sub" }, CHAT, both);
     expect(both.calls).toEqual([[RETRY_METHOD, { sessionId: CHAT, subagentId: "sub" }]]);
   });
 
-  test("a row offers acpmux's Retry only where acpmux names it, and Retry runs only that one action", async () => {
+  test("a row offers acpmux's Retry only where acpmux names it", () => {
     const turnOnly = new Set(["turn-retry-v1"]);
-    expect(retryActionOf({ ...failed, retryable: true }, turnOnly)).toBe("ask");
+    expect(retryActionOf({ ...failed, retryable: true }, turnOnly)).toBeUndefined();
     expect(retryActionOf({ ...failed, child: "s" }, turnOnly)).toBe("daemon");
     // Only acpmux retries a chat's turn: without TURN_RETRY a sub-session offers no Retry.
     expect(retryActionOf({ ...failed, child: "s" }, new Set())).toBeUndefined();
     expect(retryActionOf({ ...failed, retryable: true }, undefined)).toBe("daemon");
-    const d = { ...deps(), capabilities: turnOnly };
-    await runRetry({ ...failed, id: "forced" }, "forced", d, translate);
-    expect(d.calls.map((call) => (call as unknown[])[0])).toEqual(["send"]);
   });
 
-  test("a refusal's why reads in words; subagent_unsupported asks the parent", async () => {
+  test("a refusal's why reads in words", async () => {
     const why = (w: string) => ({ code: -32000, reason: "retry.nothing_failed", data: { why: w } });
-    expect(await runRetry({ ...failed, id: "w1" }, "why", deps(why("running")), translate)).toBe("retry.running");
-    expect(await runRetry({ ...failed, id: "w2" }, "why", deps(why("closed")), translate)).toBe("retry.gone");
-    expect(await runRetry({ ...failed, id: "w3" }, "why", deps(why("not_retryable")), translate)).toBe(
-      "retry.nothingFailed",
-    );
-    expect(await runRetry({ ...failed, id: "w4" }, "why", deps({ code: "retry.stopped" }), translate)).toBe(
-      "retry.gone",
-    );
-    const old = deps({ code: "retry.subagent_unsupported" });
-    expect(await runRetry({ ...failed, id: "w5" }, "why", old, translate)).toBeUndefined();
-    expect((old.calls[1] as unknown[])[0]).toBe("send");
+    expect(await runRetry({ ...failed, id: "w1" }, "why", deps(why("running")))).toBe("retry.running");
+    expect(await runRetry({ ...failed, id: "w2" }, "why", deps(why("closed")))).toBe("retry.gone");
+    expect(await runRetry({ ...failed, id: "w3" }, "why", deps(why("not_retryable")))).toBe("retry.nothingFailed");
+    expect(await runRetry({ ...failed, id: "w4" }, "why", deps({ code: "retry.stopped" }))).toBe("retry.gone");
   });
 
   test("a Retry the pane can no longer reach is refused with a note, never taken as sent", async () => {
     const CHAT = "c6";
     // The pane moved to another chat, or reconnects: nothing is sent, and the row says so.
     const away = { ...deps(), reaches: () => false };
-    expect(await runRetry(failed, CHAT, away, translate)).toBe("retry.failed");
+    expect(await runRetry(failed, CHAT, away)).toBe("retry.failed");
     expect(away.calls).toEqual([]);
-    // It moved while acpmux answered: the ask is never sent to the next chat.
-    let here = true;
-    const old = deps({ code: -32601 });
-    const moved = {
-      ...old,
-      request: (method: string, params: Record<string, unknown>) => {
-        here = false;
-        return old.request(method, params);
-      },
-      reaches: () => here,
-    };
-    expect(await runRetry(failed, CHAT, moved, translate)).toBe("retry.failed");
-    expect(old.calls.map((call) => (call as unknown[])[0])).toEqual([RETRY_METHOD]);
   });
 
-  test("a row acpmux can't retry asks the parent; a row with no Retry does nothing", async () => {
+  test("a row acpmux can't retry, or with no Retry, does nothing", async () => {
     const CHAT = "c5";
     const d = deps();
-    await runRetry({ ...failed, retryable: false }, CHAT, d, translate);
-    expect(d.calls.map((call) => (call as unknown[])[0])).toEqual(["send"]);
-    expect(await runRetry({ ...failed, state: "completed" }, CHAT, d, translate)).toBeUndefined();
-    expect(d.calls).toHaveLength(1);
+    expect(await runRetry({ ...failed, retryable: false }, CHAT, d)).toBeUndefined();
+    expect(await runRetry({ ...failed, state: "completed" }, CHAT, d)).toBeUndefined();
+    expect(d.calls).toEqual([]);
   });
 
   test("the strings are in the catalog", () => {

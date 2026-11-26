@@ -347,6 +347,41 @@ class PerFileRunner(unittest.TestCase):
             "test/base-fail.test.ts > a broken test": False, "test/base-hang.test.ts": False,
             "test/head-fail.test.ts > a broken test": False}, output)
 
+    def test_a_retry_pool_settles_reds_and_sends_only_unsettled_ones_alone(self):
+        """CMUX_WEB_TEST_RETRY_POOL: red files run again a few at a time before any alone retry. A pooled pass is a
+        retry pass; a FAIL naming the same tests as its first run stays red with no alone retry (108 of 113 alone
+        retries in 14 shard logs after #49329 did exactly that); a file whose pooled run differs (here: a timeout,
+        then a named failure) still gets its alone retry, and only that last run counts."""
+        files = ["test/x-fail.test.ts", "test/y-contended.test.ts", "test/timed-out-then-fail.test.ts"]
+        results_path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "results.json"
+        result, _, calls = self.run_runner(
+            files,
+            extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60",
+                       "CMUX_WEB_TEST_RETRY_POOL": "3", "CMUX_WEB_TEST_RESULTS": str(results_path)},
+        )
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("RETRY POOL: 3 red files again, 3 at a time", output)
+        self.assertEqual(calls.count("./test/x-fail.test.ts"), 2, output)
+        self.assertEqual(calls.count("./test/y-contended.test.ts"), 2, output)
+        self.assertEqual(calls.count("./test/timed-out-then-fail.test.ts"), 3, output)
+        self.assertIn("NO ALONE RETRY FAIL test/x-fail.test.ts", output)
+        self.assertIn("RETRY test/timed-out-then-fail.test.ts after its timeout", output)
+        self.assertIn("  test/y-contended.test.ts (first run: TIMEOUT; passed beside other retries)", output)
+        self.assertIn("red again on the same tests, so not retried alone: 1", output)
+        self.assertEqual(json.loads(results_path.read_text()), {
+            "test/x-fail.test.ts > a broken test": False, "test/y-contended.test.ts": True,
+            "test/timed-out-then-fail.test.ts > still broken alone": False}, output)
+
+    def test_no_retry_pool_keeps_every_retry_alone(self):
+        files = ["test/x-fail.test.ts", "test/y-contended.test.ts"]
+        result, _, calls = self.run_runner(
+            files, extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60"})
+        output = result.stdout + result.stderr
+        self.assertNotIn("RETRY POOL", output)
+        self.assertEqual(calls.count("./test/x-fail.test.ts"), 2, output)
+        self.assertIn("(2 retried alone, 1 passed alone)", output)
+
     def test_a_file_with_one_red_the_base_lacks_is_still_retried(self):
         """Only a file whose every first-run red is red on the base skips its retry: one more red the base has
         green may be the change's own, and its alone retry is what passes a contention flake."""
@@ -378,6 +413,84 @@ class PerFileRunner(unittest.TestCase):
             output = result.stdout + result.stderr
             self.assertEqual(calls.count("./test/base-fail.test.ts"), 2, f"{reds}: {output}")
             self.assertNotIn("NO RETRY", output)
+
+    def test_the_retry_breaker_stops_alone_retries_once_its_first_ones_all_fail_again(self):
+        """Shard 1 of run 44987019885 retried 38 red files alone over 23 min and none passed; 8 sampled long shards
+        passed 7 of 88. Once CMUX_WEB_TEST_RETRY_BREAKER retries have run with no pass, the rest keep their first run
+        (marked retry-skipped, so the base check judges them as unretried) and the summary says how many and why."""
+        files = [f"test/{index}-fail.test.ts" for index in range(4)] + ["test/hang.test.ts"]
+        results_path = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "results.json"
+        step_summary = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory())) / "step-summary.md"
+        result, _, calls = self.run_runner(
+            files, extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60",
+                              "CMUX_WEB_TEST_RETRY_BREAKER": "2", "CMUX_WEB_TEST_RESULTS": str(results_path),
+                              "GITHUB_STEP_SUMMARY": str(step_summary)})
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(len(calls), len(files) + 2, output)
+        self.assertEqual(output.count("(CMUX_WEB_TEST_RETRY_BREAKER); react-apps-base-check judges it"), 3, output)
+        self.assertIn("5 failed or timed out (2 retried alone, 0 passed alone)", output)
+        line = ("alone retries skipped: 3, since the first 2 alone retries all failed again (not contention; "
+                "react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)")
+        self.assertIn(line, output)
+        self.assertIn(line, step_summary.read_text(encoding="utf-8"))
+        for file in files:
+            self.assertRegex(output, rf"(FAIL|TIMEOUT) {file} \(limit", output)
+        states = json.loads(results_path.read_text())
+        self.assertTrue(all(ok is False for ok in states.values()), states)
+
+    def test_the_retry_breaker_keeps_retrying_once_a_retry_passes_alone_and_is_off_by_default(self):
+        """A pass among the first retries is contention: every red file keeps its alone retry. Unset or 0, every red
+        file is retried as before."""
+        files = [f"test/{index}-timed-out-once.test.ts" for index in range(3)] + ["test/fail.test.ts"]
+        for breaker in ("2", "0", None):
+            env = {"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60"}
+            if breaker is not None:
+                env["CMUX_WEB_TEST_RETRY_BREAKER"] = breaker
+            result, _, calls = self.run_runner(files, extra_env=env)
+            output = result.stdout + result.stderr
+            for file in files:
+                self.assertEqual(calls.count(f"./{file}"), 2, f"{breaker}: {output}")
+            self.assertNotIn("NO RETRY", output)
+            self.assertNotIn("alone retries skipped", output)
+            self.assertIn("1 failed or timed out (4 retried alone, 3 passed alone)", output)
+        # Every one red: off, every file is retried.
+        result, _, calls = self.run_runner([f"test/{index}-fail.test.ts" for index in range(4)],
+                                           extra_env={"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60",
+                                                      "CMUX_WEB_TEST_RETRY_BREAKER": "0"})
+        self.assertEqual(len(calls), 8, result.stdout + result.stderr)
+
+    def test_the_retry_pool_runs_inside_the_retry_breaker(self):
+        """Both on (a pull request shard): the pool settles what it can first; a file red again on the same tests is
+        not an alone retry, so it does not move the breaker. The files the pool leaves unsettled go alone until the
+        breaker's first retries all fail again; a pooled pass is a retry pass, so it keeps the breaker off."""
+        unsettled = ["test/a-timed-out-then-fail.test.ts", "test/b-timed-out-then-fail.test.ts"]
+        env = {"CMUX_WEB_TEST_RETRIES": "60", "CMUX_WEB_TEST_RETRY_BUDGET": "60",
+               "CMUX_WEB_TEST_RETRY_POOL": "3", "CMUX_WEB_TEST_RETRY_BREAKER": "1"}
+        result, _, calls = self.run_runner(["test/x-fail.test.ts"] + unsettled, extra_env=env)
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertIn("RETRY POOL: 3 red files again, 3 at a time", output)
+        self.assertIn("NO ALONE RETRY FAIL test/x-fail.test.ts", output)
+        self.assertEqual(calls.count("./test/x-fail.test.ts"), 2, output)
+        # The first unsettled file to finish its first run goes alone and fails again; the breaker stops the other.
+        self.assertEqual(sorted(calls.count(f"./{file}") for file in unsettled), [2, 3], output)
+        self.assertRegex(output, r"NO RETRY TIMEOUT test/[ab]-timed-out-then-fail\.test\.ts: the first 1 alone "
+                                 r"retries all failed again")
+        self.assertIn("alone retries skipped: 1, since the first 1 alone retries all failed again", output)
+        # A pooled pass (contention) keeps every unsettled file's alone retry.
+        result, _, calls = self.run_runner(["test/x-fail.test.ts", "test/y-contended.test.ts"] + unsettled,
+                                           extra_env=env)
+        output = result.stdout + result.stderr
+        self.assertIn("  test/y-contended.test.ts (first run: TIMEOUT; passed beside other retries)", output)
+        for file in unsettled:
+            self.assertEqual(calls.count(f"./{file}"), 3, output)
+        self.assertNotIn("alone retries skipped", output)
+
+    def test_ci_turns_the_retry_breaker_on_for_pull_request_shards_only(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("CMUX_WEB_TEST_RETRY_BREAKER: ${{ github.event_name == 'pull_request' && "
+                      "(vars.CMUX_WEB_TEST_RETRY_BREAKER || '5') || '0' }}", text)
 
     def test_ci_hands_a_pull_request_shard_its_base_reds(self):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -564,6 +677,30 @@ class PerFileRunner(unittest.TestCase):
         result, _, calls = self.run_runner(files, extra_env={"CMUX_WEB_TEST_FILES": "src/b.test.tsx\ntest/a.test.ts\n"})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
+
+    def test_files_passed_at_the_previous_head_are_not_run_again_and_are_passed_on(self):
+        """ci-web.yml hands a newer head's shard the files it may reuse; the passes go on to the next head."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        reused, passed = temp / "reused", temp / "passed"
+        reused.write_text("test/a.test.ts\ntest/gone.test.ts\n", encoding="utf-8")
+        passed.write_text("", encoding="utf-8")
+        files = ["test/a.test.ts", "test/fail.test.ts", "src/b.test.tsx"]
+        result, _, calls = self.run_runner(files, extra_env={"CMUX_WEB_TEST_REUSED": str(reused),
+                                                             "CMUX_WEB_TEST_PASSED_OUT": str(passed)})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./src/b.test.tsx", "./test/fail.test.ts"])
+        self.assertIn("REUSED test/a.test.ts", result.stdout)
+        self.assertEqual(sorted(passed.read_text(encoding="utf-8").split()), ["src/b.test.tsx", "test/a.test.ts"])
+
+    def test_a_shard_whose_every_file_is_reused_passes_without_running_any(self):
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        reused, out = temp / "reused", temp / "head.json"
+        reused.write_text("test/a.test.ts\n", encoding="utf-8")
+        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={"CMUX_WEB_TEST_REUSED": str(reused),
+                                                                          "CMUX_WEB_TEST_RESULTS": str(out)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, [])
+        self.assertTrue(out.exists())
 
     def test_a_focused_list_naming_no_test_file_fails(self):
         """A stale selection (a moved or deleted test) must not pass by running nothing."""
@@ -851,6 +988,31 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, sorted(f"./{name}" for name in files))
         self.assertEqual(self.peaks(), (1, 1), result.stdout)
+
+    def test_a_smaller_runner_runs_the_declared_widths_at_its_share_and_splits_the_same(self):
+        """The 16 vCPU shards (8 jobs, 4 dev-server files) got 2 and 4 vCPU runners when the pool writer
+        marked the large sizes dead: 8 files at once on 2 cores ran every shard of run 44249075431 (attempt 2)
+        and shards 1, 4, 6 and 8 of run 44258208231 into the 40 min timeout. A runner with fewer cores than the
+        declared size runs at that share of each width, and the split still reads the declared widths."""
+        browser = {f"test/pool-browser-{index}.test.ts": 'import { webkit } from "playwright";\n' for index in range(6)}
+        files = [*browser, *(f"test/pool-jsdom-{index}.test.ts" for index in range(6))]
+        sized = {"CMUX_WEB_TEST_DEV_JOBS": "4", "CMUX_WEB_TEST_SIZED_FOR_VCPU": "16"}
+        for cores, peaks in (("16", (8, 2)), ("8", (4, 1)), ("4", (2, 1)), ("2", (1, 1))):
+            result, _, calls = self.run_runner(files, contents=browser,
+                                               extra_env={**sized, "CMUX_CI_CPU_BUDGET": cores})
+            output = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, output)
+            self.assertEqual(calls, sorted(f"./{name}" for name in files))
+            everything, browsers = self.peaks()
+            self.assertLessEqual(everything, peaks[0], f"{cores} cores: {output}")
+            self.assertEqual(browsers, peaks[1], f"{cores} cores: {output}")
+            if cores != "16":
+                self.assertIn(f"this runner has {cores} of the 16 vCPU", output)
+        manifest = self.manifest({name: 5 + index for index, name in enumerate(files)})
+        def shard_files(cores):
+            env = {**sized, "CMUX_WEB_TEST_DURATIONS": manifest, "CMUX_CI_CPU_BUDGET": cores}
+            return [self.run_runner(files, contents=browser, shard=n, shard_count=2, extra_env=env)[2] for n in (1, 2)]
+        self.assertEqual(shard_files("2"), shard_files("16"), "every shard picks the same files on any size")
 
     def test_a_file_can_declare_a_longer_limit_than_the_default(self):
         # editor-page runs 24 browser tests in two engines, about 115 s on the CI runner: the

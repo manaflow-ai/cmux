@@ -1,6 +1,7 @@
 import Foundation
 #if os(iOS)
 import CmuxMobileDesign
+import CmuxMobileMarkdown
 import SwiftUI
 import UIKit
 #endif
@@ -74,7 +75,7 @@ struct ChiefContextRow: View {
                     .frame(minHeight: 44)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressLine)
                 .accessibilityValue(open ? "Expanded" : "Collapsed")
                 Button {
                     UIPasteboard.general.string = context
@@ -83,21 +84,18 @@ struct ChiefContextRow: View {
                         .frame(width: 32, height: 44)
                         .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel("Copy context")
             }
             .padding(.vertical, -10)
             if open {
                 ScrollView {
-                    Text(context)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    SelectableText(context, textStyle: .caption1, monospaced: true, color: .secondaryLabel)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(12)
                 }
                 .frame(maxHeight: 320)
-                .background(Color.cmuxMobileBubble.opacity(0.5), in: .rect(cornerRadius: 14, style: .continuous))
+                .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 14, style: .continuous))
                 .transition(.disclosureReveal)
             }
         }

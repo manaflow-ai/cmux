@@ -10,7 +10,7 @@
 //! What it covers: every app with a script (`runtime.main`), which is every
 //! third-party app, every local and customize app and every bundled
 //! first-party app that runs in the app host (agents, caffeinate, codemirror,
-//! coderouter, diffs, finder, inbox, integrations, memory, notes, search,
+//! diffs, finder, inbox, integrations, memory, notes, search,
 //! skills, usage). None of them is something cmux cannot work without: each
 //! place falls back to its native view. What it leaves on: apps with no
 //! script (the App Store, Home, Cloud and Remote Desktop panes, drawn by the
@@ -177,7 +177,7 @@ impl Supervisor {
     }
 
     /// `apps-safe-mode {op, args}`: `safe_mode.get`, `safe_mode.set`,
-    /// `safe_mode.launch_began`, `safe_mode.launch_settled`. The wire
+    /// `safe_mode.bisect {step}` (`safe_mode_bisect.rs`), `safe_mode.launch_began`, `safe_mode.launch_settled`. The wire
     /// admits the launch ops only from the verified app connection.
     pub(crate) fn safe_mode_call(
         &self,
@@ -194,6 +194,7 @@ impl Supervisor {
                 let params: SetParams = super::store::params(args)?;
                 self.set_safe_mode(params.on, origin)
             }
+            "safe_mode.bisect" => self.bisect_call(super::store::params(args)?, origin),
             "safe_mode.launch_began" => {
                 super::store::params::<serde_json::Map<String, Value>>(args)?;
                 Ok(self.launch_began(safe_mode_flag::now_ms()))
@@ -212,10 +213,10 @@ impl Supervisor {
         }
     }
 
-    /// `{on, reason?, sinceMs?, extensions?}`.
+    /// `{on, reason?, sinceMs?, extensions?, bisect?}`.
     pub(crate) fn safe_mode_json(&self) -> Value {
         let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        flag_json(inner.safe_mode.as_ref())
+        super::safe_mode_bisect::answer_locked(&inner)
     }
 
     /// Turns safe mode on (any origin) or off (origin user only).
@@ -261,6 +262,7 @@ impl Supervisor {
                 outs.extend(self.stop_all_hosts_locked(&mut inner));
             }
             if !now_on {
+                self.end_bisect_locked(&mut inner);
                 inner.launches = Launches::default();
                 save_launches(self.config.state_dir.as_deref(), &inner.launches);
             }
@@ -277,9 +279,7 @@ impl Supervisor {
         self.emit(outs);
         if leaving {
             // Saves made in safe mode were held; apply them now.
-            let prints =
-                self.inner.lock().unwrap_or_else(PoisonError::into_inner).local_prints.clone();
-            self.reload_local_apps(&prints);
+            self.reload_local_apps_now();
         }
         Ok(answer)
     }
@@ -288,7 +288,8 @@ impl Supervisor {
     fn stop_all_hosts_locked(&self, inner: &mut Inner) -> Vec<Out> {
         let mut apps: BTreeSet<String> = inner.hosts.keys().map(|key| key.app.clone()).collect();
         apps.extend(inner.mounts.values().map(|mount| mount.host.app.clone()));
-        let mut outs = Vec::new();
+        // Every web pane's calls end too, of apps with no host or mount as well.
+        let mut outs = self.cancel_page_calls_locked(inner, None, OFF);
         for app in apps {
             outs.extend(self.stop_app_locked(inner, &app, OFF));
             // A preview host (the store's) stops too.
@@ -300,7 +301,9 @@ impl Supervisor {
                 .map(|(key, _)| key.clone())
                 .collect();
             for key in doomed {
-                inner.mounts.remove(&key);
+                if let Some(gone) = inner.mounts.remove(&key) {
+                    self.cancel_widget_timers(gone.widget.as_ref());
+                }
                 outs.push(Out::Client(
                     key.client,
                     json!({ "event": "apps-mount-failed", "mount_id": key.mount_id, "reason": OFF }),
@@ -368,103 +371,5 @@ pub(super) fn flag_json(flag: Option<&Flag>) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const MIN: u64 = 60 * 1000;
-
-    fn fail(launches: &mut Launches, at: u64, app: &str) -> Option<Vec<String>> {
-        let tripped = launches.began(at);
-        launches.mounted(app);
-        tripped
-    }
-
-    #[test]
-    fn three_failed_launches_in_five_minutes_trip_the_next_one() {
-        let mut launches = Launches::default();
-        assert_eq!(fail(&mut launches, 10 * MIN, "acme/a"), None);
-        assert_eq!(fail(&mut launches, 11 * MIN, "acme/b"), None);
-        assert_eq!(fail(&mut launches, 12 * MIN, "acme/a"), None);
-        // The fourth launch sees three that never settled.
-        assert_eq!(launches.began(13 * MIN), Some(vec!["acme/a".into(), "acme/b".into()]));
-        // Tripping used them up.
-        assert!(launches.failed.is_empty());
-        assert_eq!(launches.began(14 * MIN), None);
-    }
-
-    #[test]
-    fn a_settled_launch_resets_the_count() {
-        let mut launches = Launches::default();
-        fail(&mut launches, MIN, "acme/a");
-        fail(&mut launches, 2 * MIN, "acme/a");
-        launches.began(3 * MIN);
-        launches.settled();
-        assert_eq!(launches.began(4 * MIN), None);
-        assert_eq!(launches.began(5 * MIN), None);
-        assert_eq!(launches.began(6 * MIN), None, "only two failed since the settle");
-        assert!(launches.began(7 * MIN).is_some());
-    }
-
-    #[test]
-    fn a_clean_quit_does_not_count() {
-        let mut launches = Launches::default();
-        for minute in 1..=5 {
-            assert_eq!(launches.began(minute * MIN), None);
-            // `launch_settled {reason: quit}` settles like a first frame.
-            launches.settled();
-        }
-        assert!(launches.failed.is_empty());
-    }
-
-    #[test]
-    fn failures_older_than_the_window_do_not_count() {
-        let mut launches = Launches::default();
-        fail(&mut launches, MIN, "acme/a");
-        fail(&mut launches, 2 * MIN, "acme/a");
-        fail(&mut launches, 3 * MIN, "acme/a");
-        // Six minutes after the first failure only two are in the window.
-        assert_eq!(launches.began(6 * MIN + 1), None);
-    }
-
-    #[test]
-    fn clock_skew_never_invents_a_loop() {
-        let mut launches = Launches::default();
-        fail(&mut launches, 100 * MIN, "acme/a");
-        fail(&mut launches, 101 * MIN, "acme/a");
-        fail(&mut launches, 102 * MIN, "acme/a");
-        // The clock went back an hour: stamps after now are dropped.
-        assert_eq!(launches.began(40 * MIN), None);
-        assert!(launches.failed.is_empty());
-        // The clock went forward a day: everything is outside the window.
-        let mut launches = Launches::default();
-        fail(&mut launches, MIN, "acme/a");
-        fail(&mut launches, 2 * MIN, "acme/a");
-        fail(&mut launches, 3 * MIN, "acme/a");
-        assert_eq!(launches.began(24 * 60 * MIN), None);
-    }
-
-    #[test]
-    fn the_record_stays_bounded() {
-        let mut launches = Launches::default();
-        // Each launch trips on the fourth; between trips the list never grows past the cap.
-        for second in 0..100 {
-            launches.began(second * 1000);
-            assert!(launches.failed.len() <= KEPT_FAILURES);
-        }
-    }
-
-    #[test]
-    fn the_flag_file_wins_over_the_env_and_off_is_off() {
-        let dir =
-            std::env::temp_dir().join(format!("cmux-safe-mode-initial-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = safe_mode_flag::path_in(&dir);
-        let _ = std::fs::remove_file(&path);
-        assert_eq!(initial(Some(&path), false), None);
-        assert_eq!(initial(Some(&path), true).map(|f| f.reason), Some(Reason::Env));
-        let user = Flag { on: true, reason: Reason::User, since_ms: 5, extensions: vec![] };
-        safe_mode_flag::write(&path, Some(&user)).unwrap();
-        assert_eq!(initial(Some(&path), true), Some(user));
-        std::fs::remove_dir_all(&dir).unwrap();
-    }
-}
+#[path = "safe_mode_tests.rs"]
+mod tests;

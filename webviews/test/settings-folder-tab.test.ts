@@ -26,7 +26,11 @@ const tone = block(look, "@container style(--cmux-chrome-tone: 1)");
 const count = (css: string, needle: string) => css.split(needle).length - 1;
 
 test("the folder tab's rules apply only under Subtle Tone", () => {
-  for (const needle of ["--cmux-folder-fill", "data-settings-folder-tab", ".section-link[aria-current]::before"]) {
+  for (const needle of [
+    "--cmux-folder-fill",
+    "data-settings-folder-tab",
+    ".section-link[data-section-link][aria-current]::before",
+  ]) {
     expect(count(tone, needle), needle).toBeGreaterThan(0);
     expect(count(look, needle), needle).toBe(count(tone, needle));
   }

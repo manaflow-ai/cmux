@@ -79,6 +79,21 @@ public struct TabProgramCache: Sendable {
         entries[tabID]?.changed = true
     }
 
+    /// The app left the foreground at `time`: output there goes unheard, so
+    /// every entry still known is marked as if its terminal drew output then
+    /// (known `maxAge` more, while the grid reads it again on return), never
+    /// wiped at once: a close right after a one-second app switch still asks
+    /// at once. One already past its age goes.
+    public mutating func markStale(at time: Double) {
+        for (id, entry) in entries {
+            if entry.changed, time - entry.at > Self.maxAge {
+                entries[id] = nil
+            } else {
+                entries[id] = (entry.programs, time, true)
+            }
+        }
+    }
+
     /// The programs of all `tabIDs` (sorted, unique), or nil when any is unknown or stale.
     public func programs(of tabIDs: [String], now: Double) -> [String]? {
         var all = Set<String>()

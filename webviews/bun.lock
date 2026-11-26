@@ -15,9 +15,11 @@
         "@tanstack/react-router": "1.170.11",
         "@tanstack/react-virtual": "3.14.13",
         "@vitejs/plugin-react": "6.1.1",
+        "fflate": "0.8.3",
         "katex": "0.16.25",
         "marked": "17.0.5",
         "monaco-editor": "0.57.0",
+        "monaco-vim": "0.4.4",
         "prosemirror-commands": "^1.7.1",
         "prosemirror-model": "1.25.11",
         "prosemirror-state": "^1.4.4",
@@ -37,6 +39,7 @@
         "@types/jsdom": "^28.0.3",
         "@types/react": "^19.2.7",
         "@types/react-dom": "^19.2.3",
+        "aria-query": "5.3.0",
         "axe-core": "4.13.0",
         "babel-plugin-react-compiler": "^1.0.0",
         "esbuild": "0.27.7",
@@ -1155,6 +1158,8 @@
     "minimatch": ["minimatch@10.2.5", "", { "dependencies": { "brace-expansion": "^5.0.5" } }, "sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg=="],
 
     "monaco-editor": ["monaco-editor@0.57.0", "", { "dependencies": { "dompurify": "3.4.15", "marked": "14.0.0" } }, "sha512-5BkI9KGoqrNvBGUe15/QlZq3OooZ8WLg1AxTpaqHRCP3HNpzPPZKE2EDz8M7c+VRmCeUw1Brp4cx/PWm3kI/5A=="],
+
+    "monaco-vim": ["monaco-vim@0.4.4", "", { "peerDependencies": { "monaco-editor": "*" } }, "sha512-LNChAb//WEm/W+eyeHG/0+pdVEHotk2hLTN+M3sQZx5E8cAlSWSgqcxpcRuQnxDybSln7pfHF9i63HmbIQvrWw=="],
 
     "mrmime": ["mrmime@2.0.1", "", {}, "sha512-Y3wQdFg2Va6etvQ5I82yUhGdsKrcYox6p7FfL1LbK2J4V01F9TGlepTIhnK24t7koZibmg82KGglhA1XK5IsLQ=="],
 

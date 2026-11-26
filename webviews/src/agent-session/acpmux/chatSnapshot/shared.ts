@@ -17,6 +17,10 @@ export const SNAPSHOT_GLOBAL = "__cmuxChatSnapshot";
 /// The global the host's `__snapshot/chat.js` sets: the key of the theme the page gets now (the
 /// host's `theme` event `key`, AgentPageEvent.swift).
 export const SNAPSHOT_THEME_GLOBAL = "__cmuxChatSnapshotTheme";
+/** The pane theme values the host gives the page now (AgentPaneChatSnapshots.swift `agentThemeGlobal`):
+ * a copy drawn under another theme takes their `--agent-*` colors, which the page itself sets only after
+ * its handshake. */
+export const SNAPSHOT_AGENT_THEME_GLOBAL = "__cmuxChatSnapshotAgentTheme";
 /// The global the boot script sets when it drew nothing: why (live.ts `chatSnapshotReport`).
 export const SNAPSHOT_MISS_GLOBAL = "__cmuxChatSnapshotMiss";
 /// The global the boot script sets once it drew one: when, in `performance.now()` time.
@@ -38,7 +42,10 @@ export const SNAPSHOT_HTML_TAG = "cmux-snapshot-html";
 export const SNAPSHOT_BODY_TAG = "cmux-snapshot-body";
 /// `:root` in the copy's rules (a class, as `:root` is a pseudo-class: the same specificity).
 export const SNAPSHOT_ROOT_CLASS = "cmux-snapshot-root";
-/// An element of the copy that was scrolled: `top,left` in CSS pixels.
+/// An element of the copy that was scrolled: `top,left` in CSS pixels, and `,end` when it was scrolled to
+/// its end (the transcript at its latest row, `0,0,end` when it fit its window), which the copy keeps at
+/// its end in a window of another height (``SNAPSHOT_HEIGHT_SLACK``), as the live page keeps its latest
+/// row there.
 export const SNAPSHOT_SCROLL_ATTRIBUTE = "data-cmux-snapshot-scroll";
 /// A shadow root's adopted sheets, by index in the snapshot's `sheets`.
 export const SNAPSHOT_SHEETS_ATTRIBUTE = "data-cmux-snapshot-sheets";
@@ -79,6 +86,10 @@ export type ChatSnapshot = {
   theme: string;
   /// When it was written (`Date.now()`).
   savedAt: number;
+  /// The composer's prompt then, as text (restoredDraft.ts): the markup shows it, and the live
+  /// composer holds it from its first frame so it stands where the copy drew it. Absent when empty.
+  /// A write with no copy (`miss`) carries it too: the host keeps and serves it alone.
+  draft?: string;
 };
 
 /// Whether `value` is a snapshot this version draws.
@@ -118,10 +129,52 @@ export function attributesOf(element: Element): SnapshotAttributes {
 /// Rows are placed for the width, so the width must match.
 export const SNAPSHOT_HEIGHT_SLACK = 64;
 
+/// The appearance (`color-scheme`, `dark` or `light`) a style attribute's text sets, "" for none.
+function schemeOf(doc: Document, style: string | undefined): string {
+  if (!style) return "";
+  const probe = doc.createElement("div");
+  probe.setAttribute("style", style);
+  return probe.style.colorScheme.trim();
+}
+
+/// Whether `snapshot` was drawn in the appearance (dark or light) the host gave this document before
+/// page code ran (WebTheme's document-start apply sets `color-scheme` on `<html>`): a copy of another
+/// theme of the same appearance draws in this one's colors (paint.ts layers the host's variables over
+/// the copy's), as the pane's saved picture is drawn whenever its appearance matches.
+export function sameAppearance(snapshot: ChatSnapshot, doc: Document): boolean {
+  const now = doc.documentElement.style.colorScheme.trim();
+  return now !== "" && now === schemeOf(doc, snapshot.root.style);
+}
+
+/// Whether `snapshot` was written in the theme the page gets now but at another size: the copy then
+/// draws the pane's chrome only (``SNAPSHOT_CHROME_ONLY_ATTRIBUTE``). The chrome is the page's own markup
+/// under its own rules, so it lays out at the new size as the live page will: the composer, its hat
+/// (the running tray, held messages, questions), its context ring and its mode, model and effort pills
+/// sit where the live composer will draw them. Only the transcript's rows, absolutely placed for the
+/// width they were written at, are left out. A restart that brought the window or the sidebar back a
+/// few points off drew no copy at all before, and the composer came up bare, then grew its chrome
+/// (Leo, 2026-11-22: "agent chat skeleton for composer area not good enough. doesnt include hat,
+/// context, permissions, etc still. nor cached view of those things").
+export function fitsChromeOnly(snapshot: ChatSnapshot, doc: Document): boolean {
+  const view = doc.defaultView;
+  if (!view || fitsDocument(snapshot, doc)) return false;
+  return (view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] === snapshot.theme;
+}
+
+/// Set on the copy's `<body>` stand-in when it draws the chrome only (``fitsChromeOnly``).
+export const SNAPSHOT_CHROME_ONLY_ATTRIBUTE = "data-cmux-snapshot-chrome-only";
+/// The rule a chrome-only copy adds: the transcript's rows, placed for another width, draw nothing; the
+/// transcript's own box, the header and the bottom stack draw as written.
+export const CHROME_ONLY_RULE = `[${SNAPSHOT_CHROME_ONLY_ATTRIBUTE}] .acpmux-row{visibility:hidden!important}`;
+
 /// Whether `snapshot` was drawn for the document as it is now: the same width and a height within
 /// ``SNAPSHOT_HEIGHT_SLACK``, and the theme the host gives the page now (its key, which the host's
-/// `__snapshot/chat.js` set). Colors, fonts and the look all come with the theme; rows laid out for
-/// another width would draw at the wrong places.
+/// `__snapshot/chat.js` set) or another theme of the same appearance. The key digests every value of
+/// the theme, so nearly every update changes it (a token added or tuned): a copy was refused on the
+/// first launch after an update, and a chat with no saved picture (a see-through page) showed its
+/// loading state until the bundle ran (Leo, 2026-11-14: "terminal is instantly shown, then browser,
+/// and then the agent chat after a bit"). Rows laid out for another width would draw at the wrong
+/// places.
 export function fitsDocument(snapshot: ChatSnapshot, doc: Document): boolean {
   return misfit(snapshot, doc) === undefined;
 }
@@ -136,6 +189,10 @@ export function misfit(snapshot: ChatSnapshot, doc: Document): string | undefine
   const heightFits = Math.abs(view.innerHeight - snapshot.height) <= SNAPSHOT_HEIGHT_SLACK;
   // l10n-allow: a diagnostic code for the page's debug record (layoutWatch.ts), never shown in the pane.
   if (!widthFits || !heightFits) return `size ${size}, drawn at ${drawn}`;
-  if ((view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] !== snapshot.theme) return "theme";
+  if (
+    (view as unknown as Record<string, unknown>)[SNAPSHOT_THEME_GLOBAL] !== snapshot.theme &&
+    !sameAppearance(snapshot, doc)
+  )
+    return "theme";
   return undefined;
 }

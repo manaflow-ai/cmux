@@ -9,6 +9,7 @@ import path from "node:path";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { MOTION_EASE_OUT } from "../src/motion/scale.generated";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import {
   cssTimeMs,
@@ -17,6 +18,7 @@ import {
   FOLD_RESTART_MAX_MS,
   foldMotion,
 } from "../src/agent-session/acpmux/conversation/fold";
+import { exitLeadMs } from "../src/agent-session/acpmux/conversation/exitLead";
 import { FOLD_SETTLE_MS } from "../src/agent-session/acpmux/conversation/foldAnchor";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
 import { McpCallRows } from "../src/agent-session/acpmux/conversation/McpCallRows";
@@ -99,7 +101,7 @@ beforeEach(() => {
   reduce = false;
   animations = [];
   foldMotion.duration = () => token;
-  foldMotion.easing = () => "cubic-bezier(0, 0, 0.58, 1)";
+  foldMotion.easing = () => MOTION_EASE_OUT;
   foldMotion.reducedMotion = () => reduce;
   resetTranscriptDisclosure();
   container = dom.window.document.getElementById("root")!;
@@ -120,15 +122,16 @@ afterEach(async () => {
   saved.clear();
 });
 
+// A fetch, not a read: since the 2026-11-14 change a read row is static and does not open.
 const tool = (id: string, extra: Record<string, unknown> = {}): AcpmuxActivity => ({
   kind: "tool",
   text: "",
-  tool: { id, title: `Read src/${id}.ts`, kind: "read", status: "completed", output: `contents of ${id}`, ...extra },
+  tool: { id, title: `Fetch ${id}`, kind: "fetch", status: "completed", output: `contents of ${id}`, ...extra },
 });
 
 /// Each collapsible, closed, and the body its toggle opens.
 const collapsibles: Array<{ name: string; node: () => ReactNode; body: string }> = [
-  { name: "a tool row", node: () => <ToolRow item={tool("read")} />, body: ".cv-tool-output-card" },
+  { name: "a tool row", node: () => <ToolRow item={tool("fetch")} />, body: ".cv-tool-output-card" },
   {
     name: "a command row",
     node: () => <CommandRow item={tool("cmd", { kind: "execute", command: "bun test", title: "bun test" })} />,
@@ -274,7 +277,7 @@ for (const { name, node, body } of collapsibles) {
     expect(animations.length).toBe(1);
     const [opening] = animations;
     expect(opening!.options.duration).toBe(token);
-    expect(opening!.options.easing).toBe("cubic-bezier(0, 0, 0.58, 1)");
+    expect(opening!.options.easing).toBe(MOTION_EASE_OUT);
     expect(opening!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
     expect(opening!.keyframes.at(-1)!.opacity).toBe(1);
     // The chevron turns as it opens.
@@ -283,8 +286,21 @@ for (const { name, node, body } of collapsibles) {
     click();
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
     expect(animations.length).toBe(2);
-    expect(animations[1]!.options.duration).toBe(token);
-    expect(animations[1]!.keyframes.at(-1)).toEqual({ height: "0px", opacity: 0 });
+    // Exit before move (exitLead.ts, design/chat-fold-motion.md): the text is gone over the lead while
+    // the height holds, then the height shuts on the fold's token. Leo, 2026-11-21: "we must hide text
+    // faster and sooner".
+    const closing = animations[1]!;
+    const lead = exitLeadMs(token);
+    expect(lead).toBeGreaterThan(0);
+    expect(closing.options.duration).toBe(lead + token);
+    expect(closing.options.easing).toBe("linear");
+    const [shown, faded, shut] = closing.keyframes;
+    expect(shown!.opacity).toBe(1);
+    expect(faded!.opacity).toBe(0);
+    expect(faded!.offset).toBeCloseTo(lead / (lead + token), 6);
+    expect(faded!.height).toBe(shown!.height);
+    expect(faded!.easing).toBe(MOTION_EASE_OUT);
+    expect(shut).toEqual({ height: "0px", opacity: 0 });
     // Drawn while it slides away, then gone.
     expect(container.querySelector(body)).not.toBeNull();
     animations[1]!.finish();
@@ -429,7 +445,7 @@ test("a move token that becomes zero settles the active fold even when fade moti
   click();
   expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
   const box = container.querySelector<HTMLElement>(".cv-fold")!;
-  document.documentElement.style.setProperty("--agent-motion-in", "80ms");
+  document.documentElement.style.setProperty("--agent-motion-in", "80ms"); // motion-allow: a fixture token, not the scale
   token = 0;
   document.documentElement.style.setProperty("--agent-motion-move", "0ms");
   await act(async () => {
@@ -480,7 +496,7 @@ test("the fold token is the settle (one curve for every web fold), and the chevr
   );
   // The fold reads the token as the page resolves it.
   expect(cssTimeMs("190ms")).toBe(190);
-  expect(cssTimeMs(" 0.18s")).toBe(180);
+  expect(cssTimeMs(" 0.18s")).toBe(180); // motion-allow: parser input
   expect(cssTimeMs("0ms")).toBe(0);
   expect(cssTimeMs("")).toBeUndefined();
 });

@@ -3,8 +3,10 @@
 import CmuxMobileAgentChat
 import CmuxMobileChief
 import CmuxMobileDesign
+import CmuxMobileLive
 import CmuxMobileModel
 import CmuxMobileTerminal
+import CmuxMobileTransport
 import CmuxMobileWorkspaces
 import Darwin
 import OSLog
@@ -44,6 +46,8 @@ final class ListStressRig: NSObject {
         guard let screen = settings.screen else { return }
         let rig = ListStressRig(settings: settings, shell: shell)
         running = rig
+        // The energy bench reads the bytes the app receives from these log lines.
+        ReceivedByteCount.shared.startLogging()
         if settings.wraps {
             // For this launch only (the argument domain), as Settings → Wrap code would.
             // Merged into the launch arguments (replacing the domain dropped `-cmuxMobile.setupComplete`).
@@ -65,6 +69,8 @@ final class ListStressRig: NSObject {
                 scroll.contentOffset.y = top + (bottom - top) * CGFloat(min(max(fraction, 0), 1))
             }
             rig.log.notice("FRAMELOG list-stress holding \(screen, privacy: .public)")
+            // The capture suites shoot the held screen on this mark, not after a fixed pause.
+            LaunchMarks.shared.markWhenStill("list_hold")
             if settings.pullTrace, let scroll = rig.findScrollView(horizontal: false) { rig.tracePull(scroll) }
             return
         }
@@ -90,6 +96,11 @@ final class ListStressRig: NSObject {
             store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
             store.requestOpen(tabID: "t-g0", in: ws.id)
             shell.tab = .workspaces
+            if settings.macCards {
+                let seeded = ws.tabs, macID = ws.macID
+                let drops = settings.macCardsDrop
+                Task { await ListStressMacCards.seed(tabs: seeded, macID: macID, drops: drops) }
+            }
             try? await Task.sleep(for: .seconds(1))
             // Opening the workspace from the list (the push and its first page).
             FrameIntervalLog.shared.begin("tabs-push")
@@ -112,6 +123,16 @@ final class ListStressRig: NSObject {
             await openTerminals()
         case "chat", "diff", "artifacts":
             guard let ws = store.workspace(id: "ws-cmux") else { return }
+            if screen == "chat", let path = settings.events {
+                // A heavy coordinator's records (coord-sim) instead of the mock agent's replayed turns.
+                let url = URL(fileURLWithPath: path)
+                let history = settings.eventsHistory
+                let mock = AgentSessionDirectory.shared.makeSource
+                AgentSessionDirectory.shared.makeSource = { summary in
+                    summary.id == "t-codex-stress"
+                        ? CoordSimReplaySource(summary: summary, url: url, history: history) : mock(summary)
+                }
+            }
             store.requestOpen(tabID: "t-codex-stress", in: ws.id)
             var opened = ws
             // Codex: no waiting question on open, so the transcript is the replayed history.
@@ -162,7 +183,8 @@ final class ListStressRig: NSObject {
                 }
                 try? await Task.sleep(for: .seconds(1))
                 // As a reader does: leave the newest turn (the transcript stops following it).
-                DemoDirector.shared.post(.chatScroll(toTop: true))
+                // `LIST_LEAVE_NEWEST=0` stays on it (a running chat watched).
+                if settings.leavesNewest { DemoDirector.shared.post(.chatScroll(toTop: true)) }
             }
         case "feed":
             // The Feed's own seeding (`CMUX_MOBILE_FEED_STRESS=N`); this rig only scrolls, as a reference.
@@ -198,14 +220,25 @@ final class ListStressRig: NSObject {
         for tab in terminals {
             WorkspaceDemoDirector.shared.post(.activate(tab.id))
             try? await Task.sleep(for: .seconds(2))
-            guard settings.streams, let model = shell.terminalTabs.model(forTabID: tab.id) else { continue }
-            model.session.send(Data("\u{3}stream 1000000 20\r".utf8))
-            streaming += 1
+            guard let model = shell.terminalTabs.model(forTabID: tab.id) else { continue }
+            if settings.streams {
+                model.session.send(Data("\u{3}stream 1000000 20\r".utf8))
+                streaming += 1
+            } else if settings.terminalVisible {
+                // Idle: Ctrl-C ends the mock shell's intro, leaving it at its prompt.
+                model.session.send(Data("\u{3}".utf8))
+            }
         }
-        shell.workspacesPath = []
+        if settings.terminalVisible, let first = terminals.first {
+            // `LIST_TERMINAL_VISIBLE=1`: the first terminal stays on screen, the rest hidden.
+            WorkspaceDemoDirector.shared.post(.activate(first.id))
+        } else {
+            shell.workspacesPath = []
+        }
         try? await Task.sleep(for: .seconds(1))
         let warm = terminals.filter { shell.terminalTabs.model(forTabID: $0.id) != nil }.count
-        log.notice("FRAMELOG list-stress terminals hidden=\(terminals.count, privacy: .public) warm=\(warm, privacy: .public) streaming=\(streaming, privacy: .public)")
+        let hidden = settings.terminalVisible ? terminals.count - 1 : terminals.count
+        log.notice("FRAMELOG list-stress terminals hidden=\(hidden, privacy: .public) visible=\(terminals.count - hidden, privacy: .public) warm=\(warm, privacy: .public) streaming=\(streaming, privacy: .public)")
     }
 
     /// `count` workspaces cycled from the mock ones: a quarter working (the shimmer),
@@ -222,7 +255,7 @@ final class ListStressRig: NSObject {
                              url: tab.url, agentStatus: tab.kind == .agent ? (working ? .working : (needsYou ? .waiting : nil)) : nil)
             }
             return Workspace(
-                id: "ws-s\(index)", macID: index % 5 == 4 ? "mbp" : "mac-studio", title: "\(template.title) \(index)",
+                id: "\(ListStressSettings.seededWorkspacePrefix)\(index)", macID: index % 5 == 4 ? "mbp" : "mac-studio", title: "\(template.title) \(index)",
                 directory: template.directory, branch: template.branch, tabs: tabs,
                 lastActivityAt: now.addingTimeInterval(-Double(index) * 600), needsAttention: needsYou, isWorking: working,
                 hasUnread: index % 3 == 0, colorHex: template.colorHex, icon: template.icon

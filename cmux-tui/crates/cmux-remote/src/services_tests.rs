@@ -25,6 +25,13 @@ pub(super) struct TestEndpoint {
     generation: watch::Sender<u64>,
 }
 
+impl TestEndpoint {
+    /// Moves this side's session to `generation`, as a resume does.
+    pub(super) fn set_generation(&self, generation: u64) {
+        let _ = self.generation.send(generation);
+    }
+}
+
 #[async_trait]
 impl SessionEndpoint for TestEndpoint {
     async fn send_frame(
@@ -670,8 +677,9 @@ async fn blocked_process_input_does_not_delay_process_signal() {
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ =
-                                services.serve_stream(scope, request_slots, None, incoming).await;
+                            let _ = services
+                                .serve_stream(scope, request_slots, None, None, incoming)
+                                .await;
                         });
                     }
                 }
@@ -813,8 +821,9 @@ async fn dropped_wait_requests_release_control_admission() {
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ =
-                                services.serve_stream(scope, request_slots, None, incoming).await;
+                            let _ = services
+                                .serve_stream(scope, request_slots, None, None, incoming)
+                                .await;
                         });
                     }
                 }
@@ -937,8 +946,9 @@ async fn predeclared_process_stream_never_silently_loses_immediate_large_output(
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ =
-                                services.serve_stream(scope, request_slots, None, incoming).await;
+                            let _ = services
+                                .serve_stream(scope, request_slots, None, None, incoming)
+                                .await;
                         });
                     }
                 }
@@ -1020,6 +1030,285 @@ async fn predeclared_process_stream_never_silently_loses_immediate_large_output(
         .await;
 }
 
+/// A reserved process stream is its owner's own output: a reader slower than
+/// the child must get every byte (the child waits), never a replay gap. Before
+/// the stream held its output, ~1 MiB of small writes outran the 512-event
+/// history and a slow reader got a replay gap after about a thousand lines
+/// (`cmux remote exec -- <10000 echo lines> | wc -l` printed 1232).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reserved_process_stream_delivers_every_byte_to_a_slow_reader() {
+    const LINES: usize = 20_000;
+    const PAD: &str = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+
+    let directory = tempdir().unwrap();
+    let workspace = WorkspaceService::new();
+    let scope = ClientScope::new("slow-reader", cmux_remote_protocol::SessionId([16; 16]));
+    let opened = workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0002),
+                timeout_ms: None,
+                request: WorkspaceRequest::OpenWorkspace {
+                    root: directory.path().to_string_lossy().into_owned(),
+                },
+            },
+        )
+        .await
+        .result
+        .unwrap();
+    let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+        panic!("open-workspace returned the wrong response")
+    };
+    let process = ProcessId::from_u128(0x8000_0000_0040_0001);
+    let mut subscription =
+        workspace.subscribe_or_reserve_process(&scope, process, 0, true).await.unwrap();
+    let spawn = WorkspaceRequest::SpawnProcessWithHandle {
+        process,
+        workspace: workspace_id,
+        // One small write per line (a shell builtin), ~1 MiB in all: the
+        // daemon reads it as thousands of small events.
+        argv: vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            format!(
+                "i=0; while [ $i -lt {LINES} ]; do printf 'line%06d {PAD}\\n' $i; i=$((i+1)); done"
+            ),
+        ],
+        cwd: None,
+        env: BTreeMap::new(),
+        io: ProcessIo::Pipes { stdin: false },
+        lifetime: ProcessLifetime::Workspace,
+        operation: None,
+        timeout_ms: None,
+        retained_output_bytes: None,
+        environment: ProcessEnvironment::Inherit,
+        output_drain_idle_timeout_ms: None,
+        output_drain_total_timeout_ms: None,
+    };
+    workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0001),
+                timeout_ms: None,
+                request: spawn,
+            },
+        )
+        .await
+        .result
+        .unwrap();
+
+    let mut output = Vec::new();
+    let mut events = 0usize;
+    let exit = loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(60), subscription.recv())
+            .await
+            .expect("slow-reader process stream stalled")
+            .unwrap_or_else(|error| panic!("after {} bytes: {error}", output.len()));
+        // Read slower than the child writes for the first events.
+        events += 1;
+        if events < 1_500 {
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+        match event.event {
+            ProcessEvent::Stdout { data, .. } => output.extend(data.decode().unwrap()),
+            ProcessEvent::Stderr { data, .. } => {
+                panic!("unexpected stderr: {:?}", String::from_utf8_lossy(&data.decode().unwrap()))
+            }
+            ProcessEvent::OutputTruncated { reason, .. } => {
+                panic!("output truncated after {} bytes: {reason:?}", output.len())
+            }
+            ProcessEvent::ReplayGap { requested_after, range, .. } => {
+                panic!("replay gap after {} bytes ({requested_after}, {range:?})", output.len())
+            }
+            ProcessEvent::Exit { code, .. } => break code,
+        }
+    };
+    let expected: String = (0..LINES).map(|i| format!("line{i:06} {PAD}\n")).collect();
+    assert_eq!(output.len(), expected.len(), "received bytes");
+    assert!(output == expected.as_bytes(), "output differs from what the child wrote");
+    assert_eq!(exit, Some(0));
+}
+
+/// P1-F1 (review of #43048): stdout and stderr have a reader each. A read on
+/// one pipe may wait for data while the other fills the log; its chunk must
+/// get room before it is published, or it publishes past the byte limit and
+/// evicts output the held reader has not taken.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn reserved_process_stream_keeps_mixed_stdout_and_stderr_for_a_slow_reader() {
+    const STDOUT: usize = 24 * 1024 * 1024;
+    const STDERR: usize = 4 * 1024 * 1024;
+
+    let directory = tempdir().unwrap();
+    let workspace = WorkspaceService::new();
+    let scope = ClientScope::new("mixed-reader", cmux_remote_protocol::SessionId([17; 16]));
+    let opened = workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0011),
+                timeout_ms: None,
+                request: WorkspaceRequest::OpenWorkspace {
+                    root: directory.path().to_string_lossy().into_owned(),
+                },
+            },
+        )
+        .await
+        .result
+        .unwrap();
+    let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+        panic!("open-workspace returned the wrong response")
+    };
+    let process = ProcessId::from_u128(0x8000_0000_0040_0011);
+    let mut subscription =
+        workspace.subscribe_or_reserve_process(&scope, process, 0, true).await.unwrap();
+    let spawn = WorkspaceRequest::SpawnProcessWithHandle {
+        process,
+        workspace: workspace_id,
+        // The stderr reader is admitted at once and then waits in read()
+        // while stdout fills the log; its first chunk lands on a full log.
+        argv: vec![
+            "/bin/sh".into(),
+            "-c".into(),
+            format!("(sleep 1; head -c {STDERR} /dev/zero >&2) & head -c {STDOUT} /dev/zero; wait"),
+        ],
+        cwd: None,
+        env: BTreeMap::new(),
+        io: ProcessIo::Pipes { stdin: false },
+        lifetime: ProcessLifetime::Workspace,
+        operation: None,
+        timeout_ms: None,
+        retained_output_bytes: None,
+        environment: ProcessEnvironment::Inherit,
+        output_drain_idle_timeout_ms: None,
+        output_drain_total_timeout_ms: None,
+    };
+    workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0012),
+                timeout_ms: None,
+                request: spawn,
+            },
+        )
+        .await
+        .result
+        .unwrap();
+
+    let (mut stdout, mut stderr) = (0usize, 0usize);
+    let exit = loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(120), subscription.recv())
+            .await
+            .expect("mixed process stream stalled")
+            .unwrap_or_else(|error| panic!("after {stdout}+{stderr} bytes: {error}"));
+        // Slower than the child, so the log is full when stderr writes.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        match event.event {
+            ProcessEvent::Stdout { data, .. } => stdout += data.decode().unwrap().len(),
+            ProcessEvent::Stderr { data, .. } => stderr += data.decode().unwrap().len(),
+            ProcessEvent::OutputTruncated { reason, .. } => {
+                panic!("output truncated after {stdout}+{stderr} bytes: {reason:?}")
+            }
+            ProcessEvent::ReplayGap { requested_after, range, .. } => {
+                panic!("replay gap after {stdout}+{stderr} bytes ({requested_after}, {range:?})")
+            }
+            ProcessEvent::Exit { code, .. } => break code,
+        }
+    };
+    assert_eq!((stdout, stderr), (STDOUT, STDERR));
+    assert_eq!(exit, Some(0));
+}
+
+/// P1-F1 (second review of #43048): with a small retention budget, room for
+/// one output event is all there is. A quiet stdout reader that took that
+/// room before its pipe had data left none for stderr, so a child writing
+/// more than a pipe's capacity to stderr alone blocked forever, though the
+/// client read every event at once. Room is taken only for output in hand.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reserved_process_stream_with_a_small_budget_drains_stderr_only_output() {
+    const STDERR: usize = 1024 * 1024;
+
+    let directory = tempdir().unwrap();
+    let workspace = WorkspaceService::new();
+    let scope = ClientScope::new("stderr-only", cmux_remote_protocol::SessionId([18; 16]));
+    let opened = workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0021),
+                timeout_ms: None,
+                request: WorkspaceRequest::OpenWorkspace {
+                    root: directory.path().to_string_lossy().into_owned(),
+                },
+            },
+        )
+        .await
+        .result
+        .unwrap();
+    let WorkspaceResponse::Workspace { id: workspace_id, .. } = opened else {
+        panic!("open-workspace returned the wrong response")
+    };
+    let process = ProcessId::from_u128(0x8000_0000_0040_0021);
+    let mut subscription =
+        workspace.subscribe_or_reserve_process(&scope, process, 0, true).await.unwrap();
+    let spawn = WorkspaceRequest::SpawnProcessWithHandle {
+        process,
+        workspace: workspace_id,
+        // Stdout stays open and silent until the child exits.
+        argv: vec!["/bin/sh".into(), "-c".into(), format!("head -c {STDERR} /dev/zero >&2")],
+        cwd: None,
+        env: BTreeMap::new(),
+        io: ProcessIo::Pipes { stdin: false },
+        lifetime: ProcessLifetime::Workspace,
+        operation: None,
+        timeout_ms: None,
+        retained_output_bytes: Some(64 * 1024),
+        environment: ProcessEnvironment::Inherit,
+        output_drain_idle_timeout_ms: None,
+        output_drain_total_timeout_ms: None,
+    };
+    workspace
+        .handle_rpc_for(
+            scope.clone(),
+            RpcRequest {
+                id: cmux_remote_protocol::RequestId::from_u128(0x4000_0000_0000_0022),
+                timeout_ms: None,
+                request: spawn,
+            },
+        )
+        .await
+        .result
+        .unwrap();
+
+    let mut stderr = 0usize;
+    let exit = loop {
+        let event = tokio::time::timeout(std::time::Duration::from_secs(30), subscription.recv())
+            .await
+            .unwrap_or_else(|_| panic!("stderr-only process stream stalled after {stderr} bytes"))
+            .unwrap_or_else(|error| panic!("after {stderr} bytes: {error}"));
+        match event.event {
+            ProcessEvent::Stdout { data, .. } => {
+                panic!("unexpected stdout: {} bytes", data.decode().unwrap().len())
+            }
+            ProcessEvent::Stderr { data, .. } => stderr += data.decode().unwrap().len(),
+            ProcessEvent::OutputTruncated { reason, .. } => {
+                panic!("output truncated after {stderr} bytes: {reason:?}")
+            }
+            ProcessEvent::ReplayGap { requested_after, range, .. } => {
+                panic!("replay gap after {stderr} bytes ({requested_after}, {range:?})")
+            }
+            ProcessEvent::Exit { code, .. } => break code,
+        }
+    };
+    assert_eq!(stderr, STDERR);
+    assert_eq!(exit, Some(0));
+}
+
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn reconnect_process_stream_reports_a_structured_replay_gap() {
@@ -1045,8 +1334,9 @@ async fn reconnect_process_stream_reports_a_structured_replay_gap() {
                         let scope = scope.clone();
                         let request_slots = request_slots.clone();
                         tokio::task::spawn_local(async move {
-                            let _ =
-                                services.serve_stream(scope, request_slots, None, incoming).await;
+                            let _ = services
+                                .serve_stream(scope, request_slots, None, None, incoming)
+                                .await;
                         });
                     }
                 }
@@ -1311,6 +1601,7 @@ async fn mux_control_delivers_a_large_snapshot_before_the_output_after_it() {
         None,
         incoming.stream,
         MuxUploadBudget::new(),
+        false,
     ));
 
     let read = async {
@@ -1340,4 +1631,136 @@ async fn mux_control_delivers_a_large_snapshot_before_the_output_after_it() {
     fake.abort();
     client_mux.shutdown().await;
     daemon_mux.shutdown().await;
+}
+
+/// Serve one mux-control stream whose session daemon writes `line` once, opened
+/// with `metadata`; returns the client's stream and the serving tasks.
+#[cfg(unix)]
+async fn mux_control_writing(
+    directory: &Path,
+    line: Vec<u8>,
+    metadata: BTreeMap<String, String>,
+) -> (Arc<ServiceMultiplexer>, ServiceStream, Vec<tokio::task::JoinHandle<()>>) {
+    let path = directory.join("mux.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let fake = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        socket.write_all(&line).await.unwrap();
+        std::future::pending::<()>().await;
+    });
+    let (client_endpoint, daemon_endpoint) = endpoint_pair();
+    let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+    let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+    let stream = client_mux.open(Service::MuxControl, metadata).await.unwrap();
+    let incoming = daemon_mux.accept().await.unwrap().unwrap();
+    let line_zlib = mux_line_zlib_requested(&incoming.metadata);
+    let serve = tokio::spawn(async move {
+        let _ = DaemonServices::serve_mux_control_with_budget(
+            Some(path),
+            None,
+            incoming.stream,
+            MuxUploadBudget::new(),
+            line_zlib,
+        )
+        .await;
+        drop(daemon_mux);
+    });
+    (client_mux, stream, vec![fake, serve])
+}
+
+/// The `opened` features and the magic of every line packet the client reads
+/// until the line is whole.
+#[cfg(unix)]
+async fn opened_features_and_packets(stream: &ServiceStream) -> (Vec<String>, Vec<Bytes>) {
+    let mut features = Vec::new();
+    let mut packets = Vec::new();
+    let mut assembler = crate::mux_codec::MuxLineAssembler::<()>::default().accepting_zlib(true);
+    loop {
+        let chunk = stream.receive().await.unwrap().expect("stream ended early");
+        if chunk.payload.is_empty() {
+            continue;
+        }
+        if let Ok(answer) = serde_json::from_slice::<serde_json::Value>(&chunk.payload)
+            && answer["type"] == "opened"
+        {
+            features = serde_json::from_value(answer["features"].clone()).unwrap();
+            continue;
+        }
+        packets.push(chunk.payload.clone());
+        if assembler.push_retaining(chunk.lane, chunk.payload, ()).unwrap().is_some() {
+            return (features, packets);
+        }
+    }
+}
+
+#[tokio::test]
+#[cfg(unix)]
+async fn mux_control_compresses_large_lines_only_for_a_client_that_asks() {
+    let line = crate::mux_codec::tests::chat_attach_line();
+    for (metadata, compressed) in
+        [(BTreeMap::new(), false), (crate::bridge::mux_control_open_metadata(), true)]
+    {
+        let directory = tempdir().unwrap();
+        let (client_mux, stream, tasks) =
+            mux_control_writing(directory.path(), line.clone(), metadata).await;
+        let (features, packets) =
+            acpmux_bridge::tests::within(opened_features_and_packets(&stream)).await;
+        assert_eq!(
+            features.iter().any(|feature| feature == MUX_LINE_ZLIB_V1_FEATURE),
+            compressed,
+            "{features:?}"
+        );
+        let magic: &[u8] = if compressed { b"CMXZ" } else { b"CMXL" };
+        assert!(packets.iter().all(|packet| packet.starts_with(magic)));
+        let wire: usize = packets.iter().map(Bytes::len).sum();
+        assert_eq!(wire * 3 < line.len(), compressed, "{} bytes went to {wire}", line.len());
+        tasks.iter().for_each(tokio::task::JoinHandle::abort);
+        client_mux.shutdown().await;
+    }
+}
+
+/// The whole client path: a bridge that asks for zlib hands the app's socket
+/// the daemon's exact line.
+#[tokio::test]
+#[cfg(unix)]
+async fn the_mux_bridge_inflates_a_compressed_line_to_the_daemons_bytes() {
+    let line = crate::mux_codec::tests::chat_attach_line();
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("mux.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let written = line.clone();
+    let fake = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        socket.write_all(&written).await.unwrap();
+        std::future::pending::<()>().await;
+    });
+    let (client_endpoint, daemon_endpoint) = endpoint_pair();
+    let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+    let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+    let serve = tokio::spawn(async move {
+        let incoming = daemon_mux.accept().await.unwrap().unwrap();
+        let line_zlib = mux_line_zlib_requested(&incoming.metadata);
+        assert!(line_zlib);
+        let _ = DaemonServices::serve_mux_control_with_budget(
+            Some(path),
+            None,
+            incoming.stream,
+            MuxUploadBudget::new(),
+            line_zlib,
+        )
+        .await;
+    });
+    let opened = crate::bridge::OpenedMuxControl::open(&client_mux).await.unwrap();
+    let (app, bridge_side) = tokio::io::duplex(1 << 20);
+    let (bridge_reader, bridge_writer) = tokio::io::split(bridge_side);
+    let bridge = tokio::spawn(opened.bridge(bridge_reader, bridge_writer));
+    let mut app = BufReader::new(app);
+    let mut received = Vec::new();
+    acpmux_bridge::tests::within(app.read_until(b'\n', &mut received)).await.unwrap();
+    assert_eq!(received, line);
+    for task in [fake, serve] {
+        task.abort();
+    }
+    bridge.abort();
+    client_mux.shutdown().await;
 }

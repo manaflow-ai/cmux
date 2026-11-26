@@ -309,6 +309,7 @@ private struct TeamStep: View {
                             SkeletonList(rows: 2, leadingSquare: theme.metrics.teamAvatar, delay: .zero)
                                 .transition(.opacity)
                                 .accessibilityIdentifier("setup.teams.loading")
+                                .placeholderBound("onboarding.teams.skeleton", .milliseconds(2000))
                         case .failed:
                             failedRow
                                 .transition(.opacity)
@@ -316,13 +317,12 @@ private struct TeamStep: View {
                         case .loaded:
                             VStack(spacing: 0) {
                                 ForEach(teams) { team in
-                                    let presence = team.macDots()
+                                    let computer = ComputerDots.team(team)
                                     row(action: { pick(team) }) {
                                         SidebarTeamRow(
                                             name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji,
                                             transparent: team.appearance.isTransparent,
-                                            dots: presence.dots, overflow: presence.overflow,
-                                            onlineCount: team.listedMacs.filter(\.isOnline).count, isSelected: false
+                                            computer: computer.map { ($0.name, $0.isUp) }, isSelected: false
                                         )
                                     }
                                 }
@@ -359,7 +359,7 @@ private struct TeamStep: View {
 
     private func row<Label: View>(action: @escaping () -> Void, @ViewBuilder label: () -> Label) -> some View {
         Button(action: action, label: label)
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .padding(.horizontal, theme.metrics.selectedRowInset)
     }
 
@@ -481,8 +481,7 @@ private struct CreateTeamPage: View {
         SetupPage(symbol: "person.2", title: "Create your team") {
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Team name", text: $name)
-                    // Names are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .font(theme.type.body)
                     .cmuxMobileInputField()
@@ -636,11 +635,9 @@ private struct PairMacCTAStyle: ButtonStyle {
             // Grows with Dynamic Type instead of clipping its label.
             .padding(.vertical, 12)
             .frame(minHeight: CmuxMobileCapsuleSize.large.height)
-            .background(theme.colors.neutralAccent.color.opacity(primary ? 1 : 0), in: .capsule)
+            // Held: the pressed wash over the fill; the label never dims or shrinks.
+            .cmuxMobilePressFill(pressed, rest: AnyShapeStyle(theme.colors.neutralAccent.color.opacity(primary ? 1 : 0)), in: Capsule())
             .contentShape(.rect)
-            .opacity(pressed ? 0.85 : 1)
-            .scaleEffect(primary && pressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation.unlessReduceMotion, value: pressed)
     }
 }
 

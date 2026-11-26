@@ -14,6 +14,24 @@ name: cmux-next web bundle publish
 #                                                     (pointer job, from nightly-next)
 # <key> = scripts/cmux-next/web-bundle-key.py . --source. Pushes that change no
 # bundle input do not run this; a key that is already published is skipped.
+#
+# A pull request's web layer (cmuxterm-hq docs/design/experiments-shelf.md): a
+# dispatch on feat-cmux-next with `pr` (and `base`, default the tip) builds the
+# PR's head merged onto base, publishes it under its key as above, and writes
+#   cmux-next-web/pr/<N>/latest.json        the newest layer of PR N (short cache)
+#   cmux-next-web/pr/<N>/<head>-<base>.json the same, for that head on that base
+# naming the key, the head, the base, the web ABI and what live_apply.py says
+# the PR changes (`cmux customize use pr:N` reads it). Same-repo PRs only; no web
+# update pointer moves.
+#
+# A branch or a commit, pushed with no PR (`ref`: a branch name, or a full commit
+# on a branch of this repository), is the same, with its change taken from where
+# it branched off feat-cmux-next, under
+#   cmux-next-web/ref/<slug>/latest.json and .../<head>-<base>.json
+# where <slug> is the ref with `/` as `--` (`cmux customize use branch:NAME`,
+# `sha:SHA`). A fork's code never runs here: a commit that no branch of this
+# repository has is refused, and a fork publishes its own layer
+# (cmux-web-layer-fork.yml, run in the fork).
 on:
   push:
     branches: [feat-cmux-next, nightly-next]
@@ -40,28 +58,64 @@ on:
       - "config/vite-plus/**"
       - "schemas/sync-motion/**"
       - "schemas/agent-pane/**"
+      # The key style table the web lists read (webviews/src/ui/keyStyle.ts).
+      - "schemas/keymap/**"
       # The layout grid the transcript imports (src/agent-session/acpmux/transcriptGrid.ts).
       - "schemas/layout-grid/layout-grid.json"
       - "schemas/type-scale/type-scale.json"
       # The design scale the shared tooltip tokens import (src/ui/tooltipTokens.ts).
       - "schemas/design-scale/design-scale.json"
+      # The motion scale gen-design-scale.mjs reads (web-bundle-key.py INPUTS).
+      - "schemas/motion-scale/motion-scale.json"
       # The theme slots the slot registry imports (src/slots/registry.ts).
       - "schemas/theme/slots.json"
+      # The layout-motion contract the motion judge imports (src/layout/motionContract.ts).
+      - "schemas/layout-motion/contract.json"
+      # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
+      - "schemas/transcript-look/transcript-look.json"
+      # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
+      - "examples/gallery/gallery.json"
+      - "examples/looks/**"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "scripts/cmux-next/web-ota-pointer.py"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
       - "Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
       - ".github/workflows/cmux-next-web-bundle-publish.yml"
+      - "schemas/surface-roles/surface-roles.json"
+      - "schemas/type-scale/scene-type.json"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift"
   workflow_dispatch:
+    inputs:
+      pr:
+        description: "A pull request's web layer: its number (same-repo PRs only)"
+        required: false
+        default: ""
+      ref:
+        description: "A branch's or commit's web layer: a branch name, or a full commit on a branch of this repository (not with pr)"
+        required: false
+        default: ""
+      base:
+        description: "The commit the change is applied onto (default: the feat-cmux-next tip)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  # Keys are content-addressed: the newest push covers the tip, so an older
-  # pending run can be replaced. A started run finishes.
-  group: cmux-next-web-bundle-publish-${{ github.ref }}
+  # A push runs on its own: keys are content-addressed, every R2 write is write-once or a
+  # compare-and-swap, and the pointer step never moves the channel back, so two pushes'
+  # runs may overlap. One group for every push made a merge wait for the run before it
+  # to finish (2026-11-22: d27f910 waited 2.2 min, c89e540 9 min, 787124c 15 min behind a
+  # run whose runner hook stalled), and a merge landing during a run waited two runs. A
+  # dispatched layer keeps one group per PR or ref and base: its newest pending run
+  # replaces an older one. A started run finishes.
+  group: cmux-next-web-bundle-publish-${{ github.ref }}-${{ inputs.pr || inputs.ref || github.sha }}-${{ inputs.base }}
   cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   # The build runs third-party npm code (bun install, Vite), so it holds no
@@ -69,10 +123,14 @@ jobs:
   # publish job below gets the R2 credentials, starts from a clean checkout and
   # runs no bun or node (the cmux-tui artifacts build/publish split).
   build:
-    if: github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next')
+    if: github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next' && !inputs.pr && !inputs.ref)
     name: build the web bundles for this source key
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_8 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
+    permissions:
+      contents: read
+      # A PR layer reads the PR (its head repo and head) in the merge step only.
+      pull-requests: read
     env:
       # The Node value is part of web-bundle-key.py --source. Changing it moves
       # the published identity, so write-once R2 objects cannot hide a toolchain
@@ -81,10 +139,192 @@ jobs:
     outputs:
       key: ${{ steps.key.outputs.key }}
       published: ${{ steps.key.outputs.published }}
+      merged_pr: ${{ steps.merged.outputs.pr }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # A push builds from the source key's inputs alone: a blobless, sparse checkout of the dirs they live in
+      # (about 270 MB of the tree's 1.3 GB), then the next step adds whatever else web-bundle-key.py --inputs
+      # names. The whole tree took 118 s p50 and 234 s p90 (2026-11-23, 740 push runs, 3,037 of this job's
+      # 7,857 runner-min that day). A PR layer applies a diff across any path, so it keeps the full tree, as
+      # does every run with vars.NEXT_WEB_BUNDLE_SPARSE set to 0. The cmux-tui protocol specs are not key inputs,
+      # but webviews' postinstall (gen-strings.mjs) generates TypeScript from acpmux-protocol.json, so bun install
+      # fails without them.
+      - name: Check out the source key's dirs
+        if: ${{ !inputs.pr && !inputs.ref && format('{0}', vars.NEXT_WEB_BUNDLE_SPARSE) != '0' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /*
+            !/*/
+            /webviews/
+            /scripts/
+            /schemas/
+            /web/data/
+            /config/
+            /clients/
+            /examples/
+            /Resources/markdown-viewer/
+            /release-notes/
+            /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
+            /cmux-tui/crates/*/spec/
+      # Every input the key hashes, followed until none is left out (an input outside the dirs above can import
+      # another). source_key skips a file the worktree lacks, so a missing input would publish under a key no app
+      # asks for: a run with one still left out fails here instead.
+      - name: Add the rest of the source key's inputs
+        if: ${{ !inputs.pr && !inputs.ref && format('{0}', vars.NEXT_WEB_BUNDLE_SPARSE) != '0' }}
+        run: |
+          set -euo pipefail
+          # Done when a pass names the inputs the pass before it did (a newly added file can import more) and
+          # every one is in the worktree.
+          before=""
+          for pass in 1 2 3 4 5 6; do
+            mapfile -t inputs < <(python3 scripts/cmux-next/web-bundle-key.py . --inputs 2>/dev/null)
+            # A pathspec as a sparse pattern; an import named without its suffix also takes its suffixed files.
+            printf '%s\n' "${inputs[@]}" | python3 -c 'import sys
+          for line in sys.stdin:
+              p = line.strip().removeprefix(":(glob)")
+              if p:
+                  print("/" + p)
+                  if not any(c in p for c in "*?["):
+                      print("/" + p + ".*")' | git sparse-checkout add --stdin
+            missing="$(git ls-files -t -- "${inputs[@]}" | grep -c '^S ' || true)"
+            now="$(printf '%s\n' "${inputs[@]}")"
+            echo "pass $pass: ${#inputs[@]} inputs, $missing still outside the checkout"
+            [ "$missing" = 0 ] && [ "$now" = "$before" ] && exit 0
+            before="$now"
+          done
+          echo "::error::the sparse checkout still lacks source key inputs; set vars.NEXT_WEB_BUNDLE_SPARSE=0 for the full tree"
+          git ls-files -t -- "${inputs[@]}" | grep '^S ' | head -20
+          exit 1
+      - name: Check out the whole tree
+        if: ${{ inputs.pr || inputs.ref || format('{0}', vars.NEXT_WEB_BUNDLE_SPARSE) == '0' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      # A PR layer merges the PR head onto base, so it needs their history (no blobs): feat-cmux-next's alone,
+      # not checkout's fetch-depth 0 of every branch and tag, which stalled and failed (job 137969522125).
+      - name: Fetch feat-cmux-next's history without blobs
+        if: inputs.pr || inputs.ref
+        run: scripts/ci/fetch_branch_history.sh feat-cmux-next
+
+      # A PR layer: the PR's head merged onto base, built and published like a push.
+      # The build below runs the PR's code with no secret, as it runs a push's.
+      - name: Apply the pull request or ref onto its base
+        if: inputs.pr || inputs.ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ inputs.pr }}
+          REF: ${{ inputs.ref }}
+          BASE: ${{ inputs.base }}
+        run: |
+          set -euo pipefail
+          [[ -z "$PR" || -z "$REF" ]] || { echo "::error::give pr or ref, not both"; exit 1; }
+          [[ -z "$BASE" || "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::base must be a full commit sha"; exit 1; }
+          if [[ -n "$PR" ]]; then
+            [[ "$PR" =~ ^[0-9]+$ ]] || { echo "::error::pr must be a number, got $PR"; exit 1; }
+            if info="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '[.head.repo.full_name, .head.sha, .base.ref, .title, .state] | @tsv')"; then
+              IFS=$'\t' read -r head_repo head base_ref title state <<<"$info"
+              [[ "$head_repo" == "$GITHUB_REPOSITORY" ]] || { echo "::error::#$PR comes from $head_repo; only same-repo PRs get a published layer"; exit 1; }
+              git fetch -q --filter=blob:none origin "+refs/pull/$PR/head:refs/remotes/pr/head"
+              [[ "$(git rev-parse refs/remotes/pr/head)" == "$head" ]] || head="$(git rev-parse refs/remotes/pr/head)"
+            else
+              # The API refused (13 of 18 failed layer runs on 2026-11-22 were "API rate limit
+              # exceeded for installation"). Git alone still answers, with the same fork rule: a
+              # same-repo PR's head is the tip of one of this repository's branches, and a fork
+              # cannot make one. Its base is taken as feat-cmux-next, the only layered base.
+              echo "::warning::the pull request API did not answer for #$PR; reading it from git"
+              git fetch -q --filter=blob:none origin "+refs/pull/$PR/head:refs/remotes/pr/head"
+              head="$(git rev-parse refs/remotes/pr/head)"
+              tips="$(git ls-remote -q origin 'refs/heads/*' | cut -f1)"
+              grep -qx "$head" <<<"$tips" \
+                || { echo "::error::#$PR's head ${head:0:12} is the tip of no branch of $GITHUB_REPOSITORY (a fork, or a branch that moved): only same-repo PRs get a published layer"; exit 1; }
+              base_ref=feat-cmux-next state=""
+              title="$(git log -1 --format=%s "$head")"
+            fi
+            label="#$PR"
+          else
+            # A branch of this repository, or a commit one of its branches has. A commit only a
+            # fork has is refused: fork code never builds here (it publishes its own layer).
+            [[ "$REF" =~ ^[A-Za-z0-9._/-]+$ && "$REF" != -* && "$REF" != *..* ]] || { echo "::error::ref must be a branch name or a full commit, got $REF"; exit 1; }
+            base_ref=feat-cmux-next state=""
+            if git ls-remote --exit-code -q origin "refs/heads/$REF" >/dev/null; then
+              kind=branch
+              git fetch -q --filter=blob:none origin "+refs/heads/$REF:refs/remotes/pr/head"
+              head="$(git rev-parse refs/remotes/pr/head)"
+            elif [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+              kind=sha head="$REF"
+              git fetch -q --filter=blob:none origin '+refs/heads/*:refs/remotes/origin/*'
+              git cat-file -e "$head^{commit}" 2>/dev/null || git fetch -q --filter=blob:none origin "$head" || true
+              git cat-file -e "$head^{commit}" 2>/dev/null && [[ -n "$(git for-each-ref --count=1 --contains "$head" refs/remotes/origin)" ]] \
+                || { echo "::error::$REF is on no branch of $GITHUB_REPOSITORY (a fork's commit?): a fork publishes its own layer with cmux-web-layer-fork.yml"; exit 1; }
+            else
+              echo "::error::$REF is no branch of $GITHUB_REPOSITORY and no full commit"; exit 1
+            fi
+            title="$(git log -1 --format=%s "$head")"
+            label="$REF"
+          fi
+          base="${BASE:-$(git rev-parse HEAD)}"
+          git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --filter=blob:none origin "$base"
+          # The layer is the change's own diff on the app's commit, nothing else. Merging the head
+          # would also bring every commit between that commit and where it branched off, so the
+          # diff from its branch point is applied instead.
+          git fetch -q --filter=blob:none origin "+refs/heads/$base_ref:refs/remotes/pr/base"
+          fork="$(git merge-base refs/remotes/pr/base "$head")"
+          git -c advice.detachedHead=false checkout -q --detach "$base"
+          if ! git diff --binary "$fork" "$head" | git apply -q --3way --index; then
+            echo "::error::$label (${head:0:12}) does not apply onto ${base:0:12}: it conflicts with what changed since; rebase it"
+            exit 1
+          fi
+          git -c user.name=cmux-ci -c user.email=ci@cmux.invalid -c commit.gpgsign=false commit -q --allow-empty -m "$label ${head:0:12} on ${base:0:12}"
+          classify="$(python3 scripts/cmux-next/live_apply.py --json "$fork" "$head")"
+          mkdir -p "$RUNNER_TEMP/pr-layer"
+          python3 - "$RUNNER_TEMP/pr-layer/layer.json" "$PR" "$REF" "${kind:-}" "$head" "$base" "$(git rev-parse HEAD)" "$title" "$state" "$classify" <<'PY'
+          import json, sys
+          path, pr, ref, kind, head, base, merge, title, state, classify = sys.argv[1:]
+          layer = {"schema": 1, "repo": "manaflow-ai/cmux", "title": title, "state": state,
+                   "head": head, "base": base, "merge": merge, "classify": json.loads(classify)}
+          if pr:
+              layer["pr"] = int(pr)
+          else:
+              layer["kind"], layer["ref"] = kind, ref
+          json.dump(layer, open(path, "w"), indent=1, sort_keys=True)
+          PY
+          cat "$RUNNER_TEMP/pr-layer/layer.json"
+
+      # A merge's layer: a push to feat-cmux-next that squash-merged PR N ("... (#N)") also
+      # publishes pr/N/latest.json, the merged tree's layer, so `cmux customize use pr:N` works
+      # for a merged PR with no dispatch (only a dispatch wrote pr/N before, so the newest
+      # merged web PRs had no layer and customize-library-live-nightly's use-pr step failed).
+      - name: Name the pull request this push merged
+        id: merged
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'
+        env:
+          TITLE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          subject="${TITLE%%$'\n'*}"
+          if [[ ! "$subject" =~ \(\#([0-9]+)\)$ ]]; then
+            echo "no (#N) in \"$subject\": no merged PR layer"; exit 0
+          fi
+          pr="${BASH_REMATCH[1]}"
+          head="$GITHUB_SHA"
+          git fetch -q --depth 2 --filter=blob:none origin "$head"
+          parent="$(git rev-parse "$head^")"
+          classify="$(python3 scripts/cmux-next/live_apply.py --json "$parent" "$head")" || { echo "::warning::live_apply failed: no merged PR layer for #$pr"; exit 0; }
+          mkdir -p "$RUNNER_TEMP/pr-layer"
+          python3 - "$RUNNER_TEMP/pr-layer/layer.json" "$pr" "$head" "$subject" "$classify" <<'PY2'
+          import json, sys
+          path, pr, head, title, classify = sys.argv[1:]
+          # The merged tree is both the head and the base: the layer is that commit's own bundles.
+          layer = {"schema": 1, "repo": "manaflow-ai/cmux", "title": title, "state": "merged",
+                   "head": head, "base": head, "merge": head, "pr": int(pr),
+                   "classify": json.loads(classify)}
+          json.dump(layer, open(path, "w"), indent=1, sort_keys=True)
+          PY2
+          cat "$RUNNER_TEMP/pr-layer/layer.json"
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
 
       - name: Source key and whether it is published
         id: key
@@ -115,18 +355,32 @@ jobs:
             exit 1
           fi
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.key.outputs.published != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: steps.key.outputs.published != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Give this job its own bun
         if: steps.key.outputs.published != 'true'
         run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node (build-web-bundles.sh).
+      - name: Restore pinned Node ${{ env.CMUX_WEB_NODE_VERSION }} from the CI cache bucket
+        if: steps.key.outputs.published != 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node ${{ env.CMUX_WEB_NODE_VERSION }} || true
+
       - name: Setup Node
+        timeout-minutes: 5
         if: steps.key.outputs.published != 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -153,7 +407,8 @@ jobs:
           normalize = runpy.run_path("scripts/cmux-next/web-bundle-key.py")["normalize_toolchain_version"]
           outputs = subprocess.run(["python3", "scripts/cmux-next/web-bundle-key.py", os.environ["RUNNER_TEMP"] + "/web-bundles-out", "--outputs"],
                                    capture_output=True, text=True).stdout.strip()
-          json.dump({"schema": 1, "key": key, "commit": os.environ["GITHUB_SHA"], "run_id": int(os.environ["GITHUB_RUN_ID"]),
+          commit = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+          json.dump({"schema": 1, "key": key, "commit": commit, "run_id": int(os.environ["GITHUB_RUN_ID"]),
                      "archive": archive, "sha256": sha, "size": int(size),
                      "bun": normalize(subprocess.run(["bun", "--version"], capture_output=True, text=True).stdout),
                      "node": normalize(subprocess.run(["node", "--version"], capture_output=True, text=True).stdout),
@@ -170,27 +425,79 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+      # The PR layer's pointer: the layer facts, its key and the web ABI it needs. Handed on
+      # even when the key was already published, so the pointer always moves to this head.
+      - name: Write the PR layer pointer
+        if: inputs.pr || inputs.ref || steps.merged.outputs.pr
+        env:
+          KEY: ${{ steps.key.outputs.key }}
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/pr-layer/layer.json" "$KEY" <<'PY'
+          import json, sys
+          path, key = sys.argv[1:]
+          layer = json.load(open(path))
+          layer["key"] = key
+          layer["abi"] = int(json.load(open("webviews/src/web-abi.json"))["abi"])
+          layer["run_id"] = int(__import__("os").environ["GITHUB_RUN_ID"])
+          json.dump(layer, open(path, "w"), indent=1, sort_keys=True)
+          PY
+          cat "$RUNNER_TEMP/pr-layer/layer.json"
+
+      - name: Hand the PR layer pointer to the publish job
+        if: inputs.pr || inputs.ref || steps.merged.outputs.pr
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-next-web-pr-layer
+          path: ${{ runner.temp }}/pr-layer
+          if-no-files-found: error
+          retention-days: 3
+
+  # Publishes the archive and, on a push, signs the web update pointer in the same job: one
+  # runner hop instead of two (each hop was a pickup, a checkout and a runner hook, about 1.5
+  # min, and up to 7 min more on a runner whose job hook stalled). The web update channels
+  # (plans/cmux-next/web-ota.md): every-merge follows feat-cmux-next, nightly follows the
+  # promoted nightly-next branch. Both point at this push's bundles, signed with the ed25519 key
+  # the app trusts, so a NIGHTLY app serves a merged web change minutes later, with no Mac
+  # build; the pointer step also runs when the key was already published (a revert to known
+  # bundles). The job runs no bun or node and no code the build wrote: it handles the archive as
+  # bytes (an upload, a sha256 check and web-bundle-archive.py's unpack), so only this
+  # checkout's scripts touch the R2 credentials and the signing key, and the key is in the
+  # pointer step's environment alone. An older run never moves the pointer back
+  # (web-ota-pointer.py newer), and the write is a compare-and-swap, so overlapping runs keep
+  # the newest commit.
   publish:
     needs: build
-    if: needs.build.outputs.published != 'true'
-    name: publish the web bundles to files.cmux.com
+    name: publish the web bundles to files.cmux.com and sign the web update pointer
     environment:
       name: artifacts
-      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+      deployment: ${{ !inputs.pr && !inputs.ref && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
+      # Only the scripts and the two files this job reads: the whole tree (57k files) took about
+      # 55 s to check out.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/ci/
+            /scripts/cmux-next/
+            /webviews/src/web-abi.json
+            /Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json
+            /.gitmodules
 
       - name: Download the archive
+        if: needs.build.outputs.published != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: cmux-next-web-bundles
           path: ${{ runner.temp }}/web-bundles-publish
 
       - name: Upload to R2 (archive first, manifest last)
+        if: needs.build.outputs.published != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -218,28 +525,8 @@ jobs:
           test -d "$out/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
           echo "published https://files.cmux.com/cmux-next-web/$KEY/manifest.json" | tee -a "$GITHUB_STEP_SUMMARY"
 
-  # The web update channels (plans/cmux-next/web-ota.md): every-merge follows
-  # feat-cmux-next, while nightly follows the promoted nightly-next branch. Both
-  # point at this push's bundles, signed with the ed25519 key the app trusts,
-  # so a NIGHTLY app serves a merged web change minutes later, with no Mac build. Also runs when
-  # the key was already published (a revert to known bundles). Like publish, it runs no bun or
-  # node: only this checkout's scripts touch the signing key. An older run never moves the
-  # pointer back (web-ota-pointer.py newer).
-  pointer:
-    needs: [build, publish]
-    if: ${{ always() && needs.build.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
-    name: sign the web update pointer
-    environment:
-      name: artifacts
-      deployment: ${{ contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
       - name: Sign and upload the pointer
+        if: ${{ !inputs.pr && !inputs.ref }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -269,14 +556,65 @@ jobs:
           [[ $rc == 0 ]] || exit "$rc"
           python3 "$ptr" sign --payload "$dir/payload.json" --key "$dir/key.pem" --keys "$keys" --out "$dir/$CHANNEL.json"
           rm -f "$dir/key.pem"
-          code="$(curl -sS -o "$dir/current.json" -w '%{http_code}' --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/ota/$CHANNEL.json?pointer=$GITHUB_RUN_ID" || true)"
-          [[ "$code" == 200 ]] || rm -f "$dir/current.json"
-          python3 "$ptr" newer --pointer "$dir/$CHANNEL.json" --keys "$keys" --current "$dir/current.json" || rc=$?
-          [[ $rc == 3 ]] && exit 0
-          [[ $rc == 0 ]] || exit "$rc"
-          python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
-            --cache-control "public, max-age=60, must-revalidate" --file "$dir/$CHANNEL.json" \
-            --key "cmux-next-web/ota/$CHANNEL.json" --content-type application/json
+          # Runs of two pushes may overlap: the write replaces only the pointer this run read (a
+          # compare-and-swap on its bytes), and a run that lost the race reads it again, so an older
+          # commit never lands over a newer one between the read and the write. The pointer is read
+          # from R2 itself, not files.cmux.com (cached up to 60 s), so the swap compares what is there.
+          object="cmux-next-web/ota/$CHANNEL.json"
+          r2() { python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries --key "$object" "$@"; }
+          for attempt in 1 2 3 4 5; do
+            rm -f "$dir/current.json"
+            rc=0
+            r2 --download-to "$dir/current.json" || rc=$?
+            case "$rc" in
+              0) mode=(--replace-sha256 "$(sha256sum "$dir/current.json" | cut -d' ' -f1)") ;;
+              22) rm -f "$dir/current.json"; mode=(--write-once) ;;
+              *) echo "::error::the $CHANNEL web update pointer could not be read from R2 (exit $rc)"; exit 1 ;;
+            esac
+            rc=0
+            python3 "$ptr" newer --pointer "$dir/$CHANNEL.json" --keys "$keys" --current "$dir/current.json" || rc=$?
+            [[ $rc == 3 ]] && exit 0
+            [[ $rc == 0 ]] || exit "$rc"
+            rc=0
+            r2 --cache-control "public, max-age=60, must-revalidate" --file "$dir/$CHANNEL.json" \
+              --content-type application/json "${mode[@]}" --conflict-exit-code 9 || rc=$?
+            [[ $rc == 0 ]] && break
+            [[ $rc == 9 ]] || exit "$rc"
+            echo "another run moved the $CHANNEL pointer first; reading it again"
+            [[ $attempt == 5 ]] && { echo "::error::the $CHANNEL pointer kept changing under this run"; exit 1; }
+          done
           curl -fsS --retry 3 --max-time 60 -o "$dir/check.json" "https://files.cmux.com/cmux-next-web/ota/$CHANNEL.json?check=$GITHUB_RUN_ID"
           python3 "$ptr" verify --pointer "$dir/check.json" --keys "$keys" --channel "$CHANNEL"
           echo "$CHANNEL web update -> $KEY (${GITHUB_SHA:0:12})" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Download the PR layer pointer
+        if: inputs.pr || inputs.ref || needs.build.outputs.merged_pr
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-next-web-pr-layer
+          path: ${{ runner.temp }}/pr-layer
+
+      # The pointer is not content-addressed: latest.json moves to every new head (short cache),
+      # and <head>-<base>.json names one layer for good.
+      - name: Upload the PR layer pointer
+        if: inputs.pr || inputs.ref || needs.build.outputs.merged_pr
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          KEY: ${{ needs.build.outputs.key }}
+          PR: ${{ inputs.pr || needs.build.outputs.merged_pr }}
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          layer="$RUNNER_TEMP/pr-layer/layer.json"
+          read -r head base <<<"$(python3 -c 'import json,sys; m=json.load(open(sys.argv[1])); assert m["key"]==sys.argv[2] and (m.get("pr")==int(sys.argv[3]) if sys.argv[3] else m.get("ref")==sys.argv[4]); print(m["head"], m["base"])' "$layer" "$KEY" "$PR" "$REF")"
+          [[ "$head" =~ ^[0-9a-f]{40}$ && "$base" =~ ^[0-9a-f]{40}$ ]]
+          if [[ -n "$PR" ]]; then folder="pr/$PR"; else folder="ref/${REF//\//--}"; fi
+          up() { python3 scripts/ci/upload-r2-object.py --endpoint-url "$R2_ENDPOINT" --bucket cmux-binaries \
+                   --cache-control "$2" --file "$layer" --key "cmux-next-web/$folder/$1" --content-type application/json; }
+          up "$head-$base.json" "public, max-age=31536000, immutable"
+          up latest.json "public, max-age=30, must-revalidate"
+          curl -fsS --retry 3 --max-time 60 "https://files.cmux.com/cmux-next-web/$folder/latest.json?check=$GITHUB_RUN_ID" | python3 -c 'import json,sys; m=json.load(sys.stdin); assert m["key"]==sys.argv[1], m' "$KEY"
+          echo "${PR:+#}${PR:-$REF} layer ${head:0:12} on ${base:0:12} -> $KEY: https://files.cmux.com/cmux-next-web/$folder/latest.json" | tee -a "$GITHUB_STEP_SUMMARY"

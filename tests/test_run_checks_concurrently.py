@@ -21,9 +21,12 @@ RUNNER = ROOT / "scripts/ci/run-checks-concurrently.sh"
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 
 
-def run(commands: str, *args: str) -> subprocess.CompletedProcess:
+def run(commands: str, *args: str, budget: str | None = None) -> subprocess.CompletedProcess:
+    env = {key: value for key, value in os.environ.items() if key != "CMUX_CI_CPU_BUDGET"}
+    if budget is not None:
+        env["CMUX_CI_CPU_BUDGET"] = budget
     return subprocess.run(["bash", str(RUNNER), *args], input=commands, capture_output=True,
-                          text=True, timeout=60, cwd=ROOT)
+                          text=True, timeout=60, cwd=ROOT, env=env)
 
 
 class RunChecksConcurrently(unittest.TestCase):
@@ -45,6 +48,63 @@ class RunChecksConcurrently(unittest.TestCase):
         self.assertIn("after", result.stdout)
         self.assertIn("::error title=check failed::exit 3", result.stdout)
         self.assertIn("2 passed, 1 failed", result.stdout)
+
+    def test_a_passing_commands_error_lines_print_inert_and_a_failing_ones_stay_live(self):
+        # cmux#45463: a passing script test printed a fixture `::error::` line; the runner made it a live
+        # `##[error]`, so the Script tests step read as errored and merge_hold quoted that fixture as the red
+        # (hq docs/handbook/red-quoted-from-a-passing-step.md). A passing command's error lines print as text
+        # between ::stop-commands:: and its resume token; a failing command's stay live, and warnings stay live.
+        result = run("printf '::error::fixture says no\\n::warning::kept live\\nfine\\n'\n"
+                     "printf '::error::real red\\n'; exit 4\n", "--jobs", "1")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        lines = result.stdout.splitlines()
+        live = None
+        for line in lines:
+            if live is None and line.startswith("::stop-commands::"):
+                live = "::" + line[len("::stop-commands::"):] + "::"
+                continue
+            if live is not None and line == live:
+                live = None
+                continue
+            if live is None:
+                self.assertNotEqual(line, "::error::fixture says no", result.stdout)
+        self.assertIsNone(live, "a stop-commands block was never resumed:\n" + result.stdout)
+        self.assertIn("::error::fixture says no", lines)
+        self.assertIn("::warning::kept live", lines)
+        index = lines.index("::error::fixture says no")
+        self.assertTrue(lines[index - 1].startswith("::stop-commands::check-pool-inert-"), result.stdout)
+        self.assertEqual(lines[index + 1], "::" + lines[index - 1][len("::stop-commands::"):] + "::")
+        # The failing command's own line is live in its group and again in the summary at the end.
+        real = [i for i, line in enumerate(lines) if line == "::error::real red"]
+        self.assertEqual(len(real), 2, result.stdout)
+        for i in real:
+            self.assertFalse(lines[i - 1].startswith("::stop-commands::"), result.stdout)
+
+    def test_the_job_cpu_share_caps_the_pool(self):
+        # A mini's runner hook grants a job its cores (CMUX_CI_CPU_BUDGET). The checks job asked for one check per
+        # core of the whole 14-core mini while it held 5 (job 131984422217: prepush gate 693 s there, 238 s on a
+        # 16 vCPU Linux runner), so the pool runs no wider than the grant.
+        result = run("echo a\necho b\necho c\n", "--jobs", "14", budget="2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("3 checks, 2 at a time", result.stdout)
+        self.assertIn("CMUX_CI_CPU_BUDGET=2 caps the pool at 2 (was 14)", result.stdout)
+        # A narrower --jobs, an unset or a malformed budget keep --jobs
+        self.assertIn("3 checks, 1 at a time", run("echo a\necho b\necho c\n", "--jobs", "1", budget="4").stdout)
+        self.assertIn("3 checks, 3 at a time", run("echo a\necho b\necho c\n", "--jobs", "3").stdout)
+        self.assertIn("3 checks, 3 at a time", run("echo a\necho b\necho c\n", "--jobs", "3", budget="x").stdout)
+
+    def test_the_checks_job_starts_the_prepush_gate_first(self):
+        # The prepush gate suite is the pool's longest command (238 s on Linux, 693 s on a mini): started first, a
+        # pool as narrow as the job's share does not leave it for last.
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        start = next(s for s in document["jobs"]["checks"]["steps"]
+                     if "run-checks-concurrently.sh --start" in str(s.get("run", "")))
+        commands = [line.strip() for line in start["run"].split("<<'CHECKS'", 1)[1].splitlines()
+                    if line.strip() and not line.strip().startswith(("[", "#"))]
+        # Its four parts (tests/unittest_shard.py; tests/test_unittest_shard.py) start first, each once.
+        parts = [f"python3 tests/test_cmux_next_prepush_gate.py --shard {i}/4" for i in range(1, 5)]
+        self.assertEqual(commands[:4], parts)
+        self.assertEqual([c for c in commands if "test_cmux_next_prepush_gate.py" in c], parts)
 
     def test_skips_blank_lines_and_comments(self):
         result = run("\n  # a note\n  echo only\n")
@@ -121,6 +181,39 @@ class APoolDeadlineEndsInAVerdict(unittest.TestCase):
         # The job clock starts when the runner writes the event file (Set up job), before the runner hook's wait.
         self.assertIn('"$GITHUB_EVENT_PATH"', start["run"])
         self.assertIn("POOL_TAIL_SECONDS", start["run"])
+
+
+class AffectedSkipsWhatTheChangeCannotReach(unittest.TestCase):
+    """--affected BASE: a command whose inputs the change leaves as they were passes as skipped, unrun."""
+
+    # Exits 2 (its usage) when run, so a pass proves it was skipped; tracked, so its inputs are known.
+    UNREACHED = "bash scripts/ci/timeout.sh"
+
+    def test_an_unreached_command_is_skipped_and_an_unreadable_one_runs(self):
+        # HEAD...HEAD changes nothing: the tracked script is unreached; `echo` is no test invocation, so it runs.
+        result = run(f"{self.UNREACHED}\necho ran\n", "--jobs", "2", "--affected", "HEAD")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"skipped (inputs unchanged): {self.UNREACHED}", result.stdout)
+        self.assertIn("ran", result.stdout)
+        self.assertIn("1 passed, 0 failed, 1 skipped (inputs unchanged)", result.stdout)
+
+    def test_no_base_or_an_unreadable_one_runs_everything(self):
+        for base in ("", "no-such-revision-xyz"):
+            with self.subTest(base=base):
+                result = run(f"{self.UNREACHED}\n", "--jobs", "1", "--affected", base)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(f"::error title=check failed::{self.UNREACHED}", result.stdout)
+
+    def test_a_name_whose_commands_all_skipped_waits_green(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pool = os.path.join(tmp, "pool")
+            started = run(f"[a]\n{self.UNREACHED}\n[b]\necho b\n", "--start", pool, "--jobs", "2", "--affected", "HEAD")
+            self.assertEqual(started.returncode, 0, started.stdout + started.stderr)
+            self.assertIn("1 of 2 commands started", started.stdout)
+            for name in ("a", "b"):
+                waited = subprocess.run(["bash", str(RUNNER), "--wait", pool, name], capture_output=True, text=True,
+                                        timeout=60, cwd=ROOT)
+                self.assertEqual(waited.returncode, 0, waited.stdout + waited.stderr)
 
 
 if __name__ == "__main__":

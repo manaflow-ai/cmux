@@ -1,3 +1,4 @@
+import CmuxMobileAgentChat
 import CmuxMobileModel
 import CmuxMobileTransport
 import Foundation

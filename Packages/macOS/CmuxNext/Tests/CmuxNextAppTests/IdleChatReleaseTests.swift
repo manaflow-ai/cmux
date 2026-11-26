@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextHibernation
@@ -20,6 +20,8 @@ import Testing
         var elapsed: Duration = .zero
         var busy: Set<String> = []
         var archived: Set<String> = []
+        /// Chats whose terminal face their pane draws now (Toggle Terminal and Chat).
+        var paired: Set<String> = []
         /// Chats whose page holds an unsaved send or edit (the page's `holdsEdits`).
         var edits: Set<String> = []
         /// Releases asked for, in order.
@@ -78,6 +80,7 @@ import Testing
         let host = Host()
         let planner = HiddenChatPages(host: host, deadline: Deadline(), freezeDeadline: Deadline())
         host.planner = planner
+        planner.pairedFace = { [weak host] in host?.paired.contains($0) ?? false }
         planner.update(setting: setting, pressure: pressure)
         return (planner, host)
     }
@@ -176,6 +179,80 @@ import Testing
         #expect(AgentChatDetail.of(summary: ["model": "m"])?.archived == false)
     }
 
+    /// A released idle chat that kept only its scroll place opens again in the prewarmed spare page, with that
+    /// place on the adopt event; one that kept chips, shell text or folds gets a page of its own, which its
+    /// handshake hands them to.
+    @Test func aReleasedChatHoldingOnlyItsPlaceTakesTheSpare() {
+        let anchor = AgentPaneScrollAnchor(rowId: "row-3", offset: 9)
+        let placeOnly = AgentPaneWakeState(scrollAnchor: anchor)
+        #expect(placeOnly.holdsOnlyPlace)
+        #expect(placeOnly.place == .some(anchor))
+        #expect(AgentPaneWakeState(atLatest: true).holdsOnlyPlace)
+        #expect(AgentPaneWakeState(atLatest: true).place == .some(nil), "a chat left at its latest message reopens there")
+        #expect(AgentPaneWakeState().place == nil)
+        #expect(!AgentPaneWakeState(shell: true, shellText: "ls", atLatest: true).holdsOnlyPlace)
+        #expect(!AgentPaneWakeState(atLatest: true, folds: .init(session: "s", expanded: ["t1"])).holdsOnlyPlace)
+
+        let adoption = { (wake: AgentPaneWakeState?) in
+            AgentPaneSpareAdoption(thisMac: true, session: "s-1", newTabPage: false, seeded: false,
+                                   wake: wake.map { !$0.holdsOnlyPlace } ?? false).adopted(chiefKeeps: { _ in false })
+        }
+        #expect(adoption(placeOnly) == "s-1", "a released chat with only its place built a page from nothing")
+        #expect(adoption(AgentPaneWakeState(shell: true, shellText: "make", scrollAnchor: anchor)) == nil)
+        let detail = AgentPaneView.adoptEventDetail(session: "s-1", revealTurn: nil, tail: nil, place: placeOnly.place)
+        #expect(detail.contains("row-3"), "the adopt event lost the released chat's place: \(detail)")
+    }
+
+    /// Hidden chats cost only their cursor and kept tail (Leo, 2026-11-16: "the dream is infinite chats of
+    /// infinite length with flat or no growth in cpu/memory/even disk"): only the ``HiddenChatPages/warmHidden``
+    /// most recently hidden idle chats keep their page for the idle wait, so a look at another tab and back stays
+    /// warm; every other hidden idle chat gives it back after the composer's short wait. Ten open chats cost the
+    /// visible pages plus a warm set, not ten pages.
+    @Test func onlyAWarmSetOfHiddenIdleChatsKeepsItsPage() {
+        let (planner, host) = Self.make()
+        let order = (0..<9).map { "tab_\($0)" }
+        for key in order {
+            Self.hide(key, planner, host)
+            host.elapsed += .seconds(1)
+        }
+        Self.advance(HiddenChatPages<Host>.minimumHidden, planner, host)
+        // The warm set's size, written out so this test also runs (and fails) on a planner without one.
+        let warm = Array(order.suffix(2))
+        #expect(Set(host.pages.keys) == Set(warm), "hidden idle chats past the warm set kept their page: \(host.pages.keys.sorted())")
+        #expect(host.released == Array(order.dropLast(warm.count)), "released out of least-recently-seen order: \(host.released)")
+        #expect(planner.hasDeadline, "the warm set has no idle deadline")
+
+        // A working chat keeps its page and takes no place in the warm set.
+        host.busy = ["tab_busy"]
+        Self.hide("tab_busy", planner, host)
+        Self.advance(HiddenChatPages<Host>.minimumHidden + 1, planner, host)
+        #expect(host.pages["tab_busy"] != nil, "a working chat was let go")
+        #expect(Set(host.pages.keys) == Set(warm + ["tab_busy"]), "a working chat pushed an idle chat out of the warm set")
+
+        // A newer hide pushes the oldest warm chat out; it goes after the short wait.
+        Self.hide("tab_new", planner, host)
+        Self.advance(HiddenChatPages<Host>.minimumHidden + 1, planner, host)
+        #expect(host.released.last == warm.first, "the oldest warm chat kept its page past the warm set: \(host.released)")
+
+        // The warm set itself still goes after the idle wait.
+        Self.advance(Self.idle, planner, host)
+        #expect(Set(host.pages.keys) == ["tab_busy"], "the warm set outlived the idle wait: \(host.pages.keys.sorted())")
+    }
+
+    /// A chat due at once (archived) takes no place in the warm set: the two newest idle chats it would have
+    /// pushed out keep their page for the idle wait.
+    @Test func aChatDueAtOnceTakesNoWarmPlace() {
+        let (planner, host) = Self.make()
+        for key in ["tab_old", "tab_warm_a", "tab_warm_b", "tab_archived"] {
+            if key == "tab_archived" { host.archived = [key] }
+            Self.hide(key, planner, host)
+            host.elapsed += .seconds(1)
+        }
+        Self.advance(HiddenChatPages<Host>.minimumHidden, planner, host)
+        #expect(Set(host.released) == ["tab_old", "tab_archived"], "released: \(host.released)")
+        #expect(Set(host.pages.keys) == ["tab_warm_a", "tab_warm_b"], "an archived chat took a warm place: \(host.pages.keys.sorted())")
+    }
+
     @Test func theLeastRecentlySeenChatGoesFirst() {
         let (planner, host) = Self.make()
         let order = ["tab_c", "tab_a", "tab_e", "tab_b", "tab_f", "tab_d"]
@@ -183,7 +260,8 @@ import Testing
             Self.hide(key, planner, host)
             host.elapsed += .seconds(5)
         }
-        // All due at once: asked oldest hidden first.
+        // All due at once: asked oldest hidden first (the hides above already asked for the chats past the warm set).
+        host.requested = []
         host.elapsed += .seconds(10 * 60)
         planner.replan()
         #expect(host.requested == order, "released out of least-recently-seen order: \(host.requested)")
@@ -227,5 +305,29 @@ import Testing
         browserHost.edits = ["tab_browser"]
         Self.advance(11 * 60, byBrowser, browserHost)
         #expect(browserHost.released.isEmpty, "browser.hibernation's release dropped an unsaved edit")
+    }
+
+    /// The chat face of a session whose terminal face its pane draws (Toggle Terminal and Chat) keeps its page and
+    /// stays awake however long the terminal shows and whatever the pressure, so the swap back is a tab selection,
+    /// never a rebuild and replay (Leo, 2026-11-12: two live views of one session, instant both ways). Once that
+    /// terminal stops drawing, the chat's idle clock runs again.
+    @Test(arguments: [MemoryPressureLevel.normal, .warning, .critical])
+    func theChatFaceOfAShownTerminalKeepsItsPage(_ pressure: MemoryPressureLevel) {
+        let (planner, host) = Self.make(pressure: pressure)
+        Self.hide("tab_face", planner, host)
+        host.paired = ["tab_face"]
+        Self.advance(60 * 60, planner, host)
+        #expect(host.released.isEmpty, "the chat face of a shown terminal was let go: the swap back rebuilds it")
+        #expect(planner.keepsPage("tab_face") == .pairedFace)
+
+        // Its terminal stops drawing: hidden from now, so a look at another tab and back keeps it.
+        host.paired = []
+        planner.replan()
+        let wait = pressure == .normal ? Self.idle : pressure == .warning ? HiddenChatPages<Host>.idleReleaseUnderWarning
+            : HiddenChatPages<Host>.minimumHidden
+        Self.advance(wait - 5, planner, host)
+        #expect(host.released.isEmpty, "the chat went as soon as its terminal stopped drawing, an hour after the swap hid it")
+        Self.advance(6, planner, host)
+        #expect(host.released == ["tab_face"], "a chat whose terminal no longer shows kept its page")
     }
 }

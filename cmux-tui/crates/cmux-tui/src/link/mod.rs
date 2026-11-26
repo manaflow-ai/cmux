@@ -5,10 +5,12 @@
 mod access_cli;
 mod acpmux;
 mod agent_cli;
+pub(crate) mod carrier_tunnel;
 mod cloud_fs;
 mod control;
 mod daemon_entry;
 pub(crate) use daemon_entry::DaemonEntryStartup;
+mod chat_cli;
 mod dial;
 mod dial_cli;
 mod enrollment;
@@ -31,6 +33,23 @@ mod process_exit;
 #[cfg_attr(not(test), allow(dead_code))]
 mod seed;
 mod seed_cli;
+
+/// `cmux ssh --repo` (`remote_cli.rs`): seed `local` into `remote` over the link
+/// `socket` serves, as `cmux link seed push --since-last` and then a full push when
+/// there is no previous push. The answer is `link seed push`'s JSON line.
+pub(crate) fn seed_repo(socket: &Path, local: &Path, remote: &str) -> serde_json::Value {
+    let pushed = match seed_cli::push_since_last(socket, local, remote) {
+        Err(error) if seed_cli::failure_code(&error) == "seed.no_previous" => {
+            seed_cli::push(socket, local, remote, None)
+        }
+        other => other,
+    };
+    match pushed {
+        Ok(pushed) => pushed.json(),
+        Err(error) => seed_cli::failure(&error),
+    }
+}
+mod spans;
 mod start_chat_cli;
 mod state;
 pub(crate) mod sync_cli;
@@ -88,7 +107,11 @@ pub(crate) fn start_link_entry(
     session_socket: &Path,
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
     use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
-    cloud_fs::install_if_cloud_host();
+    if cloud_fs::install_file_owner() {
+        // Frees what archived, deleted and brought-back chats left in their projections on this
+        // machine, at start and on a timer (RFD 0007, hard case 8).
+        cmux_tui_core::projection::start_reaper(crate::acp::daemon_socket_path());
+    }
     mux.set_agent_transfer_host(cloud_fs::agent_transfer_host());
     // What a stamp's `check` means is fixed here, at daemon start, from the
     // config `main` took from the environment (G4); a real verifier is
@@ -124,14 +147,31 @@ pub(crate) fn run(args: &[String]) -> i32 {
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
     }
+    // `chat`: a Cloud machine's chats as the caller's role reaches them (one JSON object out).
+    if args.first().map(String::as_str) == Some("chat") {
+        return chat_cli::run(args.get(1..).unwrap_or_default());
+    }
     // `sync` answers one JSON line on stdout and has its own exit codes too.
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
     }
+    // `project`: a big folder projected onto a Cloud machine (sync_cli/project.rs).
+    if args.first().map(String::as_str) == Some("project") {
+        return sync_cli::project::run(args.get(1..).unwrap_or_default());
+    }
+    // `offload`: one local command run on a machine over this folder's view, its writes
+    // published back (sync_cli/offload.rs, RFD 0007 step 7).
+    if args.first().map(String::as_str) == Some("offload") {
+        return sync_cli::offload::run(args.get(1..).unwrap_or_default());
+    }
+    // `memory`: the person's agent memory follows them (sync_cli/memory.rs).
+    if args.first().map(String::as_str) == Some("memory") {
+        return sync_cli::memory::run(args.get(1..).unwrap_or_default());
+    }
     if args.first().map(String::as_str) == Some("seed") {
         if matches!(
             args.get(1).map(String::as_str),
-            Some("push" | "clone" | "pull" | "move" | "copy-rest")
+            Some("push" | "clone" | "pull" | "fetch" | "move" | "copy-rest")
         ) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
         }
@@ -150,12 +190,26 @@ pub(crate) fn run(args: &[String]) -> i32 {
         }
         return machine_update::run(&args[1..]);
     }
+    // `open` and `mint`: runnable links (cli/runnable_link.rs, hq#23807), off by default.
+    if matches!(args.first().map(String::as_str), Some("open" | "mint")) {
+        return crate::cli::runnable_link::run(args, json);
+    }
     if args.first().map(String::as_str) == Some("start-chat") {
         return start_chat_cli::run(args.get(1..).unwrap_or_default());
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
         print!("{}", help_text());
+        return 0;
+    }
+    // `cmux link init --help`: that action's own lines. Before, `flags` read `--help` as an
+    // unknown option and exited 2 (the Cloud and remote command matrix, cmux#48221).
+    if let Some(text) = args
+        .split_first()
+        .filter(|(_, rest)| asks_help(rest))
+        .and_then(|(action, _)| verb_help(action))
+    {
+        print!("{text}");
         return 0;
     }
     match run_link(args) {
@@ -201,7 +255,74 @@ fn link_usage(message: String) -> anyhow::Error {
 }
 
 fn help_text() -> String {
-    format!("{}\n{}", catalog().remote_client.link_help, enrollment::help())
+    let text = format!("{}\n{}", catalog().remote_client.link_help, enrollment::help());
+    // The cmux app's `link …` verbs too (cli/app_action_help.rs).
+    crate::cli::app_action_help::append("link", &text).unwrap_or(text)
+}
+
+/// The actions [`run_link`] parses itself, each with its own `--help` ([`verb_help`]).
+const OWN_ACTIONS: &[&str] = &[
+    "init",
+    "show",
+    "peer",
+    "serve",
+    "ensure",
+    "stop",
+    "archive",
+    "status",
+    "install-agent",
+    "uninstall-agent",
+];
+
+/// `-h` or `--help` among an action's words.
+fn asks_help(rest: &[String]) -> bool {
+    rest.iter()
+        .take_while(|word| *word != "--")
+        .any(|word| matches!(word.as_str(), "-h" | "--help"))
+}
+
+/// `cmux link <action> --help`: the usage line with the action named, the action's own lines of
+/// `cmux link --help` (its entry and the lines indented under it), and the closing note every
+/// action shares. `None` for a word that is not one of [`OWN_ACTIONS`].
+fn verb_help(action: &str) -> Option<String> {
+    verb_help_from(action, catalog().remote_client.link_help, enrollment::help())
+}
+
+fn verb_help_from(action: &str, help: &str, enrollment: &str) -> Option<String> {
+    if !OWN_ACTIONS.contains(&action) {
+        return None;
+    }
+    let mut lines = help.lines();
+    // `USAGE: cmux link <init|show|…> [OPTIONS]` becomes `USAGE: cmux link init [OPTIONS]`.
+    let first = lines.next()?;
+    // `split_once` keeps this free of byte-index slicing (the panic ratchet).
+    let usage = match first.split_once('<') {
+        Some((head, rest)) => match rest.split_once('>') {
+            Some((_, tail)) => format!("{head}{action}{tail}"),
+            None => first.to_owned(),
+        },
+        None => first.to_owned(),
+    };
+    let mut own = String::new();
+    let mut inside = false;
+    for line in lines {
+        if let Some(entry) = line.strip_prefix("  ").filter(|entry| !entry.starts_with(' ')) {
+            let word = entry.split_whitespace().next().unwrap_or_default();
+            inside = word == action;
+        } else if !line.starts_with("   ") {
+            inside = false;
+        }
+        if inside {
+            own.push_str(line);
+            own.push('\n');
+        }
+    }
+    if own.is_empty() {
+        return None;
+    }
+    let note = help.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or_default();
+    let enrollment = if action == "init" { format!("\n{enrollment}") } else { String::new() };
+    Some(format!("{usage}\n\n{own}{enrollment}\n{note}\n"))
 }
 
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
@@ -473,8 +594,19 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     }
     let key = key_lock::take(&state, explicit.as_deref(), &mut ready)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    tokio_runtime()?.block_on(serve(state, &key, session_socket, owner, ready, served, watch))
+    // Shared with the Cloud tunnel (`carrier_tunnel.rs`), which keeps only a weak handle.
+    let key = Arc::new(key);
+    let runtime = tokio_runtime()?;
+    let result = runtime.block_on(serve(state, &key, session_socket, owner, ready, served, watch));
+    // A blocking call still running (the Cloud tunnel's `auth.token` ask, up to 30 s) is not
+    // waited for: `link stop` gives the link 10 s (`ensure::STOP_BUDGET`). The hub it may have
+    // started ends with this process (`wg hub --exit-with-parent`).
+    runtime.shutdown_timeout(RUNTIME_SHUTDOWN);
+    result
 }
+
+/// How long the ended link waits for its runtime's blocking calls.
+const RUNTIME_SHUTDOWN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
 fn serve_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
@@ -494,15 +626,38 @@ fn serve_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
 }
 
 /// The `server.json` a link reads its owner session from: `--server-config
-/// PATH`, else the user-mode `~/.config/cmux/server.json`; none without HOME.
+/// PATH`, else the user-mode `~/.config/cmux/server.json` (on macOS
+/// `~/.config/cmux-next/server.json`, unless an older install keeps
+/// `~/.config/cmux`: cmux_server_core::layout::macos_user_dir, the layout's own answer);
+/// none without HOME.
 pub(super) fn server_config_path(flags: &Flags) -> Option<PathBuf> {
-    match flags.get("--server-config") {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    server_config_path_in(
+        flags.get("--server-config").map(String::as_str),
+        home.as_deref(),
+        cfg!(target_os = "macos"),
+    )
+}
+
+/// [`server_config_path`] for a given `--server-config`, `home` and platform (tests).
+pub(super) fn server_config_path_in(
+    flag: Option<&str>,
+    home: Option<&Path>,
+    macos: bool,
+) -> Option<PathBuf> {
+    match flag {
         Some(path) => Some(PathBuf::from(path)),
         // Shortcut: duplicates the user-mode layout of cmux-server-core; use
         // its layout code when the next Cargo WINDOW allows the dependency
         // (bead cx-uu3).
-        None => std::env::var_os("HOME")
-            .map(|home| PathBuf::from(home).join(".config/cmux/server.json")),
+        None => home.map(|home| {
+            let dir = if macos {
+                cmux_server_core::layout::macos_user_dir(home, false)
+            } else {
+                cmux_server_core::layout::MACOS_USER_LEGACY_DIR
+            };
+            home.join(".config").join(dir).join("server.json")
+        }),
     }
 }
 
@@ -517,7 +672,7 @@ pub(super) fn read_server_config(path: Option<&Path>) -> anyhow::Result<Option<V
 }
 
 /// The owner session block of `server.json` (`--server-config PATH`, else
-/// the user-mode `~/.config/cmux/server.json`) from its `bytes`; none when
+/// the user-mode one, [`server_config_path`]) from its `bytes`; none when
 /// absent. An invalid block stops the link instead of serving with a guess.
 fn owner_session(
     path: Option<&Path>,
@@ -537,7 +692,7 @@ fn owner_session(
 
 async fn serve(
     state: LinkState,
-    key: &cmux_link::key_holder::KeyHolder,
+    key: &Arc<cmux_link::key_holder::KeyHolder>,
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
@@ -603,6 +758,9 @@ async fn serve(
     if let Some(ready) = ready {
         ready.send(&ready_line);
     }
+    // The Cloud tunnel hub for the ssh backup carrier, on the key this link holds.
+    let tunnel =
+        carrier_tunnel::keep(state.dir().to_path_buf(), Arc::downgrade(key), acpmux_home.clone());
     // A paired peer's `acpmux` stream goes to this user's acpmux listener.
     let acpmux = AcpmuxTarget::for_home(acpmux_home);
     let result = tokio::select! {
@@ -610,6 +768,7 @@ async fn serve(
         () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
         () = reload_on_rekey(&peers, &overlay) => Ok(()),
         () = finish_then_wait(still_retiring, &state, &overlay, &peers, &public_key) => Ok(()),
+        () = tunnel => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
     };

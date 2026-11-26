@@ -146,6 +146,19 @@ impl BookTee {
         self.registry.start(config(v1, self, &session)?)
     }
 
+    /// What a connection's `chat:<id>` names: that chat's book over v1's log, as the tee opens
+    /// it; None for a chat v1 no longer has, one being purged, or one with no directory.
+    pub(crate) fn resolve(self: &Arc<Self>, v1: &Arc<Hub>) -> acpmux_core::conn::Resolve {
+        let (v1, tee) = (v1.clone(), self.clone());
+        Arc::new(move |id| {
+            let session = v1.session_by_id(id)?;
+            if session.purged.load(Ordering::SeqCst) {
+                return None;
+            }
+            config(&v1, &tee, &session)
+        })
+    }
+
     /// Tells chat `id`'s actor that its source grew.
     fn tell(&self, v1: &Arc<Hub>, id: &str) {
         let Some((handle, _)) = self.actor(v1, id) else { return };
@@ -290,4 +303,4 @@ impl Hub {
 #[cfg(all(test, target_os = "linux"))]
 mod gates;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

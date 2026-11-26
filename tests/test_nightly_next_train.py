@@ -427,6 +427,12 @@ class Verdicts(unittest.TestCase):
         self.assertEqual(doc, {"schema": 1, "build": self.BUILD, "verdict": "pass", "commit": self.COMMIT,
                                "canaryRun": f"https://github.com/{REPO}/actions/runs/555", "checkedAt": "T"})
 
+    def test_verdict_binds_to_the_attempt_that_measured_the_artifact(self) -> None:
+        jobs = [{"name": f"canary {self.BUILD}", "status": "completed", "conclusion": "success", "run_attempt": 1},
+                {"name": f"verdict pass {self.BUILD}", "status": "in_progress", "run_attempt": 2}]
+        doc = train.checked_verdict(self.api(jobs=jobs), REPO, self.BUILD, "pass", "555")
+        self.assertEqual(doc["canaryAttempt"], 1)
+
     def test_a_pass_needs_the_canary_job_green(self) -> None:
         with self.assertRaises(train.TrainError):
             train.checked_verdict(self.api(jobs=[{"name": f"canary {self.BUILD}", "status": "completed", "conclusion": "failure"}]),
@@ -572,8 +578,10 @@ class OwnedRefusal(unittest.TestCase):
         runs_on = cells[0]
         self.assertEqual(jobs["build"]["needs"], "pick-train-runner")
         self.assertIn("needs.pick-train-runner.outputs.attempt == format('{0}', github.run_attempt) && "
-                      "needs.pick-train-runner.outputs.owned || needs.pick-train-runner.outputs.blacksmith || "
-                      "vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26 }}", runs_on)
+                      "needs.pick-train-runner.outputs.owned || vars.CI_BLACKSMITH_MACOS == 'on' && "
+                      "needs.pick-train-runner.outputs.blacksmith || (vars.CI_BLACKSMITH_MACOS != 'on' && "
+                      "vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}",
+                      runs_on)
 
 
 class Wiring(unittest.TestCase):

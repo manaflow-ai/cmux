@@ -3,6 +3,9 @@ import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextHomeEngine
+import CmuxNextHostedChief
+import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
 
@@ -43,7 +46,7 @@ extension CloudHandlers {
     static let listLoadWait: Duration = .seconds(25)
 
     /// `cloud list-machines`' result: `loaded`, `machines` (one object per
-    /// machine in the store), `count`, `creating` and `account`.
+    /// machine in the store), `count`, `creating`, `account` and `last_error` (why the last list read failed; null once one succeeds).
     ///
     /// `creating` lists this app's creates whose machine the server has not returned yet
     /// (``CloudCreations``, and `cloud start-session`'s, ``CloudStartRuns/creatingNames(account:)``): the name asked for, and `creating` or `failed` with its reason.
@@ -63,8 +66,8 @@ extension CloudHandlers {
         let machines: [[String: Any]] = context.services.machines.cloud.map { session in
             let machine = session.machine
             return ["machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue,
-                    "createdBy": machine.createdBy as Any, "createdAt": machine.createdAt?.timeIntervalSince1970 as Any,
-                    "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any].compacted
+                    "createdBy": machine.createdBy as Any, "createdAt": machine.createdAt?.timeIntervalSince1970 as Any, "diskAllocatedMb": machine.size?.storageMb as Any,
+                    "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any, "disk": machine.diskFacts as Any].compacted
         }
         let creating: [[String: Any]] = cloud.creations.all.filter { $0.session == nil }.map { creation in
             var failed: String?
@@ -75,7 +78,7 @@ extension CloudHandlers {
         // client sends), else for the person alone.
         let list: [String: Any] = ["loaded": loaded, "team": cloud.auth.teamID != nil, "signedIn": cloud.isSignedIn,
                                    "machines": machines, "creating": creating]
-        return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list]).merging(["account": listAccount(cloud.isSignedIn, cloud.auth.user?.id, cloud.auth.teamID), "listed_at_ms": cloud.hasCurrentList(within: .seconds(30)) ? .int(Int(Date().timeIntervalSince1970 * 1000) - 30_000) : .null]) { $1 } // read no earlier than this (a script's list is read again past 30 s)
+        return CloudHandlerRules().fields("cloud_handler_machine_list", ["list": list]).merging(["account": listAccount(cloud.isSignedIn, cloud.auth.user?.id, cloud.auth.teamID), "listed_at_ms": cloud.hasCurrentList(within: .seconds(30)) ? .int(Int(Date().timeIntervalSince1970 * 1000) - 30_000) : .null, "last_error": cloud.lastError.map(ActionResultValue.string) ?? .null]) { $1 } // listed_at_ms: read no earlier than this (a script's list is read again past 30 s)
     }
     static func listAccount(_ signedIn: Bool, _ user: String?, _ team: String?) -> ActionResultValue { .object(["signed_in": .bool(signedIn), "user_id": user.map(ActionResultValue.string) ?? .null, "team_id": team.map(ActionResultValue.string) ?? .null]) }
 }
@@ -93,8 +96,8 @@ extension CloudHandlers {
     typealias Resize = (cpu: Int?, memoryMb: Int?, storageMb: Int?, fields: [String: ActionResultValue])
 
     /// The app server's `cloud.machine.resize` args: `{machine, size: {cpu?, memory_mb?, disk_mb?}}`, only what was given.
-    static func resizeArgs(_ request: Resize, machine: String) -> [String: JSONValue] {
-        var size: [String: JSONValue] = [:]
+    static func resizeArgs(_ request: Resize, machine: String) -> [String: CmuxNextDaemon.JSONValue] {
+        var size: [String: CmuxNextDaemon.JSONValue] = [:]
         if let cpu = request.cpu { size["cpu"] = .number(Double(cpu)) }
         if let memoryMb = request.memoryMb { size["memory_mb"] = .number(Double(memoryMb)) }
         if let storageMb = request.storageMb { size["disk_mb"] = .number(Double(storageMb)) }
@@ -118,7 +121,7 @@ extension CloudHandlers {
             "machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue, "state": stats.state,
             "cpus": stats.cpus as Any, "cpuPercent": stats.cpuPercent as Any, "memoryUsedMb": stats.memoryUsedMb as Any,
             "memoryTotalMb": stats.memoryTotalMb as Any, "diskUsedMb": stats.diskUsedMb as Any, "diskTotalMb": stats.diskTotalMb as Any,
-            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop,
+            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop, "disk": machine.diskFacts as Any,
         ]
         if let cost = CloudCreationRows.cost(machine, limits: nil) {
             facts["cost"] = ["hourlyRateUsd": cost.hourlyRateUsd as Any, "runningSince": cost.runningSince?.timeIntervalSince1970 as Any,
@@ -138,5 +141,40 @@ extension CloudHandlers {
         var fields: [String: ActionResultValue] = [:]
         if case .object(let object)? = reply?["fields"].map(CloudHandlerRules.result) { fields = object }
         return (reply?["text"] as? String ?? "\(machine.title) (\(session.machineID))", fields)
+    }
+}
+
+// `cmux cloud computer-control`: its rules and trust are ChiefComputerControlStore+Actions.swift (CmuxNextHostedChief).
+extension CloudHandlers {
+    static func bindComputerControl(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services, store = services.cloud.computerControl
+        store.onHumanRequested = { [weak services] machine, state in services.map { postComputerAsk($0, machine: machine, reason: state.reason) } }
+        store.onAskEnded = { [weak services] machine in services?.notifications.desktop.withdraw(["chief-computer." + machine]) }
+        // A miss (a stale FFI pin) is noted in uncataloguedBindings, never trapped (UncataloguedBindingTests).
+        _ = registry.bindEffect("cloud.computerControl", requires: nil) { invocation in
+            store.effect(invocation, knows: { services.machines.session($0) != nil })
+        }
+        // `cmux cloud chief-computer`: a Chief of this Mac drives its own computer (ChiefComputerControlClient+Act.swift).
+        _ = registry.bindEffect("cloud.chiefComputer", requires: nil) { ChiefComputerControlClient(send: services.home.hostedChief.brainRoute).actEffect($0) }
+    }
+
+    /// The Chief's ask as a banner, by the agent source's notification rules (desktop, quiet hours,
+    /// sounds, Dock bounce), as hand-offs and Runs post theirs; withdrawn when the ask ends.
+    private static func postComputerAsk(_ services: AppServices, machine: String, reason: String?) {
+        let center = services.notifications
+        var arrival = NotificationPolicy.Arrival(source: .agent)
+        arrival.appActive = services.appActiveSource()
+        arrival.soundEvent = .message
+        let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
+        arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        var decision = NotificationPolicy(prefs: center.preferences).decide(arrival)
+        guard !decision.acknowledge, center.desktopPostingEnabled else { return }
+        center.soundGate.admit(&decision, cooldownSeconds: center.preferences.sounds.cooldownSeconds)
+        let text = ChiefComputerControlStore.askText(machine: services.machines.session(machine)?.machine.title ?? machine, reason: reason)
+        if decision.desktop {
+            center.desktop.post(id: "chief-computer." + machine, title: text.title, body: text.body, surface: nil, workspace: nil, defaultSound: decision.sound == "default")
+        }
+        if let sound = decision.sound, !decision.desktop || sound != "default" { center.soundGate.player.play(sound, volume: decision.soundVolume, banner: decision.desktop) }
+        if let mode = decision.bounce { center.dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 }

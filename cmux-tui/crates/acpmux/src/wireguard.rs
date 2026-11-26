@@ -35,7 +35,27 @@ use tokio::task::{JoinHandle, JoinSet};
 use zeroize::Zeroizing;
 
 const CONNECT_BOUND: Duration = Duration::from_secs(10);
-const MAX_BRIDGES: usize = 64;
+/// How long a restart waits for its own closed UDP socket to free the port.
+const REBIND_BOUND: Duration = Duration::from_secs(5);
+
+/// Binds `local` again after the old mesh closed its socket there. The port can stay taken
+/// for a moment after the close: a child this process is starting holds a copy of every open
+/// socket from its fork until its exec, longer on a loaded machine. So `AddrInUse` is retried
+/// until [`REBIND_BOUND`]; any other error, or one that outlasts it, is the restart's error.
+async fn rebind(local: SocketAddr) -> std::io::Result<UdpSocket> {
+    let deadline = tokio::time::Instant::now() + REBIND_BOUND;
+    loop {
+        match UdpSocket::bind(local).await {
+            Err(error)
+                if error.kind() == std::io::ErrorKind::AddrInUse
+                    && tokio::time::Instant::now() < deadline =>
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            bound => return bound,
+        }
+    }
+}
 
 /// Static interface settings. `address` is virtual: it creates no system route.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -83,7 +103,7 @@ pub(crate) type KeyUser =
 /// (`mesh_node_key::record_link_home`), else `<daemon state dir>/link` by this process's
 /// environment.
 pub(crate) fn link_state_dir() -> Option<PathBuf> {
-    crate::cli::mesh_node_key::recorded_link_dir(&crate::config::home()).or_else(env_link_state_dir)
+    crate::mesh_node_key::recorded_link_dir(&crate::config::home()).or_else(env_link_state_dir)
 }
 
 /// `<daemon state dir>/link` by this process's environment.
@@ -136,16 +156,11 @@ impl Transport {
         link_dir: Option<&Path>,
         websocket: SocketAddr,
     ) -> Result<Option<Arc<Self>>> {
-        if !config.transport.wireguard {
+        let Some(settings) = enabled_settings(config)? else {
             return Ok(None);
-        }
-        let settings = config
-            .transport
-            .wireguard_static
-            .as_ref()
-            .context("transport.wireguard requires wireguardStatic settings")?;
+        };
         let target = local_websocket(websocket)?;
-        if crate::cli::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
+        if crate::mesh_node_key::link_serves_node_key(link_dir, state_dir) {
             tracing::info!(
                 "WireGuard transport off: the cmux link holds this machine's WireGuard key; peers with a link route use the link, the others their URL or ssh"
             );
@@ -178,28 +193,16 @@ impl Transport {
         socket: UdpSocket,
         key: KeyHolder,
     ) -> Result<Arc<Self>> {
-        ensure!(settings.address.port() != 0, "WireGuard service port must be nonzero");
-        ensure!(
-            !settings.address.ip().is_unspecified() && !settings.address.ip().is_multicast(),
-            "WireGuard service address must be unicast"
-        );
+        check_service(settings)?;
         let websocket = local_websocket(websocket)?;
         let local = socket.local_addr()?;
-        let (_, private_key) = crate::cli::mesh_node_key::load_or_create_held(state_dir, &key)?;
+        let (_, private_key) = crate::mesh_node_key::load_or_create_held(state_dir, &key)?;
         let mesh = WgMesh::start(mesh_config(private_key, settings.address), socket)?;
         let mut routes = BTreeMap::new();
         let mut peers: BTreeMap<[u8; 32], WgPeer> = BTreeMap::new();
         for (name, peer) in configured {
             let Some(peer) = &peer.wireguard else { continue };
-            let public_key = public_key(&peer.public_key)?;
-            ensure!(
-                peer.address.port() != 0
-                    && peer.address.ip() != settings.address.ip()
-                    && peer.address.is_ipv4() == settings.address.is_ipv4()
-                    && !peer.address.ip().is_unspecified()
-                    && !peer.address.ip().is_multicast(),
-                "invalid WireGuard peer service address"
-            );
+            let public_key = check_peer(settings, peer)?;
             let endpoints = tokio::time::timeout(
                 CONNECT_BOUND,
                 tokio::net::lookup_host(peer.endpoint.as_str()),
@@ -325,7 +328,7 @@ impl Transport {
         if let Some(old) = mesh.take() {
             old.shutdown().await;
         }
-        let socket = UdpSocket::bind(self.local).await.context("bind WireGuard UDP again")?;
+        let socket = rebind(self.local).await.context("bind WireGuard UDP again")?;
         let fresh = WgMesh::start(mesh_config(private_key, self.service), socket)?;
         for peer in &self.peers {
             fresh.add_peer(peer.clone()).await?;
@@ -381,11 +384,11 @@ impl Transport {
             let home = state_dir.to_path_buf();
             let wanted = tokio::task::spawn_blocking(move || {
                 let link_dir =
-                    crate::cli::mesh_node_key::recorded_link_dir(&home).or_else(env_link_state_dir);
+                    crate::mesh_node_key::recorded_link_dir(&home).or_else(env_link_state_dir);
                 // Cheap first (two reads); the full check (with the clone check) only then.
                 link_dir.as_deref().is_some_and(|dir| {
                     dir.join("config.json").is_file()
-                        && crate::cli::mesh_node_key::link_serves_node_key(Some(dir), &home)
+                        && crate::mesh_node_key::link_serves_node_key(Some(dir), &home)
                 })
             })
             .await
@@ -449,6 +452,55 @@ fn mesh_config(private_key: Zeroizing<[u8; 32]>, service: SocketAddr) -> WgMeshC
     }
 }
 
+/// The static settings the transport starts with: None while `transport.wireguard` is off, else
+/// the `wireguardStatic` block once it and every configured WireGuard peer pass the checks the
+/// start makes before it binds anything. The daemon's start check (`config/start_check.rs`), which
+/// `config --set` and `_acpmux/reload_config` run too, calls this, so a config the CLI writes is
+/// one the transport starts with. No key, socket or DNS lookup.
+pub(crate) fn enabled_settings(config: &crate::config::Config) -> Result<Option<&StaticConfig>> {
+    if !config.transport.wireguard {
+        return Ok(None);
+    }
+    let settings = config.transport.wireguard_static.as_ref().context(
+        "transport.wireguard needs transport.wireguardStatic.listen (this machine's WireGuard UDP \
+         address, e.g. 0.0.0.0:51820) and transport.wireguardStatic.address (its virtual service \
+         address, e.g. 10.77.0.1:4100) in config.json, and a wireguard block on each peer it \
+         reaches. The hub carrier (`cmux remote ... --via-machine`) needs neither: it runs on the \
+         node key alone",
+    )?;
+    check_service(settings).context("transport.wireguardStatic.address")?;
+    for (name, peer) in &config.peers {
+        if let Some(wireguard) = &peer.wireguard {
+            check_peer(settings, wireguard).with_context(|| format!("peers.{name}.wireguard"))?;
+        }
+    }
+    Ok(Some(settings))
+}
+
+/// This machine's virtual service address: a nonzero port on a unicast address.
+fn check_service(settings: &StaticConfig) -> Result<()> {
+    ensure!(settings.address.port() != 0, "WireGuard service port must be nonzero");
+    ensure!(
+        !settings.address.ip().is_unspecified() && !settings.address.ip().is_multicast(),
+        "WireGuard service address must be unicast"
+    );
+    Ok(())
+}
+
+/// A peer's key (returned) and virtual service address, beside this machine's `settings`.
+fn check_peer(settings: &StaticConfig, peer: &StaticPeer) -> Result<[u8; 32]> {
+    let key = public_key(&peer.public_key)?;
+    ensure!(
+        peer.address.port() != 0
+            && peer.address.ip() != settings.address.ip()
+            && peer.address.is_ipv4() == settings.address.is_ipv4()
+            && !peer.address.ip().is_unspecified()
+            && !peer.address.ip().is_multicast(),
+        "invalid WireGuard peer service address"
+    );
+    Ok(key)
+}
+
 fn host_prefix(ip: IpAddr) -> u8 {
     if ip.is_ipv4() { 32 } else { 128 }
 }
@@ -494,7 +546,8 @@ async fn bridge(mut listener: WgMeshListener, target: SocketAddr, mut stop: watc
             Some(_) = connections.join_next(), if !connections.is_empty() => {},
             accepted = listener.accept() => {
                 let Some((stream, _authenticated_key)) = accepted else { break };
-                if connections.len() >= MAX_BRIDGES { continue; }
+                // No count cap: each bridge is one TCP socket to `target` for an
+                // authenticated mesh peer; a failed connect drops just that stream.
                 let stop = stop.clone();
                 connections.spawn(async move {
                     let Ok(Ok(local)) = tokio::time::timeout(CONNECT_BOUND, TcpStream::connect(target)).await

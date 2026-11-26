@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 const AT: u64 = 1_791_540_000_000;
 
 /// A home on disk: v1's store and its hub, with the tee installed when `books` is on.
-pub(super) struct Home {
+pub(crate) struct Home {
     pub dir: PathBuf,
     _temp: Option<tempfile::TempDir>,
     pub hub: Arc<Hub>,
@@ -49,7 +49,7 @@ impl Home {
 }
 
 /// Chats `(id, messages, bytes)` written through a store at `dir`, then a hub over them, loaded.
-pub(super) async fn home_at(dir: PathBuf, chats: &[(String, usize, u64)], books: bool) -> Home {
+pub(crate) async fn home_at(dir: PathBuf, chats: &[(String, usize, u64)], books: bool) -> Home {
     let mut config = crate::config::Config::default();
     config.store.mode = crate::config::StoreMode::Local;
     let store = crate::store::open(&config.store, &dir).unwrap();
@@ -79,7 +79,7 @@ pub(super) async fn home_at(dir: PathBuf, chats: &[(String, usize, u64)], books:
     Home { dir, _temp: None, hub, tee }
 }
 
-pub(super) async fn home(chats: &[(String, usize, u64)], books: bool) -> Home {
+pub(crate) async fn home(chats: &[(String, usize, u64)], books: bool) -> Home {
     let temp = tempfile::tempdir().unwrap();
     let mut home = home_at(temp.path().to_path_buf(), chats, books).await;
     home._temp = Some(temp);
@@ -278,7 +278,8 @@ async fn a_notice_to_a_full_mailbox_or_a_failed_chat_is_dropped_and_loses_nothin
     let book = home.book(&chat(0));
     wait_for("the last line saved", Duration::from_secs(120), || cursor(&book) == Some(seq + 1))
         .await;
-    assert!(handle.ready() && handle.failures() == 0);
+    assert!(handle.wait_ready().await, "the actor is ready after the gate opens");
+    assert_eq!(handle.failures(), 0);
     assert!(tee.registry().evict(&chat(0)));
     assert_eq!(cursor(&book), Some(seq + 1), "every line the notices told of is in the book");
 

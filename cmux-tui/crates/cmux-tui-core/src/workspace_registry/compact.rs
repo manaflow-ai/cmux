@@ -20,6 +20,7 @@
 
 use super::open_guard::{refuse_orphaned_journal, sidecar_path};
 use super::*;
+use cmux_file_lock::LockError;
 
 /// What [`compact_registry`] did.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,9 +96,7 @@ pub fn compact_registry(
 /// failure to report as is.
 fn classify_lock_error(error: anyhow::Error) -> RegistryCompactError {
     let held = error.chain().any(|cause| {
-        cause
-            .downcast_ref::<fs4::TryLockError>()
-            .is_some_and(|error| matches!(error, fs4::TryLockError::WouldBlock))
+        cause.downcast_ref::<LockError>().is_some_and(|error| matches!(error, LockError::Busy(_)))
     });
     if held {
         RegistryCompactError::OwnerRunning(error)

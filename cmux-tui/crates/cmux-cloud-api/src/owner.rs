@@ -1,7 +1,7 @@
 //! The cmux API Worker's routes a person's own session calls outside the op path
 //! (`ownerAPIBaseURL`; cx-kvmz): the keyed acpmux start and its person_holds check on a Cloud
-//! machine, a fork run, the person's hand-offs and their turns, the harness login copy switch
-//! and the GitHub App status. The person key goes only in a request body; nothing is retried.
+//! machine, a fork run (`fork_runs.rs`), the person's hand-offs and their turns, the harness login copy switch
+//! and the GitHub App status, repository list and Connect GitHub. The person key goes only in a request body; nothing is retried.
 
 use std::time::Duration;
 
@@ -13,7 +13,7 @@ use serde_json::{Map, Value, json};
 use zeroize::Zeroizing;
 
 use super::http::{Body, Http, path_text, worker_error};
-use super::{Failure, optional_int, text};
+use super::{Failure, optional_int, optional_text, text};
 
 /// The longest the store holds one hand-off wait (`MAX_WAIT_MS`).
 pub(crate) const HANDOFF_WAIT_LIMIT_MS: i64 = 25_000;
@@ -74,7 +74,7 @@ pub(crate) async fn run(
                 ))),
             }
         }
-        "owner.fork_run" => fork_run(http, args).await,
+        "owner.fork_run" => crate::fork_runs::run(http, args).await,
         "owner.handoff_wait" => {
             let id = text(args, "id")?;
             if !is_handoff_id(id) {
@@ -120,6 +120,8 @@ pub(crate) async fn run(
             harness_login_copy(&body)
         }
         "owner.github_app" => github_app(http, text(args, "team")?).await,
+        "owner.github_repos" => github_repos(http, args).await,
+        "owner.github_connect" => github_connect(http, args).await,
         other => Err(Failure::Transport(format!("no cloud api call {other:?}"))),
     }
 }
@@ -208,50 +210,6 @@ async fn get(
         return Err(worker_error(reply.status, reply.json().as_ref()));
     }
     reply.json().ok_or_else(|| Failure::Decoding(format!("{path}: the answer is not JSON")))
-}
-
-/// `POST /v1/workspaces/{workspace}/fork-runs`: snapshots the source machine now and creates
-/// one durable child per harness. The value is a list, `{children}`, or one child; answers the list.
-async fn fork_run(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
-    let workspace = text(args, "workspace")?;
-    if !all(workspace, 128, id_byte) {
-        return Err(Failure::Transport("not a workspace id".into()));
-    }
-    let body = json!({
-        "clientKey": text(args, "clientKey")?, "sourceMachine": text(args, "sourceMachine")?,
-        "session": text(args, "session")?, "harnesses": args.get("harnesses").cloned().unwrap_or_else(|| json!([])),
-    });
-    let segments = ["v1", "workspaces", workspace, "fork-runs"];
-    let value = post_value(http, &segments, Body::Json(body), Duration::from_secs(180)).await?;
-    fork_children(value)
-        .ok_or_else(|| Failure::Decoding(format!("{}: no children", path_text(&segments))))
-}
-
-/// The children of a fork run's value, each `{id, harness, state, machineId?, error?}`.
-pub(crate) fn fork_children(value: Value) -> Option<Value> {
-    let list = match value {
-        Value::Array(list) => list,
-        Value::Object(mut object) => match object.remove("children") {
-            Some(Value::Array(list)) => list,
-            Some(Value::Null) | None => vec![Value::Object(object)],
-            Some(_) => return None,
-        },
-        _ => return None,
-    };
-    let child = |v: &Value| {
-        let text = |name: &str| v.get(name).and_then(Value::as_str);
-        // Absent or null is null; any other value than a string is no child.
-        let optional = |name: &str| match v.get(name) {
-            None | Some(Value::Null) => Some(Value::Null),
-            Some(Value::String(s)) => Some(json!(s)),
-            Some(_) => None,
-        };
-        Some(json!({
-            "id": text("id")?, "harness": text("harness")?, "state": text("state")?,
-            "machineId": optional("machineId")?, "error": optional("error")?,
-        }))
-    };
-    list.iter().map(child).collect::<Option<Vec<_>>>().map(Value::Array)
 }
 
 /// The most pages `owner.handoffs` reads (100 hand-offs each).
@@ -364,6 +322,112 @@ async fn github_app(http: &Http, team: &str) -> Result<Value, Failure> {
         Err(_) => "unknown",
     };
     Ok(json!({ "state": state }))
+}
+
+/// `team` when it is a team id (`team_` and up to 120 letters, digits, `_` or `-`): the only
+/// team text that reaches a GitHub call's URL or team header.
+pub(crate) fn team_id(team: &str) -> Result<&str, Failure> {
+    let id = team.strip_prefix("team_").unwrap_or_default();
+    if team.starts_with("team_") && all(id, 120, id_byte) {
+        Ok(team)
+    } else {
+        Err(Failure::Transport("not a team id".into()))
+    }
+}
+
+/// The longest repository filter the Worker takes.
+const GITHUB_QUERY_MAX: usize = 256;
+
+/// `GET /v1/integrations/github/repos?team=&query=&cursor=` with the person's session and no team
+/// header: the repositories the cmux GitHub App reaches for `team`, filtered by `query` (any part of
+/// `owner/name`, any case). Answers `{repos: [{full_name, private, default_branch}], truncated,
+/// cursor}`; `truncated` says more remain and `cursor` continues the list. A team with no GitHub
+/// connection is `github.not_connected` (the Worker's `integration.not_found`).
+async fn github_repos(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
+    let mut query = vec![("team", team_id(text(args, "team")?)?.to_owned())];
+    if let Some(filter) = optional_text(args, "query").map(str::trim).filter(|q| !q.is_empty()) {
+        if filter.chars().count() > GITHUB_QUERY_MAX || filter.chars().any(char::is_control) {
+            return Err(Failure::Transport(format!(
+                "a repository filter is at most {GITHUB_QUERY_MAX} characters of text"
+            )));
+        }
+        query.push(("query", filter.to_owned()));
+    }
+    if let Some(cursor) = optional_text(args, "cursor").filter(|c| !c.is_empty()) {
+        if cursor.len() > 4096 || !cursor.bytes().all(|b| id_byte(b) || b == b'.') {
+            return Err(Failure::Transport("not a repository list cursor".into()));
+        }
+        query.push(("cursor", cursor.to_owned()));
+    }
+    let segments = ["v1", "integrations", "github", "repos"];
+    // The Worker walks up to ten GitHub pages for one answer.
+    match get(http, &segments, &query, Duration::from_secs(60)).await {
+        Ok(body) => github_repo_list(&body).ok_or_else(|| {
+            Failure::Decoding(format!("{}: no repository list", path_text(&segments)))
+        }),
+        Err(Failure::Http { status: 404, code: Some(code), message, .. })
+            if code == "integration.not_found" =>
+        {
+            Err(Failure::http(404, Some("github.not_connected".into()), message))
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// The repository list route's answer, each row checked (`owner/name`, a boolean `private`, a
+/// default branch or null), or none when it is not one.
+pub(crate) fn github_repo_list(body: &Value) -> Option<Value> {
+    let rows = body.get("repos")?.as_array()?;
+    let mut repos = Vec::with_capacity(rows.len());
+    for row in rows {
+        let name = row.get("full_name")?.as_str()?;
+        let (owner, repo) = name.split_once('/')?;
+        if owner.is_empty() || repo.is_empty() || repo.contains('/') || name.len() > 200 {
+            return None;
+        }
+        let branch = match row.get("default_branch") {
+            None | Some(Value::Null) => Value::Null,
+            Some(Value::String(b)) if !b.is_empty() => json!(b),
+            Some(_) => return None,
+        };
+        repos.push(json!({
+            "full_name": name, "private": row.get("private")?.as_bool()?, "default_branch": branch,
+        }));
+    }
+    let cursor = match body.get("cursor") {
+        None | Some(Value::Null) => Value::Null,
+        Some(Value::String(c)) => json!(c),
+        Some(_) => return None,
+    };
+    let truncated = body.get("truncated").and_then(Value::as_bool).unwrap_or(!cursor.is_null());
+    Some(json!({ "repos": repos, "truncated": truncated, "cursor": cursor }))
+}
+
+/// `POST /v1/ops` `integration.connect {provider: "github"}` in the team the team header names:
+/// the GitHub App's install page for the person to open. `idempotencyKey` keeps a retry on the same
+/// pending connection. Answers `{authorize_url, connection}`; a deployment without the app answers
+/// the Worker's `integration.not_configured`.
+async fn github_connect(http: &Http, args: &Map<String, Value>) -> Result<Value, Failure> {
+    let key = match optional_text(args, "idempotencyKey") {
+        Some(key) if all(key, 128, id_byte) => key.to_owned(),
+        Some(_) => return Err(Failure::Transport("not an idempotency key".into())),
+        None => uuid::Uuid::new_v4().to_string(),
+    };
+    let body = json!({
+        "op": "integration.connect", "params": { "provider": "github" },
+        "origin": "user", "idempotency_key": key,
+    });
+    let segments = ["v1", "ops"];
+    let value = post_value(http, &segments, Body::Json(body), Duration::from_secs(20)).await?;
+    let url =
+        value.get("authorize_url").and_then(Value::as_str).filter(|u| u.starts_with("https://"));
+    let connection = value.pointer("/connection/id").and_then(Value::as_str);
+    match (url, connection) {
+        (Some(url), Some(connection)) => {
+            Ok(json!({ "authorize_url": url, "connection": connection }))
+        }
+        _ => Err(Failure::Decoding(format!("{}: no install page", path_text(&segments)))),
+    }
 }
 
 /// The status route's answer (`{configured, app_slug, allowed?, connection: {status} | null}`,

@@ -73,7 +73,7 @@ struct PasswordExportOffTests {
         defer { try? FileManager.default.removeItem(at: home) }
         let file = home.appending(path: "cmux-next.json")
         try Data("{}".utf8).write(to: file)
-        let settings = SettingsController(registry: .standard(), design: DesignSettings(), fileURL: file,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: .standard(), design: DesignSettings(), fileURL: file,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let destination = home.appending(path: "passwords.csv")

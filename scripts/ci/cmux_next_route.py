@@ -18,7 +18,8 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
   swift       the CmuxNext test targets the change can affect, from the SwiftPM
               target graph (Packages/macOS/CmuxNext/ci-target-graph.json)
   daemon      the daemon, Rust core, FFI or control paths: the same-tree
-              cmux-tui fetch and the live-daemon suites
+              cmux-tui fetch and the live-daemon suites, routed from the crate
+              graph of the binaries it fetches (scripts/ci/affected-jobs.json)
   fast_tier   the Mac half of the PR fast tier (scripts/cmux-next/fast-tier.json
               `swift` entries): one `swift build --build-tests` of the CmuxNext
               package and a few of its suites. Only a change to what that build
@@ -44,6 +45,12 @@ names the base and the change leaves every job a Mac job runs or needs as it was
 changed Mac job WORKFLOW_JOB_TIERS lists runs only its own tiers. When the base workflow
 cannot be read or parsed, every tier runs.
 
+A pull request a running app takes live is hot-only (hot_only_layers): each changed file is a web bundle
+source or daemon Rust that scripts/cmux-next/hot-apply.py swaps in (live_apply.py's web-live and daemon kinds,
+less Rust the app links or bundles, the web ABI and files a Swift test reads), or a file that reaches no app
+tier by itself. It runs no app compile or package test tier: ci-web, the cargo jobs, the signed tree publish,
+hot-verify and the daemon tier check it. `hot_only` and `hot_layers` say so.
+
 Pushes, dispatches and pull requests labeled `full-ci` run every tier. The
 workflow runs the tiers picked here on every same-repository pull request; a
 fork pull request runs the heavier Mac tiers only with `full-ci`. A changed file this script cannot place selects every
@@ -61,6 +68,7 @@ import functools
 import importlib.util
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -109,23 +117,30 @@ VENDORED_PINS = (
 LIVE_DAEMON_SUBJECTS = ("CmuxNextDaemon", "CmuxNextMobile")
 # Control forwards CLI verbs to cmux-tui: its own sources reach the daemon.
 DAEMON_DIRECT_TARGETS = ("CmuxNextControl", "CmuxNextDaemonTests", "CmuxNextMobileTests", "CmuxNextControlTests")
-DAEMON_PATHS = (
-    "plans/cmux-next/daemon-capabilities.json",
-    "scripts/cmux-next/pin-cmux-tui.sh",
-    "scripts/cmux-next/check-daemon-capabilities.sh",
-    "scripts/cmux-next/cmux-tui.pin",
-    PACKAGE + "Tests/CmuxNextAppTests/FirstLaunchTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/MarkdownPageFindTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/FileSourceSwitchTests.swift",
-    # The classic import and migration suites start the live daemon too.
-    PACKAGE + "Tests/CmuxNextAppTests/ClassicImportTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulationTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeHugeSimulationTests.swift",
-    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulator.swift",
-    PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicSessions.swift",
-    PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift",
-)
+# The daemon tier is cmux-next.yml's daemon-test job, routed from the crate graph through the map the cmux-tui jobs
+# share (scripts/ci/affected-jobs.json, scripts/ci/affected_jobs.py): the crates of the binaries it fetches
+# (`pin-cmux-tui.sh fetch`) and every crate and file they reach, the tree build's recipe, and its own scripts and
+# suites. `affected_jobs.py check` fails when the job runs a script, or the tree key holds an input, that is not one
+# of them, or when this workflow's paths miss one.
+AFFECTED_JOBS_MAP = "scripts/ci/affected-jobs.json"
+DAEMON_JOB = "daemon-test"
+
+
+def _daemon_map_inputs(root: Path) -> tuple[str, ...]:
+    """The map's daemon-test inputs, read from ROOT; beside this file when ROOT lacks it (the routing replay copies
+    the base's router and map out of git into one directory: cmux_next_route_replay.py load_router)."""
+    path = root / AFFECTED_JOBS_MAP
+    if not path.is_file():
+        path = Path(__file__).resolve().parent / Path(AFFECTED_JOBS_MAP).name
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for entry in data["workflows"].values():
+        if DAEMON_JOB in entry["jobs"]:
+            return tuple(entry.get("inputs", [])) + tuple(entry["jobs"][DAEMON_JOB].get("inputs", []))
+    raise SystemExit(f"cmux_next_route: {AFFECTED_JOBS_MAP} lists no {DAEMON_JOB}")
+
+
+# The daemon-test job's own files (its scripts, the suites its filter names): the map's, read once.
+DAEMON_PATHS = tuple(path for path in _daemon_map_inputs(ROOT) if not path.endswith("/"))
 
 # The Mac fast tier's own registry and runner (fast-tier.py reads fast-tier.json and quarantine.json).
 NO_FAST_TIER_REASON = "(no Mac fast tier)"
@@ -152,7 +167,11 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-app-ffi/",
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
+    "cmux-tui/crates/cmux-tab-discard/",
+    "cmux-tui/crates/cmux-browser-rules/",
     "cmux-tui/crates/cmux-cloud-config/",
+    "cmux-tui/crates/cmux-cloud-environment/",
+    "cmux-tui/crates/cmux-build-space/",
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
     "cmux-tui/crates/cmux-cloud-tasks/",
@@ -160,6 +179,9 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-daemon-conn-core/",
     "cmux-tui/crates/cmux-daemon-launch-core/",
     "cmux-tui/crates/cmux-health-core/",
+    "cmux-tui/crates/cmux-launch-image/",
+    "cmux-tui/crates/cmux-pane-pictures/",
+    "cmux-tui/crates/cmux-screenshots/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
@@ -196,6 +218,22 @@ GENERATED_INPUTS = (
     "scripts/cmux-next/check-settings-exports.sh",
     "scripts/cmux-next/settings-exports.txt",
 )
+
+# Under PACKAGE, the generated files job's verdict reads only the generators' own inputs: the action exports
+# are judged against the CmuxNextActionsTests closure (scripts/cmux-next/action_export_inputs.py, the set
+# judge-action-exports.sh keys and judges a stale export by), and the settings exports are re-exported only when
+# the source stamp's files change (check-settings-exports.sh, defaults_guard.py SETTINGS_SOURCE_DIR and
+# SETTINGS_EXPORTER_FILES). A pull request that changes neither gets the base's verdict there, which the base push
+# run already reports; on 2026-11-21 06-16Z 104 of 290 pull request runs of the job (3,921 runner-minutes, 35%)
+# changed no such path. Leo: "CI runner-minutes per merged PR drop 10x ... by skipping jobs whose result is
+# predictable".
+ACTION_EXPORT_INPUTS = "scripts/cmux-next/action_export_inputs.py"
+SETTINGS_EXPORT_INPUTS = (
+    PACKAGE + "Sources/CmuxNextSettings/",
+    PACKAGE + "Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
+    PACKAGE + "Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
+)
+NO_GENERATOR_INPUT_REASON = "(no generator input)"
 
 # The PR's Mac Release compile (check-release-compile.sh) builds the CmuxNext package, scheme
 # CmuxNextApp, with xcodebuild: not the Xcode app target (App/, Resources/, cmux.xcodeproj and its
@@ -273,6 +311,20 @@ BUNDLE_INPUTS = (
     "schemas/design-scale/design-scale.json",
     # The theme slots the slot registry imports (src/slots/registry.ts).
     "schemas/theme/slots.json",
+    # The layout-motion contract the motion judge imports (src/layout/motionContract.ts).
+    "schemas/layout-motion/contract.json",
+    # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
+    "schemas/transcript-look/transcript-look.json",
+    # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
+    "examples/gallery/gallery.json", "examples/looks/*",
+    # The key styles the key presentation imports (src/ui/keyStyle.ts).
+    "schemas/keymap/key-styles.json",
+    # The overlay surface roles the shared surface imports (src/ui/surface/Surface.tsx).
+    "schemas/surface-roles/surface-roles.json",
+    # The scene type scale the scene app imports (src/apps/scene/sceneStyle.ts).
+    "schemas/type-scale/scene-type.json",
+    # The Cloud page's declaration the confirm count reads (src/agent-session/acpmux/cloudErgonomics/confirms.ts).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
@@ -292,7 +344,7 @@ CHECKED_WEB_BUNDLES = (
 # Release or scheme compile: #29013 (images/cmux-vm/inputs.lock.json) waited 80 minutes on a fleet
 # Release compile its diff could not change. A test target that reads one still runs (consumed()).
 NO_APP_INPUT = (
-    "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
+    "images/*", "services/*", "vault/*", "agent-chat/*", "markdown-obsidian-parity/*",
     "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
     # Script directories under scripts/cmux-next/ that only a workflow or a person runs, and that
     # import nothing of the app's and nothing of the app's imports: the classic -> NEXT migration CLI
@@ -323,7 +375,7 @@ CI_ONLY = (
     # merge drivers, web lints, the CEF embedder fleet step, the tagged-app launcher, the TestFlight notes step
     # that runs after upload. A Mac tier that reads one still runs (consumed()).
     ".github/github-token-budget.json", ".github/runners.json",
-    "scripts/install-git-hooks.sh", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
+    "scripts/install-git-hooks.sh", "scripts/merge-cargo-lock.py", "scripts/merge-pbxproj.py", "scripts/merge-xcstrings.py",
     "scripts/web-lint.sh", "scripts/web_lint_prepush.py", "scripts/lib/reload-shim.test.mjs",
     "scripts/cef/test-embedder-step.sh", "scripts/cef/tests/test-embedder-step.test.sh",
     "scripts/launch-tagged-automation.sh", "cmux-next-ios/scripts/set-test-notes.sh",
@@ -350,6 +402,9 @@ NATIVE_SCRIPT_INPUTS = (
     # The acpmux build reload.sh runs for the dev app's bundled acpmux: its shipping feature list and the
     # Go toolchain it sources.
     "scripts/ci/acpmux-build-features.sh", "scripts/ci/tailnet-go.sh",
+    # The Screen Sharing helper identity check sign-cmux-bundle.sh runs, and the stall bound
+    # ensure-cef.sh wraps its CEF download in.
+    "scripts/ci/check-screen-share-identity.sh", "scripts/ci/timeout.sh",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
@@ -452,6 +507,30 @@ def generated_output(root: Path, path: str) -> bool:
         return True
 
 
+def action_export_closure(root: Path) -> tuple[str, ...] | None:
+    """The action exports' inputs (action_export_inputs.py on this tree's target graph); None when either cannot be
+    read, so every PACKAGE path counts."""
+    if ("actions", root) not in _READ:
+        try:
+            spec = importlib.util.spec_from_file_location("cmux_next_action_export_inputs", root / ACTION_EXPORT_INPUTS)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            _READ["actions", root] = tuple(module.inputs(load_graph(root)))
+        except (OSError, ImportError, AttributeError, SyntaxError, SystemExit, ValueError, KeyError, TypeError):
+            _READ["actions", root] = None
+    return _READ["actions", root]
+
+
+def generator_input(root: Path, path: str) -> bool:
+    """Whether the generated files job's verdict reads `path` (GENERATED_INPUTS, narrowed under PACKAGE)."""
+    if not matches(path, PACKAGE):
+        return any(matches(path, prefix) for prefix in GENERATED_INPUTS)
+    closure = action_export_closure(root)
+    if closure is None:
+        return True
+    return any(matches(path, prefix) for prefix in closure + SETTINGS_EXPORT_INPUTS) or generated_output(root, path)
+
+
 def names(literal: str, name: str) -> bool:
     return literal == name or literal.endswith("/" + name)
 
@@ -533,6 +612,10 @@ class Route:
     priority_suites: set[str] = field(default_factory=set)
     swift_canary_targets: set[str] = field(default_factory=set)
     reasons: list[str] = field(default_factory=list)
+    # Every changed file is web or daemon Rust a running app takes live, or a file no app tier reads
+    # (hot_only_layers): the app build and test tiers are off, the daemon tier stays.
+    hot_only: bool = False
+    hot_layers: dict[str, list[str]] = field(default_factory=dict)
 
     def everything(self, reason: str) -> None:
         self.full = self.native = self.scheme = self.generated = self.swift = self.daemon = True
@@ -540,8 +623,10 @@ class Route:
         self.reasons.append(reason)
 
     def macos(self) -> bool:
-        """Any tier that needs a Mac: the placement job places these runs."""
-        return self.native or self.webview or self.swift or self.generated or self.daemon
+        """Any tier that needs a Mac: the placement job places these runs. The Mac fast tier is one: a change
+        only it reads (its registry, runner or job action, outside every Swift compile's inputs since #48937)
+        must still place it."""
+        return self.native or self.webview or self.swift or self.generated or self.daemon or self.fast_tier()
 
     def fast_tier(self) -> bool:
         """The Mac fast tier's package build or suites can change: a package target's sources, a file its
@@ -549,6 +634,44 @@ class Route:
         the Mac Release compile sees, or an input of every tier. A pure app FFI re-pin runs only handler coverage."""
         return (self.ffi_repin or self.full or self.package_build or self.fast_reads or self.fast_package or self.mac_release
                 or self.swift_canary or self.fast_registry)
+
+
+@dataclass
+class DaemonGraph:
+    """What the daemon tier reads, from the crate graph at ROOT's HEAD (affected_jobs.placement)."""
+    inputs: list[str]
+    placement: object  # affected_jobs.Placement
+    present: frozenset[str] = frozenset()  # every path in ROOT's HEAD tree
+
+    def reason(self, path: str) -> str | None:
+        if self.placement.unknown(path):
+            return f"{path} is under cmux-tui/ in no Cargo package and no job's input: the daemon tier runs"
+        # An entry is a file, or a directory with or without its "/" (a gitlink: the submodule's path itself).
+        hit = next((entry for entry in self.inputs
+                    if path == entry.rstrip("/") or path.startswith(entry.rstrip("/") + "/")), None)
+        if hit is None:
+            return None
+        return f"{path} reaches the daemon ({hit} is an input of {AFFECTED_JOBS_MAP} {DAEMON_JOB})"
+
+
+def daemon_graph(root: Path) -> DaemonGraph | None:
+    """The daemon tier's inputs at ROOT's HEAD, read once per commit. None when the graph cannot be read (no tomllib
+    before Python 3.11, a partial clone, a manifest it cannot parse): the daemon tier then routes by the tree key's
+    inputs, every file the published binaries' key holds."""
+    try:
+        import affected_jobs  # noqa: PLC0415 - cargo_test_verdict needs tomllib (Python 3.11)
+        import git_tree  # noqa: PLC0415
+        head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+        key = ("daemon", str(root.resolve()), head)
+        if key not in _READ:
+            with git_tree.GitTree(root, head) as tree:
+                found = affected_jobs.placement(DAEMON_JOB, tree, root)
+                present = frozenset(tree.entries())
+            _READ[key] = DaemonGraph(found.inputs, found, present)
+        return _READ[key]
+    except Exception:  # noqa: BLE001 - unreadable: never fewer daemon runs than the tree key gives
+        return None
 
 
 def load_graph(root: Path) -> dict:
@@ -571,6 +694,26 @@ import re  # noqa: E402 - the Cargo and Xcode project readers below
 CMUX_TUI = "cmux-tui/"
 # The routing replay (cmux_next_route_replay.py) accepts dropped native and scheme tiers with this reason.
 NO_SWIFT_COMPILE_REASON = "(no Swift compile reads it)"
+# Top-level trees no Swift compile of the app reads. The pull request compiles (the build fleet's SwiftPM app
+# compile, `app-compile-fleet`, and its Release -Onone compile, `compile-status`) build Packages/ only: the
+# recipe (cmuxterm-hq build-fleet/swift-linux-builder/pool/recipe-swift-check.sh --app) keys its verdict on
+# Packages/macOS/CmuxNext, its local packages, App/, cmux.xcodeproj and the ghostty gitlinks, runs no script of
+# this repository and copies no resource; every Package.swift reads only files under Packages/. These trees are
+# build and packaging scripts, tests, Rust the scheme's build phases build (Native/), other apps and services:
+# the app scheme compile (`scheme`) still runs for them, `native` does not. A file here that the build or its
+# packaging names keeps `native` through NATIVE_SCRIPT_INPUTS, MAC_RELEASE_INPUTS or BUNDLE_INPUTS, which are
+# read first. Any other top-level path still runs `native`.
+# Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period".
+NO_SWIFT_COMPILE_ROOTS = (
+    "scripts/", "tests/", "Native/", ".github/", "backend/", "examples/", "experiments/", "samples/", "evals/",
+    "first-party-apps/", "cmux-next-ios/", "ios/",
+)
+
+
+def no_swift_compile_root(path: str) -> bool:
+    return path.startswith(NO_SWIFT_COMPILE_ROOTS)
+
+
 APP_FFI_CRATE = "cmux-tui/crates/cmux-app-ffi"
 APP_PROJECT = "cmux.xcodeproj/project.pbxproj"
 CARGO_PATH = re.compile(r'path\s*=\s*"([^"]+)"')
@@ -845,7 +988,7 @@ def split_top(text: str, operator: str) -> list[str] | None:
 
 def linux_values(expression: str) -> bool:
     """Whether every value an expression can give is a Linux label: `a && b || c` gives b or c, so each
-    `||` alternative's last `&&` operand must be a literal naming ubuntu or a variable whose name says
+    `||` alternative's last `&&` operand must be a literal naming ubuntu, 'cmux-linux', or a variable whose name says
     LINUX (a parenthesised group is read the same way). Anything else may be a Mac."""
     alternatives = split_top(expression.strip(), "||")
     if not alternatives:
@@ -859,18 +1002,11 @@ def linux_values(expression: str) -> bool:
             if not linux_values(value[1:-1]):
                 return False
         elif re.fullmatch(r"'[^']*'", value):
-            if "ubuntu" not in value:
+            if "ubuntu" not in value and value != "'cmux-linux'":
                 return False
-        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value) and value not in PORTABLE_RUNNERS:
+        elif not (re.fullmatch(r"vars\.\w+", value) and "LINUX" in value):
             return False
     return True
-
-
-# Portable placement (scripts/ci/portable_job_placement.py) puts a job that needs neither Linux nor
-# Blacksmith on fleet Linux or a free mini. The job runs the same scripts either way, none of the
-# app's Mac tiers, so its outputs count as Linux here: an edit to such a job runs no Mac tier.
-PORTABLE_RUNNERS = frozenset(
-    f"needs.portable-placement.outputs.{output}" for output in ("linux_runner", "mini_runner"))
 
 
 def linux_runs_on(value) -> bool:
@@ -931,6 +1067,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "release-compile": ("native", "mac_release"),
     "app-compile-fleet": ("native",),
     "cmux-scheme-compile": ("native", "scheme"),
+    "cmux-scheme-compile-fleet": ("native", "scheme"),
 }
 # The tiers a Route can take from WORKFLOW_JOB_TIERS (its attribute names; "swift" also sets all_tests).
 WORKFLOW_TIER_FIELDS = ("swift", "generated", "daemon", "native", "mac_release", "scheme")
@@ -1097,6 +1234,101 @@ def pure_ffi_repin(root: Path, changed: list[str] | None, base_rev: str | None) 
 
 def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
           base_workflow: str | None = None, repin: str | None = None) -> Route:
+    """The tiers `changed` reaches (path_route), then hot_only: a pull request whose files a running app takes
+    live (hot_only_layers) keeps only the daemon tier of the Mac tiers."""
+    result = path_route(root, event, changed, labels, base_workflow, repin)
+    layers = None if result.full else hot_only_layers(root, event, changed, labels, base_workflow, repin)
+    if layers:
+        for name in HOT_ONLY_OFF:
+            setattr(result, name, False)
+        result.tests, result.priority_suites, result.swift_canary_targets = set(), set(), set()
+        result.hot_only, result.hot_layers = True, layers
+        what = " and ".join(f"{len(paths)} {HOT_LAYER_NAMES[layer]}" for layer, paths in sorted(layers.items()))
+        result.reasons.append(f"hot-only: {what} file(s) a running app takes live (hot-apply.py) and nothing an app "
+                              f"tier reads: the app build and test matrix is skipped, the daemon tier stays "
+                              f"{HOT_ONLY_REASON}")
+    return result
+
+
+# Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we can
+# get it to do". A pull request whose every changed file is either a web bundle source or daemon Rust that
+# scripts/cmux-next/hot-apply.py swaps into a running app (live_apply.py's web-live and daemon kinds), or a file that
+# by itself reaches no app tier, needs no new app: ci-web, the cargo jobs, the signed tree publish and hot-verify check
+# it, and the daemon tier keeps the live-daemon suites. Not hot: Rust the app links (CCmuxAppFFI, the swift test job's
+# crates) or bundles through the scheme's build phases (hot-apply leaves those to a new app), the web ABI file
+# (hot-verify: a new ABI needs a new app), and any file a Swift test target reads.
+HOT_ONLY_REASON = "(hot-only: no app build)"
+HOT_LAYER_NAMES = {"web": "web", "rust": "daemon Rust"}
+HOT_WEB_NEEDS_APP = ("webviews/src/web-abi.json",)
+# The Route fields hot_only turns off: every app compile and package test tier. `daemon` stays.
+HOT_ONLY_OFF = ("native", "scheme", "webview", "swift", "generated", "mac_release", "swift_canary", "cmuxnext_swift",
+                "package_build", "fast_reads", "fast_package", "fast_registry", "all_tests", "ffi_repin")
+# What `--hot-only` writes. On a hot-only pull request cmux-next-guards.yml keeps tooling-tests off the minis (it
+# still runs, on Linux) and fleet-test-compile.yml compiles no Swift test target: both read this router's verdict on
+# the same merge-commit diff, never a copy of its rule.
+HOT_ONLY_OUTPUTS = ("hot_only", "hot_layers")
+# A part of the rest that keeps hot_only off: any of these tiers.
+APP_TIERS = ("native", "scheme", "webview", "swift", "generated", "mac_release", "swift_canary", "cmuxnext_swift")
+
+
+def live_apply_module():
+    """scripts/cmux-next/live_apply.py, imported by name (one module object: tests/test_script_module_loads.py);
+    None when this copy of the router came without it, and then nothing is hot."""
+    folder = str(ROOT / "scripts" / "cmux-next")
+    if folder not in sys.path:
+        sys.path.append(folder)
+    try:
+        import live_apply  # noqa: PLC0415
+    except ImportError:
+        return None
+    return live_apply
+
+
+def hot_layer(root: Path, path: str, read) -> str | None:
+    """"web" or "rust" when hot-apply.py takes PATH into a running app with no new build, else None."""
+    module = live_apply_module()
+    if module is None or read(path) or path in NATIVE_SCRIPT_INPUTS or path in FULL_INPUTS or path in VENDORED_PINS:
+        return None
+    kind = module.classify([("M", path)], {})["verdict"]
+    if kind == "web-live":
+        return None if path in HOT_WEB_NEEDS_APP else "web"
+    if kind == "daemon":
+        if app_ffi_input(root, path) or any(
+                matches(path, prefix) for prefix in SWIFT_JOB_INPUTS + tuple(scheme_phase_rust_inputs(root))):
+            return None  # linked into the app (FFI) or bundled by its build phases: a new app
+        return "rust"
+    return None
+
+
+def hot_only_layers(root: Path, event: str, changed: list[str] | None, labels: set[str],
+                    base_workflow: str | None = None, repin: str | None = None) -> dict[str, list[str]] | None:
+    """The hot layers ({"web"|"rust": paths}) of a pull request into feat-cmux-next whose change a running app takes
+    live, or None. Pushes, dispatches, full-ci, dev-build (its dogfood app is the scheme compile's) and an FFI re-pin
+    are never hot; nor is a pull request whose other files, routed by themselves, reach an app tier."""
+    if event != "pull_request" or not changed or labels & {"full-ci", "dev-build"} or repin is not None:
+        return None
+    graph = load_graph(root)
+    tests = [name for name, target in graph["targets"].items() if target["kind"] == "test"]
+    read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
+    layers: dict[str, list[str]] = {}
+    rest = []
+    for path in changed:
+        layer = hot_layer(root, path, read)
+        if layer:
+            layers.setdefault(layer, []).append(path)
+        else:
+            rest.append(path)
+    if not layers:
+        return None
+    if rest:
+        other = path_route(root, event, rest, labels, base_workflow, repin)
+        if other.full or other.tests or other.fast_tier() or any(getattr(other, name) for name in APP_TIERS):
+            return None
+    return layers
+
+
+def path_route(root: Path, event: str, changed: list[str] | None, labels: set[str],
+               base_workflow: str | None = None, repin: str | None = None) -> Route:
     """`base_workflow`: the base's cmux-next.yml, for a pull request that changes it (None: every tier).
     `repin`: pure_ffi_repin's reason when the pull request is a pure app FFI re-pin (None: it is not)."""
     result = Route()
@@ -1182,6 +1414,9 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
         return result
     packages = package_inputs(root, graph)
     tree_inputs = tree_input_paths(root)
+    daemon = daemon_graph(root)
+    if daemon is None:
+        result.reasons.append("the crate graph could not be read: the daemon tier routes by the tree key's inputs")
     daemon_closure = closure(graph, set(LIVE_DAEMON_SUBJECTS))
     # Targets whose sources (or local packages) changed: the package build itself can change. A web
     # bundle input is none of them: it changes only the resources the bundle targets copy (BUNDLE_INPUTS).
@@ -1219,11 +1454,21 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
                 result.reasons.append(f"{path} is bundled by the app scheme's build phases {NO_SWIFT_COMPILE_REASON}")
             else:
                 result.reasons.append(f"{path} is Rust the daemon tier builds {NO_SWIFT_COMPILE_REASON}")
+        elif ci_only(path) or linux_only_test(path, linux_tests):
+            # Alone it runs no Mac tier (above); beside other files it adds none either.
+            result.reasons.append(f"{path} is a CI file or a Linux-lane test {NO_SWIFT_COMPILE_REASON}")
+        elif mac_release_input(path) or any(fnmatch.fnmatch(path, pattern) for pattern in BUNDLE_INPUTS):
+            result.native = result.scheme = True
+        elif no_swift_compile_root(path):
+            # A build or packaging script, a test, Rust a build phase builds: the scheme compile reads it.
+            result.scheme = True
+            result.reasons.append(f"{path} is outside every Swift compile's inputs (NO_SWIFT_COMPILE_ROOTS): "
+                                  f"only the app scheme compile runs {NO_SWIFT_COMPILE_REASON}")
         elif not path.startswith("Packages/"):
             # App host, Xcode project, CLI, resources and build scripts: only
             # the app scheme compiles them.
             result.native = result.scheme = True
-        if any(matches(path, prefix) for prefix in GENERATED_INPUTS):
+        if generator_input(root, path):
             result.generated = True
 
         if path in VENDORED_PINS:
@@ -1233,9 +1478,20 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
         if path in FULL_INPUTS:
             result.everything(f"{path} is an input of every package test")
             continue
-        if any(matches(path, prefix) for prefix in tree_inputs) or path in DAEMON_PATHS:
+        tree_key_hit = any(matches(path, prefix) for prefix in tree_inputs) or path in DAEMON_PATHS
+        if daemon is not None:
+            why = daemon.reason(path)
+            # The head's graph cannot name a file the change deletes (the false skip #45420 fixed for the cmux-tui
+            # jobs): a deleted path routes by the tree key's inputs, as before the graph.
+            if why is None and tree_key_hit and path not in daemon.present:
+                why = f"{path} is deleted at HEAD and is a tree key input: the daemon tier runs"
+        elif tree_key_hit:
+            why = f"{path} reaches the daemon (a tree key input)"
+        else:
+            why = None
+        if why:
             result.daemon = True
-            result.reasons.append(f"{path} reaches the daemon")
+            result.reasons.append(why)
         if any(matches(path, prefix) for prefix in SWIFT_JOB_INPUTS):
             result.swift = True
             result.reasons.append(f"{path} is a swift test job script")
@@ -1292,7 +1548,9 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str],
         )
     if result.tests:
         result.swift = True
-        result.generated = True
+    if not result.generated and any(matches(path, PACKAGE) for path in changed):
+        result.reasons.append("no changed CmuxNext path is an action or settings export input: the generated files "
+                              f"job would repeat the base's verdict {NO_GENERATOR_INPUT_REASON}")
     if result.swift and changed_targets and all(canary_swift_path(path) for path in changed):
         result.swift_canary_targets = canary_targets(graph, changed_targets)
         result.swift_canary = bool(result.swift_canary_targets)
@@ -1368,6 +1626,8 @@ def outputs(result: Route) -> dict[str, str]:
         "swift_priority_filter": swift_priority_filter(result),
         "swift_targets": "all" if result.full or result.all_tests else " ".join(sorted(result.tests)),
         "swift_canary_targets": " ".join(sorted(result.swift_canary_targets)),
+        "hot_only": flag(result.hot_only),
+        "hot_layers": " ".join(sorted(result.hot_layers)),
     }
 
 
@@ -1380,6 +1640,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base-rev", help="the pull request's base commit, to compare a change to the workflow")
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--summary", type=Path)
+    parser.add_argument("--hot-only", action="store_true",
+                        help="write only hot_only and hot_layers (HOT_ONLY_OUTPUTS), for a workflow outside "
+                             "cmux-next.yml that skips its Mac part on a hot-only pull request")
     args = parser.parse_args(argv)
 
     changed = None
@@ -1394,15 +1657,24 @@ def main(argv: list[str]) -> int:
         repin = pure_ffi_repin(args.root, changed, args.base_rev)
     result = route(args.root, args.event, changed, labels, base_workflow, repin)
     values = outputs(result)
+    if args.hot_only:
+        values = {key: values[key] for key in HOT_ONLY_OUTPUTS}
     lines = [f"{key}={value}" for key, value in values.items()]
     print("\n".join(lines))
     if args.github_output:
         with args.github_output.open("a", encoding="utf-8") as stream:
             stream.write("\n".join(lines) + "\n")
-    if args.summary:
+    if args.summary and args.hot_only:
+        with args.summary.open("a", encoding="utf-8") as stream:
+            stream.write(f"### hot-only route\n\nhot_only: {values['hot_only']} "
+                         f"(layers: {values['hot_layers'] or 'none'})\n\n")
+            for reason in dict.fromkeys(result.reasons):
+                if HOT_ONLY_REASON in reason:
+                    stream.write(f"- {reason}\n")
+    elif args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("### cmux-next tiers\n\n| tier | runs |\n| --- | --- |\n")
-            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "mac_release", "scheme", "swift", "daemon", "fast_tier", "full"):
+            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "mac_release", "scheme", "swift", "daemon", "fast_tier", "full", "hot_only"):
                 stream.write(f"| {key} | {values[key]} |\n")
             stream.write(f"\nSwift test targets: {values['swift_targets'] or 'none'}\n\n")
             stream.write(f"Swift canary targets: {values['swift_canary_targets'] or 'none'}\n\n")

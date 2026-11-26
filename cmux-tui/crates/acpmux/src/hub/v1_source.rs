@@ -25,7 +25,7 @@
 
 use crate::store::{LogFilter, LogMarks, Store};
 use acpmux_core::chat::SourceFactory;
-use acpmux_core::chat::source::{CHUNK_BYTES, Chunk, RawSource};
+use acpmux_core::chat::source::{CHUNK_BYTES, Chunk, Piece, RawSource};
 use std::io;
 use std::ops::Range;
 use std::sync::Arc;
@@ -225,6 +225,32 @@ where
 
     fn stamp(&self) -> u64 {
         self.stamp
+    }
+
+    /// A part of the line at seq `place`, through v1's store ([`Store::read_log_part`]): the
+    /// line is found by seq, and no more of it than `max` bytes is read or held. A part is of
+    /// the line as it was delivered: a count that is not the one the last chunk was read under,
+    /// or that moved while the part was read, refuses it, and the actor's next chunk opens the
+    /// book again.
+    fn read_at(&mut self, place: u64, offset: u64, max: usize) -> io::Result<Piece> {
+        let store = self.store.clone();
+        let store = store.as_ref();
+        let changed = || io::Error::new(io::ErrorKind::InvalidData, "v1's log changed its lines");
+        let stamp = store.log_stamp(&self.id).map_err(other)?;
+        if stamp != self.stamp {
+            return Err(changed());
+        }
+        // The end mark is left as it is: the next chunk goes on from it.
+        let mut bytes = Vec::new();
+        let part = store
+            .read_log_part(&self.id, place, offset, max, stamp, &mut self.marks, &mut bytes)
+            .map_err(other)?;
+        self.counters.read.fetch_add(part.read, Ordering::Relaxed);
+        self.counters.held_max.fetch_max(bytes.capacity() as u64, Ordering::Relaxed);
+        if store.log_stamp(&self.id).map_err(other)? != stamp {
+            return Err(changed());
+        }
+        Ok(Piece { bytes, ends: part.ends })
     }
 }
 

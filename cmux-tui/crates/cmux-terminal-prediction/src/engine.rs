@@ -15,6 +15,18 @@
 //! typed ahead of the prompt gets at most one echo before the prompt turns echo
 //! off, and a masked prompt's `*` never counts.
 //!
+//! One thing re-arms a run without echoes: the prompt. The row as it stood
+//! when the first key of a line was typed is a prompt candidate; once a run
+//! arms on that row with the candidate still at its start, the remote's line
+//! editor echoes after it, and the engine remembers it. When the remote answers the
+//! newest key sent (Return, Ctrl-C) and leaves the cursor row reading exactly
+//! like a remembered prompt, with nothing typed since, the shell is back at
+//! its line editor with every earlier key answered, so the run arms at once
+//! and the first key of the next command draws with the press instead of a
+//! round trip and two echoes later. A password prompt, a full-screen program,
+//! a row the engine cannot read (a cursor move, a tab) or a key typed before
+//! the answer arrived never matches, and keeps the two-echo rule.
+//!
 //! A line editor that moves back over text it echoed and prints the same text
 //! again (zsh after the first key, zsh-syntax-highlighting recolouring a word)
 //! is rewriting, not mispredicting: the engine remembers what it saw echoed on
@@ -39,8 +51,10 @@
 //! blanks included, so a blank never hides real output.
 
 use crate::config::PredictionConfiguration;
+use crate::full_screen::FullScreenEcho;
 use crate::glyph::{PredictedGlyph, Standing};
 use crate::input::InputKind;
+use crate::row::RowText;
 use crate::scanner::{OutputSignal, TerminalOutputScanner};
 use std::time::Duration;
 
@@ -188,6 +202,8 @@ impl Entry {
 }
 
 const MAXIMUM_LINE_MEMORY: usize = 512;
+/// Prompts remembered at most, oldest dropped first.
+const MAXIMUM_KNOWN_PROMPTS: usize = 8;
 
 #[derive(Clone, Debug)]
 pub struct TerminalPredictionEngine {
@@ -241,6 +257,21 @@ pub struct TerminalPredictionEngine {
     /// and cancel it (Backspace, then the same character again), so that
     /// nothing comes back for either.
     cancellable_key_at: Option<Duration>,
+    /// What the cursor row holds left of the cursor, from plain output.
+    row: RowText,
+    /// Rows the remote's line editor was seen echoing after, newest last:
+    /// the shell's prompts.
+    known_prompts: Vec<Vec<u8>>,
+    /// The row as it stood when the first key of this line was typed, while
+    /// it is not yet known to be a prompt.
+    prompt_candidate: Option<Vec<u8>>,
+    /// Whether the newest key sent had an effect the engine does not model
+    /// (Return, Ctrl-C, Backspace over echoed text), with nothing typed after
+    /// it: the remote's next prompt answers every key sent.
+    newest_key_is_unmodelled: bool,
+    /// Prediction inside a full-screen application, when the configuration
+    /// asks for it (`predict_in_full_screen_apps`).
+    full_screen: FullScreenEcho,
 }
 
 impl Default for TerminalPredictionEngine {
@@ -275,11 +306,21 @@ impl TerminalPredictionEngine {
             untracked_bytes: Vec::new(),
             opaque_echo_until: None,
             cancellable_key_at: None,
+            row: RowText::new(),
+            known_prompts: Vec::new(),
+            prompt_candidate: None,
+            newest_key_is_unmodelled: false,
+            full_screen: FullScreenEcho::new(),
         }
     }
 
     fn is_active(&self) -> bool {
         self.is_enabled && self.is_remote_surface
+    }
+
+    /// In a full-screen application, predicting by cell.
+    fn is_full_screen(&self) -> bool {
+        self.is_alternate_screen && self.configuration.predict_in_full_screen_apps
     }
 
     fn is_echo_run_active(&self) -> bool {
@@ -297,6 +338,9 @@ impl TerminalPredictionEngine {
     /// echo landed in. Speculative glyphs start at offset 0. Entries typed
     /// before the run armed are never drawn, but still occupy their cell.
     pub fn glyphs(&self) -> Vec<PredictedGlyph> {
+        if self.is_full_screen() {
+            return self.full_screen.glyphs();
+        }
         let rewound = i32::try_from(self.rewound.len()).unwrap_or(i32::MAX);
         let cursor = self.entries.iter().map(Entry::echoed_advance).sum::<i32>() - rewound;
         let mut cell = 0;
@@ -347,6 +391,11 @@ impl TerminalPredictionEngine {
     /// timer for this; otherwise a prediction made just before the link died
     /// would stay drawn until the user typed again.
     pub fn next_expiry(&self) -> Option<Duration> {
+        if self.is_full_screen() {
+            return self
+                .full_screen
+                .next_expiry(self.speculative_lifetime(), self.configuration.confirmation_hold);
+        }
         let hold_ends =
             self.layout_held_since.map(|since| since + self.configuration.confirmation_hold);
         if !self.entries.iter().any(Entry::is_on_screen) {
@@ -376,13 +425,18 @@ impl TerminalPredictionEngine {
         if !self.is_remote_surface {
             return Status::LocalSurface;
         }
-        if self.is_alternate_screen {
+        if self.is_alternate_screen && !self.configuration.predict_in_full_screen_apps {
             return Status::AlternateScreen;
         }
         if self.suspended_until.is_some_and(|until| now < until) {
             return Status::Suspended;
         }
-        if !self.is_echo_run_active() || self.scanner.is_concealed() {
+        let is_armed = if self.is_alternate_screen {
+            self.full_screen.is_armed()
+        } else {
+            self.is_echo_run_active()
+        };
+        if !is_armed || self.scanner.is_concealed() {
             return Status::Listening;
         }
         match self.smoothed_echo_latency {
@@ -392,6 +446,19 @@ impl TerminalPredictionEngine {
             }
             Some(_) => Status::Predicting,
         }
+    }
+
+    /// Turns prediction inside full-screen applications on or off (the
+    /// setting). Either way the cursor model starts over, unarmed: answers
+    /// whether something drawn went.
+    pub fn set_predicts_in_full_screen_apps(&mut self, on: bool) -> bool {
+        if self.configuration.predict_in_full_screen_apps == on {
+            return false;
+        }
+        let drew = self.is_full_screen() && !self.full_screen.glyphs().is_empty();
+        self.configuration.predict_in_full_screen_apps = on;
+        self.full_screen = FullScreenEcho::new();
+        drew
     }
 
     /// Seeds whether a full-screen application already owns the screen (the
@@ -427,7 +494,20 @@ impl TerminalPredictionEngine {
         if !self.is_active() {
             return false;
         }
+        if self.is_full_screen() {
+            let expired = self.expire_full_screen(now);
+            let Some(byte) = byte.filter(|byte| (0x20..=0x7E).contains(byte)) else {
+                return self.full_screen.typed_unmodelled() || expired;
+            };
+            let display = self.status(now) == Status::Predicting;
+            let limit = self.configuration.maximum_speculative_glyphs;
+            return self.full_screen.typed(byte, now, display, limit) || expired;
+        }
         let expired = self.expire(now);
+        // Return behind a barrier too: the remote reads keys in order, so a
+        // prompt printed for the newest key answers every key before it.
+        self.newest_key_is_unmodelled = byte.is_none_or(|byte| !(0x20..=0x7E).contains(&byte));
+        self.note_prompt_candidate(byte);
         // Behind a barrier the remote's state is unknown, so nothing typed now
         // can be placed. Its echo arrives after the barrier resolves, which
         // starts the untracked window that covers it.
@@ -492,6 +572,9 @@ impl TerminalPredictionEngine {
         if !self.is_active() {
             return false;
         }
+        if self.is_full_screen() {
+            return self.expire_full_screen(now);
+        }
         self.expire(now)
     }
 
@@ -502,8 +585,12 @@ impl TerminalPredictionEngine {
         if !self.is_active() {
             return false;
         }
+        if self.is_full_screen() {
+            return self.typed(None, now);
+        }
         let expired = self.expire(now);
         if self.has_barrier() {
+            self.newest_key_is_unmodelled = false;
             self.newest_untracked_keystroke = Some(now);
             self.mark_opaque_echo(now);
             return expired;
@@ -518,6 +605,7 @@ impl TerminalPredictionEngine {
             .find(|entry| entry.is_glyph() && !entry.is_retracted)
             .filter(|entry| room && entry.is_drawn());
         let Some(newest) = newest else {
+            self.newest_key_is_unmodelled = true;
             if self.raise_barrier_if_in_flight(now) {
                 return expired;
             }
@@ -529,6 +617,7 @@ impl TerminalPredictionEngine {
         // A glyph whose echo arrived but is still held for its frame is
         // retracted the same way: until the erase, its cell is blank.
         newest.is_retracted = true;
+        self.newest_key_is_unmodelled = false;
         newest.confirmed_at = None;
         self.entries.push(Entry::new(
             Keystroke::Erase(EraseProgress::AwaitingMoveLeft),
@@ -545,7 +634,11 @@ impl TerminalPredictionEngine {
         if !self.is_active() {
             return false;
         }
+        if self.is_full_screen() {
+            return self.typed(None, now);
+        }
         let expired = self.expire(now);
+        self.newest_key_is_unmodelled = !self.has_barrier();
         if self.has_barrier() {
             self.newest_untracked_keystroke = Some(now);
             self.mark_opaque_echo(now);
@@ -585,6 +678,10 @@ impl TerminalPredictionEngine {
         if !self.is_active() {
             return false;
         }
+        if self.is_full_screen() {
+            return self.observed_full_screen_output(bytes, now);
+        }
+        let was_alternate_screen = self.is_alternate_screen;
         let mut changed = self.expire(now);
         let blanks_before = self.blank_count();
         let mut moved_cursor = false;
@@ -608,7 +705,48 @@ impl TerminalPredictionEngine {
         if self.blank_count() < blanks_before && self.layout_held_since.is_none() {
             self.layout_held_since = Some(now);
         }
+        self.row.observe(bytes);
+        self.learn_prompt();
+        self.arm_at_known_prompt();
+        if self.is_alternate_screen && !was_alternate_screen {
+            // A full-screen application starts: its cells start unknown. The
+            // rest of this chunk is its first frame, which places the cursor:
+            // the model reads the chunk (nothing is in flight to settle).
+            self.full_screen = FullScreenEcho::new();
+            if self.configuration.predict_in_full_screen_apps {
+                self.full_screen.observe(bytes, now);
+            }
+        }
         changed || (moved_cursor && self.any_on_screen())
+    }
+
+    /// Output inside a full-screen application: the cursor model settles each
+    /// predicted cell. The main scanner still reads it all for the mode
+    /// switches and concealment, with nothing of its own in flight.
+    fn observed_full_screen_output(&mut self, bytes: &[u8], now: Duration) -> bool {
+        let expired = self.expire_full_screen(now);
+        let drew = !self.full_screen.glyphs().is_empty();
+        let reconciled = self.full_screen.observe(bytes, now);
+        for sample in &reconciled.confirmed {
+            self.record_echo_latency(*sample);
+        }
+        if reconciled.mismatched && reconciled.withdrew_displayed {
+            self.count_misprediction(now);
+        }
+        self.skim(bytes, now);
+        if !self.is_alternate_screen {
+            // Left mid-chunk: what follows belongs to the primary screen.
+            self.full_screen.withdraw_all();
+        }
+        expired || drew || reconciled.withdrew_displayed || !self.full_screen.glyphs().is_empty()
+    }
+
+    fn expire_full_screen(&mut self, now: Duration) -> bool {
+        if self.suspended_until.is_some_and(|until| now >= until) {
+            self.suspended_until = None;
+        }
+        let lifetime = self.speculative_lifetime();
+        self.full_screen.expire(now, lifetime, self.configuration.confirmation_hold)
     }
 
     /// Output was lost before reaching the engine: nothing drawn can be placed
@@ -623,10 +761,13 @@ impl TerminalPredictionEngine {
         if !self.is_active() {
             return false;
         }
+        let full_screen_drew = self.full_screen.lost_track();
         // The terminal kept its pen through a resize, and a replaced screen
         // may still conceal: concealment lasts until output ends it.
         self.scanner = self.scanner.restarted();
-        let changed = self.withdraw_all(false, now, false);
+        self.row.forget();
+        self.prompt_candidate = None;
+        let changed = self.withdraw_all(false, now, false) || full_screen_drew;
         self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
         changed
@@ -640,7 +781,10 @@ impl TerminalPredictionEngine {
         if !self.is_active() {
             return false;
         }
-        let changed = self.withdraw_all(false, now, false);
+        // The row is kept: a resize moves no text left of the cursor on its
+        // line, and every byte still reaches the engine. A row only ever
+        // matches a prompt exactly, after the answer to Return.
+        let changed = self.full_screen.lost_track() | self.withdraw_all(false, now, false);
         self.mark_opaque_echo(now);
         self.extend_untracked_deadline(now);
         changed
@@ -650,6 +794,10 @@ impl TerminalPredictionEngine {
     /// engine sees output before the parser, so retiring at confirmation would
     /// blank the cell for the frames between the echo and its paint.
     pub fn presented_frame(&mut self, now: Duration) -> bool {
+        if self.is_full_screen() {
+            let expired = self.expire_full_screen(now);
+            return self.full_screen.presented_frame() || expired;
+        }
         // A glyph that aged out since the last event is a change to draw too.
         let expired = self.expire(now);
         let before = self.entries.len();
@@ -660,6 +808,9 @@ impl TerminalPredictionEngine {
 
     /// Advances time with no other event, withdrawing what aged out.
     pub fn tick(&mut self, now: Duration) -> bool {
+        if self.is_full_screen() {
+            return self.expire_full_screen(now);
+        }
         self.expire(now)
     }
 
@@ -926,6 +1077,9 @@ impl TerminalPredictionEngine {
     }
 
     fn record_echo_latency(&mut self, sample: Duration) {
+        // The felt-latency histogram keeps every sample (`felt.snapshot`); the smoothed value
+        // below is what the engine's own policy reads.
+        cmux_felt::record(cmux_felt::Metric::TerminalEcho, sample);
         self.smoothed_echo_latency = Some(match self.smoothed_echo_latency {
             None => sample,
             Some(current) => (current * 7 + sample) / 8,
@@ -1019,6 +1173,74 @@ impl TerminalPredictionEngine {
         self.echo_streak = 0;
         self.line.clear();
         self.rewound.clear();
+    }
+
+    /// The first printable key typed on a line, with nothing in flight and
+    /// the row known: the row is what the remote printed before it, a prompt
+    /// if its echo comes back after it. Any other key starts the line over.
+    fn note_prompt_candidate(&mut self, byte: Option<u8>) {
+        if !byte.is_some_and(|byte| (0x20..=0x7E).contains(&byte)) {
+            self.prompt_candidate = None;
+            return;
+        }
+        if self.prompt_candidate.is_some() || !self.entries.is_empty() || self.is_alternate_screen {
+            return;
+        }
+        self.prompt_candidate = self.row.text().map(<[u8]>::to_vec);
+    }
+
+    /// A run is armed by echoes on a row that still starts with the line's
+    /// prompt candidate and holds more after it: the remote's line editor
+    /// echoes after that text, so it is a prompt. Read once the chunk is in.
+    fn learn_prompt(&mut self) {
+        if !self.is_echo_run_active() || self.is_alternate_screen {
+            return;
+        }
+        let (Some(candidate), Some(row)) = (self.prompt_candidate.as_deref(), self.row.text())
+        else {
+            return;
+        };
+        if row.len() <= candidate.len()
+            || !row.starts_with(candidate)
+            || !candidate.iter().any(|&byte| byte != b' ')
+        {
+            return;
+        }
+        // The candidate stays for the rest of the line, so a later key typed
+        // with nothing in flight does not take the row so far for a prompt.
+        if self.known_prompts.iter().any(|known| known.as_slice() == candidate) {
+            return;
+        }
+        let prompt = candidate.to_vec();
+        if self.known_prompts.len() >= MAXIMUM_KNOWN_PROMPTS {
+            self.known_prompts.remove(0);
+        }
+        self.known_prompts.push(prompt);
+    }
+
+    /// The remote answered the newest key sent with a row that reads exactly
+    /// like a known prompt: its line editor waits there, every earlier key's
+    /// output has arrived, so the run arms and nothing that follows is an
+    /// older key's echo.
+    fn arm_at_known_prompt(&mut self) {
+        if self.is_echo_run_active()
+            || !self.newest_key_is_unmodelled
+            || !self.entries.is_empty()
+            || !self.rewound.is_empty()
+            || self.is_alternate_screen
+        {
+            return;
+        }
+        let Some(row) = self.row.text() else { return };
+        if !self.known_prompts.iter().any(|known| known.as_slice() == row) {
+            return;
+        }
+        self.echo_streak = 2;
+        self.prompt_candidate = None;
+        self.line.clear();
+        self.close_untracked_window();
+        self.cancellable_key_at = None;
+        self.newest_untracked_keystroke = None;
     }
 
     fn remember(&mut self, byte: u8) {

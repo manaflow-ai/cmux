@@ -63,10 +63,10 @@ final class CloudMachineCreation: Identifiable {
     /// part of ``request``: a named request is a request option the app server's create refuses.
     var pinnedMachineName: String?
 
-    /// The create went to the server once, to `team`: a Retry may find the machine it made, and
-    /// goes to that same team.
-    func markRequestSent(team: String?) {
-        if !request.wasSent { request.team = team }
+    /// The create went to the server once, to `team` on `route`: a Retry may find the machine it made, and
+    /// goes to that same team on that same route (the server keeps each key per caller).
+    func markRequestSent(team: String?, route: CloudCreateRoute = .relay) {
+        if !request.wasSent { request.team = team; request.route = route }
         request.wasSent = true
     }
 
@@ -321,8 +321,11 @@ struct CloudCreationFlow {
     /// The ``bootstrap`` hook's work on `machine`: starts the requested bootstrap and, in the creation's own
     /// task (``CloudMachineCreation/awaitBootstrapCompletion(_:attempt:wait:)``), waits for its end without holding
     /// up the open; then applies the requested machine config. The first workspace still opens at the
-    /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`.
-    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine) async {
+    /// machine's default folder: a caller that wants the clone opens its own at the completion's `repoPath`. Nothing goes
+    /// out before `running` returns: a create answers while the machine binds, whose routes refuse it until it runs.
+    static func startBootstrap(_ creation: CloudMachineCreation, on machine: CloudMachineBootstrap.Machine, running: @MainActor () async -> Void) async {
+        await running()
+        guard !Task.isCancelled, !creation.isTornDown else { return }
         if let script = creation.request.script, needsScript(creation) {
             let attempt = creation.beginBootstrapAttempt()
             let outcome = await script.start(name: creation.request.name, on: machine)
@@ -372,22 +375,14 @@ struct CloudCreationFlow {
         // task-owner: the creation's one run; cancelled by retry, dismiss or machine removal
         creation.task = Task { @MainActor in
             do {
-                let session: CloudMachineSession
-                if let existing = creation.session {
-                    session = existing
-                    if Self.needsBootstrap(creation) {
-                        await bootstrap(creation, session)
-                        try Task.checkCancellation()
-                    }
-                } else {
-                    session = try await create(creation)
+                let existing = creation.session, session: CloudMachineSession
+                if let existing { session = existing } else { session = try await create(creation) }
+                try Task.checkCancellation()
+                // Attached first: a create answers once attached (30 s); the bootstrap waits up to 180 s for the machine to run.
+                if existing == nil { creation.attach(session) }
+                if Self.needsBootstrap(creation) {
+                    await bootstrap(creation, session)
                     try Task.checkCancellation()
-                    // Before attach: a caller waiting for the machine reads the bootstrap's outcome with it.
-                    if Self.needsBootstrap(creation) {
-                        await bootstrap(creation, session)
-                        try Task.checkCancellation()
-                    }
-                    creation.attach(session)
                 }
                 guard await Self.ready(creation) else { return }
                 creation.markReady()
@@ -408,9 +403,21 @@ struct CloudCreationFlow {
                 guard !Task.isCancelled else { return }
                 creation.fail(error)
                 if let refusal = creation.planRefusal, startedByPerson { planRequired(refusal) }
+                // A creation no window shows (a CLI's, an agent's) has nobody to Retry or Dismiss it: `cloud
+                // list-machines` shows it failed, with why, for a while, then it ends, so a failed create never
+                // lingers as `creating`. Its own run's answer already carried the failure. Retry, Dismiss or
+                // the machine's removal cancel this wait.
+                guard creation.windowID == nil else { return }
+                // wakeup-allow: one bounded wait before a windowless failed creation's row ends
+                try? await Task.sleep(for: Self.failedRowLingers)
+                guard !Task.isCancelled, case .failed = creation.phase else { return }
+                creations.end(creation)
             }
         }
     }
+
+    /// How long a failed creation no window shows stays listed (as failed, with its reason) before it ends.
+    static let failedRowLingers: Duration = .seconds(300)
 
     /// Waits for the ready stage (a failure in between may recover: the
     /// daemon keeps retrying). False when cancelled.
