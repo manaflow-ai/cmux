@@ -15,9 +15,18 @@ anyhow.workspace = true
 base64.workspace = true
 bytes.workspace = true
 cmux-build-space.workspace = true
+# Silence bounds for a cloud prompt and a mailbox round trip (src/cloud_acp.rs, src/mailbox_apply.rs).
+cmux-deadline.workspace = true
+# The `bundle` service (src/bundle.rs): attachments as sealed content-defined chunks.
+cmux-bundle.workspace = true
+blake3 = "1"
 # The Chief's push body as words, not Markdown (src/notify.rs).
 cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true
+# The relay publisher (src/relay_publish.rs): seals the newest snapshot and each delta per phone.
+cmux-relay-snapshot.workspace = true
+# Mac output to phone paint (src/output_paint.rs): its ring and window math.
+cmux-output-paint.workspace = true
 cmux-rd-core.workspace = true
 # This Mac's interface table, for which interfaces a session uses (src/netwatch.rs).
 cmux-transport.workspace = true
@@ -26,6 +35,10 @@ cmux-rd-engine.workspace = true
 cmux-rd-proto.workspace = true
 # The `tabs` service's frames, producer and sessions (src/tab_snapshots.rs).
 cmux-tab-snapshots.workspace = true
+# Viewport state sync (src/viewport_sync.rs): the host's screen model and its diffs, and the
+# overlay datagram port they go on.
+cmux-terminal-projection.workspace = true
+cmux-wg.workspace = true
 # Compressed acpmux messages on the phone link (src/link_deflate.rs).
 flate2.workspace = true
 futures-util.workspace = true
@@ -42,7 +55,7 @@ ring = "0.17"
 # Sealed pushes and mailbox replies (src/seal.rs): P-256 ECDH, HKDF-SHA256 and
 # AES-256-GCM, as CryptoKit does them on the phone; already in the graph through
 # webrtc (dtls).
-p256 = { version = "0.13", features = ["ecdh"] }
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
 hkdf = "0.12"
 aes-gcm = "0.10"
 sha2 = "0.10"
@@ -64,6 +77,8 @@ required-features = ["fake-backend"]
 
 [dev-dependencies]
 cmux-fault.workspace = true
+# Paused time for the silence-bound tests (src/mailbox_apply.rs).
+tokio = { workspace = true, features = ["test-util"] }
 cmux-mobile-link = { workspace = true, features = ["testing"] }
 cmux-rd-core.workspace = true
 cmux-rd-engine.workspace = true

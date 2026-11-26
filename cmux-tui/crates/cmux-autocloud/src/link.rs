@@ -57,7 +57,16 @@ impl Spec {
         };
         match self {
             Spec::Local => {
-                let mut c = Command::new("acpmux");
+                // Inside `cmux autocloud` the daemon is this same binary's `acp` scope, so a
+                // cmux install needs no `acpmux` on PATH.
+                let mut c = match host_cmux() {
+                    Some(cmux) => {
+                        let mut c = Command::new(cmux);
+                        c.arg("acp");
+                        c
+                    }
+                    None => Command::new("acpmux"),
+                };
                 stdio_args(&mut c);
                 c
             }
@@ -70,7 +79,7 @@ impl Spec {
                 c
             }
             Spec::Machine(id) => {
-                let mut c = Command::new("cmux");
+                let mut c = Command::new(host_cmux().unwrap_or_else(|| "cmux".into()));
                 c.args(["carrier", "dial", "--machine", id, "--service", "acpmux"]);
                 c
             }
@@ -81,6 +90,15 @@ impl Spec {
             }
         }
     }
+}
+
+/// The `cmux` binary this code runs inside (`cmux autocloud`), so its links use that build's
+/// `carrier dial` and `acp`, not whichever `cmux` or `acpmux` PATH finds. `None` in the
+/// standalone `cmux-autocloud`.
+fn host_cmux() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let name = exe.file_stem()?.to_str()?;
+    matches!(name, "cmux" | "cmux-tui").then_some(exe)
 }
 
 /// What the reader hands the client.
@@ -136,6 +154,9 @@ impl Link {
         let (out, mut out_rx) = mpsc::unbounded_channel::<String>();
         scope.spawn_until_cancelled("link writer", async move {
             while let Some(line) = out_rx.recv().await {
+                if trace() {
+                    eprintln!("[link ->] {}", clip(&line));
+                }
                 if stdin.write_all(line.as_bytes()).await.is_err()
                     || stdin.write_all(b"\n").await.is_err()
                     || stdin.flush().await.is_err()
@@ -150,6 +171,9 @@ impl Link {
         scope.spawn_until_cancelled("link stderr", async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                if trace() {
+                    eprintln!("[link stderr] {line}");
+                }
                 if !line.trim().is_empty() {
                     *err_sink.lock().unwrap_or_else(PoisonError::into_inner) = line;
                 }
@@ -170,6 +194,9 @@ impl Link {
                 if first {
                     first = false;
                     let _ = inbound.send((generation, Inbound::Up));
+                }
+                if trace() {
+                    eprintln!("[link <-] {}", clip(&line));
                 }
                 let Ok(msg) = serde_json::from_str::<Value>(&line) else { continue };
                 route(msg, &routes, &replies, generation, &inbound);
@@ -243,5 +270,19 @@ fn route(
             let _ = inbound.send((generation, Inbound::Notification { method, params }));
         }
         (None, None) => {}
+    }
+}
+
+/// `CMUX_AUTOCLOUD_TRACE=1` echoes the link's stderr and each JSON-RPC line to stderr, so a
+/// link that drops says why (the machine journey sets it).
+fn trace() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("CMUX_AUTOCLOUD_TRACE").is_ok_and(|v| v == "1"))
+}
+
+fn clip(line: &str) -> String {
+    match line.char_indices().nth(400) {
+        Some((at, _)) => format!("{}…", line.split_at(at).0),
+        None => line.to_owned(),
     }
 }

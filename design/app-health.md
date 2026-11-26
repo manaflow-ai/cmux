@@ -1,5 +1,15 @@
 # App health
 
+> **Current state (2026-11-24): app health has no surface at all.** There is no sidebar line, no dot, no
+> card, no toast and no Details button on the Restoring sessions card. Leo, 2026-11-22 (ask-a78f915862): "the
+> fuck is actionable about "needs a repair". if it's unactionable, get rid of it. plus the text is
+> overlapping." A part that is stuck, repairing or out of repairs is repaired by the Rust model by itself (the
+> ladder, then a fresh try once its 10-minute window lets go), and each step and each give-up is written to the
+> log by the host (`AppHealthFeeds`, the `debug.health` receipts). Nothing here asks the person for anything.
+> The sections below are the history of the surfaces that were deleted: the footer line, its web twin
+> (`webviews/src/app-health`), the native card (`AppHealthPopover`) with Repair now and Show chat, and the
+> `AppHealthPlaces` that named a chat for them.
+
 Part of the app can stop answering while the rest still works: a page whose script hangs, a web
 renderer at full CPU, a session daemon that restarts every two minutes because each start spends
 its life restoring a huge registry, an acpmux link that went quiet. Before this, the person saw

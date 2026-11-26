@@ -9,7 +9,7 @@ import { act, memo } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ACTIVITY_LINE } from "../src/agent-session/acpmux/conversation/turns";
+import { LIVE_THINKING, THINKING } from "../src/agent-session/acpmux/conversation/turns";
 import type { RowProps } from "../src/agent-session/acpmux/rows/rowProps";
 import { RowContent } from "../src/agent-session/acpmux/VirtualTranscript";
 import { sameRowFrame } from "../src/agent-session/acpmux/virtualTranscriptModel";
@@ -49,10 +49,11 @@ afterAll(async () => {
 });
 
 const line = (to: string): AcpmuxRow => ({
-  id: `${ACTIVITY_LINE}-u1`,
+  id: LIVE_THINKING,
   version: 42,
   at: 1_000,
-  kind: ACTIVITY_LINE,
+  kind: THINKING,
+  below: true,
   text: "Sending message",
   doingSendTo: to,
 });
@@ -63,7 +64,7 @@ function Recipient({ row }: RowProps) {
   return <span>{row.doingSendTo}</span>;
 }
 
-test("an activity line whose recipient changes under the same version draws the new recipient", async () => {
+test("a live line whose recipient changes under the same version draws the new recipient", async () => {
   const root = createRoot(document.getElementById("root")!);
   const props = { Component: Recipient, onToggleActivity: () => {}, expanded: false };
   await act(async () => root.render(<RowContent {...props} row={line("tests")} />));
@@ -78,7 +79,7 @@ test("an activity line whose recipient changes under the same version draws the 
   await act(async () => root.unmount());
 });
 
-test("the activity line's frame redraws when its recipient changes under the same version", () => {
+test("the live line's frame redraws when its recipient changes under the same version", () => {
   expect(sameRowFrame({ row: line("tests") }, { row: line("reviewer") })).toBe(false);
   expect(sameRowFrame({ row: line("tests") }, { row: line("tests") })).toBe(true);
 });

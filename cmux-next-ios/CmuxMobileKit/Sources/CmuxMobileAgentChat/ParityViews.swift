@@ -127,7 +127,7 @@ struct SubagentGroupCard: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
-            Divider().padding(.leading, 16)
+            Divider().overlay(Color.cmuxMobileContentLine(.card)).padding(.leading, 16)
             ForEach(agents) { agent in
                 Button { open(agent.id) } label: {
                     HStack(spacing: 10) {
@@ -151,7 +151,9 @@ struct SubagentGroupCard: View {
                 .accessibilityHint("Opens its transcript")
             }
         }
-        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
+        // A content card in the page (the design system's card level): the theme's ink over the
+        // Mac's picture, never an opaque slab.
+        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: agents.map(\.state))
     }
 }
@@ -253,7 +255,7 @@ struct SubagentTranscriptScreen: View {
                             .font(.body)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
-                            .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                            .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     ForEach(rows) { row in
@@ -272,7 +274,8 @@ struct SubagentTranscriptScreen: View {
                 .padding(.vertical, 16)
             }
             .defaultScrollAnchor(.top)
-            .background(Color.cmuxMobileBackground)
+            .background { CmuxMobileChatBackdrop() }
+            .cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
             .chatDemoReceiver(store: store, surface: surface)
             .navigationTitle(agent.name)
             .navigationBarTitleDisplayMode(.inline)
@@ -315,8 +318,6 @@ struct SubagentRowView: View {
                     await diffs.changeSetReady(for: turn) ?? DiffChangeSet(id: call.id, title: "Changes", subtitle: "", files: [])
                 }
             }
-        case .plan(_, let entries):
-            PlanCard(entries: entries)
         case .subagents(_, let ids):
             SubagentGroupCard(ids: ids, store: store, open: open)
         case .steer(let message):
@@ -403,7 +404,7 @@ struct CheckpointsScreen: View {
         .navigationTitle("Checkpoints")
         .navigationBarTitleDisplayMode(.inline)
         .cmuxMobileToast($toast)
-        .sensoryFeedback(.success, trigger: restoredTrigger)
+        .cmuxMobileSensoryFeedback(.success, trigger: restoredTrigger)
         .confirmationDialog("Restore this checkpoint?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { checkpoint in
             Button("Restore Files", role: .destructive) { restore(checkpoint) }
@@ -627,7 +628,7 @@ struct HandoffReviewScreen: View {
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Review continuation")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.success, trigger: receipt)
+        .cmuxMobileSensoryFeedback(.success, trigger: receipt)
         .task { await prepare() }
         .onChange(of: surface.demoHandoffFill) { _, value in
             guard let value else { return }

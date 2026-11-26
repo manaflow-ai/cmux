@@ -99,6 +99,13 @@ pub enum SignalPayload {
         /// which never join.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         relay: Option<String>,
+        /// The dialer asks the service for its own relay ticket now, as a
+        /// `wg-ticket` back to it (PROTOCOL.md "Early relay ticket"), so it
+        /// can join the relay while the answer is still on its way. Set only
+        /// by a dialer that will join at once (its only path is the relay);
+        /// absent from older phones. Older services and Macs ignore it.
+        #[serde(rename = "ticketEarly", default, skip_serializing_if = "std::ops::Not::not")]
+        ticket_early: bool,
     },
     #[serde(rename = "wg-resp")]
     WgResp {
@@ -140,6 +147,15 @@ pub enum SignalPayload {
         relayed: Vec<String>,
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        /// Which of `endpoints` are public addresses the sender's router
+        /// mapped for it (PCP, NAT-PMP or UPnP-IGD; PROTOCOL.md "Mapped
+        /// endpoints"); absent from older peers, which offer none, and older
+        /// peers ignore it (the address is still one of `endpoints`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mapped: Vec<String>,
+        /// Which protocol mapped them: `pcp`, `nat-pmp` or `upnp`.
+        #[serde(rename = "mappedBy", default, skip_serializing_if = "Option::is_none")]
+        mapped_by: Option<String>,
     },
     /// This side joined cmux's WebSocket relay for the session (PROTOCOL.md
     /// "WebSocket relay"): its datagrams no longer reach the peer any other
@@ -147,11 +163,24 @@ pub enum SignalPayload {
     /// relay (`relay` in its `wg-init` / `wg-resp`).
     #[serde(rename = "wg-relay")]
     WgRelay {},
+    /// From the service, never from a peer: the dialer's own relay ticket
+    /// (`relayTicket` on the envelope), sent back the moment the service
+    /// forwards a `wg-init` that set `ticketEarly` (PROTOCOL.md "Early relay
+    /// ticket"). Only a dialer that asked gets it.
+    #[serde(rename = "wg-ticket")]
+    WgTicket {},
     #[serde(rename = "bye")]
     Bye {
         #[serde(default)]
         reason: String,
     },
+    /// Local only, never on the wire: a phone resumed a dormant WireGuard
+    /// tunnel with a new in-tunnel connection, no signaling involved
+    /// (`dial::wireguard::dormant`). The Mac's own process puts it in its
+    /// session queue, so its answer loop takes the link as it takes any
+    /// other; `ticket` names the waiting stream.
+    #[serde(skip)]
+    WgResumed { ticket: u64 },
 }
 
 /// One `signal` message.
@@ -182,6 +211,10 @@ pub struct MailboxItem {
     pub sealed: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<u64>,
+    /// Its place in the sender phone's queue for this Mac: 1, 2, 3, ... in post order
+    /// (PROTOCOL.md "Store and forward", API 0.18.0). An older hub sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
 }
 
 /// The Mac's answer for one mailbox item.
@@ -248,10 +281,17 @@ pub const RELAY_NOW: &str = "now";
 ///   until the peer's relay marker confirms a direct route;
 /// - 2: never sends relay frames; confirms routes with an in-tunnel `reach`
 ///   message, and may offer TURN relayed addresses reached over TCP or TLS.
+/// - 3: takes datagrams from the peer's second socket on another interface
+///   (cell beside Wi-Fi), and its in-tunnel `metered` message naming them.
 ///
 /// A side treats a version-0 peer's authenticated datagrams as the
 /// confirmation, since that peer's marker can no longer arrive.
-pub const WG_VERSION: u32 = 2;
+pub const WG_VERSION: u32 = 3;
+
+/// The version whose peers read `reach` and trickled endpoints (2). A
+/// feature checks the version that brought it, never [`WG_VERSION`]: a bump
+/// would take the feature away from every peer one version behind.
+pub const WG_REACH_VERSION: u32 = 2;
 
 fn is_zero(value: &u32) -> bool {
     *value == 0
@@ -399,6 +439,10 @@ const UNKNOWN_FRAME_TYPE: &str = "unknown frame type";
 pub struct SignalingClient {
     shared: Arc<Shared>,
     incoming: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<IncomingSession>>>,
+    /// This process's own sessions into the queue [`Self::next_session`]
+    /// reads ([`Self::inject_session`]).
+    local: mpsc::UnboundedSender<IncomingSession>,
+    local_rx: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<IncomingSession>>>,
     mailbox: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<Vec<MailboxItem>>>>,
 }
 
@@ -445,6 +489,52 @@ fn connect_error(error: tokio_tungstenite::tungstenite::Error) -> SignalingError
     }
 }
 
+/// The upgrade, on a TCP stream that left through the system's proxy for the
+/// service when the settings name one (`CONNECT`, PAC included), with TLS
+/// verified against the OS trust store ([`crate::egress`]): a network whose
+/// only way out is its proxy, or that inspects TLS with a company root,
+/// reaches the service as URLSession does.
+type Socket = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+async fn open_socket(
+    request: tokio_tungstenite::tungstenite::handshake::client::Request,
+    egress: crate::egress::Egress,
+) -> Result<Socket, SignalingError> {
+    let uri = request.uri().clone();
+    let secure = uri.scheme_str() == Some("wss");
+    let host = uri.host().ok_or_else(|| SignalingError::BadUrl(uri.to_string()))?;
+    let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
+    let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
+    // Direct: the base's raced, remembered dial (`signal_dial`, IPv6 and IPv4
+    // racing). Through a proxy: `CONNECT` or SOCKS5 to the proxy.
+    let direct = |_: &str, _: u16| {
+        let request = &request;
+        async move {
+            crate::signal_dial::connect_tcp(request)
+                .await
+                .map_err(|error| crate::egress::EgressError::Io(error.to_string()))
+        }
+    };
+    let (tcp, via) = crate::egress::connect_tcp_with(&host, port, secure, &egress, direct)
+        .await
+        .map_err(|error| SignalingError::Connect(error.to_string()))?;
+    if let crate::egress::Via::Proxy(hop) = &via {
+        tracing::info!(%hop, host, "signaling through the proxy");
+    }
+    let connector = if secure {
+        let config = crate::egress::tls::client_config(&egress.trust).map_err(SignalingError::Connect)?;
+        tokio_tungstenite::Connector::Rustls(config)
+    } else {
+        tokio_tungstenite::Connector::Plain
+    };
+    let (socket, _) = tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
+        .await
+        .map_err(connect_error)?;
+    // After the handshake: the verifier has marked a TLS-inspected host by now.
+    crate::egress::note(crate::egress::PathKind::of(&via, &host));
+    Ok(socket)
+}
+
 impl SignalingClient {
     /// Connect with `Authorization: Bearer <token>` and no build space.
     pub async fn connect(
@@ -465,18 +555,36 @@ impl SignalingClient {
         device_id: &str,
         build_space: Option<&crate::build_space::BuildSpace>,
     ) -> Result<Self, SignalingError> {
-        let url = signal_url(base_url, team_id, device_id)?;
-        Self::open(url, token, device_id, build_space).await
+        Self::connect_via(base_url, token, team_id, device_id, build_space, &crate::egress::Egress::default())
+            .await
     }
 
-    /// Open the socket at `url` (a [`signal_url`], maybe with more query).
+    /// [`Self::connect_in`] leaving this device as `egress` says (tests: a
+    /// given proxy, given roots); the others follow the system's settings.
+    pub async fn connect_via(
+        base_url: &str,
+        token: &str,
+        team_id: &str,
+        device_id: &str,
+        build_space: Option<&crate::build_space::BuildSpace>,
+        egress: &crate::egress::Egress,
+    ) -> Result<Self, SignalingError> {
+        crate::install_crypto_provider();
+        let url = signal_url(base_url, team_id, device_id)?;
+        Self::open(url, token, device_id, build_space, egress).await
+    }
+
+    /// Open the socket at `url` (a [`signal_url`], maybe with more query),
+    /// leaving this device as `egress` says.
     async fn open(
         url: String,
         token: &str,
         device_id: &str,
         build_space: Option<&crate::build_space::BuildSpace>,
+        egress: &crate::egress::Egress,
     ) -> Result<Self, SignalingError> {
         crate::install_crypto_provider();
+        let egress = egress.clone();
         let mut request = url.into_client_request().map_err(|e| SignalingError::BadUrl(e.to_string()))?;
         request.headers_mut().insert(
             "authorization",
@@ -497,8 +605,8 @@ impl SignalingClient {
         // there too. Within `CONNECT_WAIT`: an upgrade a loaded host or a lost answer stalls
         // would otherwise hold the reconnect, and the Mac stays offline, with no end.
         let connecting = crate::liveness::spawn(async move {
-            match tokio::time::timeout(CONNECT_WAIT, crate::signal_dial::connect_async(request)).await {
-                Ok(connected) => connected.map(|(socket, _)| socket).map_err(connect_error),
+            match tokio::time::timeout(CONNECT_WAIT, open_socket(request, egress)).await {
+                Ok(connected) => connected,
                 Err(_) => Err(SignalingError::Connect(format!(
                     "no answer to the upgrade within {}s",
                     CONNECT_WAIT.as_secs()
@@ -509,6 +617,7 @@ impl SignalingClient {
         let (sink, mut source) = socket.split();
         let out = Arc::new(SendQueue::default());
         let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
+        let (local_tx, local_rx) = mpsc::unbounded_channel();
         let (mailbox_tx, mailbox_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
             device_id: device_id.to_owned(),
@@ -610,6 +719,8 @@ impl SignalingClient {
         }
         Ok(Self {
             shared,
+            local: local_tx,
+            local_rx: Arc::new(tokio::sync::Mutex::new(local_rx)),
             incoming: Arc::new(tokio::sync::Mutex::new(incoming_rx)),
             mailbox: Arc::new(tokio::sync::Mutex::new(mailbox_rx)),
         })
@@ -630,7 +741,9 @@ impl SignalingClient {
             crate::local::HUB_VERSION_PARAM,
             crate::local::HUB_VERSION
         );
-        let client = Self::open(url, token, device_id, None).await?;
+        // A hub on this network: never through a proxy (its address is local).
+        let local = crate::egress::Egress { proxy: crate::egress::ProxyConfig::Direct, ..Default::default() };
+        let client = Self::open(url, token, device_id, None, &local).await?;
         client.shared.local.store(true, std::sync::atomic::Ordering::Relaxed);
         Ok(client)
     }
@@ -716,7 +829,20 @@ impl SignalingClient {
     /// subscribed; `None` once the socket is closed. Drop or
     /// [`unsubscribe`](Self::unsubscribe) a session you refuse.
     pub async fn next_session(&self) -> Option<IncomingSession> {
-        self.incoming.lock().await.recv().await
+        let mut incoming = self.incoming.lock().await;
+        let mut local = self.local_rx.lock().await;
+        tokio::select! {
+            biased;
+            // Never `None`: this client holds the sender.
+            Some(session) = local.recv() => Some(session),
+            session = incoming.recv() => session,
+        }
+    }
+
+    /// Queue a session this process started itself (a resumed dormant
+    /// tunnel) for [`Self::next_session`]; `false` once the socket is gone.
+    pub(crate) fn inject_session(&self, session: IncomingSession) -> bool {
+        self.closed_reason().is_none() && self.local.send(session).is_ok()
     }
 
     /// Route every later signal and relay frame of `session_id` to the
@@ -994,15 +1120,22 @@ mod tests {
     #[test]
     fn mailbox_frames_match_the_contract() {
         let frame: SignalMessage = serde_json::from_str(
-            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"}]}"#,
+            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"},{"id":"r3","from":"p","sealed":"AQ","at":6,"seq":7}]}"#,
         )
         .unwrap();
         let SignalMessage::Mailbox { items } = frame else { panic!("{frame:?}") };
         assert_eq!(
             items[0],
-            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5) }
+            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5), seq: None }
         );
         assert_eq!(items[1].at, None);
+        // A store-and-forward hub (API 0.18.0) adds each item's `seq`; an older one sends none.
+        assert_eq!((items[1].seq, items[2].seq), (None, Some(7)));
+        assert_eq!(
+            serde_json::to_value(&items[2]).unwrap(),
+            serde_json::json!({"id":"r3","from":"p","sealed":"AQ","at":6,"seq":7})
+        );
+        assert!(serde_json::to_value(&items[0]).unwrap().get("seq").is_none());
         let ack = SignalMessage::MailboxAck {
             results: vec![
                 MailboxResult { id: "r1".into(), applied: true, reason: None, sig: Some("ab".into()) },
@@ -1014,6 +1147,38 @@ mod tests {
             serde_json::json!({"type":"mailbox_ack","results":[{"id":"r1","applied":true,"sig":"ab"},
                 {"id":"r2","applied":false,"reason":"replayed"}]})
         );
+    }
+
+    /// Early relay ticket, both ways: an older phone's `wg-init` (no
+    /// `ticketEarly`) reads as not asking, a new one that does not ask writes
+    /// no field an older service or Mac could trip on, and only an asking one
+    /// writes `ticketEarly: true`. `wg-ticket` carries nothing but its kind.
+    #[test]
+    fn early_ticket_is_asked_only_by_a_new_dialer() {
+        let old: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-init","publicKey":"k","endpoints":[],"overlayIP":"10.77.0.2","relay":"now"}))
+        .unwrap();
+        assert!(matches!(old, SignalPayload::WgInit { ticket_early: false, .. }));
+        let init = |ticket_early| SignalPayload::WgInit {
+            public_key: "k".into(),
+            endpoints: Vec::new(),
+            overlay_ip: "10.77.0.2".into(),
+            lanes: Vec::new(),
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+            version: 0,
+            relay: Some(RELAY_NOW.into()),
+            ticket_early,
+        };
+        let quiet = serde_json::to_value(init(false)).unwrap();
+        assert!(quiet.get("ticketEarly").is_none(), "{quiet}");
+        let asking = serde_json::to_value(init(true)).unwrap();
+        assert_eq!(asking["ticketEarly"], serde_json::json!(true));
+        let ticket: SignalEnvelope = serde_json::from_value(serde_json::json!(
+            {"to":"phone","from":"mac","sessionId":"s","payload":{"kind":"wg-ticket"},"relayTicket":"t"}))
+        .unwrap();
+        assert!(matches!(ticket.payload, SignalPayload::WgTicket {}));
+        assert_eq!(ticket.relay_ticket.as_deref(), Some("t"));
     }
 
     #[test]
@@ -1052,6 +1217,34 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(hello, SignalMessage::Hello { .. }));
+    }
+
+    #[test]
+    fn wg_endpoints_mapped_label_old_and_new() {
+        // A new Mac's announcement: the mapped address is a plain endpoint
+        // plus the label, which an older phone (unknown fields) skips.
+        let new = SignalPayload::WgEndpoints {
+            generation: 5,
+            endpoints: vec!["192.168.1.9:4000".into(), "203.0.113.7:4000".into()],
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+            mapped: vec!["203.0.113.7:4000".into()],
+            mapped_by: Some("upnp".into()),
+        };
+        let value = serde_json::to_value(&new).unwrap();
+        assert_eq!(value["mapped"], serde_json::json!(["203.0.113.7:4000"]));
+        assert_eq!(value["mappedBy"], "upnp");
+        assert_eq!(value["endpoints"][1], "203.0.113.7:4000");
+        assert_eq!(serde_json::from_value::<SignalPayload>(value).unwrap(), new);
+        // An older Mac's: nothing mapped, and nothing new written back.
+        let old: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-endpoints","generation":1,"endpoints":["203.0.113.7:4000"]}))
+        .unwrap();
+        assert!(
+            matches!(&old, SignalPayload::WgEndpoints { mapped, mapped_by: None, .. } if mapped.is_empty())
+        );
+        let text = serde_json::to_string(&old).unwrap();
+        assert!(!text.contains("mapped"), "{text}");
     }
 
     #[test]

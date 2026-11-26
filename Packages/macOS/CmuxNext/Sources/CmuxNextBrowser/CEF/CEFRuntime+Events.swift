@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -14,6 +15,10 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
         s1: s1.map { String(cString: $0) } ?? "", s2: s2.map { String(cString: $0) } ?? ""
     )
     let address = UInt(bitPattern: context)
+    #if DEBUG || CMUX_BENCH_HOOKS
+    // What each main-thread wake from Chromium was for (`debug.wakeups`): a page's DevTools session among them.
+    WakeupLedger.shared.record("CEF.event", reason: event.ledgerReason)
+    #endif
     // The shim emits on the CEF UI thread, which is the main thread. If a
     // future shim path emits elsewhere, hop instead of trapping in
     // assumeIsolated (the strings are already copied into `event`).
@@ -280,6 +285,8 @@ extension CEFRuntime {
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
+        // A web page live again keeps (or asks back) the web spare window and page.
+        spareWindow.webPagesChanged(runtime: self)
         // An import's unpacked extensions, once the profile has a browser to load them through (after this callback).
         if extensionStores.hasPendingUnpacked(tab.profileID) {
             let profile = tab.profileID
@@ -300,6 +307,8 @@ extension CEFRuntime {
             orphans.closedUnregistered(browser)
             spareWindow.browserClosed(browser)
         }
+        // The last live web page gone (closed or hibernated): the web spare's quiet period starts.
+        if shutdownSequence == nil { spareWindow.webPagesChanged(runtime: self) }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         unawaitedDevTools = unawaitedDevTools.filter { $0.key.browser != browser }
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
@@ -397,7 +406,9 @@ extension CEFRuntime {
         await shutdown(timeout: timeout, beforeEngineStop: {})
     }
 
-    func shutdown(timeout: Duration, beforeEngineStop: @MainActor () async -> Void) async {
+    /// `stopsEngine` false (an update's relaunch, ask-ad4a68e740): the pages close and the cookies reach disk as on any
+    /// quit, then the process ends without CefShutdown (the path a timed-out close already takes), not 1 to 3.4 s later.
+    func shutdown(timeout: Duration, stopsEngine: Bool = true, beforeEngineStop: @MainActor () async -> Void) async {
         if state == .loading {
             // The library is still mapping: never initialize after quit began.
             state = .shutDown
@@ -440,6 +451,11 @@ extension CEFRuntime {
             return
         }
         await beforeEngineStop()
+        guard stopsEngine else {
+            logger.notice("CEF pages closed; exiting without CefShutdown for an update's relaunch")
+            state = .shutDown
+            return
+        }
         let stopping = ContinuousClock.now
         shim.shutdown()
         state = .shutDown
@@ -488,7 +504,7 @@ extension CEFShimEvent {
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
-             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
+             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _), .authPrompt(let b, _, _, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _),
              .pageMessage(let b, _, _, _), .statusMessage(let b, _):

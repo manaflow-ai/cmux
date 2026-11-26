@@ -232,6 +232,21 @@ To add a case: write the scenario (below), add its entry with a `check` that ret
 expected behaviour does not hold, and run `--map`. A check reads the run's steps (`run.traces`, each with its
 drawn rows), so it can say "at every step between these two records" as easily as "at the end".
 
+## Start at the interesting part
+
+```sh
+bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/replay-lane-session.ndjson --start-at 50
+bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --seek-to-event 4200 --lead 2
+```
+
+`--start-at S` starts S seconds of virtual time into the scenario; `--seek-to-event SEQ --lead S` starts S
+seconds before the first record at or after SEQ. Every step before the start is still applied (the reducer
+and turn view see every record, so the chat there is exact, not a fast-forward); the trace and the
+violations begin at the start. `seekPlan` (sim/seek.ts) is the split: the steps to apply at once and the
+rest's delays. In Chrome, `window.__chatSim.seek(name, { startAtMs } | { seekToSeq, leadMs })` applies the
+prefix, draws that state in one frame and returns `start`, so a recorder plays from there and a clip shows
+only the part that differs (keep proof clips under about 15 s).
+
 ## Write a scenario
 
 ```ts
@@ -256,20 +271,33 @@ the escape hatch for any record acpmux writes.
   it, or the block gap (24) when it is another agent's line (a notice or message; transcriptSpacing.ts
   `footer-to-received`, by design). `a-head-gap`: the turn's head (its "Working for" / "Worked for" line, or
   the first row under its opening row) stands at least the block gap (24) under the opening row.
-- **(b) folds**: no row folds (leaves the drawn rows, or its fold closes) before its turn's `turn_result`.
+- **(b) folds**: no row folds (leaves the drawn rows, or its fold closes) before its turn's first end record (`turn_end`, or `turn_result` when no end was recorded).
   Allowed, and counted in the summary as "mid-turn sibling folds": a finished run of calls (and a
   compaction line inside it) closed with a reply of the same running turn under it: the `runs` arm of
   live-turn-work, where a run stays open until the agent's next paragraph (#48597). A run closed by the
   next call alone is a violation. A reply whose text reappears in another row is `remapped`, not folded.
+- **(d) received lines**: `d-received-gap`: another agent's line (a notice or message) among tool rows sits on
+  their pitch: flush under its own turn's "Working for" / "Worked for", at most 8 from a tool row, a run line
+  or another received line next to it, and the live line a step's gap under it, never a prompt's room (Leo,
+  2026-11-22: "sometimes you get these way-too-big gaps. i think it's the message recieving not properly
+  getting treated like the tool call ish thing it should be and instead as if it were a message?").
 - **(c) stillness**: no row two or more turns back is rebuilt (a new row object with the same id, version
   and fold) when nothing changed it. Live lines are exempt.
 - **(d) the 22:05Z burst** (Leo's chat, 2026-11-22 22:05-22:11Z, `test/fixtures/chat-sim/leo-2205-subagent-burst.ndjson`):
   `d-started-pill`: a "started working" line names at most `STARTED_LINE_NAMES` (3) subagents, each by name,
   and none whose start the pane never read (one first met through progress, its spawn before the page);
   `d-started-lines`: one start line a turn (later starts join it); `d-blank`: once rows are drawn, the chat
-  never draws none; `d-shift`: a settled row (two or more turns back, not live) keeps its top;
+  never draws none; `d-shift`: a settled row (two or more turns back, not live) keeps its viewport position after the transcript anchors a prepend;
   `d-action-only`: a turn that ended draws more than its prompt and its action row; `d-steer-order`: no
   row of a steer's turn that came after the steer is drawn above it.
+- **(i) bubble integrity** (integrity.ts), on each turn's rows at its `turn_result` and at the run's last step
+  (Leo, 2026-11-22: "you also basically said the same thing", images/1157.png; "ok, well. this happened again",
+  1158.png): `i-split-bubble`: two reply rows of one message (same `messageId`), or the first cut inside an
+  open span, with nothing but a fold or header between them (a "Worked for" whose two sides are one message);
+  `i-repeated-paragraph`: a paragraph of 40+ characters drawn twice in one turn (a row repeating its own
+  paragraph, or a row whose text is another's suffix); `i-unclosed-markdown`: a settled reply left open inside
+  `**`, a fence, `$$` or an inline backtick; `i-placeholder-after-end`. The CLI exits 1 on any of them, and
+  `--replay DIR --integrity` runs them alone on a recorded chat.
 
 ## Read the trace
 

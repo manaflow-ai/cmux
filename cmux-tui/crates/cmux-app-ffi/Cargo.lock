@@ -182,6 +182,8 @@ dependencies = [
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-health-core",
+ "cmux-interactivity",
+ "cmux-keymap",
  "cmux-launch-image",
  "cmux-launch-record",
  "cmux-launch-shell",
@@ -198,6 +200,17 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-app-host"
+version = "0.1.0"
+dependencies = [
+ "cmux-embed",
+ "cmux-json",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -227,6 +240,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-disk"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
@@ -241,6 +262,7 @@ dependencies = [
 name = "cmux-cloud-handlers"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-disk",
  "cmux-cloud-start-core",
  "serde",
  "serde_json",
@@ -250,6 +272,7 @@ dependencies = [
 name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-disk",
  "cmux-lifeline",
  "serde",
  "serde_json",
@@ -259,8 +282,10 @@ dependencies = [
 name = "cmux-cloud-start-core"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "serde",
  "serde_json",
+ "sha2",
  "toml 0.8.23",
 ]
 
@@ -277,6 +302,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-app-host",
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
@@ -381,9 +407,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-interactivity"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-keymap"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -499,10 +540,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-rd-engine"
+version = "0.1.0"
+dependencies = [
+ "cmux-rd-core",
+ "cmux-rd-proto",
+]
+
+[[package]]
 name = "cmux-rd-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-rd-core",
+ "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-remote-browser",
  "serde_json",
@@ -893,6 +943,12 @@ name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
+name = "hex"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hmac"

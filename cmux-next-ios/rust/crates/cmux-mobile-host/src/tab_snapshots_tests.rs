@@ -1,7 +1,16 @@
 use super::*;
 
 fn tab(id: &str, kind: Kind, raw: Value) -> ListedTab {
-    ListedTab { id: id.to_owned(), title: format!("T{id}"), kind, cols: 80, rows: 24, raw }
+    ListedTab { id: id.to_owned(), key: None, title: format!("T{id}"), kind, cols: 80, rows: 24, raw }
+}
+
+/// A tab the daemon lists with its durable id (`tab_resource_id`).
+fn keyed(id: &str, key: &str, kind: Kind) -> ListedTab {
+    ListedTab { key: Some(key.to_owned()), ..tab(id, kind, json!({})) }
+}
+
+fn hash(bytes: &[u8]) -> Option<cmux_tab_snapshots::BlobHash> {
+    Some(cmux_tab_snapshots::BlobHash::of(bytes))
 }
 
 fn row(tabs: &Tabs, id: &str) -> cmux_tab_snapshots::Row {
@@ -55,14 +64,16 @@ fn a_new_daemon_run_drops_every_id_of_the_old_one_under_a_new_epoch() {
     let rev = tabs.rev();
 
     assert!(tabs.daemon_run("e2", Some("1/main/1".into())));
-    assert_eq!(tabs.epoch(), "e2");
-    assert!(tabs.tab_ids().is_empty());
-    assert_eq!(tabs.stored_blobs(), 0);
-    assert!(tabs.rev() > rev);
-    assert!(tabs.lock().producer.delta_since(rev).is_none(), "no delta crosses the runs");
+    // The new run's tab list decides; these tabs carry no durable id, so
+    // nothing proves an id still names its tab.
+    assert_eq!(tabs.epoch(), "e");
     // The new run reuses 1 and 5 for other tabs: none of the old pictures,
     // screen or title come back.
     tabs.set_tabs(vec![tab("5", Kind::Terminal, json!({})), tab("1", Kind::Browser, json!({}))]);
+    assert_eq!(tabs.epoch(), "e2");
+    assert!(tabs.rev() > rev);
+    assert!(tabs.lock().producer.delta_since(rev).is_none(), "no delta crosses the runs");
+    assert_eq!(tabs.stored_blobs(), 0);
     assert_eq!(tabs.tab_ids(), ["5", "1"]);
     let (one, five) = (row(&tabs, "1"), row(&tabs, "5"));
     assert_eq!((one.thumb_hash, one.screen_hash, five.thumb_hash), (None, None, None));
@@ -80,6 +91,7 @@ fn picture(path: &Path, part: Part) -> PictureFile {
         w: 576,
         h: 360,
         captured_at_ms: 9,
+        tab: None,
     }
 }
 
@@ -143,6 +155,26 @@ fn set_tabs_orders_removes_and_keeps_screens() {
 }
 
 #[test]
+fn equal_screen_refresh_emits_no_snapshot_or_row_delta() {
+    let tabs = Tabs::new("e");
+    tabs.set_tabs(vec![tab("1", Kind::Terminal, json!({})), tab("2", Kind::Terminal, json!({}))]);
+    assert!(tabs.set_screen("1", "same".to_owned()));
+    let rev = tabs.rev();
+    assert!(!tabs.set_screen("1", "same".to_owned()));
+    println!("SILENT_DELTA rust_screen_equal before=1 after=0");
+    assert_eq!(tabs.rev(), rev);
+    let delta = tabs.lock().producer.delta_since(rev).expect("current revision has a delta");
+    assert!(delta.changed.is_empty());
+
+    assert!(tabs.set_screen("1", "changed".to_owned()));
+    assert_eq!(tabs.rev(), rev + 1);
+    let delta = tabs.lock().producer.delta_since(rev).expect("changed row delta");
+    println!("SILENT_DELTA rust_screen_changed rows={}", delta.changed.len());
+    assert_eq!(delta.changed.len(), 1);
+    assert_eq!(delta.changed[0].tab_id, "1");
+}
+
+#[test]
 fn exposure_hides_tabs_of_blocked_chats_and_everything_when_unavailable() {
     let tabs = Tabs::new("e");
     tabs.set_tabs(vec![
@@ -180,6 +212,129 @@ fn listed_tabs_reads_the_tree_in_order() {
             ("9", "Chat", Kind::Agent, 0, 0),
         ]
     );
+}
+
+/// A daemon restart that lists every tab under the durable id it had keeps
+/// the epoch: a phone gets a plain delta and keeps every picture and screen
+/// (Leo, 2026-11-24: "there are too many empty previews in the safari grid
+/// thing").
+#[test]
+fn a_new_run_listing_every_id_under_its_durable_id_keeps_the_epoch_and_pictures() {
+    let tabs = Tabs::new("e");
+    assert!(!tabs.daemon_run("unused", Some("1/main/0".into())));
+    tabs.set_tabs(vec![keyed("1", "tab-a", Kind::Terminal), keyed("2", "tab-b", Kind::Browser)]);
+    tabs.set_screen("1", "$ make".into());
+    tabs.offer_image("2", Part::Thumb, b"thumb-b".to_vec(), 576, 768, Mime::Jpeg, 2);
+    tabs.offer_image("2", Part::Favicon, b"fav-b".to_vec(), 0, 0, Mime::Png, 2);
+    assert_eq!(row(&tabs, "2").tab_key, "tab-b");
+    let rev = tabs.rev();
+
+    assert!(tabs.daemon_run("e2", Some("2/main/0".into())));
+    // A new tab joins in the new run; the old ones keep their ids.
+    tabs.set_tabs(vec![
+        keyed("1", "tab-a", Kind::Terminal),
+        keyed("2", "tab-b", Kind::Browser),
+        keyed("3", "tab-c", Kind::Browser),
+    ]);
+    assert_eq!(tabs.epoch(), "e", "every id still names its tab");
+    let delta = tabs.lock().producer.delta_since(rev).expect("a delta from before the restart");
+    assert_eq!(delta.changed.iter().map(|p| p.tab_id.as_str()).collect::<Vec<_>>(), ["3"]);
+    let (one, two) = (row(&tabs, "1"), row(&tabs, "2"));
+    assert_eq!(one.screen_hash, hash(b"$ make"));
+    assert_eq!((two.thumb_hash, two.favicon_hash), (hash(b"thumb-b"), hash(b"fav-b")));
+}
+
+/// No card ever shows another tab's picture: a new run that gives an id to
+/// another tab starts a new epoch, and a tab's picture follows its durable
+/// id to the surface id the new run gave it.
+#[test]
+fn a_new_run_giving_an_id_to_another_tab_starts_a_new_epoch_and_pictures_follow_their_tab() {
+    let tabs = Tabs::new("e");
+    assert!(!tabs.daemon_run("unused", Some("1/main/0".into())));
+    tabs.set_tabs(vec![keyed("1", "tab-a", Kind::Browser), keyed("2", "tab-b", Kind::Browser)]);
+    tabs.offer_image("1", Part::Thumb, b"thumb-a".to_vec(), 576, 768, Mime::Jpeg, 1);
+    tabs.offer_image("2", Part::Thumb, b"thumb-b".to_vec(), 576, 768, Mime::Jpeg, 1);
+    // A picture for a surface not listed yet, by surface id: gone with the run.
+    tabs.offer_image("9", Part::Thumb, b"thumb-9".to_vec(), 576, 768, Mime::Jpeg, 1);
+    let rev = tabs.rev();
+
+    assert!(tabs.daemon_run("e2", Some("2/main/0".into())));
+    // tab-b is now surface 5; surface 1 is tab-a still; 2 and 9 are new tabs.
+    tabs.set_tabs(vec![
+        keyed("1", "tab-a", Kind::Browser),
+        keyed("2", "tab-new", Kind::Browser),
+        keyed("5", "tab-b", Kind::Browser),
+        keyed("9", "tab-nine", Kind::Browser),
+    ]);
+    assert_eq!(tabs.epoch(), "e2", "2 names another tab now");
+    assert!(tabs.lock().producer.delta_since(rev).is_none(), "no delta crosses the runs");
+    assert_eq!(row(&tabs, "1").thumb_hash, hash(b"thumb-a"));
+    assert_eq!((row(&tabs, "5").tab_key.as_str(), row(&tabs, "5").thumb_hash), ("tab-b", hash(b"thumb-b")));
+    assert_eq!((row(&tabs, "2").tab_key.as_str(), row(&tabs, "2").thumb_hash), ("tab-new", None));
+    assert_eq!(row(&tabs, "9").thumb_hash, None, "a picture held by an old run's surface id is gone");
+}
+
+#[test]
+fn a_new_run_listing_a_tab_without_a_durable_id_starts_a_new_epoch() {
+    let tabs = Tabs::new("e");
+    assert!(!tabs.daemon_run("unused", Some("1/main/0".into())));
+    tabs.set_tabs(vec![keyed("1", "tab-a", Kind::Browser)]);
+    assert!(tabs.daemon_run("e2", Some("2/main/0".into())));
+    tabs.set_tabs(vec![keyed("1", "tab-a", Kind::Browser), tab("2", Kind::Browser, json!({}))]);
+    assert_eq!(tabs.epoch(), "e2");
+}
+
+#[test]
+fn a_picture_naming_its_durable_id_lands_on_that_tab_whatever_its_surface_names() {
+    let tabs = Tabs::new("e");
+    tabs.set_tabs(vec![keyed("1", "tab-a", Kind::Browser), keyed("2", "tab-b", Kind::Browser)]);
+    // Written for tab-b while it was surface 1 in an older run.
+    assert!(tabs.offer("1", Some("tab-b"), Part::Thumb, b"thumb-b".to_vec(), 1, 1, Mime::Jpeg, 1));
+    assert_eq!(row(&tabs, "1").thumb_hash, None);
+    assert_eq!(row(&tabs, "2").thumb_hash, hash(b"thumb-b"));
+    // For a tab not listed yet: held until it is.
+    assert!(!tabs.offer("7", Some("tab-c"), Part::Thumb, b"thumb-c".to_vec(), 1, 1, Mime::Jpeg, 1));
+    tabs.set_tabs(vec![keyed("3", "tab-c", Kind::Browser)]);
+    assert_eq!(row(&tabs, "3").thumb_hash, hash(b"thumb-c"));
+}
+
+#[test]
+fn a_closed_tabs_pictures_by_durable_id_stay_for_its_return_and_the_oldest_go_past_the_cap() {
+    let tabs = Tabs::new("e");
+    tabs.offer_image("1", Part::Thumb, b"early".to_vec(), 1, 1, Mime::Jpeg, 1);
+    tabs.set_tabs(vec![keyed("1", "tab-a", Kind::Browser)]);
+    assert_eq!(row(&tabs, "1").thumb_hash, hash(b"early"), "a picture held by surface moves to its tab");
+    tabs.set_tabs(vec![]);
+    tabs.set_tabs(vec![keyed("4", "tab-a", Kind::Browser)]);
+    assert_eq!(row(&tabs, "4").thumb_hash, hash(b"early"));
+    tabs.set_tabs(vec![]);
+    for i in 0..MAX_UNLISTED_PICTURES {
+        let at = i64::try_from(i).unwrap() + 10;
+        tabs.offer(
+            &format!("{}", 100 + i),
+            Some(&format!("k{i}")),
+            Part::Thumb,
+            vec![1],
+            1,
+            1,
+            Mime::Jpeg,
+            at,
+        );
+    }
+    let state = tabs.lock();
+    assert_eq!(state.pictures.len(), MAX_UNLISTED_PICTURES);
+    assert!(!state.pictures.contains_key("k:tab-a"), "the oldest went first");
+    assert!(state.pictures.contains_key("k:k0"));
+}
+
+#[test]
+fn listed_tabs_reads_the_durable_id() {
+    let reply = json!({"workspaces": [{"screens": [{"panes": [{"tabs": [
+        {"surface": 7, "kind": "pty", "title": "zsh", "tab_resource_id": "tab-7"},
+        {"surface": 8, "kind": "browser", "title": "Docs", "tab_resource_id": ""},
+    ]}]}]}]});
+    let keys: Vec<_> = listed_tabs(&reply).into_iter().map(|t| t.key).collect();
+    assert_eq!(keys, [Some("tab-7".to_owned()), None]);
 }
 
 #[test]
