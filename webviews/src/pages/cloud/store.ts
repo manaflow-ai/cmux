@@ -57,6 +57,12 @@ export type Connection = "connecting" | "connected" | "disconnected" | "failed";
 /** The first and the longest wait before the store reads auth again after the link refused it. */
 export const CLOUD_RESTART_MIN_MS = 1_000;
 export const CLOUD_RESTART_MAX_MS = 10_000;
+/**
+ * Quiet re-reads of a retryable Cloud service failure (a backend blip, `owner.unreachable`, a busy
+ * relay) on the page's own reads, 1 s apart and doubling: the page says nothing unless the read
+ * still fails after them (about 7 s in all).
+ */
+export const CLOUD_BLIP_RETRIES = 3;
 
 export interface CreateDraft {
   /** One key per sheet: a retry after a failure sends the same key, so the owner creates once. */
@@ -204,6 +210,10 @@ export class CloudStore {
   private restart: ReturnType<typeof setTimeout> | undefined;
   /** Link refusals of the first auth read in a row: the wait before the next one doubles. */
   private restartAttempts = 0;
+  /** The quiet re-read after a retryable Cloud service failure (`readAgainQuietly`); cleared by stop. */
+  private blip: ReturnType<typeof setTimeout> | undefined;
+  /** Quiet re-reads in a row; a read that answers resets it. */
+  private blips = 0;
   /**
    * The cached list's account, while the page shows that list and the owner has not answered yet:
    * the first auth read (and the account stream's first event) drop it when they name another.
@@ -317,6 +327,12 @@ export class CloudStore {
     } catch (error) {
       if (session !== this.session) return;
       this.started = false;
+      if (
+        this.readAgainQuietly(error, () => {
+          if (this.listeners.size > 0) void this.start();
+        })
+      )
+        return;
       const failed = failure(error);
       const connection = connectionFailure(error);
       // The account could not be read at all: a kept list it never confirmed leaves the screen (a link
@@ -333,6 +349,7 @@ export class CloudStore {
     // start (Retry does the same before it starts).
     const recovered = this.restartAttempts > 0;
     this.restartAttempts = 0;
+    this.blips = 0;
     // A kept list of another account or team (or a sign-out elsewhere) goes before anything shows it.
     if (this.seeded && (!auth.signedIn || (auth.team ?? null) !== this.seeded.team)) this.dropSeeded();
     this.seeded = undefined;
@@ -355,7 +372,32 @@ export class CloudStore {
     clearTimeout(this.restart);
     this.restart = undefined;
     this.restartAttempts = 0;
+    clearTimeout(this.blip);
+    this.blip = undefined;
+    this.blips = 0;
     this.endSession();
+  }
+
+  /**
+   * A read of the page's own (the account, the machine watch and list) that the Cloud service
+   * refused as retryable is read again after 1 s, then 2 s and 4 s, keeping what the page shows
+   * and logging each; true when it will. Only reads: they change nothing, so asking again is safe
+   * (an owner operation is never replayed on its retryable). A link failure has its own backoff.
+   */
+  private readAgainQuietly(error: unknown, read: () => void): boolean {
+    // The Cloud service's own refusals (`cmux.cloud.*`): a bridge or page code is never a service blip.
+    if (!isPageError(error) || !error.retryable || !error.code.startsWith("cmux.cloud.")) return false;
+    if (this.blips >= CLOUD_BLIP_RETRIES) return false;
+    const delay = CLOUD_RESTART_MIN_MS * 2 ** this.blips++;
+    console.warn(
+      `cloud page: ${error.code} on a read; reading again in ${delay} ms (${this.blips}/${CLOUD_BLIP_RETRIES})`,
+    );
+    clearTimeout(this.blip);
+    this.blip = setTimeout(() => {
+      this.blip = undefined;
+      read();
+    }, delay);
+    return true;
   }
 
   /**
@@ -959,6 +1001,10 @@ export class CloudStore {
   private restartSession(): number {
     this.accountEpoch += 1;
     this.endSession();
+    // Another account or team starts with its own quiet re-reads, not the old one's spent count.
+    clearTimeout(this.blip);
+    this.blip = undefined;
+    this.blips = 0;
     return this.session;
   }
 
@@ -994,6 +1040,7 @@ export class CloudStore {
         revision = event.revision;
       }
       buffer = null;
+      this.blips = 0;
       this.setMirror(machines, revision, {
         loading: false,
         connection: "connected",
@@ -1003,7 +1050,14 @@ export class CloudStore {
       void this.readArchives(session);
     } catch (error) {
       buffer = null;
-      if (session === this.session) this.set({ loading: false, connection: "failed", ...failure(error) });
+      if (session !== this.session) return;
+      if (
+        this.readAgainQuietly(error, () => {
+          if (session === this.session) void this.loadSignedIn(session);
+        })
+      )
+        return;
+      this.set({ loading: false, connection: "failed", ...failure(error) });
       return;
     }
     await this.account.load(session);
