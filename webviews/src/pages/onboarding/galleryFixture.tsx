@@ -1,5 +1,5 @@
 // l10n-allow-file: public-safe gallery fixtures.
-import { useEffect, useRef, useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
 import {
@@ -17,7 +17,10 @@ import type { MakeItYoursLook } from "./MakeItYoursStep";
 import table from "./generated/strings.json";
 import { MockOnboardingProvider } from "./mockProvider";
 import { OnboardingPage } from "./Onboarding";
+import { OnboardingContext } from "./parts";
 import { OnboardingStore } from "./store";
+import type { MakeItYoursScreen } from "./walk";
+import { WalkArmScreen, type WalkArm } from "./walkArms";
 import { READINESS, type ReadinessFixture, type ReadinessFixtureCase } from "../shared/signIn/galleryFixtures";
 
 export type OnboardingGalleryProps = {
@@ -28,9 +31,17 @@ export type OnboardingGalleryProps = {
   look?: AgentsLook;
   makeItYours?: MakeItYoursFixture;
   makeLook?: MakeItYoursLook;
+  /** An intro-walk arm (walkArms.tsx): a gallery-only screen in the same window, over the Make cmux
+   * Yours fixture. Absent: the shipped page. */
+  walk?: WalkArm;
+  /** experiments.introWalk on: Make cmux Yours as the walk's four screens, opened on `makeScreen`. */
+  introWalk?: boolean;
+  makeScreen?: MakeItYoursScreen;
   /** The host's sign-in state on the agents step (shared/signIn/galleryFixtures.ts READINESS): sent
    * as `signInReadiness` and `signInAccounts`, its sign-in started through the mock's op. */
   readiness?: ReadinessFixture;
+  /** Draw the page as offline (false) or online (true) instead of the webview's own state. */
+  online?: boolean;
 };
 
 export function OnboardingGallery({
@@ -41,7 +52,11 @@ export function OnboardingGallery({
   look,
   makeItYours,
   makeLook,
+  walk,
+  introWalk,
+  makeScreen,
   readiness,
+  online,
 }: OnboardingGalleryProps) {
   const [mock] = useState(() => {
     const base =
@@ -50,7 +65,7 @@ export function OnboardingGallery({
         : step === "computerUse"
           ? computerUseState(computerUse)
           : step === "makeItYours"
-            ? makeItYoursState(makeItYours)
+            ? makeItYoursState(makeItYours, { introWalk })
             : agentsState(agents);
     const state = readiness ? withReadiness(base, READINESS[readiness]) : base;
     return { provider: new MockOnboardingProvider(step, state), state };
@@ -75,9 +90,22 @@ export function OnboardingGallery({
     }
     return () => store.stop();
   }, [readiness, store, mock]);
+  if (walk)
+    return (
+      <OnboardingContext.Provider value={{ strings, store }}>
+        <WalkArmScreen arm={walk} />
+      </OnboardingContext.Provider>
+    );
   return (
     <div ref={root} style={{ display: "contents" }}>
-      <OnboardingPage store={store} strings={strings} agentsLook={look} makeItYoursLook={makeLook} />
+      <OnboardingPage
+        store={store}
+        strings={strings}
+        agentsLook={look}
+        makeItYoursLook={makeLook}
+        makeItYoursScreen={makeScreen}
+        online={online}
+      />
     </div>
   );
 }

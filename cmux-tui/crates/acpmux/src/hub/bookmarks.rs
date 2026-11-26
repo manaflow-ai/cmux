@@ -11,6 +11,8 @@ use std::collections::BTreeSet;
 
 impl Hub {
     /// The most bookmarks one chat keeps.
+    /// Measured: every change writes the whole list, in its `bookmarks` record and the meta
+    /// save, up to 21 bytes a mark: 21 KB per change at 1,000.
     pub const MAX_BOOKMARKS: usize = 1000;
 
     /// Mark or unmark the prompt (or the turn's answer) logged at `seq`, and

@@ -1,5 +1,9 @@
 import CMUXMobileCore
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 @testable import CmuxIrohTransport
 

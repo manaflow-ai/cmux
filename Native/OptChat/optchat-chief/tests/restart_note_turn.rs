@@ -25,7 +25,7 @@ fn a_turn_a_note_woke_runs_again_after_a_host_restart() {
     h.tx.send(Input::PeerChiefNote { text: NOTE.into() })
         .unwrap();
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     // The note's turn is running when the host goes away.
     let Harness {

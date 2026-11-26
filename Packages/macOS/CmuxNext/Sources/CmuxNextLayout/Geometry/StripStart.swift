@@ -55,6 +55,9 @@ public nonisolated struct StripStart: Hashable, Sendable {
         let nextStart = points(next.width)
         delta = min(delta, nextStart - max(next.minimum, points(ColumnWidthPreset.widthRange.lowerBound)))
         delta = max(delta, nextStart - widest)
+        // `column` stays within the widest share too (the model clamps it there): past it, the next column would
+        // give up points `column` never takes.
+        delta = min(delta, widest - points(start.width))
         return [.width(column, fraction(points(start.width) + delta)), .width(next.id, fraction(nextStart - delta))]
     }
 

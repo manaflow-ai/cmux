@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.invalidKey" : {
+      "comment" : "Agent pane: a failed turn's note (cx-w10a)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يملك {harness} مفتاح API صالحًا. تحقّق من المفتاح الذي يستخدمه ملفه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} nema važeći API ključ. Provjeri ključ koji profil koristi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} har ingen gyldig API-nøgle. Tjek den nøgle, profilen bruger."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} hat keinen gültigen API-Schlüssel. Prüfe den Schlüssel seines Profils."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} has no valid API key. Check the key its profile uses."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} no tiene una clave de API válida. Revisa la clave que usa su perfil."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} n’a pas de clé d’API valide. Vérifie la clé utilisée par son profil."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} non ha una chiave API valida. Controlla la chiave del profilo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} に有効な API キーがありません。プロファイルが使うキーを確認してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} គ្មាន API key ត្រឹមត្រូវ។ ពិនិត្យ key ដែលប្រវត្តិរូបប្រើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness}에 유효한 API 키가 없습니다. 프로필이 쓰는 키를 확인하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} har ingen gyldig API-nøkkel. Sjekk nøkkelen profilen bruker."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} nie ma ważnego klucza API. Sprawdź klucz używany przez profil."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} não tem uma chave de API válida. Verifique a chave do perfil."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "У {harness} нет действующего ключа API. Проверьте ключ в его профиле."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ไม่มี API key ที่ใช้ได้ ตรวจสอบ key ที่โปรไฟล์ใช้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} için geçerli API anahtarı yok. Profilin kullandığı anahtarı kontrol et."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "У {harness} немає дійсного ключа API. Перевірте ключ у його профілі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} không có khóa API hợp lệ. Kiểm tra khóa mà hồ sơ dùng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 没有有效的 API 密钥。请检查其配置使用的密钥。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 沒有有效的 API 金鑰。請檢查其設定檔使用的金鑰。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
