@@ -3417,6 +3417,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
                             "github.event.pull_request.base.ref": "feat-cmux-next",
                             "github.event.pull_request.head.repo.full_name": head_repo,
                             "github.event.pull_request.labels.*.name": list(labels),
+                            # path_route hands the jobs its labels as ",a,b," (note-97).
+                            "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
                             "github.event.pull_request.author_association": "CONTRIBUTOR"})
         context.update({f"inputs.{key}": value for key, value in inputs.items()})
         return context
@@ -3432,6 +3434,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         # which a pull request into feat-cmux-next skips without full-ci (#49046; its push runs them).
         # The Swift canary of a pull request is pr-pipeline.yml's `mac` job (ci/steps.toml, note-556).
         after_merge = set(HEAVY_COMPILES) | {"swift-test", "daemon-test", "swift-canary"}
+        # With none of web-bundles' consumers left (generated_host is swift-test here), it skips too.
+        after_merge |= {"web-bundles"}
         self.assertEqual(self.running(self.context()), set(self.TIER_JOBS) - after_merge | {"macos-placement"})
         self.assertEqual(self.running(self.context(labels=("full-ci",))),
                          set(self.TIER_JOBS) - after_merge | {"macos-placement", "checks"})
@@ -3445,7 +3449,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         fork["needs.path_route.outputs.cmuxnext_swift"] = "false"
         self.assertEqual(self.running(fork), set())
         labeled = self.context(head_repo="someone/cmux", labels=("full-ci",))
-        self.assertEqual(self.running(labeled), set(self.TIER_JOBS) - {"swift-canary", "swift-test", "daemon-test"}
+        self.assertEqual(self.running(labeled), set(self.TIER_JOBS) - {"swift-canary", "swift-test", "daemon-test",
+                                                                        "web-bundles"}
                          - set(HEAVY_COMPILES) | {"checks"})
 
     def test_a_dispatch_on_a_working_branch_runs_every_tier(self):
@@ -3498,18 +3503,22 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         self.assertFalse(evaluate(self.jobs()["web-bundles"]["if"], only_fast))
         # A tier alone wakes the bundles only when the job that restores them will run.
         bundles = self.jobs()["web-bundles"]["if"]
+        # swift-test and daemon-test never run on a feat-cmux-next PR (pr-pipeline.yml's `mac` job does).
         cases = (
-            ({"swift": "true"}, (), False),  # swift-test is off a feat-cmux-next PR without full-ci
-            ({"swift": "true"}, ("full-ci",), True),
-            ({"daemon": "true"}, (), True),  # the context's tree is ready
-            ({"daemon": "true", "tree_state": "pending"}, (), False),
-            ({"generated": "true", "generated_host": "generated-files"}, (), True),
-            ({"generated": "true", "generated_host": "swift-test"}, (), False),
+            ({"swift": "true"}, (), "feat-cmux-next", False),
+            ({"swift": "true"}, ("full-ci",), "feat-cmux-next", False),
+            ({"swift": "true"}, (), "main", True),
+            ({"daemon": "true"}, (), "feat-cmux-next", False),
+            ({"daemon": "true"}, (), "main", True),  # the context's tree is ready
+            ({"daemon": "true", "tree_state": "pending"}, (), "main", False),
+            ({"generated": "true", "generated_host": "generated-files"}, (), "feat-cmux-next", True),
+            ({"generated": "true", "generated_host": "swift-test"}, (), "feat-cmux-next", False),
         )
-        for outputs, labels, expected in cases:
-            with self.subTest(outputs=outputs, labels=labels):
+        for outputs, labels, base, expected in cases:
+            with self.subTest(outputs=outputs, labels=labels, base=base):
                 context = dict(self.context(labels=labels), **{f"needs.path_route.outputs.{tier}": "false"
                                                                 for tier in ("swift", "daemon", "generated")})
+                context["github.event.pull_request.base.ref"] = base
                 context.update({f"needs.path_route.outputs.{key}": value for key, value in outputs.items()})
                 self.assertEqual(evaluate(bundles, context), expected)
                 consumers = [name for name in ("swift-test", "daemon-test", "generated-files")
