@@ -3019,7 +3019,7 @@ class IOSRouting(unittest.TestCase):
         self.assertTrue(route.persistent)
         # glaeda knows these jobs, so they take the pool label even with a root count.
         self.assertEqual(json.loads(route.runs_on), [MINI, IOS_SIM])
-        # mobile-core-package needs no simulator.
+        # A host-only SwiftPM job needs no simulator.
         self.assertEqual(json.loads(route.package_runs_on), MINI)
         self.assertEqual(json.loads(route.retry_runs_on), SMALL)
 
@@ -3763,6 +3763,32 @@ class IOSRouting(unittest.TestCase):
             self.assertEqual(ios_pool.granted_default(ios_pool.ephemeral(SMALL), **{**base, "event": event}).label,
                              "cmux-mac", event)
 
+    def test_no_free_runner_keeps_the_default_it_logged_instead_of_the_grant(self):
+        # cmux#53546: the picker logged "staying on blacksmith-6vcpu-macos-26" and the job still took
+        # cmux-mac + glaeda-ios-sim + xcode-26.6, a 39 min queue. With 0 runners free the labels match the log.
+        base = dict(fork=False, owner="manaflow-ai", requested="auto", variable="", blocker="", overflow="",
+                    pr_xcode_app=PR_XCODE, event="pull_request")
+        for pool_free, sim_free in ((0, 0), (2, 0), (0, 2)):
+            messages = []
+            route = self.live(pool_free, sim_free, log=messages.append)
+            self.assertTrue(route.starved, (pool_free, sim_free))
+            self.assertIn(f"staying on {SMALL}", messages[-1])
+            granted = ios_pool.granted_default(route, **{**base, "log": messages.append})
+            self.assertIs(granted, route)
+            self.assertEqual((json.loads(granted.runs_on), json.loads(granted.package_runs_on), granted.grant_labels),
+                             (SMALL, SMALL, ()))
+            self.assertIn(f"staying on {SMALL}, not cmux-mac", messages[-1])
+        # The snapshot path: no simulator free keeps the default as well.
+        busy = ios_route(sim_fleet(), device_family="iphone", ios_since=2)[0]
+        self.assertTrue(busy.starved)
+        self.assertIs(ios_pool.granted_default(busy, **base), busy)
+        # A route the picker did not measure (no token, an unread queue) is still granted.
+        unread = ios_route(measure=lambda: (_ for _ in ()).throw(RuntimeError("no token")))[0]
+        self.assertFalse(unread.starved)
+        self.assertEqual(ios_pool.granted_default(unread, **base).label, "cmux-mac")
+        # Free runners still take the owned pool.
+        self.assertTrue(self.live(2, 2).persistent)
+
     def test_main_grants_the_same_repository_default_and_keeps_a_forks(self):
         def run(args, env):
             out = io.StringIO()
@@ -4330,13 +4356,14 @@ class IOSWiring(unittest.TestCase):
 
     def test_test_ios_macos_jobs_take_the_runner_jobs_pool(self):
         jobs = self.workflow("test-ios.yml")["jobs"]
-        self.assertEqual(runs_on_of(jobs["mobile-core-package"]), self.TEST_IOS_RUNS_ON.replace(
-            "needs.runner.outputs.runs_on", "needs.runner.outputs.package_runs_on"))
+        # The mobile-core packages test on Linux; no macOS job reads package_runs_on.
+        self.assertNotIn("mobile-core-package", jobs)
+        self.assertNotIn("package_runs_on", jobs["runner"]["outputs"])
         # ios-simulator-build reads its own output first (Build placement), runs_on when a picker has none.
         self.assertEqual(runs_on_of(jobs["ios-simulator-build"]), self.TEST_IOS_RUNS_ON.replace(
             "|| needs.runner.outputs.runs_on)", "|| needs.runner.outputs.build_runs_on || needs.runner.outputs.runs_on)"))
         self.assertEqual(jobs["runner"]["outputs"]["build_runs_on"], "${{ steps.pool.outputs.build_runs_on }}")
-        for name in ("mobile-core-package", "ios-simulator-build"):
+        for name in ("ios-simulator-build",):
             self.assertIn("runner", jobs[name]["needs"], name)
             self.assertIn("needs.runner.result == 'success'", jobs[name]["if"], name)
         self.assertIn("runner", jobs["ios-tests"]["needs"])
@@ -4358,7 +4385,7 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(step["env"]["SEED_CACHE"], "${{ inputs.seed_cache }}")
         self.assertIn('--seed-cache "$SEED_CACHE"', step["run"])
         pin = IOS_XCODE_PIN
-        for name in ("mobile-core-package", "ios-simulator-build"):
+        for name in ("ios-simulator-build",):
             self.assertEqual(env_of(jobs[name])["CMUX_CI_XCODE_APP"], pin, name)
         # PyYAML reads the `on:` key as True.
         options = self.workflow("test-ios.yml")[True]["workflow_dispatch"]["inputs"]["runner"]["options"]
