@@ -42,10 +42,6 @@ import { FOLLOW_GLIDE_OFF } from "./followGlide";
 import type { FollowMotionArm } from "./followMotion.experiment";
 import { drawPinned } from "./pinnedLiveLine";
 
-/// How long the following thread keeps its compositor layer after the chase rests (followChase
-/// `draw`): longer than the gap between a streaming reply's chunks, so a stream promotes it once.
-const CHASE_LAYER_LINGER_MS = 1000;
-
 /// The spring's response: the motion scale's standard step (180 ms, the glide it replaces), damping 1
 /// (critically damped), as the native `move` spring (motion.md, 150 ms) is.
 const RESPONSE_S = MOTION_MS.standard / 1000;
@@ -404,36 +400,15 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       ? Math.max(0, ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight * slots - other)
       : Number.POSITIVE_INFINITY;
   };
-  /// The thread whose layer outlives its rest (`draw`), and the timer that gives it back.
-  let layered: HTMLElement | undefined;
-  let unlayer: ReturnType<typeof setTimeout> | undefined;
-  const keepLayer = (node: HTMLElement) => {
-    if (unlayer !== undefined) clearTimeout(unlayer);
-    unlayer = undefined;
-    if (layered && layered !== node) layered.style.removeProperty("will-change");
-    layered = node;
-    node.style.willChange = "translate";
-  };
-  const dropLayerSoon = () => {
-    if (!layered || unlayer !== undefined) return;
-    unlayer = setTimeout(() => {
-      unlayer = undefined;
-      layered?.style.removeProperty("will-change");
-      layered = undefined;
-    }, CHASE_LAYER_LINGER_MS);
-  };
   /// While it chases the thread is its own compositor layer, so a frame's step moves it without
   /// painting its rows again (a `translate` on an unpromoted thread repainted every row each frame).
-  /// The layer stays CHASE_LAYER_LINGER_MS past each rest: a reply streaming lands a chunk and rests
-  /// many times a second, and each promotion or demotion painted every mounted row again (the long
-  /// chat's whole cost over an empty one in chat-100k-flat's stream_cpu_ratio).
   const draw = () => {
     if (!thread) return;
     if (x === 0) {
       thread.style.removeProperty("translate");
-      dropLayerSoon();
+      thread.style.removeProperty("will-change");
     } else {
-      keepLayer(thread);
+      thread.style.willChange = "translate";
       thread.style.translate = `0 ${x}px`;
       drawnOff = true;
     }
