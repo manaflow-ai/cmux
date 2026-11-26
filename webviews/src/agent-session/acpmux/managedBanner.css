@@ -28,5 +28,8 @@ button.acpmux-managed-name:hover{text-decoration:underline}
 .acpmux-managed-pill[data-design="pill-glass"]{--glass-tint:color-mix(in srgb,var(--agent-page-bg) 40%,transparent)}
 .acpmux-managed-pill-text{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-managed-pill-live{--acpmux-needs-you-mark:var(--agent-accent);width:7px;height:7px}
-.acpmux-managed-pill .acpmux-managed-take-over{min-height:22px;border-color:transparent;background:transparent;color:var(--agent-muted)}
-.acpmux-managed-pill .acpmux-managed-take-over:hover{background:var(--acpmux-pill-hover);color:var(--agent-text)}
+.acpmux-managed-pill.acpmux-jump-latest{padding:0;gap:0;cursor:pointer}
+.acpmux-managed-pill-open{display:inline-flex;align-items:center;gap:var(--ds-space-2);height:100%;padding:0 var(--ds-space-1) 0 var(--ds-space-3);border:0;background:none;color:inherit;font:inherit;cursor:pointer}
+.acpmux-managed-pill-hide{display:inline-grid;place-items:center;min-width:22px;height:22px;margin-right:var(--ds-space-1);padding:0 var(--ds-space-1);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-muted);font:inherit;cursor:pointer}
+.acpmux-managed-pill-hide:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));color:var(--agent-text)}
+.acpmux-managed-pill:has(.acpmux-managed-pill-hide:hover){background-image:none}

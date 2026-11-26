@@ -39,7 +39,7 @@ export default componentEntry<ManagedBannerDesignsProps>({
       props: { design: "pill-dot", manager: chief },
     },
     "pill-avatar": {
-      note: "Led by the catalog's agent.chief icon; close icon.",
+      note: "No lead mark; the pill opens the Chief's chat, x hides.",
       props: { design: "pill-avatar", manager: chief },
     },
     "pill-straddle": {
@@ -51,7 +51,7 @@ export default componentEntry<ManagedBannerDesignsProps>({
       props: { design: "pill-glass", manager: chief },
     },
     "pill-accent": {
-      note: "Accent rim and wash, Chief icon, Hide.",
+      note: "Accent rim and wash; the pill opens the chat, Hide hides.",
       props: { design: "pill-accent", manager: chief },
     },
     "pill-left": {
@@ -59,7 +59,7 @@ export default componentEntry<ManagedBannerDesignsProps>({
       props: { design: "pill-left", manager: chief },
     },
     "pill-mini": {
-      note: "Shortest: icon, 'Chief is sending', close.",
+      note: "Shortest: 'Chief is sending', x.",
       props: { design: "pill-mini", manager: chief },
     },
     sending: {

@@ -6,7 +6,6 @@
 // (managedBy.ts `managerDrivingUntil`): a chat its manager only dispatched, or that went quiet,
 // draws nothing.
 import { ManagedBanner } from "./ManagedBanner";
-import { Icon } from "./icons/Icon";
 import { managerDrivingUntil, type ManagedBy, type PromptRow } from "./managedBy";
 import "./managedBanner.css";
 
@@ -40,31 +39,31 @@ const pillDesigns = new Set<ManagedBannerDesign>([
 /// (`acpmux-needs-you-pill`, needsYou.css), with catalog icons (`agent.chief`, `action.close`,
 /// `action.hide`) and the Needs you dot. Only the content and the lead mark differ.
 function ManagedPill({ design, name }: { design: ManagedBannerDesign; name: string }) {
+  // No icon (Lawrence, 2026-11-25: "get rid of the icon"). The whole pill is one button: a press
+  // opens the chat that is sending (the Chief's, or the agent's that started this one), as the Jump
+  // to latest pill goes where it says; a separate x at its end hides it. Hover washes the pill
+  // (.acpmux-jump-latest:hover) and the x keeps its own hover, so the two targets read apart.
   const short = design === "pill-mini";
-  const lead =
-    design === "pill-dot" || design === "pill-straddle" ? (
-      <span className="acpmux-needs-you-dot acpmux-managed-pill-live" aria-hidden="true" />
-    ) : design === "pill" || design === "pill-glass" ? null : (
-      <Icon name="agent.chief" size={14} />
-    );
-  const iconHide = design !== "pill" && design !== "pill-glass" && design !== "pill-accent" && design !== "pill-left";
+  const live = design === "pill-dot" || design === "pill-straddle";
+  const hideWord = design === "pill" || design === "pill-glass" || design === "pill-accent" || design === "pill-left";
   return (
     <div className="acpmux-managed-pill-stage" data-design={design}>
-      <output
+      <div
         className="ui-glass ui-glass-floats acpmux-jump-latest acpmux-needs-you-pill acpmux-managed-pill"
         data-shown=""
         data-design={design}
       >
-        {lead}
-        <span className="acpmux-managed-pill-text">
-          <strong className="acpmux-managed-name">{name}</strong>
-          {short ? " is sending" : " is sending messages here"}
-        </span>
-        <button type="button" className="acpmux-managed-take-over" aria-label="Hide" title="Hide">
-          <Icon name={iconHide ? "action.close" : "action.hide"} size={12} />
-          {iconHide ? null : <span>Hide</span>}
+        <button type="button" className="acpmux-managed-pill-open" title={`Open ${name}'s chat`}>
+          {live ? <span className="acpmux-needs-you-dot acpmux-managed-pill-live" aria-hidden="true" /> : null}
+          <span className="acpmux-managed-pill-text">
+            <strong className="acpmux-managed-name">{name}</strong>
+            {short ? " is sending" : " is sending messages here"}
+          </span>
         </button>
-      </output>
+        <button type="button" className="acpmux-managed-pill-hide" aria-label="Hide" title="Hide">
+          {hideWord ? "Hide" : "\u00d7"}
+        </button>
+      </div>
     </div>
   );
 }
