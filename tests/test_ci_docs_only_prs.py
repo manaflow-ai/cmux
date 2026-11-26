@@ -53,16 +53,19 @@ ALLOWED: dict[str, str] = {
     **REQUIRED,
     "cmux-next-fast-gates.yml": "next-autoland lands a head only on its cmux-next/fast-gates status (and dispatches "
                                 "the workflow when the status is missing), about two minutes on Linux",
-    "risk-tier.yml": "next-autoland's MUST_PASS `risk evidence`; one job",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
-    "pr-body-checks.yml": "lints the description, which a docs pull request has too; one job",
+    "ci-pr-superseded-cancel.yml": "a push to any pull request, prose included, cancels its runs on older heads; "
+                                   "one small job (scripts/ci/cancel_superseded_pr_runs.py)",
     "pr-router.yml": "the router: it reads the changed paths and starts only the workflows they reach (scripts/ci/pr_router.json); one small job",
     "language-boundaries.yml": "policy over every changed path; one job",
-    "thunderdome-label.yml": "labels by title; one job that skips unless the title asks",
     "cmux-next-batch.yml": "batches every open pull request; one job, off unless CMUX_NEXT_BATCH_ENABLED",
     "docs-only-fallback.yml": "covers what the docs-only block can get wrong (GitHub reads only the first 300 changed "
                               "files; label events are filtered too); its gate skips with no runner for a pull request "
                               "of 300 files or fewer and no full-ci/dev-build label",
+    "cloud-resume-matrix.yml": "runs only on a pull request whose body or label carries its marker; otherwise its "
+                               "plan job's `if:` skips with no runner",
+    "cloud-wake-echo.yml": "runs only on a pull request whose body carries `wake-echo: run`; otherwise its one job's "
+                           "`if:` skips with no runner",
     "ios-e2e.yml": "already routes a prose-only diff past its Mac job (route + status only), and its status is on "
                    "the way to being required (docs/ci/ios-e2e.md): a filter would then block docs pull requests",
 }
@@ -73,9 +76,12 @@ ALLOWED: dict[str, str] = {
 # per workflow: each list's push copy must stay in step (tests/test_ci_workflow_path_filter_parity.py), and several
 # put Markdown back on purpose (ios-review-gate.yml's AppStoreReview/**).
 SCOPED: dict[str, str] = {
+    "app-store-shelf.yml": "cmux-tui/crates/cmux-app-host/** (its generated REFERENCE.md is put back in the block)",
     "auth-refresh-tests.yml": "the auth runtime package and the vendored Stack Auth SDK",
     "backend.yml": "backend/** and libs/**",
-    "chief-evals.yml": "Native/OptChat/optchat-chief/evals/person.md, the eval cases' default profile (#47445)",
+    "chat-open-perf-report.yml": "webviews/src/agent-session/**",
+    "cloud-chief-machine.yml": "Native/OptChat/optchat-chief/**",
+    "cloud-journey-pr.yml": "cmux-tui/crates/cmux-cloud-client/**",
     "classic-frozen-guard.yml": ".github/classic-frozen.txt's globs, Markdown in frozen classic paths included "
                                 "(scripts/ci/pr_trigger_paths.py classic_frozen)",
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
@@ -90,20 +96,15 @@ SCOPED: dict[str, str] = {
                            "follow",
     "cmux-tui-windows-check.yml": "cmux-tui/**",
     "cmux-vm.yml": "workers/cmux-vm/**",
-    "coderouter-ci.yml": "coderouter/**",
+    "cmux-vm-clients.yml": "workers/cmux-vm/cli/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
-    "fleet-test-compile.yml": "Packages/Shared/**",
-    "gallery-advisory.yml": "webviews/** and scripts/gallery-matrix/**",
-    "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",
     "relay-tls.yml": "Packages/Shared/CmuxIrohTransport/**",
-    "swift-linux-packages.yml": "Packages/Shared/**",
     "terminal-hang-diagnostics.yml": "Packages/Shared/CMUXMobileCore/**",
     "test-ios.yml": "Packages/Shared/**",
     "web-complexity.yml": "web/**",
-    "web-complexity-trusted.yml": "web/**",
 }
 
 # Docs-only pull requests: the two of Leo's 2026-11-19 complaint that are prose (#45476 changed CLAUDE.md, which
@@ -380,6 +381,9 @@ class Fallback(unittest.TestCase):
 
     calls = {Path(name).name: docs.pull_request_config(ROOT, name) for name in docs.WORKFLOWS}
     feat_only = sorted(n for n, c in calls.items() if c["branches"] == ["feat-cmux-next"])
+    # A pr-router callee (web-validation.yml, #48775) starts on its own only into main: into feat-cmux-next the
+    # router calls it, so the fallback never does.
+    main_only = sorted(n for n, c in calls.items() if c["branches"] == ["main"])
 
     def plan(self, event, files, runs=(), since=1000.0):
         return docs.plan_fallback(event, self.calls, files, None if runs is None else list(runs), since)
@@ -390,21 +394,25 @@ class Fallback(unittest.TestCase):
         self.assertTrue(docs.docs_only(files[:docs.PATHS_FILTER_LIMIT]), "GitHub's first 300 are prose")
         event = pull_request_event("synchronize", changed=len(files))
         self.assertTrue(gate_runs(event))
-        due = sorted(n for n, c in self.calls.items() if "synchronize" in c["types"])
+        pushed = sorted(n for n, c in self.calls.items() if "synchronize" in c["types"])
+        self.assertEqual(set(pushed), set(self.calls), "every filtered workflow runs on a push")
+        due = sorted(set(pushed) - set(self.main_only))
         self.assertEqual(sorted(self.plan(event, files)), due)
-        self.assertEqual(set(due), set(self.calls), "every filtered workflow runs on a push")
         # A workflow GitHub did start (it saw a code file in its first 300) is not called again.
         started = [{"path": ".github/workflows/ci.yml", "created": 0.0}]
         self.assertEqual(sorted(self.plan(event, files, started)), [n for n in due if n != "ci.yml"])
         # Into main only the workflows without a feat-cmux-next branch filter are due.
         main = pull_request_event("synchronize", base="main", changed=len(files))
-        self.assertEqual(sorted(self.plan(main, files)), sorted(set(due) - set(self.feat_only)))
+        self.assertEqual(sorted(self.plan(main, files)), sorted(set(pushed) - set(self.feat_only)))
 
     def test_unread_files_or_runs_fail_open(self):
         event = pull_request_event("opened", changed=5000)
         self.assertTrue(gate_runs(event))
-        due = sorted(n for n, c in self.calls.items() if "opened" in c["types"])
+        opened = sorted(n for n, c in self.calls.items() if "opened" in c["types"])
+        due = sorted(set(opened) - set(self.main_only))
         self.assertEqual(sorted(self.plan(event, None, None)), due)
+        main = pull_request_event("opened", base="main", changed=5000)
+        self.assertEqual(sorted(self.plan(main, None, None)), sorted(set(opened) - set(self.feat_only)))
         self.assertEqual(sorted(self.plan(event, None)), due, "no run seen: call each")
         self.assertEqual(sorted(self.plan(event, PROSE + [CODE], None)), due)
 
@@ -472,7 +480,7 @@ class Fallback(unittest.TestCase):
 
     def test_the_labels_are_ci_yml_s(self):
         ci = (WORKFLOWS / "ci.yml").read_text()
-        self.assertIn(docs.label_guard(), ci, "ci.yml's label guard and the fallback's name the same labels")
+        self.assertIn(docs.label_guard(docs.CI_LABELS), ci, "ci.yml's label guard and the fallback's name the same labels")
 
 
 class Units(unittest.TestCase):

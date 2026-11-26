@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.hostsSidebar.help" : {
+      "comment" : "Settings > Advanced > Labs: help under the Hosts Sidebar toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shows your machines in the sidebar with Add Host and per-host terminal actions."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يعرض أجهزتك في الشريط الجانبي مع «إضافة مضيف» وإجراءات الطرفية لكل مضيف."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikazuje vaše mašine u bočnoj traci, s opcijom Dodaj host i radnjama terminala za svaki host."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viser dine maskiner i sidepanelet med Tilføj vært og terminalhandlinger for hver vært."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt deine Rechner in der Seitenleiste, mit „Host hinzufügen“ und Terminal-Aktionen für jeden Host."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra tus máquinas en la barra lateral, con Añadir host y acciones de terminal para cada host."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche vos machines dans la barre latérale, avec Ajouter un hôte et des actions de terminal pour chaque hôte."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra le tue macchine nella barra laterale, con Aggiungi host e azioni del terminale per ogni host."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "マシンをサイドバーに表示し、ホストの追加とホストごとのターミナル操作を使えるようにします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញ​ម៉ាស៊ីន​របស់​អ្នក​ក្នុង​របារ​ចំហៀង ជាមួយ​បន្ថែម​ម៉ាស៊ីន​មេ និង​សកម្មភាព​ទែមីណាល់​សម្រាប់​ម៉ាស៊ីន​មេ​នីមួយៗ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사이드바에 컴퓨터를 표시하고 호스트 추가와 호스트별 터미널 동작을 제공합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Viser maskinene dine i sidefeltet med Legg til vert og terminalhandlinger for hver vert."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuje Twoje maszyny na pasku bocznym, z opcją Dodaj host i działaniami terminala dla każdego hosta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra suas máquinas na barra lateral, com Adicionar host e ações de terminal para cada host."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывает ваши компьютеры на боковой панели с кнопкой «Добавить хост» и действиями терминала для каждого хоста."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงเครื่องของคุณในแถบด้านข้าง พร้อมเพิ่มโฮสต์และการทำงานเทอร์มินัลของแต่ละโฮสต์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Makinelerinizi kenar çubuğunda, Ana Bilgisayar Ekle ve her ana bilgisayar için terminal eylemleriyle gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показує ваші комп'ютери на бічній панелі з кнопкою «Додати хост» і діями термінала для кожного хоста."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiển thị các máy của bạn trên thanh bên, có Thêm máy chủ và thao tác terminal cho từng máy chủ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在边栏中显示你的机器，并提供添加主机和每台主机的终端操作。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在側邊欄中顯示你的機器，並提供新增主機和每台主機的終端機操作。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

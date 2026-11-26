@@ -10,9 +10,21 @@
         "ty": "uint32",
         "required": true
       },
+      "/activity/echo_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/activity/echo_input_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
+        "nullable": true
+      },
+      "/activity/last_person_attach_at_ms": {
+        "ty": "uint64",
         "nullable": true
       },
       "/activity/last_user_input_at_ms": {
@@ -270,6 +282,31 @@
       "/session": {
         "ty": "string",
         "required": true
+      }
+    },
+    "event:apps-cloud-machine": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"apps-cloud-machine\""
+        ]
+      },
+      "/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "live",
+          "lost",
+          "record"
+        ]
+      },
+      "/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/record": {
+        "ty": "json"
       }
     },
     "event:bell": {
@@ -7533,6 +7570,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/resume_max_bytes": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/resume_offset": {
         "ty": "uint64",
         "nullable": true
@@ -8886,6 +8927,10 @@
         "ty": "json",
         "required": true,
         "nullable": true
+      },
+      "/op_id": {
+        "ty": "string",
+        "nullable": true
       }
     },
     "request:conversation-link-resolve": {
@@ -9613,6 +9658,14 @@
         "ty": "string",
         "nullable": true
       },
+      "/name_source": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "auto",
+          "user"
+        ]
+      },
       "/origin": {
         "ty": "string",
         "nullable": true
@@ -9845,6 +9898,7 @@
         "nullable": true
       }
     },
+    "request:flush-launch-snapshot": {},
     "request:focus-direction": {
       "/dir": {
         "ty": "enum",
@@ -10172,6 +10226,9 @@
       "/limit": {
         "ty": "uint64",
         "nullable": true
+      },
+      "/stats": {
+        "ty": "boolean"
       }
     },
     "request:list-personal": {},
@@ -10191,6 +10248,10 @@
     "request:list-terminals": {},
     "request:list-workspace-groups": {},
     "request:list-workspaces": {
+      "/after": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/known": {
         "ty": "object",
         "nullable": true
@@ -10222,6 +10283,18 @@
       "/limit": {
         "ty": "uint64",
         "nullable": true
+      },
+      "/since": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/since/epoch": {
+        "ty": "string",
+        "required": true
+      },
+      "/since/seq": {
+        "ty": "uint64",
+        "required": true
       }
     },
     "request:machine-listening-tcp": {},
@@ -11464,6 +11537,7 @@
       }
     },
     "request:ping": {},
+    "request:process-census": {},
     "request:process-info": {
       "/surface": {
         "ty": "uint64",
@@ -11671,6 +11745,7 @@
         "required": true
       }
     },
+    "request:release-workspace-names": {},
     "request:reload-config": {},
     "request:remote-host-app": {},
     "request:remote-host-call": {
@@ -12155,6 +12230,10 @@
     "request:set-client-info": {
       "/api_revision": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/api_version": {
+        "ty": "string",
         "nullable": true
       },
       "/capabilities": {
@@ -12980,6 +13059,41 @@
     "request:terminal-events": {
       "/after_revision": {
         "ty": "uint64"
+      }
+    },
+    "request:terminal-find": {
+      "/before": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/case_sensitive": {
+        "ty": "boolean"
+      },
+      "/epoch": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/max_matches": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/page_rows": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/query": {
+        "ty": "string",
+        "required": true
+      },
+      "/regex": {
+        "ty": "boolean"
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/whole_word": {
+        "ty": "boolean"
       }
     },
     "request:terminal-history": {
@@ -17507,6 +17621,12 @@
         "required": true
       }
     },
+    "response:flush-launch-snapshot": {
+      "/data/flushed": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "response:focus-direction": {
       "/data/pane": {
         "ty": "uint64",
@@ -17988,6 +18108,10 @@
         "ty": "uint32",
         "nullable": true
       },
+      "/data/api_version": {
+        "ty": "string",
+        "nullable": true
+      },
       "/data/app": {
         "ty": "literal",
         "required": true,
@@ -18078,6 +18202,10 @@
       },
       "/data/min_api_revision": {
         "ty": "uint32",
+        "nullable": true
+      },
+      "/data/min_api_version": {
+        "ty": "string",
         "nullable": true
       },
       "/data/pid": {
@@ -18662,14 +18790,345 @@
       }
     },
     "response:list-workspaces": {
+      "/data/changed": {
+        "ty": "array"
+      },
+      "/data/changed/*": {
+        "ty": "object"
+      },
+      "/data/changed/*/active": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/changed/*/id": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/key": {
+        "ty": "string"
+      },
+      "/data/changed/*/name": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/changed/*/name_revision": {
+        "ty": "string"
+      },
+      "/data/changed/*/name_source": {
+        "ty": "enum",
+        "values": [
+          "auto",
+          "user"
+        ]
+      },
+      "/data/changed/*/screens": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/changed/*/screens/*": {
+        "ty": "object"
+      },
+      "/data/changed/*/screens/*/active": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/changed/*/screens/*/active_pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/id": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout": {
+        "ty": "tagged_union|object",
+        "values": [
+          "leaf",
+          "split",
+          "stack"
+        ]
+      },
+      "/data/changed/*/screens/*/layout/a": {
+        "ty": "ref:Layout",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/b": {
+        "ty": "ref:Layout",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/dir": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "down",
+          "right"
+        ]
+      },
+      "/data/changed/*/screens/*/layout/expanded": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/pane": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/panes": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/panes/*": {
+        "ty": "uint64"
+      },
+      "/data/changed/*/screens/*/layout/ratio": {
+        "ty": "float32",
+        "required": true
+      },
+      "/data/changed/*/screens/*/layout/split": {
+        "ty": "uint64"
+      },
+      "/data/changed/*/screens/*/layout/split_id": {
+        "ty": "string"
+      },
+      "/data/changed/*/screens/*/layout/type": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"leaf\"",
+          "\"split\"",
+          "\"stack\""
+        ]
+      },
+      "/data/changed/*/screens/*/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*": {
+        "ty": "untagged_union|object"
+      },
+      "/data/changed/*/screens/*/panes/*/active_tab": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/dead": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "true"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/focused_at": {
+        "ty": "uint64"
+      },
+      "/data/changed/*/screens/*/panes/*/id": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/short_id": {
+        "ty": "string"
+      },
+      "/data/changed/*/screens/*/panes/*/tabs": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*": {
+        "ty": "object"
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/browser_error": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/browser_frames_stalled": {
+        "ty": "boolean",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/browser_source": {
+        "ty": "enum",
+        "required": true,
+        "nullable": true,
+        "values": [
+          "external",
+          "launched"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/browser_status": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "failed",
+          "live",
+          "starting"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/dead": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "browser",
+          "conversation",
+          "pty"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/name": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/notification": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/notification/level": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "error",
+          "info",
+          "warning"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/notification/notification": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/notification/source": {
+        "ty": "enum",
+        "values": [
+          "agent",
+          "cli",
+          "daemon",
+          "terminal"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/notification/unread": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/program_status": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/program_status/progress": {
+        "ty": "uint16",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/program_status/state": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "blocked",
+          "done",
+          "error",
+          "working"
+        ]
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/short_id": {
+        "ty": "string"
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/size": {
+        "ty": "object",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/size/cols": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/size/rows": {
+        "ty": "uint16",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/supports_clear_history_key_fallback": {
+        "ty": "boolean"
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/terminal_host_fallback": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/terminal_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/terminal_incarnation": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/terminal_resource_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/title": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/title_activity": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/changed/*/screens/*/panes/*/tabs/*/title_text": {
+        "ty": "string"
+      },
+      "/data/changed/*/screens/*/short_id": {
+        "ty": "string"
+      },
+      "/data/changed/*/screens/*/zoomed_pane": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/changed/*/short_id": {
+        "ty": "string"
+      },
+      "/data/delta": {
+        "ty": "boolean"
+      },
+      "/data/epoch": {
+        "ty": "string"
+      },
       "/data/generation": {
         "ty": "string"
+      },
+      "/data/next": {
+        "ty": "uint64"
+      },
+      "/data/order": {
+        "ty": "array"
+      },
+      "/data/order/*": {
+        "ty": "uint64"
       },
       "/data/pane_revision": {
         "ty": "uint64"
       },
       "/data/registry_id": {
         "ty": "string"
+      },
+      "/data/removed": {
+        "ty": "array"
+      },
+      "/data/removed/*": {
+        "ty": "uint64"
+      },
+      "/data/seq": {
+        "ty": "uint64"
       },
       "/data/terminal_revision": {
         "ty": "uint64"
@@ -19909,6 +20368,12 @@
         "required": true
       }
     },
+    "response:process-census": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:process-info": {
       "/data/command": {
         "ty": "string",
@@ -20261,6 +20726,16 @@
       }
     },
     "response:release-surface-size": {},
+    "response:release-workspace-names": {
+      "/data/released": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/still_pinned": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "response:reload-config": {
       "/data/path": {
         "ty": "string",
@@ -22172,7 +22647,14 @@
         "required": true
       }
     },
-    "response:set-client-info": {},
+    "response:set-client-info": {
+      "/data/api_revision": {
+        "ty": "uint32"
+      },
+      "/data/api_version": {
+        "ty": "string"
+      }
+    },
     "response:set-client-sizing": {},
     "response:set-column-dock": {
       "/data": {
@@ -22610,9 +23092,21 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/activity/echo_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/activity/echo_input_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
+        "nullable": true
+      },
+      "/data/activity/last_person_attach_at_ms": {
+        "ty": "uint64",
         "nullable": true
       },
       "/data/activity/last_user_input_at_ms": {
@@ -22722,6 +23216,12 @@
       },
       "/data/terminal_revision": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:terminal-find": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

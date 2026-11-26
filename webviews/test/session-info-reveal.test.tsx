@@ -1,6 +1,6 @@
 // l10n-allow-file: test fixture commands and chat titles, not shipped UI.
-// The running line's counts, and a tray command with no terminal, open Session Info at the section
-// that lists what they count (App.tsx `openCommands` and `openTrayCommand`, through processes.ts
+// A tray command with no terminal opens Session Info at the section that lists it (App.tsx
+// `openTrayCommand`, through processes.ts
 // `backgroundSection`): Background tasks while any command runs, a dev server included (its rows head
 // that section), and Subagents when only subagents or started chats run. The section is always one
 // Session Info draws. A reveal scrolls to its section once: reopening Session Info

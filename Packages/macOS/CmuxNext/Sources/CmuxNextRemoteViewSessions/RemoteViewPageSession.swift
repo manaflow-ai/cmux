@@ -170,6 +170,17 @@ public final class RemoteViewPageSession {
         return true
     }
 
+    /// A quality preset for this session, as the toolbar's Quality menu sets it (`remote.setQuality`).
+    public func selectQuality(_ preset: RemoteQualityPreset) {
+        pane.selectQuality(preset)
+    }
+
+    /// What a row of the toolbar's Quality menu runs instead of applying itself (the App's `remote.setQuality`).
+    public var pickQuality: ((RemoteQualityPreset) -> Void)? {
+        get { pane.handlers.pickQuality }
+        set { pane.handlers.pickQuality = newValue }
+    }
+
     /// The pane (tests).
     var paneForTesting: RemoteDesktopPane { pane }
 

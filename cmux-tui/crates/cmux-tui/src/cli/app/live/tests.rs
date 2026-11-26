@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 
 use super::{
     Command, RustVerb, Swift, parse, recorded_swift_tree, recorded_tree, recorded_watch_tree,
-    routed, tool_path,
+    routed, setting_word, tool_path,
 };
+use serde_json::json;
 
 fn words(words: &[&str]) -> Vec<String> {
     words.iter().map(|word| (*word).to_owned()).collect()
@@ -317,6 +318,15 @@ fn reads_the_tree_live_mode_ran_from() {
     std::fs::write(&file, "relative/path").unwrap();
     assert_eq!(recorded_swift_tree(&file), None);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_live_setting_word_is_the_apps_boolean_else_unknown() {
+    assert_eq!(setting_word(&json!({"value": true})), "true");
+    assert_eq!(setting_word(&json!({"value": false})), "false");
+    assert_eq!(setting_word(&json!({"value": "true"})), "true");
+    assert_eq!(setting_word(&json!({"value": null})), "unknown");
+    assert_eq!(setting_word(&json!({})), "unknown");
 }
 
 /// A fake app and checkout for the web ABI check, in a fresh temp folder.

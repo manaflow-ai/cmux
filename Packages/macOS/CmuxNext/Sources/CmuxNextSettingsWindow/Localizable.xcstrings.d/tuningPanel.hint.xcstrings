@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "tuningPanel.hint" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes apply live and stay for this build. Copy Values puts every value on the clipboard as Swift constants."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تُطبَّق التغييرات مباشرةً وتبقى لهذا الإصدار. ينسخ «نسخ القيم» كل قيمة إلى الحافظة كثوابت Swift."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Promjene se primjenjuju odmah i ostaju za ovu verziju. Kopiraj vrijednosti stavlja svaku vrijednost u međuspremnik kao Swift konstante."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ændringer gælder med det samme og bliver i denne version. Kopiér værdier lægger alle værdier på udklipsholderen som Swift-konstanter."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Änderungen wirken sofort und bleiben für diesen Build. „Werte kopieren“ legt alle Werte als Swift-Konstanten in die Zwischenablage."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los cambios se aplican al momento y se conservan en esta versión. Copiar valores pone cada valor en el portapapeles como constantes de Swift."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les modifications s’appliquent en direct et restent pour cette version. Copier les valeurs place chaque valeur dans le presse-papiers sous forme de constantes Swift."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le modifiche si applicano subito e restano per questa build. Copia valori mette ogni valore negli appunti come costanti Swift."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "変更はすぐに反映され、このビルドで保持されます。「値をコピー」ですべての値を Swift の定数としてクリップボードに入れます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការផ្លាស់ប្ដូរអនុវត្តភ្លាមៗ ហើយនៅសម្រាប់កំណែនេះ។ ចម្លងតម្លៃ ដាក់តម្លៃនីមួយៗទៅក្ដារតម្បៀតខ្ទាស់ជាថេរ Swift។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "변경 사항은 바로 적용되고 이 빌드에 유지됩니다. 값 복사는 모든 값을 Swift 상수로 클립보드에 넣습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Endringer gjelder med en gang og blir værende for denne versjonen. Kopier verdier legger alle verdier på utklippstavlen som Swift-konstanter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zmiany działają od razu i zostają w tej wersji. Kopiuj wartości umieszcza każdą wartość w schowku jako stałe Swift."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As mudanças se aplicam na hora e ficam nesta versão. Copiar valores coloca cada valor na área de transferência como constantes Swift."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Изменения применяются сразу и сохраняются для этой сборки. «Копировать значения» кладёт все значения в буфер обмена как константы Swift."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การเปลี่ยนแปลงมีผลทันทีและคงอยู่สำหรับบิลด์นี้ คัดลอกค่าจะใส่ทุกค่าลงในคลิปบอร์ดเป็นค่าคงที่ Swift"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Değişiklikler hemen uygulanır ve bu sürümde kalır. Değerleri kopyala, her değeri Swift sabitleri olarak panoya koyar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Зміни застосовуються одразу й зберігаються для цієї збірки. «Копіювати значення» кладе всі значення в буфер обміну як константи Swift."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thay đổi áp dụng ngay và giữ cho bản dựng này. Sao chép giá trị đặt mọi giá trị vào bảng nhớ tạm dưới dạng hằng Swift."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "更改即时生效，并保留在此版本中。“拷贝值”会把每个值作为 Swift 常量放到剪贴板。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "變更會即時套用，並保留在此版本中。「拷貝值」會把每個值作為 Swift 常數放到剪貼板。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

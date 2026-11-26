@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// A DevTools method sent to Chromium (``CEFRuntime/sendDevTools(_:method:encodedParams:)``).
@@ -150,6 +151,9 @@ extension CEFRuntime {
     /// every call keeps its browser's order. Nil when the browser is gone.
     private func sendDevTools(_ browser: Int32, method: String, encodedParams: String) -> CEFDevToolsSend? {
         guard let shim else { return nil }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        WakeupLedger.shared.record("CEF.call", reason: CEFDevToolsLedger.reason(method: method, encodedParams: encodedParams))
+        #endif
         // Chromium answers some methods inside the shim call (SendDevToolsMessage), before a
         // waiter exists; without this the result was dropped and the call
         // timed out after `timeout` (every device emulation lost 5 s on

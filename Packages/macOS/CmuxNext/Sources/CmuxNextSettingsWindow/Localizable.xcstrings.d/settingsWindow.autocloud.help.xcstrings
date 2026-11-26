@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.autocloud.help" : {
+      "comment" : "Settings > Automations: one line under the title.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "When cmux Cloud starts an agent for you, and what it does."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "متى يبدأ cmux Cloud وكيلًا نيابةً عنك، وماذا يفعل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kada cmux Cloud pokreće agenta za vas i šta radi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvornår cmux Cloud starter en agent for dig, og hvad den gør."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wann cmux Cloud einen Agenten für dich startet und was er tut."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuándo cmux Cloud inicia un agente por ti y qué hace."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quand cmux Cloud lance un agent pour vous, et ce qu’il fait."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando cmux Cloud avvia un agente per te e cosa fa."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud がエージェントを起動するタイミングと、その動作。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេលដែល cmux Cloud ចាប់ផ្ដើមភ្នាក់ងារឱ្យអ្នក និងអ្វីដែលវាធ្វើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud가 에이전트를 시작하는 시점과 수행할 작업입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når cmux Cloud starter en agent for deg, og hva den gjør."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kiedy cmux Cloud uruchamia agenta za Ciebie i co on robi."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quando o cmux Cloud inicia um agente por você e o que ele faz."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Когда cmux Cloud запускает агента за вас и что он делает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อใดที่ cmux Cloud เริ่มเอเจนต์ให้คุณ และเอเจนต์ทำอะไร"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud'un sizin için ne zaman bir ajan başlattığı ve ne yaptığı."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Коли cmux Cloud запускає агента за вас і що він робить."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi nào cmux Cloud khởi chạy tác tử cho bạn và nó làm gì."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud 何时为你启动智能体，以及它做什么。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux Cloud 何時為你啟動代理程式，以及它做什麼。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
