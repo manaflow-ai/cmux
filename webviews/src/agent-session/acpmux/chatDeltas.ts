@@ -115,7 +115,7 @@ export class ChatDeltas {
 
   private chunk<F extends Frame>(frame: F): F | DeltaGap | undefined {
     const delta = isObject(frame.params) ? frame.params : {};
-    const { ref, seq, dt, text } = delta;
+    const { ref, seq, dt, text, prev } = delta;
     const template = isCount(ref) ? this.templates.get(ref) : undefined;
     if (!template) {
       if (isCount(ref) && this.lostRefs.has(ref)) return undefined;
@@ -134,10 +134,13 @@ export class ChatDeltas {
     const msg = template.params.msg as Json;
     const msgParams = msg.params as Json;
     const update = msgParams.update as Json;
+    // `prev` (acpmux `Conn::stream_prev`) is this frame's own, never its template's.
+    const { prev: _templatePrev, ...params } = template.params;
     const event = {
-      ...template.params,
+      ...params,
       seq,
       at,
+      ...(isCount(prev) ? { prev } : {}),
       msg: { ...msg, params: { ...msgParams, update: { ...update, content: { ...(update.content as Json), text } } } },
     };
     return { method: "_acpmux/event", params: event } as unknown as F;
