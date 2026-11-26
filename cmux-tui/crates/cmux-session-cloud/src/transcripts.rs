@@ -324,6 +324,8 @@ pub fn pass(
         ..Report::default()
     };
     let cutoff = policy.now_ms.saturating_sub(policy.older_than_ms);
+    // The blobs the root names this pass, set before the first removal.
+    let mut rooted: HashSet<String> = HashSet::new();
     for found in scan(home) {
         report.files += 1;
         report.bytes += found.size;
@@ -423,6 +425,21 @@ pub fn pass(
                 continue;
             }
         };
+        // The copy is in the GC root before its file goes, so a pass that stops or crashes
+        // here never leaves a removed file whose only copy a GC could drop.
+        if !rooted.contains(&entry.stub.blob) {
+            let mut blobs = Ledger::load(state)?.blobs();
+            blobs.extend(changes.values().map(|e: &Entry| e.stub.blob.clone()));
+            blobs.push(entry.stub.blob.clone());
+            blobs.sort();
+            blobs.dedup();
+            if let Err(e) = cloud.store.set_root(&root_pair(cloud), &blobs) {
+                report.error(&found.rel, "root", &e);
+                report.skip("remove failed");
+                continue;
+            }
+            rooted = blobs.into_iter().collect();
+        }
         match crate::offload::commit(&found.path, &entry.stub) {
             Ok(Some(bytes)) => {
                 report.removed += 1;

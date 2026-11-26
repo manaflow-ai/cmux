@@ -211,3 +211,25 @@ fn transcripts_root_is_its_own() {
     let f = fixture();
     assert_ne!(root_pair(&f.cloud), f.cloud.root_pair());
 }
+
+#[test]
+fn a_removed_files_copy_is_rooted_before_the_pass_ends() {
+    let f = fixture();
+    // Stop right after the first file is handled: the end-of-pass root never runs for the rest.
+    let calls = std::cell::Cell::new(0);
+    let stop = || {
+        calls.set(calls.get() + 1);
+        calls.get() > 1
+    };
+    let report = pass(&f.home, &f.state, Some(&f.cloud), &policy(&f, true), false, &stop).unwrap();
+    assert_eq!(report.removed, 1, "{report:?}");
+    let ledger = Ledger::load(&f.state).unwrap();
+    let removed: Vec<&Entry> =
+        ledger.files.values().filter(|e| e.removed_at_ms.is_some()).collect();
+    assert_eq!(removed.len(), 1);
+    let cloud_dir = f._dir.path().join("cloud");
+    let tree_sha =
+        std::fs::read_to_string(cloud_dir.join("roots").join(root_pair(&f.cloud))).unwrap();
+    let tree = String::from_utf8(f.cloud.store.get(&tree_sha).unwrap()).unwrap();
+    assert!(tree.lines().any(|l| l == removed[0].stub.blob), "{tree}");
+}
