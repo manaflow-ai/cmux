@@ -19,7 +19,9 @@ import {
   turnFoldFor,
   turnView,
   turnViewFrom,
+  WORKED,
 } from "../src/agent-session/acpmux/conversation/turns";
+import { backgroundRunRowId } from "../src/agent-session/acpmux/conversation/backgroundRuns";
 import { withSubagentLines } from "../src/agent-session/acpmux/subagents/runningTray";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
@@ -31,22 +33,37 @@ import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemo
 // These pin the line look (backgroundTurnLook.experiment.ts `line`): the default draws a background
 // turn's calls inline, with no line (backgroundTurnInline.test.ts).
 beforeAll(() => {
-  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "background-turn-look": "line" };
+  globalThis.cmuxExperiments = {
+    ...globalThis.cmuxExperiments,
+    "background-turn-look": "line",
+  };
 });
 afterAll(() => {
   globalThis.cmuxExperiments = undefined;
 });
 
-const update = (update: Record<string, unknown>) => ({ method: "session/update", params: { update } });
+const update = (update: Record<string, unknown>) => ({
+  method: "session/update",
+  params: { update },
+});
 const say = (text: string): Step => [
   "in",
   "agent_message_chunk",
-  update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }),
+  update({
+    sessionUpdate: "agent_message_chunk",
+    content: { type: "text", text },
+  }),
 ];
 const ran = (id: string): Step => [
   "in",
   "tool_call",
-  update({ sessionUpdate: "tool_call", toolCallId: id, title: `ls ${id}`, kind: "execute", status: "completed" }),
+  update({
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title: `ls ${id}`,
+    kind: "execute",
+    status: "completed",
+  }),
 ];
 const personTurn = (text: string, reply: string, turnId: string): Step[] => [
   ["mux", "user_message", { text, turnId }],
@@ -101,8 +118,9 @@ test("a quiet background turn is one line that opens to its rows", async () => {
     expect(closed.filter((row) => row.kind === BACKGROUND_TURN)).toHaveLength(1);
     expect(closed.at(-1)?.kind).toBe(BACKGROUND_TURN);
     // The person's turn draws as it always has: its reply and its footer.
-    expect(texts(closed).slice(0, 3)).toEqual([
+    expect(texts(closed).slice(0, 4)).toEqual([
       "user:Run the tests in the background",
+      "worked:",
       "assistant:Started them.",
       expect.stringMatching(/^turnSummary:/),
     ]);
@@ -130,14 +148,15 @@ test("a background turn with something to say draws its rows as today, with no l
     const view = drawn(rows());
     expect(view.some((row) => row.kind === BACKGROUND_TURN)).toBe(false);
     expect(view.at(-2)?.text).toBe("The deploy failed: see https://example.com/run/1. Should I roll back?");
-    // No "Worked for"; acpmux sends it no turn_result, yet its reply ends on its own footer (copy,
+    // acpmux sends it no turn_result, yet its reply ends on its own footer (copy,
     // fork, read aloud), as the turn before it does (conversation/backgroundTurnFooter.test.ts).
     expect(view.filter((row) => row.kind === "turnSummary")).toHaveLength(2);
     expect(view.at(-1)).toMatchObject({
       kind: "turnSummary",
       text: "The deploy failed: see https://example.com/run/1. Should I roll back?",
     });
-    expect(view.some((row) => row.kind === "worked")).toBe(false);
+    // The reply holds its heading, closed over nothing (turns.ts `holdsHeader`).
+    expect(view.filter((row) => row.kind === "worked").every((row) => row.foldOpen === false)).toBe(true);
   } finally {
     client.close();
   }
@@ -152,12 +171,20 @@ test("a running background turn is the compact line, marked running", async () =
     const view = drawn(rows());
     const line = view.at(-1)!;
     expect(line.kind).toBe(BACKGROUND_TURN);
-    expect(line.background).toEqual({ id: "bg3", trigger: "scheduled", running: true, hasRows: true });
+    expect(line.background).toEqual({
+      id: "bg3",
+      trigger: "scheduled",
+      running: true,
+      hasRows: true,
+    });
     expect(view.some((row) => row.kind === "activity")).toBe(false);
     // It ends quiet: the same line, no longer running.
     daemon.push(record([say("Queue empty."), ended("bg3", true, "result", "scheduled")], 7));
     const after = drawn(rows());
-    expect(after.at(-1)?.background).toMatchObject({ running: false, quiet: true });
+    expect(after.at(-1)?.background).toMatchObject({
+      running: false,
+      quiet: true,
+    });
     expect(after.some((row) => row.text === "Queue empty.")).toBe(false);
   } finally {
     client.close();
@@ -187,6 +214,7 @@ test("a prompt that interrupts a background turn starts a normal turn after it",
     expect(texts(view.slice(line))).toEqual([
       "line:task_notification",
       "user:What's the status?",
+      "worked:",
       "assistant:The build passed.",
       expect.stringMatching(/^turnSummary:/),
     ]);
@@ -240,7 +268,12 @@ test("an older page's started record takes the rows its turn already made", () =
   };
   // The newer page was read first: the turn's rows and its ended record, then a later row.
   make(5, "inside");
-  rows.closeBackground(7, { id: "bg6", trigger: "scheduled", running: false, quiet: true });
+  rows.closeBackground(7, {
+    id: "bg6",
+    trigger: "scheduled",
+    running: false,
+    quiet: true,
+  });
   make(8, "after");
   // The older page brings the started record.
   rows.current = 3;
@@ -261,7 +294,11 @@ const spawned = (id: string, state = "running"): Step => [
     method: "session/update",
     params: {
       update: { sessionUpdate: "subagent_spawned" },
-      _meta: { acpmux: { subagents: [{ id, parent: null, name: id, state, toolCallId: `${id}-call` }] } },
+      _meta: {
+        acpmux: {
+          subagents: [{ id, parent: null, name: id, state, toolCallId: `${id}-call` }],
+        },
+      },
     },
   },
 ];
@@ -315,7 +352,10 @@ test("a subagent's done line folds with its quiet background turn", async () => 
     const done = tray.find((row) => row.kind === SUBAGENT_DONE)!;
     expect(done.inBackground).toBe("bg9");
     expect(drawn([...tray]).some((row) => row.kind === SUBAGENT_DONE)).toBe(false);
-    expect(drawn([...tray], [backgroundTurnRowId("bg9")]).some((row) => row.kind === SUBAGENT_DONE)).toBe(true);
+    // The done line is a member of the run with its quiet background turn (a subagent's end counts as a
+    // tool call's end, steeredHarnessEvents.test.tsx): opening the run and its line shows it.
+    const run = backgroundRunRowId(backgroundTurnRowId("bg9"));
+    expect(drawn([...tray], [run, backgroundTurnRowId("bg9")]).some((row) => row.kind === SUBAGENT_DONE)).toBe(true);
   } finally {
     client.close();
   }
@@ -369,7 +409,12 @@ test("a subagent done after the next user prompt stays folded with its owner bac
     row("answer-1", 2, "assistant", { text: "Watching." }),
     row("summary-1", 3, "turnSummary", { status: "completed" }),
     row(owner, 4, BACKGROUND_TURN, {
-      background: { id: "bg-cross", trigger: "scheduled", running: false, quiet: true },
+      background: {
+        id: "bg-cross",
+        trigger: "scheduled",
+        running: false,
+        quiet: true,
+      },
     }),
     row("group", 5, "subagents", {
       inBackground: "bg-cross",
@@ -424,11 +469,17 @@ test("an earlier background owner update invalidates every later reused turn", (
     row(owner, 3, BACKGROUND_TURN, {
       background: { id: "bg-reuse", trigger: "scheduled", running: true },
     }),
-    row("owned", 4, "assistant", { text: "Still watching.", inBackground: "bg-reuse" }),
+    row("owned", 4, "assistant", {
+      text: "Still watching.",
+      inBackground: "bg-reuse",
+    }),
     row("summary-1", 5, "turnSummary", { status: "completed" }),
     row("prompt-2", 6, "user", { text: "Status?" }),
     row("answer-2", 7, "assistant", { text: "Still green." }),
-    row("late", 8, "assistant", { text: "Background done.", inBackground: "bg-reuse" }),
+    row("late", 8, "assistant", {
+      text: "Background done.",
+      inBackground: "bg-reuse",
+    }),
     row("summary-2", 9, "turnSummary", { status: "completed" }),
     row("prompt-3", 10, "user", { text: "Ship it" }),
     row("answer-3", 11, "assistant", { text: "Shipped." }),
@@ -440,7 +491,12 @@ test("an earlier background owner update invalidates every later reused turn", (
     item.id === owner
       ? {
           ...item,
-          background: { id: "bg-reuse", trigger: "scheduled", running: false, quiet: false },
+          background: {
+            id: "bg-reuse",
+            trigger: "scheduled",
+            running: false,
+            quiet: false,
+          },
         }
       : item,
   );
@@ -466,7 +522,12 @@ test("a late subagent done line follows its line's toggles across reused turn vi
     row("answer-1", 2, "assistant", { text: "Watching." }),
     row("summary-1", 3, "turnSummary", { status: "completed" }),
     row(owner, 4, BACKGROUND_TURN, {
-      background: { id: "bg-reuse", trigger: "scheduled", running: false, quiet: true },
+      background: {
+        id: "bg-reuse",
+        trigger: "scheduled",
+        running: false,
+        quiet: true,
+      },
     }),
     row("group", 5, "subagents", {
       inBackground: "bg-reuse",
@@ -532,9 +593,17 @@ test("a fold change after the reused turns draws the turns before it again", () 
   });
   const line = (quiet: boolean) =>
     row("backgroundTurn-bg-late", 12, BACKGROUND_TURN, {
-      background: { id: "bg-late", trigger: "scheduled", running: false, quiet },
+      background: {
+        id: "bg-late",
+        trigger: "scheduled",
+        running: false,
+        quiet,
+      },
     });
-  const lateOwned = row("late-note", 6, "assistant", { text: "Background note.", inBackground: "bg-late" });
+  const lateOwned = row("late-note", 6, "assistant", {
+    text: "Background note.",
+    inBackground: "bg-late",
+  });
   const head: AcpmuxRow[] = [
     row("prompt-1", 1, "user", { text: "One" }),
     row("answer-1", 2, "assistant", { text: "First." }),
@@ -561,16 +630,32 @@ test("a fold change after the reused turns draws the turns before it again", () 
 // are even for". A background turn whose only events update rows that are not its own (a call an
 // earlier turn started, a subagent's work) has nothing to open to.
 const lineHtml = (row: AcpmuxRow) =>
-  renderToStaticMarkup(createElement(BackgroundTurnLine, { row, expanded: false, onToggle: () => {} }));
+  renderToStaticMarkup(
+    createElement(BackgroundTurnLine, {
+      row,
+      expanded: false,
+      onToggle: () => {},
+    }),
+  );
 const calling = (id: string): Step => [
   "in",
   "tool_call",
-  update({ sessionUpdate: "tool_call", toolCallId: id, title: `ls ${id}`, kind: "execute", status: "in_progress" }),
+  update({
+    sessionUpdate: "tool_call",
+    toolCallId: id,
+    title: `ls ${id}`,
+    kind: "execute",
+    status: "in_progress",
+  }),
 ];
 const finished = (id: string): Step => [
   "in",
   "tool_call_update",
-  update({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed" }),
+  update({
+    sessionUpdate: "tool_call_update",
+    toolCallId: id,
+    status: "completed",
+  }),
 ];
 
 test("a quiet background turn with no rows of its own draws no line", async () => {
@@ -635,7 +720,11 @@ test("a running background turn with no rows yet is a plain line, no chevron and
 const dotSay = (messageId: string): Step => [
   "in",
   "agent_message_chunk",
-  update({ sessionUpdate: "agent_message_chunk", messageId, content: { type: "text", text: "·" } }),
+  update({
+    sessionUpdate: "agent_message_chunk",
+    messageId,
+    content: { type: "text", text: "·" },
+  }),
 ];
 const quietTask = (id: string, work: boolean, cause?: Record<string, unknown>): Step[] => [
   ["in", "config_option_update", update({ sessionUpdate: "config_option_update", configOptions: [] })],
@@ -646,7 +735,12 @@ const quietTask = (id: string, work: boolean, cause?: Record<string, unknown>): 
 ];
 
 test("a subagent's steps answered with a lone dot draw no line and no dot", async () => {
-  const step = { kind: "subagent_step", status: "completed", weight: "silent", origin: "toolu_step" };
+  const step = {
+    kind: "subagent_step",
+    status: "completed",
+    weight: "silent",
+    origin: "toolu_step",
+  };
   const daemon = fakeDaemon(
     record([
       ...personTurn("Run the four suites in the background", "Started them.", "t1"),
@@ -676,14 +770,24 @@ test("a lone dot answering a known call or subagent draws no row and no footer",
       spawned("rev-dot"),
       ["mux", "turn_result", { turnId: "t1", status: "completed" }],
       spawned("rev-dot", "completed"),
-      ...quietTask("bg-d1", false, { kind: "shell", status: "interim", weight: "silent", origin: "sh-dot" }),
+      ...quietTask("bg-d1", false, {
+        kind: "shell",
+        status: "interim",
+        weight: "silent",
+        origin: "sh-dot",
+      }),
       ...quietTask("bg-d2", false, {
         kind: "subagent_step",
         status: "completed",
         weight: "silent",
         origin: "rev-dot-call",
       }),
-      ...quietTask("bg-d3", false, { kind: "subagent", status: "completed", weight: "result", origin: "rev-dot-call" }),
+      ...quietTask("bg-d3", false, {
+        kind: "subagent",
+        status: "completed",
+        weight: "result",
+        origin: "rev-dot-call",
+      }),
     ]),
   );
   const { client, rows } = await connect(daemon);
@@ -754,7 +858,12 @@ test("an interim stop goes onto its call: no line, no new mark; its reply is the
       ["mux", "turn_started", { turnId: "t1" }],
       shellCall("sh1"),
       ["mux", "turn_result", { turnId: "t1", status: "completed" }],
-      weighed("bg-i", { kind: "shell", status: "interim", weight: "silent", origin: "sh1" }),
+      weighed("bg-i", {
+        kind: "shell",
+        status: "interim",
+        weight: "silent",
+        origin: "sh1",
+      }),
       say("Still waiting on the suite."),
       ended("bg-i", true),
     ]),
@@ -774,7 +883,12 @@ test("an interim stop goes onto its call: no line, no new mark; its reply is the
     daemon.push(
       record(
         [
-          weighed("bg-i2", { kind: "shell", status: "interim", weight: "silent", origin: "sh1" }),
+          weighed("bg-i2", {
+            kind: "shell",
+            status: "interim",
+            weight: "silent",
+            origin: "sh1",
+          }),
           say("Still waiting."),
           ended("bg-i2", true),
         ],
@@ -795,10 +909,20 @@ test("a final result marks its call new until the next prompt; a reply with some
       ["mux", "turn_started", { turnId: "t1" }],
       shellCall("sh2"),
       ["mux", "turn_result", { turnId: "t1", status: "completed" }],
-      weighed("bg-r", { kind: "shell", status: "completed", weight: "result", origin: "sh2" }),
+      weighed("bg-r", {
+        kind: "shell",
+        status: "completed",
+        weight: "result",
+        origin: "sh2",
+      }),
       say("All 412 tests passed."),
       ended("bg-r", true),
-      weighed("bg-r2", { kind: "shell", status: "completed", weight: "result", origin: "sh2" }),
+      weighed("bg-r2", {
+        kind: "shell",
+        status: "completed",
+        weight: "result",
+        origin: "sh2",
+      }),
       say("The suite passed, but the bench regressed 12%:\n\nShould I bisect it?"),
       ended("bg-r2", false),
     ]),
@@ -810,7 +934,10 @@ test("a final result marks its call new until the next prompt; a reply with some
     // Both replies draw as the agent's own messages; only the call's mark is on the call.
     expect(view.some((row) => row.kind === "assistant" && row.text === "All 412 tests passed.")).toBe(true);
     expect(view.at(-1)?.text).toContain("Should I bisect it?");
-    expect(callOf(rows(), "sh2")?.reaction).toMatchObject({ weight: "result", fresh: true });
+    expect(callOf(rows(), "sh2")?.reaction).toMatchObject({
+      weight: "result",
+      fresh: true,
+    });
     daemon.push(record(personTurn("Yes, bisect", "Bisecting.", "t2"), 30));
     expect(callOf(rows(), "sh2")?.reaction?.fresh).toBeUndefined();
   } finally {
@@ -851,10 +978,20 @@ test("a silent turn no call took still keeps a line when it had something to say
   const daemon = fakeDaemon(
     record([
       ...personTurn("Watch it", "Watching.", "t1"),
-      weighed("bg-m", { kind: "monitor", status: "completed", weight: "silent", origin: "gone" }),
+      weighed("bg-m", {
+        kind: "monitor",
+        status: "completed",
+        weight: "silent",
+        origin: "gone",
+      }),
       say("CI moved to step 3 of 5.\n\nNothing to do yet."),
       ended("bg-m", false),
-      weighed("bg-q", { kind: "monitor", status: "completed", weight: "silent", origin: "gone" }),
+      weighed("bg-q", {
+        kind: "monitor",
+        status: "completed",
+        weight: "silent",
+        origin: "gone",
+      }),
       say("Tick."),
       ended("bg-q", true),
     ]),
@@ -878,12 +1015,29 @@ test("a record's cause is read whole or not at all", () => {
       state: "started",
       id: "b",
       trigger: "task_notification",
-      cause: { kind: "subagent", status: "completed", weight: "result", origin: "c", summary: "Done" },
+      cause: {
+        kind: "subagent",
+        status: "completed",
+        weight: "result",
+        origin: "c",
+        summary: "Done",
+      },
     })?.cause,
-  ).toEqual({ kind: "subagent", status: "completed", weight: "result", origin: "c", summary: "Done" });
+  ).toEqual({
+    kind: "subagent",
+    status: "completed",
+    weight: "result",
+    origin: "c",
+    summary: "Done",
+  });
   for (const cause of [undefined, "x", { kind: "shell", status: "completed", weight: "loud" }, { weight: "silent" }])
     expect(
-      backgroundTurnRecord({ state: "started", id: "b", trigger: "task_notification", cause })?.cause,
+      backgroundTurnRecord({
+        state: "started",
+        id: "b",
+        trigger: "task_notification",
+        cause,
+      })?.cause,
     ).toBeUndefined();
 });
 
@@ -893,7 +1047,12 @@ test("a subagent's final report marks its done line new; its quiet reply is the 
       ...personTurn("Review the PR in the background", "Started a reviewer.", "t1"),
       spawned("reviewer"),
       spawned("reviewer", "completed"),
-      weighed("bg-s", { kind: "subagent", status: "completed", weight: "result", origin: "reviewer-call" }),
+      weighed("bg-s", {
+        kind: "subagent",
+        status: "completed",
+        weight: "result",
+        origin: "reviewer-call",
+      }),
       say("Reviewer says SHIP."),
       ended("bg-s", true),
     ]),
@@ -931,7 +1090,12 @@ test("a subagent's done line draws its reaction's mark as it comes and goes", as
     daemon.push(
       record(
         [
-          weighed("bg-rev", { kind: "subagent", status: "completed", weight: "result", origin: "rev-call" }),
+          weighed("bg-rev", {
+            kind: "subagent",
+            status: "completed",
+            weight: "result",
+            origin: "rev-call",
+          }),
           say("Reviewer says SHIP."),
           ended("bg-rev", true),
         ],
@@ -959,10 +1123,23 @@ test("a background reaction survives the call's later updates and a newer prompt
       shellCall("sh9"),
       ["mux", "turn_result", { turnId: "t1", status: "completed" }],
       ...personTurn("Meanwhile, what's next?", "The bench.", "t2"),
-      weighed("bg-late", { kind: "shell", status: "completed", weight: "result", origin: "sh9" }),
+      weighed("bg-late", {
+        kind: "shell",
+        status: "completed",
+        weight: "result",
+        origin: "sh9",
+      }),
       say("All 412 tests passed."),
       ended("bg-late", true),
-      ["in", "tool_call_update", update({ sessionUpdate: "tool_call_update", toolCallId: "sh9", status: "completed" })],
+      [
+        "in",
+        "tool_call_update",
+        update({
+          sessionUpdate: "tool_call_update",
+          toolCallId: "sh9",
+          status: "completed",
+        }),
+      ],
     ]),
   );
   const { client, rows } = await connect(daemon);
@@ -1057,7 +1234,12 @@ test("a subagent done line never draws the chat's reply, in its text or its tool
       ...personTurn("Review it", "Started a reviewer.", "t1"),
       spawned("rev2"),
       spawned("rev2", "completed"),
-      weighed("bg-rev2", { kind: "subagent", status: "completed", weight: "result", origin: "rev2-call" }),
+      weighed("bg-rev2", {
+        kind: "subagent",
+        status: "completed",
+        weight: "result",
+        origin: "rev2-call",
+      }),
       say("Reviewer says SHIP at the head."),
       ended("bg-rev2", true),
     ]),
@@ -1097,7 +1279,14 @@ test("a background turn's long reply is the agent's own turn, never the subagent
   ];
   const daemon = fakeDaemon(
     record([
-      ["mux", "user_message", { text: "Fix the nightly macOS build red with a subagent", turnId: "t1" }],
+      [
+        "mux",
+        "user_message",
+        {
+          text: "Fix the nightly macOS build red with a subagent",
+          turnId: "t1",
+        },
+      ],
       ["mux", "turn_started", { turnId: "t1" }],
       spawned("fixer"),
       say("Started a subagent on it."),
@@ -1133,12 +1322,23 @@ test("a background turn's long reply is the agent's own turn, never the subagent
     for (const [index, { row, at }] of own.entries()) {
       // Its own footer right under it, the turn's end, as a prompt's turn ends.
       expect(view[at + 1]).toMatchObject({ kind: "turnSummary", id: `${BACKGROUND_END}-bg-${index + 1}` });
-      // It opens a turn: the turn gap over it, from whatever row is above.
+      // It opens a turn: the turn gap over it, from whatever row is above. The first turn opens on its
+      // "Worked for" instead, which stands a "Worked for"'s own gap under the turn before's footer.
+      if (index === 0) {
+        const head = view[at - 1]!;
+        expect(transcriptGap(gridMark(view[at - 2]!, view[at - 3]), gridMark(head, view[at - 2]))).toBeGreaterThan(0);
+        continue;
+      }
       const prev = view[at - 1]!;
       expect(transcriptGap(gridMark(prev, view[at - 2]), gridMark(row, prev))).toBe(TRANSCRIPT_TURN_GAP);
     }
-    // The first follows the subagent's done line, not inside it.
-    expect(view[own[0]!.at - 1]?.kind).toBe(SUBAGENT_DONE);
+    // The subagent's end is the first turn's work, a tool call's end: it folds under that turn's
+    // "Worked for" (Leo, 2026-11-24: "we can indeed treat them as tool calls"), and opens to it.
+    const worked = view[own[0]!.at - 1]!;
+    expect(worked.kind).toBe(WORKED);
+    expect(view.some((entry) => entry.kind === SUBAGENT_DONE)).toBe(false);
+    const opened = drawn([...withSubagentLines(rows(), new Map())], [worked.id]);
+    expect(opened.some((entry) => entry.kind === SUBAGENT_DONE)).toBe(true);
   } finally {
     client.close();
   }
@@ -1152,7 +1352,10 @@ test("a background turn's long reply is the agent's own turn, never the subagent
 const think = (text: string): Step => [
   "in",
   "agent_thought_chunk",
-  update({ sessionUpdate: "agent_thought_chunk", content: { type: "text", text } }),
+  update({
+    sessionUpdate: "agent_thought_chunk",
+    content: { type: "text", text },
+  }),
 ];
 const gateWork: Step[] = [
   think("I'm checking whether the gate accepts the marker."),
@@ -1169,7 +1372,14 @@ const workedShapes: Record<string, Step[]> = {
   ],
   "a background task's turn": [
     started("bg"),
-    ["mux", "user_message", { text: "<task-notification><summary>Done</summary></task-notification>", turnId: "t2" }],
+    [
+      "mux",
+      "user_message",
+      {
+        text: "<task-notification><summary>Done</summary></task-notification>",
+        turnId: "t2",
+      },
+    ],
     ["mux", "turn_started", { turnId: "t2" }],
     ...gateWork,
     ["mux", "turn_result", { turnId: "t2", status: "completed" }],

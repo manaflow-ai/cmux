@@ -14,7 +14,7 @@ import Testing
     @Test func theSplitControlIsTheMoreButtonsSizeWithATabsCorner() {
         // Lawrence 2026-11-20: the + rounds as a tab and is the pane ⋮'s size, in every look.
         #expect(NewTabButtonView.splitCornerRadius == min(Metrics.tabCornerRadius, Metrics.tabBarControlSide / 2))
-        #expect(NewTabButtonView.frameHeight == TitlebarBandButton.side, "the + is the ⋮'s height")
+        #expect(NewTabButtonView.frameHeight == Metrics.tabHeight, "the + is a tab tall, as the ⋮")
     }
 
     @Test func sidebarRowsRoundExactlyAsTabsDo() {

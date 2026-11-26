@@ -21,6 +21,10 @@ public struct RelativeStamp: Sendable {
     public func spoken(for date: Date) -> String {
         let seconds = now.timeIntervalSince(date)
         if seconds < 60 { return "now" }
+        #if !canImport(Darwin)
+        // No RelativeDateTimeFormatter off Apple platforms (the Linux test build).
+        return string(for: date)
+        #else
         // One formatter per calendar: a row's VoiceOver label made a new one per row per pass.
         let (now, calendar) = (now, calendar)
         return Self.formatters.withLock { formatters in
@@ -30,9 +34,12 @@ public struct RelativeStamp: Sendable {
             formatters[calendar] = formatter
             return formatter.localizedString(for: date, relativeTo: now)
         }
+        #endif
     }
 
+    #if canImport(Darwin)
     private static let formatters = Mutex<[Calendar: RelativeDateTimeFormatter]>([:])
+    #endif
 
     public func string(for date: Date) -> String {
         let seconds = max(0, now.timeIntervalSince(date))

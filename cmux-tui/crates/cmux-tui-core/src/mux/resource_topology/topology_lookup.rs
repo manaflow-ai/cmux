@@ -157,9 +157,10 @@ pub(super) fn workspace_value(
     id: &WorkspacePublicId,
 ) -> anyhow::Result<Value> {
     let index = state
+        .resource_indexes
         .workspaces
-        .iter()
-        .position(|workspace| &workspace.public_id == id)
+        .get(id)
+        .and_then(|workspace| state.workspace_index(*workspace))
         .with_context(|| format!("workspace {id} is not live"))?;
     let workspace = &state.workspaces[index];
     Ok(json!({

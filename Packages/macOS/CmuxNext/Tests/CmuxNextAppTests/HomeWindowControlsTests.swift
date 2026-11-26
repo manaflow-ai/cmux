@@ -227,19 +227,14 @@ struct HomeWindowControlsTests {
         #expect(h.search.maxX == h.filter.minX)
     }
 
-    /// The avatar-only list's search and filter circles sit under the lights, the list under them;
-    /// an open search sits under them too.
+    /// The avatar-only list under the lights is Messages' strip: no buttons, the first row 43 pt down, clear of
+    /// the lights; an open search sits under them, the list under it.
     @Test func theAvatarListUnderTheLights() {
         let closed = HomeSidebarHeaderLayout(width: 90, searchOpen: false, windowControls: Self.lightsFrame)
-        #expect(!closed.filter.isEmpty && !closed.searchIcon.isEmpty)
-        #expect(!closed.filter.intersects(Self.lightsFrame) && !closed.searchIcon.intersects(Self.lightsFrame))
-        #expect(closed.listTop >= closed.filter.maxY)
+        #expect(closed.filter.isEmpty && closed.searchIcon.isEmpty)
+        #expect(closed.listTop == HomeSidebarHeaderLayout.stripListTop && closed.listTop > Self.lightsFrame.maxY)
         let open = HomeSidebarHeaderLayout(width: 90, searchOpen: true, windowControls: Self.lightsFrame)
         #expect(!open.search.intersects(Self.lightsFrame))
         #expect(open.listTop >= open.search.maxY)
-        // Opening the search moves nothing: the list starts where it did, the field centred where
-        // the circles were (the user, 2026-11-23: "make the height not shift").
-        #expect(open.listTop == closed.listTop)
-        #expect(abs(open.search.midY - closed.filter.midY) <= 0.5 && abs(open.search.midY - closed.searchIcon.midY) <= 0.5)
     }
 }

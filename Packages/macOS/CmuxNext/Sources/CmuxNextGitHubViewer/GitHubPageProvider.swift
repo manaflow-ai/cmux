@@ -29,6 +29,13 @@ public import CmuxNextSettings
 ///   stale for its state or kept for another head; never another head's checks.
 /// - `checks.rerun {url, runs}`: re-runs the failed jobs of those Actions runs (`gh run rerun
 ///   --failed`), only runs the dashboard showed with a failed job. Spends the gesture.
+/// - `review.submit {url, event, body, head?}`, `thread.reply {url, thread, body}`,
+///   `thread.resolve {url, thread, resolved}`: the person's review and replies
+///   (GitHubPageProvider+Review.swift). Each spends the gesture.
+/// - `issues.list {repo}`: the repository's issues, newest activity first, pull requests left out
+///   (GitHub's issues endpoint lists both); `issue.details {url}`: one issue and its comments. Both
+///   read through the GitHub host op (``AgentPaneGitHubREST/get(_:_:tail:)``) and pass GitHub's fields
+///   through (GitHubPageProvider+Issues.swift).
 @MainActor
 public final class GitHubPageProvider: PageProvider {
     public static let namespace = "cmux.github."
@@ -42,7 +49,7 @@ public final class GitHubPageProvider: PageProvider {
     }
 
     private let links: AgentPaneReplyLinks
-    private let cache: AgentReplyPullRequests
+    let cache: AgentReplyPullRequests
     private let diffReader: @Sendable (URL) async -> String?
     private let localDiff: GitHubLocalDiff?
     private let openWeb: @MainActor (URL, NSView?) -> Bool
@@ -51,16 +58,18 @@ public final class GitHubPageProvider: PageProvider {
     private let detailsReader: @Sendable (GitHubLink) async -> GitHubPullRequestDetails?
     private let merger: @Sendable (_ url: String, _ head: String) async -> AgentPaneGitPullRequest.PageMerge
     /// A pull request's details, read once per `updatedAt` (and at most once per ``detailsFreshness``).
-    private struct Details {
+    struct Details {
         let updatedAt: String
         let began: ContinuousClock.Instant
         let read: Task<GitHubPullRequestDetails?, Never>
         /// The read answered: kept while `updatedAt` stays.
         var good = false
     }
-    private var details: [URL: Details] = [:]
+    var details: [URL: Details] = [:]
     private let checksCache: GitHubChecksCache
     private let rerunner: @Sendable (_ repository: String, _ run: Int) async -> String?
+    /// One write through acpmux's GitHub host op (a review, a thread reply or resolve; tests pass a fake).
+    let writer: @Sendable (_ params: [String: any Sendable]) async -> AgentPaneGitHubREST.Answer
     static let detailsFreshness: Duration = .seconds(60)
     /// The longest one file's patch drawn inline; a longer one opens in the diff viewer.
     static let maximumInlinePatch = 512 * 1024
@@ -70,6 +79,10 @@ public final class GitHubPageProvider: PageProvider {
     public var onShown: @MainActor (_ url: String, _ content: Bool) -> Void = { _, _ in }
     /// The page view, so what it opens lands beside the pane that shows it.
     public var anchor: @MainActor () -> NSView? = { nil }
+    /// One GitHub REST read (`repo`, `path`) for the issue ops; tests answer their own.
+    var restGet: @Sendable (_ repository: String, _ path: String) async -> AgentPaneGitHubREST.Answer = {
+        await AgentPaneGitHubREST.get($0, $1)
+    }
 
     /// The most diffs kept; the page shows one pull request at a time.
     static let maximumDiffs = 8
@@ -81,6 +94,7 @@ public final class GitHubPageProvider: PageProvider {
                 merger: (@Sendable (_ url: String, _ head: String) async -> AgentPaneGitPullRequest.PageMerge)? = nil,
                 checks: GitHubChecksCache? = nil,
                 rerunner: (@Sendable (_ repository: String, _ run: Int) async -> String?)? = nil,
+                writer: (@Sendable (_ params: [String: any Sendable]) async -> AgentPaneGitHubREST.Answer)? = nil,
                 openWeb: @escaping @MainActor (URL, NSView?) -> Bool,
                 openDiff: @escaping @MainActor (_ text: String, _ link: GitHubLink, _ file: String?, _ from: NSView?) -> Bool) {
         self.cache = cache
@@ -92,6 +106,7 @@ public final class GitHubPageProvider: PageProvider {
         // Nil: a cache of its own (tests); the App passes its one cache so pages share reads.
         checksCache = checks ?? GitHubChecksCache()
         self.rerunner = rerunner ?? { await AgentPaneGitPullRequest.rerunFailed(repository: $0, run: $1) }
+        self.writer = writer ?? { await AgentPaneGitHubREST.call($0) }
         self.openWeb = openWeb
         self.openDiff = openDiff
         let links = AgentPaneReplyLinks()
@@ -109,6 +124,10 @@ public final class GitHubPageProvider: PageProvider {
         if method == "pr.merge" { return try await merge(params, context: context) }
         if method == "checks.read" { return try await readChecks(params) }
         if method == "checks.rerun" { return try await rerun(params, context: context) }
+        if method == "review.submit" { return try await submitReview(params, context: context) }
+        if method == "thread.reply" || method == "thread.resolve" { return try await writeThread(method, params, context: context) }
+        if method == "issues.list" { return try await listIssues(params) }
+        if method == "issue.details" { return try await issueDetails(params) }
         if method == "shown" {
             onShown(params["url"]?.stringValue ?? "", params["content"]?.boolValue == true)
             return .null
@@ -176,7 +195,7 @@ public final class GitHubPageProvider: PageProvider {
     }
 
     /// The link a call names, or invalid params.
-    private func link(_ params: JSONValue, _ op: String) throws -> GitHubLink {
+    func link(_ params: JSONValue, _ op: String) throws -> GitHubLink {
         guard let address = params["url"]?.stringValue, let url = URL(string: address), let link = GitHubLink(url) else {
             throw PageError.invalidParams("cmux.github.\(op) needs a pull request url")
         }
@@ -301,7 +320,7 @@ public final class GitHubPageProvider: PageProvider {
     }
 
     /// Spends the person's key or click in the page view (the host's record, never the page's word).
-    private func spendGesture(_ context: PageCallContext) -> Bool {
+    func spendGesture(_ context: PageCallContext) -> Bool {
         guard context.userGesture, let event = context.gestureEvent, event != spentGesture else { return false }
         spentGesture = event
         return true

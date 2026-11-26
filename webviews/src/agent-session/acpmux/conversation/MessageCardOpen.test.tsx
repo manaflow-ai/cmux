@@ -91,3 +91,13 @@ test("a recipient nothing opens stays a plain chip", async () => {
   expect(container.querySelector("button.cv-agentmsg__name")).toBeNull();
   expect(container.querySelector(".cv-agentmsg__name")?.textContent).toBe("a39e817a");
 });
+
+// Leo, 2026-11-22: "Sent to a6c31b7e" after a reload, the Agent call outside the page. The daemon's
+// name for the recipient (`tool.recipient`, `_meta.acpmux.recipient`) is what the chip reads then.
+test("a recipient the page cannot name reads the daemon's name, not its id", async () => {
+  const named = { ...tool, recipient: "Unstick DEV tip publish" };
+  const container = await render(
+    <MessageCard item={{ kind: "tool", text: named.title, tool: named }} message={agentMessage(named)!} />,
+  );
+  expect(container.querySelector(".cv-agentmsg__name")?.textContent).toBe("Unstick DEV tip publish");
+});

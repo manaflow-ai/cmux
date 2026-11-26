@@ -116,6 +116,10 @@ pub struct Resumes {
     /// Notes the resume in the ticket threads' state (set by
     /// [`CarrierServer::spawn`]).
     noter: Mutex<Option<Waker>>,
+    /// Others told of a resume the same way (the Auto mode socket,
+    /// `auto_session_server.rs`): each drops its connections from before the
+    /// pause in its own note.
+    others: Mutex<Vec<Waker>>,
 }
 
 impl Resumes {
@@ -124,6 +128,14 @@ impl Resumes {
         if let Some(note) = self.noter.lock().unwrap_or_else(PoisonError::into_inner).as_ref() {
             note();
         }
+        for note in self.others.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+            note();
+        }
+    }
+
+    /// Also tells `noter` of every resume from now on.
+    pub fn also(&self, noter: Box<dyn Fn() + Send + Sync>) {
+        self.others.lock().unwrap_or_else(PoisonError::into_inner).push(noter);
     }
 
     fn set_noter(&self, noter: Option<Waker>) {

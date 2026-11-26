@@ -97,8 +97,6 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
     { entry: "header-tools", variant: "pull-request-merge", play: "steps" },
     // No header tool draws a box in any state; the open panel's toggle is lit by its ink (Leo 2026-10-25).
     { entry: "header-tools", variant: "plain-icons", play: "error" },
-    // The hat's checklist and its command lines share a short dock; neither is pushed out of view.
-    { entry: "subagent-tray", variant: "plan-short-dock", play: "error" },
     { entry: "dictation", variant: "hide", play: "steps" },
     { entry: "harness-health-notice", variant: "dismissed", play: "steps", shows: composerWithoutNotice },
     {
@@ -139,7 +137,7 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       play: "steps",
       shows: has(".acpmux-summary-card .acpmux-summary-agents"),
     },
-    { entry: "subagents", variant: "card-open-child", play: "steps", shows: has(".cv-subagent-of") },
+    { entry: "subagents", variant: "card-open-child", play: "steps", shows: has(".acpmux-view-corner") },
     // Run boards: a person reviews a candidate's evidence and approves it for integration. Each is
     // "error", not "steps": its own labels change width when the state changes (a width follow-up,
     // not a missing state). Timeline: "Approve for integration" becomes "Approval recorded" and

@@ -180,7 +180,7 @@ impl Hub {
         setting: &Setting,
         mover: &dyn Mover,
     ) {
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&m.id).cloned();
+        let session = self.session_get(&m.id);
         let Some(session) = session else { return };
         let idle_min = m.idle_ms / 60_000;
         let back = format!("cmux move {} --from MACHINE --to here", m.name);

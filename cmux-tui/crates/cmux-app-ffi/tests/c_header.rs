@@ -7,6 +7,14 @@
 use std::path::Path;
 use std::process::Command;
 
+/// The include guard and the goo section's two macros (cbindgen.toml's
+/// `after_includes`, spelled as plans/cmux-next/gooey-tabs.md's C ABI).
+const ALLOWED_DEFINES: [&str; 3] = [
+    "#define CMUX_MOTION_FFI_H",
+    "#define CMUX_GOO_OUTLINE_POINTS 24 ",
+    "#define CMUX_GOO_KEYFRAMES_MAX 120",
+];
+
 #[test]
 fn committed_header_is_cbindgen_output() {
     let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -26,7 +34,7 @@ fn committed_header_is_cbindgen_output() {
     let defines: Vec<&str> = std::str::from_utf8(&generated)
         .expect("utf-8 header")
         .lines()
-        .filter(|l| l.starts_with("#define") && *l != "#define CMUX_MOTION_FFI_H")
+        .filter(|l| l.starts_with("#define") && !ALLOWED_DEFINES.iter().any(|d| l.starts_with(d)))
         .collect();
     assert!(defines.is_empty(), "unexpected macros in the header: {defines:?}");
 

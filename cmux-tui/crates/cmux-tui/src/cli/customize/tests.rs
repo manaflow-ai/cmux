@@ -581,6 +581,18 @@ fn schema_lists_what_can_change_and_needs_no_store() {
 }
 
 #[test]
+fn checklist_takes_only_the_connections_it_knows() {
+    assert_eq!(parse(&words(&["checklist"])), Ok(Request::Checklist { connected: vec![] }));
+    assert_eq!(
+        parse(&words(&["checklist", "--has", "github", "--has", "mcp", "--has", "github"])),
+        Ok(Request::Checklist { connected: vec!["github".to_owned(), "mcp".to_owned()] })
+    );
+    assert!(parse(&words(&["checklist", "--has", "slack"])).is_err());
+    assert!(parse(&words(&["checklist", "--has"])).is_err());
+    assert!(parse(&words(&["checklist", "theme"])).is_err());
+}
+
+#[test]
 fn doctor_reads_by_default_and_a_fix_names_its_finding_and_kind() {
     use super::doctor::Request as Doctor;
     use cmux_customize::library::doctor::FixKind;
@@ -600,4 +612,69 @@ fn doctor_reads_by_default_and_a_fix_names_its_finding_and_kind() {
     assert!(parse(&words(&["doctor", "fix", "layer-on:pr-7", "delete"])).is_err());
     assert!(parse(&words(&["doctor", "fix", "--all", "off"])).is_err());
     assert!(parse(&words(&["doctor", "dismiss"])).is_err());
+}
+
+#[test]
+fn a_pack_of_a_stylesheet_is_written_not_applied_and_then_tries_on() {
+    assert_eq!(
+        parse(&words(&[
+            "pack",
+            "calm",
+            "--css",
+            "/tmp/a.css",
+            "--set",
+            "ui.calm=true",
+            "less",
+            "glow"
+        ])),
+        Ok(Request::Pack {
+            name: "calm".into(),
+            css: Some("/tmp/a.css".into()),
+            sets: vec![("ui.calm".into(), "true".into())],
+            note: "less glow".into()
+        })
+    );
+    assert!(parse(&words(&["pack", "calm"])).is_err());
+    assert!(parse(&words(&["pack", "--css", "x"])).is_err());
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("config")).unwrap();
+    fs::write(dir.path().join("config/cmux-next.json"), "{}\n").unwrap();
+    let css = dir.path().join("calm.css");
+    fs::write(&css, ":root { --agent-gap: 4px }\n").unwrap();
+    let customize = Customize::open(Roots::under(dir.path()));
+    let run = |request, at| execute(&customize, request, "cli", at, &super::ask::NoChat);
+    let packed = run(
+        Request::Pack {
+            name: "calm".to_owned(),
+            css: Some(css.display().to_string()),
+            sets: Vec::new(),
+            note: String::new(),
+        },
+        1_000,
+    )
+    .ok()
+    .unwrap();
+    assert_eq!(packed.json()["name"], "calm");
+    // Nothing live changed.
+    assert!(!dir.path().join("config/agent-pane/theme.css").exists());
+    let used = run(Request::Use { source: "calm".to_owned(), watch: false }, 2_000).ok().unwrap();
+    assert_eq!(used.json()["profile"], "calm");
+    let live = fs::read_to_string(dir.path().join("config/agent-pane/theme.css")).unwrap();
+    assert!(live.contains("--agent-gap"), "{live}");
+    // A stylesheet that loads from the network is refused at pack time.
+    fs::write(&css, "@import url(https://x.test/a.css);").unwrap();
+    assert!(
+        run(
+            Request::Pack {
+                name: "bad".to_owned(),
+                css: Some(css.display().to_string()),
+                sets: Vec::new(),
+                note: String::new()
+            },
+            3_000
+        )
+        .ok()
+        .is_none()
+    );
 }

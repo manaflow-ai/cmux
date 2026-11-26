@@ -15,12 +15,32 @@ public nonisolated enum BrowserProfileCascade {
         return BrowserProfileRecord.defaultID
     }
 
+    /// Why a tab has its profile, as far as today's defaults say (the profile menu's header line). A tab
+    /// keeps the profile it was made with, so this reads the tab's profile against the defaults now.
+    public enum Source: Hashable, Sendable {
+        /// The workspace's browser profile.
+        case workspace
+        /// The space's browser profile.
+        case space
+        /// The built-in default, with no default naming another.
+        case builtIn
+        /// None of the defaults: chosen for this tab (or a default changed after the tab was made).
+        case tab
+    }
+
+    /// The source of `tabProfile` (nil = `default`): the workspace's default when it names it, else
+    /// the space's when no workspace default stands before it, else the built-in default, else the tab.
+    public static func source(tabProfile: String?, workspace: String?, room: String?, known: (String) -> Bool) -> Source {
+        let id = tabProfile ?? BrowserProfileRecord.defaultID
+        func usable(_ candidate: String?) -> String? { candidate.flatMap { !$0.isEmpty && known($0) ? $0 : nil } }
+        if let workspace = usable(workspace) { return workspace == id ? .workspace : .tab }
+        if let room = usable(room) { return room == id ? .space : .tab }
+        return id == BrowserProfileRecord.defaultID ? .builtIn : .tab
+    }
+
     /// A tab shows a profile dot when its profile differs from the one new
     /// tabs of its workspace get (a record without an id is `default`).
     public static func showsTabBadge(tabProfile: String?, workspaceEffective: String) -> Bool {
         (tabProfile ?? BrowserProfileRecord.defaultID) != workspaceEffective
     }
-
-    /// The omnibar shows the tab's profile once more than one exists.
-    public static func showsOmnibarBadge(profileCount: Int) -> Bool { profileCount > 1 }
 }

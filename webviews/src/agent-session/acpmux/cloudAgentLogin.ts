@@ -23,6 +23,19 @@ export function loginAgent(value: string | undefined): LoginAgent | undefined {
   return LOGIN_AGENTS.find((agent) => agent === value);
 }
 
+/// Harnesses that sign in with another agent's login on a Cloud machine. Antigravity (`agy acp`)
+/// runs on Gemini's API key and Cloud's Gemini gateway (Leo 2026-11-25: "we'll want to set up
+/// antigravity/antigravity cli and opencode capable if we didn't already and stuff"), so its card
+/// saves Gemini's key; its Google sign-in (`agy acp --login`) stays the terminal's.
+const SIGNS_IN_AS: Readonly<Record<string, LoginAgent>> = { antigravity: "gemini" };
+
+/// The ``LoginAgent`` whose login a harness id's chat uses: its own, or the one it rides
+/// (``SIGNS_IN_AS``); else undefined.
+export function harnessLoginAgent(id: string | undefined): LoginAgent | undefined {
+  const key = agentKey(id);
+  return loginAgent(key) ?? (key !== undefined && Object.hasOwn(SIGNS_IN_AS, key) ? SIGNS_IN_AS[key] : undefined);
+}
+
 /// Whether the agent's own sign-in page runs on the machine (`_acpmux/agent_login/start`): every
 /// agent but Gemini and OpenCode, which take a key only.
 export function signsInByPage(agent: LoginAgent): boolean {
@@ -319,13 +332,50 @@ export function refusedStartSignIn(options: {
   };
 }
 
+/// Whether `command`, run in a terminal on a Cloud machine, can finish while the person's browser is
+/// on their Mac: Claude Code's login (`claude /login`, `claude auth login`) shows a code to paste back,
+/// and a `--device-auth` login shows a code to type in. Codex's plain `codex login` (harnesses/codex.toml
+/// `auth.login`) waits for its browser's redirect to the machine's own `localhost:1455`, which the Mac's
+/// browser cannot reach, so it is not offered there. Leading `VAR=value` words (the account home,
+/// `CODEX_HOME=…`, harness_health) are skipped.
+export function signsInRemotely(command: string): boolean {
+  const words = command.trim().split(/\s+/);
+  const program = words.find((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word));
+  if (program === undefined) return false;
+  return program.split("/").pop() === "claude" || words.includes("--device-auth");
+}
+
+/// Whether a failed turn's Sign in again runs the agent's own login command in a terminal (the
+/// chat pane's terminal opens on the chat's machine): only where the card has no in-place sign-in.
+/// A chat on this Mac or an own machine keeps it as before. A Cloud chat gets it only when its
+/// machine's acpmux runs no `agent_login` (an older machine, built before `agent-login-v1`), which
+/// otherwise left the card with Switch model alone; never on a team Cloud machine, which takes no
+/// personal login, and only for a login that finishes from another computer's browser
+/// (``signsInRemotely``). `onCloud`: the chat's machine is a Cloud one.
+export function terminalSignIn(options: {
+  connected: boolean;
+  loginCommand: string | undefined;
+  card: CloudSignIn | undefined;
+  onCloud: boolean;
+  machineSignsIn: boolean;
+  teamMachine: boolean;
+}): { runs: boolean; onCloud: boolean } {
+  const runs =
+    options.connected &&
+    options.loginCommand !== undefined &&
+    options.card === undefined &&
+    (!options.onCloud ||
+      (!options.machineSignsIn && !options.teamMachine && signsInRemotely(options.loginCommand ?? "")));
+  return { runs, onCloud: runs && options.onCloud };
+}
+
 /// The agent's own login on the chat's machine, or undefined for a chat not connected, not one of
 /// ``LOGIN_AGENTS``, or on an acpmux that does not advertise `agent_login`.
 function agentLogin(options: LoginOptions): CloudSignIn | undefined {
   const { connected, sessionId, harness, supported, gesture, openURL, openOnMachine, isCurrent, currentClient } =
     options;
   const leaf = harness?.split("/").pop();
-  const agent = loginAgent(agentKey(leaf));
+  const agent = harnessLoginAgent(leaf);
   // A new chat's sign-in on its machine has no chat to name, and no prompt of its own to send again.
   const machine = !sessionId && options.machineLogin === true;
   if (!connected || !(sessionId || machine) || !supported || !agent) return undefined;

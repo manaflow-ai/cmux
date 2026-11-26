@@ -1,0 +1,65 @@
+diff --git a/tailscale.c b/tailscale.c
+index 420d67e..4f70af4 100644
+--- a/tailscale.c
++++ b/tailscale.c
+@@ -18,6 +18,7 @@ extern int TsnetSetHostname(int sd, char* str);
+ extern int TsnetSetAuthKey(int sd, char* str);
+ extern int TsnetSetControlURL(int sd, char* str);
+ extern int TsnetSetEphemeral(int sd, int ephemeral);
++extern int TsnetSetAdvertiseTags(int sd, char* str);
+ extern int TsnetSetLogFD(int sd, int fd);
+ extern int TsnetGetIps(int sd, char *buf, size_t buflen);
+ extern int TsnetGetRemoteAddr(int listener, int conn, char *buf, size_t buflen);
+@@ -78,6 +79,10 @@ int tailscale_set_control_url(tailscale sd, const char* control_url) {
+ int tailscale_set_ephemeral(tailscale sd, int ephemeral) {
+ 	return TsnetSetEphemeral(sd, ephemeral);
+ }
++
++int tailscale_set_advertise_tags(tailscale sd, const char* tags) {
++	return TsnetSetAdvertiseTags(sd, (char*)tags);
++}
+ int tailscale_set_logfd(tailscale sd, int fd) {
+ 	return TsnetSetLogFD(sd, fd);
+ }
+diff --git a/tailscale.go b/tailscale.go
+index 301be17..f9c29b9 100644
+--- a/tailscale.go
++++ b/tailscale.go
+@@ -587,6 +587,23 @@ func TsnetSetEphemeral(sd C.int, e int) C.int {
+ 	return 0
+ }
+ 
++//export TsnetSetAdvertiseTags
++// cmux: the ACL tags this node asks for at login (comma separated; empty clears). The control
++// server grants them only when the auth key's owner may use them.
++func TsnetSetAdvertiseTags(sd C.int, str *C.char) C.int {
++	s := getServer(sd)
++	if s == nil {
++		return C.EBADF
++	}
++	s.s.AdvertiseTags = nil
++	for _, tag := range strings.Split(C.GoString(str), ",") {
++		if tag = strings.TrimSpace(tag); tag != "" {
++			s.s.AdvertiseTags = append(s.s.AdvertiseTags, tag)
++		}
++	}
++	return 0
++}
++
+ //export TsnetSetLogFD
+ func TsnetSetLogFD(sd, fd C.int) C.int {
+ 	s := getServer(sd)
+diff --git a/tailscale.h b/tailscale.h
+index 9bc8e7c..85258ca 100644
+--- a/tailscale.h
++++ b/tailscale.h
+@@ -68,6 +68,9 @@ extern int tailscale_set_authkey(tailscale sd, const char* authkey);
+ extern int tailscale_set_control_url(tailscale sd, const char* control_url);
+ extern int tailscale_set_ephemeral(tailscale sd, int ephemeral);
+ 
++// tailscale_set_advertise_tags sets the ACL tags (comma separated) the node asks for at login.
++extern int tailscale_set_advertise_tags(tailscale sd, const char* tags);
++
+ // tailscale_set_logfd instructs the tailscale instance to write logs to fd.
+ //
+ // An fd value of -1 means discard all logging.

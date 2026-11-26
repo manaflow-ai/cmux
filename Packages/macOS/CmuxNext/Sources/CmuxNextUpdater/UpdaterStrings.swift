@@ -149,11 +149,16 @@ nonisolated enum UpdaterStrings {
         case .menu: text("updater.held.menu", "The update waits to restart while a menu is open. Restart to Update installs it now.")
         case .composing: text("updater.held.composing", "The update waits to restart while you compose text. Restart to Update installs it now.")
         case .notIdle: text("updater.held.notIdle", "The update waits until cmux is idle. Restart to Update installs now.")
-        case .agentWorking: text("updater.held.agentWorking", "The update waits to restart while an agent is working. Restart to Update installs it now.")
         case .unsentDraft: text("updater.held.unsentDraft", "The update waits to restart while a message is unsent. Restart to Update installs it now.")
         case .unknown: text("updater.held.unknown", "The update waits until cmux can tell no agent is working. Restart to Update installs it now.")
+        case .backoff: text("updater.held.backoff", "The update will try to restart again in a little while. Restart to Update installs it now.")
         }
     }
+    // Settings > Updates' App Update card: when this build arrived and when the next check runs.
+    static var settingsLastUpdated: String { text("updater.settings.lastUpdated", "Last Updated") }
+    static var settingsNextCheck: String { text("updater.settings.nextCheck", "Next Check") }
+    static var settingsNextCheckSoon: String { text("updater.settings.nextCheckSoon", "Soon") }
+    static var settingsNextCheckOff: String { text("updater.settings.nextCheckOff", "Automatic checks are off") }
     static var keepsRunning: String { text("updater.card.keepsRunning", "Your terminals and agents keep running.") }
     static var whatsChanged: String { text("updater.card.whatsChanged", "What's changed") }
     static func moreChanges(_ count: Int) -> String {

@@ -314,6 +314,8 @@ impl LinuxPlatform {
         spec.args.extend(carrier.iter().cloned());
         spec.set_env.extend(crate::turn_scope::environment(&paths)?);
         ensure_run_dir(&paths, &layout);
+        // The compiler cache settings for acpmux: `/run` is empty after a boot (`sccache_env.rs`).
+        crate::sccache_env::publish(&paths);
         // Every spawn runs the installed build: nothing waits any more.
         self.clear_host_deferred();
         let child = spawn::spawn_daemon_supervised(&spec, self.bootstrap.as_deref())?;
@@ -617,6 +619,21 @@ impl Platform for LinuxPlatform {
         if let Some(bootstrap) = &self.bootstrap {
             bootstrap.invalidate();
         }
+    }
+
+    fn page_in_harnesses(&self) {
+        // Outside the real root (tests on a shared machine) nothing here paused.
+        if !self.cfg.paths.is_system_root() {
+            return;
+        }
+        let homes = match &self.layout {
+            Some(layout) => vec![layout.home.clone()],
+            None => vec![
+                PathBuf::from(crate::daemon_spec::WORK_HOME),
+                PathBuf::from(crate::daemon_spec::ROOT_HOME),
+            ],
+        };
+        crate::cloud::page_in::spawn(homes);
     }
 
     fn wait(&mut self) -> io::Result<Vec<Wake>> {
