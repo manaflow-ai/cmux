@@ -304,6 +304,11 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
             value(launch::landing(&facts))?
         }
         // A Home landing that waits for Home's workspace: wait, land in the saved front window, or stop.
+        // Where the relaunch's front saved window lands, read off its record; null: its own top page.
+        b"window_launch_front_landing" => {
+            let facts: launch::FrontFacts = read(request)?;
+            json!({ "landing": launch::front_landing(&facts) })
+        }
         b"window_launch_pending_home" => {
             let facts: launch::PendingHome = read(request)?;
             value(launch::pending_home(&facts))?
