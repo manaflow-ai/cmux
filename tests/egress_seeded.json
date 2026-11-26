@@ -11,6 +11,9 @@
   "acpmux::range_fetch": {
    "todo": true
   },
+  "acpmux::send_trace": {
+   "none": "a cloud start's two timing spans (epoch ms, a cold flag) and the machine's id, posted to the platform edge (platform.cmux.internal): no token, cookie, prompt or person text"
+  },
   "chatmux_relay": {
    "todo": true
   },
@@ -40,6 +43,9 @@
   },
   "cmux_coderouter": {
    "todo": true
+  },
+  "cmux_git_cache::server": {
+   "none": "the fleet's git and crates cache server, not the app: it fetches what its git and cargo clients ask for from the upstreams its operator configured (--upstream, --edge, --peer, --crates-index, --crates-dl), passing on only each client's own request and credential; it adds no secret of its own"
   },
   "cmux_mobile_host::auth": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-host/tests/seeded_secret.rs::the_refresh_token_rides_only_in_its_header"
@@ -140,6 +146,9 @@
   "cmux_tui::cli::mcp_servers": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/mcp_servers_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
   },
+  "cmux_tui::cli::runnable_link": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/runnable_link_tests.rs::seeded_secrets_ride_only_in_authorization_and_the_team_query"
+  },
   "cmux_tui::cli::video": {
    "none": "a GET of the URL the person typed (cmux video open URL): it sends nothing but that URL"
   },
@@ -161,6 +170,9 @@
   "cmux_tui::remote_cli::acpmux_peer": {
    "todo": true
   },
+  "cmux_tui::vm_tailnet": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/vm_tailnet/tests.rs::seeded_credentials_ride_only_to_the_server_that_mints"
+  },
   "cmux_tui_core::apps::community": {
    "none": "a GET of the public app registry pages: no auth or person data in the request"
   },
@@ -181,6 +193,9 @@
   },
   "cmux_tui_core::server::forum_routed": {
    "test": "cmux-tui/crates/cmux-tui-core/src/server/forum_routed_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
+  },
+  "cmux_tui_core::server::machine_state_push": {
+   "none": "a receive-only WebSocket: its upgrade GET carries only the person's lease bearer (authorization) and team (x-cmux-team) to the platform origin the watch named, https or loopback, redirects refused (machine_state_push_tests.rs a_redirect_is_refused_not_followed, only_https_or_loopback_platforms_get_a_bearer); it sends no frame, and cmux_egress::capture has no WebSocket path to seed"
   },
   "cmux_vm_pool::http": {
    "todo": true
