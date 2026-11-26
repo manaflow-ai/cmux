@@ -152,17 +152,17 @@ private final class FakeStack {
 
     func driver() -> RootHoldDriver {
         let driver = RootHoldDriver(
-            read: { [unowned self] in reading },
+            read: { [unowned self] in self.reading },
             register: { [unowned self] done in
-                registrations += 1
-                if accepts { completion = done }
-                return accepts
+                self.registrations += 1
+                if self.accepts { self.completion = done }
+                return self.accepts
             },
-            after: { [unowned self] delay, work in queue.append((clock.addingTimeInterval(delay), work)) },
-            now: { [unowned self] in clock }
+            after: { [unowned self] delay, work in self.queue.append((self.clock.addingTimeInterval(delay), work)) },
+            now: { [unowned self] in self.clock }
         )
-        driver.moving = { [unowned self] in reports.append($0) }
-        driver.onBound = { [unowned self] _ in bounds += 1 }
+        driver.moving = { [unowned self] in self.reports.append($0) }
+        driver.onBound = { [unowned self] _ in self.bounds += 1 }
         return driver
     }
 
