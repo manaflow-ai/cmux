@@ -68,9 +68,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.shortcutLayout` | string | `"followLayout"` | `followLayout`, `qwertyPositions` | Keyboard Layout. Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ. |
 | `shortcuts.showModifierHoldHints` | boolean | `true` |  | Show Shortcuts When Holding a Modifier. Hold Command or Control for 0.30 seconds to show shortcut hints. |
 | `updates.channel` | string | `"nightly"` | `stable`, `nightly`, `canary`, `dev` | Update Channel. Stable gets builds that ran a week without problems; Canary and Dev get them first. |
-| `updates.checkAutomatically` | boolean | `true` |  | Check for Updates Automatically |
+| `updates.automatic` | string | `"download"` | `off`, `notify`, `download`, `idle` | Automatic Updates. Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running. |
 | `updates.checkIntervalSeconds` | real | `3600` | 900 to 604800 | Check Every |
-| `updates.downloadAutomatically` | boolean | `true` |  | Download Updates Automatically. Off: cmux asks before downloading. It always asks before restarting. |
 | `updates.oneClickInstall` | boolean | `false` |  | Update in One Click. One click on Update downloads, installs and restarts. Terminals and agents keep running. |
 | `updates.whatsNewInstall` | boolean | `false` |  | Install Versions from What's New. An Install button for each version listed in What's New. |
 | `updates.meteredNetwork` | string | `"defer-low-data"` | `defer-low-data`, `defer-expensive`, `download` | On Metered Networks. While downloads wait, a found update shows on Settings and one click downloads it. |
@@ -78,7 +77,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.daemon` | string | `"off"` | `off`, `every-merge` | Live Background Updates. Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only. |
 | `updates.liveWebReload` | boolean | `true` |  | cmux Live. Lets cmux live start show your checkout's web UI, each saved edit at once. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
-| `updates.installWhenIdle` | boolean | `false` |  | Update When Idle. Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running. |
 | `updates.installWhenIdleMinutes` | real | `15` | 1 to 240 | Idle Time Before Updating. How long cmux must be idle before Update When Idle installs. |
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
@@ -115,6 +113,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `machines.hosts` | string | `[]` |  | Hosts. Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer. |
 | `cloud.newWorkspacesInCloud` | boolean | `false` |  | Run New Workspaces in Cloud. Each new workspace gets its own Cloud machine, and its chats run there. |
 | `cloud.newWorkspaceFolder` | string | `"inherit"` | `inherit`, `empty` | New Cloud Workspaces Start In. Current Folder copies your git working copy to the new machine. |
+| `cloud.defaultImage` | string | `"auto"` |  | Default Image. The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine. |
 | `cloud.agentsStartWithoutAsking` | boolean | `true` |  | Let Agents Use Cloud Without Asking. Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this. |
 | `cloud.turnCheckpoints` | boolean | `false` |  | Save a Checkpoint Before Each Cloud Chat Turn. Back to Before This Turn restores the machine in seconds. Keeps the newest few. |
 | `cloud.autoCloud` | boolean | `false` |  | Auto Places Chats in Cloud. Auto runs a new chat on this Mac when it has room, else on a Cloud machine. |
@@ -136,7 +135,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `models.spreadUsage` | boolean | `true` |  | Spread Usage Across My Subscriptions. When one subscription runs out, a chat moves to another with the same model. |
 | `agents.cacheCompact.enabled` | boolean | `true` |  | Compact Before the Cache Expires. Compacts an idle Claude chat while its cache is warm, so the next message costs less. |
 | `agents.cacheCompact.minContextPercent` | real | `30` | 10 to 95 | Only Above Context Used (%). Chats using less of their context window than this are left as they are. |
-| `agents.cacheCompact.minContextTokens` | real | `60000` | 10000 to 500000 | Or Above Context Used (Tokens). Chats with at least this much context are compacted, whatever their window. |
+| `agents.cacheCompact.minContextTokens` | real | `20000` | 10000 to 500000 | Or Above Context Used (Tokens). Chats with at least this much context are compacted, whatever their window. |
 | `agents.coldWake.enabled` | boolean | `true` |  | Batch Wakes of Cold Chats. Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once. |
 | `agents.coldWake.compact` | boolean | `true` |  | Compact Cold Chats Before Waking. A large chat whose cache expired is compacted before batched messages arrive. |
 | `agents.coldWake.compactAboveTokens` | real | `100000` | 10000 to 500000 | Compact Cold Chats Above (Tokens). Cold chats with less context than this are woken without compacting. |
@@ -270,6 +269,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.twoTone` | string | `"off"` | `off`, `auto`, `inkSakura`, `charcoalRose`, `inkMagenta`, `creamForest`, `navySand`, `boneOxblood`, `slateMatcha`, `plumAmber` | Two-Tone. The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme. |
 | `appearance.cornerFlush` | string | `"flush"` | `off`, `flush`, `flush-tight`, `flush-goo` | Selected Tab Shape. How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water. |
 | `appearance.tabShape` | string | `"block"` | `block`, `rounded` | Tab Shape. The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules. |
+| `appearance.gooeyTabs` | string | `"off"` | `off`, `subtle`, `full` | Gooey Tabs. Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more. |
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms and column scrolls slide into place. |
 | `ui.animations.newTab` | boolean | `true` |  | Animate New Tabs. A new tab grows into its place in the tab bar. Off shows it there at once. |
 | `ui.animations.newWorkspace` | boolean | `true` |  | Animate New Workspaces. A new workspace row opens in the sidebar. Off shows it there at once. |
@@ -382,6 +382,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.vscodeMinimap` | boolean | `false` |  | VS Code Minimap. A small picture of the whole chat at its right edge. Click or drag it to scroll. |
 | `agentPane.display.headerBreadcrumb` | boolean | `false` |  | Header Path. Show the chat's repository and branch before its title in the header, as a path. |
 | `agentPane.display.chatListStatusPills` | boolean | `false` |  | Status Pills in All Chats. Shows Running, Needs you, Done or Failed as a small pill on each live chat in All Chats. |
+| `agentPane.display.subagentOf` | boolean | `false` |  | Subagent Of in Header. In a subagent's own pane, show which chat it belongs to beside its name in the header. |
 | `agentPane.display.pinnedPlan` | boolean | `false` |  | Pin Task List in Chat. Keeps the agent's task list under the latest message, not over the composer. |
 | `agentPane.display.environmentCard` | boolean | `false` |  | Environment Card. A card at the chat's top right with its changes, branch, commit and pull request. |
 | `agentPane.display.changesPill` | boolean | `false` |  | Changes Pill. A pill over the composer with how many files the chat changed. |
