@@ -170,6 +170,7 @@ select_packages() {
     CmuxAppKitSupportUI
     CmuxCanvas
     CmuxCloudBannerCore
+    CmuxCloudResizeCore
     CmuxCloudImagePaste
     CmuxCloudTunnelCore
     CMUXDebugLog
