@@ -136,7 +136,7 @@ import Testing
         backend.running = { true }
         var create = timed(flow(backend), time)
         // The hold answered was req_1; the backend now holds the key for another request.
-        create.approve = { _, _, _ in backend.request = "req_2" }
+        create.approve = { _, _, _ in backend.request = "req_2"; return nil }
         let held = create
         await #expect(throws: CloudMachineCreateFlow.Failure.stillPending(request: "req_2")) {
             _ = try await held.create(name: nil, startedByPerson: true, key: "k1")
