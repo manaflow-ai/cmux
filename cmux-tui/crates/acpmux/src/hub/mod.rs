@@ -128,6 +128,8 @@ pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod gemini_plan;
 mod git_watch;
+// RFD 0158 §1: the cache-read alarm (`cache_alarm.rs`).
+mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
 mod cpu_pressure;
 mod github_owner;

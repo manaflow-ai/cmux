@@ -960,6 +960,9 @@ impl Translator {
                 // And its path rules' counts, while that feature is on (path_rules.rs).
                 let path_rule_counts =
                     Some(self.path_rules.turn_ended()).filter(|_| path_rules::enabled());
+                // The turn's cache misses by cause (RFD 0158 §1); the hub drops them when the
+                // alarm is off (`hub/cache_alarm.rs`).
+                let cache_misses = self.cache.take_turn_misses().to_json();
                 // Hitting the turn limit is a normal stop, not a failure.
                 let answer = if (sub.starts_with("error") || is_error)
                     && !cancelled
@@ -995,6 +998,9 @@ impl Translator {
                     }
                     if let Some(counts) = path_rule_counts {
                         hm.insert(path_rules::FEATURE.into(), counts.to_json());
+                    }
+                    if let Some(misses) = cache_misses {
+                        hm.insert("cacheAlarm".into(), misses);
                     }
                     if !hm.is_empty() {
                         meta.set("harnessMagic", Value::Object(hm));
