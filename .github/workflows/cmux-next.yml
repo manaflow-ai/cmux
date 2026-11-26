@@ -70,6 +70,7 @@ on:
       - plans/cmux-next/markdown-omnibar-DESIGN.md
       - plans/cmux-next/sidebar-owner/README.md
       - plans/cmux-next/spec-proposals/visuals/README.md
+      - plans/cmux-next/status-notices/README.md
       - docs/mdm/**
       - docs/configuration.md
       # Why: note-353
@@ -246,6 +247,7 @@ on:
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/github-egress-direct.sh
+      - scripts/ci/github-egress-run.sh
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
@@ -337,6 +339,7 @@ on:
       - .github/runners.json
       - README.md
       - cmux-next-ios/scripts/set-test-notes.sh
+      - cmux-next-ios/scripts/testflight-build.sh
       - scripts/cef/test-embedder-step.sh
       - scripts/cef/tests/test-embedder-step.test.sh
       - scripts/download-prebuilt-ghosttykit.sh
@@ -632,6 +635,7 @@ on:
       - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/ci/github-egress-direct.sh
+      - scripts/ci/github-egress-run.sh
       - scripts/ci/reset-stale-submodules.sh
       - scripts/ci/git_fetch_retry.py
       - .github/workflows/cmux-next.yml
@@ -704,6 +708,7 @@ on:
       - .github/runners.json
       - README.md
       - cmux-next-ios/scripts/set-test-notes.sh
+      - cmux-next-ios/scripts/testflight-build.sh
       - scripts/cef/test-embedder-step.sh
       - scripts/cef/tests/test-embedder-step.test.sh
       - scripts/download-prebuilt-ghosttykit.sh
@@ -1009,6 +1014,16 @@ jobs:
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
+      - name: Mint a read token with its own quota
+        id: base-red-token
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
       # Why: 2026-11-24-path_route-3.md, 2026-11-26-route-retry.md
       - name: Jobs red on the base right now
         id: base-red
@@ -1017,6 +1032,7 @@ jobs:
         timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_FALLBACK: ${{ steps.base-red-token.outputs.token }}
         run: python3 -I scripts/ci/base_red_skip.py decide-many --workflow cmux-next.yml --runs 60 --job "cmux-next fast tier (cargo)" >> "$GITHUB_OUTPUT"
 
       # Why: note-359
@@ -2830,7 +2846,7 @@ jobs:
           started=$(date +%s)
           for target in "${targets[@]}"; do
             echo "Canary target: $target"
-            swift build --configuration debug --target "$target"
+            bash ../../../scripts/ci/github-egress-run.sh swift build --configuration debug --target "$target"
           done
           elapsed=$(( $(date +%s) - started ))
           {
@@ -3016,7 +3032,7 @@ jobs:
   fast-tier-fleet-mac:
     needs: [fast-tier-fleet, macos-placement, fast-tier-rerun-placement, path_route]
     # Why: note-560
-    if: ${{ !cancelled() && needs.fast-tier-fleet.outputs.verdict == 'unavailable' && (contains(needs.macos-placement.outputs.fleet_jobs, ' fast-tier ') && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' || contains(needs.fast-tier-rerun-placement.outputs.fleet_jobs, ' fast-tier ') && needs.fast-tier-rerun-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.fast-tier-rerun-placement.outputs.gateway_runner != '') }}
+    if: ${{ (!cancelled() && needs.fast-tier-fleet.outputs.verdict == 'unavailable' && (contains(needs.macos-placement.outputs.fleet_jobs, ' fast-tier ') && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' || contains(needs.fast-tier-rerun-placement.outputs.fleet_jobs, ' fast-tier ') && needs.fast-tier-rerun-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.fast-tier-rerun-placement.outputs.gateway_runner != '')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next fast tier (build fleet, mac fallback)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-fleet-mac', github.ref) || format('cmux-next-run-{0}-fast-tier-fleet-mac', github.run_id) }}
@@ -4175,6 +4191,9 @@ jobs:
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         run: |
           bash scripts/cmux-next/tests/bundle-server-helper.test.sh
+          bash scripts/cmux-next/tests/bundle-cmux-tui-launch-preread.test.sh
+          bash scripts/cmux-next/tests/install-cmux-tui-client-require-companions.test.sh
+          bash scripts/cmux-next/tests/stamp-launchd-plists.test.sh
           bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
           bash tests/test_check_app_personalities.sh
 
@@ -4266,7 +4285,7 @@ jobs:
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
-        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role swift-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+        run: bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role swift-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
         continue-on-error: true
@@ -4831,7 +4850,7 @@ jobs:
             python3 ../../../scripts/ci/fleet-test-products.py Packages/macOS/CmuxNext && exit 0
             echo "::warning title=Fleet test products::none for this commit; building them on this Mac"
           fi
-          python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+          bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
         continue-on-error: true
@@ -5051,10 +5070,22 @@ jobs:
           # Why: 2026-11-24-generated-files-base-red-1.md
           path: .base-red-src
           sparse-checkout: scripts/ci
+      - name: Mint a read token with its own quota
+        id: base-red-token
+        # The repository's GITHUB_TOKEN quota answers 403 under load; this app token is read when it does.
+        if: vars.GLAEDA_ROUTE_APP_ID != '' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
       - name: Red on the base right now?
         id: decide
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_FALLBACK: ${{ steps.base-red-token.outputs.token }}
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next.yml --job "cmux-next generated files" --events push,workflow_dispatch --dispatch-title "cmux-next base tier" >> "$GITHUB_OUTPUT"
 
   # Why: note-59
@@ -5491,7 +5522,7 @@ jobs:
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
-        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+        run: bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
         continue-on-error: true
@@ -5851,8 +5882,9 @@ jobs:
 
   release-compile:
     environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}
-    needs: [path_route, macos-placement, push-head-preflight, app-compile-fleet, release-compile-fast, pure-checks-coalesce]
-    if: ${{ (always() && !cancelled() && needs.pure-checks-coalesce.outputs.run != 'false' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    # Why: note-cheap-gate (a PR head's Release compile starts only after Linux cargo is not red, as macos-placement)
+    needs: [path_route, macos-placement, push-head-preflight, app-compile-fleet, release-compile-fast, pure-checks-coalesce, fast-tier-cargo]
+    if: ${{ (always() && !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && needs.pure-checks-coalesce.outputs.run != 'false' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.release-compile-fast.result == 'skipped' || needs.release-compile-fast.outputs.verdict == 'unavailable' || (needs.release-compile-fast.result == 'failure' || needs.release-compile-fast.result == 'success') && needs.release-compile-fast.outputs.verdict == '') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && contains(needs.path_route.outputs.labels, ',full-ci,') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next Release compile (Xcode 26)
     # Why: note-6
     continue-on-error: false
@@ -6842,7 +6874,8 @@ jobs:
         id: hybrid-ref-capture
         if: ${{ !cancelled() && steps.hybrid-ref.outputs.capture == 'true' && steps.compile-cmux-next-dev-release.outcome == 'success' && steps.compile-cmux-next-dev-release.outputs.build_mode == 'host' && steps.compile-cmux-next-dev-release.outputs.snapshot != '' }}
         continue-on-error: true
-        timeout-minutes: 8
+        # Why: 2026-11-26-ref-capture-bound.md
+        timeout-minutes: 18
         env:
           GH_TOKEN: ${{ github.token }}
           # Why: note-325
@@ -6865,29 +6898,20 @@ jobs:
         run: |
           set -euo pipefail
           trap 'rm -rf -- "$SNAPSHOT"' EXIT
-          # Why: note-407
-          started="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100" \
-            --jq '.jobs[] | select(.runner_name == env.RUNNER_NAME and .status == "in_progress") | .started_at' | head -1)" || started=""
-          started="$(date -j -u -f %Y-%m-%dT%H:%M:%SZ "$started" +%s 2>/dev/null)" || started=""
-          [[ -n "$started" ]] || started="$DECIDE_STARTED"
-          if [[ -z "$started" ]] || (( $(date +%s) - started > 40 * 60 )); then
-            echo "::notice::REF capture skipped: the job started ${started:+$(( ($(date +%s) - started) / 60 )) minutes ago}${started:-at an unknown time}"
-            exit 0
-          fi
           log="$(find "$CMUX_BUILD_METRICS_DIR" -maxdepth 1 -name 'xcodebuild-attempt-*.log' | sort -V | tail -1)"
           python3 -I scripts/cmux-next/hybrid_ref_capture.py capture --log "$log" --workspace "$BUILD_ROOT" \
             --derived-data "$DERIVED_DATA" --read-workspace "$SNAPSHOT/src" --read-derived-data "$SNAPSHOT/dd" \
             --sha "$DEV_DAILY_SHA" --key "$KEY" --run-id "$GITHUB_RUN_ID" \
             --out "$RUNNER_TEMP/hybrid-ref-capture" --upload
       - name: Upload the REF capture manifest
-        if: ${{ !cancelled() && steps.hybrid-ref-capture.outputs.manifest != '' }}
+        if: ${{ !cancelled() && steps.hybrid-ref-capture.outcome != 'skipped' }}
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ steps.hybrid-ref-capture.outputs.complete != 'true' && 'hybrid-ref-capture-incomplete-' || 'hybrid-ref-capture-' }}${{ steps.hybrid-ref.outputs.key }}
-          path: ${{ steps.hybrid-ref-capture.outputs.manifest }}
-          if-no-files-found: error
+          path: ${{ runner.temp }}/hybrid-ref-capture/manifest.json
+          if-no-files-found: ignore
           retention-days: 7
 
   # Why: note-326
@@ -7683,8 +7707,9 @@ jobs:
 
   # Why: note-10 (compile-status)
   compile-status:
-    needs: [path_route, push-head-preflight, pure-checks-coalesce]
-    if: ${{ !cancelled() && needs.pure-checks-coalesce.outputs.run != 'false' && (needs.path_route.result == 'success' && needs.path_route.outputs.native == 'true' && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    # Why: note-cheap-gate (a PR head's fleet Release compile starts only after Linux cargo is not red)
+    needs: [path_route, push-head-preflight, pure-checks-coalesce, fast-tier-cargo]
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && needs.pure-checks-coalesce.outputs.run != 'false' && (needs.path_route.result == 'success' && needs.path_route.outputs.native == 'true' && github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next fleet Release compile
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-gcp-pr-control-jit-x64' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
@@ -7979,7 +8004,7 @@ jobs:
   app-compile-fleet-fail-fast:
     name: head fail-fast after app compile
     needs: app-compile-fleet
-    if: ${{ failure() && needs.app-compile-fleet.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.app-compile-fleet.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: cmux-next.yml
@@ -7991,7 +8016,7 @@ jobs:
   fast-tier-fail-fast:
     name: head fail-fast after fast tier
     needs: fast-tier
-    if: ${{ failure() && needs.fast-tier.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.fast-tier.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: cmux-next.yml
@@ -8003,7 +8028,7 @@ jobs:
   fast-tier-cargo-fail-fast:
     name: head fail-fast after fast tier (cargo)
     needs: fast-tier-cargo
-    if: ${{ failure() && needs.fast-tier-cargo.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.fast-tier-cargo.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: cmux-next.yml
@@ -8015,7 +8040,7 @@ jobs:
   web-bundles-fail-fast:
     name: head fail-fast after web bundles
     needs: web-bundles
-    if: ${{ failure() && needs.web-bundles.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.web-bundles.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: cmux-next.yml
@@ -8027,7 +8052,7 @@ jobs:
   generated-files-fail-fast:
     name: head fail-fast after generated files
     needs: generated-files
-    if: ${{ failure() && needs.generated-files.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0' }}
+    if: ${{ (failure() && needs.generated-files.result == 'failure' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && format('{0}', vars.CI_HEAD_FAIL_FAST) != '0') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     uses: ./.github/workflows/head-fail-fast.yml
     with:
       workflow: cmux-next.yml
