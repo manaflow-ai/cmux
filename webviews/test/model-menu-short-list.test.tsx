@@ -2,16 +2,14 @@
 // showing more models" and "this should just show the effort too right? and then the effort tells
 // you what you're already currently on?". His started Claude chat's model menu listed nine numbered
 // rows, Opus 5.5 twice: Claude Code's `opus` alias (which it names "Opus 5.5") and the pinned
-// release the chat runs, `claude-opus-5-5`. The menu follows the harness's own list,
-// else its newest models per family, each once, and keeps everything else under More models,
-// which in a started chat opens the full picker.
-// Inline effort segments name the level the chat is on; the Fast mode row says whether it is on.
+// release the chat runs, `claude-opus-5-5`. The menu lists each model once.
+// A started chat's model button opens the shared columns menu, as a New Tab's does (cmux#55750):
+// its Reasoning column checks the level the chat is on; its Fast switch says whether it is on.
 // The real composer, catalog and menu, in JSDOM.
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
-import { openEffort } from "./support/effortDropdown";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -78,7 +76,7 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
-  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu")) popup.remove();
+  for (const popup of dom.window.document.querySelectorAll(".acpmux-cols, .acpmux-quick-menu")) popup.remove();
 });
 
 afterAll(async () => {
@@ -218,11 +216,27 @@ const chipButton = () => host.querySelector<HTMLButtonElement>('[data-menu="Mode
 const menus = () => [...doc().querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
 const menu = () => menus()[0];
 const label = (row: Element) => row.querySelector(".acpmux-menu-label")?.textContent?.trim() ?? "";
-/// A model row's effort levels: its side dropdown, opened.
-const effortFor = (row: HTMLElement) => openEffort(row.ownerDocument, label(row));
 /// The model rows the menu itself shows (not its submenus').
 const modelRows = () => [...menu()!.querySelectorAll<HTMLElement>('.acpmux-quick-item[role="menuitemradio"]')];
-const rowText = (row: Element) => row.textContent?.replace("✓", "").trim() ?? "";
+
+// The model button's menu: the shared columns menu (QuickModelColumns), with its harness rail, the
+// shown harness's models and the shown model's Reasoning column and Fast switch.
+const cols = () => doc().querySelector<HTMLElement>(".acpmux-cols");
+const colName = (row: Element) => row.querySelector(".acpmux-cols-name")?.textContent?.trim() ?? "";
+const colRows = () => [...(cols()?.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]') ?? [])];
+const colChecked = () => colRows().filter((row) => row.getAttribute("aria-selected") === "true");
+const railTabs = () => [...(cols()?.querySelectorAll<HTMLElement>('.acpmux-cols-rail [role="tab"]') ?? [])];
+const levels = () => [...(cols()?.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"]') ?? [])];
+const checkedLevel = () => levels().find((row) => row.getAttribute("aria-checked") === "true");
+const fastSwitch = () => cols()?.querySelector<HTMLElement>('.acpmux-cols-tune [role="switch"]') ?? null;
+/// A key in the menu's search field, which has the keyboard while the menu is open.
+async function press(key: string) {
+  const field = cols()!.querySelector<HTMLInputElement>(".acpmux-cols-search input[type=search]")!;
+  await act(async () => {
+    field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true }));
+  });
+  await settle();
+}
 
 async function open() {
   await act(async () => chipButton().click());
@@ -232,9 +246,10 @@ async function open() {
 test("Fable uses its reported 1M option under one plain model name", async () => {
   const { sent } = await mount({ harness: "claude", family: "claude" });
   await open();
-  const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
-  expect(fable.map(label)).toEqual(["Fable 5.1"]);
+  const fable = colRows().filter((row) => colName(row).includes("Fable 5.1"));
+  expect(fable.map(colName)).toEqual(["Fable 5.1"]);
   await act(async () => fable[0]!.click());
+  await settle();
   expect(sent).toContainEqual({ id: "model", value: "claude-fable-5-1[1m]" });
 });
 
@@ -242,9 +257,9 @@ for (const model of ["claude-fable-5-1", "claude-fable-5-1[1m]"])
   test(`a chat already on ${model} keeps its checked Fable row without changing the session`, async () => {
     const { sent } = await mount({ harness: "claude", family: "claude", model });
     await open();
-    const fable = modelRows().filter((row) => label(row).includes("Fable 5.1"));
-    expect(fable.map(label)).toEqual(["Fable 5.1"]);
-    expect(fable[0]!.getAttribute("aria-checked")).toBe("true");
+    const fable = colRows().filter((row) => colName(row).includes("Fable 5.1"));
+    expect(fable.map(colName)).toEqual(["Fable 5.1"]);
+    expect(fable[0]!.getAttribute("aria-selected")).toBe("true");
     expect(sent).toEqual([]);
   });
 
@@ -277,7 +292,7 @@ for (const [state, harness, word] of [
             state,
             source: "turn",
             evidenceAt: 1,
-            harness,
+            harness: harness ?? undefined,
             host: null,
             login: { kind: "terminal", command: "claude auth login" },
           }}
@@ -298,45 +313,39 @@ for (const [title, harness, family] of [
   ["a Claude profile the catalog does not map", "claude-sr2", "claude-sr2"],
 ] as const)
   describe(`Leo's started chat on ${title}`, () => {
-    test("shows the harness menu, each model once; the rest are under More models", async () => {
+    // A started chat's menu is the shared columns menu, rail and all (cmux#55750); the running
+    // harness's tab lists every model of its harness in one column, each once.
+    test("shows the shared menu on its harness's tab, each model once", async () => {
       await mount({ harness, family });
       await open();
-      const shown = modelRows().map(label);
-      expect(shown).toContain("Opus 5.5");
-      expect(new Set(shown).size).toBe(shown.length);
-      expect(shown, "the running model is shown").toContain("Opus 5.5");
-      const checked = menu()!.querySelector('.acpmux-quick-item[role="menuitemradio"][aria-checked="true"]');
-      expect(checked && label(checked)).toBe("Opus 5.5");
-      // A started chat's More models opens the full picker: every model of its harness, each once.
-      const moreRow = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
-        label(item).startsWith("More models"),
-      )!;
-      await act(async () => moreRow.click());
-      await settle();
-      const fold = host.querySelector<HTMLButtonElement>(".acpmux-mp-older");
-      if (fold && fold.getAttribute("aria-expanded") !== "true") await act(async () => fold.click());
-      const every = [
-        ...host.querySelectorAll<HTMLElement>('.acpmux-mp-models [role="option"][data-key^="model:"]'),
-      ].map(label);
-      expect(every.length, "More models retains every harness menu choice").toBeGreaterThanOrEqual(shown.length);
-      for (const name of shown) expect(every, every.join(", ")).toContain(name);
+      expect(cols(), "the columns menu").not.toBeNull();
+      expect(railTabs().length, "the harness rail").toBeGreaterThan(0);
+      expect(railTabs().filter((tab) => tab.getAttribute("aria-selected") === "true")).toHaveLength(1);
+      const shown = colRows().map(colName);
+      expect(new Set(shown).size, shown.join(", ")).toBe(shown.length);
       expect(
-        every.filter((name) => name === "Opus 5.5"),
-        every.join(", "),
+        shown.filter((name) => name === "Opus 5.5"),
+        shown.join(", "),
       ).toEqual(["Opus 5.5"]);
-      expect(new Set(every).size, every.join(", ")).toBe(every.length);
+      expect(colChecked().map(colName)).toEqual(["Opus 5.5"]);
     });
 
-    test("number keys name only the shown rows", async () => {
-      await mount({ harness, family });
+    test("number keys pick only the shown rows", async () => {
+      const { sent } = await mount({ harness, family });
       await open();
-      const rows = modelRows();
-      // The symbols row's menu names its keys ⌘1 to ⌘9 (a bare digit picks the same row).
-      const keysShown = rows.map((row) => row.querySelector(".ui-menu-shortcut")?.textContent?.replace("⌘", "") ?? "✓");
-      expect(keysShown).toEqual(
-        rows.map((row, index) => (row.getAttribute("aria-checked") === "true" ? "✓" : String(index + 1))),
-      );
-      expect(keysShown.every((key) => key === "✓" || Number(key) <= rows.length)).toBe(true);
+      const rows = colRows();
+      // A digit past the shown rows picks nothing and leaves the menu open.
+      if (rows.length < 9) {
+        await press(String(rows.length + 1));
+        expect(sent).toEqual([]);
+        expect(cols()).not.toBeNull();
+      }
+      // A digit picks the shown row at that place: here the first that is not the running one.
+      const index = rows.slice(0, 9).findIndex((row) => row.getAttribute("aria-selected") !== "true");
+      expect(index).toBeGreaterThanOrEqual(0);
+      const id = rows[index]!.dataset.flip!.split("\u0000")[1];
+      await press(String(index + 1));
+      expect(sent).toEqual([{ id: "model", value: id! }]);
     });
   });
 
@@ -391,42 +400,34 @@ for (const harnessFixed of [false, true]) {
   });
 }
 
-test("the current model's inline effort control checks the level the chat is on", async () => {
+test("the current model's Reasoning column checks the level the chat is on", async () => {
   await mount({ harness: "claude", family: "claude", effort: "high" });
   await open();
-  const model = modelRows().find((row) => label(row) === "Opus 5.5")!;
-  const checked = (await effortFor(model)).find((item) => item.getAttribute("aria-checked") === "true");
-  expect(checked).not.toBeNull();
-  expect((checked!.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()).toBe("High");
+  expect(colChecked().map(colName)).toEqual(["Opus 5.5"]);
+  expect(checkedLevel() && colName(checkedLevel()!), levels().map(colName).join(", ")).toBe("High");
 });
 
 test("the Fast mode switch shows whether it is on", async () => {
   const { sent } = await mount({ harness: "claude", family: "claude", fast: true });
   await open();
-  const fast = () => menu()!.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]')!;
-  expect(fast().getAttribute("aria-checked")).toBe("false");
-  expect(fast().querySelector(".acpmux-quick-fast-toggle")).not.toBeNull();
-  await act(async () => fast().click());
+  expect(fastSwitch(), "the Fast switch").not.toBeNull();
+  expect(fastSwitch()!.getAttribute("aria-checked")).toBe("false");
+  expect(colName(fastSwitch()!)).toBe("Fast");
+  await act(async () => fastSwitch()!.click());
   await settle();
   expect(sent).toEqual([{ id: "fast-mode", value: "on" }]);
-  if (!menu()) await open();
-  expect(fast().getAttribute("aria-checked")).toBe("true");
-  expect(fast().querySelector(".acpmux-menu-label")?.textContent).toBe("Fast mode");
+  if (!cols()) await open();
+  expect(fastSwitch()!.getAttribute("aria-checked")).toBe("true");
 });
 
 // Codex review at 87da5d12: a profile that declares no levels for `opus` (efforts: []) left the chat
 // on claude-opus-5-5, the same model, with an Effort row offering every level the session lists, so
 // a pick sent a level the profile said the model does not take.
-test("a model its profile declares with no effort levels shows no Effort row, though the session lists levels", async () => {
+test("a model its profile declares with no effort levels shows no levels, though the session lists levels", async () => {
   const { sent } = await mount({ harness: "claude-sr2", family: "claude-sr2", declared: { opus: { efforts: [] } } });
   await open();
-  const rows = [...menu()!.querySelectorAll<HTMLElement>("[role^=menuitem]")];
-  expect(
-    rows.find((item) => label(item).startsWith("Effort")),
-    rows.map(rowText).join(", "),
-  ).toBeUndefined();
-  expect(rows.map(label), "the running model is still the checked row").toContain("Opus 5.5");
-  expect(menu()!.querySelector('[role="menuitemradio"][aria-checked="true"]')?.textContent).toContain("Opus 5.5");
+  expect(levels().map(colName), "no level to pick").toEqual([]);
+  expect(colChecked().map(colName), "the running model is still the checked row").toEqual(["Opus 5.5"]);
   expect(sent).toEqual([]);
 });
 
@@ -441,8 +442,6 @@ test("a sibling no-effort model does not hide Effort for the running model", asy
     declared: { opus: { efforts: [] } },
   });
   await open();
-  const model = modelRows().find((row) => label(row) === "Fable 5.1")!;
-  const checked = (await effortFor(model)).find((item) => item.getAttribute("aria-checked") === "true");
-  expect(checked).not.toBeNull();
-  expect((checked!.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()).toBe("High");
+  expect(colChecked().map(colName)).toEqual(["Fable 5.1"]);
+  expect(checkedLevel() && colName(checkedLevel()!), levels().map(colName).join(", ")).toBe("High");
 });

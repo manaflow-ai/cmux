@@ -61,7 +61,20 @@ export default componentEntry<Props>({
       note: "The link is up; the machine's workspaces load.",
       props: { state: sampleState("connecting") },
     },
+    "slow-creating": {
+      note: "Still creating after three minutes: the page says it is taking longer than usual and offers Retry and Dismiss; the steps and the clock go on.",
+      props: { state: sampleState("creating", { elapsedMs: 3 * 60_000 + 4_000 }) },
+    },
+    "slow-booting": {
+      note: "Still starting the machine after four minutes: the same line and buttons under its own stage.",
+      props: { state: sampleState("booting", { elapsedMs: 4 * 60_000 + 12_000 }) },
+    },
+    "slow-connecting": {
+      note: "Still connecting after six minutes: no Copy Error, since nothing failed; the typing note stays.",
+      props: { state: sampleState("connecting", { elapsedMs: 6 * 60_000 }) },
+    },
     failed: {
+      // retry-prompt-ok: Retry starts a Cloud machine again (a cost), so it stays a button.
       note: "The link closed at Starting the machine: the reason, Retry, Copy Error and Dismiss, in the room they kept.",
       props: { state: sampleState("failed", { step: 2 }) },
     },

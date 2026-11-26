@@ -8,7 +8,7 @@
         "key": "settings.group.updates",
         "text": "Updates"
       },
-      "note": "Automatic updates under General (R114): every step of checking, downloading and installing is a row; the defaults keep cmux current with no clicks beyond the one that relaunches.",
+      "note": "Automatic updates under General: one Automatic Updates choice (off, notify, download, idle) and the channel; the finer knobs stay in cmux.json, off the page and the palette (2026-11-22, cmuxterm-hq docs/design/update-settings.md).",
       "rows": [
         {
           "key": "updates.channel",
@@ -69,18 +69,63 @@
           ]
         },
         {
-          "key": "updates.checkAutomatically",
+          "key": "updates.automatic",
+          "note": "The one update choice (Leo 2026-11-22: \"the toggle for \\\"automatic update\\\" seems vacuous if we're saying yeah ok it can auto download\"; \"maybe too many settings and bullshit that can be consolidated\"). How far cmux goes by itself on one ladder: check, download, install. It replaced updates.checkAutomatically, updates.downloadAutomatically and updates.installWhenIdle (retired-keys.json reads them while this is unset). Download Automatically by default on every channel (Leo's #39680, 2026-11-23: download in the background, install only on Restart to Update). Design: cmuxterm-hq docs/design/update-settings.md.",
           "title": {
-            "key": "settings.updates.checkAutomatically",
-            "text": "Check for Updates Automatically"
+            "key": "settings.updates.automatic",
+            "text": "Automatic Updates"
           },
-          "kind": "toggle",
-          "default": true,
+          "help": {
+            "key": "settings.updates.automatic.help",
+            "text": "Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesAutomaticSetting"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.updatesAutomaticOff",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "notify",
+              "title": {
+                "key": "settings.choice.updatesAutomaticNotify",
+                "text": "Notify Only"
+              }
+            },
+            {
+              "value": "download",
+              "title": {
+                "key": "settings.choice.updatesAutomaticDownload",
+                "text": "Download Automatically"
+              }
+            },
+            {
+              "value": "idle",
+              "title": {
+                "key": "settings.choice.updatesAutomaticIdle",
+                "text": "Install When Idle"
+              }
+            }
+          ],
+          "default": "download",
           "keywords": [
             "update",
-            "sparkle",
+            "updates",
+            "automatic",
             "check",
-            "automatic"
+            "download",
+            "install",
+            "idle",
+            "restart",
+            "sparkle",
+            "auto update",
+            "update when idle"
           ]
         },
         {
@@ -105,26 +150,8 @@
             "frequency",
             "hourly",
             "daily"
-          ]
-        },
-        {
-          "key": "updates.downloadAutomatically",
-          "title": {
-            "key": "settings.updates.downloadAutomatically",
-            "text": "Download Updates Automatically"
-          },
-          "help": {
-            "key": "settings.updates.downloadAutomatically.help",
-            "text": "Off: cmux asks before downloading. It always asks before restarting."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "update",
-            "download",
-            "background",
-            "metered"
-          ]
+          ],
+          "page_hidden": "folded into Automatic Updates (2026-11-22); cmux.json only"
         },
         {
           "key": "updates.oneClickInstall",
@@ -145,7 +172,8 @@
             "restart",
             "relaunch",
             "one click"
-          ]
+          ],
+          "page_hidden": "folded into Automatic Updates (2026-11-22); cmux.json only"
         },
         {
           "key": "updates.whatsNewInstall",
@@ -168,7 +196,8 @@
             "earlier",
             "nightly",
             "what's new"
-          ]
+          ],
+          "page_hidden": "a feature gate, not a choice (2026-11-22); cmux.json only"
         },
         {
           "key": "updates.meteredNetwork",
@@ -215,7 +244,8 @@
             "cellular",
             "low data",
             "hotspot"
-          ]
+          ],
+          "page_hidden": "folded into Automatic Updates (2026-11-22); cmux.json only"
         },
         {
           "key": "updates.web",
@@ -264,6 +294,50 @@
             "bundle",
             "nightly",
             "merge"
+          ],
+          "page_hidden": "web UI updates follow the channel and Automatic Updates (2026-11-22); cmux.json only"
+        },
+        {
+          "key": "updates.daemon",
+          "note": "Live daemon updates between app updates (Leo 2026-11-22: \"i wonder how many we can actually just ship and not even need the user to restart to update, tbh.\"): NIGHTLY and tip builds only. The app's own daemon reads this key (cmux-tui cli/app/try_cmd/daemon_updates.rs): at Every Merge it checks the signed mac-live channel and, while no agent works and input is quiet, runs the bundled `cmux --json app try channel`, which swaps Contents/Resources/bin and hands the terminal daemon over. Swift only shows the row. Off by default.",
+          "title": {
+            "key": "settings.updates.daemon",
+            "text": "Live Background Updates"
+          },
+          "help": {
+            "key": "settings.updates.daemon.help",
+            "text": "Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only."
+          },
+          "kind": "choice",
+          "swift_enum": {
+            "name": "UpdatesDaemonSetting"
+          },
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.updatesDaemonOff",
+                "text": "Off"
+              }
+            },
+            {
+              "value": "every-merge",
+              "title": {
+                "key": "settings.choice.updatesDaemonEveryMerge",
+                "text": "Every Merge"
+              }
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "update",
+            "daemon",
+            "terminal",
+            "live",
+            "background",
+            "no restart",
+            "nightly",
+            "merge"
           ]
         },
         {
@@ -308,28 +382,8 @@
             "update",
             "install",
             "quit"
-          ]
-        },
-        {
-          "key": "updates.installWhenIdle",
-          "note": "Update when idle (Leo 2026-11-19: \"maybe even having it as an opt-in option would be pretty interesting. Yeah, like update when idle\"): a downloaded update installs after updates.installWhenIdleMinutes of idle, never while an agent works or a draft is unsent; the relaunch keeps every terminal and agent. Off by default.",
-          "title": {
-            "key": "settings.updates.installWhenIdle",
-            "text": "Update When Idle"
-          },
-          "help": {
-            "key": "settings.updates.installWhenIdle.help",
-            "text": "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "update",
-            "install",
-            "idle",
-            "automatic",
-            "restart"
-          ]
+          ],
+          "page_hidden": "folded into Automatic Updates (2026-11-22); cmux.json only"
         },
         {
           "key": "updates.installWhenIdleMinutes",
@@ -357,7 +411,8 @@
             "automatic",
             "restart",
             "minutes"
-          ]
+          ],
+          "page_hidden": "the idle time of Automatic Updates' Install When Idle (2026-11-22); cmux.json only"
         },
         {
           "key": "updates.notify",
@@ -395,7 +450,8 @@
             "notify",
             "badge",
             "silent"
-          ]
+          ],
+          "page_hidden": "folded into Automatic Updates (2026-11-22); cmux.json only"
         },
         {
           "key": "updates.keepPreviousVersions",
@@ -421,7 +477,8 @@
             "rollback",
             "previous",
             "downgrade"
-          ]
+          ],
+          "page_hidden": "folded into Automatic Updates (2026-11-22); cmux.json only"
         },
         {
           "key": "updates.showWhatsNew",
@@ -456,7 +513,7 @@
             "text": "A small tip now and then points at a feature an update added."
           },
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "keywords": [
             "tips",
             "whats new",
@@ -492,7 +549,8 @@
             "wait",
             "automatic",
             "nightly"
-          ]
+          ],
+          "page_hidden": "folded into Automatic Updates (2026-11-22); cmux.json only"
         },
         {
           "key": "updates.idleInstallQuietSeconds",
@@ -521,7 +579,8 @@
             "quiet",
             "typing",
             "nightly"
-          ]
+          ],
+          "page_hidden": "folded into Automatic Updates (2026-11-22); cmux.json only"
         }
       ]
     },

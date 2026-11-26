@@ -59,10 +59,9 @@ describe("a question to the person after another agent's message", () => {
     const [first, second] = cards(turnView(rows, new Set()));
     expect(first?.nextStep?.superseded).toBeUndefined();
     expect(second?.nextStep?.superseded).toBeUndefined();
-    // Both wait on the person, oldest first, pinned above the composer.
-    expect(waitingAsks(turnViewFrom(rows, new Set())).map((card) => card.nextStep?.ask.question)).toEqual([
-      "Do you mean computer use, still working while the Mac is locked?",
-    ]);
+    // Both stay answerable in the transcript; only the newest is pending, and as the chat's last
+    // word the hat holds it, so nothing pins (https://github.com/manaflow-ai/cmux/issues/52766: one pending question at a time).
+    expect(waitingAsks(turnViewFrom(rows, new Set()))).toEqual([]);
   });
 
   test("is listed as waiting once a turn follows it, and no longer once the person speaks", () => {

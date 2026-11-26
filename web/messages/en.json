@@ -947,7 +947,9 @@
         "cloud": "Open Cloud",
         "team": "Create a team",
         "banner": "You are on {plan} now.",
-        "bannerLink": "Plan & billing"
+        "bannerLink": "Plan & billing",
+        "introTitle": "Your $1 pass is on",
+        "introBody": "It runs for {days} days. {hours} Chief hours and {minutes} machine-minutes are released each week."
       },
       "appStore": {
         "title": "Billed through the App Store",
@@ -2145,7 +2147,12 @@
     "priceMonthlyNote": "${amount}/mo when billed monthly",
     "priceMonthlyPerUserNote": "${amount}/user/mo when billed monthly",
     "manageInAppStore": "Manage in the App Store",
-    "resumePlan": "Resume {plan}"
+    "resumePlan": "Resume {plan}",
+    "cloudIntro": {
+      "intro_sold_out_today": "Today's $1 passes are gone. Try again tomorrow.",
+      "intro_sold_out": "The first $1 passes are gone.",
+      "intro_unavailable": "The $1 pass is not available for this account."
+    }
   },
   "home": {
     "taglinePrefix": "The terminal built for ",
@@ -4299,6 +4306,7 @@
       "base": "Base",
       "nextSection": "cmux-next",
       "nextGettingStarted": "Getting started",
+      "nextStart": "Start here",
       "nextUpdates": "Install and update",
       "nextHome": "Home and Chief",
       "nextAgents": "Agents and subagents",
@@ -4312,12 +4320,14 @@
       "nextShortcuts": "Keyboard shortcuts",
       "nextCli": "CLI and MCP reference",
       "nextMcp": "MCP server",
+      "nextApiVersions": "API versions",
       "nextSpaces": "Spaces and columns",
       "nextPalette": "Command palette",
       "nextRemote": "Remote machines and Tailscale",
       "nextServer": "cmux server",
       "nextPlans": "Plans and credits",
       "nextSettings": "Settings reference",
+      "nextNetwork": "Network requirements",
       "nextArchitecture": "Architecture",
       "workspaceGroups": "Workspace Groups",
       "configuration": "Configuration",
@@ -5036,7 +5046,8 @@
       "darkArt": "Dark Art",
       "museumIcons": "Museum Icons",
       "calm": "Calm",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "East Asian Painting"
     }
   },
   "testimonials": {
@@ -7398,7 +7409,9 @@
     "errorInvalidTotp": "That two-factor code isn't valid.",
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
-    "errorGeneric": "Something went wrong. Try again."
+    "errorGeneric": "Something went wrong. Try again.",
+    "errorRedirectNotAllowed": "This build's sign-in address isn't allowed on {backend}.",
+    "backendDevelopment": "the development backend"
   },
   "opsCloudVmHealth": {
     "eyebrow": "Staff · Operations",
@@ -7693,6 +7706,95 @@
           "a": "Included credits reset each month. Credits you buy last 12 months."
         }
       ]
+    },
+    "intro": {
+      "name": "The $1 pass",
+      "badge": "New to cmux Cloud",
+      "price": "{price}",
+      "period": "once, for {days} days",
+      "summary": "{price} for {days} days of your own always-on agent in the cloud, with its machines and your phone. It never renews on its own: at the end we ask, and you pay nothing more unless you say yes.",
+      "includedTitle": "What is inside",
+      "included": {
+        "chief": "One Chief, an always-on agent machine ({vcpu} vCPU / {gib} GiB), with {hours} awake hours",
+        "minutes": "{minutes} machine-minutes for other machines, on machines up to {vcpu} vCPU / {gib} GiB",
+        "minuteMeaning": "A machine-minute is one vCPU awake for one minute: {minutes} is {hours} hours of a {vcpu} vCPU machine",
+        "concurrent": "Up to {count} machines at once",
+        "login": "You bring your own Claude or Codex login",
+        "weekly": "Released weekly, {hours} Chief hours and {minutes} machine-minutes a week, so a pass lasts the month"
+      },
+      "renew": "Continue on Plus after {days} days",
+      "renewHint": "Unticked, the card is never charged again.",
+      "cta": "Get the {price} pass",
+      "afterTitle": "After {days} days",
+      "after": "We ask: Plus, Pro, or not now. If not now, machines pause, messages are held, and everything is kept {keepDays} days, with notices before anything is deleted.",
+      "who": "For individuals new to paid cmux Cloud, once per person and card. A limited number each day."
+    },
+    "proof": {
+      "title": "Measured on cmux Cloud",
+      "seconds": "{seconds} s",
+      "newMachine": "for a new machine to be running, the slowest of three runs",
+      "burst": "for {machines} machines asked for at once to all be ready",
+      "chatMove": "to move a chat to another machine and get its answer there, one run",
+      "note": "Test runs on our own accounts, not a promise. This pass includes up to {count} machines at once."
     }
+  },
+  "nextCloudPlans": {
+    "metaTitle": "cmux Cloud plans",
+    "metaDescription": "cmux Cloud plans: hours of your machine every month, and one price for each hour after.",
+    "previewBadge": "Preview",
+    "previewNote": "This page is not linked from the site yet.",
+    "title": "cmux Cloud plans",
+    "headline": "Close your laptop. Your agents keep working.",
+    "subhead": "With the Claude or ChatGPT plan you already have.",
+    "lede": "Every plan includes hours of your machine each month. Your machine has {vcpus} vCPUs and {memory} GB of memory, and it counts hours only while it is awake.",
+    "perMonth": "/mo",
+    "hours": "{hours} hours of your machine a month",
+    "machine": "{vcpus} vCPUs, {memory} GB memory",
+    "after": "Then {price} an hour",
+    "metering": "Billed by the second, shown by the minute",
+    "paused": "A paused machine uses no hours",
+    "models": "Model usage is not included.",
+    "cta": "Download cmux",
+    "table": {
+      "title": "Agents kept running and hours",
+      "note": "Each plan keeps this many agents running at once, on the hours it includes. Every hour after is {price}.",
+      "plan": "Plan",
+      "price": "Price",
+      "keptRunning": "Agents kept running at once",
+      "hours": "Hours of your machine a month"
+    },
+    "compare": {
+      "title": "How it compares",
+      "note": "A row appears here only once we have measured it.",
+      "columns": {
+        "server": "Your own server",
+        "planTab": "The cloud tab of your plan",
+        "cmux": "cmux Cloud"
+      },
+      "rows": {
+        "agentsAtOnce": {
+          "label": "Agents at once",
+          "server": "About four on a 2-core, 4 GB server",
+          "planTab": "Limits not published",
+          "cmux": "{machines} started together, all ready within {seconds} seconds"
+        },
+        "unusedMonth": {
+          "label": "Cost in a month you do not use it",
+          "server": "Its full price, even when switched off",
+          "planTab": "Included in the plan you pay for",
+          "cmux": "The plan's price; a paused agent uses none of its hours"
+        }
+      }
+    }
+  },
+  "connected": {
+    "title": "You're signed in to {app}",
+    "titleGeneric": "You're signed in",
+    "errorTitle": "Couldn't sign in to {app}",
+    "errorTitleGeneric": "Sign-in didn't finish",
+    "body": "Head back to cmux to keep going.",
+    "errorBody": "Go back to cmux and try again.",
+    "button": "Back to cmux",
+    "closeHint": "You can close this tab."
   }
 }

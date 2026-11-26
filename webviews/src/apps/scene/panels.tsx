@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
-import { pageHostClient } from "../../agent-session/acpmux/pageHost";
+import { pageHostClient } from "../../agent-session/acpmux/pageHostClient";
 import { SessionInfoSection } from "../../agent-session/acpmux/session-info/SessionInfoSection";
 import type { SessionInfoSectionId } from "../../agent-session/acpmux/session-info/sessionInfoState";
 import type { PageClient } from "../../pages/shared/pageClient";
@@ -83,6 +83,7 @@ export function SceneMount({ mounted }: { mounted: MountedPanel }) {
   return (
     <div ref={box} className="cmux-app-scene-mount" data-status={status.state}>
       {status.state === "failed" || status.state === "disconnected" ? (
+        // retry-prompt-ok: Reload runs the app's script again, only from the person's click.
         <SceneFailure status={status} onReload={reload} />
       ) : (
         <SceneRenderer store={store} dispatch={dispatch} resolveAsset={resolveAsset} />

@@ -3,15 +3,25 @@ import Foundation
 
 /// Pure rules of the profile bar: visibility, stepping, and drag reorder.
 public nonisolated enum ProfileBarLogic {
-    /// A profile mark remains useful with one profile: it identifies the
-    /// current space and is the hover target for the new-space affordance.
-    public static func isVisible(profileCount: Int) -> Bool { profileCount > 0 }
+    /// Whether the person has spaces to show: two or more. Spaces stay out of
+    /// sight until then (Lawrence 2026-11-20: "hide spaces by default, but
+    /// people can still cmd shift p new space"): a lone space shows no strip,
+    /// and the menus leave the space rows out (`SpacesMenuVisibility`, CmuxNextSidebarActions); the
+    /// command palette, keys, CLI and MCP keep every space action, and the
+    /// second space brings it all back. Replaces the 2026-11-01 rule (#30232)
+    /// that kept a lone space's dot and its + in the bottom strip.
+    public static func isVisible(profileCount: Int) -> Bool { profileCount > 1 }
 
     /// The profile `delta` steps from `current` (swipe, next/previous),
-    /// clamped at the ends (no wrap). Nil when nothing changes.
+    /// clamped at the ends (no wrap). Nil when nothing changes. With no
+    /// current space in `order` (none yet, or it was just deleted) the strip
+    /// is entered from its ends: Next lands on the first space and Previous
+    /// on the last, so no step skips the first space or does nothing.
     public static func step(from current: ProfileKey?, by delta: Int, in order: [ProfileKey]) -> ProfileKey? {
         guard !order.isEmpty, delta != 0 else { return nil }
-        let index = current.flatMap { order.firstIndex(of: $0) } ?? 0
+        guard let index = current.flatMap({ order.firstIndex(of: $0) }) else {
+            return order[delta > 0 ? min(delta - 1, order.count - 1) : max(order.count + delta, 0)]
+        }
         let target = min(max(index + delta, 0), order.count - 1)
         return target == index ? nil : order[target]
     }

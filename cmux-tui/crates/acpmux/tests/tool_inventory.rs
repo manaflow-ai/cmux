@@ -261,6 +261,8 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
         row("mcp:cmux-subsessions", "cmux", "cmux", true, false),
         row("mcp:cmux-forum", "cmux", "cmux", true, false),
         row("mcp:acpmux", "cmux", "cmux", true, false),
+        // A gateway-served server now (tools_mcp::SERVERS), so it lists like the others.
+        row("mcp:cmux-hosted", "cmux", "cmux", true, false),
         row("mcp:cmux", "cmux", "cmux", true, false),
     ];
     // cmux-computer-use needs no machine consent here, or control granted: the authority is the OS
@@ -344,14 +346,17 @@ async fn chats_list_their_tools_and_claude_turns_mcp_servers_off() {
             row("mcp:cmux-subsessions", "cmux", "cmux", true, true),
             row("mcp:cmux-forum", "cmux", "cmux", true, true),
             row("mcp:acpmux", "cmux", "cmux", true, true),
+            row("mcp:cmux-hosted", "cmux", "cmux", true, true),
             row("mcp:cmux", "cmux", "cmux", true, true),
             row("skill:cmux:cmux-browser", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-computer-use", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-customization", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-live", "cmux", "cmux", true, false),
+            row("skill:cmux:cmux-ui-preview", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-rich-output", "cmux", "cmux", true, false),
             row("skill:cmux:acpmux", "cmux", "cmux", true, false),
             row("skill:cmux:cmux-chat", "cmux", "cmux", true, false),
+            row("skill:cmux:cmux-quota", "cmux", "cmux", true, false),
             // No cmux-sudo: it is listed only with the cmux-secrets server
             // (#39122), and this test runs without ACPMUX_SECRET_TOOLS.
             row("mcp:github", "mcp", "claude", true, true),

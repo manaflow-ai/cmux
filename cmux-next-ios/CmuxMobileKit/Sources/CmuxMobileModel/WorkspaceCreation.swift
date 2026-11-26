@@ -855,6 +855,8 @@ public final class WorkspaceCreator {
                 // there after a relaunch would start the task a second time.
                 await taskDrafts.flush()
                 if taskDrafts.lastWriteFailed {
+                    // retry-prompt-ok: starting the task is the person's action, refused before it
+                    // reached the Mac so it never runs twice; the person decides whether to send it again.
                     throw WorkspaceCreationError("Couldn't update this iPhone's saved drafts, so the task wasn't started. Try again.",
                                                  isForPerson: true)
                 }
@@ -975,9 +977,13 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// Agents can start from the phone (off: no agent entries, so no New Task).
     public var offersAgents = true
+    /// Agent chats (acpmux, the `""` entry) can start, as a live Mac offers them, beside the named
+    /// harnesses: New Workspace's New Agent Chat ▸ (its captures).
+    public var offersAgentChats = false
 
     public func options(on macID: String) -> WorkspaceCreationOptions {
-        WorkspaceCreationOptions(directories: true, agents: offersAgents ? ["claude", "codex"] : [], browser: true, cloneFromGit: false)
+        let agents = offersAgents ? (offersAgentChats ? ["", "claude", "codex"] : ["claude", "codex"]) : []
+        return WorkspaceCreationOptions(directories: true, agents: agents, browser: true, cloneFromGit: false)
     }
 
     public func create(_ request: NewWorkspaceRequest, placeholder: Workspace) async throws -> Workspace {
@@ -1046,7 +1052,7 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
         switch catalogMode {
         case .normal: break
         case .empty: return AgentCatalog(harnesses: [])
-        case .failed: throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
+        case .failed: throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
         case .slow: try await clock.sleep(for: catalogDelay)
         case .many:
             // More agents than a task takes (agentLimit), and a model the account can't use.
@@ -1293,6 +1299,34 @@ extension MockWorkspaceCreationBackend: TerminalChatBackend {
     }
     public var keptTerminalChatsLoaded: Bool { keeping?.keptTerminalChatsLoaded ?? true }
     public func loadKeptTerminalChats() async { await keeping?.loadKeptTerminalChats() }
+}
+
+/// The Panes page on mock data (`CMUX_MOBILE_MOCK_PANES=1` lists a workspace laid out in two
+/// panes): moving a tab between panes is accepted after the mock latency; the layout actions
+/// that need the Mac's tree answer that mock mode has none.
+extension MockWorkspaceCreationBackend: WorkspacePaneBackend {
+    private static var noLayout: WorkspaceCreationError { WorkspaceCreationError("Mock mode has no Mac to lay out panes on.", isForPerson: true) }
+
+    public func canEditPanes(on macID: String) -> Bool { true }
+    public func split(_ pane: Int, _ direction: PaneSplit, in workspace: Workspace) async throws -> WorkspaceTab { throw Self.noLayout }
+    public func newPane(from pane: Int, column: Bool, in workspace: Workspace) async throws -> WorkspaceTab { throw Self.noLayout }
+    public func toggleZoom(_ pane: Int, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func swap(_ pane: Int, _ direction: PaneSwap, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func renamePane(_ pane: Int, to name: String, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func closePane(_ pane: Int, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func equalizeSplits(in workspace: Workspace) async throws -> Int { throw Self.noLayout }
+    public func undoLayout(in workspace: Workspace, confirming confirmation: LayoutUndoConfirmation?) async throws -> LayoutUndoOutcome {
+        throw Self.noLayout
+    }
+    public func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws { throw Self.noLayout }
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws { try await settle() }
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, before anchor: WorkspaceTab?, in workspace: Workspace) async throws {
+        try await settle()
+    }
+    public func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab {
+        throw Self.noLayout
+    }
 }
 #endif
 

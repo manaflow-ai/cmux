@@ -74,6 +74,7 @@ extension ControlRouter {
             _ = call.progress.begin()
             guard let outcome = await joiner.outcome() else {
                 // It never started after all: say `not_run` explicitly.
+                // retry-prompt-ok: a socket API reply to a script, which owns its own retry
                 throw ControlError(code: "timeout", message: ControlStrings.format("control.error.idempotentRunNotStarted",
                                                                                    "The earlier run with idempotency key %@ never started; retry", key),
                                    data: ["idempotency_key": .string(key), "not_run": true])
@@ -131,6 +132,7 @@ extension ControlRouter {
     func prepared(_ action: ControlActionInfo, _ given: ControlActionRequest, call: ControlCall) async throws -> ControlActionRequest {
         var placed = given
         try Self.placeBesideCaller(&placed, action: action, topology: call.snapshot.topology)
+        Self.placeBesideTargetChat(&placed, action: action, topology: call.snapshot.topology)
         try Self.aimBrowserActionAtCaller(&placed, action: action, topology: call.snapshot.topology)
         let request = try await resolvedTargets(placed, snapshot: call.snapshot, deadline: call.deadline)
         guard call.snapshot.catalog.isAvailable(action, target: request.target) || action.unavailableReason != nil else {

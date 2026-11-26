@@ -82,7 +82,7 @@ export const PARITY_CLASS: Record<ParityKind, string> = {
   menu: "ui-popup ui-menu ui-glass",
   popover: "ui-popup ui-glass ui-popover",
   card: "ui-tooltip ui-card ui-glass",
-  tooltip: "ui-tooltip",
+  tooltip: "ui-tooltip ui-glass",
   dialog: "ui-dialog ui-glass ui-glass-floats",
   toast: "ui-notice ui-glass",
   // Docked glass: the root level of .ui-glass (glass.css: panes, bars, rails).
@@ -118,6 +118,8 @@ export function paritySurface(
 ): HTMLElement {
   const surface = doc.createElement("div");
   surface.className = `glass-parity-surface ${PARITY_CLASS[cell.kind]}`;
+  // A picture of a surface for the parity grid, never an open popup (ui/popupSettle.ts).
+  surface.dataset.popupSettle = "own";
   surface.dataset.parityId = cell.id;
   surface.dataset.parityKind = cell.kind;
   if (mode === "host") {

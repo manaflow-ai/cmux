@@ -2,11 +2,12 @@
 // started waiting on you, failed or finished; a pull request was opened or merged. The app's Feed
 // draws native cards only (CmuxNextFeed), so this feed has its own small card.
 import { memo, useMemo } from "react";
-import { sameRowProps, timeline, type TimelineEvent, type TimelineKind } from "../model";
+import { sameRowProps, timeline, type TimelineEvent, type TimelineKind, shownReply } from "../model";
 import { agentsOf, Loaded, machineLabel, PRChip } from "../parts";
 import type { ChiefViewProps } from "../registry";
 import type { StatusGlyphName } from "../../../ui/statusGlyphs.generated";
 import { StatusGlyph } from "../../../ui/StatusGlyph";
+import { intl } from "../../../ui/intl";
 
 const GLYPH: Record<TimelineKind, StatusGlyphName> = {
   spawned: "working",
@@ -19,10 +20,10 @@ const GLYPH: Record<TimelineKind, StatusGlyphName> = {
 
 export function TimelineView({ data, strings, today, onOpenAgent, onOpenURL }: ChiefViewProps) {
   const agents = agentsOf(data);
-  const landing = data.landing.status === "ready" ? data.landing.reply : undefined;
+  const landing = shownReply(data.landing);
   const events = useMemo(() => timeline(agents, landing, today), [agents, landing, today]);
   const clock = useMemo(
-    () => new Intl.DateTimeFormat(strings.language, { hour: "numeric", minute: "2-digit" }),
+    () => intl.DateTimeFormat(strings.language, { hour: "numeric", minute: "2-digit" }),
     [strings.language],
   );
   return (

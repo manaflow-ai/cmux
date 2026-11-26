@@ -1,0 +1,18 @@
+{
+  "cmuxProfile": 1,
+  "name": "lamina-tide",
+  "description": "Lamina Tide dark: a layered, translucent desktop look (accent-forward teal): 4 and 8 point corners, one-point strokes, an accent mark on the selected row, a squarer toast.",
+  "settings": {
+    "appearance.themeFile": "lamina-tide",
+    "layout.paneSeparation": "cards",
+    "layout.panePadding": 4,
+    "layout.paneBorderColor": "#2b4240",
+    "sidebar.groupBy": "folder",
+    "sidebar.showTimestamps": true,
+    "sidebar.cards.tips": false,
+    "agentPane.display.width": 900,
+    "agentPane.display.minimap": "off",
+    "agentPane.editedFiles.show": "collapsed",
+    "notifications.toast.style": "flat"
+  }
+}

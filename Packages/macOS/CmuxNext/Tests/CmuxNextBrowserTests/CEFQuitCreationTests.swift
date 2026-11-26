@@ -199,6 +199,19 @@ import Testing
         #expect(SpyShim.calls == ["flush"], "a quit that skips CefShutdown hid the windows")
     }
 
+    /// An update's relaunch (ask-ad4a68e740: the restart closed slowly) closes the pages, flushes the cookies and runs
+    /// the App's last saves (`beforeEngineStop`), then ends without CefShutdown's 1 to 3.4 s on the main thread.
+    @Test func anUpdateRelaunchSkipsCefShutdown() async throws {
+        SpyShim.reset()
+        let (runtime, root) = try Self.spyRuntime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        SpyShim.answerFlush = Self.answerAfterCommit(runtime)
+
+        await runtime.shutdown(timeout: .seconds(2), stopsEngine: false, beforeEngineStop: { SpyShim.calls.append("hide") })
+
+        #expect(SpyShim.calls == ["flush", "hide"])
+    }
+
     /// The App's step before CefShutdown is async (it awaits the closing pages' drafts, cmuxterm-hq#11994):
     /// CefShutdown runs only once it returned.
     @Test func cefShutdownWaitsForTheAppsAsyncStepBeforeIt() async throws {

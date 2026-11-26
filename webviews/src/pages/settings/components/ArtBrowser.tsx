@@ -1,7 +1,8 @@
 // Browse More Art (cx-t2x.8): searches the open-access museum collections the host asks
 // (cmux.settings.art.search) for public-domain works; a click downloads one into the backgrounds
 // folder and sets it (cmux.settings.art.use). Thumbnails come from the host at museum/<key>.
-import { useState } from "react";
+import { memo, useState } from "react";
+import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
@@ -33,6 +34,7 @@ export function ArtBrowser({ onClose }: { onClose: () => void }) {
     setUsing(null);
     if (!ok) setFailedKey(key);
   };
+  const { onUse } = useStableHandlers({ onUse: (key: string) => void use(key) });
 
   return (
     <div className="art-browser" data-card="art-browser">
@@ -69,33 +71,73 @@ export function ArtBrowser({ onClose }: { onClose: () => void }) {
       {results.length > 0 && (
         <div className="backdrop-grid">
           {results.map((result) => (
-            <button
-              type="button"
+            <ArtTile
               key={result.key}
-              className="backdrop-tile"
-              aria-busy={using === result.key}
+              artKey={result.key}
+              title={result.title}
+              artist={result.artist}
+              date={result.date}
+              source={result.source}
+              using={using === result.key}
+              failed={failedKey === result.key}
               disabled={using !== null}
-              onClick={() => void use(result.key)}
-              /* tooltip-allow: the credit the one-line tile drops (macOS 15 tester: tile text overlapped) */ title={[
-                result.title,
-                [result.artist, result.date, result.source].filter(Boolean).join(" · "),
-              ]
-                .filter(Boolean)
-                .join("\n")}
-            >
-              <img className="backdrop-thumb" alt="" src={`museum/${encodeURIComponent(result.key)}`} />
-              <span className="backdrop-title">{result.title}</span>
-              {(using === result.key || failedKey === result.key) && (
-                <span className="backdrop-title backdrop-status">
-                  {using === result.key
-                    ? t("settingsWindow.artBrowser.downloading")
-                    : t("settingsWindow.artBrowser.failed")}
-                </span>
-              )}
-            </button>
+              onUse={onUse}
+            />
           ))}
         </div>
       )}
     </div>
   );
 }
+
+/**
+ * One work. The host sends at most 12 per collection (MuseumArtSearch's `limit`), so the grid is
+ * small; its props are strings and flags, so a keystroke in the search field or another tile's
+ * download leaves it be.
+ */
+const ArtTile = memo(function ArtTile({
+  artKey,
+  title,
+  artist,
+  date,
+  source,
+  using,
+  failed,
+  disabled,
+  onUse,
+}: {
+  artKey: string;
+  title: string;
+  artist: string;
+  date: string;
+  source: string;
+  using: boolean;
+  failed: boolean;
+  disabled: boolean;
+  onUse: (key: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="backdrop-tile"
+      data-art-tile={artKey}
+      aria-busy={using}
+      disabled={disabled}
+      onClick={() => onUse(artKey)}
+      /* tooltip-allow: the credit the one-line tile drops (macOS 15 tester: tile text overlapped) */ title={[
+        title,
+        [artist, date, source].filter(Boolean).join(" · "),
+      ]
+        .filter(Boolean)
+        .join("\n")}
+    >
+      <img className="backdrop-thumb" alt="" src={`museum/${encodeURIComponent(artKey)}`} />
+      <span className="backdrop-title">{title}</span>
+      {(using || failed) && (
+        <span className="backdrop-title backdrop-status">
+          {using ? t("settingsWindow.artBrowser.downloading") : t("settingsWindow.artBrowser.failed")}
+        </span>
+      )}
+    </button>
+  );
+});

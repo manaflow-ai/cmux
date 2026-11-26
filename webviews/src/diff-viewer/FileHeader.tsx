@@ -10,10 +10,13 @@ import {
   type HeaderPress,
 } from "../file-header-toggle";
 import { FileIcon } from "../file-icons";
+import { diffStatParts } from "../file-tree-stats";
 import { Icon } from "../icons";
 import { FileMenuButton } from "../DiffToolbar";
 import { type FileKind } from "../fileKinds";
 import { type ViewedFileState } from "../viewed-files";
+import { revealControls } from "../ui/revealCover";
+import "../ui/motion/motion.css";
 import type { DiffViewerLabelKey, DiffViewerLabelResolver } from "../labels";
 import { opensFile, type DiffFileOpen } from "./openFile";
 
@@ -74,7 +77,7 @@ export function FileHeader({
   const directory = slash >= 0 ? path.slice(0, slash + 1) : "";
   const baseName = path.slice(slash + 1);
   const previousPath = typeof fileDiff.prevName === "string" && fileDiff.prevName !== path ? fileDiff.prevName : null;
-  const stats = fileStats(fileDiff);
+  const statParts = diffStatParts(fileStats(fileDiff));
   const collapsed = Boolean(item.collapsed);
   const caretLabel = (collapsed ? label("expandFile") : label("collapseFile")).replace("{file}", baseName);
   const press = useRef<HeaderPress | null>(null);
@@ -82,90 +85,8 @@ export function FileHeader({
   const open =
     onOpenFile && opensFile(fileDiff) ? (where?: "editor" | "finder") => onOpenFile(path, undefined, where) : undefined;
   const namePress = useRef<HeaderPress | null>(null);
-  return (
-    // The bar holds its own buttons (Viewed, Load diff), which a <button>
-    // cannot contain, so the toggle is a focusable element with the button role.
-    <div
-      className="file-header"
-      data-collapsed={collapsed}
-      data-change-type={fileDiff.type}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-      role="button"
-      tabIndex={0}
-      aria-expanded={!collapsed}
-      aria-label={caretLabel}
-      onMouseDown={(event) => {
-        press.current = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
-      }}
-      onClick={(event) => {
-        const start = press.current;
-        press.current = null;
-        if (shouldToggleFromHeaderClick(event, start)) {
-          onToggleCollapsed();
-        }
-      }}
-      onKeyDown={(event) => {
-        if (isHeaderToggleKey(event)) {
-          event.preventDefault();
-          onToggleCollapsed();
-        }
-      }}
-    >
-      <FileIcon path={path} />
-      <span className="file-header-path selectable">
-        {previousPath != null ? (
-          <span className="file-header-previous">
-            <bdi>{previousPath}</bdi>
-            <span aria-hidden="true"> → </span>
-          </span>
-        ) : null}
-        {directory !== "" ? (
-          <span className="file-header-directory">
-            <bdi>{directory}</bdi>
-          </span>
-        ) : null}
-        {open ? (
-          <button
-            type="button"
-            className="file-header-name file-header-open"
-            onMouseDown={(event) => {
-              namePress.current = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
-            }}
-            onClick={(event) => {
-              event.stopPropagation();
-              // A drag that selected the name ends in a click: it selects, it does not open. A
-              // double click (selecting the name) opens once. A key's click (detail 0) has no press.
-              const start = namePress.current;
-              namePress.current = null;
-              if (event.detail > 1) return;
-              const dragged =
-                event.detail > 0 &&
-                start != null &&
-                Math.hypot(event.clientX - start.x, event.clientY - start.y) > HEADER_DRAG_THRESHOLD_PX;
-              if (!dragged) open();
-            }}
-          >
-            {baseName}
-          </button>
-        ) : (
-          <span className="file-header-name">{baseName}</span>
-        )}
-      </span>
-      <span className="file-header-caret" aria-hidden="true">
-        <Icon name="chevronDown" />
-      </span>
-      <span className="file-header-spacer" />
-      <DiffHeaderMetadata fileDiff={fileDiff} label={label} />
-      {kind != null ? (
-        <span className="file-header-kind" data-kind={kind}>
-          {label(FILE_KIND_LABELS[kind])}
-        </span>
-      ) : null}
-      <span className="file-header-stats" aria-label={label("diffStats")}>
-        <span className="file-header-additions">+{stats.added}</span>
-        <span className="file-header-deletions">-{stats.deleted}</span>
-        <DiffStatBar added={stats.added} deleted={stats.deleted} />
-      </span>
+  const actions = (
+    <>
       {stage ? (
         <button
           type="button"
@@ -192,13 +113,6 @@ export function FileHeader({
           <Icon name="revert" />
         </button>
       ) : null}
-      <FileReviewControls
-        item={item}
-        label={label}
-        onLoadDiff={onLoadDiff}
-        onToggleViewed={onToggleViewed}
-        viewedState={viewedState}
-      />
       <FileMenuButton
         label={label("fileActions").replace("{file}", baseName)}
         items={[
@@ -250,46 +164,107 @@ export function FileHeader({
             : []),
         ]}
       />
-    </div>
+      <ViewedButton label={label} onToggleViewed={onToggleViewed} viewedState={viewedState} />
+    </>
   );
-}
-
-/** Blocks in a file's change bar, GitHub's five. */
-const STAT_BAR_BLOCKS = 5;
-
-/**
- * The added and removed shares of a file's changed lines as five blocks (GitHub's diffstat):
- * a block per fifth, rounded so any change shows at least one block of its kind.
- */
-export function diffStatBlocks(added: number, deleted: number): ("added" | "deleted" | "neutral")[] {
-  const total = added + deleted;
-  if (total <= 0) return Array.from({ length: STAT_BAR_BLOCKS }, () => "neutral");
-  let addedBlocks = Math.round((added / total) * STAT_BAR_BLOCKS);
-  let deletedBlocks = Math.round((deleted / total) * STAT_BAR_BLOCKS);
-  if (added > 0 && addedBlocks === 0) addedBlocks = 1;
-  if (deleted > 0 && deletedBlocks === 0) deletedBlocks = 1;
-  // Over by a rounding: take from the larger side, from both on a tie (an even split stays even,
-  // with a neutral block left over).
-  while (addedBlocks + deletedBlocks > STAT_BAR_BLOCKS) {
-    if (addedBlocks === deletedBlocks) {
-      addedBlocks -= 1;
-      deletedBlocks -= 1;
-    } else if (addedBlocks > deletedBlocks) addedBlocks -= 1;
-    else deletedBlocks -= 1;
-  }
-  return Array.from({ length: STAT_BAR_BLOCKS }, (_, index) =>
-    index < addedBlocks ? "added" : index < addedBlocks + deletedBlocks ? "deleted" : "neutral",
-  );
-}
-
-function DiffStatBar({ added, deleted }: { added: number; deleted: number }) {
   return (
-    <span className="file-header-bar" aria-hidden="true">
-      {diffStatBlocks(added, deleted).map((kind, index) => (
-        // oxlint-disable-next-line react/no-array-index-key -- five fixed slots, never reordered.
-        <span key={index} data-kind={kind} />
-      ))}
-    </span>
+    // The bar holds its own buttons (Viewed, Load diff), which a <button>
+    // cannot contain, so the toggle is a focusable element with the button role.
+    <div
+      className="file-header ui-reveal-host"
+      data-reveal-overlap=""
+      data-viewed-state={viewedState}
+      data-collapsed={collapsed}
+      data-change-type={fileDiff.type}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="button"
+      tabIndex={0}
+      aria-expanded={!collapsed}
+      aria-label={caretLabel}
+      onMouseDown={(event) => {
+        press.current = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+      }}
+      onClick={(event) => {
+        const start = press.current;
+        press.current = null;
+        if (shouldToggleFromHeaderClick(event, start)) {
+          onToggleCollapsed();
+        }
+      }}
+      onKeyDown={(event) => {
+        if (isHeaderToggleKey(event)) {
+          event.preventDefault();
+          onToggleCollapsed();
+        }
+      }}
+    >
+      <FileIcon path={path} />
+      <span className="file-header-path ui-reveal-text selectable">
+        {previousPath != null ? (
+          <span className="file-header-previous">
+            <bdi>{previousPath}</bdi>
+            <span aria-hidden="true"> → </span>
+          </span>
+        ) : null}
+        {directory !== "" ? (
+          <span className="file-header-directory">
+            <bdi>{directory}</bdi>
+          </span>
+        ) : null}
+        {open ? (
+          <button
+            type="button"
+            className="file-header-name file-header-open"
+            onMouseDown={(event) => {
+              namePress.current = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              // A drag that selected the name ends in a click: it selects, it does not open. A
+              // double click (selecting the name) opens once. A key's click (detail 0) has no press.
+              const start = namePress.current;
+              namePress.current = null;
+              if (event.detail > 1) return;
+              const dragged =
+                event.detail > 0 &&
+                start != null &&
+                Math.hypot(event.clientX - start.x, event.clientY - start.y) > HEADER_DRAG_THRESHOLD_PX;
+              if (!dragged) open();
+            }}
+          >
+            {baseName}
+          </button>
+        ) : (
+          <span className="file-header-name">{baseName}</span>
+        )}
+      </span>
+      <span className="file-header-caret" aria-hidden="true">
+        <Icon name="chevronDown" />
+      </span>
+      <span className="file-header-spacer" />
+      {/* The bar's buttons lie over the end of the path, in a zero-width slot of their own (only a
+          viewed file's eye keeps a slot): they take no width the path could use (Leo, 2026-11-24). */}
+      <span className="file-header-actions-anchor">
+        <span className="file-header-actions" ref={revealControls}>
+          {actions}
+        </span>
+      </span>
+      <DiffHeaderMetadata fileDiff={fileDiff} label={label} />
+      {kind != null ? (
+        <span className="file-header-kind" data-kind={kind}>
+          {label(FILE_KIND_LABELS[kind])}
+        </span>
+      ) : null}
+      {/* Only the counts that are not zero, as the files list shows them: a rename, a binary file
+          or a mode change has none. */}
+      {statParts ? (
+        <span className="file-header-stats" aria-label={label("diffStats")}>
+          {statParts.added ? <span className="file-header-additions">{statParts.added}</span> : null}
+          {statParts.deleted ? <span className="file-header-deletions">{statParts.deleted}</span> : null}
+        </span>
+      ) : null}
+      <FileReviewControls item={item} label={label} onLoadDiff={onLoadDiff} viewedState={viewedState} />
+    </div>
   );
 }
 
@@ -303,17 +278,14 @@ function FileReviewControls({
   item,
   label,
   onLoadDiff,
-  onToggleViewed,
   viewedState,
 }: {
   item: DiffItem;
   label: DiffViewerLabelResolver;
   onLoadDiff: () => void;
-  onToggleViewed: () => void;
   viewedState: ViewedFileState;
 }) {
   const reason = item.fileDiff?.cmuxDeferredReason as DeferredDiffReason | undefined;
-  const viewed = viewedState === "viewed";
   return (
     <span className="file-review-controls" data-viewed-state={viewedState}>
       {reason != null ? (
@@ -338,22 +310,37 @@ function FileReviewControls({
           {label("changedSinceViewed")}
         </span>
       ) : null}
-      <button
-        type="button"
-        className="file-review-viewed"
-        aria-pressed={viewed}
-        aria-label={label("viewed")}
-        title={viewed ? label("markNotViewed") : label("markViewed")}
-        onClick={(event) => {
-          event.stopPropagation();
-          onToggleViewed();
-        }}
-      >
-        {/* The classic bar's eye: dim until the file is viewed. */}
-        <span className="file-review-eye" aria-hidden="true">
-          <Icon name="viewedEye" />
-        </span>
-      </button>
     </span>
+  );
+}
+
+/** The bar's Viewed eye: dim and shown on hover, kept (and given its slot) once the file is viewed. */
+function ViewedButton({
+  label,
+  onToggleViewed,
+  viewedState,
+}: {
+  label: DiffViewerLabelResolver;
+  onToggleViewed: () => void;
+  viewedState: ViewedFileState;
+}) {
+  const viewed = viewedState === "viewed";
+  return (
+    <button
+      type="button"
+      className="file-review-viewed"
+      aria-pressed={viewed}
+      aria-label={label("viewed")}
+      title={viewed ? label("markNotViewed") : label("markViewed")}
+      onClick={(event) => {
+        event.stopPropagation();
+        onToggleViewed();
+      }}
+    >
+      {/* The classic bar's eye: dim until the file is viewed. */}
+      <span className="file-review-eye" aria-hidden="true">
+        <Icon name="viewedEye" />
+      </span>
+    </button>
   );
 }

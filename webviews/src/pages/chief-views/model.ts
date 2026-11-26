@@ -5,6 +5,7 @@
 // clock (parts.tsx Ago, woken when its words change) and the views get only the day, so a passing
 // minute draws no row.
 import type { AgentState, ChiefAgent, FleetMachine, FleetPR, LandingPR, LandingReply } from "./types";
+import { intl } from "../../ui/intl";
 
 export const LOCAL_MACHINE = "local";
 /** The label that marks a pull request as handed to the autolander. */
@@ -29,7 +30,7 @@ export function shortDuration(ms: number, locale?: string): string {
       : minutes < 48 * 60
         ? [Math.round(minutes / 60), "hour"]
         : [Math.round(minutes / (24 * 60)), "day"];
-  return new Intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "narrow" }).format(value);
+  return intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "narrow" }).format(value);
 }
 
 /** Rounded minutes since `at` as `shortDuration` counts them. */
@@ -104,6 +105,42 @@ export function keptAgents(previous: readonly ChiefAgent[], next: readonly Chief
     return old && sameFields(old, agent) ? old : agent;
   });
 }
+
+/** What identifies an item of a reply's list across reads: a pull request's number, a machine's host. */
+const itemKey = (item: unknown) => {
+  const value = item as { number?: unknown; host?: unknown; id?: unknown } | null;
+  return value?.number ?? value?.host ?? value?.id;
+};
+
+/**
+ * A new read with every part that did not change kept as the previous read's object: the reply
+ * itself when nothing changed, else each pull request or machine that did not. A Refresh that
+ * changes one pull request then draws that card alone.
+ */
+export function keptReply<T>(previous: T, next: T): T {
+  if (previous === next || JSON.stringify(previous) === JSON.stringify(next)) return previous;
+  if (Array.isArray(previous) && Array.isArray(next)) {
+    const byKey = new Map(previous.map((item) => [itemKey(item), item]));
+    return next.map((item) => {
+      const key = itemKey(item);
+      return key === undefined || !byKey.has(key) ? item : keptReply(byKey.get(key), item);
+    }) as T;
+  }
+  if (isPlain(previous) && isPlain(next)) {
+    const old = previous as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.entries(next as Record<string, unknown>).map(([key, value]) => [
+        key,
+        key in old ? keptReply(old[key], value) : value,
+      ]),
+    ) as T;
+  }
+  return next;
+}
+
+/** A read's reply while it shows or reads again; nothing while it failed or is unavailable. */
+export const shownReply = <T>(load: { status: string; reply?: T }): T | undefined =>
+  load.status === "ready" || load.status === "loading" ? load.reply : undefined;
 
 /** A person should look: it waits on them or failed. */
 export const needsYou = (agent: ChiefAgent) => agent.state === "waiting" || agent.state === "failed";

@@ -42,7 +42,7 @@ impl Mux {
             surface.set_name(Some(name));
         }
         let active_at = self.next_active_at();
-        let notifications = self.tree_decorations_placing(&surface);
+        let notifications = self.tab_decorations_placing(&surface);
         let mut refused = None;
         let mut joins = None;
         let attached = {

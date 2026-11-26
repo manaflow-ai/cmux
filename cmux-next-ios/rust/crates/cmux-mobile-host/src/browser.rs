@@ -1481,7 +1481,15 @@ mod tests {
     fn hello_carries_the_secret_and_the_rb_service() {
         let frame = hello_frame(
             "ab".repeat(32).as_str(),
-            &Peer { device_id: "phone".into(), session_id: "s".into(), video: None, session_exposure: None },
+            &Peer {
+                device_id: "phone".into(),
+                session_id: "s".into(),
+                video: None,
+                session_exposure: None,
+                route: None,
+                path: None,
+                viewport: None,
+            },
         );
         let mut deframer = StreamDeframer::default();
         deframer.extend(&frame);

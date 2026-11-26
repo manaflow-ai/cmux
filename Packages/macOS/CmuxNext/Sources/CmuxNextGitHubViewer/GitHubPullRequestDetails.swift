@@ -25,6 +25,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         public var url: String?
         /// Whether its thread is resolved; nil when the read did not reach its thread.
         public var resolved: Bool?
+        /// Its thread's GraphQL id, what a reply or a resolve names; nil when the read did not reach it.
+        public var thread: String?
     }
 
     /// A comment or a review, by its author, in the conversation.
@@ -106,21 +108,20 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
               comments(first: \(maximumReviewComments)) { nodes { path line originalLine body bodyHTML url } } } }
             reviewRequests(first: 20) { nodes { requestedReviewer { __typename ... on User { login } ... on Team { name } ... on Bot { login } } } }
             latestOpinionatedReviews(first: 20) { nodes { author { login } state } }
-            reviewThreads(last: \(maximumThreads)) { nodes { isResolved comments(first: \(maximumReviewComments)) { nodes { url } } } }
+            reviewThreads(last: \(maximumThreads)) { nodes { id isResolved comments(first: \(maximumReviewComments)) { nodes { url } } } }
             closingIssuesReferences(first: 10) { nodes { number title url state } } } } }
         """
 
-    /// The `gh api graphql` arguments for `link`; owner and name go as raw strings (`-f`), so
-    /// neither is read as a file.
-    static func arguments(for link: GitHubLink) -> [String] {
+    /// The query's variables for `link`.
+    static func variables(for link: GitHubLink) -> [String: any Sendable] {
         let parts = link.repository.split(separator: "/").map(String.init)
-        return ["api", "graphql", "--hostname", "github.com", "-f", "owner=\(parts.first ?? "")", "-f", "name=\(parts.last ?? "")",
-                "-F", "number=\(link.number)", "-f", "query=\(query)"]
+        return ["owner": parts.first ?? "", "name": parts.last ?? "", "number": link.number]
     }
 
-    /// Reads `link`'s details with the user's gh; nil when gh is missing, fails or answers no pull request.
+    /// Reads `link`'s details through acpmux (the cmux GitHub App, or the person's gh); nil when
+    /// neither answers or GitHub has no such pull request.
     @concurrent public static func read(_ link: GitHubLink) async -> GitHubPullRequestDetails? {
-        guard let data = await AgentPaneGitPullRequest.pageRead(arguments(for: link)) else { return nil }
+        guard let data = await AgentPaneGitPullRequest.pageRead(link.repository, query: query, variables: variables(for: link)) else { return nil }
         return parse(data)
     }
 
@@ -136,10 +137,14 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
         let html = { (node: [String: Any]) in Self.html(node["bodyHTML"]) }
         // Each review comment's thread state, by the comment's link.
         var resolved: [String: Bool] = [:]
+        var threads: [String: String] = [:]
         for thread in nodes("reviewThreads", pull) {
             let state = thread["isResolved"] as? Bool ?? false
+            let id = (thread["id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             for comment in nodes("comments", thread) {
-                if let url = link(comment["url"]) { resolved[url] = state }
+                guard let url = link(comment["url"]) else { continue }
+                resolved[url] = state
+                threads[url] = id
             }
         }
         let comments = nodes("comments", pull).map { node in
@@ -151,7 +156,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
                 guard let path = comment["path"] as? String, !path.isEmpty else { return nil }
                 return ReviewComment(path: path, line: (comment["line"] as? Int) ?? (comment["originalLine"] as? Int),
                                      body: text(comment["body"], maximumCommentBody), html: html(comment), url: link(comment["url"]),
-                                     resolved: link(comment["url"]).flatMap { resolved[$0] })
+                                     resolved: link(comment["url"]).flatMap { resolved[$0] },
+                                     thread: link(comment["url"]).flatMap { threads[$0] })
             }
             let body = text(node["body"], maximumCommentBody)
             let state = (node["state"] as? String)?.lowercased() ?? "commented"
@@ -242,7 +248,8 @@ public nonisolated struct GitHubPullRequestDetails: Equatable, Sendable {
                          "comments": .array(entry.comments.map { comment in
                              .object(["path": .string(comment.path), "line": comment.line.map { JSONValue($0) } ?? .null,
                                       "body": .string(comment.body), "html": .string(comment.html), "url": optional(comment.url),
-                                      "resolved": comment.resolved.map(JSONValue.bool) ?? .null])
+                                      "resolved": comment.resolved.map(JSONValue.bool) ?? .null,
+                                      "thread": comment.thread.map(JSONValue.string) ?? .null])
                          })])
             }),
             "reviewers": .array(reviewers.map { .object(["name": .string($0.name), "state": .string($0.state)]) }),

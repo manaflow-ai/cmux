@@ -80,11 +80,7 @@ PATH_OWNERS = {
     ".github/workflows/ci-macos.yml": frozenset(GROUPS),
     ".github/workflows/ci-web.yml": frozenset(GROUPS),
     ".github/workflows/web-complexity.yml": frozenset(("ci",)),
-    ".github/workflows/web-complexity-trusted.yml": frozenset(("ci",)),
-    ".github/workflows/cmux-next-pr-merge-tree.yml": frozenset(("ci",)),
     "scripts/ci/publish_pr_merge_tree.py": frozenset(("ci",)),
-    ".github/workflows/iroh-v2-production-drift.yml": frozenset(("ci",)),
-    "tests/test_iroh_drift_issue.py": frozenset(("ci",)),
     ".github/workflows/feature-flag-review-drift.yml": frozenset(("ci",)),
     "tests/test_feature_flag_review_drift_issue.py": frozenset(("ci",)),
     ".github/review-fabric-policy.json": frozenset(("preflight",)),
@@ -126,16 +122,11 @@ PATH_OWNERS = {
     "tests/fixtures/pr_media_gate/seeded-private-term.png": frozenset(("ci",)),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
-    # test_ci_merge_receipt.py loads it by path and also reads its workflow
-    # and fixtures.
-    "scripts/ci/merge_receipt.py": frozenset(("ci",)),
-    ".github/workflows/merge-receipt.yml": frozenset(("ci",)),
-    "tests/fixtures/merge_receipt/pr14433.json": frozenset(("ci",)),
-    "tests/fixtures/merge_receipt/pr14461.json": frozenset(("ci",)),
     # The local merge-main resolver runs these trusted generators. The
     # resolver also backs the project-file merge driver below.
     "scripts/ci/merge_main_resolver.py": frozenset(("preflight", "ci")),
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
+    "scripts/merge-cargo-lock.py": frozenset(("ci",)),  # test_merge_cargo_lock.py
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
     # test_merge_pbxproj.py runs the merge driver, which runs the normalizer
     # above and borrows union_pbxproj from the local resolver.
@@ -147,6 +138,7 @@ PATH_OWNERS = {
     "scripts/ci/merge_main.py": frozenset(("ci",)),
     "scripts/ci/last_green_base.py": frozenset(("ci",)),
     "scripts/ci/run_ci_guards.py": frozenset(("ci",)),
+    "scripts/ci/guard_step_inputs.py": frozenset(("ci",)),  # run_ci_guards.py --affected's selection
     "scripts/ci/guards-local.sh": frozenset(("ci",)),
 
     "scripts/ci/ios_upload_batch_decision.py": frozenset(("release-ios",)),
@@ -435,27 +427,53 @@ def _workflow_path_owners() -> dict[str, frozenset[str]] | None:
 TEST_MODULE = re.compile(r"tests/([A-Za-z_][A-Za-z0-9_]*)\.py")
 
 
+@lru_cache(maxsize=4)
+def _test_importers(root: Path) -> dict[str, frozenset[str]]:
+    """Build the reverse import graph for the test modules under ``root`` once.
+
+    Route classification asks about several shared helpers in one invocation. Scanning every test
+    file for each helper made a single route decision take seconds on the full checkout. The graph
+    keeps the same line-oriented import matching while making the filesystem walk one-time per root.
+    """
+    importers: dict[str, set[str]] = {}
+    for candidate in sorted((root / "tests").glob("*.py")):
+        relative = f"tests/{candidate.name}"
+        try:
+            text = candidate.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            continue
+        for line in text.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("from "):
+                match = re.match(r"from\s+([A-Za-z_][A-Za-z0-9_]*)\s+import\b", stripped)
+                if match:
+                    importers.setdefault(match.group(1), set()).add(relative)
+                continue
+            if not stripped.startswith("import "):
+                continue
+            # The old line-oriented matcher accepted trailing comments, including the
+            # ``# noqa`` comments used by most tests. Keep that behavior while indexing
+            # comma-separated imports in one pass.
+            for item in stripped[7:].split("#", 1)[0].split(","):
+                module = item.strip().split(" as ", 1)[0].split(".", 1)[0]
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", module):
+                    importers.setdefault(module, set()).add(relative)
+    return {module: frozenset(paths) for module, paths in importers.items()}
+
+
 def _importers(stem: str, root: Path) -> set[str]:
     """tests/*.py files that import the sibling module `stem`, directly or through another
     sibling module (tests/test_x.py imports job_lists_routing, which imports workflow_jobs)."""
     found: set[str] = set()
     pending = [stem]
+    graph = _test_importers(root)
     while pending:
         module = pending.pop()
-        pattern = re.compile(
-            rf"^\s*(?:from\s+{module}\s+import\b|import\s+(?:[\w.]+\s*,\s*)*{module}\b)", re.M
-        )
-        for candidate in sorted((root / "tests").glob("*.py")):
-            relative = f"tests/{candidate.name}"
+        for relative in graph.get(module, ()):
             if relative in found:
                 continue
-            try:
-                text = candidate.read_text(encoding="utf-8")
-            except (OSError, UnicodeError):
-                continue
-            if pattern.search(text):
-                found.add(relative)
-                pending.append(candidate.stem)
+            found.add(relative)
+            pending.append(Path(relative).stem)
     return found
 
 

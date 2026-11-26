@@ -249,6 +249,53 @@ class RustWorkspacesTests(unittest.TestCase):
                 self.change(path, "{\"v\": 2}\n")
                 self.assertEqual(self.planned(), planned)
 
+    def test_reads_only_plans_a_workspace_only_for_a_file_it_reads_from_elsewhere(self) -> None:
+        # A pull request into feat-cmux-next skips this workflow's jobs (affected-jobs.json pull_request_skip), so
+        # #53827 changed DaemonLanePolicy.swift, which a cmux-next-ios/rust test include_str!s, and landed with that
+        # test red. --reads-only is what such a pull request still runs: the readers of a file it changes.
+        cases = {
+            "schemas/s.json": ["solo"],              # include_str! relative to the source file
+            "proto/v1_y.json": ["solo"],             # a concat! prefix: its directory
+            "fixtures/f.json": ["ws/crates/own"],    # CARGO_MANIFEST_DIR joined with a path
+            "tokens/t.json": ["term", "solo/tool"],  # a "../" const naming a tracked file; include_str!
+            "docs/vws-protocol.json": [],            # an entry's inputs: the push runs them
+            "solo/src/main.rs": [],                  # a workspace's own file: the push runs it
+            "ws/crates/a/src/lib.rs": [],            # a path dependency's file: the push runs it
+            ".github/rust-workspaces.toml": [],      # the planner's own files: its own job tests them
+        }
+        for path, planned in cases.items():
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, "// changed\n" if path.endswith(".rs") else "{\"v\": 2}\n"
+                            if path.endswith(".json") else LIST + "\n# changed\n")
+                result = self.script("plan", "--base", self.base, "--reads-only")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([job["root"] for job in json.loads(result.stdout)], planned)
+
+    def test_a_dependencys_own_tests_reads_are_not_its_users_inputs(self) -> None:
+        # cmux-action-catalog's tests join CARGO_MANIFEST_DIR with "../../.." (the repository root) and then a path:
+        # read as a read of the whole tree, every change planned cmux-app-ffi, the cloud server and three more
+        # workspaces that use it by path, whose `cargo test --workspace` never builds a dependency's tests.
+        self.write("ws/crates/a/tests/root.rs", 'let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");\n'
+                   'let menu = root.join("menus/main.json");\n')
+        self.write("ws/crates/a/benches/b.rs", 'const B: &str = include_str!("../../../../bench/data.json");\n')
+        self.write("bench/data.json", "{}\n")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a reads the tree in its own tests and benches")
+        for path in ("docs/other.md", "bench/data.json"):
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, "changed\n")
+                self.assertEqual(self.planned(), [])
+        # A dependency's own sources and build script still count: they are built into the workspace.
+        self.base = self.head()
+        self.write("ws/crates/a/src/lib.rs", 'const D: &str = include_str!("../../../../bench/data.json");\n')
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a embeds the file")
+        self.base = self.head()
+        self.change("bench/data.json", "{\"v\": 3}\n")
+        self.assertEqual(self.planned(), ["ws/crates/own", "solo"])
+
     def test_a_root_reference_reads_what_its_comment_lists(self) -> None:
         # CARGO_MANIFEST_DIR/../../.. is the repository root: unannotated, every path reaches its reader (five
         # workspaces ran on 325 of 327 merged PRs, 2026-11-17); `// affected-reads:` names what it reads.

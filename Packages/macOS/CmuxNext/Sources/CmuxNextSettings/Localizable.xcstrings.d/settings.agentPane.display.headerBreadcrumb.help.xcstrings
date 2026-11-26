@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.headerBreadcrumb.help" : {
+      "comment" : "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the chat's repository and branch before its title in the header, as a path."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اعرض مستودع الدردشة وفرعها قبل عنوانها في الترويسة، كمسار."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prikaži repozitorij i granu chata ispred njegovog naslova u zaglavlju, kao putanju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis chattens repository og branch før dens titel i overskriften som en sti."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zeigt Repository und Branch des Chats vor seinem Titel in der Kopfzeile als Pfad."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Muestra el repositorio y la rama del chat antes de su título en el encabezado, como una ruta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affiche le dépôt et la branche de la discussion avant son titre dans l’en-tête, sous forme de chemin."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra il repository e il branch della chat prima del titolo nell’intestazione, come un percorso."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ヘッダーのチャットのタイトルの前に、リポジトリとブランチをパスとして表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បង្ហាញឃ្លាំង និងសាខារបស់ការជជែក មុនចំណងជើងរបស់វានៅក្នុងក្បាល ជាផ្លូវ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "헤더에서 채팅 제목 앞에 저장소와 브랜치를 경로로 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vis chattens repository og gren før tittelen i toppfeltet, som en sti."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pokazuj repozytorium i gałąź czatu przed jego tytułem w nagłówku, jako ścieżkę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mostra o repositório e o branch do chat antes do título no cabeçalho, como um caminho."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показывать репозиторий и ветку чата перед его названием в заголовке в виде пути."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แสดงรีโพสิทอรีและสาขาของแชทก่อนชื่อในส่วนหัว ในรูปแบบเส้นทาง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbetin deposunu ve dalını başlıkta adından önce bir yol olarak göster."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показувати репозиторій і гілку чату перед його назвою в заголовку у вигляді шляху."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hiển thị kho mã và nhánh của cuộc trò chuyện trước tiêu đề ở phần đầu, dưới dạng đường dẫn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在标题栏中聊天标题前以路径形式显示其仓库和分支。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在標題列中聊天標題前以路徑形式顯示其儲存庫與分支。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

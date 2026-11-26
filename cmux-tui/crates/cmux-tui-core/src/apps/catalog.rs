@@ -163,9 +163,42 @@ impl Package {
         entry.get("export")?.as_str().map(str::to_string)
     }
 
+    /// The app's `contributes.keybindings` for `apps-list`, in keybindings.json
+    /// form (`{key, command, when?, args?}`) for the client's app binding
+    /// layer: a cmux action as written, an own op as `app.command.run`
+    /// `{app, command}` (the palette row's run). Only entries the manifest
+    /// validator accepted are listed (`cmux_app_manifest::keybindings`).
+    pub fn keybindings(&self) -> Vec<Value> {
+        cmux_app_manifest::keybindings::keybindings(&self.manifest)
+            .into_iter()
+            .map(|binding| {
+                let builtin = cmux_app_manifest::keybindings::is_builtin_action(&binding.command);
+                let mut entry = serde_json::json!({ "key": binding.key() });
+                if builtin {
+                    entry.set("command", Value::String(binding.command));
+                    if let Some(args) = binding.args {
+                        entry.set("args", args);
+                    }
+                } else {
+                    entry.set("command", Value::String("app.command.run".into()));
+                    entry.set(
+                        "args",
+                        serde_json::json!({ "app": self.id, "command": binding.command }),
+                    );
+                }
+                if let Some(when) = binding.when {
+                    entry.set("when", Value::String(when));
+                }
+                entry
+            })
+            .collect()
+    }
+
     /// The app's palette commands for `apps-list`: the catalog ops with a
-    /// `palette` entry, as `{op, title, when?}`.
-    pub fn palette_commands(&self) -> Vec<Value> {
+    /// `palette` entry, as `{op, title, when?, keys?, page_keys?}`. Chords
+    /// stay in #44151's app binding layer; page keys are routed after a
+    /// browser page declines the key and include `cmux.keys` overrides.
+    pub fn palette_commands(&self, key_overrides: Option<&Value>) -> Vec<Value> {
         self.catalog_ops()
             .into_iter()
             .filter_map(|(op, entry)| {
@@ -176,11 +209,46 @@ impl Package {
                 if let Some(when) = palette.get("when") {
                     command.set("when", when.clone());
                 }
+                let chords: Vec<Value> = entry
+                    .get("keyboard")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|k| k.get("key").and_then(Value::as_str).is_some_and(is_chord))
+                    .cloned()
+                    .collect();
+                if !chords.is_empty() {
+                    command.set("keys", Value::Array(chords));
+                }
+                let page_keys = super::page_keys::keys(&op, &entry, key_overrides);
+                if !page_keys.is_empty() {
+                    command.set("page_keys", serde_json::json!(page_keys));
+                    command.set(
+                        "page_key_when",
+                        super::page_keys::when_map(&op, &entry, key_overrides),
+                    );
+                }
                 Some(command)
             })
             .collect()
     }
 
+    pub fn has_page_keys(&self) -> bool {
+        self.catalog_ops()
+            .iter()
+            .any(|(op, entry)| !super::page_keys::keys(op, entry, None).is_empty())
+    }
+}
+
+/// Whether a catalog `key` (`cmd+shift+r`) holds a dispatcher modifier: a
+/// shortcut the binding table runs.
+fn is_chord(key: &str) -> bool {
+    let mut parts = key.split('+');
+    let _ = parts.next_back();
+    parts.any(|m| matches!(m, "cmd" | "ctrl" | "alt" | "option" | "opt"))
+}
+
+impl Package {
     /// Whether the app has a script (`runtime.main`). A native-pane app
     /// (`cmux.pane/1` with `native`) has none: it installs and lists like
     /// any app, and the supervisor never spawns a host for it.
@@ -251,6 +319,11 @@ pub struct Catalog {
     pub defaults: Vec<String>,
     /// Packages that failed validation: (directory, first issue).
     pub rejected: Vec<(PathBuf, String)>,
+    /// Where each app installed from a git repository came from
+    /// (`git_source.rs`), by app id.
+    pub git: BTreeMap<String, super::git_source::GitSource>,
+    /// The setups' views layers that loaded, top first (`Sources::setups`).
+    pub setup_layers: Vec<String>,
 }
 
 /// Where packages come from.
@@ -273,10 +346,21 @@ pub struct Sources {
     pub local: Option<PathBuf>,
     /// The user's own customization app (cx-swovq.1): one package folder,
     /// `$CMUX_CUSTOMIZE_DIR`, else `$XDG_CONFIG_HOME/cmux/customize`, else
-    /// `~/.config/cmux/customize`. Its id is `local/customize`; it installs
+    /// `~/.config/cmux/customize` (`cmux-next` on macOS). Its id is `local/customize`; it installs
     /// by itself with its required scopes (the user wrote it) and reloads
     /// when its files change (`local_reload.rs`).
     pub customize: Option<PathBuf>,
+    /// Installed setups' own views layers (`cmux setup install`): the
+    /// `setups` folder next to the customize folder. Only the folders its
+    /// `layers.json` names load, in its order (top first), each as the app
+    /// `local/setup-OWNER-NAME`; a setup never writes the person's own
+    /// customize folder (cmux-customize `setup::layers`).
+    pub setups: Option<PathBuf>,
+    /// The person's saved prompts (`cmux agent-config commands add --agent cmux`): one `NAME.md`
+    /// each, `$CMUX_COMMANDS_DIR`, else `$XDG_CONFIG_HOME/cmux/commands`, else
+    /// `~/.config/cmux/commands` (`cmux-next` on macOS). `apps.composer.list` answers them
+    /// first, so the composer's `/` menu lists them in every chat (`composer.rs`).
+    pub saved_prompts: Option<PathBuf>,
     /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
     /// directory as the default set when present.
     pub defaults: Option<Vec<String>>,
@@ -305,6 +389,12 @@ impl Sources {
             extra,
             local: state_dir.map(|d| d.join("apps").join("local")),
             customize: customize_dir(),
+            setups: setups_dir(),
+            saved_prompts: std::env::var_os("HOME").filter(|h| !h.is_empty()).map(|home| {
+                cmux_agent_customize::paths::cmux_commands_dir(Path::new(&home), |name| {
+                    std::env::var_os(name)
+                })
+            }),
             defaults,
         }
     }
@@ -319,18 +409,85 @@ pub fn customize_dir() -> Option<PathBuf> {
     }
     let config =
         non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
-    Some(config.join("cmux").join("customize"))
+    Some(config.join(cmux_config::NEXT_DIR).join("customize"))
+}
+
+/// The setups' layers folder (`Sources::setups`): `setups` next to the
+/// customize folder, as cmux-customize's `Roots::setups_dir`.
+pub fn setups_dir() -> Option<PathBuf> {
+    customize_dir().map(|dir| dir.with_file_name("setups"))
+}
+
+/// The id prefix of a setup's views layer: such an app loads only from the
+/// setups folder's index.
+pub const SETUP_LAYER_PREFIX: &str = "local/setup-";
+
+/// The setups folder's index of the layers that are on, top first.
+pub const SETUP_LAYERS_INDEX: &str = "layers.json";
+
+/// One row of `layers.json` (cmux-customize `setup::layers::IndexRow`).
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LayerRow {
+    app: String,
+    dir: String,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct LayerIndex {
+    #[serde(rename = "cmuxSetupLayers")]
+    format: u32,
+    layers: Vec<LayerRow>,
+}
+
+/// The layers `layers.json` names, top first: (expected app id, folder).
+type Layers = Vec<(String, PathBuf)>;
+/// The rows refused, each with why: (file, reason).
+type Refused = Vec<(PathBuf, String)>;
+
+/// The layers `layers.json` in `root` names, top first: (expected app id,
+/// folder). A row whose folder is not a plain `setup-...` name in `root`,
+/// or whose app is not `local/<folder>`, is refused with why.
+fn setup_layers(root: &Path) -> (Layers, Refused) {
+    let file = root.join(SETUP_LAYERS_INDEX);
+    let Ok(text) = std::fs::read_to_string(&file) else { return (Vec::new(), Vec::new()) };
+    let index: LayerIndex = match serde_json::from_str(&text) {
+        Ok(index) => index,
+        Err(error) => return (Vec::new(), vec![(file, format!("not readable: {error}"))]),
+    };
+    if index.format != 1 {
+        return (
+            Vec::new(),
+            vec![(file, format!("format {} is not one this cmux reads", index.format))],
+        );
+    }
+    let mut layers = Vec::new();
+    let mut refused = Vec::new();
+    for row in index.layers {
+        let plain = row.dir.starts_with("setup-")
+            && row.dir.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-');
+        if !plain || row.app != format!("local/{}", row.dir) {
+            refused.push((file.clone(), format!("{}: not a setup layer ({})", row.app, row.dir)));
+            continue;
+        }
+        if layers.iter().any(|(app, _)| app == &row.app) {
+            continue;
+        }
+        layers.push((row.app, root.join(&row.dir)));
+    }
+    (layers, refused)
 }
 
 /// The customization app's id: its manifest must use it.
 pub const CUSTOMIZE_APP: &str = "local/customize";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum DirKind {
+pub(super) enum DirKind {
     FirstParty,
     Bundled,
     Extra,
     Local,
+    /// A package fetched from a git repository (`<state>/apps/git`).
+    Git,
 }
 
 pub fn load(sources: &Sources) -> Catalog {
@@ -378,6 +535,14 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
                 Ok(package) if package.id == CUSTOMIZE_APP => catalog
                     .rejected
                     .push((dir, format!("{CUSTOMIZE_APP} loads only from the customize folder"))),
+                // A setup's layer is the person's consented install, in its
+                // stated order: only the setups folder's index provides one.
+                Ok(package) if package.id.starts_with(SETUP_LAYER_PREFIX) => {
+                    catalog.rejected.push((
+                        dir,
+                        format!("{}: a setup layer loads only from the setups folder", package.id),
+                    ));
+                }
                 // First source wins: the first-party directory, then bundled,
                 // then local (a local package never shadows a shipped id).
                 Ok(package) if !catalog.packages.contains_key(&package.id) => {
@@ -403,6 +568,7 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
             }
         }
     }
+    super::git_source::load_into(&mut catalog, sources);
     if let Some(dir) = sources
         .customize
         .as_ref()
@@ -419,6 +585,25 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
                 format!("{}: the customize folder holds {CUSTOMIZE_APP} only", package.id),
             )),
             Err(issue) => catalog.rejected.push((dir.clone(), issue)),
+        }
+    }
+    if let Some(root) = &sources.setups {
+        let (layers, refused) = setup_layers(root);
+        catalog.rejected.extend(refused);
+        for (app, dir) in layers {
+            if !dir.join("cmux-app.json").is_file() && !dir.join(V2_MANIFEST).is_file() {
+                continue;
+            }
+            match read(&dir, DirKind::Local) {
+                Ok(package) if package.id == app && !catalog.packages.contains_key(&app) => {
+                    catalog.setup_layers.push(app.clone());
+                    catalog.packages.insert(app, package);
+                }
+                Ok(package) => catalog
+                    .rejected
+                    .push((dir, format!("{}: the layer {app} holds {app} only", package.id))),
+                Err(issue) => catalog.rejected.push((dir, issue)),
+            }
         }
     }
     catalog.defaults = sources.defaults.clone().unwrap_or(shipped_first_party);
@@ -482,7 +667,7 @@ pub(super) mod work {
     }
 }
 
-fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
+pub(super) fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     #[cfg(test)]
     work::count(|w| w.packages_validated += 1);
     let report = cmux_app_manifest::validate_package_file(
@@ -511,14 +696,28 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     }
     // First-party only from the shipped directories (the first-party dir and
     // the samples next to the daemon's real executable): a cmux/ or
-    // manaflow-ai/ id in a CMUX_APPS_DIRS directory is unverified (no native
-    // server, no served ops).
+    // manaflow-ai/ id in a CMUX_APPS_DIRS directory (the store packages) is
+    // Verified when cmux's store key signed exactly these files
+    // (`store_trust`), else unverified (no native server, no served ops).
     let tier = if first_party && matches!(kind, DirKind::FirstParty | DirKind::Bundled) {
         Tier::FirstParty
+    } else if first_party
+        && kind == DirKind::Extra
+        && super::store_trust::verify(
+            dir,
+            &id,
+            manifest.get("version").and_then(Value::as_str).unwrap_or_default(),
+            &super::store_trust::trusted_keys(),
+        )
+        .is_ok()
+    {
+        Tier::Verified
     } else {
         Tier::Unverified
     };
-    let source = if kind == DirKind::Local || publisher == "local" {
+    let source = if kind == DirKind::Git {
+        Source::Git
+    } else if kind == DirKind::Local || publisher == "local" {
         Source::Local
     } else {
         Source::Bundled

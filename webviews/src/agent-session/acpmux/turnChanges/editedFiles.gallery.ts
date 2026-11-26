@@ -1,9 +1,13 @@
 // l10n-allow-file: gallery fixtures (sample prompts, paths and file text), not shipped UI.
 // The edited-files card (conversation/EditedFilesCard.tsx, turnChanges/*) in each of its states
-// (D7): the file rows, "Show N more" past agentPane.editedFiles.maxRows, the hash-checked Undo and
-// its confirmation, a file that changed since the turn, an edit Undo cannot reverse, and the
-// collapsed and never settings. turn.undo answers come from the variant's `native` map, the shape
-// the Swift host (AgentPaneTurnUndo.swift) sends.
+// (D7): its one row, the same row opened into every file's diff stacked under sticky repo-relative
+// names (Leo, 2026-11-25: "what do you think about just having one row that expands out to the
+// widest situation?"), the hash-checked Undo and its confirmation, a file that changed since the
+// turn, an edit Undo cannot reverse, and the collapsed and never settings. turn.undo answers come
+// from the variant's `native` map, the shape the Swift host (AgentPaneTurnUndo.swift) sends. A
+// change opens inline, inside the card (Leo, 2026-11-25: "im saying inline tho. like the jump button
+// can take you out of inline and into its own but i like the option to view inline"); each file's
+// Open in Changes icon is the way to the changes pane; no View changes button.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
@@ -24,6 +28,15 @@ const FILES: Edit[] = [
     newText: `import { tries } from "../../src/net/retry";\ntest("tries", () => expect(tries).toBe(3));\n`,
   },
 ];
+/// A Markdown file and an HTML page the agent wrote (no old text: new files).
+const PLAN: Edit = {
+  path: "/Users/you/src/atlas-web/docs/retry-plan.md",
+  newText: "# Retry plan\n\n- Three tries, 250 ms apart\n- Backoff doubles\n",
+};
+const REPORT: Edit = {
+  path: "/Users/you/src/atlas-web/reports/retries.html",
+  newText: "<!doctype html>\n<title>Retries</title>\n<h1>Retries</h1>\n",
+};
 const FOURTEEN: Edit[] = [
   "src/components/conversation/EditedFilesCard.tsx",
   "src/components/conversation/turnChanges/settings.ts",
@@ -103,18 +116,28 @@ const dryRun = (statuses: Record<string, string>) => ({
   "turn.undo": { files: Object.entries(statuses).map(([path, status]) => ({ path, status })) },
 });
 
-const showMore: Play = async (ctx) => {
-  await setting({ show: "always", maxRows: 3, scope: "turn" })(ctx);
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-edited-more"));
-};
-const expandAll: Play = async (ctx) => {
-  await showMore(ctx);
-  await ctx.click({ selector: ".acpmux-edited-more" });
+/// Two files the agent wrote by their whole paths: the card names them from the chat's folder.
+const ROOT = "/Users/you/src/atlas-web";
+const TWO: Edit[] = [
+  { ...FILES[0]!, path: `${ROOT}/src/net/client.ts` },
+  {
+    ...FILES[2]!,
+    path: `${ROOT}/tools/timer_run.py`,
+    newText: "import time\n\nstart = time.time()\nprint(time.time() - start)\n",
+  },
+];
+const SIX: Edit[] = FOURTEEN.slice(0, 6).map((file) => ({ ...file, path: `${ROOT}/${file.path}` }));
+
+/// Click the card's row; every file's diff opens stacked inside it.
+const openCard: Play = async ({ click, waitFor, document }) => {
+  await waitFor(() => document.querySelector(".acpmux-edited-head"));
+  await click({ selector: ".acpmux-edited-head" });
+  await waitFor(() => document.querySelector(".acpmux-edited-stack .cv-edit-diff__hunks"));
 };
 
 const variants: Record<string, AgentPaneVariant> = {
   "earlier-at-rest": {
-    note: "Two turns that edited files: only the latest card shows Undo and View changes at rest; the earlier card's wait for hover or focus.",
+    note: "Two turns that edited files: each card is one row with its Undo at rest, and opens its changes inside itself; no View changes button.",
     height: 700,
     snapshot: twoTurns(),
     play: async ({ waitFor, document }) => {
@@ -122,29 +145,68 @@ const variants: Record<string, AgentPaneVariant> = {
     },
   },
   "earlier-hovered": {
-    note: "The pointer on the earlier card: its Undo and View changes fade in where they always sit.",
+    note: "The pointer on the earlier card's header: the whole header washes and its chevron lights, the one sign it opens. The counts stay counts.",
     height: 700,
     snapshot: twoTurns(),
     play: async ({ hover, waitFor, document }) => {
       await waitFor(() => document.querySelector(EARLIER));
       await hover({ selector: `${EARLIER} .acpmux-edited-head` });
+      if (document.querySelector(".acpmux-review-changes, .acpmux-edited-summary-link"))
+        throw new Error("the card shows a second way to its changes");
     },
   },
   "earlier-focused": {
-    note: "Tab onto the earlier card's View changes: its buttons show for the keyboard too.",
+    note: "Tab onto the earlier card's chevron, the keyboard way into its stacked diffs; Undo stays where it sits.",
     height: 700,
     snapshot: twoTurns(),
     play: async ({ focus, waitFor, document }) => {
-      await waitFor(() => document.querySelector(`${EARLIER} .acpmux-review-changes`));
-      await focus({ selector: `${EARLIER} .acpmux-review-changes` });
+      await waitFor(() => document.querySelector(`${EARLIER} .acpmux-edited-chevron`));
+      await focus({ selector: `${EARLIER} .acpmux-edited-chevron` });
     },
   },
   "one-file": {
-    note: "One edited file: the card names it; Undo and View changes.",
+    note: "One edited file: the card names it, its counts, Undo and the chevron that opens its diff inside the card.",
     snapshot: turn([FILES[0]!], "Wrap fetch in withRetry"),
   },
+  "inline-diff-open": {
+    note: "Play: click the one-file card's header; the file's diff opens inside the card, its Open in Changes icon in the diff's header.",
+    height: 640,
+    snapshot: turn([FILES[0]!], "Wrap fetch in withRetry"),
+    play: async ({ click, waitFor, document }) => {
+      await waitFor(() => document.querySelector(".acpmux-edited-head"));
+      await click({ selector: ".acpmux-edited-head" });
+      await waitFor(() => document.querySelector(".acpmux-edited-stack .cv-edit-diff"));
+      if (!document.querySelector(".acpmux-edited-stack .acpmux-edited-open"))
+        throw new Error("the opened diff has no Open in Changes");
+    },
+  },
+  narrow: {
+    note: "One edited file with a long name; at the narrow width (240 px for this entry) Undo shrinks to its icon and the name ends in an ellipsis, never under a button.",
+    snapshot: turn([{ ...FILES[0]!, path: "src/net/backoff/policy/jitter/exponentialWithDecorrelatedJitter.ts" }]),
+  },
+  "markdown-one": {
+    note: "One Markdown file the agent wrote: Open beside View changes shows it in cmux's Markdown page.",
+    snapshot: turn([PLAN], "Write up the retry plan"),
+  },
+  "markdown-mixed": {
+    note: "Several files, a Markdown file and an HTML page among them, opened: only the Markdown file's name has Open.",
+    height: 900,
+    snapshot: turn([FILES[0]!, PLAN, REPORT, FILES[1]!], "Add retries, write up the plan and a report page"),
+    play: openCard,
+  },
+  "markdown-twice": {
+    note: "A Markdown file written then edited in one turn: one file, one Open.",
+    snapshot: turn(
+      [
+        PLAN,
+        { path: PLAN.path, oldText: PLAN.newText, newText: PLAN.newText + "\n## Rollout\n\nBehind a setting.\n" },
+        FILES[1]!,
+      ],
+      "Write up the retry plan, then add the rollout",
+    ),
+  },
   "three-files": {
-    note: "Three edited files (one new): the rows with their counts. No row's floating copy action shows at rest.",
+    note: "Three edited files (one new): one row with the totals. No row's floating copy action shows at rest.",
     snapshot: turn(FILES),
     play: async (ctx) => {
       // The prompt's action row: the transcript has drawn. A prompt's bubble row has no floating
@@ -157,17 +219,43 @@ const variants: Record<string, AgentPaneVariant> = {
       }
     },
   },
-  "fourteen-files": {
-    note: "Fourteen files with three rows shown: Show 11 more files. Long directories lose their middle.",
-    height: 560,
-    snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
-    play: showMore,
+  "two-files": {
+    note: "Two edited files: one row, Edited 2 files with the totals, Undo and the chevron. No file rows.",
+    height: 520,
+    snapshot: turn(TWO, "Time the run and retry the fetch"),
+    play: async ({ waitFor, document }) => {
+      await waitFor(() => document.querySelector(".acpmux-edited-head"));
+      if (document.querySelector(".acpmux-edited-file, .acpmux-edited-stack"))
+        throw new Error("the closed card draws more than its one row");
+    },
   },
-  "fourteen-files-expanded": {
-    note: "The same fourteen files after Show 11 more files.",
+  "two-files-open": {
+    note: "Play: click the row; both files' whole diffs stack inside the card, each under its sticky repo-relative name (tools/timer_run.py) with its counts and Open in Changes, the card as wide as the transcript.",
+    height: 820,
+    snapshot: turn(TWO, "Time the run and retry the fetch"),
+    play: openCard,
+  },
+  "six-files": {
+    note: "Six edited files, closed: still one row.",
+    height: 520,
+    snapshot: turn(SIX, "Move the retry policy into its own module"),
+  },
+  "six-files-open": {
+    note: "Play: click the row; six diffs stack in one box at most 60% of the view tall that scrolls once, the name of the file under the top edge pinned there.",
+    height: 900,
+    snapshot: turn(SIX, "Move the retry policy into its own module"),
+    play: async (ctx) => {
+      await openCard(ctx);
+      const stack = ctx.document.querySelector<HTMLElement>(".acpmux-edited-stack")!;
+      stack.scrollTop = 260;
+      await ctx.waitFor(() => stack.scrollTop > 0);
+    },
+  },
+  "fourteen-files-open": {
+    note: "Fourteen files opened: every diff in the one capped box.",
     height: 900,
     snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
-    play: expandAll,
+    play: openCard,
   },
   "undo-pending": {
     note: "After the Undo click: the dry run asks to put back all three files.",
@@ -205,7 +293,12 @@ const variants: Record<string, AgentPaneVariant> = {
     ]),
   },
   "write-without-diff": {
-    note: "Calls with no diff: the fleet Write (content before file_path), a Codex apply_patch, an opencode write, and one with no path (Unknown file).",
+    note: "Calls with no diff, opened: the fleet Write (content before file_path), a Codex apply_patch, an opencode write, and one with no path (Unknown file).",
+    play: async ({ click, waitFor, document }) => {
+      await waitFor(() => document.querySelector(".acpmux-edited-head"));
+      await click({ selector: ".acpmux-edited-head" });
+      await waitFor(() => document.querySelector(".acpmux-edited-stack"));
+    },
     snapshot: chat([
       user("Render the build fleet status", 6),
       activity(
@@ -247,7 +340,7 @@ const variants: Record<string, AgentPaneVariant> = {
     },
   },
   collapsed: {
-    note: "agentPane.editedFiles.show = collapsed: the header only; its chevron shows the rows.",
+    note: "agentPane.editedFiles.show = collapsed: the one row, as always draws it.",
     snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
     play: setting({ show: "collapsed", maxRows: 5, scope: "turn" }),
   },
@@ -263,5 +356,7 @@ export default agentPaneEntry({
   title: "Edited files card",
   area: "Agent pane",
   covers: ["agent-session/acpmux/conversation/EditedFilesCard.tsx"],
+  // Narrow is the card's narrowest layout (cardFit.css: under 260 px Undo is its icon alone).
+  widths: { narrow: 240 },
   variants,
 });

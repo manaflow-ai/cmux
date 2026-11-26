@@ -119,7 +119,29 @@ final class TranscriptLinkElement: NSAccessibilityElement {
     var ref = PartRef(messageId: "", partIndex: 0)
 
     override func isAccessibilityElement() -> Bool { true }
+    /// AXEnabled: CuaDriver (0.32.0) indexes an NSAccessibilityElement, so a client can press it, only when it
+    /// answers AXEnabled, though AppKit lists its AXPress either way (goal agent-shortcut-found, repro on
+    /// a fleet Mac 2026-11-26: the same link with this override indexed, without it not).
+    override func isAccessibilityEnabled() -> Bool { true }
     override func accessibilityPerformPress() -> Bool { controller?.openLink(target, ref: ref) ?? false }
+    /// AXPress in the element's AXActionNames, the list an AX client reads (AXUIElementCopyActionNames).
+    /// AppKit listed it before this override too (a fleet Mac, 2026-11-26); the link stayed unindexed for
+    /// lack of AXEnabled (isAccessibilityEnabled above), not of an action.
+    override func accessibilityActionNames() -> [NSAccessibility.Action] { [.press] }
+    override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
+        if action == .press { _ = accessibilityPerformPress() }
+    }
+    /// The same press as a named action, so VoiceOver's actions menu and an automation client both reach it.
+    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+        [NSAccessibilityCustomAction(name: CmuxStrings.openLinkAction) { [weak self] in self?.accessibilityPerformPress() ?? false }]
+    }
+}
+
+extension CmuxStrings {
+    /// A transcript link's accessibility action (TranscriptLinkElement): opens it as a click does.
+    static var openLinkAction: String {
+        String(localized: "home.transcript.link.open", defaultValue: "Open link", table: "CmuxHome", bundle: MessagesLabLocalization.bundle)
+    }
 }
 
 extension ChatController {

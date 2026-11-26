@@ -54,13 +54,15 @@ final class NewTabButtonView: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layerContentsRedrawPolicy = .never
-        _ = look
+        // The tab bar's +: a tab's corner, as the tabs and the pane's ⋮ beside it (Lawrence 2026-11-20).
+        look.roundsAsTabBarControl = true
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(Strings.axNewTab)
         setAccessibilityIdentifier("cmux.tabs.newTab")
-        // The plus says what it does and that holding it opens the new tab menu (`TabNewTabHold`).
-        themedToolTip = Strings.newTabHoldHint
+        // The plus names what it does, with its shortcut (a1315: a tooltip is the name and the shortcut; holding it
+        // for the new tab menu, `TabNewTabHold`, is no tooltip's to explain).
+        themedToolTip = Strings.axNewTab
     }
 
     @available(*, unavailable)
@@ -111,13 +113,13 @@ final class NewTabButtonView: NSView {
         return true
     }
 
-    /// The split control's corner: the tab's ratio on the +'s own short side (its width beside a tab's height), so the
-    /// `+ ⌄` hover keeps one shape at every density instead of a tab's radius on a narrower button (Lucas 2026-11-15).
+    /// The split control's corner: a tab pill's (``PlusButtonLook/splitCornerRadius``), as the ⋮ beside it rounds.
     static var splitCornerRadius: CGFloat { PlusButtonLook.splitCornerRadius }
 
-    /// The + button's height in the tab strip: the split look's `+ ⌄` is a tab's height, so its hover fill is a tab's
-    /// band; every other look keeps the square button (`side`), centered on the tabs.
-    static func frameHeight(split: Bool, side: CGFloat, tabHeight: CGFloat) -> CGFloat { split ? tabHeight : side }
+    /// The + button's height in the tab strip, in every look: a tab's height (``Metrics/tabBarControlSide``), on the
+    /// tabs' line, so the +, its ⌄ and the pane's ⋮ are one tab-tall size at every density (Lawrence 2026-11-20: "size of
+    /// plus button must be same as size of these buttons"; 2026-11-23: "as tall as the tabs themselves").
+    static var frameHeight: CGFloat { Metrics.tabBarControlSide }
 }
 
 /// Flipped container with no event handling of its own.

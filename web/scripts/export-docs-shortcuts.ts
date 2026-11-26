@@ -1,9 +1,9 @@
 // Writes web/data/cmux-shortcuts.generated.json, the copy of the cmux-next
 // action catalog's keyboard shortcuts that the docs pages read
-// (DOCS-SHORTCUTS-FROM-CATALOG). web/ never reads plans/ at build time; run
-// this after the catalog export changes:
+// (DOCS-SHORTCUTS-FROM-CATALOG). web/ never reads plans/ at build time. Only
+// the base autofix runs this and commits the copy, after each merge (RFD 0048):
 //   bun web/scripts/export-docs-shortcuts.ts
-// web/tests/docs-shortcuts.test.ts fails until the copy is fresh.
+// A pull request carries no copy; web/tests/docs-shortcuts.test.ts builds the page from the catalog.
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";

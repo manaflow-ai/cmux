@@ -20,9 +20,12 @@ the console. The warm-up has no deadline: AppKit makes an NSOpenPanel only on th
 service first, so an app of the console user whose panel service hangs still blocks its main thread once, up to
 about 40 s (open; plans/cmux-next/picker.md).
 
-The session rule (the same as the hq worker gate, build-fleet console_session.go readConsoleUser, and the app's
-open-panel warm-up, CmuxNextDesign OpenPanelWarmGate; change all three together): the console user is the `Name` of SCDynamicStore `State:/Users/ConsoleUser` (`scutil`); `loginwindow`,
-no such key, or no answer at all means nobody, and the check fails closed. This account has a GUI session only
+The session rule (the same as the hq worker gate that grants gui-session-v1, build-fleet console_session.go
+readConsoleUser, and the app's open-panel warm-up, CmuxNextDesign OpenPanelWarmGate; change all three together; a
+shell script asks `bench_launch.py console-user`): the console user is the session
+IOConsoleUsers marks kCGSSessionOnConsoleKey (`ioreg -n Root -d1 -a`), not scutil's State:/Users/ConsoleUser `Name`,
+which is the last GUI login (a hidden Screen Sharing account on a gui-ci-users mini); `loginwindow`, no on-console
+session, or no answer at all means nobody, and the check fails closed. This account has a GUI session only
 when it is that user. A locked screen is reported (`screen_locked`, from IOConsoleUsers) but does not fail the
 check.
 `launch()` checks the session first and raises LaunchError("no-gui-session") at once; every other failure gets its
@@ -341,6 +344,33 @@ def start_fresh_state(tag):
         note(f"bench-launch: {tag} starts from an empty saved session (earlier state moved to {prev})")
 
 
+def bundle_executable(app):
+    """The main executable of bundle app: Info.plist's CFBundleExecutable. A bench (Release) build's is not `cmux DEV`
+    (close-flash job 12728f0a2b37 started a `cmux DEV` that was not there; bench_idle.py and home-perf.py found "no
+    app" in every perf-budgets run on a bench build), and the first file in Contents/MacOS can be another executable;
+    only a bundle with no Info.plist falls back to those guesses. Every bench that starts or checks the app's
+    executable reads it here (test_bench_launch_executable.py refuses a hard-coded `Contents/MacOS/cmux DEV` in the
+    perf-budgets benches and the modules they load)."""
+    try:
+        with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
+            info = plistlib.load(f)
+    except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
+        info = None
+    named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
+    if named:
+        main = os.path.join(app, "Contents/MacOS", named)
+        if not os.path.exists(main):
+            raise SystemExit(f"bench-launch: {app} names CFBundleExecutable {named!r}, which is not in Contents/MacOS")
+        return main
+    main = os.path.join(app, "Contents/MacOS/cmux DEV")
+    if os.path.exists(main):
+        return main
+    found = [p for p in sorted(glob.glob(os.path.join(app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
+    if not found:
+        raise SystemExit(f"bench-launch: no executable in {app}/Contents/MacOS")
+    return found[0]
+
+
 def bundle_pids(app, inside="Contents/"):
     """PIDs of processes running an executable inside the bundle `app` (under `inside`), other than this one."""
     out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
@@ -431,27 +461,8 @@ def unique_paths(paths):
     return out
 
 
-def console_user():
-    """The user logged in on the console (SCDynamicStore State:/Users/ConsoleUser), or None at the login window.
-
-    Not /dev/console's owner (it reads root on a mini whose cmux session is up) and not `who` (it keeps console
-    lines of sessions that ended or went to the background)."""
-    try:
-        out = subprocess.run(["/usr/sbin/scutil"], input="show State:/Users/ConsoleUser\n", capture_output=True,
-                             text=True, timeout=10).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        out = ""
-    match = re.search(r"^\s*Name : (\S+)", out, re.M)
-    if match:
-        return None if match.group(1) == "loginwindow" else match.group(1)
-    # No such key, a dictionary with no name, or no answer at all: nobody, fail closed like the hq worker gate (not
-    # /dev/console's owner, which disagrees with scutil).
-    return None
-
-
-def screen_locked(user):
-    """Whether `user`'s console session has its screen locked (IOConsoleUsers CGSSessionScreenIsLocked), None
-    when ioreg does not say. Reported only: the session rule does not use it."""
+def console_sessions():
+    """IOConsoleUsers from `ioreg -n Root -d1 -a` (a list of session dicts), or None when ioreg does not answer."""
     try:
         import plistlib
         out = subprocess.run(["/usr/sbin/ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, timeout=10).stdout
@@ -460,10 +471,41 @@ def screen_locked(user):
         return None
     if isinstance(root, list):
         root = root[0] if root else {}
-    for entry in root.get("IOConsoleUsers") or []:
-        if entry.get("kCGSSessionUserNameKey") == user and entry.get("kCGSSessionOnConsoleKey"):
-            return bool(entry.get("CGSSessionScreenIsLocked", False))
+    if not isinstance(root, dict):
+        return None
+    return [e for e in root.get("IOConsoleUsers") or [] if isinstance(e, dict)]
+
+
+def on_console_session():
+    """The IOConsoleUsers entry WindowServer has on the physical console (kCGSSessionOnConsoleKey true, login done),
+    or None."""
+    for entry in console_sessions() or []:
+        if entry.get("kCGSSessionOnConsoleKey") and entry.get("kCGSessionLoginDoneKey", True):
+            return entry
     return None
+
+
+def console_user():
+    """The account whose session is on the console (IOConsoleUsers kCGSSessionOnConsoleKey), or None at the login
+    window or when ioreg does not answer (fail closed).
+
+    The same read as the hq worker that grants gui-session-v1 (build-fleet console_session.go readConsoleUser,
+    hq#13240). Not scutil's State:/Users/ConsoleUser Name, not /dev/console's owner and not `who`: those name the
+    last GUI login, and a hidden Screen Sharing login (fleet gui-ci-users' cmuxci-gui-0N) moves them while the build
+    user keeps the console. 2026-11-19, step 8c947a3b on cmux9s: the worker started the step in cmux's session and
+    this check, then reading scutil, refused it as no-gui-session after a 20 min build."""
+    entry = on_console_session()
+    name = entry.get("kCGSSessionUserNameKey") if entry else None
+    return None if not name or name == "loginwindow" else name
+
+
+def screen_locked(user):
+    """Whether `user`'s console session has its screen locked (IOConsoleUsers CGSSessionScreenIsLocked), None
+    when ioreg does not say. Reported only: the session rule does not use it."""
+    entry = on_console_session()
+    if entry is None or entry.get("kCGSSessionUserNameKey") != user:
+        return None
+    return bool(entry.get("CGSSessionScreenIsLocked", False))
 
 
 def gui_session():
@@ -941,6 +983,62 @@ def crash_summary(path, lines=40):
     return "\n".join(text.splitlines()[:lines])
 
 
+LAUNCH_MODES = ("direct", "launchservices")
+
+
+class LaunchedPid:
+    """The app a LaunchServices launch started (`open -n`), with the part of Popen's interface BenchApp uses.
+
+    `open` hands the app to launchd, so it is not this script's child: `poll` and `wait` watch its PID, and its exit
+    status is unknown (`returncode` is 1 once it is gone). `terminate` and `kill` signal only that PID, which
+    `BenchApp.launch` found as the one new process of this bundle after its own `open` call."""
+
+    def __init__(self, pid):
+        self.pid = pid
+        self.returncode = None
+
+    def poll(self):
+        if self.returncode is None:
+            try:
+                os.kill(self.pid, 0)
+            except ProcessLookupError:
+                self.returncode = 1
+            except PermissionError:
+                pass
+        return self.returncode
+
+    def wait(self, timeout=None):
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while self.poll() is None:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise subprocess.TimeoutExpired(f"pid {self.pid}", timeout)
+            time.sleep(0.1)  # bounded by `timeout`: the app is launchd's child, so there is no waitpid
+        return self.returncode
+
+    def _signal(self, sig):
+        if self.poll() is None:
+            try:
+                os.kill(self.pid, sig)
+            except ProcessLookupError:
+                pass
+
+    def terminate(self):
+        self._signal(signal.SIGTERM)
+
+    def kill(self):
+        self._signal(signal.SIGKILL)
+
+
+def open_command(app, env, log_path):
+    """`/usr/bin/open` arguments that start a new instance of `app` through LaunchServices, as Finder or the Dock
+    start it (an app role and its normal scheduling, not the launching shell's), with `env` added to launchd's
+    environment and its output appended to `log_path`."""
+    command = ["/usr/bin/open", "-n", "-a", app]
+    for key, value in sorted(env.items()):
+        command += ["--env", f"{key}={value}"]
+    return command + ["--stdout", log_path, "--stderr", log_path]
+
+
 class BenchApp:
     """A tagged DEV app launched for a bench, its socket, and its teardown.
 
@@ -950,11 +1048,16 @@ class BenchApp:
     tests pass a stub). `socket_only=True` launches without a GUI session for a check that reads only the socket
     and the window list: its failure reports carry `socket_only` and `gui_session`, and its crash or exit is
     reported as such, not as no-gui-session. A bench that measures frames never passes it.
+    `launch` is `direct` (default: the app is this script's child, and inherits its scheduling, which on a fleet
+    worker is the worker's utility clamp) or `launchservices` (`open -n`, as a person's Finder or Dock launch).
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
-                 fresh_state=True):
+                 fresh_state=True, launch="direct"):
+        if launch not in LAUNCH_MODES:
+            raise ValueError(f"launch must be one of {LAUNCH_MODES}, not {launch!r}")
+        self.launch_mode = launch
         self.low_power_mode_ok = low_power_mode_ok
         self.fresh_state = fresh_state
         self.app = os.path.realpath(app).rstrip("/")
@@ -984,27 +1087,8 @@ class BenchApp:
 
     @property
     def binary(self):
-        """The bundle's main executable: Info.plist's CFBundleExecutable. A bench (Release) build's is not `cmux DEV`
-        (close-flash job 12728f0a2b37 started a `cmux DEV` that was not there), and the first file in Contents/MacOS
-        can be another executable; only a bundle with no Info.plist falls back to those guesses."""
-        try:
-            with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as f:
-                info = plistlib.load(f)
-        except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
-            info = None
-        named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
-        if named:
-            main = os.path.join(self.app, "Contents/MacOS", named)
-            if not os.path.exists(main):
-                raise SystemExit(f"bench-launch: {self.app} names CFBundleExecutable {named!r}, which is not in Contents/MacOS")
-            return main
-        main = os.path.join(self.app, "Contents/MacOS/cmux DEV")
-        if os.path.exists(main):
-            return main
-        found = [p for p in sorted(glob.glob(os.path.join(self.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
-        if not found:
-            raise SystemExit(f"bench-launch: no executable in {self.app}/Contents/MacOS")
-        return found[0]
+        """The bundle's main executable (bundle_executable)."""
+        return bundle_executable(self.app)
 
     def running_pids(self):
         """PIDs of processes running an executable of this bundle (another run of the same app)."""
@@ -1096,12 +1180,16 @@ class BenchApp:
         try:
             with finder_limits() as changed:
                 self.launched_at = time.time()
-                self.process = subprocess.Popen([self.binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+                if self.launch_mode == "launchservices":
+                    self.process = self._open_through_launchservices(env, log)
+                else:
+                    self.process = subprocess.Popen([self.binary], env=env, stdout=log, stderr=log,
+                                                    stdin=subprocess.DEVNULL)
         except LaunchError as error:
             log.close()
             self._fail(error.reason, {"tag": self.tag, **host_facts(), **error.report})
         self.limits = limits_line(changed)
-        note(f"bench-launch: {self.tag} pid {self.process.pid}, limits {self.limits}")
+        note(f"bench-launch: {self.tag} pid {self.process.pid} ({self.launch_mode}), limits {self.limits}")
         if on_start:
             on_start(self.process)
         start = time.monotonic()
@@ -1124,6 +1212,26 @@ class BenchApp:
             time.sleep(0.25)  # the poll interval
         log.flush()
         self._fail(*self.diagnose(last, timeout))
+
+    def _open_through_launchservices(self, env, log, timeout=30):
+        """Starts the app with `open -n` and returns its process (``LaunchedPid``): the one process of this bundle
+        that was not running before the call (launch() refused to start beside a running one)."""
+        before = set(self.running_pids())
+        log.flush()
+        result = subprocess.run(open_command(self.app, env, self.log_path), capture_output=True, text=True,
+                                timeout=timeout)
+        if result.returncode != 0:
+            raise LaunchError("open-failed", {"detail": f"open -n exited {result.returncode}: "
+                                                        f"{(result.stderr or result.stdout).strip()[:400]}"})
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:  # bounded: the app's process appears right after `open` returns
+            main = os.path.relpath(self.binary, self.app)
+            new = [pid for pid in bundle_pids(self.app, main) if pid not in before]
+            if new:
+                return LaunchedPid(min(new))
+            time.sleep(0.1)
+        raise LaunchError("open-no-process", {"detail": f"open -n returned, but no process of {self.binary} "
+                                                        f"appeared within {timeout} s"})
 
     def _fail(self, reason, report):
         report.setdefault("gui_session", self.gui_session)
@@ -1190,7 +1298,7 @@ class BenchApp:
         pid = self.process.pid if self.process else None
 
         def found():
-            return crash_reports(self.launched_at - 1, pid=pid, binary=self.binary)
+            return crash_reports(self.launched_at - 1, name=os.path.basename(self.binary), pid=pid, binary=self.binary)
 
         if exit_code is None or exit_code >= 0:
             return found()
@@ -1206,7 +1314,7 @@ class BenchApp:
             while True:
                 # Each report file seen is watched before the read below, so one whose body is still being written
                 # wakes the wait when it grows; reading after the watches are armed misses nothing written meanwhile.
-                for path in crash_report_candidates(self.launched_at - 1):
+                for path in crash_report_candidates(self.launched_at - 1, os.path.basename(self.binary)):
                     events.watch_file(path)
                 reports = found()
                 left = deadline - time.monotonic()
@@ -1274,6 +1382,8 @@ def main(argv=None):
                        help="launch even with no GUI session: only the socket and the window list are checked, no "
                             "frames; the result says socket_only and gui_session")
     sub.add_parser("session", help="only report whether this account has a GUI session")
+    sub.add_parser("console-user", help="print the account whose session is on the console (IOConsoleUsers), or "
+                                        "nothing: the one reader for scripts (scripts/ci/frame-pacing/console-session.sh)")
     sub.add_parser("limits", help="launchd's soft limits (a Finder launch's) and this process's, one JSON line")
     finder = sub.add_parser("finder-exec", help="run COMMAND with launchd's soft limits, as a Finder launch gets")
     finder.add_argument("cmd", nargs=argparse.REMAINDER, metavar="-- COMMAND")
@@ -1294,6 +1404,11 @@ def main(argv=None):
                 os.execvp(cmd[0], cmd)  # the limits set here are the command's (exec keeps them)
             except OSError as error:
                 parser.error(f"finder-exec: cannot run {cmd[0]}: {error}")
+    if opts.command == "console-user":
+        user = console_user()
+        if user:
+            print(user, flush=True)
+        return 0
     if opts.command == "session":
         result = {**host_facts(), "gui_session": gui_session()}
         print("BENCH-LAUNCH " + json.dumps(result), flush=True)

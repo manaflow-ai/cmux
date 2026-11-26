@@ -10,6 +10,8 @@ description = "The cmux NEXT Cloud action handlers' rules (pure; the macOS app a
 [dependencies]
 # The one `--repo` parser, the machine bootstrap's (src/repo.rs).
 cmux-cloud-start-core = { workspace = true }
+# The disk bar's view , the one the Cloud page draws.
+cmux-cloud-disk = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 

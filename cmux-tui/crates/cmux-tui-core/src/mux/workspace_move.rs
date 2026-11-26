@@ -103,7 +103,11 @@ impl Mux {
             state.active_workspace = active_id
                 .and_then(|id| state.workspace_index(id))
                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));
-            Self::rebuild_split_screen_index(&mut state);
+            Self::reindex_workspace_positions(
+                &mut state,
+                old_idx.min(new_idx),
+                old_idx.max(new_idx),
+            );
             state.workspace_revision = commit.revision;
             state.resource_revision = resource_revision;
             let workspace_revision = commit.revision;

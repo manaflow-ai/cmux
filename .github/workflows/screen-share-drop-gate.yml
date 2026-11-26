@@ -1,0 +1,98 @@
+# Screen Sharing comes back by itself after a full network drop: the netem probe's 10 s and 60 s
+# drop rows (cmux-tui/crates/cmux-rd-host/scripts/screen-share-netem.py) as a gate.
+#
+# The real `cmux-rd serve` host and a `cmux-rd bench --link` viewer, in two network namespaces
+# joined by a tc-netem veth, lose every packet both ways for 10 s, then (fresh sessions) for 60 s.
+# Each attempt must get frames back without a new session once the network returns, within
+# GATE_RECOVERY_MS; the step fails naming each attempt that did not. This is the host and link half
+# of the iPhone viewer's drop recovery (cmux#42195: the viewer reattaches to the same approved
+# session instead of showing the ended card); the host keeps that session for 90 s of silence
+# (cmux-rd-host stream.rs REATTACH_GRACE_NS), so both rows must recover.
+#
+# Triggers: a PR into feat-cmux-next that touches the host, the link, the transport under it, the
+# probe or this file (pr-router.yml calls it; its paths are scripts/ci/pr_router.json's); a push to
+# feat-cmux-next with the same paths; workflow_dispatch.
+name: screen-share-drop-gate
+
+on:
+  workflow_call:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/cmux-rd-host/**"
+      - "cmux-tui/crates/cmux-rd-link/**"
+      - "cmux-tui/crates/cmux-rd-proto/**"
+      - "cmux-tui/crates/cmux-transport/**"
+      - ".github/workflows/screen-share-drop-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: screen-share-drop-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CMUX_GHOSTTY_SRC: ""
+  # Frames back within this long of the network's return (the link's own test: a couple of seconds).
+  GATE_RECOVERY_MS: "5000"
+
+jobs:
+  drop-gate:
+    name: screen share recovers after 10 s and 60 s drops
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Install the probe's tools and build dependencies
+        run: |
+          set -euo pipefail
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config xvfb iproute2 ethtool >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config xvfb iproute2 ethtool: already installed"
+          else
+            sudo apt-get update -q
+            sudo apt-get install -y -q clang libclang-dev pkg-config xvfb iproute2 ethtool
+          fi
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The release features (cmux-rd-release.yml, machine-join-e2e.yml) plus `bench`, the viewer the probe
+      # drives (release builds leave it out): Cisco's OpenH264,
+      # downloaded at run time, and the link. cmux-rd-host is its own Cargo workspace.
+      - name: Build cmux-rd
+        id: cmuxrd
+        run: |
+          set -euo pipefail
+          manifest=cmux-tui/crates/cmux-rd-host/Cargo.toml
+          cargo build --locked --manifest-path "$manifest" --no-default-features --features bench,openh264,link --bin cmux-rd
+          target_dir="$(cargo metadata --format-version 1 --no-deps --manifest-path "$manifest" | jq -r .target_directory)"
+          echo "bin=$target_dir/debug/cmux-rd" >> "$GITHUB_OUTPUT"
+
+      - name: Probe unit tests
+        run: python3 cmux-tui/crates/cmux-rd-host/scripts/test_screen_share_netem.py
+
+      - name: 10 s and 60 s full drops recover
+        env:
+          BIN: ${{ steps.cmuxrd.outputs.bin }}
+        run: |
+          set -uo pipefail
+          out="$RUNNER_TEMP/screen-share-drop-gate.jsonl"
+          status=0
+          sudo -E python3 cmux-tui/crates/cmux-rd-host/scripts/screen-share-netem.py "$BIN" \
+            --rtt 50 --loss 0 --attempts 2 --samples 10 --blip-at 3 \
+            --drop-seconds 10 --drop-seconds 60 \
+            --gate-recovery-ms "$GATE_RECOVERY_MS" --out "$out" || status=$?
+          if [[ -s "$out" ]]; then
+            python3 cmux-tui/crates/cmux-rd-host/scripts/screen-share-netem-summary.py "$out" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [[ "$status" -ne 0 ]]; then
+            echo "::error title=screen share drop gate::a full drop did not recover within ${GATE_RECOVERY_MS} ms (the step log names each attempt)"
+          fi
+          exit "$status"

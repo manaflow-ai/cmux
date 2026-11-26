@@ -242,6 +242,30 @@ fn automatic_keeps_the_popup_for_safari_only() {
 }
 
 #[test]
+fn automatic_opens_the_in_app_tab_when_the_app_can() {
+    let safari = Some("com.apple.Safari");
+    let edge = Some("com.microsoft.edgemac");
+    for browser in [safari, edge, None] {
+        assert_eq!(sign_in_place(SignInWindow::Automatic, browser, true), SignInPlace::InApp);
+        assert_eq!(sign_in_place(SignInWindow::InApp, browser, true), SignInPlace::InApp);
+    }
+    // No in-app browser: the old rule, popup with Safari, else the default browser.
+    assert_eq!(sign_in_place(SignInWindow::Automatic, safari, false), SignInPlace::Popup);
+    assert_eq!(sign_in_place(SignInWindow::Automatic, None, false), SignInPlace::Popup);
+    assert_eq!(sign_in_place(SignInWindow::Automatic, edge, false), SignInPlace::DefaultBrowser);
+    assert_eq!(sign_in_place(SignInWindow::InApp, edge, false), SignInPlace::DefaultBrowser);
+    // The Debug Settings choices stay what they name.
+    assert_eq!(sign_in_place(SignInWindow::Popup, edge, true), SignInPlace::Popup);
+    assert_eq!(
+        sign_in_place(SignInWindow::DefaultBrowser, safari, true),
+        SignInPlace::DefaultBrowser
+    );
+    // The old answer is unchanged for the old choices.
+    assert!(!opens_default_browser(SignInWindow::InApp, safari));
+    assert!(opens_default_browser(SignInWindow::InApp, edge));
+}
+
+#[test]
 fn a_waiting_creation_survives_only_its_own_sign_in() {
     let s = |v: &str| Some(v.to_owned());
     assert!(creation_survives_scope_change(&[None, None], &[s("u"), None]));

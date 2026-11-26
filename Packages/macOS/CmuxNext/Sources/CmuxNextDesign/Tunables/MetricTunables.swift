@@ -64,7 +64,7 @@ public nonisolated enum MetricTunables {
     public static let roomDotDiameter = MetricTunable.make("roomDotDiameter", .sidebar, "Room dot size", help: "Drawn size of a room dot at the sidebar bottom.",
                                                            compact: 8, comfortable: 9)
     public static let roomDotSlot = MetricTunable.make("roomDotSlot", .sidebar, "Room dot hit width", help: "Hit target width of each room dot.",
-                                                       compact: 24, comfortable: 32)
+                                                       compact: 24, comfortable: 32, key: .spaceButtonSpacing)
 
     // MARK: Tabs
 
@@ -135,13 +135,18 @@ public nonisolated enum MetricTunables {
     public static let iconSize = MetricTunable.make("iconSize", .shape, "Icon size", help: "Tab, row and toolbar icons.", compact: 14, comfortable: 16, glyph: true)
     public static let smallIconSize = MetricTunable.make("smallIconSize", .shape, "Small icon size", help: "Secondary glyphs and trailing buttons.",
                                                          compact: 12, comfortable: 14, glyph: true)
-    public static let scrollEdgeFade = MetricTunable.make("scrollEdgeFade", .focus, "Scroll edge fade", help: "Height of the fade where a list hides content.",
-                                                          compact: 18, comfortable: 22)
+    public static let scrollEdgeFade = MetricTunable.make("scrollEdgeFade", .focus, "Scroll edge fade", help: "Height of the fade at a list's top where it hides content.",
+                                                          compact: 20, comfortable: 24)
+    /// Taller than the top's: rows roll out gradually over the footer, with no hard edge (Leo 2026-11-22: "doesn't
+    /// show enough sidebar properly gradually there's simultaneously a fade AND a hard break").
+    public static let scrollEdgeFadeBottom = MetricTunable.make("scrollEdgeFadeBottom", .focus, "Scroll edge fade, bottom",
+                                                                help: "Height of the fade at a list's bottom where it hides content.",
+                                                                compact: 38, comfortable: 44)
 
     /// Every density metric, in Debug Settings order.
     public static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
          tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
-         columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
+         columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, iconSize, smallIconSize, scrollEdgeFade, scrollEdgeFadeBottom]
     }
 }

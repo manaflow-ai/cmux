@@ -85,6 +85,7 @@ extension PageWebView {
         state.start = .now
         if let script = Self.attributesScript(documentAttributes) { webView.evaluateJavaScript(script, completionHandler: nil) }
         applyTheme(force: true)
+        applyLanguage()
         applyLiveDocumentAttributes()
         let params: JSONValue = route.map { ["route": .string($0)] } ?? .object([:])
         let router = router
@@ -132,6 +133,7 @@ extension PageWebView {
     /// a fragment navigation in WebKit, so this reloads from script).
     func reloadDocument() {
         let fragment = route ?? "/"
+        // retry-prompt-ok: page script reloading its own document after a claim, not text a person reads
         webView.evaluateJavaScript("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();",
                                    completionHandler: nil)
     }
