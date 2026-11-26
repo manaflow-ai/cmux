@@ -36,7 +36,11 @@ impl Hub {
         let Some(current) = self.peer(peer).filter(|p| p.generation == generation) else {
             return;
         };
-        current.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
+        {
+            let _rows = self.remote_sessions.fence();
+            current.rows_ready.store(false, std::sync::atomic::Ordering::SeqCst);
+            current.purge_tombstones.link_ended();
+        }
         self.peer_snapshots.flush(Some(peer));
         self.mark_peer_unreachable(peer, generation);
     }
