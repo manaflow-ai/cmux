@@ -333,15 +333,15 @@ fn unpack(archive: &[u8], strip: usize) -> Result<BTreeMap<String, (Vec<u8>, boo
             .spawn()?;
         let mut stdin = child.stdin.take().ok_or("xz has no stdin")?;
         let stdout = child.stdout.take().ok_or("xz has no stdout")?;
-        let out = std::thread::scope(|scope| -> Result<_> {
-            let feeder = scope.spawn(move || {
+        let (out, fed) = std::thread::scope(|s| {
+            let feeder = s.spawn(move || {
                 use std::io::Write as _;
                 stdin.write_all(archive)
             });
             let out = read_tar(stdout, strip);
-            feeder.join().map_err(|_| "xz feeder panicked")??;
-            Ok(out)
-        })?;
+            (out, feeder.join())
+        });
+        fed.map_err(|_| "xz feeder panicked")??;
         let status = child.wait()?;
         if !status.success() {
             return Err("xz could not decompress the archive".into());

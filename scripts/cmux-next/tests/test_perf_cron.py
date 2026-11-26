@@ -1922,6 +1922,17 @@ class WebUiTests(unittest.TestCase):
             "chat-switch|   left alone for 10 s: 1 wakeups (1 timeouts, 0 intervals); setTimeout at a.ts:3"])
         self.assertEqual(cron.webui_wakeup_lines(None), [])
 
+    def test_the_ladder_lines_carry_each_rung_value(self):
+        stdout = ("web-ui-suite: sim-ladder\n"
+                  "  sim-ladder| SIM-LADDER chats x50 {\"cpu_ms_per_s\":55} renderers 56\n"
+                  "  sim-ladder| SIM-LADDER chats cpu_window_ms_per_s 105 / 126 / 97 | per item 0.53 then -0.58 | ratio -1.1\n"
+                  "  sim-ladder| SIM-LADDER-SUMMARY tabs x100 cpu_window 106 cpu 78 pss 1825 heap 300 load_collection 2010 ms\n"
+                  "PERF_ROW {\"name\": \"sim_ladder.ratio_max\"}\n")
+        self.assertEqual(cron.webui_ladder_lines(stdout), [
+            "sim-ladder| SIM-LADDER chats cpu_window_ms_per_s 105 / 126 / 97 | per item 0.53 then -0.58 | ratio -1.1",
+            "sim-ladder| SIM-LADDER-SUMMARY tabs x100 cpu_window 106 cpu 78 pss 1825 heap 300 load_collection 2010 ms"])
+        self.assertEqual(cron.webui_ladder_lines(None), [])
+
     def test_the_summary_is_slowest_first_relative_to_target(self):
         lines = cron.webui_summary({**self.REPORT, "failed": [{"bench": "chat-open", "why": "exit 1"}]})
         names = [line.split(" | ")[0].lstrip("| ") for line in lines[2:] if line.startswith("|")]
@@ -2709,6 +2720,24 @@ class ControllerRouteTests(unittest.TestCase):
             entry = cron.record_part(cur, "build", refused, "r")
         self.assertEqual(entry["state"], "yielded_out", "bounded: a fleet that keeps refusing ends it")
         self.assertIn("motion", cur["parts_todo"], "a yielded-out build is no build failure: the next part builds")
+
+    def test_a_reviewed_check_refusal_is_a_yield_not_a_build_failure(self):
+        # Tip 60a23ed3 on 2026-11-26: the controller restarted and its reviewed-script check, which runs before the
+        # step, could not fetch main; the build part's failure ended motion, switch and tabs as build_failed.
+        error = ("ci-step reviewed check: no reviewed tip could be fetched for scripts/measure/split-spring.sh at "
+                 "60a23ed343cf (main: not fetched (git: unable to access "
+                 "'http://controller.invalid/v1/git/manaflow-ai/c")  # the state's why, cut at 200 characters
+        refused = cron.result_files(json.loads(self.result(part="build", state="failed", error=error)))
+        self.assertEqual(refused["state"], "yielded")
+        self.assertFalse(refused["build_failed"], "the check ran before the step: no build ran")
+        cur = cron.new_measurement(self.SHA, "tip", ["build", "motion", "switch", "tabs"], T0)
+        cron.record_part(cur, "build", refused, "r")
+        self.assertEqual(cur["parts_todo"], ["build", "motion", "switch", "tabs"], "every Mac part still to do")
+        # A build that ran and printed the words in its own log is still a build failure: only the controller's
+        # error line, at its start, is the check's.
+        ran = cron.result_files(json.loads(self.result(part="build", state="failed",
+                                                          error="step exited 65: see ci-step reviewed check: notes")))
+        self.assertTrue(ran["build_failed"])
 
     def test_fetch_result_reads_the_signed_artifact(self):
         out = tempfile.mkdtemp()
