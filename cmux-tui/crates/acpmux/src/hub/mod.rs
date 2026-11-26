@@ -305,6 +305,7 @@ mod queue;
 mod queue_admission;
 mod queue_edit;
 pub(crate) mod queue_origin;
+mod queued_turn;
 pub mod races;
 pub(crate) mod rate_hold;
 mod recent_creates;
@@ -2619,6 +2620,7 @@ impl Hub {
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
             sign_in_refused_turn: StdMutex::new(None),
+            queued_prompt: StdMutex::new(Default::default()),
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
