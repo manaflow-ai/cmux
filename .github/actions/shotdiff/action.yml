@@ -1,0 +1,74 @@
+name: Compare screenshots with goldens (shotdiff)
+description: >-
+  The one screenshot check every platform uses (iOS and macOS on Linux, the Linux and Windows apps, the web
+  views): compares a directory of PNGs with the goldens a manifest names (SSIM, worst 32x32 tile, moved pixels,
+  per-region bounds or ignores) and writes the table to the job summary. Goldens are content-addressed in a
+  store (a directory, or s3://BUCKET/PREFIX with SHOTDIFF_S3_ENDPOINT for R2). See scripts/ci/shotdiff.py.
+
+inputs:
+  shots:
+    description: Directory of this run's PNGs; a surface is a path under it without .png.
+    required: true
+  manifest:
+    description: The goldens manifest (JSON, committed).
+    required: true
+  store:
+    description: The golden store (a directory, or s3://BUCKET/PREFIX).
+    required: true
+  title:
+    description: The summary section's heading.
+    default: Screenshots vs goldens
+  warn-only:
+    description: "`true`: report and warn, never fail the step."
+    default: "false"
+  diff-dir:
+    description: Where a failed surface's diff picture goes (upload it yourself); empty for none.
+    default: ""
+
+outputs:
+  result:
+    description: "`pass` or `fail` (with warn-only the step passes either way)."
+    value: ${{ steps.check.outputs.result }}
+  json:
+    description: Path of the per-surface JSON result.
+    value: ${{ steps.check.outputs.json }}
+
+runs:
+  using: composite
+  steps:
+    - name: Provide numpy and Pillow
+      shell: bash
+      run: |
+        set -euo pipefail
+        venv="$RUNNER_TEMP/shotdiff-venv"
+        if [ ! -x "$venv/bin/python" ]; then
+          python3 -m venv "$venv"
+          "$venv/bin/python" -m pip install --disable-pip-version-check -q 'numpy==2.3.5' 'pillow==12.0.0'
+        fi
+    - name: Compare screenshots with goldens
+      id: check
+      shell: bash
+      env:
+        SHOTS: ${{ inputs.shots }}
+        MANIFEST: ${{ inputs.manifest }}
+        STORE: ${{ inputs.store }}
+        TITLE: ${{ inputs.title }}
+        WARN_ONLY: ${{ inputs.warn-only }}
+        DIFF_DIR: ${{ inputs.diff-dir }}
+        SCRIPT: ${{ github.action_path }}/../../../scripts/ci/shotdiff.py
+      run: |
+        set -uo pipefail
+        out="$RUNNER_TEMP/shotdiff-$(date +%s%N).json"
+        args=(check --manifest "$MANIFEST" --store "$STORE" --shots "$SHOTS" --title "$TITLE"
+              --report "$GITHUB_STEP_SUMMARY" --json-out "$out")
+        [ -n "$DIFF_DIR" ] && args+=(--diff-dir "$DIFF_DIR")
+        "$RUNNER_TEMP/shotdiff-venv/bin/python" -I "$SCRIPT" "${args[@]}"
+        status=$?
+        echo "json=$out" >> "$GITHUB_OUTPUT"
+        if [ "$status" = 0 ]; then echo "result=pass" >> "$GITHUB_OUTPUT"; exit 0; fi
+        echo "result=fail" >> "$GITHUB_OUTPUT"
+        if [ "$status" = 1 ] && [ "$WARN_ONLY" = "true" ]; then
+          echo "::warning::shotdiff: screenshots outside their goldens' bounds (see the job summary)"
+          exit 0
+        fi
+        exit "$status"

@@ -121,12 +121,16 @@ def _blur(a: "np.ndarray", k: "np.ndarray") -> "np.ndarray":
     r = len(k) // 2
     p = np.pad(a, r, mode="edge")
     h, w = a.shape
-    rows = np.zeros((h + 2 * r, w), dtype=np.float64)
+    rows = np.zeros((h + 2 * r, w), dtype=np.float32)
+    tmp = np.empty_like(rows)
     for i, weight in enumerate(k):
-        rows += weight * p[:, i:i + w]
-    out = np.zeros((h, w), dtype=np.float64)
+        np.multiply(p[:, i:i + w], np.float32(weight), out=tmp)
+        rows += tmp
+    out = np.zeros((h, w), dtype=np.float32)
+    tmp = tmp[:h]
     for i, weight in enumerate(k):
-        out += weight * rows[i:i + h, :]
+        np.multiply(rows[i:i + h, :], np.float32(weight), out=tmp)
+        out += tmp
     return out
 
 
@@ -269,7 +273,7 @@ def compare(golden: bytes | Path, shot: bytes | Path, spec: dict[str, Any] | Non
     luma = np.array([0.299, 0.587, 0.114])
     delta = np.abs(g_rgb - s_rgb).max(axis=2)
     s_seen = np.where((delta <= spec["noise_floor"])[..., None], g_rgb, s_rgb)
-    smap = ssim_map(g_rgb @ luma, s_seen @ luma)
+    smap = ssim_map((g_rgb @ luma).astype(np.float32), (s_seen @ luma).astype(np.float32))
 
     keep = np.ones((height, width), dtype=bool)
     boxes = [region_box(r["rect"], width, height) for r in spec["regions"]]
@@ -460,23 +464,30 @@ class Row:
     detail: str = ""
 
 
-def check(manifest: dict[str, Any], store: Store, shots: dict[str, Path], diff_dir: Path | None) -> list[Row]:
-    rows: list[Row] = []
-    for surface, entry in manifest["surfaces"].items():
-        shot = shots.get(surface)
-        if shot is None:
-            rows.append(Row(surface, "missing", detail="no screenshot taken"))
-            continue
-        try:
-            spec = merge_spec(manifest.get("defaults"), entry.get("spec"))
-            golden = store.get(entry["sha256"])
-            out = diff_dir / f"{surface}.diff.png" if diff_dir else None
-            result = compare(golden, shot, spec, out)
-        except ShotdiffError as error:
-            rows.append(Row(surface, "error", detail=str(error)))
-            continue
-        status = "same" if result.identical else ("within" if result.ok else "failed")
-        rows.append(Row(surface, status, result))
+def _check_one(surface: str, entry: dict[str, Any], manifest: dict[str, Any], store: Store,
+               shot: Path | None, diff_dir: Path | None) -> Row:
+    if shot is None:
+        return Row(surface, "missing", detail="no screenshot taken")
+    try:
+        spec = merge_spec(manifest.get("defaults"), entry.get("spec"))
+        golden = store.get(entry["sha256"])
+        out = diff_dir / f"{surface}.diff.png" if diff_dir else None
+        result = compare(golden, shot, spec, out)
+    except ShotdiffError as error:
+        return Row(surface, "error", detail=str(error))
+    return Row(surface, "same" if result.identical else ("within" if result.ok else "failed"), result)
+
+
+def check(manifest: dict[str, Any], store: Store, shots: dict[str, Path], diff_dir: Path | None,
+          jobs: int = 0) -> list[Row]:
+    """Every manifest surface against its shot, then every shot with no golden. numpy drops the GIL in
+    the blur, so threads overlap: a phone-size pair takes about 1 s on one core."""
+    from concurrent.futures import ThreadPoolExecutor
+    jobs = jobs or min(8, os.cpu_count() or 1)
+    items = list(manifest["surfaces"].items())
+    with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+        rows = list(pool.map(lambda kv: _check_one(kv[0], kv[1], manifest, store, shots.get(kv[0]), diff_dir),
+                             items))
     for surface in shots:
         if surface not in manifest["surfaces"]:
             rows.append(Row(surface, "new", detail="no golden; `shotdiff.py bless` adds it"))
@@ -540,6 +551,7 @@ def main(argv: list[str] | None = None) -> int:
             p.add_argument("--diff-dir", type=Path)
             p.add_argument("--warn-only", action="store_true")
             p.add_argument("--title", default="Screenshots vs goldens")
+            p.add_argument("--jobs", type=int, default=0, help="parallel compares (default: cores, at most 8)")
         else:
             p.add_argument("surfaces", nargs="*", help="only these (default: every shot)")
 
@@ -609,7 +621,7 @@ def _run(args: argparse.Namespace) -> int:
         write_manifest(args.manifest, manifest)
         return 0
 
-    rows = check(manifest, store, shots, args.diff_dir)
+    rows = check(manifest, store, shots, args.diff_dir, args.jobs)
     text = render(rows, args.title)
     if args.report:
         with args.report.open("a") as out:
