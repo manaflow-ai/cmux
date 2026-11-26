@@ -65,6 +65,9 @@
   "cmux_mobile_link::signaling": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::signaling_upgrade_sends_the_token_only_in_authorization"
   },
+  "cmux_no_checkout::github": {
+   "test": "cmux-tui/crates/cmux-no-checkout/src/github_seeded_tests.rs::the_token_rides_only_in_authorization"
+  },
   "cmux_projection::peers": {
    "test": "cmux-tui/crates/cmux-projection/tests/seeded_secret.rs::the_seed_token_rides_only_in_authorization"
   },

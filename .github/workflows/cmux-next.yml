@@ -2226,6 +2226,7 @@ jobs:
           python3 scripts/icons/chromium_icons.py --check
           python3 scripts/icons/build_pack.py --check
           python3 scripts/cmux-next/lint-browser-chrome-icons.py
+          python3 -I scripts/icons/check_native_symbols.py
 
       # Why: 2026-11-24-checks-43.md, note-156
       - name: App Store review rules (cmux-next-ios intents, Info.plist)
