@@ -48,7 +48,7 @@ public nonisolated struct HomeAgentGlance: Sendable, Equatable {
     /// (`inbox.agent_shortlist`)
     public static func shortlist(_ agents: [HomeAgentGlance], limit: Int = 5) -> [HomeAgentGlance] {
         let request = ShortlistRequest(statuses: agents.map(\.status.rules), limit: max(0, limit))
-        let picked: [Int] = HomeInboxRules.call("agent_shortlist", request, fallback: Array(agents.indices.prefix(max(0, limit))))
+        let picked: [Int] = HomeInboxRules().call("agent_shortlist", request, fallback: Array(agents.indices.prefix(max(0, limit))))
         return picked.compactMap { agents.indices.contains($0) ? agents[$0] : nil }
     }
 }

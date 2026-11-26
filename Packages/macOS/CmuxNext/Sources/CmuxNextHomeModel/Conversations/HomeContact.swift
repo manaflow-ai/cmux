@@ -24,13 +24,13 @@ public struct HomeContact: Hashable, Sendable, Identifiable {
     /// The people of the user's DMs (accepted, not invited), for New
     /// Message's list: each DM peer once, newest DM first (`inbox.contacts_connections`).
     public static func connections(in rows: [InboxRow], me: ParticipantID) -> [HomeContact] {
-        contacts("contacts_connections", RowsMeRequest(rows: HomeInboxRules.rows(rows), me: me.rawValue))
+        contacts("contacts_connections", RowsMeRequest(rows: HomeInboxRules().rows(rows), me: me.rawValue))
     }
 
     /// How many of `contacts` the user has no direct conversation with (`debug.home` `page`)
     /// (`inbox.contacts_without_dm`).
     public static func withoutDM(_ contacts: [HomeContact], rows: [InboxRow]) -> Int {
-        HomeInboxRules.call("contacts_without_dm", WithoutDMRequest(contacts: contacts.map(\.rules), rows: HomeInboxRules.rows(rows)),
+        HomeInboxRules().call("contacts_without_dm", WithoutDMRequest(contacts: contacts.map(\.rules), rows: HomeInboxRules().rows(rows)),
                             fallback: 0)
     }
 
@@ -46,12 +46,12 @@ public struct HomeContact: Hashable, Sendable, Identifiable {
     /// The user's Chiefs and agents with a one-to-one conversation, each
     /// once, newest conversation first (New Message suggests them by name) (`inbox.contacts_agents`).
     public static func agents(in rows: [InboxRow], me: ParticipantID) -> [HomeContact] {
-        contacts("contacts_agents", RowsMeRequest(rows: HomeInboxRules.rows(rows), me: me.rawValue))
+        contacts("contacts_agents", RowsMeRequest(rows: HomeInboxRules().rows(rows), me: me.rawValue))
     }
 
     /// The contacts `inbox.NAME` lists for `request`.
     nonisolated static func contacts(_ name: String, _ request: some Encodable) -> [HomeContact] {
-        let contacts: [HomeInboxRules.Contact] = HomeInboxRules.call(name, request, fallback: [])
+        let contacts: [HomeInboxRules.Contact] = HomeInboxRules().call(name, request, fallback: [])
         return contacts.compactMap(HomeContact.init(rules:))
     }
 

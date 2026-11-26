@@ -5,11 +5,13 @@ import Foundation
 /// them: the values each op reads (``Row``, ``Pins``, ``Contact``), and one call that never throws
 /// into a view. The pins, the list's sections, New Message's contacts, the sidebar's order and the
 /// sidebar's width rules live in Rust (tests/inbox_parity.rs); the Swift types keep their APIs and
-/// ask through here.
-package nonisolated enum HomeInboxRules {
+/// ask through a value of this.
+package nonisolated struct HomeInboxRules: Sendable {
+    package init() {}
+
     /// Runs `inbox.NAME` on `input`. A failure (the linked library without the op, a reply that
     /// does not decode) stops a debug build and returns `fallback` in a release one.
-    package static func call<In: Encodable, Out: Decodable>(_ name: String, _ input: In, fallback: @autoclosure () -> Out) -> Out {
+    package func call<In: Encodable, Out: Decodable>(_ name: String, _ input: In, fallback: @autoclosure () -> Out) -> Out {
         do {
             return try HomeRules.call("inbox.\(name)", input)
         } catch {
@@ -51,10 +53,10 @@ package nonisolated enum HomeInboxRules {
         }
     }
 
-    package static func rows(_ rows: [InboxRow]) -> [Row] { rows.map(Row.init) }
+    package func rows(_ rows: [InboxRow]) -> [Row] { rows.map(Row.init) }
 
     /// `rows` named by `ids`, in that order; a repeated id takes the next row of that id.
-    package static func pick(_ ids: [String], from rows: [InboxRow]) -> [InboxRow] {
+    package func pick(_ ids: [String], from rows: [InboxRow]) -> [InboxRow] {
         var byID: [String: [InboxRow]] = [:]
         for row in rows { byID[row.id.rawValue, default: []].append(row) }
         var next: [String: Int] = [:]

@@ -87,9 +87,9 @@ public struct HomeSidebarModel: Hashable, Sendable {
     /// `mainChief` leading them when the list leads with it: ``HomePins/leading(_:)``, nil in an owner's order).
     public static func unreadConversations(pinned: [InboxRow], rest: [InboxRow], unreadMarks: Set<ConversationID>,
                                            mainChief: ConversationID?) -> [ConversationID] {
-        let request = UnreadRequest(pinned: HomeInboxRules.rows(pinned), rest: HomeInboxRules.rows(rest),
+        let request = UnreadRequest(pinned: HomeInboxRules().rows(pinned), rest: HomeInboxRules().rows(rest),
                                     unreadMarks: unreadMarks.map(\.rawValue).sorted(), mainChief: mainChief?.rawValue)
-        let ids: [String] = HomeInboxRules.call("sidebar_unread", request, fallback: [])
+        let ids: [String] = HomeInboxRules().call("sidebar_unread", request, fallback: [])
         return ids.map(ConversationID.init(rawValue:))
     }
 
@@ -252,7 +252,7 @@ extension HomeSidebarModel {
     /// (Ctrl-Tab on Home). With nothing shown, or one no longer listed, the first.
     public func neighbor(of current: ConversationID?, offset: Int, wrapping: Bool = false) -> ConversationID? {
         let request = NeighborRequest(order: (pinned + rows).map(\.id.rawValue), current: current?.rawValue, offset: offset, wrapping: wrapping)
-        let id: String? = HomeInboxRules.call("sidebar_neighbor", request, fallback: nil)
+        let id: String? = HomeInboxRules().call("sidebar_neighbor", request, fallback: nil)
         return id.map(ConversationID.init(rawValue:))
     }
 
@@ -260,7 +260,7 @@ extension HomeSidebarModel {
     /// Select Tab 1…9 picks a tab: 9, or a number past the end, is the last.
     /// Nil when the list is empty.
     public func conversation(number: Int) -> ConversationID? {
-        let id: String? = HomeInboxRules.call("sidebar_number", NumberRequest(order: (pinned + rows).map(\.id.rawValue), number: number),
+        let id: String? = HomeInboxRules().call("sidebar_number", NumberRequest(order: (pinned + rows).map(\.id.rawValue), number: number),
                                               fallback: nil)
         return id.map(ConversationID.init(rawValue:))
     }

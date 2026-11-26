@@ -8,7 +8,7 @@ extension HomeChiefRoster {
     ///   - rows: The inbox rows (the main Chief's conversation names its participant).
     /// - Returns: The same contacts, the main Chief moved to the front.
     public func mainFirst(_ contacts: [HomeContact], rows: [InboxRow]) -> [HomeContact] {
-        HomeContact.contacts("roster_main_first", RosterRequest(contacts: contacts.map(\.rules), rows: HomeInboxRules.rows(rows),
+        HomeContact.contacts("roster_main_first", RosterRequest(contacts: contacts.map(\.rules), rows: HomeInboxRules().rows(rows),
                                                                 main: main?.rawValue, me: nil))
     }
 
@@ -20,7 +20,7 @@ extension HomeChiefRoster {
     ///   - me: The signed-in participant, left out.
     /// - Returns: Each contact once, in that order.
     public func groupMembers(_ contacts: [HomeContact], rows: [InboxRow], excluding me: ParticipantID?) -> [HomeContact] {
-        HomeContact.contacts("roster_group_members", RosterRequest(contacts: contacts.map(\.rules), rows: HomeInboxRules.rows(rows),
+        HomeContact.contacts("roster_group_members", RosterRequest(contacts: contacts.map(\.rules), rows: HomeInboxRules().rows(rows),
                                                                    main: main?.rawValue, me: me?.rawValue))
     }
 }

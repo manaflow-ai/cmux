@@ -28,7 +28,7 @@ public struct HomeSidebarWidth: Sendable {
     public static func clamp(_ width: CGFloat, window: CGFloat, minimum: CGFloat = minimum, fullMinimum: CGFloat = fullMinimum,
                              transcriptMinimum: CGFloat = transcriptMinimum) -> CGFloat {
         let request = ClampRequest(width: width, window: window, minimum: minimum, fullMinimum: fullMinimum, transcriptMinimum: transcriptMinimum)
-        return CGFloat(HomeInboxRules.call("width_clamp", request, fallback: Double(minimum)))
+        return CGFloat(HomeInboxRules().call("width_clamp", request, fallback: Double(minimum)))
     }
 
     /// Where a divider drag to `proposed` puts the list, from the pointer alone (the old snap read the list's width too and
@@ -38,13 +38,13 @@ public struct HomeSidebarWidth: Sendable {
     /// that point in the same drag, the list is back. A window with no room for the full list keeps the strip.
     public static func drag(_ proposed: CGFloat, minimum: CGFloat = minimum, fullMinimum: CGFloat = fullMinimum, widest: CGFloat) -> CGFloat {
         let request = DragRequest(proposed: proposed, widest: widest, minimum: minimum, fullMinimum: fullMinimum)
-        return CGFloat(HomeInboxRules.call("width_drag", request, fallback: Double(minimum)))
+        return CGFloat(HomeInboxRules().call("width_drag", request, fallback: Double(minimum)))
     }
 
     /// The narrowest Home column that shows the list at its minimum and the transcript at its own.
     public static func columnMinimum(listMinimum: CGFloat = minimum, divider: CGFloat = 1) -> CGFloat {
         let request = ColumnRequest(listMinimum: listMinimum, divider: divider)
-        return CGFloat(HomeInboxRules.call("width_column_minimum", request, fallback: Double(listMinimum + divider + transcriptMinimum)))
+        return CGFloat(HomeInboxRules().call("width_column_minimum", request, fallback: Double(listMinimum + divider + transcriptMinimum)))
     }
 
     private let defaults: UserDefaults
