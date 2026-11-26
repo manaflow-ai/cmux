@@ -333,7 +333,7 @@ let package = Package(
 // (base run 45853032811) left the Instant list bench with no INSTANTPERF line. The bench steps of
 // cmux-next-ios-kit.yml set it to CmuxMobileInstantPerfTests; nothing else does, so every other run is unchanged.
 // THROWAWAY (proof only, reverted in the next commit): the fleet simulator step passes no env to the manifest.
-if let only = ProcessInfo.processInfo.environment["CMUX_MOBILE_KIT_TEST_TARGETS"] ?? "CmuxMobileInstantPerfTests", !only.isEmpty {
+if case let only = ProcessInfo.processInfo.environment["CMUX_MOBILE_KIT_TEST_TARGETS"] ?? "CmuxMobileInstantPerfTests", !only.isEmpty {
     let kept = Set(only.split(separator: ",").map { String($0) })
     package.targets.removeAll { $0.type == .test && !kept.contains($0.name) }
 }
