@@ -72,6 +72,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showProjects = true
     /// The Projects menu's Group By (`sidebar.groupBy`).
     public var groupBy: SidebarGroupBy = .none
+    /// `sidebar.folderlessUngrouped`: under Group by Folder, rows with no folder sit at the end of the list with no
+    /// No Folder header. Off by default (the header shows).
+    public var folderlessUngrouped = false
     /// Show All Chats on New Tab: the New Tab page's Threads and Console styles list every
     /// chat on this device; off, the recent chats only (Lawrence 2026-10-09: on by default). The
     /// key keeps its `sidebar.` name from when All chats was a sidebar section (cx-n0i9).
@@ -141,10 +144,6 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// "Settled (N)" row at the end of its list until its next turn, question or failure (the rule is Rust's,
     /// `cmux-layout-reducer` `settle`). Off by default; the Studio look turns it on.
     public var settleFinished = false
-    /// `sidebar.showAutomaticSessions`: sessions no person started and no chat's subagent (a script, an automation, a
-    /// launcher; the daemon records `created_by` kind `script`) draw in place. Off by default: they fold into an
-    /// "Automatic (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
-    public var showAutomaticSessions = false
     /// `sidebar.showAgentSessions`: sessions another session's agent started list in the sidebar, each nested under
     /// the row of the session that started it. Off by default: they draw no row (Leo 2026-11-25 about the nested
     /// helper sessions: "idk who asked for those in teh sidebar. it's weird"), except one that waits on the person
