@@ -4,7 +4,6 @@ import type {
   AcpmuxBackgroundState,
   AcpmuxBackgroundTask,
   AcpmuxCompaction,
-  AcpmuxPlanEntry,
 } from "../model";
 
 /// Claude Code says it is still compacting every 30 seconds (2.1.305): a running note this soon
@@ -107,13 +106,17 @@ export function backgroundTask(update: any, at?: number): BackgroundUpdate | und
   };
 }
 
-/// An ACP `plan` update's entries as a todo list; an entry without text is left out.
-export function planEntries(entries: unknown): AcpmuxPlanEntry[] {
-  if (!Array.isArray(entries)) return [];
-  return entries.flatMap((entry) => {
-    const content = typeof entry?.content === "string" ? entry.content.trim() : "";
-    if (!content) return [];
-    const status = entry.status === "completed" || entry.status === "in_progress" ? entry.status : "pending";
-    return [{ content, status }];
-  });
+/// Older task_started records put the SDK's description in the command field. A completion
+/// notice can still name that task explicitly, even when the original Bash call was never saved.
+export function backgroundNoticeLabel(task: BackgroundUpdate): string | undefined {
+  const summary = task.summary;
+  if (!summary || summary.length > 4096) return undefined;
+  const notice =
+    /^Background command "([^\r\n]+)" (completed|failed|was stopped)(?: \(exit code -?\d+\)| with exit code -?\d+)?$/.exec(
+      summary,
+    );
+  if (!notice) return undefined;
+  const state = notice[2] === "was stopped" ? "stopped" : notice[2];
+  return state === task.state ? notice[1]?.trim() || undefined : undefined;
 }
+

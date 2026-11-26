@@ -63,6 +63,11 @@ pub struct LeaseAnswer {
     /// when nobody asked, and always None to a standby or a holder that lost the chat.
     #[serde(rename = "move", default, skip_serializing_if = "Option::is_none")]
     pub move_to: Option<MoveTo>,
+    /// `moveAt`: when the person asked for that move (the wish's `at`, epoch ms). Asking again
+    /// starts the wish's time again, so a time that differs is a new ask of the same move. None
+    /// with no `move`, and from a store that does not say it yet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub move_at: Option<u64>,
 }
 
 /// `{holder, epoch}`: the writer's holder and epoch. `release` and `assignment/ack` send only

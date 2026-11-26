@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chats.coldArchive.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unused chats are compressed into one small file each and open as before."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تُضغط الدردشات غير المستخدمة في ملف صغير واحد لكل دردشة، وتُفتح كما كانت."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nekorišteni razgovori sažimaju se u po jednu malu datoteku i otvaraju se kao i prije."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ubrugte chats komprimeres til én lille fil hver og åbner som før."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ungenutzte Chats werden in je eine kleine Datei komprimiert und öffnen sich wie zuvor."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Los chats sin usar se comprimen en un archivo pequeño cada uno y se abren como antes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les discussions inutilisées sont compressées, chacune dans un petit fichier, et s'ouvrent comme avant."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le chat inutilizzate vengono compresse in un piccolo file ciascuna e si aprono come prima."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "使っていないチャットはそれぞれ小さなファイルに圧縮され、これまでどおり開けます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជជែកដែលមិនបានប្រើត្រូវបានបង្ហាប់ទៅជាឯកសារតូចមួយម្នាក់ៗ ហើយបើកដូចមុន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사용하지 않는 채팅은 각각 작은 파일 하나로 압축되며, 이전처럼 열립니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ubrukte chatter komprimeres til én liten fil hver og åpnes som før."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nieużywane czaty są kompresowane, każdy do jednego małego pliku, i otwierają się jak wcześniej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chats sem uso são compactados em um arquivo pequeno cada e abrem como antes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Неиспользуемые чаты сжимаются в отдельный небольшой файл и открываются как раньше."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แชตที่ไม่ได้ใช้จะถูกบีบอัดเป็นไฟล์เล็กไฟล์เดียวต่อแชต และเปิดได้เหมือนเดิม"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kullanılmayan sohbetler her biri tek bir küçük dosyaya sıkıştırılır ve eskisi gibi açılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Невикористовувані чати стискаються кожен в окремий невеликий файл і відкриваються як раніше."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuộc trò chuyện không dùng được nén thành một tệp nhỏ cho mỗi cuộc và mở như trước."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未使用的聊天会各自压缩成一个小文件，并照常打开。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "未使用的聊天會各自壓縮成一個小檔案，並照常開啟。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

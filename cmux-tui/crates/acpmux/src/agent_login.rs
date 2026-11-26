@@ -1396,7 +1396,9 @@ pub async fn save_api_key(
         ));
     }
     machine.refuse_shared()?;
-    let key = key.trim();
+    // A paste's line breaks, spaces and zero-width spaces are never part of a key.
+    let key = Zeroizing::new(crate::key_check::without_whitespace(key));
+    let key = key.as_str();
     if !one_line(key, 512) {
         return Err(LoginError::new(reason::BAD_CODE, "that is not an API key"));
     }

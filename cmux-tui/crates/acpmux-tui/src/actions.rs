@@ -59,6 +59,7 @@ pub enum Action {
     Export,
     Import,
     Undo,
+    Find,
 }
 
 pub struct ActionDef {
@@ -610,6 +611,19 @@ impl App {
                 None => self.prompt_command("import"),
             },
             Action::Undo => self.editor_mut().undo(),
+            Action::Find => match self.selected_id() {
+                Some(id) => {
+                    let mut find = chat_find::Find::open(id);
+                    let query = args.join(" ");
+                    let query = match (&self.find, query.is_empty()) {
+                        (Some(open), true) => open.query.clone(),
+                        _ => query,
+                    };
+                    query.chars().for_each(|c| find.type_char(c));
+                    self.find = Some(find);
+                }
+                None => self.status = "no chat to find in".into(),
+            },
         }
     }
 
