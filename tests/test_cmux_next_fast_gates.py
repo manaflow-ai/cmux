@@ -190,6 +190,11 @@ class WorkflowShape(unittest.TestCase):
             for rel in ("scripts/ci/a.py", "Packages/p/b.swift", "outside/c.txt", "top.txt"):
                 (seed / rel).parent.mkdir(parents=True, exist_ok=True)
                 (seed / rel).write_text(rel)
+            # Run the egress gate from the sparse checkout with its actual imports.
+            for rel in (GATE_SCRIPTS["egress gate"], "scripts/privacy_hosts_from_gate.py",
+                        "tests/test_egress_gate.py", "tests/test_outbound_hosts.py", "tests/test_classic_cloud_routes.py"):
+                (seed / rel).parent.mkdir(parents=True, exist_ok=True)
+                (seed / rel).write_bytes((ROOT / rel).read_bytes())
             git(seed, "add", "-A")
             git(seed, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one")
             (seed / "scripts/ci/d.py").write_text("d")
@@ -205,7 +210,9 @@ class WorkflowShape(unittest.TestCase):
             env = {**os.environ, "GITHUB_WORKSPACE": str(ws), "SHA": sha, "TOKEN": "t", "SPARSE": step["env"]["SPARSE"]}
             subprocess.run(["bash", "-c", run], env=env, check=True, capture_output=True, text=True)
             self.assertEqual(git(ws, "rev-parse", "HEAD").strip(), sha)
-            git(ws, "rev-parse", "HEAD^1")
+            gate = subprocess.run([sys.executable, "-I", GATE_SCRIPTS["egress gate"], "--base", "HEAD^1",
+                                   "--head", "HEAD"], cwd=ws, capture_output=True, text=True)
+            self.assertEqual(gate.returncode, 0, gate.stderr + gate.stdout)
             self.assertTrue((ws / "scripts/ci/d.py").exists() and (ws / "Packages/p/b.swift").exists())
             self.assertTrue((ws / "top.txt").exists())
             self.assertFalse((ws / "outside").exists())
