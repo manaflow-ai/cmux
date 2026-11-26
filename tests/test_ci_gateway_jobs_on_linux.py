@@ -87,8 +87,12 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
         run = yaml.safe_load(text)["runs"]["steps"][0]["run"]
         self.assertIn("/v1/client/manifest", run)
         self.assertIn("hashlib.sha256(data).hexdigest() != digest", run)
-        # The exports come last, after the fetch succeeded; every failure path exits before them with a warning.
+        # The exports come last, after the fetch succeeded; every failure path exits red before them (at least as
+        # strict as the gateway Mac, whose client was always installed: no silent no-verdict green).
         self.assertLess(run.index('if [[ "$ok" != 1'), run.index("CMUX_CI_CLIENT="))
+        self.assertNotIn("exit 0", run)
+        self.assertEqual(run.count("exit 1"), 2)
+        self.assertNotIn("::warning", run)
         self.assertIn("CMUX_CI_CONTROLLER=", run)
 
 

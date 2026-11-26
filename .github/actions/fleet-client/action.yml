@@ -4,8 +4,8 @@ description: >-
   controller's manifest, and exports CMUX_CI_CLIENT (a `cmux-ci` wrapper) and CMUX_CI_CONTROLLER for later steps.
   A gateway job only runs this client and waits; the suites build and run on a fleet Mac, so the job itself runs on
   Linux (Leo, 2026-11-26: "How about freeing up the Mac's from doing things that don't need Mac's asap?").
-  When the controller is unset or unreachable nothing is exported: a caller's `no client` path gives no verdict,
-  exactly as a gateway Mac without ~/.local/bin/cmux-ci did.
+  An unset or unreachable controller fails the step: a gateway Mac always had ~/.local/bin/cmux-ci, so a missing
+  client here is a setup defect, and a green job with no verdict would hide every later compile.
 inputs:
   controller:
     description: The controller's URL (vars.CMUX_FLEET_CONTROLLER).
@@ -20,8 +20,8 @@ runs:
       run: |
         set -uo pipefail
         if [[ -z "$CONTROLLER" ]]; then
-          echo "::warning title=fleet client::no CMUX_FLEET_CONTROLLER variable; no client"
-          exit 0
+          echo "::error title=fleet client::no CMUX_FLEET_CONTROLLER variable, so no client to drive the fleet"
+          exit 1
         fi
         client="$RUNNER_TEMP/fleet-client"
         mkdir -p "$client"
@@ -44,8 +44,8 @@ runs:
           sleep $((try * 5))
         done
         if [[ "$ok" != 1 || ! -f "$client/ci-client.py" ]]; then
-          echo "::warning title=fleet client::the controller's client could not be fetched; no client"
-          exit 0
+          echo "::error title=fleet client::the controller's client could not be fetched after 3 tries"
+          exit 1
         fi
         printf '#!/bin/sh\nexec python3 -I %q "$@"\n' "$client/ci-client.py" > "$client/cmux-ci"
         chmod +x "$client/cmux-ci"
