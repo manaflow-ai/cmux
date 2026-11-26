@@ -91,6 +91,18 @@ public struct WindowStateDocument: Codable, Sendable, Hashable {
         }
     }
 
+    /// The keys of `records` a `prune(liveWorkspaces:)` of them keeps: a window's own keys that `kept` keeps, and
+    /// every key `onMachine` finds. It asks only about the keys the records name (the prune asks about no other).
+    public static func liveKeys(of records: [WindowRecord], kept: (WorkspaceKey) -> Bool, onMachine: (WorkspaceKey) -> Bool) -> Set<WorkspaceKey> {
+        var live = Set<WorkspaceKey>()
+        for record in records {
+            for key in record.workspaceKeys where kept(key) { live.insert(key) }
+            let others = [record.workspaceKey, record.stageKey].compactMap { $0 } + (record.docks ?? []).map(\.workspaceKey)
+            for key in others + record.workspaceMachines.keys.map(WorkspaceKey.init(rawValue:)) where onMachine(key) { live.insert(key) }
+        }
+        return live
+    }
+
     func jsonValue() throws -> JSONValue {
         try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(self))
     }

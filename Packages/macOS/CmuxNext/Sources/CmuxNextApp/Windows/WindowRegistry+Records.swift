@@ -15,16 +15,19 @@ extension WindowRegistry {
     /// workspace was last seen on (`WindowManager.seenMachine`), of which the record keeps those
     /// that are not this Mac.
     func record(_ id: String, state: WindowState?, order: Int, isFullScreen: Bool = false,
-                selectedTabs: [String: String] = [:], machines: [String: String] = [:]) -> WindowRecord? {
+                selectedTabs: [String: String] = [:], machines: [String: String] = [:], membership: WindowListMembership<WorkspaceKey>? = nil) -> WindowRecord? {
         // Incognito windows are never restored: nothing of them is saved.
         // A window that owns nothing is only a view of other windows' workspaces (`openView`): they are saved with their
         // owners, and a record that named one would take it from its owner at the next launch (`init(records:)`).
-        guard let window = window(id), !isIncognito(id), !window.ownedIDs.isEmpty else { return nil }
-        let selected = state?.workspaceID.flatMap { window.workspaceIDs.contains($0) ? $0 : nil } ?? window.workspaceIDs.first
+        guard let window = window(id), !isIncognito(id) else { return nil }
+        let members = membership ?? WindowListMembership(window: window, machines: machines, localID: MachineRegistry.localID, key: WorkspaceKey.init(rawValue:))
+        let lists = members.listed.contains
+        guard !members.ownedKeys.isEmpty else { return nil }
+        let selected = state?.workspaceID.flatMap { lists($0) ? $0 : nil } ?? window.workspaceIDs.first
         var record = WindowRecord(
             id: id,
             workspaceKey: selected.map(WorkspaceKey.init(rawValue:)),
-            workspaceKeys: window.ownedIDs.map(WorkspaceKey.init(rawValue:)), // a guest is its owner's to save
+            workspaceKeys: members.ownedKeys, // a guest is its owner's to save
             machine: state.flatMap { $0.machineID == MachineRegistry.localID ? nil : $0.machineID },
             screenID: state?.activeScreenID.map(ResourceID.init(rawValue:)),
             frame: window.frame.map(WindowFrame.init(rect:)),
@@ -37,22 +40,20 @@ extension WindowRegistry {
             profile: state.flatMap { $0.profileID == .defaultProfile ? nil : $0.profileID },
             profileWorkspaces: Dictionary(
                 (state?.profileWorkspaces ?? [:]).compactMap { profile, workspace in
-                    window.workspaceIDs.contains(workspace) ? (profile.rawValue, WorkspaceKey(rawValue: workspace)) : nil
+                    lists(workspace) ? (profile.rawValue, WorkspaceKey(rawValue: workspace)) : nil
                 }, uniquingKeysWith: { first, _ in first }),
             page: state?.page?.rawValue,
             isClosed: !window.isOpen
         )
-        for workspace in window.workspaceIDs {
-            if let machine = machines[workspace], machine != MachineRegistry.localID { record.workspaceMachines[workspace] = machine }
-        }
+        record.workspaceMachines = members.workspaceMachines
         // The workspaces shown side by side (`sidebar.multiView`), those the window still lists.
-        let shown = state?.viewSet?.pruned(keeping: window.workspaceIDs.contains)
+        let shown = state?.viewSet?.pruned(keeping: lists)
         record.multiView = shown.flatMap { $0.ids.count > 1 && $0.contains(selected ?? "") ? $0.record : nil }
         record.chiefPanel = state?.chiefPanel.record
         // The docked workspaces (`window.dockedWorkspaces`), those the window still lists.
         if var docks = state?.docks, LayoutTunables.dockedWorkspaces.value {
-            docks.prune(keeping: window.workspaceIDs.contains)
-            docks.store(into: &record, stage: state?.stageWorkspaceID.flatMap { window.workspaceIDs.contains($0) ? $0 : nil })
+            docks.prune(keeping: lists)
+            docks.store(into: &record, stage: state?.stageWorkspaceID.flatMap { lists($0) ? $0 : nil })
         }
         return record
     }

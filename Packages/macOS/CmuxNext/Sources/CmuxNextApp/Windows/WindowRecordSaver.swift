@@ -60,6 +60,9 @@ final class WindowRecordSaver {
     private(set) lazy var layoutCache = LayoutCacheWriter(bundleID: host?.environment.launch.bundleID, work: work,
         restored: { [weak self] in self?.host?.windows.restored ?? false }, snapshot: { [weak self] in self?.host?.layoutCacheJSON() })
     private var selectedTabsCache: [String: TabSelectionRecord] = [:]
+    /// Kept until the window's list changes (`WindowListMemberships`); the launch record's rows until a row changes.
+    private(set) var memberships = WindowListMemberships<WorkspaceKey>()
+    let launchRows = SidebarRowsCache<LaunchRecordSidebarSnapshot>()
     /// Panes whose remembered tab a record build read on the main thread (`SpaceSwitchRecordSaveTests`).
     var paneReads: Int { selectedTabsCache.values.reduce(0) { $0 + $1.paneReads } }
     private var services: AppServices? { host }
@@ -184,10 +187,9 @@ final class WindowRecordSaver {
         let records = currentRecords()
         // The front open window's place, kept once its record is pruned (`WindowStateDocument.lastFrame`).
         let front = records.filter { !$0.isClosed && $0.frame != nil }.min { $0.order < $1.order }
-        // Keys on every machine, plus those whose machine has not loaded yet
-        // (they must survive until it reconnects).
-        let live = Set(services.machines.allWorkspaces.compactMap(\.0.key))
-            .union(records.flatMap(\.workspaceKeys).filter { !manager.isDead($0.rawValue) })
+        // Keys on a machine, plus own ones whose machine has not loaded yet: only those the records name (`liveKeys`).
+        let live = WindowStateDocument.liveKeys(of: records, kept: { !manager.isDead($0.rawValue) },
+                                                onMachine: { services.machines.workspace(id: $0.rawValue)?.0.key == $0 })
         do {
             try await windowState.update { document in
                 document.windows = records
@@ -223,34 +225,35 @@ final class WindowRecordSaver {
         let value = manager.registry.value
         let states = manager.states
         let order = Dictionary(value.recency.enumerated().map { ($1, $0) }, uniquingKeysWith: min)
+        memberships.keep { value.window($0) != nil }
         return value.windows.compactMap { window in
-            let controller = manager.controller(for: window.id)
+            let members = memberships.of(window, machines: manager.seenMachine, localID: MachineRegistry.localID, key: WorkspaceKey.init(rawValue:)), controller = manager.controller(for: window.id)
             var record = value.record(window.id, state: states[window.id], order: order[window.id] ?? order.count,
                                       isFullScreen: (controller?.window?.styleMask.contains(.fullScreen) == true
                                           // full screen only for a page's fullscreen is not the window's own
                                           && controller?.pagePresentation?.entersWindowFullScreen != true)
                                           || states[window.id]?.restoresFullScreen == true,
-                                      selectedTabs: selectedTabs(window: window, in: value), machines: manager.seenMachine)
+                                      selectedTabs: selectedTabs(window: window, in: value, listed: members.listed),
+                                      machines: manager.seenMachine, membership: members)
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
-            record?.focusedPanes = focusedPanes(window: window)
+            record?.focusedPanes = focusedPanes(window: window, listed: members.listed)
             return record
         }
     }
 
     /// The pane last focused in each workspace the window lists (focus memory, the shown one's pane).
-    private func focusedPanes(window: WindowRegistry.Window) -> [String: String] {
+    private func focusedPanes(window: WindowRegistry.Window, listed: Set<String>) -> [String: String] {
         guard let manager = owner else { return [:] }
         guard let state = manager.states[window.id] else { return [:] }
         let focus = state.focus.state
         var panes = state.focus.rememberedPanes()
         if let workspace = focus.topology.workspace, let pane = focus.pane { panes[workspace] = pane }
-        let listed = Set(window.workspaceIDs)
         return panes.filter { listed.contains($0.key) }
     }
 
     /// Remembered tab per pane across the window's workspaces, kept between saves (`TabSelectionRecord`): a save
     /// after a switch reads no pane.
-    private func selectedTabs(window: WindowRegistry.Window, in registry: WindowRegistry) -> [String: String] {
+    private func selectedTabs(window: WindowRegistry.Window, in registry: WindowRegistry, listed: Set<String>) -> [String: String] {
         guard let manager = owner else { return [:] }
         guard let services else { return [:] }
         guard let memory = manager.states[window.id]?.selection else { return [:] }
@@ -258,7 +261,7 @@ final class WindowRecordSaver {
             of: memory, workspaces: window.workspaceIDs, stores: services.machines.daemons.map(\.store),
             workspace: { services.workspace(id: $0) },
             // The registry names the first window that lists a workspace: this one's list only for another's.
-            lists: { registry.owner(of: $0) == window.id || window.workspaceIDs.contains($0) })
+            lists: { registry.owner(of: $0) == window.id || listed.contains($0) })
     }
 }
 
@@ -274,13 +277,9 @@ extension AppServices {
         let controllers = manager.controllers.filter { !manager.isIncognito(window: $0.state.id) }
         let ordered = controllers.filter { $0 === front } + controllers.filter { $0 !== front }
         let shown = Set(ordered.flatMap { $0.mountedContents.filter { !$0.isParked }.map { $0.workspace.id } })
-        var seen = Set<String>()
-        let sidebars = ordered.flatMap { controller in
-            let model = controller.sidebar.model
-            let sidebar = SidebarSnapshot(sections: model.sections, profiles: model.profiles, activeProfileID: model.activeProfileID)
-            return sidebar.sections.flatMap(\.nodes).flatMap { $0.workspace.map { [$0] } ?? $0.group?.workspaces ?? [] }
-        }.filter { !shown.contains($0.id) && seen.insert($0.id).inserted }
-            .map { LaunchRecordSidebarSnapshot(id: $0.id, title: $0.title, iconKey: $0.icon ?? "") }
+        let sidebars = manager.recordSaver.launchRows.rows(of: ordered.map(\.sidebar.model)) {
+            LaunchRecordSidebarSnapshot(id: $0.id, title: $0.title, iconKey: $0.icon ?? "")
+        }.filter { !shown.contains($0.id) }
         let windows = ordered.compactMap { controller -> LaunchRecordWindowSnapshot? in
             guard let window = controller.window else { return nil }
             let tabs = controller.mountedContents.filter { !$0.isParked }.flatMap { content in

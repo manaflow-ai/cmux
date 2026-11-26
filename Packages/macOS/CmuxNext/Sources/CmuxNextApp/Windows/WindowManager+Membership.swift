@@ -480,7 +480,7 @@ extension WindowManager {
             let ids = registry.orderBuild { Self.orderedIDs(of: daemon, machines: services.machines, doc: services.sidebarDoc) }
             for id in ids {
                 live.append(id)
-                seenMachine[id] = daemon.machineID
+                if seenMachine[id] != daemon.machineID { seenMachine[id] = daemon.machineID }
             }
             // Only the ids that resolve to this machine: a VM made from another's snapshot keeps its
             // workspace keys, and a window holding the other machine's copy does not open this one.
