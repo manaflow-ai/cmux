@@ -24,7 +24,7 @@ The pre-push hook prints the holder on the owner line and sends it one `acpmux s
 and pushed head (a stand-in, the Performance Lead or the coordinator, one per area a UTC day, asking for a holder) (deduplicated in ~/.cache/cmux/owner-notices.json), so a push into an area reaches a live session
 without the pusher looking anyone up. Never on CI (`CI` set), never when acpmux is missing, never longer than
 LIST_TIMEOUT_S plus SEND_TIMEOUT_S, and never a refusal: a failed listing or send is one line in the report.
-`CMUX_OWNER_NOTIFY=0` prints the holder and sends nothing.
+`CMUX_OWNER_NOTIFY=0` prints the holder and sends nothing, as does a push outside an acpmux session (no sender).
 """
 from __future__ import annotations
 
@@ -230,10 +230,58 @@ def _notices_path() -> Path:
     return Path(os.environ.get("CMUX_OWNER_NOTICES") or Path.home() / ".cache/cmux/owner-notices.json")
 
 
+# A notice goes out as the pushing session or not at all. On 2026-11-25 a push run outside any acpmux session sent
+# one from the bare host (thread from:gcp-agent-lane-8, no Sent-by, "no live or closed session named
+# 'gcp-agent-lane-8'"), so its reader could neither answer nor tell who pushed. acpmux names the sender from
+# ACPMUX_SESSION_ID (or a session token); with neither set the push prints the holder and sends nothing.
+SENDER_ENV = ("ACPMUX_SESSION_ID", "ACPMUX_SESSION_TOKEN")
+NO_SENDER = "no acpmux session to send as (ACPMUX_SESSION_ID unset); tell the holder yourself"
+
+
+def sender() -> str | None:
+    """The pushing session's id or token, or None outside an acpmux session."""
+    return next((os.environ[name] for name in SENDER_ENV if os.environ.get(name, "").strip()), None)
+
+
+# A notice names its pusher as HOST/NAME, the address `lane-gh send` and inbox_reply take. On 2026-11-26 three notices
+# reached a coordinator labelled with a bare host ("gcp-agent-lane-5", "fs-agent-lane-7", "gcp-codex-lane-12") and
+# inbox_reply failed with "no live or closed session named 'gcp-agent-lane-5' on any machine": the holder could not
+# answer the pusher. The notice now carries the address it was sent from, and a session acpmux cannot name sends none.
+NO_SENDER_NAME = "the pushing session has no HOST/NAME acpmux can resolve; tell the holder yourself"
+
+
+def sender_name(timeout: float = LIST_TIMEOUT_S) -> str | None:
+    """The pushing session as HOST/NAME (from `acpmux session info`), or None when acpmux cannot name it."""
+    ident = (os.environ.get("ACPMUX_SESSION_ID") or os.environ.get("ACPMUX_SESSION_NAME") or "").strip()
+    if not ident:
+        return None
+    try:
+        out = subprocess.run(["acpmux", "session", "info", ident, "--fields", "machine,name"],
+                             capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    fields = dict(line.split("\t", 1) for line in out.stdout.splitlines() if "\t" in line)
+    host, name = fields.get("machine", "").strip(), _short(fields.get("name", "").strip())
+    return f"{host}/{name}" if host and name else None
+
+
+def signed(text: str, me: str) -> str:
+    """TEXT with a line naming the pusher, so the holder can answer it."""
+    return f"{text}\n\nFrom {me}; answer with `lane-gh send {me} -` or `acpmux send {me} -`."
+
+
 def notify(to: str, area: str, head: str, text: str) -> str | None:
     """Send TEXT to TO once per (TO, AREA, HEAD); None when sent or already sent, else why it was not."""
     if os.environ.get("CMUX_OWNER_NOTIFY") == "0":
         return "CMUX_OWNER_NOTIFY=0"
+    if not sender():
+        return NO_SENDER
+    me = sender_name()
+    if not me:
+        return NO_SENDER_NAME
+    text = signed(text, me)
     key = hashlib.sha1(f"{to}\n{area}\n{head}".encode()).hexdigest()[:16]
     path = _notices_path()
     try:
