@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -41,9 +42,13 @@ def load(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
 
 
-def git(repo: Path, *args: str) -> str:
+def git(repo: Path, *args: str, age_s: int = 7200) -> str:
+    # Commits are two hours old unless a test says otherwise: a base that took a commit in the last
+    # MACHINE_CHANNEL_PR_HEAD_QUIET_MIN minutes builds no PR head.
+    when = f"@{int(time.time()) - age_s} +0000"
     env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-           "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+           "GIT_COMMITTER_EMAIL": "t@t", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
+           "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
     return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True,
                           env=env).stdout.strip()
 
@@ -117,15 +122,15 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         out.write_text("")
         env = {**os.environ, "GITHUB_OUTPUT": str(out), "GITHUB_REPOSITORY": "manaflow-ai/cmux",
                "HEAD_REPO": head_repo, "GITHUB_BASE_REF": "feat-cmux-next"}
-        for k in ("HEAD_SHA", "GH_TOKEN", "GITHUB_RUN_ID"):
+        for k in ("HEAD_SHA", "GH_TOKEN", "GITHUB_RUN_ID", "MACHINE_CHANNEL_PR_HEAD_QUIET_MIN"):
             env.pop(k, None)
         env.update(extra or {})
         subprocess.run([str(self.repo / PLAN)], cwd=self.repo, env=env, check=True, capture_output=True)
         return dict(line.split("=", 1) for line in out.read_text().splitlines())
 
-    def commit(self, rel: str) -> None:
+    def commit(self, rel: str, age_s: int = 7200) -> None:
         (self.repo / rel).write_text("v1\n")
-        git(self.repo, "commit", "-qam", rel)
+        git(self.repo, "commit", "-qam", rel, age_s=age_s)
 
     def test_a_change_outside_the_tree_inputs_builds_nothing(self) -> None:
         self.commit("docs/readme.md")
@@ -139,18 +144,32 @@ class PlanOnAFixtureRepo(unittest.TestCase):
         self.commit("webviews/app.ts")
         self.assertEqual(self.plan()["build"], "true")
 
-    def merge_ref(self, head_rel: str, base_rel: str) -> None:
+    def merge_ref(self, head_rel: str, base_rel: str, base_age_s: int = 7200) -> None:
         """A pull request merge ref: HEAD^1 the base, HEAD^2 the head, as the route checkout has it."""
         git(self.repo, "checkout", "-qb", "head")
         self.commit(head_rel)
         git(self.repo, "checkout", "-q", "feat-cmux-next")
         if base_rel:
-            self.commit(base_rel)
+            self.commit(base_rel, age_s=base_age_s)
         git(self.repo, "merge", "-q", "--no-ff", "--no-edit", "head")
 
     def test_an_up_to_date_head_that_changes_the_tree_builds(self) -> None:
         self.merge_ref("webviews/app.ts", "")
         self.assertEqual(self.plan()["build"], "true")
+
+    def test_a_base_that_just_took_a_commit_builds_nothing(self) -> None:
+        # Its push run coalesces this merge, so no push run would take the build (1,290 merges in 24 h, 27 push runs).
+        # The base's last commit (HEAD^1, outside the tree inputs) landed 5 min ago.
+        self.merge_ref("webviews/app.ts", "docs/readme.md", base_age_s=300)
+        self.assertEqual(self.plan()["build"], "false")
+        self.assertEqual(self.plan(extra={"MACHINE_CHANNEL_PR_HEAD_QUIET_MIN": "4"})["build"], "true")
+        # 0 turns the gate off.
+        self.assertEqual(self.plan(extra={"MACHINE_CHANNEL_PR_HEAD_QUIET_MIN": "0"})["build"], "true")
+
+    def test_the_router_passes_the_quiet_window(self) -> None:
+        step = next(s for s in load(ROUTER)["jobs"]["route"]["steps"] if s.get("id") == "machine-channel")
+        self.assertEqual(step["env"]["MACHINE_CHANNEL_PR_HEAD_QUIET_MIN"],
+                         "${{ vars.CI_MACHINE_CHANNEL_PR_HEAD_QUIET_MIN || '30' }}")
 
     def test_a_head_behind_the_base_builds_nothing(self) -> None:
         # The base moved a tree input after the head forked: the head's key is not the merge's.
