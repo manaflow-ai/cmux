@@ -18,7 +18,7 @@ pub(crate) fn handle(name: &str, a: &Value) -> Answer {
         }
         "redeemGrant" => Ok(redeem_grant(a.get("answer").unwrap_or(&Value::Null))),
         "notice" => Ok(notice(a.get("notice").unwrap_or(&Value::Null))),
-        "approval" => args::<ApprovalArgs>(a).map(|r| approval(r)),
+        "approval" => args::<ApprovalArgs>(a).map(approval),
         _ => return None,
     })
 }
