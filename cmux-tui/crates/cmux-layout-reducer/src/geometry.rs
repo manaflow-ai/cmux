@@ -27,6 +27,7 @@ pub mod divider_band;
 pub mod dock_strip;
 pub mod drop_preview;
 pub mod drop_zones;
+pub mod edge_motion;
 pub mod floating_corners;
 pub mod pane_chrome;
 pub mod row_stack;
@@ -42,6 +43,8 @@ pub mod wire;
 mod screen_tests;
 #[cfg(test)]
 mod slice5_tests;
+#[cfg(test)]
+mod slice6_tests;
 #[cfg(test)]
 mod split_tests;
 #[cfg(test)]

@@ -10,6 +10,10 @@ use super::drop_preview;
 use super::drop_zones::{
     self, Bars, CLASSIC_PANE_PADDING, DropGeometry, DropStyle, DropTarget, PaneDropZone,
 };
+use super::edge_motion::{
+    self, AnimatedFrame, Edges, HandleKind, Influence, MouseArea, MovedEdges, PressScreen,
+    ScrollFacts, ShownPixels, Spring,
+};
 use super::floating_corners::FloatingPaneCorners;
 use super::pane_chrome::{self, ChromeStyle};
 use super::row_stack::{self, Row, RowStack};
@@ -511,6 +515,118 @@ struct ShownRangeRequest {
     delta: f64,
 }
 
+/// A screen as the edge ops lay it out: `compute` at `viewport` and `scale`, `floating` placed.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgeScreen {
+    layout: ScreenLayout,
+    viewport: Size,
+    #[serde(default)]
+    style: ScreenStyle,
+    #[serde(default)]
+    floating: Vec<FloatingPane>,
+}
+
+impl EdgeScreen {
+    fn geometry(&self, scale: f64) -> ScreenGeometry {
+        ScreenGeometry::compute(&self.layout, self.viewport, &self.style, scale)
+            .placing_floating(&self.floating, scale)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgePlaceRequest {
+    frame: AnimatedFrame,
+    target: Rect,
+    #[serde(default)]
+    keeps_shown: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgeSeedRequest {
+    frame: AnimatedFrame,
+    before: Option<Rect>,
+    after: Rect,
+    rate: f64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgePressRequest {
+    #[serde(flatten)]
+    screen: EdgeScreen,
+    scale: Option<f64>,
+    /// The screen view's bounds (a docked column's viewport).
+    bounds: Size,
+    kind: HandleKind,
+    /// The handle's frame springs.
+    handle: AnimatedFrame,
+    /// How the screen draws the line's axis.
+    shown: ShownPixels,
+    /// The view offset that places the line moves.
+    #[serde(default)]
+    moves: bool,
+    /// Extents from the anchor to answer `valueAt` for.
+    #[serde(default)]
+    extents: Vec<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgeInfluenceRequest {
+    kind: HandleKind,
+    axis: SplitAxis,
+    /// The caught layout and the probe's (both laid out at `scale`, 0 off the pixel grid as the
+    /// press lays them).
+    caught: EdgeScreen,
+    probe: EdgeScreen,
+    #[serde(default)]
+    scale: f64,
+    #[serde(default)]
+    frames: BTreeMap<String, AnimatedFrame>,
+    targets: Option<BTreeMap<String, Rect>>,
+    #[serde(default)]
+    speed_change: f64,
+    #[serde(default)]
+    place_change: f64,
+    #[serde(default)]
+    clamp_leftover: f64,
+    minimum: Size,
+    spring: Spring,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EdgeLowestRequest {
+    edges: Edges,
+    spring: Spring,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CatchersRequest {
+    areas: Vec<MouseArea>,
+    pages: Vec<Rect>,
+    active: bool,
+    visible: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ScrollRouteRequest {
+    dx: f64,
+    dy: f64,
+    /// A discrete wheel notch (no phase); else an undecided gesture's event.
+    #[serde(default)]
+    notch: bool,
+    #[serde(default)]
+    ended: bool,
+    #[serde(default)]
+    facts: ScrollFacts,
+}
+
 fn bounds_value(bounds: Option<crate::shown_resize::Bounds>) -> Value {
     bounds.map_or(Value::Null, |bounds| json!({"lower": bounds.lower, "upper": bounds.upper}))
 }
@@ -976,6 +1092,93 @@ pub fn call(operation: &str, request: Value) -> Result<Value, String> {
                     _ => Value::Null,
                 },
             })
+        }
+        "edge_place" => {
+            let mut r: EdgePlaceRequest = parse(request)?;
+            edge_motion::place(&mut r.frame, r.target, r.keeps_shown);
+            to_value(r.frame)
+        }
+        "edge_seed" => {
+            let mut r: EdgeSeedRequest = parse(request)?;
+            let moved = MovedEdges::new(r.before, r.after);
+            edge_motion::seed(&mut r.frame, moved, r.rate);
+            Ok(json!({"moved": to_value(moved)?, "frame": to_value(r.frame)?}))
+        }
+        "edge_press" => {
+            let r: EdgePressRequest = parse(request)?;
+            let scale = r.scale.unwrap_or(2.);
+            let geometry = r.screen.geometry(scale);
+            let screen = PressScreen {
+                geometry: &geometry,
+                layout: &r.screen.layout,
+                style: &r.screen.style,
+                bounds: r.bounds,
+            };
+            let caught = edge_motion::press(&r.kind, &screen, &r.handle, |_| (r.shown, r.moves));
+            let Some(caught) = caught else {
+                return Ok(Value::Null);
+            };
+            let values = r
+                .extents
+                .iter()
+                .map(|extent| to_value(caught.value_at(*extent, &r.screen.style)))
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(json!({
+                "value": to_value(&caught.value)?,
+                "base": caught.base,
+                "axis": to_value(caught.axis)?,
+                "speedChange": caught.speed_change,
+                "placeChange": caught.place_change,
+                "held": caught.held,
+                "catches": caught.catches,
+                "restLine": edge_motion::rest_line(&r.kind, caught.axis, &geometry),
+                "valuesAt": values,
+            }))
+        }
+        "edge_influence" => {
+            let r: EdgeInfluenceRequest = parse(request)?;
+            let caught = r.caught.geometry(r.scale);
+            let probe = r.probe.geometry(r.scale);
+            let influence = Influence::new(&r.kind, &caught, &probe, r.axis);
+            let mut applied = r.frames.clone();
+            if let Some(influence) = &influence {
+                for (pane, frame) in &mut applied {
+                    let (from, to) =
+                        (caught.panes.get(pane).copied(), probe.panes.get(pane).copied());
+                    influence.apply(r.speed_change, r.place_change, frame, from, to);
+                }
+            }
+            let negative = edge_motion::may_show_negative_size(
+                &r.frames,
+                r.targets.as_ref(),
+                influence.as_ref(),
+                r.speed_change,
+                r.clamp_leftover,
+                r.minimum,
+                r.spring,
+            );
+            Ok(json!({
+                "lineMove": influence.as_ref().map(|i| i.line_move),
+                "frames": to_value(applied)?,
+                "mayShowNegativeSize": negative,
+            }))
+        }
+        "edge_lowest" => {
+            let r: EdgeLowestRequest = parse(request)?;
+            Ok(json!(edge_motion::lowest(&r.edges, r.spring)))
+        }
+        "divider_catchers" => {
+            let r: CatchersRequest = parse(request)?;
+            let wanted = edge_motion::wanted_catchers(&r.areas, &r.pages, r.active, r.visible);
+            Ok(json!(wanted.iter().map(|area| area.id.as_str()).collect::<Vec<_>>()))
+        }
+        "scroll_route" => {
+            let r: ScrollRouteRequest = parse(request)?;
+            if r.notch {
+                to_value(edge_motion::notch_route(r.dx, r.dy, r.facts))
+            } else {
+                to_value(edge_motion::undecided_lock(r.dx, r.dy, r.ended, r.facts))
+            }
         }
         _ => Err(format!("unknown operation {operation}")),
     }

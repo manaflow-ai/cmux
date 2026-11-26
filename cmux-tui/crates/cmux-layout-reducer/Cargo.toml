@@ -10,6 +10,8 @@ description = "Pure layout reducer and tab-conservation invariants for the cmux 
 [dependencies]
 # sidebar.nav validates its ids against the action catalog (sidebar_nav.rs).
 cmux-action-catalog = { path = "../cmux-action-catalog" }
+# The spring a pane edge follows (geometry/edge_motion.rs), as the app steps it (cmux_motion_step).
+cmux-motion = { path = "../cmux-motion", default-features = false }
 serde = { workspace = true, features = ["derive"] }
 # float_roundtrip: a split ratio or column width crosses the app FFI and comes back bit for bit
 # (the app compares the columns it gets to the ones it holds). unbounded_depth: the optimistic
@@ -21,8 +23,6 @@ unicode-normalization = { workspace = true }
 unicode-segmentation = { workspace = true }
 
 [dev-dependencies]
-# The spring the scroll tests step to rest (src/scroll/tests.rs), as the app does.
-cmux-motion = { path = "../cmux-motion", default-features = false }
 proptest = { version = "1", default-features = false, features = ["std"] }
 
 [lints]
