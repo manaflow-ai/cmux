@@ -124,6 +124,13 @@ class Workflow(unittest.TestCase):
         self.assertIn("swift-size-opt.sh", text)
         self.assertIn("nightly-swift-defines.sh", text)
 
+    def test_gateway_job_keeps_the_runner_fallback_reachable(self) -> None:
+        text = (ROOT / npb.WORKFLOW).read_text()
+        match = re.search(r"(?ms)^  swift-fleet:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)", text)
+        self.assertIsNotNone(match)
+        self.assertIn("if: ${{ needs.route.outputs.swift == 'true' }}", match.group(1))
+        self.assertIn("vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux'", match.group(1))
+
 
 if __name__ == "__main__":
     unittest.main()
