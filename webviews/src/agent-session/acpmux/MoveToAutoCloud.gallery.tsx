@@ -3,7 +3,7 @@
 // Move this to AutoCloud (MoveToAutoCloud.tsx): `cmux migrate plan --json` drawn as a card, three looks
 // over the same fixtures. Leo, 2026-11-24: "we ought to be able to have good migration capabilities all
 // around for people of all stages any and all levels of technical sophistication and teams and
-// organizations of any size and demand to move to autocloud". Gallery only; nothing renders it yet.
+// organizations of any size and demand to move to autocloud". The picked look is `summary` (MOVE_LOOK); the other two stay for comparison.
 import { componentEntry } from "../../gallery/format";
 import {
   MoveToAutoCloud,
@@ -194,7 +194,7 @@ const FIXTURES: Record<string, Fixture> = {
 const LOOKS: Record<MoveLook, string> = {
   checklist: "Checklist by what moves",
   sources: "One block per place the work is now",
-  summary: "One line of counts, Review opens the list",
+  summary: "Picked: one line of counts, Review opens the list",
 };
 
 const noop = () => undefined;
@@ -206,7 +206,7 @@ for (const look of Object.keys(LOOKS) as MoveLook[]) {
     const summary = look === "summary";
     variants[`${look}-${name}`] = {
       note: `${LOOKS[look]}. ${fixture.note}`,
-      height: summary ? 260 : fixture.height,
+      height: summary && !fixture.plans.some((p) => p.warnings?.length) ? 260 : summary ? 300 : fixture.height,
       props: {
         look,
         plans: fixture.plans,

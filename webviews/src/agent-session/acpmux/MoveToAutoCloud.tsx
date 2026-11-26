@@ -5,7 +5,9 @@
 // around for people of all stages any and all levels of technical sophistication and teams and
 // organizations of any size and demand to move to autocloud".
 //
-// Gallery only: nothing renders this outside MoveToAutoCloud.gallery.tsx. The types below mirror the
+// Picked look: `summary` (MOVE_LOOK). It fits one import card per source, and its Review list is the
+// checklist, so the plan is still every row checkable (RFD 0173, "its sheet is the plan"). The other two
+// stay in the gallery for comparison. Nothing renders this outside MoveToAutoCloud.gallery.tsx yet. The types below mirror the
 // plan's JSON (serde's snake_case field names) and the ledger's stages (ledger.rs `Stage`), so the
 // look picked here can take the CLI's output as it is. Three looks:
 //   - `checklist`: one list by what moves (projects, settings, secrets, SSH hosts, imports).
@@ -94,8 +96,11 @@ export type MoveRun = {
 
 export type MoveLook = "checklist" | "sources" | "summary";
 
+/// The look the import card uses (RFD 0173). The others are gallery comparisons only.
+export const MOVE_LOOK: MoveLook = "summary";
+
 export type MoveToAutoCloudProps = {
-  look: MoveLook;
+  look?: MoveLook;
   plans: MovePlan[];
   run?: MoveRun;
   /// No signed-in app: the CLI line replaces Move.
@@ -586,7 +591,7 @@ function Footer({ plans, run, headless, onMove, onRetry, onNotNow }: MoveToAutoC
 }
 
 export function MoveToAutoCloud(props: MoveToAutoCloudProps) {
-  const { look, plans, run, reviewOpen = false } = props;
+  const { look = MOVE_LOOK, plans, run, reviewOpen = false } = props;
   const checks = useChecks(plans);
   const [open, setOpen] = useState(reviewOpen);
   const all = totals(plans);
@@ -610,6 +615,13 @@ export function MoveToAutoCloud(props: MoveToAutoCloudProps) {
       </header>
       {look === "summary" ? (
         <>
+          {!open && all.warnings.length > 0 && (
+            <ul className="move-ac__warnings">
+              {all.warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
           <div className="move-ac__summary">
             <span className="move-ac__facts">{counts(all)}</span>
             <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setOpen(!open)}>
