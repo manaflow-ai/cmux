@@ -47,5 +47,6 @@ ignore.workspace = true
 fuser = { version = "=0.14.0", default-features = false, features = ["abi-7-31"] }
 
 [dev-dependencies]
+cmux-egress = { workspace = true, features = ["blocking", "capture"] }
 ignore.workspace = true
 tempfile = "3"
