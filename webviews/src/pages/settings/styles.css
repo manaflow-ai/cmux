@@ -2752,6 +2752,29 @@ button.menu-disclosure {
   padding: 0 var(--ds-space-2) var(--ds-space-2);
 }
 
+.app-update-prs {
+  padding: 0 var(--ds-space-2) var(--ds-space-2);
+}
+
+.app-update-prs summary {
+  cursor: default;
+}
+
+.app-update-prs h4 {
+  margin: var(--ds-space-2) 0 var(--ds-space-1);
+  font-weight: 600;
+}
+
+.app-update-prs ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-update-prs li {
+  padding: 2px 0;
+}
+
 .app-update-progress {
   display: block;
   width: 100%;

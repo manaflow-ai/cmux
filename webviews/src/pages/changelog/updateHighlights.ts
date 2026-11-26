@@ -59,6 +59,36 @@ export interface UpdateHighlights {
   goBack?: UpdateGoBack | null;
   /** A go-back runs (the host's progress); absent once it ended without a relaunch. */
   goBackRunning?: boolean;
+  /** "What's in this build": the PRs merged since the installed build, every skipped nightly's
+      included, grouped by area (the host's UpdatePullRequests). Absent until the span's notes load,
+      and from an older host. */
+  prs?: UpdatePullRequests | null;
+}
+
+/** The PRs an update brings, grouped by area: the host groups, orders and words them; pages only draw. */
+export interface UpdatePullRequests {
+  /** Largest area first, Other last. */
+  groups: UpdatePullRequestGroup[];
+  /** The builds the list spans, newest first. */
+  builds: string[];
+}
+
+export interface UpdatePullRequestGroup {
+  /** The area's key (`sidebar`, `other`, ...). */
+  area: string;
+  /** Its heading, already localized. */
+  label: string;
+  items: UpdatePullRequest[];
+}
+
+export interface UpdatePullRequest {
+  pr?: number | null;
+  title: string;
+  author?: string | null;
+  /** The PR's page (the notes' url, else the manaflow-ai/cmux pull page). */
+  url?: string | null;
+  /** The build that brought it. */
+  build: string;
 }
 
 export interface UpdateGoBack {

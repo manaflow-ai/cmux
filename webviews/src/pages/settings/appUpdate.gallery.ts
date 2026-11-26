@@ -28,6 +28,40 @@ const previousBuild = (refusal: string | null): PreviousBuild => ({
   build_label: "Build 3913596493800",
   refusal,
 });
+const pull = (pr: number, title: string, author: string, build: string) => ({
+  pr,
+  title,
+  author,
+  url: `https://github.com/manaflow-ai/cmux/pull/${pr}`,
+  build,
+});
+const readyWithPRs: AppUpdateState = {
+  ...idle,
+  phase: "ready",
+  status: "Update Ready",
+  detail: "Version 1.0.0-nightly.3913596493802",
+  actions: [{ id: "install", title: "Restart to Update", prominent: true }],
+  prs: {
+    title: "What's in this build",
+    builds: ["3913596493802", "3913596493801"],
+    groups: [
+      {
+        area: "sidebar",
+        label: "Sidebar",
+        items: [
+          pull(57301, "Pinned tabs keep their order after a restart", "lawrence", "3913596493802"),
+          pull(57288, "Sidebar rows fade on hover", "austin", "3913596493801"),
+        ],
+      },
+      {
+        area: "terminal",
+        label: "Terminal",
+        items: [pull(57295, "Find bar remembers its query", "leo", "3913596493802")],
+      },
+      { area: "other", label: "Other", items: [pull(57270, "Faster cold start", "leo", "3913596493801")] },
+    ],
+  },
+};
 const card = (phase: string): PageFixtureStep => ({
   selector: `[data-card="app-update"][data-phase="${phase}"]`,
   action: "wait",
@@ -69,6 +103,12 @@ export default settingsPageEntry({
       },
       "Staged: one Restart to Update, the same click as the sidebar's ready card.",
     ),
+    "ready-prs": {
+      section: "updates",
+      host: { app_update: readyWithPRs },
+      steps: [card("ready"), { selector: "[data-app-update-prs] summary", action: "click" }],
+      note: "Staged with What's in this build open: every PR since the installed build, skipped nightlies' too, by area.",
+    },
     failed: variant(
       {
         ...idle,

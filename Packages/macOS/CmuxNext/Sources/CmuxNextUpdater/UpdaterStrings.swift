@@ -272,4 +272,30 @@ nonisolated enum UpdaterStrings {
     static func cannotSwitch(to target: String, from track: String) -> String {
         format("updater.disabled.cannotSwitch", "A %@ build cannot switch to %@.", track, target)
     }
+
+    /// "What's in this build": the PRs an update brings (Settings > Updates).
+    static var pullRequestsTitle: String { text("updater.prs.title", "What's in this build") }
+
+    /// An area's heading in "What's in this build"; an unknown area is the notes' own word.
+    static func area(_ key: String) -> String {
+        switch key {
+        case "sidebar": text("updater.area.sidebar", "Sidebar")
+        case "newTab": text("updater.area.newTab", "New Tab")
+        case "composer": text("updater.area.composer", "Composer")
+        case "cloud": text("updater.area.cloud", "Cloud")
+        case "agentChat": text("updater.area.agentChat", "Agent Chat")
+        case "home": text("updater.area.home", "Home")
+        case "tabs": text("updater.area.tabs", "Tabs")
+        case "terminal": text("updater.area.terminal", "Terminal")
+        case "browser": text("updater.area.browser", "Browser")
+        case "palette": text("updater.area.palette", "Command Palette")
+        case "settings": text("updater.area.settings", "Settings")
+        case "updates": text("updater.area.updates", "Updates")
+        case "keyboard": text("updater.area.keyboard", "Keyboard")
+        case "panes": text("updater.area.panes", "Panes")
+        case "windows": text("updater.area.windows", "Windows")
+        case UpdatePullRequests.otherArea: text("updater.area.other", "Other")
+        default: key
+        }
+    }
 }

@@ -422,6 +422,17 @@ export type AppUpdateState = {
   actions: { id: AppUpdateAction; title: string; prominent: boolean }[];
   /** Read-only lines under the status: Last Updated and Next Check, label and value the host's. */
   schedule?: { id: string; label: string; value: string }[];
+  /** "What's in this build" while an update waits: the PRs since the installed build, every skipped
+      nightly's included, grouped by area. Every text is the host's; absent with none. */
+  prs?: {
+    title: string;
+    groups: {
+      area: string;
+      label: string;
+      items: { pr?: number | null; title: string; author?: string | null; url?: string | null; build: string }[];
+    }[];
+    builds: string[];
+  } | null;
 };
 
 /**

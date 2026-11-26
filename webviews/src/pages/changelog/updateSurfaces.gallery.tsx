@@ -698,6 +698,58 @@ export default componentEntry<Props>({
         },
       },
     },
+    "popover-prs": {
+      note: "What's in this build (Leo 2026-11-26: \"hm do we display which prs go into which nightly maybe that'd be useful per thing?\"): under the changes, every PR since the installed build, skipped nightlies' included, grouped by area under the host's headings, each its title and #N chip linked to the PR, then its author. Public PR titles, representative grouping.",
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelectorAll("[data-prs-area]").length === 2);
+        await ctx.waitFor(() => ctx.document.querySelectorAll("[data-prs] a.cl-pr").length === 3);
+      },
+      props: {
+        surface: "popover",
+        data: {
+          ...base,
+          prs: {
+            builds: ["3913596493802", "3913596493801"],
+            groups: [
+              {
+                area: "agentChat",
+                label: "Agent Chat",
+                items: [
+                  {
+                    pr: 26875,
+                    title: "Let transcript reading surfaces follow chat text size",
+                    author: "lawrence",
+                    url: "https://github.com/manaflow-ai/cmux/pull/26875",
+                    build: "3913596493802",
+                  },
+                  {
+                    pr: 27312,
+                    title: "Other sessions' messages are one inline line each",
+                    author: "austin",
+                    url: "https://github.com/manaflow-ai/cmux/pull/27312",
+                    build: "3913596493801",
+                  },
+                ],
+              },
+              {
+                area: "other",
+                label: "Other",
+                items: [
+                  {
+                    pr: 27045,
+                    title: "Faster cold start",
+                    author: "leo",
+                    url: "https://github.com/manaflow-ai/cmux/pull/27045",
+                    build: "3913596493801",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        theme: "dark",
+      },
+    },
     card: {
       note: "Shipped (Lawrence 2026-11-23, back to the original two-line card; Leo 2026-11-23 on the one-line card: the title cut to an ellipsis, a gap at the end, a useless arrow, an oddly proportioned x, not useful info): \"Updated to Nightly\" whole on the first line, the update's top change in full under it, in the composer's material and corner. No What's New link or arrow on the card: What's New is in the changes it shows beside the sidebar on hover. The x shows on hover, centred on the title line, the app's one card x (ui/DismissButton.tsx proportions); a click on Nightly copies the full build.",
       props: { surface: "card", data: base, theme: "dark" },

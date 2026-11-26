@@ -51,6 +51,7 @@ import type {
   UpdateHighlightItem,
   UpdateHighlightMedia,
   UpdateHighlights,
+  UpdatePullRequests,
   UpdateSurfaceActions,
 } from "./updateHighlights";
 import { PREVIEW_CLOSE_MS, PreviewIntent, plainEntries, previewEntries, withoutGenericEntry } from "./updatedPreview";
@@ -748,7 +749,8 @@ export function UpdateReadyHighlights({
   // No change list (Leo 2026-11-03: "MAN this looks ugly... stretched out wasted space"): the popover
   // is as wide as its lines (at most the menu width) and the link sits with them, with no rule and
   // no far edge to push it to. The host sizes the popover to the width this page reports.
-  if (items.length === 0 && (rest?.length ?? 0) === 0) {
+  const prs = data.prs?.groups.length ? data.prs : null;
+  if (items.length === 0 && (rest?.length ?? 0) === 0 && !prs) {
     const from = data.fromVersion && data.fromVersion !== data.version ? data.fromVersion : null;
     const link = (
       <button type="button" className="wn-pop-all" onClick={() => actions.openChangelog()}>
@@ -831,6 +833,7 @@ export function UpdateReadyHighlights({
             )}
           </div>
         )}
+        {prs && <PopPullRequests prs={prs} strings={strings} />}
       </div>
       <div className="wn-pop-foot">
         {!rest && data.moreCount > 0 && (
@@ -842,6 +845,37 @@ export function UpdateReadyHighlights({
         </button>
       </div>
     </section>
+  );
+}
+
+/** "What's in this build" (Leo 2026-11-26: "hm do we display which prs go into which nightly maybe
+ * that'd be useful per thing?"): every PR since the installed build, grouped by area under the
+ * host's headings, each its title and #N linked to the PR, then its author. Only draws: the host
+ * groups and orders them (UpdatePullRequests.swift). */
+function PopPullRequests({ prs, strings }: { prs: UpdatePullRequests; strings: Strings }) {
+  return (
+    <div className="wn-pop-rest" data-prs="">
+      <section className="wn-pop-rest-group">
+        <h4>{strings.t("updates.prs.title")}</h4>
+      </section>
+      {prs.groups.map((group) => (
+        <section key={group.area} className="wn-pop-rest-group" aria-label={group.label} data-prs-area={group.area}>
+          <h4>{group.label}</h4>
+          <ul>
+            {group.items.map((item) => (
+              <li key={`${item.pr ?? item.title}`} className="wn-pop-row">
+                <span className="wn-pop-text">
+                  <span className="wn-pop-item">
+                    <ChangePullRequest pr={item.url ?? item.pr ?? ""} title={item.title} />
+                  </span>
+                  {item.author && <span className="wn-pop-line">{item.author}</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
   );
 }
 
