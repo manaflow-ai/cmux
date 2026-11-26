@@ -46,10 +46,10 @@ import type {
   TailnetState,
   ModelsState,
   LibraryListing,
-  HubState,
-  AutocloudState,
   DoctorReport,
+  HubState,
   ConnectionsState,
+  AutocloudState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -328,6 +328,8 @@ export type MarkdownPageVariant = VariantBase & {
   files?: Record<string, string>;
   /** Opens find (the `find` page command, Cmd-F) with this query once the document shows. */
   find?: string;
+  /** The link to cmux stays down: every config read fails as the bridge does. */
+  disconnected?: boolean;
 };
 
 /** One file of a diff fixture: the text before (absent for a new file) and after (absent when deleted). */
@@ -426,6 +428,10 @@ export type CloudPageVariant = VariantBase & {
   spendCap?: NonNullable<import("../pages/cloud/ops").CloudPlan["spend_cap"]>;
   /** The member's own monthly budget is spent: a start or create is refused. */
   memberBudget?: { spent_usd: number; limit_usd: number };
+  /** The plan's hours and spend limit (RFD 0081); set, the variant turns the default-off switch on. */
+  pool?: import("../pages/cloud/pool").PoolStanding;
+  /** The spend limit's setter is refused: the caller is not a team admin. */
+  spendLimitForbidden?: boolean;
   /** The latest surge the list's last page reports (the surge card on Machines). */
   surge?: import("../pages/cloud/ops").CloudSurge;
   /** The app's billing read: the latest payment failed (true), or the read fails ("fail"). */
