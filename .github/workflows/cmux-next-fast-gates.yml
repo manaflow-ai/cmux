@@ -289,16 +289,28 @@ jobs:
       producer: ${{ steps.verify.outputs.producer }}
     steps:
       - name: Check out the trusted receipt verifier
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
           sparse-checkout-cone-mode: false
-          sparse-checkout: |
+          sparse-checkout: &receipt-sparse |
             /scripts/ci/ci_receipt.py
             /scripts/ci/deadline_http.py
             /scripts/ci/cmux_next_fast_gates.py
             /.gitmodules
+
+      # The receipt job sits in front of the gates on every lane/ pull request, so its checkout is on the verdict's
+      # critical path: actions/checkout of the base took 70 s of the job's 2.3 min (run 45613463458, 2026-11-25).
+      # The pool mirror checks out the same base commit's three files in seconds, as resolve and route do.
+      - name: "Pool mirror: check out the trusted receipt verifier"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.event.pull_request.base.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: *receipt-sparse
+        run: *pool-checkout
 
       - name: Verify the local test receipt
         id: verify
