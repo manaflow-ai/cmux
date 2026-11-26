@@ -240,7 +240,7 @@ async function open() {
 }
 const deferred = { harness: "claude", cwd: "/tmp/classic-project", deferred: true };
 
-test("a linked Cloud machine keeps Claude Connect and its existing Codex models", async () => {
+test("a linked Cloud machine keeps its models selectable without a positive Claude setup status", async () => {
   const { calls, builder } = await mount({ linkedCloudMachine: true });
   expect(paneWindow().cmuxAcpmuxDebug?.runMode().runMode).toBe("cloud");
   const location = host.querySelector<HTMLButtonElement>('.nt-location [data-kind="computer"] button')!;
@@ -260,6 +260,8 @@ test("a linked Cloud machine keeps Claude Connect and its existing Codex models"
   expect(paneWindow().cmuxAcpmuxDebug?.runMode().runMode).toBe("persistent");
   await open();
   expect(calls.filter(({ method }) => method === "cloud.setup.state").at(-1)?.params).toEqual({ machine: builder.id });
+  // An API-key guest or an older signed-in guest can return this same negative setup result.
+  expect(items().map(label), popup().textContent ?? "").toContain("Sonnet 5.5");
   const connect = popup().querySelector<HTMLButtonElement>("[data-cloud-connect]");
   expect(connect?.textContent).toContain("Connect Claude");
   await act(async () => connect!.click());

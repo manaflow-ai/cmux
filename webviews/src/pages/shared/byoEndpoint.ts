@@ -156,8 +156,11 @@ export function validModel(id: string): boolean {
   return id.length > 0 && new TextEncoder().encode(id).length <= 200 && !/[\s\p{Cc}{}$"'\\]/u.test(id);
 }
 
-/** acpmux's URL rule (`check_base_url`): https, or http only to this machine; no user or key. */
-export function endpointUrlProblem(url: string): "missing" | "invalid" | "insecure" | "query" | null {
+/** acpmux's URL rule. An unchanged saved query still goes through the daemon's secret checks. */
+export function endpointUrlProblem(
+  url: string,
+  allowSavedQuery = false,
+): "missing" | "invalid" | "insecure" | "query" | null {
   const text = url.trim();
   if (!text) return "missing";
   let parsed: URL;
@@ -167,7 +170,7 @@ export function endpointUrlProblem(url: string): "missing" | "invalid" | "insecu
     return "invalid";
   }
   if (parsed.username || parsed.password || parsed.hash || /[{}$"\\]/.test(text)) return "invalid";
-  if (text.includes("?")) return "query";
+  if (text.includes("?") && !allowSavedQuery) return "query";
   const host = parsed.hostname.replace(/\.$/, "");
   const ipv4 = /^\d+\.\d+\.\d+\.\d+$/.test(host);
   const [a = 0, b = 0] = host.split(".").map(Number);

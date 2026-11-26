@@ -395,6 +395,18 @@ impl Route {
         Ok(())
     }
 
+    pub(crate) fn check_local_harness(
+        &self,
+        profile: Option<&crate::config::HarnessProfile>,
+    ) -> Result<(), RouteError> {
+        if self.file.kind == RouteKind::ChatgptPlan
+            && !profile.is_some_and(|p| crate::codex_app_server::is_profile_launch(&p.argv))
+        {
+            return Err(RouteError::ChatgptAppServerRequired);
+        }
+        Ok(())
+    }
+
     /// Whether it serves `family`.
     pub fn serves(&self, family: &str) -> bool {
         // Existing xAI route files were written for Codex. They can also serve the native CLI
@@ -479,6 +491,7 @@ pub enum RouteError {
     NotFound(String),
     SecretInline(String),
     Unavailable(String),
+    ChatgptAppServerRequired,
     Failed(String),
 }
 
@@ -491,6 +504,9 @@ impl RouteError {
             | Self::SecretInline(m)
             | Self::Unavailable(m)
             | Self::Failed(m) => m,
+            Self::ChatgptAppServerRequired => {
+                "ChatGPT connections require a codex app-server harness."
+            }
         }
     }
 
@@ -501,6 +517,7 @@ impl RouteError {
             Self::NotFound(_) => Some("route.not_found"),
             Self::SecretInline(_) => Some("route.secret_inline"),
             Self::Unavailable(_) => Some("route.unavailable"),
+            Self::ChatgptAppServerRequired => Some("chatgpt.app_server_required"),
             Self::BadParams(_) => Some("route.invalid"),
             Self::Failed(_) => None,
         }
@@ -703,10 +720,11 @@ fn file_from_toml(text: &str) -> Result<RouteFile, RouteError> {
         && let Some((policy, notes)) = policy.split_once('\n')
         && let Some((enabled, provider)) =
             policy.strip_prefix(CLOUD_POLICY_PREFIX).and_then(|policy| policy.split_once(' '))
-        && let Ok(enabled) = enabled.parse::<bool>()
+        && let Ok(enabled) =
+            if enabled == "default" { Ok(None) } else { enabled.parse::<bool>().map(Some) }
     {
         file.credential_instance = Some(instance);
-        file.cloud_enabled = Some(enabled && provider == file.provider());
+        file.cloud_enabled = if provider == file.provider() { enabled } else { Some(false) };
         file.notes = (!notes.is_empty()).then(|| notes.to_owned());
     }
     Ok(file)
@@ -835,18 +853,13 @@ pub(crate) fn file_from_edit(
 }
 
 fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
-    // Older builds rewrite the route's known fields and drop comments. Keep the Cloud choice
-    // and the identity of the key it applies to in the notes field those writers preserve.
+    // Older builds rewrite the known fields and drop comments. Keep the identity in notes
+    // even when the key still uses its provider's default Cloud policy.
     if file.kind == RouteKind::DirectApiKey
-        && let (Some(enabled), Some(instance)) = (file.cloud_enabled, &file.credential_instance)
+        && let Some(instance) = &file.credential_instance
     {
         let mut disk = file.clone();
-        let notes = format!(
-            "{CLOUD_POLICY_PREFIX}{enabled} {}\n{}",
-            file.provider(),
-            file.notes.as_deref().unwrap_or("")
-        );
-        disk.notes = Some(crate::agent_credentials::with_stored_instance(&notes, instance));
+        disk.notes = Some(key_notes(file, instance));
         let text = toml::to_string_pretty(&disk).map_err(|e| RouteError::Failed(e.to_string()))?;
         return write_route_text(path, &text);
     }
@@ -856,6 +869,47 @@ fn write_file(path: &Path, file: &RouteFile) -> Result<(), RouteError> {
         None => text,
     };
     write_route_text(path, &text)
+}
+
+fn key_notes(file: &RouteFile, instance: &str) -> String {
+    let enabled = match file.cloud_enabled {
+        Some(true) => "true",
+        Some(false) => "false",
+        None => "default",
+    };
+    let notes = format!(
+        "{CLOUD_POLICY_PREFIX}{enabled} {}\n{}",
+        file.provider(),
+        file.notes.as_deref().unwrap_or("")
+    );
+    crate::agent_credentials::with_stored_instance(&notes, instance)
+}
+
+/// Backfill and restore keep the rest of the original TOML, including user comments.
+fn write_credential_instance(
+    path: &Path,
+    text: &str,
+    file: &RouteFile,
+    instance: &str,
+) -> Result<(), RouteError> {
+    if file.kind != RouteKind::DirectApiKey {
+        let text = crate::agent_credentials::with_stored_instance(text, instance);
+        return write_route_text(path, &text);
+    }
+    let text = if crate::agent_credentials::stored_instance(text).is_some() {
+        text.split_once('\n').map_or("", |(_, rest)| rest)
+    } else {
+        text
+    };
+    let mut doc: toml_edit::DocumentMut =
+        text.parse().map_err(|_| RouteError::Failed("could not read route TOML".into()))?;
+    doc.remove("cloud_enabled");
+    let mut notes = toml_edit::Value::from(key_notes(file, instance));
+    if let Some(previous) = doc.get("notes").and_then(toml_edit::Item::as_value) {
+        *notes.decor_mut() = previous.decor().clone();
+    }
+    doc["notes"] = toml_edit::Item::Value(notes);
+    write_route_text(path, &doc.to_string())
 }
 
 fn read_route_text(path: &Path) -> Result<String, RouteError> {
@@ -1033,27 +1087,39 @@ fn assign_credential_instance(file: &mut RouteFile) -> bool {
 /// Read the route for delivery, assigning an identity to pre-existing files under the edit lock.
 pub(crate) fn for_credential(dir: Option<&Path>, id: &str) -> Result<Route, RouteError> {
     let mut route = find(dir, id)?;
-    if route.file.credential_instance.is_none()
-        && has_credential_instance(route.file.kind)
-        && !route.path.as_os_str().is_empty()
+    ensure_credential_instance(dir, &mut route)?;
+    Ok(route)
+}
+
+/// Move comment-only API key identities into notes without changing a delivered identity.
+pub(crate) fn ensure_credential_instance(
+    dir: Option<&Path>,
+    route: &mut Route,
+) -> Result<(), RouteError> {
+    if route.path.as_os_str().is_empty() || !has_credential_instance(route.file.kind) {
+        return Ok(());
+    }
+    let comment_instance = |text: &str| crate::agent_credentials::stored_instance(text).is_some();
+    if route.file.credential_instance.is_some()
+        && (route.file.kind != RouteKind::DirectApiKey
+            || !comment_instance(&read_route_text(&route.path)?))
     {
-        let Ok(_guard) = lock_route_files(dir) else { return Ok(route) };
-        route = find(dir, id)?;
-        if route.file.credential_instance.is_none() && !route.path.as_os_str().is_empty() {
-            let text = read_route_text(&route.path)?;
-            route.file = file_from_toml(&text)?;
-            if assign_credential_instance(&mut route.file)
-                && let Some(instance) = &route.file.credential_instance
-            {
-                let text = crate::agent_credentials::with_stored_instance(&text, instance);
-                if write_route_text(&route.path, &text).is_err() {
-                    // Read-only legacy routes can still start an agent with an unbound credential.
-                    route.file.credential_instance = None;
-                }
-            }
+        return Ok(());
+    }
+    let Ok(_guard) = lock_route_files(dir) else { return Ok(()) };
+    let text = read_route_text(&route.path)?;
+    route.file = file_from_toml(&text)?;
+    let assigned = assign_credential_instance(&mut route.file);
+    if let Some(instance) = &route.file.credential_instance
+        && (assigned || (route.file.kind == RouteKind::DirectApiKey && comment_instance(&text)))
+    {
+        let written = write_credential_instance(&route.path, &text, &route.file, instance);
+        if written.is_err() && assigned {
+            // Read-only legacy routes can still start an agent with an unbound credential.
+            route.file.credential_instance = None;
         }
     }
-    Ok(route)
+    Ok(())
 }
 
 /// Move a route to the backup folder; the backup's name restores it.
@@ -1100,35 +1166,102 @@ fn backup_removed_route(home: &Path, route: Route) -> Result<String, RouteError>
         .map(|d| d.as_millis())
         .unwrap_or(0);
     let name = format!("{id}.{stamp}.toml");
-    // Persist the guest withdrawal marker before the route goes away. A failed write leaves
-    // the connection available for a Disconnect retry.
+    if id.starts_with(ONE_RUN_PREFIX) {
+        // A one-run chat keeps its binding so it cannot fall back to the owner's provider.
+        crate::home_fs::remove_file(&route.path).map_err(route_storage_error)?;
+        return Ok(name);
+    }
+
+    let _guard = BINDINGS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let token_route = route.file.kind == RouteKind::ClaudeToken;
+    // Keep the original text only in memory for token routes, which leave no backup.
+    let token_text = token_route.then(|| read_route_text(&route.path)).transpose()?;
+    // Record the withdrawal before removing the route. The connection list hides the marker
+    // while this instance exists, including if the daemon stops before the move.
+    let marker = route
+        .file
+        .credential_instance
+        .as_deref()
+        .map(|instance| record_disconnect(&backups, id, instance))
+        .transpose()?;
+    let discard_marker = || {
+        if let Some(marker) = &marker
+            && let Err(error) = crate::home_fs::remove_file(marker)
+        {
+            tracing::warn!(%error, "could not remove an uncommitted route withdrawal");
+        }
+    };
+    let backup = backups.join(&name);
+    let removed = if token_route {
+        crate::home_fs::remove_file(&route.path)
+    } else {
+        crate::home_fs::rename(&route.path, &backup)
+    };
+    if let Err(error) = removed {
+        discard_marker();
+        return Err(route_storage_error(error));
+    }
+
     // Chats bound to it fall back to their inherited route, and a workspace,
     // family or global default that named it is cleared, so new chats fall
-    // back too instead of failing on a route that is gone. Except a one-run
-    // route's chat: it keeps the binding, so its next spawn fails ("route is
-    // gone") instead of running on the owner's own provider without a word.
-    if !id.starts_with(ONE_RUN_PREFIX) {
-        update_bindings(home, |b| {
-            if let Some(instance) = route.file.credential_instance {
-                b.disconnected_credentials.entry(id.to_owned()).or_default().insert(instance);
-            }
-            b.chats.retain(|_, r| r != id);
-            b.workspaces.retain(|_, r| r != id);
-            b.families.retain(|_, r| r != id);
-            b.connection_order.retain(|r| r != id);
-            if b.global.as_deref() == Some(id) {
-                b.global = None;
-            }
-        })?;
+    // back too instead of failing on a route that is gone.
+    let mut b = bindings(home);
+    b.chats.retain(|_, r| r != id);
+    b.workspaces.retain(|_, r| r != id);
+    b.families.retain(|_, r| r != id);
+    b.connection_order.retain(|r| r != id);
+    if b.global.as_deref() == Some(id) {
+        b.global = None;
     }
-    if id.starts_with(ONE_RUN_PREFIX) || route.file.kind == RouteKind::ClaudeToken {
-        // Token routes leave no backup after their credential is removed.
-        crate::home_fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
-    } else {
-        crate::home_fs::rename(&route.path, backups.join(&name))
-            .map_err(|e| RouteError::Failed(e.to_string()))?;
+    if let Err(error) = write_bindings(home, &b) {
+        let restored = match token_text {
+            Some(text) => write_route_text(&route.path, &text),
+            None => crate::home_fs::rename(&backup, &route.path).map_err(route_storage_error),
+        };
+        match restored {
+            Ok(()) => discard_marker(),
+            Err(restore) => {
+                tracing::warn!(%restore, "could not restore route after bindings write failed")
+            }
+        }
+        return Err(error);
     }
     Ok(name)
+}
+
+fn route_storage_error(error: std::io::Error) -> RouteError {
+    RouteError::Failed(error.to_string())
+}
+
+fn record_disconnect(backups: &Path, id: &str, instance: &str) -> Result<PathBuf, RouteError> {
+    let path = backups.join(format!("{}.disconnect.json", uuid::Uuid::new_v4()));
+    let tmp = path.with_extension("tmp");
+    let bytes =
+        serde_json::to_vec(&(id, instance)).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::write_synced(&tmp, &bytes).map_err(route_storage_error)?;
+    crate::home_fs::rename(&tmp, &path).map_err(route_storage_error)?;
+    Ok(path)
+}
+
+/// Read the settings snapshot after any in-process Disconnect commits or rolls back.
+pub(crate) fn bindings_with_disconnects(home: &Path) -> Bindings {
+    let _guard = BINDINGS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let mut b = bindings(home);
+    // Keep legacy markers so a guest can still receive withdrawals saved by the prior build.
+    if let Ok(entries) = std::fs::read_dir(backups_dir(home)) {
+        for path in entries.flatten().map(|entry| entry.path()).filter(|path| {
+            path.file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .is_some_and(|name| name.ends_with(".disconnect.json"))
+        }) {
+            if let Ok(bytes) = std::fs::read(path)
+                && let Ok((id, instance)) = serde_json::from_slice::<(String, String)>(&bytes)
+            {
+                b.disconnected_credentials.entry(id).or_default().insert(instance);
+            }
+        }
+    }
+    b
 }
 
 /// Route ids a hand makes for one agent run (crates/acpmux/src/hand/gateway.rs).
@@ -1151,18 +1284,9 @@ pub fn restore(dir: Option<&Path>, home: &Path, backup: &str) -> Result<Route, R
     }
     crate::home_fs::create_dirs(dir).map_err(|e| RouteError::Failed(e.to_string()))?;
     let text = read_route_text(&from)?;
-    if crate::agent_credentials::stored_instance(&text).is_some() {
-        let text = crate::agent_credentials::with_stored_instance(
-            &text,
-            &uuid::Uuid::new_v4().to_string(),
-        );
-        write_route_text(&from, &text)?;
-    } else {
-        let mut file = file_from_toml(&text)?;
-        if file.credential_instance.is_some() {
-            file.credential_instance = Some(uuid::Uuid::new_v4().to_string());
-            write_file(&from, &file)?;
-        }
+    let file = file_from_toml(&text)?;
+    if file.credential_instance.is_some() {
+        write_credential_instance(&from, &text, &file, &uuid::Uuid::new_v4().to_string())?;
     }
     crate::home_fs::rename(&from, &to).map_err(|e| RouteError::Failed(e.to_string()))?;
     find(Some(dir), &id)
@@ -1234,6 +1358,11 @@ pub fn update_bindings(
     let _guard = BINDINGS_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let mut b = bindings(home);
     change(&mut b);
+    write_bindings(home, &b)?;
+    Ok(b)
+}
+
+fn write_bindings(home: &Path, b: &Bindings) -> Result<(), RouteError> {
     let path = bindings_path(home);
     // Not under a lost home (`config::refuse_lost_home`), and through the folder this daemon
     // holds (`home_fs`): a home replaced after the check never gets the bindings.
@@ -1243,10 +1372,9 @@ pub fn update_bindings(
         crate::home_fs::create_dir_all(parent, 0o777).map_err(failed)?;
     }
     let tmp = path.with_extension("json.tmp");
-    crate::home_fs::write_synced(&tmp, &serde_json::to_vec_pretty(&b).unwrap_or_default())
+    crate::home_fs::write_synced(&tmp, &serde_json::to_vec_pretty(b).unwrap_or_default())
         .map_err(failed)?;
-    crate::home_fs::rename(&tmp, &path).map_err(failed)?;
-    Ok(b)
+    crate::home_fs::rename(&tmp, &path).map_err(failed)
 }
 
 /// The scope a binding names: `chat:<session id>`, `workspace:<id>`,
@@ -1286,21 +1414,32 @@ pub fn set_binding(home: &Path, scope: &str, route: Option<&str>) -> Result<Bind
 }
 
 pub(crate) fn set_default_binding(
-    dir: Option<&Path>,
-    home: &Path,
+    config: &crate::config::Config,
     scope: &str,
     route: Option<&str>,
 ) -> Result<Bindings, RouteError> {
+    let (dir, home) = places(config);
     if let Some(id) = route {
-        let found = find(dir, id)?;
+        let found = find(dir.as_deref(), id)?;
         found.check_local_launch()?;
+        // These scopes are shared by every harness they cover that can use the route.
+        if found.file.kind == RouteKind::ChatgptPlan {
+            for (name, profile) in &config.harnesses {
+                let family = crate::config::derive_family(name, profile);
+                if scope.strip_prefix("family:").is_none_or(|target| target == family)
+                    && found.serves(&family)
+                {
+                    found.check_local_harness(Some(profile))?;
+                }
+            }
+        }
         if found.file.disabled {
             return Err(RouteError::BadParams(format!(
                 "{id} is turned off: turn it on before making it a default"
             )));
         }
     }
-    set_binding(home, scope, route)
+    set_binding(&home, scope, route)
 }
 
 /// The route id for a session, and the scope that chose it.
@@ -1700,6 +1839,47 @@ mod tests {
     }
 
     #[test]
+    fn failed_route_move_preserves_every_saved_binding() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("config");
+        let home = root.path().join("state");
+        let id = "work-key";
+        let file = file_from_json(&json!({
+            "kind": "direct-api-key", "families": ["claude"], "secret": "env:WORK_KEY",
+        }))
+        .unwrap();
+        let route = add(Some(&dir), id, &file, false).unwrap();
+        let before = update_bindings(&home, |b| {
+            b.chats.insert("chat".into(), id.into());
+            b.workspaces.insert("workspace".into(), id.into());
+            b.families.insert("claude".into(), id.into());
+            b.global = Some(id.into());
+            b.connection_order = vec![id.into(), "other".into()];
+        })
+        .unwrap();
+
+        // Make the rename fail after the route has been found and validated.
+        let held = dir.join("held");
+        assert!(
+            remove_with(
+                Some(&dir),
+                &home,
+                id,
+                None,
+                |route| {
+                    std::fs::rename(&route.path, &held).unwrap();
+                    Ok(())
+                },
+                |error| error,
+            )
+            .is_err()
+        );
+        std::fs::rename(held, route.path).unwrap();
+        assert_eq!(bindings(&home), before);
+        assert!(bindings_with_disconnects(&home).disconnected_credentials.is_empty());
+    }
+
+    #[test]
     fn legacy_rewrite_preserves_cloud_opt_out_and_the_delivered_instance() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("work-key.toml");
@@ -1736,6 +1916,51 @@ notes = "Work connection"
         let restored = restore(route_dir, dir.path(), &backup).unwrap().file;
         assert_eq!(restored.cloud_enabled, Some(false));
         assert_ne!(restored.credential_instance, edited.credential_instance);
+    }
+
+    #[test]
+    fn older_rename_preserves_the_instance_delivered_by_an_implicit_cloud_key() {
+        for (family, provider) in [("claude", "anthropic"), ("codex", "openai")] {
+            for comment_only in [false, true] {
+                let dir = tempfile::tempdir().unwrap();
+                let route_dir = Some(dir.path());
+                let id = "work-key";
+                let path = dir.path().join(format!("{id}.toml"));
+                let text = format!(
+                    "# Comment on this key\nkind = \"direct-api-key\"\nprovider = \"{provider}\"\nfamilies = [\"{family}\"]\nsecret = \"env:WORK_KEY\"\nnotes = \"Work connection\"\n"
+                );
+                let prior = comment_only.then(|| uuid::Uuid::new_v4().to_string());
+                let text = match &prior {
+                    Some(instance) => {
+                        crate::agent_credentials::with_stored_instance(&text, instance)
+                    }
+                    None => text,
+                };
+                std::fs::write(&path, text).unwrap();
+
+                let delivered = for_credential(route_dir, id).unwrap().file;
+                let instance = delivered.credential_instance.unwrap();
+                assert_eq!(delivered.cloud_enabled, None);
+                if let Some(prior) = prior {
+                    assert_eq!(instance, prior);
+                }
+
+                // The base account writer retains known fields, including notes, and drops comments.
+                let text = std::fs::read_to_string(&path).unwrap();
+                assert!(text.contains("# Comment on this key"));
+                let mut older: RouteFile = toml::from_str(&text).unwrap();
+                older.name = Some("Renamed in the older build".into());
+                std::fs::write(&path, toml::to_string_pretty(&older).unwrap()).unwrap();
+                let renamed = for_credential(route_dir, id).unwrap().file;
+                assert_eq!(renamed.name, older.name);
+                assert_eq!(renamed.notes.as_deref(), Some("Work connection"));
+                assert_eq!(renamed.cloud_enabled, None);
+                assert_eq!(renamed.credential_instance.as_deref(), Some(instance.as_str()));
+
+                remove_with(route_dir, dir.path(), id, Some(&instance), |_| Ok(()), |e| e).unwrap();
+                assert!(bindings(dir.path()).disconnected_credentials[id].contains(&instance));
+            }
+        }
     }
 
     #[test]

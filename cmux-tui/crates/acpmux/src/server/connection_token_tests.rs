@@ -182,7 +182,8 @@ async fn new_keys_wait_for_cloud_opt_in_and_openrouter_never_delivers() {
             let enabled = rpc
                 .call(
                     method::MUX_ACCOUNT_SET,
-                    json!({"id": id, "instance": row["credential_instance"], "servesCloud": true}),
+                    json!({"id": id, "instance": row["credential_instance"], "cloudUse": true,
+                           "keyRevision": row["key_revision"]}),
                 )
                 .await;
             assert!(enabled.get("error").is_none(), "{enabled}");
@@ -202,16 +203,75 @@ async fn a_cloud_toggle_cannot_authorize_a_new_key_at_the_same_route_id() {
     let hub = hub_with_config(config);
     let mut rpc = Rpc::connect(&hub, &Who::Person).await;
     let id = "google-key";
-    let instance = |reply: &Value| {
+    let identity = |reply: &Value| {
+        let row = reply["result"]["connections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == id)
+            .unwrap();
+        let instance = row["credential_instance"].as_str().unwrap().to_owned();
+        let revision = row["key_revision"].as_str().unwrap().to_owned();
+        (instance, revision)
+    };
+    let original = rpc
+        .call(
+            method::MUX_CONNECTIONS_KEY_ADD,
+            json!({"provider": "google", "secret": "env:ORIGINAL"}),
+        )
+        .await;
+    let (instance, revision) = identity(&original);
+    let removed =
+        rpc.call(method::MUX_CONNECTIONS_REMOVE, json!({"id": id, "instance": instance})).await;
+    assert!(removed.get("error").is_none(), "{removed}");
+    let replacement = rpc
+        .call(
+            method::MUX_CONNECTIONS_KEY_ADD,
+            json!({"provider": "google", "secret": "env:REPLACEMENT"}),
+        )
+        .await;
+    let (new_instance, new_revision) = identity(&replacement);
+    assert_ne!(instance, new_instance);
+
+    for change in [
+        json!({"id": id, "cloudUse": true, "keyRevision": new_revision}),
+        json!({"id": id, "instance": instance, "cloudUse": true, "keyRevision": new_revision}),
+        json!({"id": id, "instance": new_instance, "cloudUse": true}),
+        json!({"id": id, "instance": new_instance, "servesCloud": true}),
+    ] {
+        let refused = rpc.call(method::MUX_ACCOUNT_SET, change).await;
+        assert!(refused.get("error").is_some(), "{refused}");
+    }
+    assert_ne!(revision, new_revision);
+    let read = rpc.call(method::MUX_CONNECTIONS_CREDENTIAL, json!({"id": id})).await;
+    assert_eq!(read["error"]["data"]["reason"], "connections.not_cloud");
+    let enabled = rpc
+        .call(
+            method::MUX_ACCOUNT_SET,
+            json!({"id": id, "instance": new_instance, "cloudUse": true, "keyRevision": new_revision}),
+        )
+        .await;
+    assert!(enabled.get("error").is_none(), "{enabled}");
+}
+
+#[tokio::test]
+async fn a_cloud_toggle_cannot_authorize_a_key_replaced_in_place() {
+    let home = tempfile::tempdir().unwrap();
+    let mut config = Config::default();
+    config.path = Some(home.path().join("config.json"));
+    config.profile_sources = crate::config::ProfileSources::none();
+    config.profile_sources.cmux_json = Some(home.path().join("cmux.json"));
+    let hub = hub_with_config(config);
+    let mut rpc = Rpc::connect(&hub, &Who::Person).await;
+    let id = "google-key";
+    let row = |reply: &Value| {
         reply["result"]["connections"]
             .as_array()
             .unwrap()
             .iter()
             .find(|row| row["id"] == id)
-            .unwrap()["credential_instance"]
-            .as_str()
             .unwrap()
-            .to_owned()
+            .clone()
     };
 
     let original = rpc
@@ -220,32 +280,33 @@ async fn a_cloud_toggle_cannot_authorize_a_new_key_at_the_same_route_id() {
             json!({"provider": "google", "secret": "env:ORIGINAL"}),
         )
         .await;
-    let removed = rpc
-        .call(method::MUX_CONNECTIONS_REMOVE, json!({"id": id, "instance": instance(&original)}))
-        .await;
-    assert!(removed.get("error").is_none(), "{removed}");
+    let original = row(&original);
     let replacement = rpc
         .call(
             method::MUX_CONNECTIONS_KEY_ADD,
-            json!({"provider": "google", "secret": "env:REPLACEMENT"}),
+            json!({"provider": "google", "secret": "env:REPLACEMENT", "replace": id,
+                   "replaceInstance": original["credential_instance"]}),
         )
         .await;
-    assert_ne!(instance(&original), instance(&replacement));
+    let replacement = row(&replacement);
+    assert_eq!(replacement["credential_instance"], original["credential_instance"]);
+    assert_ne!(replacement["key_revision"], original["key_revision"]);
 
-    for expected in [None, Some(instance(&original))] {
-        let mut change = json!({"id": id, "servesCloud": true});
-        if let Some(expected) = expected {
-            change["instance"] = json!(expected);
-        }
-        let refused = rpc.call(method::MUX_ACCOUNT_SET, change).await;
-        assert!(refused.get("error").is_some(), "{refused}");
-    }
+    let refused = rpc
+        .call(
+            method::MUX_ACCOUNT_SET,
+            json!({"id": id, "instance": original["credential_instance"], "cloudUse": true,
+                   "keyRevision": original["key_revision"]}),
+        )
+        .await;
+    assert!(refused.get("error").is_some(), "{refused}");
     let read = rpc.call(method::MUX_CONNECTIONS_CREDENTIAL, json!({"id": id})).await;
     assert_eq!(read["error"]["data"]["reason"], "connections.not_cloud");
     let enabled = rpc
         .call(
             method::MUX_ACCOUNT_SET,
-            json!({"id": id, "instance": instance(&replacement), "servesCloud": true}),
+            json!({"id": id, "instance": replacement["credential_instance"], "cloudUse": true,
+                   "keyRevision": replacement["key_revision"]}),
         )
         .await;
     assert!(enabled.get("error").is_none(), "{enabled}");

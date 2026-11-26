@@ -575,8 +575,13 @@ test.each(["openai", "google", "vertex-express", "xai"])(
       servesCloud: false,
     });
     await act(async () => rendered.history.push("/settings/cloud"));
-    const instance = rendered.provider.models?.personal.connections.find((c) => c.id === id)?.credentialInstance ?? "";
+    const { credentialInstance, keyRevision: revision } = rendered.provider.models!.personal.connections.find(
+      (c) => c.id === id,
+    )!;
+    const instance = credentialInstance ?? "";
+    const keyRevision = revision ?? "";
     expect(instance).toBeTruthy();
+    expect(keyRevision).toBeTruthy();
     const key = card(rendered).querySelector(`[data-connection="${id}"]`)!;
     const menu = () => key.querySelector(`[data-menu="connection-${id}"]`)!;
     expect(key.textContent).toContain("Off for new chats");
@@ -587,13 +592,13 @@ test.each(["openai", "google", "vertex-express", "xai"])(
     const use = document.querySelector('[data-value="setCloud"]')!;
     expect(use.textContent).toBe("Use on Cloud");
     await click(use);
-    expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, instance, on: true });
+    expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, instance, keyRevision, on: true });
     expect(key.textContent).not.toContain("Off for new chats");
     await click(menu());
     const stop = document.querySelector('[data-value="setCloud"]')!;
     expect(stop.textContent).toBe("Stop using on Cloud");
     await click(stop);
-    expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, instance, on: false });
+    expect(rendered.provider.modelRuns.at(-1)).toEqual({ action: "setCloud", id, instance, keyRevision, on: false });
     expect(key.textContent).toContain(
       "Off for new chats. Older machines can keep using the key until their chats end.",
     );
@@ -699,6 +704,7 @@ test("Connect opens the opted-out connection's Cloud toggle", async () => {
   state.personal.connections.push({
     id: "anthropic-key",
     credentialInstance: "fixture-anthropic",
+    keyRevision: "fixture-anthropic-key",
     label: "Anthropic API key",
     provider: "anthropic",
     kind: "api-key",
@@ -717,37 +723,85 @@ test("Connect opens the opted-out connection's Cloud toggle", async () => {
   expect(enable.textContent).toBe("Use on Cloud");
   await click(enable);
   expect(rendered.provider.modelRuns).toEqual([
-    { action: "setCloud", id: "anthropic-key", instance: "fixture-anthropic", on: true },
+    {
+      action: "setCloud",
+      id: "anthropic-key",
+      instance: "fixture-anthropic",
+      keyRevision: "fixture-anthropic-key",
+      on: true,
+    },
   ]);
   expect(card(rendered).textContent).not.toContain("Not used on Cloud");
 });
 
-test("a stale Cloud menu cannot opt a replacement key in before the page refreshes", async () => {
+test.each(["new route", "in-place replacement"])(
+  "a stale Cloud menu cannot opt a key in before the page refreshes after %s",
+  async (replacement) => {
+    const rendered = await render(mockModels.empty, "/settings/models?focus=models.add.google");
+    await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-api-key");
+    await click(panel()!.querySelector('[data-models-action="addKey"]')!);
+    await act(async () => rendered.history.push("/settings/cloud"));
+    const state = rendered.provider.models!;
+    const saved = state.personal.connections.find((c) => c.id === "google-key")!;
+    const instance = saved.credentialInstance ?? "";
+    expect(instance).toBeTruthy();
+    await click(card(rendered).querySelector('[data-menu="connection-google-key"]')!);
+    const toggle = document.querySelector('[data-value="setCloud"]')!;
+    // Change the mock host's state without delivering its update to the open menu yet.
+    rendered.provider.models = {
+      ...state,
+      personal: {
+        ...state.personal,
+        connections: [
+          {
+            ...saved,
+            credentialInstance: replacement === "new route" ? "replacement" : instance,
+            keyRevision: "replacement-key",
+          },
+        ],
+      },
+    };
+    await click(toggle);
+    expect(rendered.provider.models.personal.connections[0]?.servesCloud).toBe(false);
+    expect(rendered.provider.modelRuns.at(-1)).toEqual({
+      action: "setCloud",
+      id: saved.id,
+      instance,
+      keyRevision: saved.keyRevision ?? "",
+      on: true,
+    });
+    expect(card(rendered).querySelector('[role="alert"]')).not.toBeNull();
+    expect(document.querySelector('[data-value="setCloud"]')).toBeNull();
+  },
+);
+
+test("refreshing Cloud Models after in-place key replacement closes the open consent menu", async () => {
   const rendered = await render(mockModels.empty, "/settings/models?focus=models.add.google");
   await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-api-key");
   await click(panel()!.querySelector('[data-models-action="addKey"]')!);
   await act(async () => rendered.history.push("/settings/cloud"));
   const state = rendered.provider.models!;
   const saved = state.personal.connections.find((c) => c.id === "google-key")!;
-  const instance = saved.credentialInstance ?? "";
-  expect(instance).toBeTruthy();
-  await click(card(rendered).querySelector('[data-menu="connection-google-key"]')!);
-  const toggle = document.querySelector('[data-value="setCloud"]')!;
-  // Change the mock host's state without delivering its update to the open menu yet.
-  rendered.provider.models = {
-    ...state,
-    personal: { ...state.personal, connections: [{ ...saved, credentialInstance: "replacement" }] },
-  };
-  await click(toggle);
+  const menu = () => card(rendered).querySelector('[data-menu="connection-google-key"]')!;
+  await click(menu());
+  expect(document.querySelector('[data-value="setCloud"]')).not.toBeNull();
+
+  await act(async () =>
+    rendered.provider.setModels({
+      ...state,
+      personal: { ...state.personal, connections: [{ ...saved, keyRevision: "replacement-key" }] },
+    }),
+  );
+  expect(document.querySelector('[data-value="setCloud"]')).toBeNull();
+  await click(menu());
+  await click(document.querySelector('[data-value="setCloud"]')!);
   expect(rendered.provider.modelRuns.at(-1)).toEqual({
     action: "setCloud",
     id: saved.id,
-    instance,
+    instance: saved.credentialInstance ?? "",
+    keyRevision: "replacement-key",
     on: true,
   });
-  expect(rendered.provider.models.personal.connections[0]?.servesCloud).toBe(false);
-  expect(card(rendered).querySelector('[role="alert"]')).not.toBeNull();
-  expect(document.querySelector('[data-value="setCloud"]')).toBeNull();
 });
 
 test("saved OpenRouter and endpoint rows stay local even with stale Cloud readiness", async () => {

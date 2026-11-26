@@ -312,7 +312,25 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], crate::codex_cloud_auth::PLACEHOLDER_KEY);
     assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "");
 
-    // An explicit team request cannot copy a settings file into argv and durable spawn metadata.
+    // Native team starts preserve file-based permissions. A credential cleared by
+    // the overlay never enters argv or durable spawn metadata.
+    let mut file_profile = profile(&[]);
+    file_profile.argv.push("--settings=permissions.json".into());
+    for contents in [
+        r#"{"permissions":{"allow":["Read"]}}"#,
+        r#"{"permissions":{"allow":["Read"]},"env":{"ANTHROPIC_AUTH_TOKEN":"fixture-cleared-token"}}"#,
+    ] {
+        std::fs::write(home.join("permissions.json"), contents).unwrap();
+        let team = hub.spawn_profile_for(&requested, &file_profile, &none).await.unwrap();
+        let settings =
+            crate::claude_cloud_auth::flag_settings(&team.argv[1..], &home).unwrap().unwrap();
+        assert_eq!(settings["permissions"]["allow"], json!(["Read"]));
+        assert_eq!(settings["env"]["ANTHROPIC_BASE_URL"], "https://localhost");
+        assert_eq!(settings["env"]["ANTHROPIC_AUTH_TOKEN"], "");
+        assert!(team.argv.iter().all(|arg| !arg.contains("fixture-cleared-token")));
+    }
+
+    // A credential that would survive the overlay must never enter those launch settings.
     std::fs::write(
         home.join("personal.json"),
         r#"{"env":{"ANTHROPIC_BASE_URL":"https://personal.test","AWS_BEARER_TOKEN_BEDROCK":"fixture-file-secret"}}"#,
@@ -322,7 +340,9 @@ async fn a_discovered_claude_with_no_sign_in_gets_the_team_plane() {
     let own = hub.spawn_profile_for(&meta, &file_profile, &none).await.unwrap();
     assert_eq!(own.argv, file_profile.argv);
     let refused = hub.spawn_profile_for(&requested, &file_profile, &none).await.err().unwrap();
-    assert_eq!(refused.data.unwrap()["reason"], "route.unavailable");
+    let data = refused.data.unwrap();
+    assert_eq!(data["reason"], "route.settings_secret");
+    assert!(!data.to_string().contains("fixture-file-secret"));
     assert!(!refused.message.contains("fixture-file-secret"));
 
     std::fs::remove_file(root.join("etc/cmux/model-plane.env")).unwrap();

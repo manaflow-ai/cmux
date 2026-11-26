@@ -165,7 +165,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const ready = cloudRows.filter((c) => c.servesCloud && usable(c) && !cloudRunnerStatus(c));
   const servesFamily = (c: ModelConnection, family: string) => (c.cloudFamilies ?? c.families).includes(family);
   const canToggleCloud = (c: ModelConnection) =>
-    c.kind === "api-key" && !!c.credentialInstance && (c.canServeCloud ?? c.servesCloud);
+    c.kind === "api-key" && !!c.credentialInstance && !!c.keyRevision && (c.canServeCloud ?? c.servesCloud);
   const cloudOff =
     family && !machine && !machineName && !environment && !ready.some((c) => servesFamily(c, family))
       ? cloudRows.find((c) => canToggleCloud(c) && !c.servesCloud && usable(c) && servesFamily(c, family))
@@ -194,7 +194,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const devicePending = device === "starting" || device === "waiting" || device === "cancelling";
   const claudePending =
     capture === "preparing" || capture === "approving" || capture === "code" || capture === "cancelling";
-  const menuKey = (c: ModelConnection) => (cloud ? `${c.id}:${c.credentialInstance ?? ""}` : c.id);
+  const menuKey = (c: ModelConnection) =>
+    cloud ? `${c.id}:${c.credentialInstance ?? ""}:${c.keyRevision ?? ""}` : c.id;
   const [openMenuKey, setOpenMenuKey] = useState<string | null>(null);
   useLayoutEffect(() => {
     if (reveal && !family) revealRow(section.current);
@@ -374,7 +375,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
           {available &&
             displayed.map((connection, index) => {
               const key = menuKey(connection);
-              const instance = connection.credentialInstance;
+              const { credentialInstance: instance, keyRevision } = connection;
               return (
                 <ModelConnectionRow
                   key={key}
@@ -401,12 +402,13 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
                   onSetup={pick}
                   onAction={pick}
                   onCloudChange={
-                    cloud && instance && canToggleCloud(connection)
+                    cloud && instance && keyRevision && canToggleCloud(connection)
                       ? () =>
                           void rowRun({
                             action: "setCloud",
                             id: connection.id,
                             instance,
+                            keyRevision,
                             on: !connection.servesCloud,
                           })
                       : undefined

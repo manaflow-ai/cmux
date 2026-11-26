@@ -914,6 +914,12 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        if let Err(e) = Box::pin(self.refresh_disconnected_subscription_before_turn(session)).await
+        {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         self.refresh_local_chatgpt_between_turns(session).await;
         self.refresh_local_kimi_between_turns(session).await;
         if session.cancels.load(Ordering::SeqCst) != cancels {
@@ -1197,11 +1203,15 @@ impl Hub {
         // Only this turn's start resumes the cut turn, never a later one.
         session.resume_cut_ask.store(false, Ordering::SeqCst);
         let started = match started {
-            Ok(child) => session
-                .meta()
-                .agent_session_id
-                .map(|sid| (child, sid))
-                .ok_or_else(|| RpcError::internal("no agent session")),
+            Ok(child) => match Box::pin(self.check_local_subscription_child(session, &child)).await
+            {
+                Ok(()) => session
+                    .meta()
+                    .agent_session_id
+                    .map(|sid| (child, sid))
+                    .ok_or_else(|| RpcError::internal("no agent session")),
+                Err(e) => Err(e),
+            },
             Err(e) => Err(e),
         };
         let (mut child, agent_sid) = match started {
@@ -1560,7 +1570,12 @@ impl Hub {
                 }
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
-                let fallback = Box::pin(self.child_for_since(session, stops)).await;
+                let fallback = match Box::pin(self.child_for_since(session, stops)).await {
+                    Ok(child) => Box::pin(self.check_local_subscription_child(session, &child))
+                        .await
+                        .map(|()| child),
+                    Err(e) => Err(e),
+                };
                 let refusal = match &fallback {
                     Ok(_) => match self
                         .check_dispatch(

@@ -219,7 +219,8 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       return { ...state, chatgptDevice: { phase: "idle" } };
     case "setCloud": {
       const connection = find(run.id);
-      if (connection.credentialInstance !== run.instance) throw new Error("the connection changed while it was open");
+      if (connection.credentialInstance !== run.instance || connection.keyRevision !== run.keyRevision)
+        throw new Error("the connection changed while it was open");
       if (connection.kind !== "api-key" || !(connection.canServeCloud ?? connection.servesCloud))
         throw new Error("setCloud needs an eligible API-key connection");
       return personal({
@@ -249,7 +250,9 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
         )
           throw new Error("replacement needs a matching API-key connection");
         return personal({
-          connections: connections.map((c) => (c.id === run.replace ? { ...c, signedIn: true } : c)),
+          connections: connections.map((c) =>
+            c.id === run.replace ? { ...c, signedIn: true, keyRevision: crypto.randomUUID() } : c,
+          ),
         });
       }
       const provider = KEY_PROVIDERS[run.provider];
@@ -259,6 +262,7 @@ export function runMockModels(state: ModelsState, run: ModelsRun): ModelsState {
       const added: ModelConnection = {
         id: nextId(`${run.provider}-key`, connections),
         credentialInstance: crypto.randomUUID(),
+        keyRevision: canServeCloud ? crypto.randomUUID() : undefined,
         kind: "api-key",
         provider: run.provider,
         families: [...provider.families],

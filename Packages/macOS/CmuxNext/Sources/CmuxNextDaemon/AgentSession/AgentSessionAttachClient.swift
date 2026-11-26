@@ -97,7 +97,11 @@ public actor AgentSessionAttachClient {
 
     private static func needsKeyWithdrawal(_ endpoint: LaunchEndpoint?, _ credentials: [String: String]?) -> Bool {
         endpoint != nil || credentials?["ANTHROPIC_API_KEY"] != nil || credentials?["OPENAI_API_KEY"] != nil
-            || credentials?["GEMINI_API_KEY"] != nil || credentials?["GOOGLE_API_KEY"] != nil || credentials?["XAI_API_KEY"] != nil
+            || hasNativeCloudKey(credentials)
+    }
+
+    private static func hasNativeCloudKey(_ credentials: [String: String]?) -> Bool {
+        credentials?["GEMINI_API_KEY"] != nil || credentials?["GOOGLE_API_KEY"] != nil || credentials?["XAI_API_KEY"] != nil
     }
 
     /// The refusal of a Codex start that carries a credential to a daemon without ``startCodexCredentialsCapability``,
@@ -348,7 +352,7 @@ public actor AgentSessionAttachClient {
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,
                                       startMode: startMode, servesStartMode: served.startMode,
-                                      servesCredentials: served.credentials, credentials: credentials,
+                                      servesCredentials: served.credentials, credentials: credentials, servesBoundCredentials: served.boundCredentials,
                                       servesEndpointCredentials: served.endpointCredentials, launchEndpoint: launchEndpoint,
                                       credentialConnection: served.credentialReattach ? connection : nil,
                                       claudeAuth: claudeAuth)
@@ -374,13 +378,14 @@ public actor AgentSessionAttachClient {
     public static let prewarmCapability = "agent-session-prewarm-v1"
 
     /// Warms the agent a coming ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:permissionMode:startMode:credentials:)``
-    /// of this tab will run, on the owner's own Cloud VM, so that start takes a running agent instead of a cold one. It sends
-    /// exactly the params that start would (``startParams``), so the machine's acpmux keys the warmed agent as that start's
-    /// `session/new`; a start that differs starts cold, as before. Binds nothing and answers whether acpmux took the hint.
+    /// of this tab will run, on the owner's own Cloud VM. The hint uses the start's launch inputs (``startParams``), so
+    /// the machine's acpmux keys the warmed agent as that start's `session/new`. A start with different inputs starts cold.
+    /// Binds nothing and answers whether acpmux took the hint.
+    /// Gemini and Grok keys go only to the bound start, which lets Cloud opt-out withdraw them.
     /// Only over the owner answer of the link (``ownedConnection(_:check:)``), as the start: never to a teammate's machine.
     public func prewarm(cwd: String, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
                         startMode: String? = nil, credentials: [String: String]? = nil, launchEndpoint: LaunchEndpoint? = nil) async throws -> Bool {
-        guard mode == .attach else { return false }
+        guard mode == .attach, !Self.hasNativeCloudKey(credentials) else { return false }
         let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
             guard served.start, model == nil || served.model else {
                 throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve this start")
@@ -393,7 +398,7 @@ public actor AgentSessionAttachClient {
                                       servesKeyedReason: served.keyedReason, callerOwnsVM: callerOwnsVM, servesVMKind: served.vmKind,
                                       model: model, servesModel: served.model, servesPermissionMode: served.permissionMode, permissionMode: permissionMode,
                                       startMode: startMode, servesStartMode: served.startMode,
-                                      servesCredentials: served.credentials, credentials: credentials,
+                                      servesCredentials: served.credentials, credentials: credentials, servesBoundCredentials: served.boundCredentials,
                                       servesEndpointCredentials: served.endpointCredentials, launchEndpoint: launchEndpoint)
         let data = try await call("agent-session-prewarm", params, timeout: requestTimeout, on: transport)
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["accepted"] as? Bool == true
@@ -430,7 +435,7 @@ public actor AgentSessionAttachClient {
                             servesKeyedReason: Bool, callerOwnsVM: Bool, servesVMKind: Bool,
                             model: String? = nil, servesModel: Bool = false, servesPermissionMode: Bool = false, permissionMode: String? = nil,
                             startMode: String? = nil, servesStartMode: Bool = false,
-                            servesCredentials: Bool = false, credentials: [String: String]? = nil,
+                            servesCredentials: Bool = false, credentials: [String: String]? = nil, servesBoundCredentials: Bool = false,
                             servesEndpointCredentials: Bool = false, launchEndpoint: LaunchEndpoint? = nil,
                             credentialConnection: String? = nil, claudeAuth: ClaudeAuth? = nil) -> [String: any Sendable] {
         var params: [String: any Sendable] = [:]
@@ -457,8 +462,8 @@ public actor AgentSessionAttachClient {
         if callerOwnsVM, servesCredentials, let credentials, !credentials.isEmpty,
            launchEndpoint == nil || servesEndpointCredentials {
             var env = credentials
-            // Guests before endpoint credentials take the same saved Claude token under its original name.
-            if !servesEndpointCredentials, launchEndpoint == nil, credentials.count == 1,
+            // Use the legacy name only on older guests. Bound updates send the saved name as-is.
+            if !servesBoundCredentials, !servesEndpointCredentials, launchEndpoint == nil, credentials.count == 1,
                let token = credentials["ANTHROPIC_AUTH_TOKEN"], token.hasPrefix("sk-ant-oat") {
                 env = ["CLAUDE_CODE_OAUTH_TOKEN": token]
             }

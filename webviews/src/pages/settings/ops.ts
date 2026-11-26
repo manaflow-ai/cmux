@@ -726,6 +726,8 @@ export type ModelConnection = {
   id: string;
   /** Identity of this saved route, even when its ID is reused later. */
   credentialInstance?: string | null;
+  /** Revision of the saved API-key reference used for Cloud consent. */
+  keyRevision?: string | null;
   kind: ModelConnectionKind;
   provider: string;
   families: string[];
@@ -845,7 +847,7 @@ export type ModelsRun =
     }
   | { action: "finishClaudeLogin"; cloud: boolean; code: string; machine?: string; recoverySession?: string }
   | { action: "cancelChatGPTDevice" }
-  | { action: "setCloud"; id: string; instance: string; on: boolean }
+  | { action: "setCloud"; id: string; instance: string; keyRevision: string; on: boolean }
   | {
       action: "addKey";
       provider: ModelProvider;

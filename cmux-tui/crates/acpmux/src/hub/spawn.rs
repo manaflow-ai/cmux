@@ -416,6 +416,7 @@ impl Hub {
         p.argv = self.resolved_launcher_argv(p.argv);
         p.env.remove(crate::chatgpt::LOCAL_EXPIRY_ENV);
         p.env.remove(crate::subscriptions::LOCAL_KIMI_EXPIRY);
+        p.env.remove(crate::subscriptions::LOCAL_SUBSCRIPTION_ROUTE);
         p.env.remove(crate::agent_credentials::LOCAL_REDACTION);
         #[cfg(unix)]
         for key in
@@ -616,9 +617,7 @@ impl Hub {
             && !p.env.contains_key(crate::routes::NAME_KEY);
         let claude_launch =
             claude_family && crate::claude_cloud_auth::launches_claude_itself(&p.argv);
-        if requires_claude_team
-            && (!claude_launch || crate::claude_cloud_auth::has_file_flag_settings(&p.argv[1..]))
-        {
+        if requires_claude_team && !claude_launch {
             return Err(claude_route_unavailable());
         }
         if claude_family
@@ -680,7 +679,24 @@ impl Hub {
             let cwd = std::path::Path::new(&meta.cwd);
             // The launch's own `--settings`, which Claude applies over every settings file; one
             // it cannot read keeps own.
-            let flag = crate::claude_cloud_auth::flag_settings(p.argv.get(1..).unwrap_or(&[]), cwd);
+            let args = p.argv.get(1..).unwrap_or(&[]);
+            let team_settings_file =
+                requires_claude_team && crate::claude_cloud_auth::has_file_flag_settings(args);
+            if team_settings_file && meta.remote_origin {
+                return Err(claude_route_unavailable());
+            }
+            let flag = crate::claude_cloud_auth::flag_settings(args, cwd);
+            if team_settings_file {
+                let settings = flag
+                    .as_ref()
+                    .ok()
+                    .and_then(Option::as_ref)
+                    .ok_or_else(claude_route_unavailable)?;
+                if crate::claude_cloud_auth::team_settings_would_copy_secret(settings) {
+                    return Err(claude_route_unavailable()
+                        .with_data(json!({"reason": "route.settings_secret"})));
+                }
+            }
             if let Err(error) = &flag
                 && claude_join.is_some()
             {

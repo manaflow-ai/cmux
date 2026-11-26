@@ -205,11 +205,13 @@ async fn claude_finish_uses_the_recovery_chat_bound_at_start() {
     let b = saved_claude_chat(&daemon, &mut rpc, "claude-token-2").await;
     let start = "_acpmux/agent_login/start";
     let finish = "_acpmux/agent_login/finish";
+    let recover_start = "_acpmux/agent_login/recover_start";
+    let recover_finish = "_acpmux/agent_login/recover_finish";
 
     let ordinary = rpc.call(start, json!({"agent": "claude"})).await;
     let wrong = rpc
         .reply(
-            finish,
+            recover_finish,
             json!({
                 "loginId": ordinary["loginId"], "code": "fixture-code", "recoverySession": b
             }),
@@ -223,10 +225,10 @@ async fn claude_finish_uses_the_recovery_chat_bound_at_start() {
     assert_eq!(agent_token(&daemon, &a, 1).await, TOKEN);
     assert_eq!(agent_token(&daemon, &b, 1).await, TOKEN);
 
-    let scoped = rpc.call(start, json!({"agent": "claude", "recoverySession": a})).await;
+    let scoped = rpc.call(recover_start, json!({"agent": "claude", "recoverySession": a})).await;
     let wrong = rpc
         .reply(
-            finish,
+            recover_finish,
             json!({
                 "loginId": scoped["loginId"], "code": "fixture-code", "recoverySession": b
             }),
@@ -240,10 +242,10 @@ async fn claude_finish_uses_the_recovery_chat_bound_at_start() {
     assert_eq!(agent_token(&daemon, &a, 2).await, "");
     assert_eq!(agent_token(&daemon, &b, 2).await, TOKEN);
 
-    let matched = rpc.call(start, json!({"agent": "claude", "recoverySession": b})).await;
+    let matched = rpc.call(recover_start, json!({"agent": "claude", "recoverySession": b})).await;
     assert_eq!(
         rpc.call(
-            finish,
+            recover_finish,
             json!({"loginId": matched["loginId"], "code": "fixture-code", "recoverySession": b})
         )
         .await["signedIn"],

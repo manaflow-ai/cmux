@@ -226,6 +226,31 @@ import Testing
         ])
     }
 
+    @Test func cloudUseRequiresAndForwardsTheCapturedKeyRevision() async throws {
+        let daemon = Daemon()
+        let models = make(daemon: daemon)
+        models.apply(["connections": [[
+            "id": "openai-key", "kind": "api-key", "credential_instance": "same-instance", "key_revision": "replacement",
+        ]]])
+        let run: JSONValue = ["action": "setCloud", "id": "openai-key", "instance": "same-instance", "on": true]
+        await #expect(throws: PageError.self) {
+            try await models.run(run, context: click)
+        }
+        await #expect(throws: PageError.self) {
+            try await models.run([
+                "action": "setCloud", "id": "openai-key", "instance": "same-instance", "keyRevision": "original", "on": true,
+            ], context: click)
+        }
+        #expect(daemon.calls.withLock { $0 }.isEmpty)
+
+        _ = try await models.run([
+            "action": "setCloud", "id": "openai-key", "instance": "same-instance", "keyRevision": "replacement", "on": true,
+        ], context: click)
+        #expect(daemon.calls.withLock { $0 }.first == Call(method: "_acpmux/account/set", params: [
+            "id": "openai-key", "instance": "same-instance", "keyRevision": "replacement", "cloudUse": "true",
+        ]))
+    }
+
     @Test func cloudClaudeLoginStaysOnItsSelectedMachine() async throws {
         let daemon = Daemon()
         let opened = Opened()
@@ -722,7 +747,7 @@ import Testing
             "id": "codex-login", "credentialInstance": .null, "kind": "codex-login", "provider": "openai", "families": ["codex"], "label": "ChatGPT",
             "email": .null, "plan": "plus", "signedIn": true, "enabled": true, "defaultFor": ["codex"], "servesCloud": false,
             "signInReason": .null, "canServeCloud": false, "cloudFamilies": ["codex"], "canCheckAccess": false,
-            "canReplaceKey": false, "endpoint": .null, "launchHarness": .null, "expiresAt": .null,
+            "canReplaceKey": false, "endpoint": .null, "launchHarness": .null, "expiresAt": .null, "keyRevision": .null,
         ])
         #expect(rows[1]["signedIn"] == .bool(false))
         #expect(rows[1]["serves_cloud"] == nil)

@@ -833,6 +833,8 @@ pub mod method {
     /// unix socket, the local app and the owner's own peer daemon.
     pub const MUX_AGENT_LOGIN_START: &str = "_acpmux/agent_login/start";
     pub const MUX_AGENT_LOGIN_FINISH: &str = "_acpmux/agent_login/finish";
+    pub const MUX_AGENT_LOGIN_RECOVER_START: &str = "_acpmux/agent_login/recover_start";
+    pub const MUX_AGENT_LOGIN_RECOVER_FINISH: &str = "_acpmux/agent_login/recover_finish";
     pub const MUX_AGENT_LOGIN_CANCEL: &str = "_acpmux/agent_login/cancel";
     pub const MUX_AGENT_LOGIN_STATUS: &str = "_acpmux/agent_login/status";
     pub const MUX_AGENT_LOGIN_LOGOUT: &str = "_acpmux/agent_login/logout";

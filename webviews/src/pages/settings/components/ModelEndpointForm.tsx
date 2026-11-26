@@ -25,6 +25,11 @@ function stripRequestRoute(input: string, azure: boolean): string {
   return input.trimEnd().replace(requestRoute, "");
 }
 
+function comparableUrl(input: string): string {
+  const url = input.trim();
+  return url.includes("?") ? url : url.replace(/\/+$/, "");
+}
+
 export function ModelEndpointForm({
   provider,
   saving,
@@ -77,10 +82,7 @@ export function ModelEndpointForm({
   const [regionChanged, setRegionChanged] = useState(false);
   const selectedRegion = provider.regions?.find(({ id }) => id === region);
   const [key, setKey] = useState("");
-  const [models, setModels] = useState<string[]>(() => {
-    const saved = existing?.models ?? [...(provider.defaultModels ?? [])];
-    return cloudflare ? saved.filter((id) => cloudflareModel.test(id)) : saved;
-  });
+  const [models, setModels] = useState<string[]>(() => [...(existing?.models ?? provider.defaultModels ?? [])]);
   const [manual, setManual] = useState("");
   const [urlTouched, setUrlTouched] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
@@ -108,16 +110,18 @@ export function ModelEndpointForm({
   const name = !original && regionOrResource ? `${provider.name} (${regionOrResource})` : typedName;
   const currentTarget = original ? { id: original.provider, own: true, typedKey: original.signedIn } : null;
   const next = useNextTarget(original ? null : targets, name, "endpoint", currentTarget);
+  const savedQuery = enteredUrl === existing?.baseUrl && enteredUrl.includes("?");
   const urlProblem =
-    (azure && (/\/deployments(?:\/|$)/i.test(path) || azureChatRoute.test(path)) ? "azure" : null) ??
-    endpointUrlProblem(enteredUrl) ??
+    (azure && !savedQuery && (/\/deployments(?:\/|$)/i.test(path) || azureChatRoute.test(path)) ? "azure" : null) ??
+    endpointUrlProblem(enteredUrl, savedQuery) ??
     (/[{}\s]/.test(enteredUrl) ? "invalid" : null);
-  const baseUrl = !urlProblem && azure && path === "/" ? enteredUrl.replace(/\/+$/, "") + "/openai/v1" : enteredUrl;
+  const baseUrl =
+    !urlProblem && azure && !savedQuery && path === "/" ? enteredUrl.replace(/\/+$/, "") + "/openai/v1" : enteredUrl;
   const showUrlProblem = urlProblem === "query" || urlProblem === "azure" || (urlTouched && !!urlProblem);
-  const sameUrl = baseUrl.replace(/\/+$/, "") === existing?.baseUrl.replace(/\/+$/, "");
+  const sameUrl = !!existing && comparableUrl(baseUrl) === comparableUrl(existing.baseUrl);
   const apiKey = key.trim();
   const keepKey = !!original?.signedIn && sameUrl;
-  const canRequest = !urlProblem && (apiKey ? validKey(apiKey) : keepKey || !provider.keyRequired);
+  const canRequest = !urlProblem && (apiKey ? validKey(apiKey) : keepKey || !provider.keyRequired || savedQuery);
   const model = manual.trim();
   const invalidModel =
     !!model && (/[,*]/.test(model) || !validModel(model) || (cloudflare && !cloudflareModel.test(model)));
@@ -167,7 +171,7 @@ export function ModelEndpointForm({
             revision: existing?.revision,
           },
         ),
-        validateEndpoint: cloudflare && (!original || !!apiKey || !sameUrl),
+        validateEndpoint: cloudflare && !savedQuery && (!original || !!apiKey || !sameUrl),
       });
       await store.refreshModels();
       onDone();
@@ -284,7 +288,7 @@ export function ModelEndpointForm({
             onChange={(event) => {
               const input = stripRequestRoute(event.target.value, azure);
               setBase(input);
-              if (input.trim().replace(/\/+$/, "") === baseUrl.replace(/\/+$/, "")) return;
+              if (comparableUrl(input) === comparableUrl(baseUrl)) return;
               resetCredentials();
             }}
           />

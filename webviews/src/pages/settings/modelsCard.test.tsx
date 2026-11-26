@@ -400,6 +400,37 @@ test("Cloudflare requires a vendor model ID and fills its URL from the account I
   });
 });
 
+test("editing a legacy Cloudflare name preserves every saved model in order", async () => {
+  const models = ["@cf/meta/llama-3.1-8b-instruct", "openai/gpt-4.1"];
+  const rendered = (page = await renderPage({
+    path: "/settings/models",
+    setup: (provider) => {
+      provider.agents.addEndpoint({
+        kind: "openai-endpoint",
+        id: "legacy-cloudflare",
+        name: "Legacy gateway",
+        baseUrl: "https://gateway.ai.cloudflare.com/v1/1234567890abcdef1234567890abcdef/default/compat",
+        model: models.join(","),
+        apiKey: "fixture-key",
+      });
+      provider.models = structuredClone(mockModels.empty);
+      provider.models.personal.connections.push(provider.agents.modelEndpoint("legacy-cloudflare")!);
+    },
+  }));
+  await chooseAction(rendered, "legacy-cloudflare", "edit");
+  expect(panel()?.querySelector('input[placeholder="vendor/model"]')).not.toBeNull();
+  expect([...panel()!.querySelectorAll(".models-model-list li > span")].map((model) => model.textContent)).toEqual(
+    models,
+  );
+  await changeValue(inputFor(panel()!, "Name"), "Renamed gateway");
+  await click(action(panel()!, "addEndpoint")!);
+  expect(panel()).toBeNull();
+  expect(rendered.provider.agents.modelEndpoint("legacy-cloudflare")).toMatchObject({
+    label: "Renamed gateway",
+    endpoint: { models },
+  });
+});
+
 test("a DeepSeek key uses the existing endpoint save with the catalog URL and discovered models", async () => {
   const rendered = await render(mockModels.empty);
   await pick("deepseek");
@@ -1140,6 +1171,7 @@ test("Add custom provider checks its URL and saves every model it lists through 
   await changeValue(url, "http://inference.example.com/v1");
   expect(connect.disabled).toBe(true);
   await changeValue(url, "https://inference.example.com/v1/?api-version=1");
+  expect(connect.disabled).toBe(true);
   await changeValue(url, "https://inference.example.com/v1/");
   expect(connect.disabled).toBe(false);
   expect(form.querySelector("[data-models-check]")).toBeNull();
@@ -1218,6 +1250,56 @@ test("a custom endpoint without model discovery saves a manual model and rotates
   expect(panel()).toBeNull();
   expect(rendered.provider.agents.keys.get("private-endpoint")).toBe("fixture-rotated-key");
   expect(rendered.provider.agents.modelEndpoint("private-endpoint")?.endpoint?.models).toEqual(["known-model"]);
+});
+
+test.each([
+  "https://inference.example.com/v1?api-version=2024-10-21",
+  "https://team.openai.azure.com/openai/deployments/main?api-version=2024-10-21",
+])("Settings can rename and rotate the key for %s", async (baseUrl) => {
+  const rendered = (page = await renderPage({
+    path: "/settings/models",
+    setup: (provider) => {
+      provider.agents.addEndpoint({
+        kind: "openai-endpoint",
+        id: "legacy-endpoint",
+        name: "Legacy endpoint",
+        baseUrl,
+        model: "known-model",
+        apiKey: "fixture-key",
+      });
+      provider.models = structuredClone(mockModels.empty);
+      provider.models.personal.connections.push(provider.agents.modelEndpoint("legacy-endpoint")!);
+    },
+  }));
+  await chooseAction(rendered, "legacy-endpoint", "rename");
+  await changeValue(panel()!.querySelector("input")!, "Renamed endpoint");
+  await click(action(panel()!, "rename")!);
+  expect(rendered.provider.agents.modelEndpoint("legacy-endpoint")).toMatchObject({
+    label: "Renamed endpoint",
+    endpoint: { baseUrl },
+  });
+  expect(rendered.provider.agents.keys.get("legacy-endpoint")).toBe("fixture-key");
+
+  await chooseAction(rendered, "legacy-endpoint", "edit");
+  expect(panel()!.querySelector('input[type="url"]')).toHaveProperty("value", baseUrl);
+  await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-rotated-key");
+  expect(action(panel()!, "addEndpoint")?.disabled).toBe(false);
+  await click(action(panel()!, "addEndpoint")!);
+  expect(panel()).toBeNull();
+  expect(rendered.provider.agents.keys.get("legacy-endpoint")).toBe("fixture-rotated-key");
+  expect(rendered.provider.agents.modelEndpoint("legacy-endpoint")?.endpoint).toMatchObject({
+    baseUrl,
+    models: ["known-model"],
+  });
+  await chooseAction(rendered, "legacy-endpoint", "edit");
+  await changeValue(panel()!.querySelector('input[type="url"]')!, baseUrl.replace("2024-10-21", "2024-10-22"));
+  await changeValue(panel()!.querySelector('input[type="password"]')!, "fixture-other-key");
+  if (baseUrl.includes("/deployments/")) {
+    expect(panel()?.querySelector('[role="alert"]')?.textContent).toContain("/openai/v1");
+  } else {
+    expect(panel()?.querySelector('[role="alert"]')?.textContent).toContain("query string");
+  }
+  expect(action(panel()!, "addEndpoint")?.disabled).toBe(true);
 });
 
 test("a custom endpoint can use the same display name as an API-key connection", async () => {

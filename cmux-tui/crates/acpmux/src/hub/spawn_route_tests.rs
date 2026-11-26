@@ -10,11 +10,106 @@ fn fixture(root: &Path) -> (Arc<Hub>, HarnessProfile) {
     fixture_for(root, "codex", "chatgpt-plan", ROUTE)
 }
 
+#[tokio::test]
+async fn chatgpt_plan_refuses_codex_acp_before_applying_its_grant() {
+    let root = tempfile::tempdir().unwrap();
+    let (hub, mut profile) = fixture(root.path());
+    save_chatgpt(root.path(), "fixture-adapter-grant");
+    profile.argv = vec!["codex-acp".into()];
+    let mut env = profile.env.clone();
+    let error =
+        hub.apply_route_for("codex-acp", None, None, false, &profile, &mut env).await.unwrap_err();
+    assert_eq!(error.data.unwrap()["reason"], "chatgpt.app_server_required");
+    assert_eq!(env, profile.env);
+}
+
+#[tokio::test]
+async fn chatgpt_plan_default_rpcs_require_codex_app_server() {
+    use crate::rpc::{Message, method};
+
+    let root = tempfile::tempdir().unwrap();
+    let (hub, profile) = fixture(root.path());
+    let before = routes::set_binding(root.path(), "family:codex", None).unwrap();
+    let (tx, input) = tokio::sync::mpsc::channel(8);
+    let (output, mut rx) = tokio::sync::mpsc::channel(32);
+    tokio::spawn(crate::server::serve_connection(hub.clone(), input, output));
+    let mut call = async |id, method: &str, params| {
+        tx.send(Message::request(id, method, params).to_line()).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            loop {
+                let reply: Value = serde_json::from_str(&rx.recv().await.unwrap()).unwrap();
+                if reply["id"] == id {
+                    return reply;
+                }
+            }
+        })
+        .await
+        .unwrap()
+    };
+    call(1, method::INITIALIZE, json!({"protocolVersion": 1})).await;
+
+    // The family contains an app-server and an adapter. A shared default reaches both.
+    let mut adapter = profile;
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    adapter.argv = vec!["python3".into(), fake.into()];
+    hub.config.write().await.harnesses.insert("codex-acp".into(), adapter);
+    let requests = [
+        (method::MUX_ROUTE_DEFAULT_SET, json!({"scope": "family:codex", "routeId": ROUTE})),
+        (method::MUX_ACCOUNT_SWITCH, json!({"account": ROUTE})),
+    ];
+    for (i, (method, params)) in requests.iter().enumerate() {
+        let reply = call(i as i64 + 2, method, params.clone()).await;
+        assert_eq!(reply["error"]["data"]["reason"], "chatgpt.app_server_required", "{reply}");
+        assert_eq!(routes::bindings(root.path()), before);
+    }
+
+    let request = NewRequest {
+        harness: Some("codex-acp".into()),
+        cwd: Some(root.path().to_owned()),
+        ..NewRequest::default()
+    };
+    let error = hub
+        .new_session(NewRequest { route: Some(ROUTE.into()), ..request.clone() })
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.data.unwrap()["reason"], "chatgpt.app_server_required");
+    let session = hub.new_session(request).await.unwrap();
+    let reply =
+        call(4, method::MUX_CHAT_ROUTE_SET, json!({"sessionId": session.id, "routeId": ROUTE}))
+            .await;
+    assert_eq!(reply["error"]["data"]["reason"], "chatgpt.app_server_required", "{reply}");
+    assert_eq!(routes::bindings(root.path()), before);
+
+    hub.config.write().await.harnesses.remove("codex-acp");
+    for (i, (method, params)) in requests.into_iter().enumerate() {
+        let reply = call(i as i64 + 5, method, params).await;
+        assert!(reply["error"].is_null(), "{reply}");
+        assert_eq!(routes::bindings(root.path()).families["codex"], ROUTE);
+        routes::set_binding(root.path(), "family:codex", None).unwrap();
+    }
+    hub.shutdown_all().await;
+}
+
 fn fixture_for(root: &Path, family: &str, kind: &str, id: &str) -> (Arc<Hub>, HarnessProfile) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let (argv, env) = if kind == "chatgpt-plan" {
+        let app_server = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_codex_app_server.py");
+        let codex = root.join("codex");
+        crate::test_exec::write_executable(
+            &codex,
+            format!("#!/bin/sh\nexec python3 '{app_server}' \"$@\"\n"),
+        );
+        (
+            vec![codex.to_string_lossy().into_owned(), "app-server".into()],
+            json!({"CODEX_HOME": root.join("codex-home"), "FAKE_CODEX_APPROVALS": "1"}),
+        )
+    } else {
+        (vec!["python3".into(), fake.into()], json!({}))
+    };
     let mut config: crate::config::Config = serde_json::from_value(json!({
         "store": {"mode": "memory"},
-        "harnesses": {"route-fake": {"argv": ["python3", fake], "family": family}},
+        "harnesses": {"route-fake": {"argv": argv, "family": family, "env": env}},
         "defaultHarness": "route-fake",
     }))
     .unwrap();
@@ -301,6 +396,88 @@ async fn local_kimi_refresh_replaces_the_launch_grant_before_a_turn() {
 }
 
 #[tokio::test]
+async fn disconnected_subscription_cannot_take_another_turn_on_its_live_child() {
+    for (family, kind, id, token_env) in [
+        ("codex", "chatgpt-plan", ROUTE, CHATGPT_TOKEN),
+        ("opencode", "kimi-plan", "kimi-test", crate::byo_endpoint::OPENAI_KEY_ENV),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path();
+        let (hub, _) = fixture_for(home, family, kind, id);
+        let save = |token| {
+            if family == "codex" {
+                save_chatgpt(home, token);
+            } else {
+                save_kimi(home, id, token, crate::subscriptions::now() + 3600);
+            }
+        };
+        save("fixture-before-disconnect");
+        let session = hub
+            .new_session(NewRequest { cwd: Some(home.to_owned()), ..NewRequest::default() })
+            .await
+            .unwrap();
+        let before = hub.child_for(&session).await.unwrap().generation;
+        let native_id = session.meta().agent_session_id.unwrap();
+        let prompt = || vec![json!({"type": "text", "text": "hello"})];
+        hub.prompt(&session, prompt(), "test", false).await.unwrap();
+        assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
+
+        let dir = home.join("routes");
+        let route = routes::find(Some(&dir), id).unwrap();
+        let instance = route.file.credential_instance.as_deref().unwrap();
+        let places = chatgpt::Places { routes: Some(dir.clone()), home: home.to_owned() };
+        if family == "codex" {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            let attempted = Arc::new(AtomicBool::new(false));
+            let received = attempted.clone();
+            let revoke = tokio::spawn(async move {
+                let app = axum::Router::new().route(
+                    "/oauth/revoke",
+                    axum::routing::post(move || async move {
+                        received.store(true, Ordering::SeqCst);
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE
+                    }),
+                );
+                axum::serve(listener, app).await.unwrap();
+            });
+            let service = chatgpt::Service::new(chatgpt::Endpoints::at(&origin));
+            assert!(!service.remove(&places, id, instance).await.unwrap());
+            assert!(attempted.load(Ordering::SeqCst));
+            assert!(chatgpt::store::read(home, id).unwrap().is_none());
+            revoke.abort();
+        } else {
+            hub.subscriptions
+                .remove(crate::subscriptions::Provider::Kimi, places, id.into(), instance.into())
+                .await
+                .unwrap();
+        }
+        *session.work_below_since.lock().unwrap() = 1;
+        let error = hub.prompt(&session, prompt(), "test", false).await.unwrap_err();
+        assert_eq!(error.data.unwrap()["reason"], "reauth_required");
+        assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
+
+        let replacement = routes::add(Some(&dir), id, &route.file, false).unwrap();
+        assert_ne!(replacement.file.credential_instance, route.file.credential_instance);
+        routes::set_binding(home, &format!("family:{family}"), Some(id)).unwrap();
+        save("fixture-after-disconnect");
+        let error = hub.prompt(&session, prompt(), "test", false).await.unwrap_err();
+        assert_eq!(error.data.unwrap()["reason"], "reauth_required");
+        assert_eq!(hub.child_for(&session).await.unwrap().generation, before);
+
+        *session.work_below_since.lock().unwrap() = 0;
+        hub.prompt(&session, prompt(), "test", false).await.unwrap();
+        assert_ne!(hub.child_for(&session).await.unwrap().generation, before);
+        assert_eq!(session.meta().agent_session_id.as_deref(), Some(native_id.as_str()));
+        {
+            let launch = session.launch_env.lock().unwrap();
+            assert_eq!(launch.as_ref().unwrap()[token_env], "fixture-after-disconnect");
+        }
+        hub.shutdown_all().await;
+    }
+}
+
+#[tokio::test]
 async fn switching_an_existing_opencode_chat_to_kimi_excludes_the_previous_provider() {
     let root = tempfile::tempdir().unwrap();
     let id = "kimi-test";
@@ -543,8 +720,6 @@ async fn delivered_endpoints_do_not_launch_without_a_destination_guard() {
 #[cfg(unix)]
 #[tokio::test]
 async fn completion_uses_the_selected_subscription_and_redacts_its_grant() {
-    use std::os::unix::fs::PermissionsExt;
-
     const TOKEN: &str = "fixture-completion-subscription-grant";
     for (family, kind, var) in [
         ("codex", "chatgpt-plan", CHATGPT_TOKEN),
@@ -596,15 +771,18 @@ if [ "$(cat "$2")" = fixture-failure ]; then echo "rejected: $grant" >&2; exit 1
 printf '%s\n' "$grant"
 "#
         };
-        std::fs::write(&program, format!("#!/bin/sh\ngrant=${{{var}}}\n{program_body}\n")).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
-        hub.config.write().await.harnesses.get_mut("route-fake").unwrap().argv =
-            vec![program.to_string_lossy().into_owned()];
+        crate::test_exec::write_executable(
+            &program,
+            format!("#!/bin/sh\ngrant=${{{var}}}\n{program_body}\n"),
+        );
+        let mut argv = vec![program.to_string_lossy().into_owned()];
         if family == "codex" {
+            argv.push("app-server".into());
             save_chatgpt(dir, TOKEN);
         } else {
             save_kimi(dir, id, TOKEN, crate::subscriptions::now() + 3600);
         }
+        hub.config.write().await.harnesses.get_mut("route-fake").unwrap().argv = argv;
         let request = |fail| {
             json!({
                 "prompt": if fail { "fixture-failure" } else { "fixture" },

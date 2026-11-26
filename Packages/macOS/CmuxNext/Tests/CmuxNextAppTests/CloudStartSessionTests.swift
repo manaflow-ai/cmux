@@ -640,6 +640,12 @@ struct CloudStartSessionTests {
         #expect(refusal(["reason": .string("some prose, not a code")]).userMessage == "devbox-3 refused to start the agent chat (agent_session.refused).")
     }
 
+    @Test func aTeamStartExplainsWhyClaudeSettingsWithACredentialWereRefused() {
+        let refused = AgentRemoteStartRefusal(code: "agent_session.refused", machine: "devbox-3", reason: "route.settings_secret")
+        let message = CloudStartSession.startFailure(refused, name: "devbox-3", id: "vm-devbox3", agent: "claude")
+        #expect(message == CloudStartSessionStrings.claudeSettingsSecret)
+    }
+
     @Test(arguments: [AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home"])
     func aStartWithNoFolderSaysToPassOne(code: String) {
         let message = CloudStartSession.startFailure(AgentRemoteStartRefusal(code: code, machine: "devbox-3"), name: "devbox-3", id: "vm-devbox3", agent: "claude")

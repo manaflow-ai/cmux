@@ -101,13 +101,14 @@ extension AgentPaneCloudStart {
     }
 
     /// Refuse local-only profiles or offer setup for a Cloud connection that can be added.
-    @MainActor public func connectionRefusalReply(for choice: CloudSetup.Choice, readyClaude: Bool) -> [String: Any]? {
+    @MainActor public func connectionRefusalReply(for choice: CloudSetup.Choice) -> [String: Any]? {
         if choice == .localOnly {
             return AgentPaneReply.failure(code: "cloud_model_local_only", message: Self.localOnlyMessage,
                                           details: nil, retryable: false, origin: "native")
         }
         guard case .setup(let family, let model) = choice else { return nil }
-        if family == "claude", readyClaude { return nil }
+        // A project needs the planner's sized destination before Settings can sign in on it.
+        if family == "claude", !home { return nil }
         return Self.cloudSetupReply(family: family, model: model)
     }
 

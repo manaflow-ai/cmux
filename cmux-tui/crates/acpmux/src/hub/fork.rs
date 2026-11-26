@@ -1,7 +1,8 @@
 //! Part of `Hub`; see `hub/mod.rs`. `session/fork`: a new session from a
-//! parent's conversation. Its per-session env is the fork request's own,
-//! never the parent's (session_env.rs). `through` (a Claude or Codex chat
-//! only) forks through an earlier turn instead of the chat's end (`fork_at.rs`).
+//! parent's conversation. The fork request supplies its per-session env. The
+//! fork keeps the parent's cmux tools answer and same-harness Claude account
+//! choice. `through` forks a Claude or Codex chat through an earlier turn
+//! (`fork_at.rs`).
 //!
 //! A chat whose turn runs forks now, as it is (never "fork when the turn ends"):
 //! a Claude or Codex chat resumes a copy of its transcript as it stands, another
@@ -313,6 +314,24 @@ impl Hub {
             }
             None => None,
         };
+        let keeps_claude_auth = target.is_none() && subsession.is_none();
+        if is_claude
+            && keeps_claude_auth
+            && !empty
+            && super::spawn::launch_requires_claude_machine_login(&parent_meta)
+        {
+            // Read native Claude transcripts from the store used by the parent's launch.
+            let account = crate::server::claude_machine_login_env(&*self.config.read().await)
+                .ok_or_else(super::spawn::claude_route_unavailable)?;
+            fork_env.remove("CLAUDE_CONFIG_DIR");
+            let config_dir = account
+                .get("CLAUDE_CONFIG_DIR")
+                .map(PathBuf::from)
+                .or_else(|| account.get("HOME").map(|home| Path::new(home).join(".claude")));
+            if let Some(dir) = config_dir {
+                fork_env.insert("CLAUDE_CONFIG_DIR".into(), dir.to_string_lossy().into_owned());
+            }
+        }
         // A mode of the chat's own harness is checked before anything is made; another
         // harness's once it is up (`apply_fork_start`).
         if target.is_none()
@@ -736,11 +755,21 @@ impl Hub {
         let rules_kept = !fresh
             && !moved
             && crate::context_inventory::fork_keeps_rules(recorded, recorded_seq, fork_seq);
-        // A same-harness fork keeps the recovered account choice. It never ran on the old token,
-        // so there is no prior host to restart.
-        let keeps_claude_recovery = target.is_none()
-            && subsession.is_none()
-            && super::credentials::uses_claude_machine_login(&parent_meta);
+        // A same-harness conversation keeps the parent's explicit Claude account choice.
+        let keeps_claude_recovery =
+            keeps_claude_auth && super::credentials::uses_claude_machine_login(&parent_meta);
+        let mut session_env =
+            super::cmux_tools_answer::inherited(session_env, &parent_meta.session_env);
+        if keeps_claude_auth {
+            let team = crate::claude_cloud_auth::REQUIRED_TEAM;
+            if super::spawn::launch_requires_claude_team(&parent_meta) {
+                session_env.insert(team.into(), "1".into());
+                session_env.insert("CMUX_CLAUDE_AUTH".into(), "team".into());
+            } else if super::spawn::launch_requires_claude_machine_login(&parent_meta) {
+                session_env.remove(team);
+                session_env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
+            }
+        }
         let mut meta = SessionMeta {
             schema: META_SCHEMA.into(),
             id: id.clone(),
@@ -758,6 +787,7 @@ impl Hub {
             claude_token_recovery: parent_meta
                 .claude_token_recovery
                 .filter(|_| keeps_claude_recovery),
+            // The fork has no previous host to restart.
             claude_login_restart_pending: keeps_claude_recovery.then_some(false),
             launch_digest: None,
             family: parent_meta.family.clone(),
@@ -884,9 +914,7 @@ impl Hub {
             // onto another harness is that device's new chat ([`Retarget::remote`]).
             remote_origin: parent_meta.remote_origin || target.as_ref().is_some_and(|t| t.remote),
             vm_boundary: parent_meta.vm_boundary,
-            // Never inherited: the fork request sets its own or runs without one; but for the
-            // answer of the Mac that started a remote chain (`cmux_tools_answer.rs`).
-            session_env: super::cmux_tools_answer::inherited(session_env, &parent_meta.session_env),
+            session_env,
             workspace_id,
             // The fork resumes the parent from its store, and its conversation lands there.
             chat_store: parent_meta.chat_store.clone(),

@@ -64,7 +64,7 @@ struct CloudStartChat {
             let readiness = await setup.plannerReadiness(for: start)
             if let machine = start.machine, let environment = start.environment,
                !setup.machineMatchesEnvironment(machine, environment: environment) { throw CloudStartSessionStrings.environmentMismatch }
-            if let refusal = start.connectionRefusalReply(for: readiness.choice, readyClaude: !readiness.machines.isEmpty) { return refusal }
+            if let refusal = start.connectionRefusalReply(for: readiness.choice) { return refusal }
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: true)
             let origin = Origin(tab: tab, chat: start.repository == nil ? start.cwd ?? tab.cwd : nil, workspace: services.workspaceID(ofTab: tab.id), account: account, readiness: readiness, preflight: preflight) { [services] in
                 // This Mac's tab, which never started a chat: the chat is the machine's now.

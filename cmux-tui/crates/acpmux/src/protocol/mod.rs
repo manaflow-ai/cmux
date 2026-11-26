@@ -508,6 +508,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_AGENT_LOGIN_LOGOUT, Request),
         keyed::<params::AgentLoginStartParams>(method::MUX_AGENT_LOGIN_START, Request),
         keyed::<params::AgentLoginFinishParams>(method::MUX_AGENT_LOGIN_FINISH, Request),
+        keyed::<params::AgentLoginStartParams>(method::MUX_AGENT_LOGIN_RECOVER_START, Request),
+        keyed::<params::AgentLoginFinishParams>(method::MUX_AGENT_LOGIN_RECOVER_FINISH, Request),
         keyed::<params::AgentLoginCancelParams>(method::MUX_AGENT_LOGIN_CANCEL, Request),
         keyed::<params::AgentLoginApiKeyParams>(method::MUX_AGENT_LOGIN_API_KEY, Request),
         request::<inventory::InventoryWatchParams, Value>(method::MUX_HARNESS_INVENTORY_WATCH),

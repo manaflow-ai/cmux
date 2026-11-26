@@ -607,6 +607,7 @@ pub fn endpoint_id_free(
 struct ExistingEndpoint {
     kind: byo_endpoint::Kind,
     base_url: String,
+    models: Vec<String>,
     item: Option<String>,
     cloud_enabled: Option<bool>,
     preset: Option<String>,
@@ -639,7 +640,24 @@ fn existing_endpoint(text: &str) -> Option<ExistingEndpoint> {
     let cloud_enabled = value.get("cloud_enabled").and_then(toml::Value::as_bool);
     let preset = value.get("endpoint_preset").and_then(toml::Value::as_str).map(str::to_owned);
     let credential_instance = crate::agent_credentials::stored_instance(text);
-    Some(ExistingEndpoint { kind, base_url, item, cloud_enabled, preset, credential_instance })
+    let models = value
+        .get("models")
+        .and_then(|models| models.get("list"))
+        .and_then(toml::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|model| model.as_str().or_else(|| model.get("id")?.as_str()))
+        .map(str::to_owned)
+        .collect();
+    Some(ExistingEndpoint {
+        kind,
+        base_url,
+        models,
+        item,
+        cloud_enabled,
+        preset,
+        credential_instance,
+    })
 }
 
 /// Give an older endpoint profile an identity before it first delivers a Cloud credential.
@@ -728,9 +746,9 @@ fn edit_endpoint_profile(
             if base_url_changed {
                 env.remove("ANTHROPIC_API_KEY");
                 env.remove("ANTHROPIC_CUSTOM_HEADERS");
+                env.insert("ANTHROPIC_BASE_URL", update["env"]["ANTHROPIC_BASE_URL"].clone());
             }
             let prepared = update["env"].as_table_like().ok_or_else(unable)?;
-            env.insert("ANTHROPIC_BASE_URL", update["env"]["ANTHROPIC_BASE_URL"].clone());
             if models_changed {
                 for (name, value) in prepared.iter().filter(|(name, _)| {
                     *name == "ANTHROPIC_MODEL"
@@ -762,8 +780,8 @@ fn edit_endpoint_profile(
                 .get_mut("options")
                 .and_then(Value::as_object_mut)
                 .ok_or_else(unable)?;
-            options.insert("baseURL".into(), next_provider["options"]["baseURL"].clone());
             if base_url_changed {
+                options.insert("baseURL".into(), next_provider["options"]["baseURL"].clone());
                 options.remove("headers");
                 if let Some(headers) = next_provider["options"].get("headers") {
                     options.insert("headers".into(), headers.clone());
@@ -845,12 +863,20 @@ fn endpoint_preset<'a>(
         .or(p.endpoint_preset.as_deref())
 }
 
-fn checked_profile_base_url(p: &AddParams, preset: Option<&str>) -> Result<String, AdminError> {
-    byo_endpoint::check_profile_base_url(p.base_url.as_deref().unwrap_or(""), preset).map_err(|e| {
-        match e {
-            byo_endpoint::UrlError::Invalid(m) => AdminError::Invalid(m),
-            byo_endpoint::UrlError::Secret(m) => AdminError::SecretInline(m),
-        }
+fn checked_profile_base_url(
+    p: &AddParams,
+    preset: Option<&str>,
+    saved_query: bool,
+) -> Result<String, AdminError> {
+    let url = p.base_url.as_deref().unwrap_or("");
+    let checked = if saved_query {
+        byo_endpoint::check_base_url(url)
+    } else {
+        byo_endpoint::check_profile_base_url(url, preset)
+    };
+    checked.map_err(|e| match e {
+        byo_endpoint::UrlError::Invalid(m) => AdminError::Invalid(m),
+        byo_endpoint::UrlError::Secret(m) => AdminError::SecretInline(m),
     })
 }
 
@@ -964,26 +990,40 @@ fn add_endpoint(
     id_free(&id, &path, p.replace, key.taken)?;
     let previous = std::fs::read_to_string(&path).ok();
     let existing = previous.as_deref().and_then(existing_endpoint);
-    if let Some(revision) = p.edit_endpoint.as_deref() {
-        if !p.replace || existing.as_ref().is_none_or(|old| old.kind != kind) {
+    let edited = if let Some(revision) = p.edit_endpoint.as_deref() {
+        let Some(old) = existing.as_ref().filter(|old| p.replace && old.kind == kind) else {
             return Err(AdminError::Invalid(
                 "edit needs an existing endpoint of the same kind".into(),
             ));
-        }
+        };
         if previous.as_deref().is_none_or(|text| profiles::content_revision(text) != revision) {
             return Err(AdminError::Invalid("the endpoint changed while it was open".into()));
         }
-    }
+        Some(old)
+    } else {
+        None
+    };
     let preset = endpoint_preset(p, kind, existing.as_ref());
     if p.endpoint_preset.as_deref().is_some_and(|id| !profiles::valid_id(id)) {
         return Err(AdminError::Invalid("endpointPreset must be a preset id".into()));
     }
-    let base_url = checked_profile_base_url(p, preset)?;
+    let saved_query = p
+        .base_url
+        .as_deref()
+        .is_some_and(|url| url.contains('?') && edited.is_some_and(|old| old.base_url == url));
+    let base_url = checked_profile_base_url(p, preset, saved_query)?;
+    let at_saved_url = edited
+        .filter(|old| byo_endpoint::check_base_url(&old.base_url).is_ok_and(|url| url == base_url));
     if preset == Some("cloudflare")
         && models.iter().any(|id| {
-            id.starts_with('@')
+            (id.starts_with('@')
                 || !id.split_once('/').is_some_and(|(vendor, model)| {
                     !vendor.is_empty() && !model.is_empty() && !model.contains('/')
+                }))
+                && !at_saved_url.is_some_and(|old| {
+                    old.models
+                        .iter()
+                        .any(|saved| saved.strip_prefix("byo/").unwrap_or(saved) == id.as_str())
                 })
         })
     {
@@ -999,7 +1039,9 @@ fn add_endpoint(
             .filter(|_| p.replace)
             .and_then(|old| item_for_same_url(old, &id, kind, &base_url)),
     };
-    check_endpoint_key(preset, item.is_some())?;
+    if !saved_query || old_item.is_some() {
+        check_endpoint_key(preset, item.is_some())?;
+    }
     if p.cloud_enabled == Some(true)
         && (item.is_none()
             || crate::agent_credentials::LaunchEndpoint::checked(kind, &base_url, &models)
@@ -1026,10 +1068,9 @@ fn add_endpoint(
         models: &models,
         keychain_item: item.as_deref(),
     });
-    let text = match (p.edit_endpoint.is_some(), previous.as_deref(), existing.as_ref()) {
-        (true, Some(previous), Some(existing)) => {
-            let base_changed =
-                byo_endpoint::check_base_url(&existing.base_url).ok().as_ref() != Some(&base_url);
+    let text = match (previous.as_deref(), edited) {
+        (Some(previous), Some(_)) => {
+            let base_changed = at_saved_url.is_none();
             edit_endpoint_profile(
                 previous,
                 &generated,
@@ -1120,7 +1161,7 @@ pub(crate) async fn prepare_endpoint_models(
             existing_endpoint(&std::fs::read_to_string(dir.join(format!("{id}.toml"))).ok()?)
         });
     let preset = endpoint_preset(p, kind, existing.as_ref());
-    let base_url = checked_profile_base_url(p, preset)?;
+    let base_url = checked_profile_base_url(p, preset, false)?;
     if p.cloud_enabled == Some(true) && byo_endpoint::check_cloud_base_url(&base_url).is_err() {
         return Err(AdminError::Invalid("Cloud access needs a public HTTPS endpoint.".into()));
     }

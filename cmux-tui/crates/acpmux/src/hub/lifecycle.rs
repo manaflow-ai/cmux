@@ -388,7 +388,7 @@ impl Hub {
         // A named route is checked before anything is created: it exists and
         // serves this chat's harness family.
         if let Some(route_id) = &route {
-            self.check_new_route(route_id, &family).await?;
+            self.check_new_route(route_id, &family, &profile).await?;
         }
         let stores = super::adoption::store_families(&*self.config.read().await);
         // An evicted chat this create may meet (its id, key, name, or adopted agent session) is

@@ -177,7 +177,7 @@ pub enum UrlError {
     Secret(String),
 }
 
-/// The base URL as the profile keeps it (trailing `/` dropped): https, or
+/// The base URL as the profile keeps it (trailing `/` dropped on URLs without a query): https, or
 /// http only to loopback, private IPv4, Tailscale IPv4, or .local; no user or password, no
 /// fragment, no `${`/`{`/`}` (acpmux and OpenCode substitutions), no key.
 /// An error never repeats the URL (it may hold a key).
@@ -230,7 +230,7 @@ pub fn check_base_url(url: &str) -> Result<String, UrlError> {
     if parsed.fragment().is_some() {
         return bad("baseUrl may not have a #fragment");
     }
-    Ok(url.trim_end_matches('/').to_owned())
+    Ok(if parsed.query().is_some() { url } else { url.trim_end_matches('/') }.to_owned())
 }
 
 /// Presets recognizable in profiles written before the preset was recorded.

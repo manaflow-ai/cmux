@@ -196,13 +196,66 @@ async fn setup_token_chat(daemon: &Daemon, rpc: &mut Rpc) -> String {
 async fn recover_token_chat(rpc: &mut Rpc, session: &str) {
     let status = rpc
         .call(
-            "_acpmux/agent_login/start",
+            "_acpmux/agent_login/recover_start",
             json!({
                 "agent": "claude", "reuseExisting": true, "recoverySession": session
             }),
         )
         .await;
     assert_eq!(status["signedIn"], true);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_claude_fork_through_a_turn_keeps_the_explicit_machine_account() {
+    let mut daemon =
+        Daemon::with_env("own-fork", "approve-all", &[("FIXTURE_ROUTE_KEY", "route-key")]);
+    daemon.sigterm();
+    let launcher = daemon.home.join("claude");
+    let own = daemon.home.join("signed-in-account");
+    let other = daemon.home.join("harness-account");
+    std::fs::write(&launcher, format!("#!/bin/sh\nexec python3 \"{FAKE_CLAUDE}\" \"$@\"\n"))
+        .unwrap();
+    std::fs::set_permissions(&launcher, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({
+            "harnesses": {
+                "claude": {
+                    "argv": [launcher], "kind": "claude-stdio", "env": {"CLAUDE_CONFIG_DIR": own}
+                },
+                "claude-fork": {
+                    "argv": [launcher], "kind": "claude-stdio", "env": {"CLAUDE_CONFIG_DIR": other}
+                }
+            },
+            "defaultHarness": "claude-fork", "permissionPolicy": "approve-all"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    guest_api_route(&mut rpc).await;
+    rpc.call(
+        "_acpmux/route/default.set",
+        json!({"scope": "family:claude", "routeId": "guest-api"}),
+    )
+    .await;
+    let started = rpc.call("session/new", json!({
+        "cwd": daemon.home, "mcpServers": [], "_meta": {"acpmux": {"claudeMachineLogin": true}}
+    })).await;
+    let parent = started["sessionId"].as_str().unwrap();
+    assert_eq!(agent_env(&daemon, parent, "CLAUDE_CONFIG_DIR").await, own.to_str().unwrap());
+    let turn = daemon.wait_event(parent, "completed turn", |e| e["kind"] == "turn_result");
+    assert_eq!(agent_env(&daemon, parent, "CMUX_CLAUDE_AUTH").await, "own");
+    daemon.wait_event(parent, "later completed turn", |e| {
+        e["kind"] == "turn_result" && e["seq"].as_u64() > turn["seq"].as_u64()
+    });
+    let fork =
+        rpc.call("acp.session.fork", json!({"sessionId": parent, "throughSeq": turn["seq"]})).await;
+    let child = fork["sessionId"].as_str().unwrap();
+    assert_eq!(agent_env(&daemon, child, "CLAUDE_CONFIG_DIR").await, own.to_str().unwrap());
+    assert_eq!(agent_env(&daemon, child, "CMUX_CLAUDE_AUTH").await, "own");
+    assert_eq!(agent_env(&daemon, child, "ANTHROPIC_BASE_URL").await, "");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

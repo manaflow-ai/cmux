@@ -359,6 +359,91 @@ struct CloudAgentCredentialRefresherTests {
         #expect(machine.pushes == [first.env, [:], first.env])
     }
 
+    @Test(arguments: [false, true])
+    func reconcilingTheSameClaudeSetupTokenKeepsTheGuestAgentRunning(supportsEndpointCredentials: Bool) async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("r14-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let script = #"""
+        import json, socket, sys
+        from pathlib import Path
+
+        directory = Path(sys.argv[1])
+        capabilities = [
+            'agent-session-attach-v1', 'agent-session-start-v1', 'agent-session-start-vm-kind-v1',
+            'agent-session-start-credentials-v1', 'agent-session-bound-credentials-v1',
+            'agent-session-credential-reattach-v1',
+        ]
+        if sys.argv[2] == 'true':
+            capabilities.append('agent-session-start-endpoint-credentials-v1')
+
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(directory / 'guest.sock'))
+            server.listen()
+            print('ready', flush=True)
+            held = None
+            while True:
+                connection, _ = server.accept()
+                with connection, connection.makefile('rb') as requests:
+                    for line in requests:
+                        frame = json.loads(line)
+                        command = frame.get('cmd')
+                        data = {}
+                        if command == 'identify':
+                            data = {'app':'cmux-tui', 'protocol':12, 'generation':'fixture', 'capabilities':capabilities}
+                        elif command == 'agent-session-start':
+                            held = frame['credentials']['env']
+                            data = {'session':'durable-chat'}
+                        elif command == 'agent-session-credentials':
+                            assert held and frame['session'] == 'durable-chat'
+                            restart = 'none' if frame['env'] == held else 'now'
+                            held = frame['env']
+                            with (directory / 'restart').open('a') as record:
+                                record.write(restart + '\n')
+                            data = {'restart':restart}
+                        reply = json.dumps({'id':frame['id'], 'ok':True, 'data':data})
+                        connection.sendall((reply + '\n').encode())
+        """#
+        let daemon = Process()
+        let ready = Pipe()
+        daemon.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        daemon.arguments = ["-u", "-c", script, directory.path, String(supportsEndpointCredentials)]
+        daemon.standardOutput = ready
+        try daemon.run()
+        defer { if daemon.isRunning { daemon.terminate() } }
+        let readyReader = ready.fileHandleForReading
+        let readiness = try await Task.detached { try readyReader.read(upToCount: 1) }.value
+        try #require(readiness == Data("r".utf8))
+        let endpoint: AgentSessionAttachClient.EndpointProvider = {
+            DaemonEndpoint(socketPath: directory.appendingPathComponent("guest.sock").path)
+        }
+        let ownerLink: AgentSessionAttachClient.OwnerLink = { 3 }
+        let instance = UUID().uuidString
+        let id = "claude-token"
+        let reply = Data(#"{"family":"claude","kind":"claude-token","credential_instance":"\#(instance)","env":{"ANTHROPIC_AUTH_TOKEN":"sk-ant-oat01-fixture"}}"#.utf8)
+        let credentials = CloudAgentCredentials(machineIdentity: "mac") { _ in reply }
+        credentials.readCredentialConnections = {
+            .init(connections: [.init(id: id, families: ["claude"], servesCloud: true, credentialInstance: instance)])
+        }
+        let credential = try await credentials.credential(forConnection: id)
+        let binding = try #require(credentials.credentialBinding(credential))
+        let client = AgentSessionAttachClient(surface: 7, endpoint: endpoint)
+        let session = try await client.start(cwd: "/w", harness: "claude", ownerLink: ownerLink,
+                                             credentials: credential.env, credentialConnection: binding)
+        await client.close()
+
+        let replace = CloudAgentCredentialRefresher.machineReplace(surface: 7, sessionID: session,
+                                                                   ownerLink: ownerLink, reconnect: nil, endpoint: endpoint)
+        credentials.started(chat: "chat", machine: "guest", sessionID: session, on: credential, replace: replace,
+                            push: { _ in Issue.record("expected the bound credential delivery"); return .failed })
+        await credentials.keySync?.value
+        credentials.credentialConnectionsChanged()
+        await credentials.keySync?.value
+
+        let restarts = try String(contentsOf: directory.appendingPathComponent("restart"), encoding: .utf8)
+        #expect(restarts.split(whereSeparator: \.isNewline) == ["none", "none"])
+    }
+
     @Test func anUnsupportedWithdrawalKeepsItsDeliveryForAReconnect() async throws {
         let instance = UUID().uuidString
         var cloudOn = false

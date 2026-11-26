@@ -223,8 +223,11 @@ async fn an_agent_bound_connection_cannot_start_finish_reuse_or_logout_claude_lo
     agent.call("_acpmux/bg/list", json!({"sessionId": session})).await;
     for (operation, params) in [
         ("start", json!({"agent": "claude"})),
-        ("start", json!({"agent": "claude", "reuseExisting": true, "recoverySession": session})),
-        ("finish", json!({"loginId": "fixture", "recoverySession": session})),
+        (
+            "recover_start",
+            json!({"agent": "claude", "reuseExisting": true, "recoverySession": session}),
+        ),
+        ("recover_finish", json!({"loginId": "fixture", "recoverySession": session})),
         ("cancel", json!({"loginId": "fixture"})),
         ("logout", json!({"agent": "claude"})),
     ] {

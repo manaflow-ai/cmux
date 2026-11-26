@@ -205,6 +205,7 @@ fn build_harness_command(
         owned
     };
     let mut env = resolved_profile_env(profile)?;
+    env.remove(crate::subscriptions::LOCAL_SUBSCRIPTION_ROUTE);
     env.remove(crate::chatgpt::LOCAL_EXPIRY_ENV);
     let kimi = env.remove(crate::subscriptions::LOCAL_KIMI_EXPIRY).is_some();
     let local_codex_route = crate::codex_app_server::is_launch(&owned.0, &owned.1)
@@ -394,6 +395,7 @@ fn build_harness_command(
     cmd.env_remove(crate::agent_tools::UPSTREAMS_ENV);
     cmd.env_remove(crate::agent_credentials::MARKER);
     cmd.env_remove(crate::agent_credentials::ENDPOINT_MARKER);
+    cmd.env_remove(crate::subscriptions::LOCAL_SUBSCRIPTION_ROUTE);
     cmd.env_remove(crate::agent_credentials::COPILOT_TOKEN);
     for k in route_unset.iter().flat_map(|list| list.split(',')) {
         cmd.env_remove(k);

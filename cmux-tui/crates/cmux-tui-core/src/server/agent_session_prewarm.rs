@@ -13,6 +13,7 @@
 //! the start's `session/new` carries (its folder as acpmux checked it, agent, model, workspace,
 //! and the credential's spawn env), so a start that differs in any of them starts cold, as
 //! before; the credential is never written anywhere and only the same credential takes the agent.
+//! Gemini and Grok keys go only to the bound start, which lets Cloud opt-out withdraw them.
 //!
 //! Gated as the start is, and narrower: only on the caller's own Cloud VM (never a Mac, an SSH
 //! host, a team VM or a phone's channel), only for an unbound agent tab of this store, only in an
@@ -78,6 +79,13 @@ pub(in crate::server::agent_session_attach) fn prewarm(
     if let Err(refusal) = super::super::agent_session_trust::home_rule(&cwd, params.home_confirmed)
     {
         return refuse(writer, id, refusal);
+    }
+    if params.credentials.as_ref().is_some_and(|credential| {
+        credential.env.keys().any(|name| {
+            matches!(name.as_str(), "GEMINI_API_KEY" | "GOOGLE_API_KEY" | "XAI_API_KEY")
+        })
+    }) {
+        return ok(writer, id, json!({"accepted": false}));
     }
     let workspace = mux.surface_workspace_key(params.surface);
     let worker_mux = mux.clone();

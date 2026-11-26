@@ -915,6 +915,33 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Máy `%1$@` đã khởi động nhưng %4$@ (`%3$@`) chưa được cài trên máy đó. Cài nó ở đó, hoặc chạy `cmux cloud start-session --target machine:%2$@ --agent AGENT` với tác tử khác."}}
       }
     },
+    "cloud.startSession.claudeSettingsSecret": {
+      "comment": "Claude team route refusal when the machine's settings file contains a credential that would be exposed by the launch.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Claude の設定ファイルに起動時にコピーされる認証情報が含まれているため、チームのルートで起動できませんでした。設定ファイルから認証情報を削除して、もう一度お試しください。"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Claude konnte die Teamroute nicht nutzen, weil seine Einstellungsdatei Zugangsdaten enthält, die beim Start kopiert würden. Entferne die Zugangsdaten aus der Einstellungsdatei und versuche es erneut."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Claude n’a pas pu démarrer via la route de l’équipe, car son fichier de paramètres contient un identifiant d’accès qui serait copié au démarrage. Retirez-le du fichier, puis réessayez."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Claude no pudo iniciarse con la ruta del equipo porque su archivo de configuración contiene una credencial que se copiaría al iniciar. Quita la credencial del archivo de configuración y vuelve a intentarlo."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تعذّر تشغيل Claude عبر مسار الفريق لأن ملف إعداداته يحتوي على بيانات اعتماد سيجري نسخها عند التشغيل. أزل بيانات الاعتماد من ملف الإعدادات وحاول مجددًا."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Claude 설정 파일에 시작 시 복사될 자격 증명이 있어 팀 경로로 시작할 수 없었습니다. 설정 파일에서 자격 증명을 제거한 후 다시 시도하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Claude 的设置文件包含启动时会被复制的凭据，因此无法通过团队路由启动。请从设置文件中移除该凭据，然后重试。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Claude 的設定檔含有會在啟動時被複製的憑證，因此無法透過團隊路由啟動。請從設定檔移除該憑證，然後再試一次。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Claude se nije mogao pokrenuti putem rute tima jer datoteka postavki sadrži podatke za pristup koji bi se kopirali pri pokretanju. Uklonite te podatke iz datoteke postavki i pokušajte ponovo."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Claude kunne ikke starte via teamets rute, fordi indstillingsfilen indeholder adgangsoplysninger, der ville blive kopieret ved start. Fjern adgangsoplysningerne fra indstillingsfilen, og prøv igen."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Claude non ha potuto avviarsi sul percorso del team perché il suo file di impostazioni contiene una credenziale che verrebbe copiata all’avvio. Rimuovi la credenziale dal file di impostazioni e riprova."}},
+        "km": {"stringUnit": {"state": "translated", "value": "Claude មិនអាចចាប់ផ្ដើមតាមផ្លូវរបស់ក្រុមបានទេ ព្រោះឯកសារការកំណត់របស់វាមានព័ត៌មានសម្គាល់អត្តសញ្ញាណដែលនឹងត្រូវបានចម្លងពេលចាប់ផ្ដើម។ ដកព័ត៌មានសម្គាល់អត្តសញ្ញាណនោះចេញពីឯកសារការកំណត់ ហើយព្យាយាមម្ដងទៀត។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Claude kunne ikke starte via teamets rute fordi innstillingsfilen inneholder påloggingsopplysninger som ville blitt kopiert ved oppstart. Fjern påloggingsopplysningene fra innstillingsfilen og prøv igjen."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nie udało się uruchomić Claude przez trasę zespołu, ponieważ plik ustawień zawiera dane uwierzytelniające, które zostałyby skopiowane przy uruchamianiu. Usuń te dane z pliku ustawień i spróbuj ponownie."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Claude não pôde iniciar pela rota da equipe porque o arquivo de configurações contém uma credencial que seria copiada na inicialização. Remova a credencial do arquivo de configurações e tente novamente."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Не удалось запустить Claude через маршрут команды: в файле настроек есть учётные данные, которые были бы скопированы при запуске. Удалите их из файла настроек и повторите попытку."}},
+        "th": {"stringUnit": {"state": "translated", "value": "Claude เริ่มทำงานผ่านเส้นทางของทีมไม่ได้ เนื่องจากไฟล์การตั้งค่ามีข้อมูลรับรองที่จะถูกคัดลอกเมื่อเริ่มทำงาน ให้นำข้อมูลรับรองออกจากไฟล์การตั้งค่าแล้วลองอีกครั้ง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Claude, ayar dosyasında başlatma sırasında kopyalanacak bir kimlik bilgisi bulunduğu için ekip rotasıyla başlatılamadı. Kimlik bilgisini ayar dosyasından kaldırıp tekrar deneyin."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Не вдалося запустити Claude через маршрут команди, оскільки файл налаштувань містить облікові дані, які було б скопійовано під час запуску. Видаліть їх із файлу налаштувань і спробуйте ще раз."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Không thể khởi động Claude qua tuyến của nhóm vì tệp cài đặt chứa thông tin xác thực sẽ bị sao chép khi khởi động. Hãy xóa thông tin xác thực khỏi tệp cài đặt rồi thử lại."}}
+      }
+    },
     "cloud.startSession.routeUnavailable": {
       "comment": "The machine is up but the model route the agent uses can't serve it there. %1$@ name, %2$@ id, %3$@ agent id, %4$@ the agent's name (Cursor). Keep the command as written.",
       "extractionState": "manual",

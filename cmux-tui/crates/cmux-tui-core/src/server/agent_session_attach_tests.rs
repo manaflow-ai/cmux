@@ -203,6 +203,8 @@ impl Drop for FakeAcpmux {
 /// own, and sessions after the watch answer's own.
 #[derive(Clone, Default)]
 pub(super) struct Fixture {
+    /// The fake acpmux handles the chat-scoped Claude sign-in methods.
+    pub(super) scoped_claude_login: bool,
     /// Enable the first-chat catalog/new-session fixture, with this trust decision.
     pub(super) start_folder_trusted: Option<bool>,
     pub(super) page: Vec<Value>,
@@ -326,6 +328,18 @@ fn serve(
         let _ = frames.send(frame.clone());
         let id = frame["id"].clone();
         let params = &frame["params"];
+        if !fixture.scoped_claude_login
+            && matches!(
+                frame["method"].as_str(),
+                Some("_acpmux/agent_login/recover_start" | "_acpmux/agent_login/recover_finish")
+            )
+        {
+            let reply = json!({"jsonrpc":"2.0","id":id,"error":{
+                "code":-32601,"message":"method not found"
+            }});
+            writeln!(writer, "{reply}").unwrap();
+            continue;
+        }
         let view = frame["method"] == json!("_acpmux/view");
         let reply = match frame["method"].as_str().unwrap_or_default() {
             "initialize" => {
@@ -560,12 +574,16 @@ fn serve(
                 Some(json!({"loginId": "login_2", "url": "https://accounts.x.ai/device",
                     "userCode": "WDJB-MJHT", "needsCode": false}))
             }
-            "_acpmux/agent_login/start" => Some(json!({"loginId": "login_1",
-                "url": "https://claude.ai/oauth/authorize", "needsCode": true})),
+            "_acpmux/agent_login/start" | "_acpmux/agent_login/recover_start" => {
+                Some(json!({"loginId": "login_1",
+                "url": "https://claude.ai/oauth/authorize", "needsCode": true}))
+            }
             "_acpmux/agent_login/finish" if params["code"] == json!("wrong") => {
                 Some(json!({FAKE_ERROR: "bad code", FAKE_ERROR_DATA: {"reason": "bad_code"}}))
             }
-            "_acpmux/agent_login/finish" => Some(json!({"signedIn": true, "restarted": true})),
+            "_acpmux/agent_login/finish" | "_acpmux/agent_login/recover_finish" => {
+                Some(json!({"signedIn": true, "restarted": true}))
+            }
             "_acpmux/agent_login/api_key" => Some(json!({"saved": true, "restarted": true})),
             "_acpmux/agent_login/cancel" => Some(json!({})),
             // The owner's refreshed credential (agent_session_credentials_tests.rs).
@@ -1810,7 +1828,10 @@ fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
 
 #[test]
 fn settings_claude_login_routes_only_to_owner_cloud() {
-    let fake = FakeAcpmux::start("settings-claude");
+    let fake = FakeAcpmux::start_with(
+        "settings-claude",
+        Fixture { scoped_claude_login: true, ..Default::default() },
+    );
     let mux = mux_with(&fake, "asa-settings-claude");
     mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
     let mut owner = Client::connect(&mux, "settings-claude");
@@ -1837,13 +1858,13 @@ fn settings_claude_login_routes_only_to_owner_cloud() {
         (
             json!({"cmd":"agent-session-login-settings","surface":0,"op":"recover_start",
                 "agent":"claude","vm_kind":"owner","recovery_session":"chat-b"}),
-            "_acpmux/agent_login/start",
+            "_acpmux/agent_login/recover_start",
             json!({"agent":"claude","reuseExisting":true,"recoverySession":"chat-b"}),
         ),
         (
             json!({"cmd":"agent-session-login-settings","surface":0,"op":"recover_finish",
                 "login_id":"login_1","vm_kind":"owner","recovery_session":"chat-b"}),
-            "_acpmux/agent_login/finish",
+            "_acpmux/agent_login/recover_finish",
             json!({"loginId":"login_1","recoverySession":"chat-b"}),
         ),
         (
@@ -1874,6 +1895,32 @@ fn settings_claude_login_routes_only_to_owner_cloud() {
     assert_code(&phone.request(start.clone()), "remote_denied");
     mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
     assert_eq!(owner.request(start)["data"]["refused"]["reason"], "shared_machine");
+    fake.no_frame();
+}
+
+#[test]
+fn settings_claude_recovery_refuses_an_older_acpmux() {
+    let fake = FakeAcpmux::start("old-claude");
+    let mux = mux_with(&fake, "asa-old-claude");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::OwnerCloud));
+    let mut owner = Client::connect(&mux, "old-claude");
+    let mut request = json!({"cmd":"agent-session-login-settings","surface":0,"op":"start",
+                             "agent":"claude","vm_kind":"owner"});
+    let ordinary = owner.request(request.clone());
+    assert_eq!(ordinary["data"]["loginId"], "login_1");
+    assert_eq!(fake.frame()["method"], "_acpmux/agent_login/start");
+
+    request["op"] = json!("recover_start");
+    request["recovery_session"] = json!("chat-b");
+    let start = owner.request(request);
+    assert_eq!(start["data"]["refused"]["reason"], "unsupported", "{start}");
+    assert_eq!(fake.frame()["method"], "_acpmux/agent_login/recover_start");
+
+    let finish = owner.request(json!({"cmd":"agent-session-login-settings","surface":0,
+        "op":"recover_finish","login_id":"login_1","vm_kind":"owner","recovery_session":"chat-b"
+    }));
+    assert_eq!(finish["data"]["refused"]["reason"], "unsupported", "{finish}");
+    assert_eq!(fake.frame()["method"], "_acpmux/agent_login/recover_finish");
     fake.no_frame();
 }
 

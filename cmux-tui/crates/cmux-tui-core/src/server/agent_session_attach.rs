@@ -658,7 +658,8 @@ struct LoginParams {
 /// on the machine that chat lives on, and restarts its agent signed in), or none for a new chat's
 /// sign-in on this machine; `None` for a step whose fields are missing or out of bounds.
 fn login_request(session: Option<&str>, params: LoginParams) -> Option<(String, Value, Duration)> {
-    if params.recovery_session.is_some() {
+    let scoped = matches!(params.op.as_str(), "recover_start" | "recover_finish");
+    if scoped != params.recovery_session.is_some() || (scoped && session.is_some()) {
         return None;
     }
     fn text(value: &Option<String>) -> Option<&str> {
@@ -674,11 +675,11 @@ fn login_request(session: Option<&str>, params: LoginParams) -> Option<(String, 
         })
     };
     let (mut body, timeout) = match params.op.as_str() {
-        "start" => (json!({"agent": agent()?}), CALL_TIMEOUT * 6),
+        "start" | "recover_start" => (json!({"agent": agent()?}), CALL_TIMEOUT * 6),
         "status" | "logout" if agent() == Some("claude") => {
             (json!({"agent": "claude"}), CALL_TIMEOUT * 6)
         }
-        "finish" => {
+        "finish" | "recover_finish" => {
             let login_id = text(&params.login_id)?;
             let body = match &params.code {
                 Some(_) => json!({"loginId": login_id, "code": text(&params.code)?}),
@@ -693,6 +694,11 @@ fn login_request(session: Option<&str>, params: LoginParams) -> Option<(String, 
     };
     if let Some(session) = session {
         body["sessionId"] = json!(session);
+    }
+    if let Some(session) = params.recovery_session {
+        // Older acpmux daemons ignore unknown fields on start and finish. Distinct
+        // recovery methods let them refuse before signing in to the machine.
+        body["recoverySession"] = json!(session);
     }
     Some((format!("_acpmux/agent_login/{}", params.op), body, timeout))
 }
@@ -1209,28 +1215,17 @@ fn run_machine_login(
     mux: &Arc<Mux>,
     id: Option<Value>,
     socket: PathBuf,
-    mut params: LoginParams,
+    params: LoginParams,
     from_settings: bool,
     writer: &MessageWriter,
 ) -> bool {
-    let reauthenticate = params.reauthenticate;
-    let recovery = params.recovery_session.take();
-    if from_settings
-        && recovery.is_some()
-        && let Some(op) = params.op.strip_prefix("recover_")
-    {
-        params.op = op.to_owned();
-    }
+    let reuse_existing = (from_settings && matches!(params.op.as_str(), "start" | "recover_start"))
+        .then_some(!params.reauthenticate);
     let Some((method, mut body, timeout)) = login_request(None, params) else {
         return refuse(writer, id, Refusal::BadRequest);
     };
-    if from_settings {
-        if method == "_acpmux/agent_login/start" {
-            body["reuseExisting"] = json!(!reauthenticate);
-        }
-        if let Some(session) = recovery {
-            body["recoverySession"] = json!(session);
-        }
+    if let Some(reuse) = reuse_existing {
+        body["reuseExisting"] = json!(reuse);
     }
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();

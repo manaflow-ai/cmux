@@ -6,7 +6,7 @@
 
 use super::*;
 
-use crate::{route_account, routes};
+use crate::{route_account, routes, subscriptions::LOCAL_SUBSCRIPTION_ROUTE};
 use cmux_json::JsonSet as _;
 
 impl Hub {
@@ -15,6 +15,7 @@ impl Hub {
         &self,
         route_id: &str,
         family: &str,
+        profile: &HarnessProfile,
     ) -> Result<(), RpcError> {
         let (dir, _) = crate::routes::places(&*self.config.read().await);
         let found = crate::routes::find(dir.as_deref(), route_id)
@@ -25,7 +26,7 @@ impl Hub {
                 "route {route_id} does not serve the {family} harness"
             )));
         }
-        Ok(())
+        found.check_local_harness(Some(profile)).map_err(|e| route_error(&e))
     }
 
     /// The route env of a spawn, applied over `env`: the session's chat
@@ -106,6 +107,7 @@ impl Hub {
             }
             return Ok(None);
         }
+        route.check_local_harness(Some(profile)).map_err(|e| route_error(&e))?;
         let home = route.file.account_home.clone().map(PathBuf::from);
         let name = route.name();
         let moved = route.clone();
@@ -121,7 +123,8 @@ impl Hub {
         .map_err(|e| RpcError::internal(e.to_string()))?
         .map_err(|e| route_error(&e))?;
         routes::apply(env, &route_env);
-        if moved.file.kind == routes::RouteKind::ChatgptPlan {
+        let chatgpt = moved.file.kind == routes::RouteKind::ChatgptPlan;
+        if chatgpt {
             let (_, home) = routes::places(&*self.config.read().await);
             let (token, expires_at) = self
                 .chatgpt
@@ -136,7 +139,8 @@ impl Hub {
             env.insert(crate::chatgpt::LOCAL_EXPIRY_ENV.into(), expires_at.to_string());
         }
         use crate::subscriptions::Provider;
-        if let Some(provider) = Provider::for_kind(moved.file.kind) {
+        let provider = Provider::for_kind(moved.file.kind);
+        if let Some(provider) = provider {
             let grant = async || {
                 let (_, home) = routes::places(&*self.config.read().await);
                 let (token, expires_at, region) = self
@@ -188,6 +192,10 @@ impl Hub {
                 }
             }
         }
+        if chatgpt || provider.is_some() {
+            let instance = moved.file.credential_instance.as_deref().unwrap_or_default();
+            env.insert(LOCAL_SUBSCRIPTION_ROUTE.into(), format!("{id}:{instance}"));
+        }
         env.insert(routes::NAME_KEY.into(), name);
         // A home the profile pins (a Chief turn's, a claude-sr profile's) is
         // only replaced by a route picked for this chat or profile.
@@ -211,6 +219,69 @@ impl Hub {
             return Ok(None);
         }
         Ok(home)
+    }
+
+    /// The turn lock is held. Finish any existing work before restarting a child whose launch
+    /// connection was removed. When restarting would interrupt work, refuse the new prompt.
+    pub(super) async fn refresh_disconnected_subscription_before_turn(
+        &self,
+        session: &Arc<Session>,
+    ) -> Result<(), RpcError> {
+        // A child that is still starting is checked when the prompt acquires it.
+        let Ok(_spawn) = session.spawn_lock.try_lock() else { return Ok(()) };
+        let Some(child) = session.child.lock().await.clone() else { return Ok(()) };
+        if let Err(error) = self.check_local_subscription_child(session, &child).await {
+            if !self.route_child_is_idle(session) {
+                return Err(error);
+            }
+            self.detach_child(session).await;
+        }
+        Ok(())
+    }
+
+    /// Check the connection the child actually started with. Current bindings may already
+    /// point to a different account, including a replacement with the same route id.
+    pub(super) async fn check_local_subscription_child(
+        &self,
+        session: &Session,
+        child: &ChildAgent,
+    ) -> Result<(), RpcError> {
+        let launch = session
+            .launch_env
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|env| env.get(LOCAL_SUBSCRIPTION_ROUTE).cloned());
+        let needs_restart = match launch {
+            Some(Some(route)) => {
+                let (dir, _) = routes::places(&*self.config.read().await);
+                !tokio::task::spawn_blocking(move || {
+                    let Some((id, instance)) = route.split_once(':') else { return false };
+                    routes::find(dir.as_deref(), id).is_ok_and(|current| {
+                        current.file.credential_instance.as_deref().unwrap_or_default() == instance
+                    })
+                })
+                .await
+                .unwrap_or_default()
+            }
+            Some(None) => false,
+            // An adopted host has no launch snapshot. A recorded local expiry identifies a
+            // subscription even after its bindings have gone. Older Codex hosts can also be
+            // identified by the launch environment while they are still running.
+            None => {
+                if let Some(record) = child.host_record() {
+                    record.local_kimi_expiry.is_some()
+                        || record.local_chatgpt_expiry.is_some()
+                        || self
+                            .legacy_adopted_chatgpt_expiry(session, record.harness_pid)
+                            .await
+                            .is_some()
+                } else {
+                    false
+                }
+            }
+        };
+        if needs_restart { Err(subscription_error("reauth_required")) } else { Ok(()) }
     }
 
     /// A local Kimi agent holds its launch grant until the next restart.
@@ -275,15 +346,17 @@ impl Hub {
 
     async fn detach_idle_route_child(&self, session: &Arc<Session>) {
         let _spawn = session.spawn_lock.lock().await;
-        if session.turn().is_none()
+        if self.route_child_is_idle(session) && session.child.lock().await.is_some() {
+            self.detach_child(session).await;
+        }
+    }
+
+    fn route_child_is_idle(&self, session: &Session) -> bool {
+        session.turn().is_none()
             && !session.harness_turn.load(Ordering::SeqCst)
             && session.asks_in_flight.load(Ordering::SeqCst) == 0
             && session.pending_permissions().is_empty()
             && !self.holds_work_below(session)
-            && session.child.lock().await.is_some()
-        {
-            self.detach_child(session).await;
-        }
     }
 
     pub(super) async fn legacy_adopted_chatgpt_expiry(
@@ -317,6 +390,17 @@ impl Hub {
             (dir, home, profile, family)
         };
         tokio::task::spawn_blocking(move || {
+            // The launch token still identifies an older local ChatGPT host when its route
+            // and bindings are gone. A token without a readable deadline needs a restart.
+            #[cfg(unix)]
+            if let Some(vars) = pid.and_then(crate::agent_host::tree::environ)
+                && let Some((_, token)) =
+                    vars.iter().find(|(name, _)| name == crate::agent_credentials::CHATGPT_TOKEN)
+            {
+                return Some(crate::agent_credentials::chatgpt_token_expiry(token).unwrap_or(0));
+            }
+            #[cfg(not(unix))]
+            let _ = pid;
             let (id, _) = routes::spawn_route(
                 dir.as_deref(),
                 &routes::bindings(&home),
@@ -328,18 +412,6 @@ impl Hub {
             if !crate::chatgpt::is_chatgpt_route(dir.as_deref(), &id) {
                 return None;
             }
-            // Older hosts did not record the deadline. Read only the deadline from the
-            // launch token where possible, since the account may already have a newer token.
-            #[cfg(unix)]
-            if let Some(vars) = pid.and_then(crate::agent_host::tree::environ)
-                && let Some((_, token)) =
-                    vars.iter().find(|(name, _)| name == crate::agent_credentials::CHATGPT_TOKEN)
-                && let Some(expiry) = crate::agent_credentials::chatgpt_token_expiry(token)
-            {
-                return Some(expiry);
-            }
-            #[cfg(not(unix))]
-            let _ = pid;
             let record = crate::chatgpt::store::read(&home, &id).ok()??;
             Some(record.expires_at)
         })
@@ -357,17 +429,35 @@ impl Hub {
         route: Option<String>,
         now: bool,
     ) -> Result<Value, RpcError> {
-        let (dir, state) = routes::places(&*self.config.read().await);
         let meta = session.meta();
-        let profile = self.config.read().await.harnesses.get(&meta.harness).cloned();
-        if let (Some(id), Some(profile)) = (&route, &profile) {
+        let (dir, state, profile) = {
+            let config = self.config.read().await;
+            let (dir, state) = routes::places(&config);
+            let profile = super::resolve::session_profile(
+                &config,
+                &meta.harness,
+                &meta.cwd,
+                meta.remote_origin,
+            )
+            .ok();
+            (dir, state, profile)
+        };
+        let found = route
+            .as_deref()
+            .map(|id| routes::find(dir.as_deref(), id))
+            .transpose()
+            .map_err(|e| route_error(&e))?;
+        if let Some(found) = &found {
+            found.check_local_harness(profile.as_ref()).map_err(|e| route_error(&e))?;
+        }
+        if let (Some(found), Some(profile)) = (&found, &profile) {
             // Checked before the binding changes: an unknown route, one of
             // another family or a local router that is down keeps the chat
             // where it is.
-            let found = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
             let family = crate::config::derive_family(&meta.harness, profile);
             let state2 = state.clone();
             let marker_root = self.vm_marker_root();
+            let found = found.clone();
             tokio::task::spawn_blocking(move || {
                 let gateway = cloud_gateway(&marker_root, &Default::default());
                 routes::env_for_on(&found, &family, &state2, gateway.as_deref())
@@ -376,7 +466,7 @@ impl Hub {
             .map_err(|e| RpcError::internal(e.to_string()))?
             .map_err(|e| route_error(&e))?;
         }
-        if let (Some(id), Some(profile)) = (&route, &profile)
+        if let (Some(found), Some(profile)) = (&found, &profile)
             && route_account::has_home(&meta)
         {
             // Its conversation stays in its folder: another account's route
@@ -384,8 +474,8 @@ impl Hub {
             let family = crate::config::derive_family(&meta.harness, profile);
             let (_, env) = self.harness_env(&meta).await;
             let current = route_account::current_home(&meta, &family, &env);
-            let to = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
-            route_account::switch_allowed(current.as_deref(), &to).map_err(|e| route_error(&e))?;
+            route_account::switch_allowed(current.as_deref(), found)
+                .map_err(|e| route_error(&e))?;
         }
         let running = {
             let _spawn = self.spawn_lease(session).await;
@@ -673,6 +763,7 @@ impl Hub {
             routes::find(dir.as_deref(), f).ok().filter(|r| {
                 !r.file.disabled
                     && r.serves(&family)
+                    && r.check_local_harness(Some(&profile)).is_ok()
                     && route_account::switch_allowed(home.as_deref(), r).is_ok()
             })
         });

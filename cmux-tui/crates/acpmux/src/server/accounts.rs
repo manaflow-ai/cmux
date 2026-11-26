@@ -102,16 +102,27 @@ pub(super) async fn handle(
                     )),
                 })
                 .transpose()?;
-            let cloud_enabled = params
-                .get("servesCloud")
+            // Only a daemon that understands cloudUse can apply the revision-checked change.
+            if params.get("servesCloud").is_some() {
+                return Err(RpcError::invalid_params("the connection changed while it was open"));
+            }
+            let cloud_use = params
+                .get("cloudUse")
                 .map(|value| {
-                    value
+                    let on = value
                         .as_bool()
-                        .ok_or_else(|| RpcError::invalid_params("servesCloud must be a boolean"))
+                        .ok_or_else(|| RpcError::invalid_params("servesCloud must be a boolean"))?;
+                    let revision = params["keyRevision"]
+                        .as_str()
+                        .filter(|revision| !revision.is_empty())
+                        .ok_or_else(|| {
+                            RpcError::invalid_params("the connection changed while it was open")
+                        })?;
+                    Ok::<_, RpcError>((on, revision.to_owned()))
                 })
                 .transpose()?;
             tokio::task::spawn_blocking(move || {
-                set(dir.as_deref(), &state, &id, enabled, name, cloud_enabled, instance)
+                set(dir.as_deref(), &state, &id, enabled, name, cloud_use, instance)
             })
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
@@ -160,7 +171,7 @@ fn listed(dir: Option<&Path>, state: &Path) -> Vec<Value> {
     }
     for route in routes::load(dir).0 {
         match route.file.kind {
-            // Models owns these grants. CLI account actions only work on native logins.
+            // Models lists and manages these grants.
             RouteKind::ChatgptPlan | RouteKind::ClaudeToken => continue,
             RouteKind::GrokPlan | RouteKind::CopilotPlan | RouteKind::KimiPlan => {
                 if let Some(provider) = crate::subscriptions::Provider::for_kind(route.file.kind) {
@@ -302,15 +313,15 @@ fn set(
     id: &str,
     enabled: Option<bool>,
     name: Option<String>,
-    cloud_enabled: Option<bool>,
+    cloud_use: Option<(bool, String)>,
     instance: Option<Option<String>>,
 ) -> Result<Value, RpcError> {
     let error = |e: routes::RouteError| crate::hub::route_error(&e);
-    if cloud_enabled.is_some() && !matches!(&instance, Some(Some(_))) {
+    if cloud_use.is_some() && !matches!(&instance, Some(Some(_))) {
         return Err(RpcError::invalid_params("servesCloud needs a connection instance"));
     }
     if id == CLAUDE_LOGIN_ID && routes::find(dir, id).is_err() {
-        if cloud_enabled.is_some() {
+        if cloud_use.is_some() {
             return Err(RpcError::invalid_params("servesCloud needs an API-key connection"));
         }
         return set_claude_login(state, enabled);
@@ -336,14 +347,16 @@ fn set(
         {
             return Err(routes::RouteError::BadParams(format!("{id} is not an account")));
         }
-        if let Some(cloud_enabled) = cloud_enabled {
-            if file.kind != RouteKind::DirectApiKey || !routes::PROVIDERS.contains(&file.provider())
-            {
+        if let Some((on, revision)) = &cloud_use {
+            let current = super::connections::key_revision(file).ok_or_else(|| {
+                routes::RouteError::BadParams("servesCloud needs an API-key connection".into())
+            })?;
+            if current != *revision {
                 return Err(routes::RouteError::BadParams(
-                    "servesCloud needs an API-key connection".into(),
+                    "the connection changed while it was open".into(),
                 ));
             }
-            file.cloud_enabled = Some(cloud_enabled);
+            file.cloud_enabled = Some(*on);
         }
         if let Some(enabled) = enabled {
             file.disabled = !enabled;
@@ -358,7 +371,7 @@ fn set(
     // An account turned off is no longer a workspace's, a family's or the global default: new chats
     // fall back to the CLI's own login instead of moving onto it by themselves (as a removed route's
     // defaults are cleared). A chat bound to it keeps running on it (`RouteFile::disabled`).
-    if file.disabled && (cloud_enabled.is_none() || enabled.is_some()) {
+    if file.disabled && (cloud_use.is_none() || enabled.is_some()) {
         routes::update_bindings(state, |b| clear_defaults(b, id)).map_err(error)?;
     }
     let family = file.families.first().cloned().unwrap_or_else(|| "codex".into());
@@ -509,6 +522,7 @@ mod tests {
             provider: None,
         };
         let route = routes::add(Some(&dir), "claude-key", &file, false).unwrap();
+        let revision = super::super::connections::key_revision(&route.file).unwrap();
         let instance = Some(route.file.credential_instance);
         routes::update_bindings(&state, |b| {
             b.families.insert("claude".into(), "claude-key".into());
@@ -518,12 +532,22 @@ mod tests {
             b.chats.insert("chat-1".into(), "claude-key".into());
         })
         .unwrap();
-        set(Some(&dir), &state, "claude-key", None, None, Some(false), instance.clone()).unwrap();
+        set(
+            Some(&dir),
+            &state,
+            "claude-key",
+            None,
+            None,
+            Some((false, revision.clone())),
+            instance.clone(),
+        )
+        .unwrap();
         let saved = routes::find(Some(&dir), "claude-key").unwrap();
         assert_eq!(saved.file.cloud_enabled, Some(false));
         assert_eq!(saved.file.secret, file.secret);
         assert_eq!(saved.file.disabled, file.disabled);
-        set(Some(&dir), &state, "claude-key", None, None, Some(true), instance).unwrap();
+        set(Some(&dir), &state, "claude-key", None, None, Some((true, revision)), instance)
+            .unwrap();
         assert_eq!(routes::find(Some(&dir), "claude-key").unwrap().file.cloud_enabled, Some(true));
 
         set(Some(&dir), &state, "claude-key", Some(true), None, None, None).unwrap();

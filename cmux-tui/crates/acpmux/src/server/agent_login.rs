@@ -16,6 +16,9 @@
 //! next prompt uses the new sign-in; in a turn it restarts when the turn ends
 //! (`restarted: false`), never cutting the turn.
 //!
+//! Settings recovery uses `recover_start` and `recover_finish` with an exact
+//! `recoverySession` so an older daemon can refuse the scoped operation.
+//!
 //! `start {agent: "claude@gateway"}` (`agent_login::GATEWAY_SUFFIX`) is the card's third way in:
 //! no sign-in runs; the chat's agent uses cmux's gateway (the team's CodeRouter account)
 //! when the image says the team has one
@@ -34,6 +37,8 @@ use std::sync::Arc;
 pub(super) const METHODS: &[&str] = &[
     method::MUX_AGENT_LOGIN_START,
     method::MUX_AGENT_LOGIN_FINISH,
+    method::MUX_AGENT_LOGIN_RECOVER_START,
+    method::MUX_AGENT_LOGIN_RECOVER_FINISH,
     method::MUX_AGENT_LOGIN_CANCEL,
     method::MUX_AGENT_LOGIN_API_KEY,
     method::MUX_AGENT_LOGIN_STATUS,
@@ -359,6 +364,20 @@ pub(crate) async fn use_gateway(
 }
 
 pub(super) async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcError> {
+    let scoped =
+        matches!(m, method::MUX_AGENT_LOGIN_RECOVER_START | method::MUX_AGENT_LOGIN_RECOVER_FINISH);
+    let recovery =
+        if scoped || matches!(m, method::MUX_AGENT_LOGIN_START | method::MUX_AGENT_LOGIN_FINISH) {
+            recovery_id(params)?
+        } else {
+            None
+        };
+    if scoped && (recovery.is_none() || params.get("sessionId").is_some()) {
+        return Err(error(LoginError::new(
+            reason::RECOVERY_MISMATCH,
+            "recovery requires a Claude chat on this machine",
+        )));
+    }
     // A named chat this daemon does not have: never run the sign-in here in its place (a chat
     // on a peer was forwarded before this; one that resolves nowhere is stale or not mirrored
     // yet, and this machine's own sign-in is not the one asked for).
@@ -399,7 +418,7 @@ pub(super) async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
             restart_claude_account(hub, &cli.store(agent)).await?;
             Ok(json!({"signedIn": false}))
         }
-        method::MUX_AGENT_LOGIN_START => {
+        method::MUX_AGENT_LOGIN_START | method::MUX_AGENT_LOGIN_RECOVER_START => {
             let agent = agent_of(params)?;
             // A key-only agent (Gemini, OpenCode) has no sign-in page: say so before looking for
             // its CLI, so the answer is `unsupported` whether or not it is installed here.
@@ -410,7 +429,6 @@ pub(super) async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
                 )));
             }
             let (cli, _) = cli(hub, agent, params).await?;
-            let recovery = recovery_id(params)?;
             recovery_session(hub, agent, text(params, "sessionId"), recovery, &cli.store(agent))
                 .await?;
             let mut api_key = None;
@@ -452,13 +470,13 @@ pub(super) async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Va
             }
             Ok(reply)
         }
-        method::MUX_AGENT_LOGIN_FINISH => {
+        method::MUX_AGENT_LOGIN_FINISH | method::MUX_AGENT_LOGIN_RECOVER_FINISH => {
             let id = text(params, "loginId").ok_or_else(|| {
                 error(LoginError::new(reason::UNKNOWN_LOGIN, "loginId is required"))
             })?;
             // No code: Codex's device flow, or Claude after an automatic link.
             let code = params.get("code").and_then(Value::as_str);
-            let done = login::finish(id, code, recovery_id(params)?).await.map_err(error)?;
+            let done = login::finish(id, code, recovery).await.map_err(error)?;
             // A repeated recovery finish must still verify the chat switched.
             let restarted = if done.signed_in && (done.fresh || done.recovery_session.is_some()) {
                 let recovery = done.recovery_session.as_deref();

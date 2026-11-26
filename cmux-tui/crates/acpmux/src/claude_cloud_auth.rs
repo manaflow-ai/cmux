@@ -509,6 +509,44 @@ pub(crate) fn team_settings(
     pair: &[(String, String); 2],
     headers: &str,
 ) -> String {
+    Value::Object(team_settings_map(flag, pair, headers)).to_string()
+}
+
+/// Check only the parts of a settings file that survive the team overlay.
+pub(crate) fn team_settings_would_copy_secret(flag: &Map<String, Value>) -> bool {
+    let blank_pair = [
+        ("ANTHROPIC_BASE_URL".to_owned(), String::new()),
+        ("ANTHROPIC_API_KEY".to_owned(), String::new()),
+    ];
+    let settings = Value::Object(team_settings_map(Some(flag), &blank_pair, ""));
+    contains_settings_secret(&settings, false)
+}
+
+fn contains_settings_secret(value: &Value, sensitive: bool) -> bool {
+    match value {
+        Value::Object(fields) => fields.iter().any(|(key, value)| {
+            !crate::secret_scan::find(key).is_empty()
+                || contains_settings_secret(
+                    value,
+                    sensitive
+                        || crate::config::profiles::secret_looking(key)
+                        || key.eq_ignore_ascii_case("headers"),
+                )
+        }),
+        Value::Array(items) => items.iter().any(|item| contains_settings_secret(item, sensitive)),
+        Value::String(text) => {
+            !text.trim().is_empty() && (sensitive || !crate::secret_scan::find(text).is_empty())
+        }
+        Value::Number(_) => sensitive,
+        Value::Null | Value::Bool(_) => false,
+    }
+}
+
+fn team_settings_map(
+    flag: Option<&Map<String, Value>>,
+    pair: &[(String, String); 2],
+    headers: &str,
+) -> Map<String, Value> {
     let mut settings = flag.cloned().unwrap_or_default();
     let env = settings.entry("env").or_insert_with(|| Value::Object(Map::new()));
     if !env.is_object() {
@@ -528,7 +566,7 @@ pub(crate) fn team_settings(
     for helper in HELPERS {
         settings.insert(helper.to_owned(), Value::String(String::new()));
     }
-    Value::Object(settings).to_string()
+    settings
 }
 
 /// Put team mode in a Claude launch: the pair in the profile env, without [`TEAM_CLEARS`] there,

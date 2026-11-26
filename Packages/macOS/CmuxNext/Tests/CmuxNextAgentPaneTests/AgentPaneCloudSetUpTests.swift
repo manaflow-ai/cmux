@@ -85,9 +85,9 @@ struct AgentPaneCloudSetUpTests {
         }
         model.useCloudSetup(setup)
         let key = UUID().uuidString
-        let original = AgentPaneCloudStart(task: "held prompt", cwd: nil, key: key)
+        let original = try #require(AgentPaneCloudStart(params: ["task": "held prompt", "key": key, "home": true]))
         let choice = CloudSetup.Choice.setup(family: "claude", model: nil)
-        let refusal = try #require(original.connectionRefusalReply(for: choice, readyClaude: false))
+        let refusal = try #require(original.connectionRefusalReply(for: choice))
         #expect(Self.code(refusal) == "cloud_setup_required")
         model.transport.gestures.record()
         let ready = await model.respond(to: AgentPaneRequest(body: ["method": "cloud.setUp", "params": ["key": key, "action": "setUpClaude", "family": "claude"]]))
@@ -96,10 +96,26 @@ struct AgentPaneCloudSetUpTests {
         #expect(await model.respond(to: again)["ok"] as? Bool == true)
         let start = try #require(retried)
         #expect(start.machine == "vm_b" && start.usesMachineLogin)
-        #expect(start.connectionRefusalReply(for: choice, readyClaude: true) == nil)
         let opened = AgentPaneCloudStarted(start: start, chat: nil, workspace: nil, account: [], machineID: "vm_b")
         #expect(opened.start.machine == nil && !opened.start.usesMachineLogin, "the later Repick must use its own machine")
         #expect(opened.start.key == key)
+    }
+
+    @Test func aProjectWaitsForItsSizedMachineBeforeOfferingClaudeSetup() async throws {
+        let start = AgentPaneCloudStart(task: "held prompt", cwd: "/Users/me/large-project", key: UUID().uuidString)
+        let setup = CloudSetup(read: { .init(personal: [], organization: []) })
+        let readiness = await setup.plannerReadiness(for: start)
+        #expect(readiness.choice == .setup(family: "claude", model: nil))
+        #expect(start.connectionRefusalReply(for: readiness.choice) == nil)
+
+        let bytes = CloudChatSize.sm.diskBytes
+        let sized = try start.sized(.passed(bytes: bytes, size: .md), local: "/Users/me/large-project")
+        #expect(sized.size == .md && sized.folderBytes == bytes)
+        #expect(sized.machine == nil)
+        let reply = await sized.needsConnectionReply("sign-in required", machine: "vm_sized", setup: setup)
+        #expect(Self.code(reply) == "cloud_setup_required")
+        let details = (reply["error"] as? [String: Any])?["details"] as? [String: Any]
+        #expect(details?["machine"] as? String == "vm_sized")
     }
 
     @Test(arguments: ["openrouter", "providers/custom"])
@@ -110,7 +126,7 @@ struct AgentPaneCloudSetUpTests {
             "task": "held prompt", "key": UUID().uuidString, "home": true, "harness": harness,
         ]))
         let (choice, _) = await setup.launchReadiness(for: start)
-        let reply = try #require(start.connectionRefusalReply(for: choice, readyClaude: false))
+        let reply = try #require(start.connectionRefusalReply(for: choice))
         #expect(Self.code(reply) == "cloud_model_local_only")
         let error = try #require(reply["error"] as? [String: Any])
         #expect(error["userMessage"] as? String == AgentPaneCloudStart.localOnlyMessage)

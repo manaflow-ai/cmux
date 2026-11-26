@@ -210,9 +210,9 @@ pub(super) async fn handle(
                 ));
             }
             let route = text("routeId").map(str::to_owned);
-            let bindings =
-                routes::set_default_binding(dir.as_deref(), &state, &scope, route.as_deref())
-                    .map_err(|e| route_error(&e))?;
+            let config = hub.config.read().await;
+            let bindings = routes::set_default_binding(&config, &scope, route.as_deref())
+                .map_err(|e| route_error(&e))?;
             Ok(json!({"scope": scope, "routeId": route, "bindings": bindings}))
         }
         method::MUX_CHAT_ROUTE_SET => {

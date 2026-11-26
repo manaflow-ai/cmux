@@ -101,6 +101,8 @@ pub(super) struct Connection {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub credential_instance: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_revision: Option<String>,
     pub kind: &'static str,
     pub provider: String,
     pub families: Vec<String>,
@@ -219,6 +221,16 @@ fn standard_key_endpoint(file: &RouteFile) -> Option<(&'static str, crate::byo_e
         return None;
     }
     model_endpoint(provider)
+}
+
+/// The saved reference changes on replacement while the delivered connection keeps its identity.
+pub(super) fn key_revision(file: &RouteFile) -> Option<String> {
+    let provider = file.provider();
+    if !serves_cloud("api-key", provider) || standard_key_endpoint(file).is_none() {
+        return None;
+    }
+    let reference = file.secret.as_deref()?;
+    Some(config::profiles::content_revision(&format!("{provider}:{reference}")))
 }
 
 /// List models for a draft or a saved API-key route. A saved credential uses only its
@@ -363,6 +375,7 @@ fn connection(route: &Route, facts: Facts, b: &Bindings) -> Connection {
     Connection {
         id: route.id.clone(),
         credential_instance: route.file.credential_instance.clone(),
+        key_revision: key_revision(&route.file),
         kind: facts.kind,
         provider: facts.provider,
         families,
@@ -443,6 +456,7 @@ fn endpoint_connection(
     Some(Connection {
         id: id.to_owned(),
         credential_instance,
+        key_revision: None,
         kind: "endpoint",
         provider: id.to_owned(),
         families: vec![id.to_owned()],
@@ -507,15 +521,11 @@ fn list(
         chatgpt::store::all(home).into_iter().collect();
     let saved_routes = routes::load(dir).0;
     let saved_ids: BTreeSet<_> = saved_routes.iter().map(|route| route.id.clone()).collect();
-    for route in saved_routes {
+    for mut route in saved_routes {
         if route.id == routes::CODEX_LOGIN_ROUTE_ID {
             continue;
         }
-        let route = if route.file.credential_instance.is_none() {
-            routes::for_credential(dir, &route.id).unwrap_or(route)
-        } else {
-            route
-        };
+        let _ = routes::ensure_credential_instance(dir, &mut route);
         let file = &route.file;
         let facts = match file.kind {
             RouteKind::DirectSubscription => {
@@ -691,14 +701,14 @@ pub(super) fn ordered(mut list: Vec<Connection>, explicit: &[String]) -> Vec<Con
 
 /// The `ConnectionsState`.
 fn state(dir: Option<&Path>, home: &Path, sources: &ProfileSources) -> Value {
-    let mut b = routes::bindings(home);
+    let mut b = routes::bindings_with_disconnects(home);
     let mut connections = list(dir, home, &b, sources);
     // A removal records its marker first. A route that is still present can be retried.
     for connection in &mut connections {
         if let Some(instance) = &connection.credential_instance
-            && let Some(disconnected) = b.disconnected_credentials.get_mut(&connection.id)
+            && let Some(instances) = b.disconnected_credentials.get_mut(&connection.id)
         {
-            disconnected.remove(instance);
+            instances.remove(instance);
         }
         if !connection.signed_in {
             continue;
@@ -975,6 +985,7 @@ fn native_sign_in(agent: Agent, id: &str, label: &str, cli: &Cli) -> Option<Conn
     cli.has_stored_sign_in(agent).then(|| Connection {
         id: id.into(),
         credential_instance: None,
+        key_revision: None,
         kind: "native-login",
         provider: agent.name().into(),
         families: vec![agent.name().into()],
@@ -1475,6 +1486,7 @@ mod tests {
         Connection {
             id: id.into(),
             credential_instance: None,
+            key_revision: None,
             kind,
             provider: "openai".into(),
             families: vec!["codex".into()],
@@ -2077,10 +2089,19 @@ secret = "keychain:work"
             add_key(dir, &d.home, "anthropic", "keychain:work", None, &sources, Some(true))
                 .unwrap();
         let instance = find(&listed, &id)["credential_instance"].as_str().unwrap();
+        let bindings = routes::update_bindings(&d.home, |b| {
+            b.chats.insert("chat".into(), id.clone());
+            b.workspaces.insert("workspace".into(), id.clone());
+            b.families.insert("claude".into(), id.clone());
+            b.global = Some(id.clone());
+            b.connection_order = vec![id.clone(), "other".into()];
+        })
+        .unwrap();
         let write = d.home.join("routes/bindings.json.tmp");
         std::fs::create_dir_all(&write).unwrap();
 
         assert!(routes::remove(dir, &d.home, &id).is_err());
+        assert_eq!(routes::bindings(&d.home), bindings);
         let listed = state(dir, &d.home, &sources);
         assert_eq!(find(&listed, &id)["credential_instance"], instance);
         assert!(listed.get("disconnected_credentials").is_none());
@@ -2097,7 +2118,38 @@ secret = "keychain:work"
         let listed = state(dir, &d.home, &sources);
         assert!(!state_ids(&listed).contains(&id));
         assert_eq!(listed["disconnected_credentials"][&id], json!([instance]));
+        let bindings = routes::bindings(&d.home);
+        assert!(bindings.chats.is_empty());
+        assert!(bindings.workspaces.is_empty());
+        assert!(bindings.families.is_empty());
+        assert!(bindings.global.is_none());
+        assert_eq!(bindings.connection_order, ["other"]);
         assert!(credential_plan(dir, &d.home, &id, &sources).is_err());
+    }
+
+    #[test]
+    fn legacy_bindings_rewrite_keeps_disconnect_for_an_offline_guest() {
+        let d = dirs();
+        let dir = Some(d.routes.as_path());
+        let sources = ProfileSources::none();
+        let (id, listed) =
+            add_key(dir, &d.home, "anthropic", "keychain:work", None, &sources, Some(true))
+                .unwrap();
+        let instance = find(&listed, &id)["credential_instance"].as_str().unwrap();
+        let backup = routes::remove(dir, &d.home, &id).unwrap();
+
+        // The older Bindings struct only writes the fields it knows.
+        let bindings = d.home.join("routes/bindings.json");
+        let mut older: Value = serde_json::from_slice(&std::fs::read(&bindings).unwrap()).unwrap();
+        older.as_object_mut().unwrap().remove("disconnected_credentials");
+        older["spread"] = json!(false);
+        std::fs::write(bindings, serde_json::to_vec(&older).unwrap()).unwrap();
+
+        let replacement = routes::restore(dir, &d.home, &backup).unwrap();
+        assert_ne!(replacement.file.credential_instance.as_deref(), Some(instance));
+        let listed = state(dir, &d.home, &sources);
+        assert_eq!(listed["spread"], false);
+        assert_eq!(listed["disconnected_credentials"][&id], json!([instance]));
     }
 
     #[test]

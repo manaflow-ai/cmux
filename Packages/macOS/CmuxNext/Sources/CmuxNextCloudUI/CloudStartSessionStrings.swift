@@ -166,6 +166,11 @@ public struct CloudStartSessionStrings {
     /// not signed in, an agent the machine lacks, a model route that can't serve the start.
     public static let namedRefusals: Set<String> = ["agent_session.sign_in_required", "agent_session.harness_missing", "agent_session.route_unavailable"]
 
+    /// A team launch would expose a credential from the machine's Claude settings file.
+    package static var claudeSettingsSecret: String {
+        String(localized: "cloud.startSession.claudeSettingsSecret", defaultValue: "Claude could not start on the team route because its settings file contains a credential that would be copied into the launch. Remove the credential from the settings file and try again.", table: "CloudSessions", bundle: .localizedModule)
+    }
+
     /// A named refusal (`namedRefusals`) in the run's words. `agentName`: the agent as a person reads it; `expired`:
     /// its sign-in expired; `harness`: the refused harness id (`cmux`, the cmux router, is named as the router).
     public static func namedRefusal(_ code: String, _ name: String, id: String, agent: String, agentName: String, expired: Bool, harness: String) -> String {

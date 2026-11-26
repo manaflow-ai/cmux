@@ -363,6 +363,21 @@ fn the_owners_prewarm_hints_the_starts_own_agent_and_binds_nothing() {
 }
 
 #[test]
+fn a_guest_does_not_forward_native_keys_to_the_unbound_pool() {
+    let mut chat = connect("prewarm-native-keys", AgentStartHost::OwnerCloud, false);
+    for (harness, variable) in
+        [("gemini", "GEMINI_API_KEY"), ("gemini", "GOOGLE_API_KEY"), ("grok", "XAI_API_KEY")]
+    {
+        let frame = json!({"cmd":"agent-session-prewarm","surface":chat.surface,"cwd":chat.cwd,
+            "harness":harness,"vm_kind":"owner","credentials":{"env":{(variable):"fixture-key"}}});
+        let reply = chat.client.request(frame);
+        assert_eq!(reply["ok"], true);
+        assert_eq!(reply["data"]["accepted"], false, "{variable}");
+    }
+    assert!(chat.sent("_acpmux/prewarm").is_empty());
+}
+
+#[test]
 fn a_prewarm_is_refused_anywhere_but_the_owners_own_cloud_vm() {
     for (label, host, phone, vm_kind) in [
         ("prewarm-mac", AgentStartHost::Allowed, false, json!("owner")),

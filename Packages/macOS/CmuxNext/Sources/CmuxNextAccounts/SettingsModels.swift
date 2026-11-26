@@ -250,6 +250,7 @@ public final class SettingsModels {
         return [
             "id": .string(id), "kind": .string(kind), "provider": .string(provider),
             "credentialInstance": text("credential_instance"),
+            "keyRevision": text("key_revision"),
             "families": strings("families", "families"), "label": .string(value["label"]?.stringValue ?? id),
             "email": text("email"), "plan": text("plan"),
             "signedIn": .bool(value["signed_in"]?.boolValue ?? value["signedIn"]?.boolValue ?? false),
@@ -388,13 +389,15 @@ public final class SettingsModels {
         case "setCloud":
             guard let id = listedID(params), let on = params["on"]?.boolValue,
                   let instance = params["instance"]?.stringValue,
+                  let keyRevision = params["keyRevision"]?.stringValue,
                   connections.contains(where: {
                       $0["id"]?.stringValue == id && $0["kind"]?.stringValue == "api-key"
                           && $0["credentialInstance"]?.stringValue == instance
+                          && $0["keyRevision"]?.stringValue == keyRevision
                   }) else {
                 throw PageError.invalidParams("setCloud needs the listed API-key connection instance and on")
             }
-            try await mutate(.accountSet, ["id": id, "instance": instance, "servesCloud": on])
+            try await mutate(.accountSet, ["id": id, "instance": instance, "cloudUse": on, "keyRevision": keyRevision])
         case "rename":
             guard let id = listedID(params), id != "claude-login",
                   let name = params["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),

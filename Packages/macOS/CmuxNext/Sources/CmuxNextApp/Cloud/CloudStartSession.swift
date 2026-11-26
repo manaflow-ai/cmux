@@ -354,8 +354,8 @@ struct CloudStartSession {
             case AgentRemoteStartRefusal.folderNeededCode, "agent_session.home_unconfirmed", "agent_session.above_home": return CloudStartSessionStrings.needsFolder(name, id: id, agent: agent)
             case AgentRemoteStartRefusal.connectionKeyRefusedCode: return refusal.userMessage
             case let code where CloudStartSessionStrings.namedRefusals.contains(code): return CloudStartSessionStrings.namedRefusal(code, name, id: id, agent: agent, agentName: refusal.agentName ?? agent.chiefHarnessName, expired: refusal.signInExpired, harness: refusal.harness ?? agent) // never "its agent didn't (agent_session.refused)" (hq#11225)
-            default:
-                return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(refusal.userMessage))
+            case "agent_session.refused" where refusal.reason == "route.settings_secret": return CloudStartSessionStrings.claudeSettingsSecret
+            default: return CloudStartSessionStrings.agentFailed(name, id: id, agent: agent, reason: CloudStartCore.reason(refusal.userMessage))
             }
         }
         let reason = (error as? AgentTabRefusal)?.message ?? (error as? ActionFailure)?.message ?? String(describing: error)

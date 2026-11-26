@@ -157,6 +157,22 @@ import Testing
         #expect(AgentSessionAttachClient.credentialsCapability(harness: harness, nativeKey: true) == capability)
     }
 
+    @Test(arguments: ["GEMINI_API_KEY", "GOOGLE_API_KEY", "XAI_API_KEY"])
+    func aSavedNativeKeyNeverGoesToAnUnboundPrewarm(variable: String) async throws {
+        let daemon = try PresenceDaemon(capabilities: [
+            "agent-session-attach-v1", "agent-session-start-v1", AgentSessionAttachClient.prewarmCapability,
+            DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability,
+            DaemonCapability.agentSessionBoundCredentials.rawValue, "agent-session-credential-reattach-v1",
+        ])
+        defer { daemon.stop() }
+        let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
+        let harness = variable == "XAI_API_KEY" ? "grok" : "gemini"
+        _ = try await client.prewarm(cwd: "/w", harness: harness, ownerLink: link(3, 3),
+                                     credentials: [variable: "fixture-key"])
+        await client.close()
+        #expect(!daemon.frames.contains { $0["cmd"] as? String == "agent-session-prewarm" })
+    }
+
     @Test(arguments: [false, true])
     func credentialWritesRequireTheDurableSessionCapability(supported: Bool) async throws {
         var capabilities = ["agent-session-attach-v1", AgentSessionAttachClient.startCredentialsCapability]
@@ -202,11 +218,12 @@ import Testing
         #expect(refresh["session"] as? String == (supportsBoundCredentials ? "durable-chat" : nil))
     }
 
-    @Test(arguments: [false, true])
-    func claudePrewarmUsesTheSameCredentialNameAsStart(supportsEndpointCredentials: Bool) async throws {
+    @Test(arguments: [false, true], [false, true])
+    func claudePrewarmUsesTheSameCredentialNameAsStart(supportsEndpointCredentials: Bool, supportsBoundCredentials: Bool) async throws {
         var capabilities = ["agent-session-attach-v1", "agent-session-start-v1",
                             DaemonCapability.agentSessionStartVMKind.rawValue, AgentSessionAttachClient.startCredentialsCapability]
         if supportsEndpointCredentials { capabilities.append(AgentSessionAttachClient.startEndpointCredentialsCapability) }
+        if supportsBoundCredentials { capabilities.append(DaemonCapability.agentSessionBoundCredentials.rawValue) }
         let daemon = try PresenceDaemon(capabilities: capabilities)
         defer { daemon.stop() }
         let client = AgentSessionAttachClient(surface: 7) { DaemonEndpoint(socketPath: daemon.path) }
@@ -216,7 +233,7 @@ import Testing
         await client.close()
         let frame = try #require(daemon.frames.first { $0["cmd"] as? String == "agent-session-prewarm" })
         let wire = try #require(frame["credentials"] as? [String: Any])
-        let name = supportsEndpointCredentials ? "ANTHROPIC_AUTH_TOKEN" : "CLAUDE_CODE_OAUTH_TOKEN"
+        let name = supportsEndpointCredentials || supportsBoundCredentials ? "ANTHROPIC_AUTH_TOKEN" : "CLAUDE_CODE_OAUTH_TOKEN"
         #expect(wire["env"] as? [String: String] == [name: token])
     }
 

@@ -422,12 +422,14 @@ export function ModelPicker(props: ModelPickerProps) {
     (entry: Pick<HarnessChoice, "id" | "folder">) => {
       if (entry.folder) return cloudServed ? "unsupported" : undefined;
       if (cloudServed) return cloudPickerState(cloudServed, entry.id);
-      if (entry.id === "claude" && linkedClaude?.families.claude !== undefined) {
-        return linkedClaude.families.claude ? "ready" : "disconnected";
-      }
       return undefined;
     },
-    [cloudServed, linkedClaude],
+    [cloudServed],
+  );
+  // A linked guest can use credentials the Settings sign-in probe cannot see.
+  const offersLinkedClaudeConnect = useCallback(
+    (entry: Pick<HarnessChoice, "id">) => entry.id === "claude" && linkedClaude?.families.claude === false,
+    [linkedClaude],
   );
   const cloudNeedsConnection = useCallback(
     (entry: Pick<HarnessChoice, "id" | "folder">) => {
@@ -512,16 +514,16 @@ export function ModelPicker(props: ModelPickerProps) {
   const signInNoteFor = useCallback(
     (entry: HarnessChoice) =>
       cloudNeedsConnection(entry)
-        ? t(cloudPickerReason(cloudServed ?? linkedClaude, entry.id))
+        ? t(cloudPickerReason(cloudServed, entry.id))
         : loginFor(entry) !== undefined
           ? t("harnesses.signedOut")
           : undefined,
-    [cloudNeedsConnection, cloudServed, linkedClaude, loginFor, t],
+    [cloudNeedsConnection, cloudServed, loginFor, t],
   );
   const signInActionFor = useCallback(
     (entry: HarnessChoice) => {
       const id = entry.acpmuxHarness ?? entry.id;
-      if (!cloudNeedsConnection(entry)) {
+      if (!cloudNeedsConnection(entry) && !offersLinkedClaudeConnect(entry)) {
         const login = loginFor(entry);
         return login && onLogIn ? { run: () => onLogIn(id, login) } : undefined;
       }
@@ -532,7 +534,7 @@ export function ModelPicker(props: ModelPickerProps) {
         run: () => openConnectionSettings(family),
       };
     },
-    [cloudNeedsConnection, cloudServed, loginFor, onLogIn, openConnectionSettings, t],
+    [cloudNeedsConnection, cloudServed, loginFor, offersLinkedClaudeConnect, onLogIn, openConnectionSettings, t],
   );
   const modelRowId = (id: string) => `${menuId}-model-${encodeURIComponent(id)}`;
   const [open, setOpen] = useState(false);
@@ -1426,7 +1428,7 @@ export function ModelPicker(props: ModelPickerProps) {
           ? unavailableText
           : undefined;
   const signInNote = selected && signInNoteFor(selected);
-  const signInAction = selected && signInNote ? signInActionFor(selected) : undefined;
+  const signInAction = selected ? signInActionFor(selected) : undefined;
   const selectedOther = selected !== undefined && !selected.ids.includes(harness ?? "");
   const columnEffort = reasoningMenu === "column" && !selectedOther ? layoutEffort : undefined;
   const folderProfiles = cloudServed ? [] : harnesses.filter((entry) => entry.folder);
@@ -1920,24 +1922,28 @@ export function ModelPicker(props: ModelPickerProps) {
                       }}
                     />
                   )}
-                {selected && !searching && !starredView && cloudDisconnected(selected) && signInAction && (
-                  <button
-                    type="button"
-                    className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)} !h-auto py-1`}
-                    data-cloud-connect=""
-                    onClick={() => {
-                      close();
-                      signInAction.run();
-                    }}
-                  >
-                    <span className="flex min-w-0 flex-1 flex-col items-start">
-                      <span className="acpmux-menu-label max-w-full truncate">
-                        {signInAction.label ?? t("harness.logIn")}
+                {selected &&
+                  !searching &&
+                  !starredView &&
+                  (cloudDisconnected(selected) || (!signInNote && offersLinkedClaudeConnect(selected))) &&
+                  signInAction && (
+                    <button
+                      type="button"
+                      className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)} !h-auto py-1`}
+                      data-cloud-connect=""
+                      onClick={() => {
+                        close();
+                        signInAction.run();
+                      }}
+                    >
+                      <span className="flex min-w-0 flex-1 flex-col items-start">
+                        <span className="acpmux-menu-label max-w-full truncate">
+                          {signInAction.label ?? t("harness.logIn")}
+                        </span>
+                        {signInNote && <span className="text-detail text-muted">{signInNote}</span>}
                       </span>
-                      {signInNote && <span className="text-detail text-muted">{signInNote}</span>}
-                    </span>
-                  </button>
-                )}
+                    </button>
+                  )}
                 {selected && !searching && !starredView && missingHere(selected) ? (
                   <>
                     <div className={emptyNote}>{t("harnesses.notInstalled")}</div>

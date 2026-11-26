@@ -58,6 +58,7 @@ const cloudKeyModels: ModelsState = {
       {
         id: "openai-key",
         credentialInstance: "fixture-openai",
+        keyRevision: "fixture-openai-key",
         label: "OpenAI API key",
         kind: "api-key",
         provider: "openai",

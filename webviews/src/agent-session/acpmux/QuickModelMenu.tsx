@@ -800,7 +800,7 @@ export function QuickModelMenu({
           </MenuItem>
         )
       )}
-      {!query && shown?.note && shown.logIn && (
+      {!query && shown?.logIn && (
         <MenuItem className="acpmux-quick-item" onSelect={() => shown.logIn?.()}>
           <span className="acpmux-menu-label">{shown.logInLabel ?? t("harness.logIn")}</span>
         </MenuItem>
@@ -1161,7 +1161,7 @@ export function QuickModelMenu({
                       // harness and whether this chat ran it.
                       // tooltip-allow: the rail tab shows only the harness's mark.
                       title={[name, family.note, ownTab ? t("picker.usedHere") : undefined].filter(Boolean).join(" · ")}
-                      className={`acpmux-quick-rail-tab${family.logInLabel ? " opacity-50" : ""}`}
+                      className={`acpmux-quick-rail-tab${family.note && family.logInLabel ? " opacity-50" : ""}`}
                       // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
                       tabIndex={-1}
                       onClick={() => {

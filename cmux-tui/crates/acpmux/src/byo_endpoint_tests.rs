@@ -1801,6 +1801,113 @@ fn byo_endpoint_cloudflare_requires_vendor_model_ids() {
 }
 
 #[test]
+fn byo_endpoint_cloudflare_edit_retains_saved_legacy_models() {
+    let root = scratch("cloudflare-legacy-models");
+    let src = sources(&root);
+    let mut draft = params(
+        "openai-endpoint",
+        "legacy-gateway",
+        "https://gateway.ai.cloudflare.com/v1/1234567890abcdef1234567890abcdef/default/compat",
+        "@cf/meta/llama-3.1-8b-instruct",
+        Some("test/item"),
+    );
+    draft.models.push("openai/gpt-4.1".into());
+    let added = add(&draft, &src).unwrap();
+    let original = std::fs::read_to_string(&added.path).unwrap();
+    draft.display_name = Some("Renamed gateway".into());
+    draft.keychain_item = None;
+    draft.endpoint_preset = Some("cloudflare".into());
+    draft.replace = true;
+    draft.edit_endpoint = Some(profiles::content_revision(&original));
+
+    draft.models.push("@cf/meta/another-model".into());
+    assert!(add(&draft, &src).unwrap_err().message().contains("vendor/model"));
+    draft.models.pop();
+    add(&draft, &src).unwrap();
+    let (profile, _) = load(&added.path, "legacy-gateway");
+    assert_eq!(profile.model.as_deref(), Some("byo/@cf/meta/llama-3.1-8b-instruct"));
+    assert_eq!(
+        profile.models.iter().map(|model| model.id()).collect::<Vec<_>>(),
+        ["byo/@cf/meta/llama-3.1-8b-instruct", "byo/openai/gpt-4.1"]
+    );
+}
+
+#[test]
+fn byo_endpoint_edit_can_rename_and_rotate_a_key_with_a_saved_query() {
+    let root = scratch("saved-query");
+    let src = sources(&root);
+    let base = "https://team.openai.azure.com/openai/v1";
+    let legacy_base =
+        "https://team.openai.azure.com/openai/deployments/main?api-version=2024-10-21&prefix=team/";
+    let mut request = params("openai-endpoint", "legacy-query", base, "main", None);
+    let (log, store) = recording(false);
+    let old_key =
+        admin::EndpointKey { value: Some(GOOD_KEY), store: &store, ..admin::EndpointKey::NONE };
+    let new_key =
+        admin::EndpointKey { value: Some(BAD_KEY), store: &store, ..admin::EndpointKey::NONE };
+    let added = admin::add_endpoint_keyed(&request, &src, &old_key).unwrap();
+    let (profile, _) = load(&added.path, "legacy-query");
+    let original_account = own_account(&profile, "legacy-query", OPENAI_KEY_ENV);
+    let original = std::fs::read_to_string(&added.path).unwrap().replace(base, legacy_base);
+    std::fs::write(&added.path, &original).unwrap();
+
+    request.base_url = Some(legacy_base.into());
+    request.display_name = Some("Renamed endpoint".into());
+    request.replace = true;
+    request.edit_endpoint = Some(profiles::content_revision(&original));
+    add(&request, &src).unwrap();
+    let renamed = std::fs::read_to_string(&added.path).unwrap();
+    let (profile, _) = load(&added.path, "legacy-query");
+    assert!(renamed.contains("name = \"Renamed endpoint\""));
+    assert!(profile.env["OPENCODE_CONFIG_CONTENT"].contains(legacy_base));
+    assert_eq!(own_account(&profile, "legacy-query", OPENAI_KEY_ENV), original_account);
+
+    request.edit_endpoint = Some(profiles::content_revision(&renamed));
+    request.base_url = Some(format!("{base}?api-version=2024-10-22"));
+    assert!(admin::add_endpoint_keyed(&request, &src, &new_key).is_err());
+    assert_eq!(log.lock().unwrap().len(), 1);
+
+    request.base_url = Some(legacy_base.into());
+    admin::add_endpoint_keyed(&request, &src, &new_key).unwrap();
+    let (profile, _) = load(&added.path, "legacy-query");
+    assert!(profile.env["OPENCODE_CONFIG_CONTENT"].contains(legacy_base));
+    assert_ne!(own_account(&profile, "legacy-query", OPENAI_KEY_ENV), original_account);
+    assert_eq!(log.lock().unwrap().len(), 3);
+
+    let secret_url = format!("{base}?api-key=placeholder");
+    let invalid = std::fs::read_to_string(&added.path).unwrap().replace(legacy_base, &secret_url);
+    std::fs::write(&added.path, &invalid).unwrap();
+    request.base_url = Some(secret_url);
+    request.edit_endpoint = Some(profiles::content_revision(&invalid));
+    assert!(matches!(
+        admin::add_endpoint_keyed(&request, &src, &new_key),
+        Err(AdminError::SecretInline(_))
+    ));
+    assert_eq!(log.lock().unwrap().len(), 3);
+}
+
+#[test]
+fn byo_endpoint_edit_can_rename_a_keyless_legacy_endpoint_with_a_saved_query() {
+    let root = scratch("saved-query-keyless");
+    let src = sources(&root);
+    let base = "https://inference.example.com/v1";
+    let legacy_base = "https://team.openai.azure.com/openai/v1?api-version=2024-10-21";
+    let mut request = params("openai-endpoint", "keyless-query", base, "main", None);
+    let added = add(&request, &src).unwrap();
+    let original = std::fs::read_to_string(&added.path).unwrap().replace(base, legacy_base);
+    std::fs::write(&added.path, &original).unwrap();
+
+    request.base_url = Some(legacy_base.into());
+    request.display_name = Some("Renamed endpoint".into());
+    request.replace = true;
+    request.edit_endpoint = Some(profiles::content_revision(&original));
+    add(&request, &src).unwrap();
+    let (profile, _) = load(&added.path, "keyless-query");
+    assert!(profile.env["OPENCODE_CONFIG_CONTENT"].contains(legacy_base));
+    assert!(!profile.env.contains_key(OPENAI_KEY_ENV));
+}
+
+#[test]
 fn byo_endpoint_preset_url_validation() {
     let root = scratch("preset-url");
     let src = sources(&root);

@@ -1656,7 +1656,7 @@ function Columns({
                       data-tooltip-side="left"
                       className="acpmux-cols-tab"
                       data-hl={selected ? "" : undefined}
-                      data-off={family.setUp || family.logInLabel ? "" : undefined}
+                      data-off={family.setUp || (family.note && family.logInLabel) ? "" : undefined}
                       onPick={() => {
                         setCol(1);
                         showTab(index);
@@ -1704,9 +1704,8 @@ function Columns({
                 data-col-focus={col === 1 ? "" : undefined}
                 data-locked={locked ? "" : undefined}
               >
-                {/* A locked Cloud tab, or one Cloud cannot run yet: its Connect row leads, two lines, the action over
-                    the cause ("Not connected", "Runs on Cloud soon"). */}
-                {(locked || (!query && !!shown?.cloudSoon)) && shown?.logIn && (
+                {/* A Cloud Connect row leads with the action and shows a reason when the picker has one. */}
+                {!query && shown?.logIn && (locked || shown.cloudSoon || (shown.logInLabel && !shown.note)) && (
                   <DrivenRow
                     kind="button"
                     className="acpmux-cols-row acpmux-cols-unlock"
