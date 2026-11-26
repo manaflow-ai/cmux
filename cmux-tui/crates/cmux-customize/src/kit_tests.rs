@@ -99,6 +99,20 @@ fn checkout_manifest_overrides_the_shipped_registry() {
     assert_eq!(answer.json["components"].as_array().unwrap().len(), 2);
 }
 
+#[test]
+fn file_manifest_override_is_read_and_missing_file_errors() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("components.generated.json");
+    std::fs::write(&path, serde_json::to_string(&manifest()).unwrap()).unwrap();
+    let answer = components(&Request::List(None), Some(&path)).unwrap();
+    assert_eq!(answer.json["manifest"], path.to_str().unwrap());
+    assert_eq!(answer.json["components"].as_array().unwrap().len(), 2);
+
+    let missing = directory.path().join("missing.json");
+    let error = components(&Request::List(None), Some(&missing)).err().unwrap();
+    assert!(error.contains("cannot read the component manifest"), "{error}");
+}
+
 fn manifest() -> Value {
     json!({
         "galleryPath": "/gallery",

@@ -20,7 +20,7 @@
 // status; otherwise it is `experimental` when every gallery entry covering it is flagged
 // experimental, else `ready`. Gallery entries come from `covers: ["ui/Button.tsx#Button"]` in the
 // `*.gallery.tsx` files. `data-*` attributes are the ones the component's own body sets.
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -33,6 +33,7 @@ const KIT = join(SRC, "kit");
 const DOCS = join(UI, "docs");
 const MANIFEST = join(UI, "components.generated.json");
 const BUILTIN_MANIFEST = join(ROOT, "../cmux-tui/crates/cmux-customize/src/component_manifest.json");
+const HAS_BUILTIN_MANIFEST = existsSync(dirname(BUILTIN_MANIFEST));
 const LLMS = join(UI, "llms.txt");
 const GALLERY_PATH = "/gallery";
 
@@ -366,7 +367,7 @@ function render(): Map<string, string> {
       2,
     ) + "\n";
   files.set(MANIFEST, manifest);
-  files.set(BUILTIN_MANIFEST, manifest);
+  if (HAS_BUILTIN_MANIFEST) files.set(BUILTIN_MANIFEST, manifest);
   const llms = [
     "# cmux web component library",
     "",
@@ -399,7 +400,7 @@ if (process.argv.includes("--check")) {
       } catch {
         problems.push(`${rel(f)} is missing`);
       }
-      if (current && current !== text) problems.push(`${rel(f)} is stale`);
+      if (current !== text) problems.push(`${rel(f)} is stale`);
     }
   }
   if (![...files.keys()].some((f) => f.startsWith(DOCS))) problems.push("no component was found");
