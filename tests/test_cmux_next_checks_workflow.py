@@ -1673,7 +1673,7 @@ def can_run_on_owned_runner(job: dict) -> bool:
     for runs_on in cells:  # each matrix cell (`${{ matrix.runner }}` read as its values)
         runs_on = unwrap_fork_pool_reads(runs_on)
         # The fork pull request arm (scripts/ci/one_linux_label.py) names a hosted or Blacksmith label, never a mini.
-        runs_on = runs_on.replace("(vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04')", "")
+        runs_on = runs_on.replace("'ubuntu-24.04'", "")
         runs_on = OVERFLOW_FAILOVER.sub("", runs_on)
         # The repair switch picks the ephemeral GCP repair JIT (cmux-gcp-repair-jit-x64) or the Linux pool, never a mini.
         runs_on = runs_on.replace("vars.CI_REPAIR_SKIP_FLEET != '1'", "")
@@ -3083,8 +3083,8 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
     """The checks job and the path router run on cmux-linux for every own-branch run, on every attempt.
 
     No placement job picks their runner (cmuxterm-hq decisions/junctions.md: one label for every own-branch Linux job,
-    the pickers deleted). A fork's run takes GitHub-hosted Ubuntu, a fork pull request vars.CI_FORK_LINUX_RUNNER
-    (GitHub-hosted Ubuntu while it is unset).
+    the pickers deleted). A fork's run and a fork pull request take
+    GitHub-hosted Ubuntu.
     """
 
     def context(self, **extra) -> dict:
@@ -3097,7 +3097,7 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
         for name in (JOB, "path_route"):
             runs_on = one_runs_on(jobs[name])
             with self.subTest(job=name):
-                self.assertNotIn("vars.", runs_on.replace("vars.CI_FORK_LINUX_RUNNER", ""))
+                self.assertNotIn("vars.", runs_on)
                 self.assertNotIn("needs.", runs_on)
                 for attempt in (1, 2, 3):
                     self.assertEqual(evaluate(runs_on, self.context(**{"github.run_attempt": attempt})), "cmux-linux")
@@ -3106,8 +3106,6 @@ class ChecksAndRouterTakeOneLabel(unittest.TestCase):
                                  "ubuntu-24.04")
                 fork_pr = self.context(**{"github.event.pull_request.head.repo.full_name": "someone/cmux"})
                 self.assertEqual(evaluate(runs_on, fork_pr), "ubuntu-24.04")
-                self.assertEqual(evaluate(runs_on, {**fork_pr, "vars.CI_FORK_LINUX_RUNNER": "blacksmith-4vcpu-ubuntu-2404"}),
-                                 "blacksmith-4vcpu-ubuntu-2404")
         self.assertEqual(evaluate(str(jobs[JOB]["timeout-minutes"]), self.context()), 15)
 
 
