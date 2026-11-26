@@ -83,6 +83,7 @@ enum AgentHandlers {
                              }
                              return context.services.pages.storeKey(of: id) ?? id
                          }, open: { record, invocation, byPerson in
+                             if let parked = context.parkedPane(invocation) { return context.services.macScreenTabs.open(try record(), parkedIn: parked, byPerson: byPerson) }
                              let pane: PaneController?
                              if let target = context.explicitTarget(invocation, kinds: [.tab]), LocalPageTab.page(of: target.id) != nil {
                                  pane = context.paneController(invocation)

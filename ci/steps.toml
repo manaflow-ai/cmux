@@ -638,7 +638,7 @@ WRANGLER_SEND_METRICS=false npm run check
 '''
 
 # Two more checks whose pull request runs each took a Linux job: cmux-vm-clients.yml's sdk job (its rust job
-# stays) and web-complexity.yml's complexity job. Both keep their other runs (pushes, dispatch, pull requests
+# is the step cmux-vm-clients-rust) and web-complexity.yml's complexity job. Both keep their other runs (pushes, dispatch, pull requests
 # into main); a feat-cmux-next pull request runs the same commands here. `inputs` is each workflow's former
 # pull_request path filter (cmux-vm-clients.yml's is shared by its rust job and its sdk job), plus the
 # workflow file where the filter listed it. A failure in one command of a step does not stop the step's others,
@@ -1291,6 +1291,7 @@ if want tt-checkup-configuration; then python3 -I scripts/checkup/tests/configur
 if want tt-console-session-hop; then bash scripts/ci/tests/console-session-hop.test.sh || status=1; fi
 if want tt-media-build-app-local-tui; then bash scripts/ci/tests/media-build-app-local-tui.test.sh || status=1; fi
 if want tt-media-merge-base; then bash scripts/ci/tests/media-merge-base.test.sh || status=1; fi
+if want tt-media-tree-submodules; then bash scripts/ci/tests/media-tree-submodules.test.sh || status=1; fi
 if want tt-launch-ready-cases; then python3 scripts/measure/tests/launch-ready-summary.test.py && bash scripts/measure/tests/launch-ready-cases.test.sh || status=1; fi
 if want tt-next-pkg; then bash scripts/cmux-next/tests/next-pkg.test.sh || status=1; fi
 if want tt-install-zig; then python3 tests/test_install_zig_ci_reviewed_version.py || status=1; fi
@@ -2253,6 +2254,228 @@ rm -f "$crates"
 exit "$status"
 '''
 
+# Six more checks whose feat-cmux-next pull request runs each took a Linux job: risk-tier-tests.yml's tests,
+# cmux-next-crash-class.yml's crash-class, cmux-cloud-cli.yml's test, cmux-vm-cloud.yml's check,
+# app-store-shelf.yml's shelf and cmux-vm-clients.yml's rust. A feat-cmux-next pull request runs the same commands
+# here; each workflow keeps its other runs (pushes, dispatch, pull requests into other bases). `inputs` is each
+# workflow's former pull_request path filter. A failure in one command of a step does not stop the step's others,
+# as the jobs' `!cancelled()` steps did. Failure-only artifact uploads (a regenerated client or contract) are not
+# steps: a failed step prints its `git diff --stat`. The cargo steps are `alone`, so their compile does not raise
+# the shared wave bound. helm-chart.yml (helm, which no tool supplies, on an ephemeral runner for untrusted chart
+# input) and cloud-vm-guest-install.yml (a Postgres service container) stay in their workflows.
+
+# risk-tier-tests.yml ran on pull requests into feat-cmux-next only; it now runs on dispatch alone.
+# 6 s on an 8-CPU lane machine; the job's bound was 5 min.
+[step.risk-tier-tests]
+job = "linux"
+timeout = 300
+title = "risk tier tests"
+about = "the risk classifier's unit tests (scripts/ci/risk_tier.py) pass"
+inputs = [
+  "scripts/ci/risk_tier.py",
+  "tests/test_risk_tier.py",
+  "tests/git_fixture_env.py",
+  "tests/fleet_test_host.py",
+  ".github/workflows/risk-tier-tests.yml",
+]
+run = '''
+python3 tests/test_risk_tier.py -v
+'''
+
+# On a merge commit (a pull request's) the gate fails only for findings in the files the change touches (--pr), as
+# the job's pull request runs did; on a commit with one parent it keeps the whole-tree verdict, as the push run did.
+# 125 s on an 8-CPU lane machine (the whole-tree gate and the five rule checks); the job's bound was 5 min.
+[step.cmux-next-crash-class]
+job = "linux"
+timeout = 300
+title = "cmux-next crash-class rules"
+about = "CmuxNext Sources pass the crash-class concurrency rules, their rule tests, the unrecognized-selector rule and the Chromium Objective-C contract"
+inputs = [
+  "Packages/macOS/CmuxNext/Sources/**",
+  "Packages/macOS/CmuxNext/Package.swift",
+  "scripts/cmux-next/check-concurrency.sh",
+  "scripts/cmux-next/check-main-actor-work.py",
+  "scripts/cmux-next/swift_scope.py",
+  "tests/test_check_concurrency_generic_deinit.py",
+  "tests/test_check_concurrency_pipe_reads.py",
+  "tests/test_check_concurrency_caller_isolated.py",
+  "scripts/cmux-next/caller_isolation.py",
+  "scripts/cmux-next/caller-isolated-blocking-pending.json",
+  "scripts/ci/crash-class-gate.sh",
+  "scripts/ci/pr_owned_findings.py",
+  "scripts/cmux-next/check-objc-selectors.py",
+  "scripts/cmux-next/objc-selector-table.json",
+  "scripts/cmux-next/check-cef-objc-contract.py",
+  "scripts/cmux-next/chromium-objc-contract.json",
+  "scripts/cmux-next/cef-manifest.json",
+  ".github/workflows/cmux-next-crash-class.yml",
+]
+run = '''
+scope=()
+git rev-parse -q --verify 'HEAD^2' >/dev/null && scope=(--pr)
+status=0
+scripts/ci/crash-class-gate.sh "${scope[@]}" || status=1
+python3 -I tests/test_check_concurrency_generic_deinit.py || status=1
+python3 -I tests/test_check_concurrency_pipe_reads.py || status=1
+python3 -I tests/test_check_concurrency_caller_isolated.py || status=1
+python3 -I scripts/cmux-next/check-objc-selectors.py || status=1
+python3 -I scripts/cmux-next/check-cef-objc-contract.py || status=1
+exit "$status"
+'''
+
+# The job's 2026-11 runs took about 2 min (its bound was 30). Its tests need no database.
+[step.cmux-vm-cloud]
+job = "linux"
+timeout = 360
+title = "cmux VM cloud API"
+about = "the backend API typechecks, the protocol catalog and generated clients match, the Team VM and server pairing tests pass, and backend sources stay under the size limit"
+needs = ["bun", "node"]
+inputs = [
+  "workers/cmux-vm/sdk/**",
+  "workers/cmux-vm/src/**",
+  "libs/vm-instance-identity/**",
+  "backend/apps/api/src/team-vm-api*",
+  "backend/apps/api/test/team-vm-api*",
+  ".github/workflows/cmux-vm-cloud.yml",
+]
+run = '''
+cd backend
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+status=0
+(cd apps/api && bun run typecheck) || status=1
+if bun run catalog:export && bun run catalog:client && bun run catalog:rust; then
+  paths=(catalog/cloud-operations.json ../clients/ts/cloud/src/generated.ts ../cmux-tui/crates/cmux-cloud-wire/src/generated)
+  if [[ -n "$(git status --porcelain -- "${paths[@]}")" ]]; then
+    git --no-pager diff --stat -- "${paths[@]}"
+    echo "::error::Protocol catalog or generated clients are stale: run bun run catalog:export, catalog:client and catalog:rust in backend and commit the result"
+    status=1
+  fi
+else
+  status=1
+fi
+(cd apps/api && bun run test -- test/team-vm-api) || status=1
+(cd apps/api && bun run test -- test/team-vm-bind.test.ts test/team-vm.test.ts test/team-vm-taint.test.ts test/team-vm-retired-fence.test.ts test/team-vm-export.test.ts) || status=1
+(cd apps/api && bun run test -- test/server-pairing.test.ts test/server-pairing-failures.test.ts) || status=1
+bun run lint:size || status=1
+exit "$status"
+'''
+
+# The job's 15-minute bound. Warnings never fail a pull request's compile (Leo, 2026-11-19): CI_WARNINGS is soft on
+# a pull request, deny in the post-merge batch. The job's release binary upload (cmux-cloud-cli-<sha>) stays with
+# the workflow's push and dispatch runs; here the musl release build only has to succeed.
+[step.cmux-cloud-cli]
+job = "linux"
+timeout = 900
+alone = true
+title = "cmux cloud CLI"
+about = "cmux-cloud-cli and cmux-cloud-wire are rustfmt-clean, pass clippy and their tests, and the CLI builds for x86_64 musl"
+needs = ["rust"]
+inputs = [
+  "cmux-tui/crates/cmux-cloud-cli/**",
+  "cmux-tui/crates/cmux-cloud-wire/**",
+  "backend/catalog/cloud-operations.json",
+  "backend/catalog/cloud-vectors.json",
+  "cmux-tui/Cargo.*",
+  ".github/workflows/cmux-cloud-cli.yml",
+]
+run = '''
+cd cmux-tui
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+[ -z "${GITHUB_BASE_REF:-}" ] || export CI_WARNINGS=soft
+status=0
+cargo fmt -p cmux-cloud-cli -p cmux-cloud-wire --check || status=1
+python3 ../scripts/ci/warnings_policy.py run -- cargo clippy -p cmux-cloud-cli -p cmux-cloud-wire --locked --all-targets -- -D warnings || status=1
+cargo test -p cmux-cloud-cli -p cmux-cloud-wire --locked || status=1
+rustup target add x86_64-unknown-linux-musl --toolchain "$channel" || status=1
+cargo build -p cmux-cloud-cli --release --locked --target x86_64-unknown-linux-musl || status=1
+exit "$status"
+'''
+
+# app-store-shelf.yml ran on pull requests into feat-cmux-next only; it keeps its feat-cmux-next push and dispatch
+# runs, and nightly.yml's check-nightly-app-store-shelf runs the same script. The job's 45-minute bound (a cold
+# cmux-tui test compile). The build env the job set: the ghostty-next gitlink's sources, Zig from PATH.
+[step.app-store-shelf]
+job = "linux"
+timeout = 2700
+alone = true
+title = "App Store shelf"
+about = "every App Store listing installs and shows something (the three cmux-tui shelf tests run and pass)"
+needs = ["rust", "zig"]
+inputs = [
+  ".github/workflows/app-store-shelf.yml",
+  "first-party-apps/**",
+  "samples/apps/**",
+  "scripts/cmux-next/sync-app-runtime.sh",
+  "scripts/cmux-next/store-package-sign.py",
+  "scripts/ci/app-store-shelf-check.sh",
+  "cmux-tui/crates/cmux-tui-core/src/apps/**",
+  "cmux-tui/crates/cmux-app-host/**",
+  "cmux-tui/crates/cmux-app-manifest/**",
+  "cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge*",
+  "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs",
+]
+run = '''
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' cmux-tui/rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC=""
+unset CMUX_ZIG ZIG
+bash scripts/ci/app-store-shelf-check.sh
+'''
+
+# cmux-vm-clients.yml's rust job; its sdk job is the step cmux-vm-sdk, and `inputs` is the filter the two jobs
+# shared. The job's 30-minute bound (a cold workspace compile; the job's cargo cache is not here). Formatting is a
+# style guard: on feat-cmux-next it warns (Leo 2026-10-19). Warnings never fail a pull request's compile (Leo,
+# 2026-11-19): CI_WARNINGS is soft on a pull request, deny in the post-merge batch.
+[step.cmux-vm-clients-rust]
+job = "linux"
+timeout = 1800
+alone = true
+title = "cmux VM Rust clients"
+about = "the cmux VM CLI workspace's toolchain pin matches cmux-tui's, it passes clippy and its tests, its generated client matches openapi.json, and the clients never name the upstream provider"
+needs = ["rust"]
+inputs = [
+  "workers/cmux-vm/openapi.json",
+  "workers/cmux-vm/cli/**",
+  "cmux-tui/crates/cmux-cloud-config/**",
+  "workers/cmux-vm/sdk/**",
+  "skills/cmux-cloud-vm/references/headless.md",
+  "cmux-tui/rust-toolchain.toml",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/runner-cargo-home/**",
+  ".github/workflows/cmux-vm-clients.yml",
+]
+run = '''
+status=0
+diff <(grep -v '^#' workers/cmux-vm/cli/rust-toolchain.toml) cmux-tui/rust-toolchain.toml || status=1
+if grep -rIil freestyle workers/cmux-vm/cli workers/cmux-vm/sdk --exclude-dir=target --exclude-dir=node_modules; then
+  echo "::error::the cmux VM clients must not name the upstream provider"
+  status=1
+fi
+cd workers/cmux-vm/cli
+channel="$(sed -n 's/^channel *= *"\([^"]*\)".*/\1/p' rust-toolchain.toml)"
+rustup toolchain install "$channel" --profile minimal --component clippy,rustfmt
+export CARGO_NET_RETRY=10 CARGO_HTTP_TIMEOUT=120 CARGO_INCREMENTAL=0
+[ -z "${GITHUB_BASE_REF:-}" ] || export CI_WARNINGS=soft
+if ! cargo fmt --all --check; then
+  echo "::warning title=cmux-vm cli rustfmt::not rustfmt-clean; run cargo fmt --all in workers/cmux-vm/cli"
+fi
+python3 ../../../scripts/ci/warnings_policy.py run -- cargo clippy --locked --workspace --all-targets -- -D warnings || status=1
+cargo test --locked --workspace || status=1
+if ./scripts/regenerate.sh; then
+  if [[ -n "$(git status --porcelain -- .)" ]]; then
+    git --no-pager diff --stat -- .
+    echo "::error::the generated client (crates/cmux-vm-client/src/generated*.rs) is stale: run workers/cmux-vm/cli/scripts/regenerate.sh and commit the result"
+    status=1
+  fi
+else
+  status=1
+fi
+exit "$status"
+'''
+
 # The iOS steps: what cmux-next-ios-kit.yml (the CmuxMobileKit tests) and ios-reliability-matrix.yml (the
 # connectivity and reliability matrix, cmux-next-ios/reliability-matrix/cells.json) ran on a feat-cmux-next pull
 # request; both keep their push, schedule and dispatch runs (the kit's advisory Instant list bench among them).
@@ -2464,14 +2687,18 @@ run = '''
 python3 -I scripts/cmux-next/check-connection-notices.py --root "$PWD"
 '''
 
-[step.ios-kit]
+[step.ios-kit-macos]
 job = "ios"
-# Takes the Mac's cores and its one simulator; the phone cells follow it.
+# The kit's macOS swift test, which ios-kit ran before its simulator leg: pr-pipeline.yml's `ios macos` job runs it
+# (`--only ios-kit-macos`) beside the `ios` job, which runs every other ios step, so neither leg waits on the other.
+# ios-kit reads this job's verdict (scripts/ci/ios_macos_leg.py): a red macOS leg still skips the simulator and turns
+# `ios` red, as when both ran in one step.
 alone = true
-# 60 min, plus up to 20 for the fleet pool's verdict before a Mac fallback (vars.CMUX_IOS_SIM_LINUX=on).
-timeout = 4800
-title = "CmuxMobileKit tests (macOS swift test, iOS simulator)"
-about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), runs the kit's swift test on macOS, then its tests on an iOS 26 iPhone simulator"
+# The xcframework (a Mac build when the fleet has none, up to 25 min) and the two swift test runs (8 min on a warm
+# Mac, 20 on a cold one).
+timeout = 2700
+title = "CmuxMobileKit tests (macOS swift test)"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), then runs the kit's swift test on macOS"
 # The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
 # its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
 # simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
@@ -2544,6 +2771,85 @@ swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPe
   --skip CmuxMobileAuthTests --skip CmuxMobileDesignCoreTests --skip CmuxMobileModelTests --skip CmuxMobileNotificationsTests \
   --skip CmuxMobileRealtimeTests --skip CmuxMobileTransportTests || status=1
 swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests || status=1
+exit $status
+'''
+
+[step.ios-kit]
+job = "ios"
+# Takes the Mac's cores and its one simulator; the phone cells follow it.
+alone = true
+# 60 min, plus up to 20 for the fleet pool's verdict before a Mac fallback (vars.CMUX_IOS_SIM_LINUX=on).
+timeout = 4800
+title = "CmuxMobileKit tests (iOS simulator)"
+about = "takes CmuxMobileLinkFFI.xcframework from the build fleet or builds it (and checks the checked-in bindings match), then runs the kit's tests on an iOS 26 iPhone simulator; the macOS swift test is ios-kit-macos, in the `ios macos` job beside it"
+# The kit and every local package it links (scripts/ci/ios_app_package_paths.py --check keeps the list exact), and
+# its toolchain. A change to only notes or cmux-next-ios/verify/ evidence builds nothing new (cmux#43251 took a
+# simulator Mac for SECURITY.md and verify/parity-mac.md). A note under a package's Resources/ ships in the bundle,
+# so it still routes (the workflow's re-include, kept).
+inputs = [
+  "cmux-next-ios/**",
+  "Packages/Shared/CMUXAuthCore/**",
+  "Packages/Shared/CMUXMobileCore/**",
+  "Packages/Shared/CmuxAgentBrands/**",
+  "Packages/Shared/CmuxAgentQuestion/**",
+  "Packages/Shared/CmuxAuthRuntime/**",
+  "Packages/Shared/CmuxChiefList/**",
+  "Packages/Shared/CmuxChiefVoiceCore/**",
+  "Packages/Shared/CmuxConnectivityTelemetry/**",
+  "Packages/Shared/CmuxDeviceHub/**",
+  "Packages/Shared/CmuxEgress/**",
+  "Packages/Shared/CmuxGhosttyKit/**",
+  "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxScreenKit/**",
+  "Packages/Shared/CmuxSpinner/**",
+  "Packages/Shared/CmuxTheme/**",
+  "Packages/Shared/CmuxVNC/**",
+  "Packages/Shared/CmuxVNCWebRTC/**",
+  "Packages/iOS/CmuxConversation/**",
+  "Packages/iOS/CmuxMobileBilling/**",
+  "Packages/iOS/CmuxMobileSupport/**",
+  "Packages/iOS/CmuxTabsKit/**",
+  "vendor/stack-auth-swift-sdk-prerelease/**",
+  "scripts/select-ci-xcode.sh",
+  "scripts/ci/xcode-pins.txt",
+  ".xcode-version",
+  "scripts/ci/ios_app_package_paths.py",
+  "scripts/ci/ios_link_ffi_key.py",
+  "scripts/ci/ios_link_ffi.sh",
+  "scripts/ci/ios_macos_leg.py",
+  "scripts/ci/ios_sim_udid.py",
+  "scripts/ci/ios-sim-pool.sh",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/runner-cargo-home/**",
+  "cmux-tui/rust-toolchain.toml",
+]
+# Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker build nothing in the iPhone app
+# (#53223, scripts/cmux-next/build_select.py reads the kit workflow's filter); the scripts the kit or the app build
+# reads stay in. The fixtures the kit's own tests read (cmux-next-ios/verify/agent-cli-hybrid/) stay in too (#54725).
+ignore = ["cmux-next-ios/verify/**", "**/*.md", "!cmux-next-ios/verify/agent-cli-hybrid/**",
+          "cmux-next-ios/scripts/**", "cmux-next-ios/backend/**",
+          "!cmux-next-ios/scripts/instant_perf_table.py", "!cmux-next-ios/scripts/generate-launch-mark.swift",
+          "!cmux-next-ios/scripts/check-notification-extension.sh", "!cmux-next-ios/scripts/check-production-binary.sh",
+          "!cmux-next-ios/CmuxMobileKit/**/Resources/**",
+          "!Packages/Shared/**/Resources/**", "!Packages/iOS/**/Resources/**"]
+needs = ["rust"]
+run = '''
+(cd cmux-next-ios/rust && rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal)
+# The build fleet's copy of the head when it has one for these inputs, else this Mac builds it (a logged Mac fallback).
+bash scripts/ci/ios_link_ffi.sh 8
+# The xcframework and target/ are gitignored; a Mac build rewrites the bindings and restores Cargo.lock, so any
+# tracked change is drift (the fleet's build passes only when its bindings match the checked-in ones).
+if ! git diff --exit-code -- cmux-next-ios/; then
+  echo "::error::build-xcframework.sh changed tracked files (CmuxMobileLinkFFI.swift or Cargo.lock); run it and commit the result"
+  exit 1
+fi
+status=0
+# The macOS swift test is ios-kit-macos, in pr-pipeline.yml's `ios macos` job beside this one. Its verdict so far
+# (scripts/ci/ios_macos_leg.py: failure, success, pending or unknown; an unread one runs the simulator leg) keeps
+# the rule both legs had in one step: a red macOS leg skips the simulator leg and fails this step.
+macos="$(python3 -I scripts/ci/ios_macos_leg.py state)"
+echo "ios macos leg: $macos"
+[[ "$macos" == failure ]] && status=1
 # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so their tests run only on the simulator.
 # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit. arm64 only: the xcframework has no x86_64
 # simulator slice.
@@ -2562,7 +2868,7 @@ fi
 # A red macOS kit run already fails the step: the simulator leg (the kit's tests again, 40-45 min on a Mac, up to 20
 # of them waiting on the pool) would only spend the machine. The re-run that fixes the red runs it.
 if (( status )); then
-  echo "::notice title=ios-kit::the macOS kit tests failed above; the iOS simulator tests are skipped this run"
+  echo "::notice title=ios-kit::the macOS kit tests failed (the ios macos job); the iOS simulator tests are skipped this run"
   pool="skipped"
 fi
 case "${pool%% *}" in
@@ -2610,6 +2916,17 @@ if [[ "$mode" == shadow && -f "$pool_dir/submitted" ]]; then
 fi
 ;;
 esac
+# The macOS leg usually ends first (8 min against the simulator's 15 or more): a red one fails this step too, so the
+# phone cells after it are skipped and `ios` is red, as before the split. One read, no wait: a leg still running is
+# its own `ios macos` check.
+if (( ! status )); then
+  macos="$(python3 -I scripts/ci/ios_macos_leg.py state)"
+  echo "ios macos leg after the simulator: $macos"
+  if [[ "$macos" == failure ]]; then
+    echo "::error title=ios-kit::the macOS kit tests failed in the ios macos job"
+    status=1
+  fi
+fi
 exit $(( status || sim ))
 '''
 
@@ -2725,6 +3042,23 @@ case "$word" in
   superseded) echo "a newer head of this pull request replaced $head; its own run reads its compile" ;;
   *) fallback ;;
 esac
+'''
+
+# Slice 16 (ci-v2 step 11): router callees and the Linux test halves of deploy workflows.
+#
+# Was fleet-artifact-cdn.yml's test job (cmux-linux, 5 min, Node 24) on a pull request. Its pull_request trigger now
+# ignores feat-cmux-next; the workflow keeps its other pull requests, its main pushes and the dispatch deploy (whose
+# `needs: test` runs the job first). Its inputs are the workflow's own paths.
+[step.fleet-artifact-cdn-test]
+job = "linux"
+timeout = 300
+title = "Fleet artifact edge tests"
+about = "the fleet artifact edge Worker (workers/fleet-artifacts) passes its edge authentication and read-only deployment check tests (node --test)"
+needs = ["node"]
+inputs = ["workers/fleet-artifacts/**", ".github/workflows/fleet-artifact-cdn.yml"]
+run = '''
+cd workers/fleet-artifacts
+npm test
 '''
 
 [step.mac-fast-tier]
