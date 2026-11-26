@@ -2,6 +2,8 @@
 // The selection's Reply chip (SelectionReply.tsx): it shows when a transcript selection ends,
 // quotes the selection through Quote in Reply when clicked, and goes when the selection collapses.
 import { afterEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { settleReact } from "../../../../test/support/domTeardown";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -126,6 +128,43 @@ test("collapsing the selection removes the chip", () => {
   });
   expect(chip(doc)).toBeNull();
 });
+
+// conversation.css hides the chip while a cover is over the pane: a modal dialog (ui/Dialog.tsx, its
+// `.ui-backdrop`) or the full-pane Computer Use preview. On the body at the dropdown layer, the chip
+// drew over the image viewer's screenshot.
+const COVER_RULE = (() => {
+  const css = readFileSync(join(import.meta.dir, "conversation.css"), "utf8");
+  const start = css.indexOf(":root:has(.ui-backdrop, .acpmux-cu-preview[data-full]) .cv-selection-reply {");
+  if (start < 0) throw new Error("conversation.css has no cover rule for .cv-selection-reply");
+  return css.slice(start, css.indexOf("}", start) + 1);
+})();
+
+for (const [name, html] of [
+  ["a modal dialog", `<div class="ui-backdrop"></div>`],
+  ["the full-pane Computer Use preview", `<div class="acpmux-cu-preview" data-full></div>`],
+] as const) {
+  test(`${name} over the pane hides the chip; it comes back when it closes`, () => {
+    const doc = mount(REPLY);
+    const style = doc.createElement("style");
+    style.textContent = COVER_RULE;
+    doc.head.append(style);
+    select(doc, "prose", 6, 25);
+    const view = doc.defaultView!;
+    expect(view.getComputedStyle(chip(doc)!).visibility).not.toBe("hidden");
+    const cover = doc.createElement("div");
+    cover.innerHTML = html;
+    doc.body.append(cover);
+    expect(view.getComputedStyle(chip(doc)!).visibility).toBe("hidden");
+    expect(view.getComputedStyle(chip(doc)!).pointerEvents).toBe("none");
+    // A click inside the cover ends no new selection: the chip stays hidden.
+    act(() => {
+      doc.dispatchEvent(new view.Event("pointerup", { bubbles: true }));
+    });
+    expect(view.getComputedStyle(chip(doc)!).visibility).toBe("hidden");
+    cover.remove();
+    expect(view.getComputedStyle(chip(doc)!).visibility).not.toBe("hidden");
+  });
+}
 
 test("no chip for text in a code block or the composer", () => {
   const doc = mount(REPLY);
