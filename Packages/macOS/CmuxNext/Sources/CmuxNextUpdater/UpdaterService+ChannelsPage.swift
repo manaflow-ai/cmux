@@ -17,12 +17,14 @@ extension UpdaterService {
         let builds = tracks.flatMap(\.builds).map(\.build)
         var prs: [String: [ChannelPR]] = [:]
         if let store = changelogNotes {
-            prs = await withTaskGroup(of: (String, [ChannelPR]).self) { group in
+            // A build whose notes are not loaded stays out of the map, so it shows no count
+            // rather than "PRs (0)".
+            prs = await withTaskGroup(of: (String, [ChannelPR]?).self) { group in
                 for build in builds {
-                    group.addTask { (build, ChannelPR.list(await store.notes(for: build)?.items ?? [])) }
+                    group.addTask { (build, (await store.notes(for: build)?.items).map(ChannelPR.list)) }
                 }
                 var result: [String: [ChannelPR]] = [:]
-                for await (build, numbers) in group { result[build] = numbers }
+                for await (build, numbers) in group { if let numbers { result[build] = numbers } }
                 return result
             }
         }
