@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { componentEntry } from "../../gallery/format";
 import { Glass } from "../glass/Glass";
 import { installLiveBackground, type LiveBackgroundStyle } from "./liveBackground";
+import { KeyHint } from "../KeyHint";
 
 type Scheme = "dark" | "light";
 type Props = { style: LiveBackgroundStyle; scheme: Scheme; reduced?: boolean };
@@ -98,7 +99,7 @@ function LiveBackgroundGallery({ style, scheme, reduced = false }: Props) {
         <div style={{ display: "flex", gap: 8, fontSize: "var(--text-control)", color: "var(--cmux-text-secondary)" }}>
           <span>Plan</span>
           <span>Claude</span>
-          <span style={{ marginInlineStart: "auto" }}>⌘↩</span>
+          <KeyHint keys="⌘↩" style={{ marginInlineStart: "auto" }} />
         </div>
       </Glass>
     </div>
