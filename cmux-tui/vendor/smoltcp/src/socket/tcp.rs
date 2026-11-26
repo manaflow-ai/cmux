@@ -1401,7 +1401,9 @@ impl<'a> Socket<'a> {
     /// cmux patch: the smoothed round-trip time (RFC 6298 SRTT), `None`
     /// before the first measurement.
     pub fn smoothed_rtt(&self) -> Option<Duration> {
-        self.rtte.have_measurement.then(|| Duration::from_millis(self.rtte.srtt as u64))
+        self.rtte
+            .have_measurement
+            .then(|| Duration::from_millis(self.rtte.srtt as u64))
     }
 
     /// cmux patch: the delayed-ACK allowance of tail-loss probes, `None` when they are off.
@@ -2850,6 +2852,9 @@ impl<'a> Socket<'a> {
         let segment_start = repr.seq_number;
         let segment_end = repr.seq_number + repr.payload.len();
 
+        // cmux patch: set when a segment past a closed receive window still
+        // counts for its ACK (below); `Some(true)` if it carried data.
+        let mut zero_window_reply: Option<bool> = None;
         let (payload, payload_offset) = match self.state {
             // In LISTEN and SYN-SENT states, we have not yet synchronized with the remote end.
             State::Listen | State::SynSent => (&[][..], 0),
@@ -2920,6 +2925,28 @@ impl<'a> Socket<'a> {
                         &repr.payload[overlap_start - segment_start..overlap_end - segment_start],
                         overlap_start - window_start,
                     )
+                } else if window_start == window_end
+                    && segment_start >= window_start
+                    && repr.ack_number.is_some()
+                    && matches!(repr.control, TcpControl::None | TcpControl::Psh)
+                    && matches!(
+                        self.state,
+                        State::Established | State::CloseWait | State::FinWait1 | State::FinWait2
+                    )
+                {
+                    // cmux patch: our receive window is closed, so the
+                    // segment's data is dropped, but not its ACK (RFC 9293
+                    // 3.10.7.4: "special allowance should be made to accept
+                    // valid ACKs"). The remote acknowledges what we send on
+                    // the segments it sends us: its data, or a pure ACK past
+                    // the data we dropped. Dropping those whole left our
+                    // send queue unacknowledged and the user timeout counting
+                    // from the last segment we did take, so a connection whose
+                    // peer kept acknowledging was reset after one timeout.
+                    // The ACK (and window) is processed with no payload, and
+                    // the reply the segment drew before is still sent.
+                    zero_window_reply = Some(!repr.payload.is_empty());
+                    (&[][..], 0)
                 } else {
                     // Out-of-window RSTs are silently dropped, per RFC 9293
                     // (3.10.7.4) and RFC 5961 (3.2): no reply is sent, and the
@@ -3407,7 +3434,12 @@ impl<'a> Socket<'a> {
 
         let payload_len = payload.len();
         if payload_len == 0 {
-            return None;
+            // cmux patch: the reply a segment past a closed window draws.
+            return match zero_window_reply {
+                Some(true) => Some(self.ack_reply(ip_repr, repr)),
+                Some(false) => self.challenge_ack_reply(cx, ip_repr, repr),
+                None => None,
+            };
         }
 
         let assembler_was_empty = self.assembler.is_empty();
@@ -4113,10 +4145,15 @@ impl<'a> Socket<'a> {
         // Use max() so a fast-retransmit segment (whose seq_number is local_seq_no, well
         // behind the current frontier) doesn't rewind the tracked "highest sent" sequence.
         let send_max = self.remote_last_seq + self.remote_rewound;
-        self.remote_last_seq = self.remote_last_seq.max(repr.seq_number + repr.segment_len());
+        self.remote_last_seq = self
+            .remote_last_seq
+            .max(repr.seq_number + repr.segment_len());
         // As `keep_send_max`, inline: `repr` still borrows the send buffer.
-        self.remote_rewound =
-            if send_max > self.remote_last_seq { send_max - self.remote_last_seq } else { 0 };
+        self.remote_rewound = if send_max > self.remote_last_seq {
+            send_max - self.remote_last_seq
+        } else {
+            0
+        };
         self.remote_last_ack = repr.ack_number;
         self.remote_last_win = repr.window_len;
 
@@ -10334,6 +10371,149 @@ mod test {
             ack_number: Some(REMOTE_SEQ + 1),
             ..RECV_TEMPL
         }));
+        assert_eq!(s.state, State::Closed);
+    }
+
+    /// cmux patch: what the socket sends at `ms`, as (seq, payload length,
+    /// control), every segment it has.
+    fn sent_at(s: &mut TestSocket, ms: i64) -> Vec<(TcpSeqNumber, usize, TcpControl)> {
+        s.cx.set_now(Instant::from_millis(ms));
+        let mut out = Vec::new();
+        while out.len() < 64 {
+            let mut got = None;
+            let _ = s.socket.dispatch(&mut s.cx, |_, _, (_, repr)| {
+                got = Some((
+                    repr.seq_number,
+                    repr.payload.len(),
+                    repr.control.quash_psh(),
+                ));
+                Ok::<(), ()>(())
+            });
+            match got {
+                Some(segment) => out.push(segment),
+                None => break,
+            }
+        }
+        out
+    }
+
+    /// cmux patch: the user timeout (60 s, the link's) counts from the last
+    /// segment the remote sent, so a transfer it keeps acknowledging for
+    /// longer than that is never aborted, and one it stops acknowledging is
+    /// aborted exactly 60 s after the first unacknowledged send.
+    #[test]
+    fn test_timeout_is_not_a_cap_on_an_acked_transfer() {
+        let mut s = socket_established();
+        s.set_timeout(Some(Duration::from_secs(60)));
+        let mut acked = 0;
+        for round in 0..15 {
+            let at = 1_000 + round * 10_000;
+            s.send_slice(b"abcdef").unwrap();
+            let sent = sent_at(&mut s, at);
+            assert_eq!(sent, vec![(LOCAL_SEQ + 1 + acked, 6, TcpControl::None)]);
+            acked += 6;
+            send!(s, time at + 50, TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1 + acked),
+                ..SEND_TEMPL
+            });
+            assert_eq!(s.send_queue(), 0);
+            assert_eq!(
+                s.state,
+                State::Established,
+                "aborted at {at} ms with bytes acked"
+            );
+        }
+        // 141 s of acknowledged transfer. Now the remote goes silent.
+        let start = 160_000;
+        s.send_slice(b"abcdef").unwrap();
+        for at in (start..start + 60_000)
+            .step_by(1_000)
+            .chain([start + 59_999])
+        {
+            let sent = sent_at(&mut s, at);
+            assert!(
+                sent.iter()
+                    .all(|(_, _, control)| *control != TcpControl::Rst)
+            );
+            assert_eq!(s.state, State::Established, "aborted early, at {at} ms");
+        }
+        let sent = sent_at(&mut s, start + 60_000);
+        assert_eq!(sent, vec![(LOCAL_SEQ + 1 + acked + 6, 0, TcpControl::Rst)]);
+        assert_eq!(s.state, State::Closed);
+    }
+
+    /// cmux patch: with our receive window closed, the remote's ACKs of our
+    /// data ride on segments past that window (its own data). Their data is
+    /// dropped and their ACK still counts, for the send queue and for the
+    /// user timeout: past 60 s the connection lives while they acknowledge,
+    /// and is aborted 60 s after they stop.
+    #[test]
+    fn test_timeout_counts_acks_past_a_zero_window() {
+        let mut s = socket_established_with_buffer_sizes(64, 6);
+        s.set_timeout(Some(Duration::from_secs(60)));
+        send!(
+            s,
+            TcpRepr {
+                seq_number: REMOTE_SEQ + 1,
+                ack_number: Some(LOCAL_SEQ + 1),
+                payload: &b"abcdef"[..],
+                ..SEND_TEMPL
+            }
+        );
+        recv!(
+            s,
+            [TcpRepr {
+                seq_number: LOCAL_SEQ + 1,
+                ack_number: Some(REMOTE_SEQ + 1 + 6),
+                window_len: 0,
+                ..RECV_TEMPL
+            }]
+        );
+        let mut acked = 0;
+        for round in 0..15 {
+            let at = 1_000 + round * 10_000;
+            s.send_slice(b"abcdef").unwrap();
+            let sent = sent_at(&mut s, at);
+            assert_eq!(sent, vec![(LOCAL_SEQ + 1 + acked, 6, TcpControl::None)]);
+            acked += 6;
+            // The remote's next data, past our closed window, acknowledges ours:
+            // its data is dropped (the reply still advertises no window), its
+            // ACK is taken.
+            send!(s, time at + 50, TcpRepr {
+                seq_number: REMOTE_SEQ + 1 + 6,
+                ack_number: Some(LOCAL_SEQ + 1 + acked),
+                payload: &b"123456"[..],
+                ..SEND_TEMPL
+            }, Some(TcpRepr {
+                seq_number: LOCAL_SEQ + 1 + acked,
+                ack_number: Some(REMOTE_SEQ + 1 + 6),
+                window_len: 0,
+                ..RECV_TEMPL
+            }));
+            assert_eq!(s.send_queue(), 0, "the ACK past the window was not taken");
+            assert_eq!(s.recv_queue(), 6);
+            assert_eq!(
+                s.state,
+                State::Established,
+                "aborted at {at} ms with bytes acked"
+            );
+        }
+        let start = 160_000;
+        s.send_slice(b"abcdef").unwrap();
+        for at in (start..start + 60_000)
+            .step_by(1_000)
+            .chain([start + 59_999])
+        {
+            let sent = sent_at(&mut s, at);
+            assert!(
+                sent.iter()
+                    .all(|(_, _, control)| *control != TcpControl::Rst)
+            );
+            assert_eq!(s.state, State::Established, "aborted early, at {at} ms");
+        }
+        let sent = sent_at(&mut s, start + 60_000);
+        assert_eq!(sent, vec![(LOCAL_SEQ + 1 + acked + 6, 0, TcpControl::Rst)]);
         assert_eq!(s.state, State::Closed);
     }
 
