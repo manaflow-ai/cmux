@@ -30,8 +30,10 @@ class ToolingTestsBatch(unittest.TestCase):
         for w, g in zip(want, got):
             if w.get("uses", "").startswith("actions/checkout") and w.get("with", {}).get("fetch-depth") == 2:
                 w["with"]["ref"] = "${{ inputs.sha || '' }}"
-            if w.get("id") == "tt-test-registry":
-                w["run"] = w["run"].replace("${{ github.event_name == 'push' && '--warn-only' || '' }}", "--warn-only")
+            # The batch's registry check only warns, on any event: the push-only WARN_ONLY is `--warn-only` here,
+            # in the registry step and in the side-by-side runner that runs it.
+            if w.get("id") in ("tt-test-registry", "setup-tooling-run") and "WARN_ONLY" in w.get("env", {}):
+                w["env"]["WARN_ONLY"] = "--warn-only"
             self.assertEqual(w, g, w.get("name"))
 
     def test_the_pull_request_scope_switch_is_wired(self) -> None:
