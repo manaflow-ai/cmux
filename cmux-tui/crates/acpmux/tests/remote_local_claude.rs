@@ -493,7 +493,8 @@ async fn the_owner_checked_cloud_phone_sends_to_a_claude_chat_the_vm_started() {
 
 /// The claim from anything but the local socket (or the owner's peer daemon, which vouches for
 /// its own paired phone) counts for nothing: a Web or dashboard client, a paired machine that
-/// is not a phone.
+/// is not a phone forwarding a Web client (`via: web`, held to the Web's rules; without it a
+/// paired machine already controls every chat as `Control::Peer`).
 #[tokio::test]
 async fn the_owner_phone_claim_from_a_non_local_connection_is_refused() {
     let d = dir("cloud-phone-remote");
@@ -504,7 +505,7 @@ async fn the_owner_phone_claim_from_a_non_local_connection_is_refused() {
     assert!(r.get("error").is_none(), "{r}");
     let laptop = hub.pairing.issue("laptop", Role::Client).unwrap().1;
     let mut laptop = Client::device(&hub, &laptop, false);
-    laptop.3 = Some("cloud-mobile");
+    laptop.3 = Some("web");
     for (who, mut c) in [("web", cloud_phone(&hub, Origin::Web)), ("client machine", laptop)] {
         let r = claimed_prompt(&mut c, &s, "hi", &owner_claim("phone-1", true)).await;
         assert!(r.get("error").is_some(), "{who}: {r}");
@@ -515,7 +516,8 @@ async fn the_owner_phone_claim_from_a_non_local_connection_is_refused() {
 
 /// The local socket's claim never carries Full access, whatever it says: a chat out of the Web's
 /// policy (the stand-in Claude runs `bypassPermissions`) is held at the asking rule, not run;
-/// its copy is refused; the peer-only Full-access notice is not this connection's to send.
+/// the peer-only Full-access notice is not this connection's to send. Its copy is allowed, as a
+/// paired phone's is (`the_owners_phone_forks_a_chat_the_mac_started`, cmux#43251 F4).
 #[tokio::test]
 async fn the_cloud_phone_claim_grants_no_full_access() {
     let d = dir("cloud-phone-full");
@@ -530,7 +532,7 @@ async fn the_cloud_phone_claim_grants_no_full_access() {
     assert_ne!(reason(&r), "remote.local_claude_session", "D13 passed, Full access did not: {r}");
     let p = json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": []});
     let r = claimed(&mut phone, "session/fork", p, &claim).await;
-    assert!(r.get("error").is_some(), "{r}");
+    assert!(r["result"]["sessionId"].is_string(), "{r}");
     let p = json!({"device": "phone-1", "fullAccess": true});
     let r = claimed(&mut phone, "_acpmux/owner_phone_changed", p, &claim).await;
     assert!(r.get("error").is_some(), "{r}");
