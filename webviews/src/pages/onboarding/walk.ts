@@ -33,6 +33,8 @@ export const WALK_PATHS = {
   archive: "agents.chats.archiveInactive",
   autoArchive: "workspaces.autoArchive.style",
   settle: "sidebar.settleFinished",
+  finishSound: "agentPane.display.finishSound",
+  computerUse: "computerUse.mode",
   sendPop: "agentPane.display.sendPop",
   sendScrollsToTop: "agentPane.display.sendScrollsToTop",
 } as const;
@@ -54,6 +56,8 @@ const SHIPPED: WalkValues = {
   [P.archive]: "never",
   [P.autoArchive]: "manual",
   [P.settle]: false,
+  [P.finishSound]: false,
+  [P.computerUse]: "fullAccess",
   [P.sendPop]: false,
   [P.sendScrollsToTop]: false,
 };
@@ -195,6 +199,39 @@ export function permission(current: WalkValues): WalkPermission {
 
 export function permissionWrites(value: WalkPermission, opened: WalkValues, current: WalkValues): WalkWrite[] {
   return diff({ [P.permission]: resolve(opened, P.permission, value) }, current);
+}
+
+// MARK: Trust: Computer Use (cmux#56827)
+
+/** `computerUse.mode`'s values, Settings' order (most open first). */
+export type WalkComputerUse = "fullAccess" | "approvedApps" | "askEveryTime" | "lookOnly" | "off";
+export const COMPUTER_USE_MODES: readonly WalkComputerUse[] = [
+  "fullAccess",
+  "approvedApps",
+  "askEveryTime",
+  "lookOnly",
+  "off",
+];
+
+export function computerUse(current: WalkValues): WalkComputerUse {
+  const value = effective(current, P.computerUse);
+  return COMPUTER_USE_MODES.includes(value as WalkComputerUse) ? (value as WalkComputerUse) : "fullAccess";
+}
+
+export function computerUseWrites(value: WalkComputerUse, opened: WalkValues, current: WalkValues): WalkWrite[] {
+  return diff({ [P.computerUse]: resolve(opened, P.computerUse, value) }, current);
+}
+
+// MARK: Noise: the chime when an agent finishes (cmux#56827), a switch of its own
+
+export function finishSoundOn(current: WalkValues): boolean {
+  return effective(current, P.finishSound) === true;
+}
+
+/** On writes true; off puts back the opening value (unset when that was on too). */
+export function finishSoundWrites(on: boolean, opened: WalkValues, current: WalkValues): WalkWrite[] {
+  const target = on ? true : finishSoundOn(opened) ? null : (opened[P.finishSound] ?? null);
+  return diff({ [P.finishSound]: target }, current);
 }
 
 // MARK: Noise: banners and sound as one three-way row

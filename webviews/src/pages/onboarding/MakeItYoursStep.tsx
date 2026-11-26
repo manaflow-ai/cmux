@@ -51,6 +51,11 @@ import {
   type MakeItYoursScreen,
   type WalkValues,
   type WalkWrite,
+  COMPUTER_USE_MODES,
+  computerUse,
+  computerUseWrites,
+  finishSoundOn,
+  finishSoundWrites,
 } from "./walk";
 import { Faces } from "./walkLook";
 
@@ -170,6 +175,13 @@ const PERMISSION_KEYS = {
   standard: "onboarding.makeItYours.permission.standard",
   fullAccess: "onboarding.makeItYours.permission.fullAccess",
 } as const;
+const COMPUTER_USE_KEYS = {
+  fullAccess: "onboarding.makeItYours.computerUse.fullAccess",
+  approvedApps: "onboarding.makeItYours.computerUse.approvedApps",
+  askEveryTime: "onboarding.makeItYours.computerUse.askEveryTime",
+  lookOnly: "onboarding.makeItYours.computerUse.lookOnly",
+  off: "onboarding.makeItYours.computerUse.off",
+} as const;
 const NOISE_KEYS = {
   quiet: "onboarding.makeItYours.noise.quiet",
   banners: "onboarding.makeItYours.noise.banners",
@@ -242,7 +254,9 @@ function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkVal
   const { strings } = useOnboarding();
   const walk = useWalk();
   const mode = permission(current);
+  const computer = computerUse(current);
   const loud = noise(current);
+  const chime = finishSoundOn(current);
   return (
     <>
       <fieldset className="onb-make-group onb-make-work" data-screen="trust">
@@ -261,6 +275,28 @@ function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkVal
               <span className="onb-make-option-text">
                 <span className="onb-make-option-title">{strings.t(PERMISSION_KEYS[value])}</span>
                 <span className="onb-make-option-detail">{strings.t(`${PERMISSION_KEYS[value]}.line`)}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+      {/* Computer Use (cmux#56827): `computerUse.mode`, opened on what the settings hold (Full Access,
+          as cmux ships, on a new Mac). */}
+      <fieldset className="onb-make-group onb-make-work" data-row="computerUse">
+        <legend className="onb-make-label">{strings.t("onboarding.makeItYours.computerUse.label")}</legend>
+        <div className="onb-make-options">
+          {COMPUTER_USE_MODES.map((value) => (
+            <label key={value} className="onb-make-option" data-checked={computer === value || undefined}>
+              <input
+                type="radio"
+                name="computerUse"
+                value={value}
+                aria-label={strings.t(COMPUTER_USE_KEYS[value])}
+                checked={computer === value}
+                onChange={() => walk(computerUseWrites(value, opened, current))}
+              />
+              <span className="onb-make-option-text">
+                <span className="onb-make-option-title">{strings.t(COMPUTER_USE_KEYS[value])}</span>
               </span>
             </label>
           ))}
@@ -287,6 +323,22 @@ function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkVal
           ))}
         </div>
       </fieldset>
+      {/* The chime when an agent finishes (`agentPane.display.finishSound`, off as shipped): its own
+          switch, so Banners and Sound, the shipped noise, never turns it on by itself. */}
+      <div className="onb-make-group onb-walk-tidy" data-row="finishSound">
+        <span className="onb-make-option-text">
+          <span className="onb-make-option-title" id="onb-walk-chime-label">
+            {strings.t("onboarding.makeItYours.finishSound")}
+          </span>
+          <span className="onb-make-option-detail">{strings.t("onboarding.makeItYours.finishSound.detail")}</span>
+        </span>
+        <Switch
+          size="sm"
+          checked={chime}
+          aria-labelledby="onb-walk-chime-label"
+          onCheckedChange={(on: boolean) => walk(finishSoundWrites(on, opened, current))}
+        />
+      </div>
     </>
   );
 }
