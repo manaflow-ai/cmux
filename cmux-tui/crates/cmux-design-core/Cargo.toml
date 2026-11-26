@@ -13,3 +13,5 @@ workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Colour math (ThemeRGB port: mix, alpha, compositing, luminance, OKLab) the derived tokens reuse.
+cmux-theme-tokens = { workspace = true }
