@@ -190,6 +190,26 @@ class KitWorkflow(unittest.TestCase):
         checkout = steps[0]["with"]
         self.assertIn("scripts/ci", checkout["sparse-checkout"])
 
+    def test_kit_sim_fleet_builds_on_linux_through_the_route(self):
+        job = self.jobs["kit-sim-fleet"]
+        self.assertEqual(job["runs-on"], "cmux-linux")
+        self.assertEqual(job["permissions"].get("id-token"), "write")
+        self.assertIn("CMUX_IOS_KIT_SIM_FLEET", job["if"])
+        build = next(s for s in job["steps"] if s.get("id") == "build")
+        self.assertIn("scripts/ci/fleet_ios_build.py --what kit-products", build["run"])
+        self.assertNotIn("cmux-ci", build["run"])
+        self.assertEqual(fib.OUTPUTS["kit-products"], fib.OUTPUTS["sim-products"][:2])
+
+    def test_the_mac_builds_the_simulator_tests_only_as_the_fallback(self):
+        steps = {s.get("id"): s for s in self.jobs["kit-tests"]["steps"] if s.get("id")}
+        self.assertIn("vars.CMUX_IOS_KIT_SIM_FLEET == 'on'", steps["sim-fleet"]["if"])
+        self.assertIn("kit-sim-fleet-products-", steps["sim-fleet"]["env"]["ARTIFACT"])
+        self.assertEqual(steps["sim-fleet"]["env"]["JOB"], self.jobs["kit-sim-fleet"]["name"])
+        self.assertIn("steps.sim-fleet.outputs.hit != 'true'", steps["sim-pack"]["if"])
+        self.assertIn("steps.sim-fleet.outputs.hit == 'true'", steps["sim-upload"]["if"])
+        # The fleet's build goes on to the pool under the Mac's artifact name, so the pool steps did not change.
+        self.assertIn("kit-sim-products", steps["sim-fleet"]["run"])
+
     def test_kit_tests_waits_without_the_gateway_variable(self):
         for step in self.jobs["kit-tests"]["steps"]:
             self.assertNotIn("CI_EVAL_STEP_GATEWAY", str(step.get("if", "")))
