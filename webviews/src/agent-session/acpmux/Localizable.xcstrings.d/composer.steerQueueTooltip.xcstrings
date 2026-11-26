@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "composer.steerQueueTooltip" : {
+      "comment" : "Agent pane: tooltip of the Send button while a turn runs, for an agent that takes a prompt mid-turn; Return steers the turn with the prompt (the agent reads it when its current step ends), Command-Return queues it behind the turn. Keep the ↩ and ⌘↩ key symbols.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ توجيه · ⌘↩ طابور"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ usmjeri · ⌘↩ u red"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ styr · ⌘↩ sæt i kø"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ lenken · ⌘↩ einreihen"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "↩ steer · ⌘↩ queue"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ dirigir · ⌘↩ poner en cola"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ orienter · ⌘↩ mettre en file"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ guida · ⌘↩ metti in coda"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ ステア · ⌘↩ キュー"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ ដឹកនាំ · ⌘↩ ដាក់ក្នុងជួរ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ 조정 · ⌘↩ 대기열"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ styr · ⌘↩ legg i kø"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ kieruj · ⌘↩ do kolejki"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ direcionar · ⌘↩ enfileirar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ направить · ⌘↩ в очередь"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ ชี้นำ · ⌘↩ เข้าคิว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ yönlendir · ⌘↩ sıraya ekle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ скерувати · ⌘↩ у чергу"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ điều hướng · ⌘↩ xếp hàng"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ 引导 · ⌘↩ 排队"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "↩ 引導 · ⌘↩ 排隊"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

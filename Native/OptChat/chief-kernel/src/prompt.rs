@@ -13,11 +13,18 @@ pub const AGENT: &str = "Chief";
 pub const MIDRUN: &str = "A message the user sends while you work reaches you between your tool
 calls; take it into account and go on.";
 
-/// The spec's one system prompt for turns and compactions (gist 3c190e0,
-/// section 5; `optchat_core::TAELIN_PROMPT`), the agent named Chief, with
-/// one Chief-only change: its "Turns" paragraph says to delegate
-/// (`CHIEF_TURNS`). The spec text itself stays as written in optchat-core.
+const COMPACTIONS_HEADER: &str = "# Compactions\n";
+const TURNS_HEADER: &str = "# Turns\n";
+
+/// The Chief turn's base prompt from the spec (gist 3c190e0, section 5;
+/// `optchat_core::TAELIN_PROMPT`), with the compactor-only section removed
+/// and its "Turns" paragraph replaced by `CHIEF_TURNS`.
 pub fn base_prompt() -> String {
+    without_compactions(full_base_prompt())
+}
+
+/// The complete shared prompt before the placement-specific cmux section.
+fn full_base_prompt() -> String {
     let spec = optchat_core::system_prompt(AGENT, MIDRUN);
     // Spec 5a: the turn's input is a frozen view and the log after it.
     let spec = if spec.contains(VIEW_END) {
@@ -31,6 +38,28 @@ pub fn base_prompt() -> String {
         // The spec text moved: keep it, and add the rule after it.
         format!("{spec}\n\n{CHIEF_TURNS}")
     }
+}
+
+/// Remove the compactor-only section from a Chief turn's base prompt.
+fn without_compactions(prompt: String) -> String {
+    match prompt.split_once(COMPACTIONS_HEADER) {
+        Some((before, _)) => before.trim_end().to_owned(),
+        None => prompt,
+    }
+}
+
+/// The compactor's system prompt. It keeps the identity and view description
+/// needed to interpret the input, then gives only the compaction contract. The
+/// Chief's turn rules and cmux instructions do not apply to a compaction.
+pub fn compactor_system_text() -> String {
+    let prompt = full_base_prompt();
+    let (before_compactions, compactions) = prompt
+        .split_once(COMPACTIONS_HEADER)
+        .expect("the shared prompt has a compactions section");
+    let view = before_compactions
+        .split_once(TURNS_HEADER)
+        .map_or(before_compactions, |(view, _)| view);
+    format!("{view}{COMPACTIONS_HEADER}{compactions}")
 }
 
 /// The spec's paragraph on background reports (optchat-core TAELIN_PROMPT).
@@ -59,11 +88,12 @@ fn cloud_base_prompt(offered: &[String]) -> String {
         spec.replacen(SPEC_BACKGROUND, "", 1)
     };
     let turns = cloud_turns(&has);
-    if spec.contains(SPEC_TURNS) {
+    let spec = if spec.contains(SPEC_TURNS) {
         spec.replacen(SPEC_TURNS, &turns, 1)
     } else {
         format!("{spec}\n\n{turns}")
-    }
+    };
+    without_compactions(spec)
 }
 
 /// `CHIEF_TURNS` with each sentence that names a tool kept only when the
@@ -777,10 +807,9 @@ cmux Home, and your final reply of each turn is posted there.
     home_rule!()
 );
 
-/// The system prompt (the session's CLAUDE.md): the spec's prompt, the cmux
-/// section, then the user's own instructions file (spec 5), read once per
-/// host start so every turn's prompt stays byte-identical. Compactions send
-/// the same text (host.rs), so they read it from the turns' cache entry.
+/// The system prompt (the session's CLAUDE.md): the Chief turn's base prompt,
+/// the cmux section, then the user's own instructions file (spec 5), read once
+/// per host start so every turn's prompt stays byte-identical.
 pub fn claude_md(user: Option<&str>) -> String {
     system_text(user, &Tools::Mcp)
 }
@@ -895,8 +924,8 @@ change; `{chief} profile '{{\"role\": \"...\"}}'` changes those fields, and\n  \
         Tools::Cloud(offered) => cloud_instructions(offered),
     };
     match user.map(str::trim).filter(|u| !u.is_empty()) {
-        Some(user) => format!("{base}\n\n{cmux}\n\n{user}\n"),
-        None => format!("{base}\n\n{cmux}\n"),
+        Some(user) => format!("{base}\n{cmux}\n\n{user}\n"),
+        None => format!("{base}\n{cmux}\n"),
     }
 }
 
@@ -1251,7 +1280,7 @@ pub const WATCH_DESCRIPTION: &str = "Wait for something outside your turn: the h
 pub const AUTOMATION_DESCRIPTION: &str = "The user's scheduled and event-triggered tasks on this Mac. add: name, prompt (the whole task, standing alone) and either cron (five fields in this Mac's time zone: \"0 9 * * *\" every day at 9) or event (agent_done: one of your subagents finished; a GitHub event such as CI failing is not one). Each fire starts a turn of yours with \"[automation <id> \\\"<name>\\\"] <prompt>\"; do the task and post the result in this chat. An event fires it once. list; pause, resume, delete, run (now) by id. The user sees, pauses and deletes them in Chief settings. A run missed while this computer slept or cmux was closed runs once as soon as it is back; a job that must run on time while it sleeps is a cloud automation (`cmux automation create NAME --target cloud`).";
 
 /// The `control` tool's description.
-pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. tasks id items: keep the task list its chat and its sidebar row show (what is done, what is next), for a long task whose harness keeps no plan of its own; send the whole list each time, [] clears it; a harness plan (TodoWrite, update_plan) replaces yours. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
+pub const CONTROL_DESCRIPTION: &str = "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.";
 
 /// Tool descriptions, verbatim from section 7.1.
 pub const ZOOM_DESCRIPTION: &str = "Open the line id+n of the view into the two lines of n/2 under it; n = 1 gives the message whole.";

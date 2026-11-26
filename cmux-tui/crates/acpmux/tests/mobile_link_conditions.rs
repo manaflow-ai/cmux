@@ -348,6 +348,61 @@ impl Link {
         Ok(link)
     }
 
+    /// The app's cold open on a first connection to this Mac: `initialize`, the watch and the
+    /// chat's opening attach in one burst, the attach with every kind the phone draws (elevation
+    /// included: it knows no capabilities yet). An acpmux too old for that many kinds refuses the
+    /// attach; the phone then asks again with the kinds `initialize` named (one more round trip,
+    /// as before). Returns the open link, the attach reply's arrival and the reply.
+    async fn open_pipelined(
+        addr: std::net::SocketAddr,
+        token: &str,
+        session: &str,
+        deadline: Instant,
+    ) -> Result<(Self, Instant, Value), String> {
+        let dialed = Instant::now();
+        let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
+            .await
+            .map_err(|_| "connect timed out".to_owned())??;
+        link.upgraded = dialed.elapsed();
+        let mut every: Vec<&str> = CHAT_KINDS.to_vec();
+        every.extend(["elevation_request", "elevation_decision"]);
+        let meta = json!({"localAppToken": token, "omitTimeBreakdown": true});
+        let init = link
+            .post(
+                "initialize",
+                json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
+                       "clientCapabilities": {}, "_meta": {"acpmux": meta}}),
+            )
+            .await?;
+        let watch =
+            link.post("_acpmux/watch", json!({"enabled": true, "limit": WATCH_LIMIT})).await?;
+        let attach = link
+            .post(
+                "_acpmux/attach",
+                json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": every,
+                       "eventStream": true, "maxBytes": OPEN_BYTES,
+                       "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES}),
+            )
+            .await?;
+        let (_, init) = link.answer(init, deadline).await?;
+        link.capabilities = init
+            .pointer("/_meta/acpmux/capabilities")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        link.answer(watch, deadline).await?;
+        let (at, reply) = match link.answer(attach, deadline).await {
+            Ok(answered) if link.kinds() == json!(every) => answered,
+            // Refused (an older acpmux), or this Mac serves no elevation records: ask again
+            // with the kinds `initialize` named.
+            _ => link.attach(session, None, deadline).await?,
+        };
+        if let Some(v) = reply.get("timeBreakdownVersion").and_then(Value::as_str) {
+            link.time_breakdown_version = Some(v.to_owned());
+        }
+        Ok((link, at, reply))
+    }
+
     /// The chat's attach; `after` for a reattach. Returns the reply's arrival and the reply.
     async fn attach(
         &mut self,
@@ -656,19 +711,22 @@ async fn cold_and_warm(
     shaper.reset_counters();
     let start = Instant::now();
     let deadline = start + BOUND;
-    let mut link = match Link::open(shaper.addr(), token, deadline).await {
-        Ok(l) => l,
-        Err(e) => {
-            for m in ["first_content_ms", "interactive_ms"] {
-                emit(&k, m, None);
-                emit_error(&k, m, &e);
+    // The app's cold open (AcpmuxHub.pipelineAttaches): the chat's attach rides with
+    // initialize and the watch, even on a first connection.
+    let (mut link, at, reply) =
+        match Link::open_pipelined(shaper.addr(), token, session, deadline).await {
+            Ok(opened) => opened,
+            Err(e) => {
+                for m in ["first_content_ms", "interactive_ms"] {
+                    emit(&k, m, None);
+                    emit_error(&k, m, &e);
+                }
+                return None;
             }
-            return None;
-        }
-    };
+        };
     // The newest record the app holds; the iOS reopen sends it as afterSeq.
     let mut last = 0u64;
-    match link.attach(session, None, deadline).await {
+    match Ok::<_, String>((at, reply)) {
         Ok((at, reply)) if !rows(&reply).is_empty() => {
             last = rows(&reply).into_iter().max().unwrap_or(0);
             emit(&k, "first_content_ms", Some(ms(at - start)));
@@ -2059,15 +2117,17 @@ async fn chat_attach_under_link_conditions() {
     let sends = env_u64("NETCOND_ATTACH_SENDS", 20);
     let bytes = env_u64("NETCOND_ATTACH_BYTES", 5 << 20) as usize;
     let seed_base = env_u64("NETCOND_SEED_BASE", 0);
-    let rows_wanted = env_list("NETCOND_ATTACH_ROWS", &["idle", "lte"]);
+    let rows_wanted = env_list("NETCOND_ATTACH_ROWS", &["idle", "lte", "duress"]);
     let mut control = Control::new(&hub);
     let cwd = scratch.path().join("work");
     std::fs::create_dir_all(&cwd).unwrap();
     let trace = Trace::new();
     for row in &rows_wanted {
-        let profile = match row.as_str() {
-            "idle" => None,
-            other => file.get(other).cloned(),
+        // duress: lte with a loaded Mac, as the send bench's row (ask-bb9c69b84e).
+        let (profile, loaded) = match row.as_str() {
+            "idle" => (None, false),
+            "duress" => (file.get("lte").cloned(), true),
+            other => (file.get(other).cloned(), false),
         };
         let label = profile.as_ref().map_or_else(|| "none".to_owned(), |p| p.label(None));
         let made = control
@@ -2077,7 +2137,22 @@ async fn chat_attach_under_link_conditions() {
             )
             .await;
         let session = made["result"]["sessionId"].as_str().unwrap().to_owned();
-        control.seed(&session, 0, BASE_TURNS).await;
+        // A loaded Mac: a long chat, a second chat streaming 50 words a second, every core spinning.
+        let _spin = if loaded {
+            control.seed(&session, 0, 100).await;
+            let other = control
+                .call(
+                    method::SESSION_NEW,
+                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"name": "attach-stream"}}}),
+                )
+                .await;
+            let other = other["result"]["sessionId"].as_str().unwrap().to_owned();
+            let _ = control.prompt(&other, "ticking:6000:20").await;
+            Some(Spin::start())
+        } else {
+            control.seed(&session, 0, BASE_TURNS).await;
+            None
+        };
         let shaper = match &profile {
             Some(p) => Shaper::start(upstream, p.clone(), seed_base, &trace).await.ok(),
             None => None,
@@ -2193,8 +2268,140 @@ async fn chat_attach_under_link_conditions() {
             tokio::time::sleep(Duration::from_millis(400)).await;
             link.pending.clear();
             upload_link.pending.clear();
+
+            // The phone's send by reference (AcpmuxHub `sendPrompt`): the image's bytes go up as
+            // an acpmux prompt upload on the one connection, a chunk at a time, and the text,
+            // tapped at the same instant, is written as soon as the outbox hands it out: behind
+            // at most the chunk already on the wire, not behind the whole image. Its prompt names
+            // the upload once the last chunk is in (docs/prompt-uploads.md).
+            let image_id = format!("img-u-{row}-{tag}-{i}");
+            let text_id = format!("txt-u-{row}-{tag}-{i}");
+            let tap = Instant::now();
+            let (image, text) =
+                upload_leg(&mut link, &session, &image_id, &text_id, &mut last, tap, bytes).await;
+            emit(&k, "upload_attach_visible_ms", image);
+            emit(&k, "upload_text_beside_attach_visible_ms", text);
+            if image.is_none() {
+                emit_error(&k, "upload_attach_visible_ms", "the referenced image did not show");
+            }
+            if text.is_none() {
+                emit_error(&k, "upload_text_beside_attach_visible_ms", "the text did not show");
+            }
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            link.pending.clear();
         }
     }
+}
+
+/// The phone's image bytes in one upload chunk (`file_uploads::CHUNK_BYTES`, AcpmuxHub's).
+const UPLOAD_CHUNK: usize = 512 << 10;
+
+/// One image sent by reference beside a text on the same link, as the phone does it: begin, the
+/// first chunk, the text (the outbox hands it out at once: it waits on no upload), the rest of
+/// the chunks one in flight, finish, then the prompt naming the upload. Returns the ms from the
+/// tap to each one's `user_message` (image, text); None when it did not show in the bound.
+async fn upload_leg(
+    link: &mut Link,
+    session: &str,
+    image_id: &str,
+    text_id: &str,
+    last: &mut u64,
+    tap: Instant,
+    bytes: usize,
+) -> (Option<f64>, Option<f64>) {
+    use base64::Engine as _;
+    let deadline = tap + send_bound();
+    let blob: Vec<u8> = (0..bytes).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    let name = "photo.png";
+    let begin = json!({"sessionId": session, "fileName": name, "size": bytes, "forPrompt": true});
+    let Ok(begin) = link.post(method::MUX_FILE_PUT_BEGIN, begin).await else { return (None, None) };
+    let Ok((_, began)) = link.answer(begin, deadline).await else { return (None, None) };
+    let (Some(upload), owner) = (
+        began["uploadId"].as_str().map(str::to_owned),
+        began["ownerToken"].as_str().map(str::to_owned),
+    ) else {
+        return (None, None);
+    };
+    let chunk = |offset: usize| {
+        let end = (offset + UPLOAD_CHUNK).min(bytes);
+        let data = base64::engine::general_purpose::STANDARD.encode(&blob[offset..end]);
+        (end, json!({"sessionId": session, "uploadId": upload, "offset": offset, "data": data}))
+    };
+    let (mut sent_to, first) = chunk(0);
+    let Ok(mut waiting) = link.post(method::MUX_FILE_PUT_CHUNK, first).await else {
+        return (None, None);
+    };
+    if link
+        .post(method::SESSION_PROMPT, prompt_params(session, "after", text_id, false))
+        .await
+        .is_err()
+    {
+        return (None, None);
+    }
+    let (mut image, mut text) = (None, None);
+    let (mut finish, mut referenced) = (None, None);
+    // Notifications that came while the begin's answer was read.
+    let early: Vec<(Instant, Value)> = link.pending.drain(..).collect();
+    for (at, v) in early {
+        if is_echo(&v, text_id) {
+            text = Some(ms(at - tap));
+        }
+    }
+    while image.is_none() || text.is_none() {
+        let Next::Frame(at, v) = link.frame(deadline).await else { break };
+        if v.get("method").is_some() {
+            if let Some(seq) = event_seq(&v) {
+                *last = (*last).max(seq);
+            }
+            if is_echo(&v, text_id) {
+                text = Some(ms(at - tap));
+            }
+            if is_echo(&v, image_id) {
+                image = Some(ms(at - tap));
+            }
+            continue;
+        }
+        let id = v.get("id").and_then(Value::as_i64);
+        if id.is_some() && id == Some(waiting) && finish.is_none() {
+            if v.get("error").is_some() {
+                break;
+            }
+            if sent_to < bytes {
+                let (end, next) = chunk(sent_to);
+                sent_to = end;
+                let Ok(posted) = link.post(method::MUX_FILE_PUT_CHUNK, next).await else { break };
+                waiting = posted;
+            } else {
+                let params = json!({"sessionId": session, "uploadId": upload, "fileName": name, "size": bytes});
+                let Ok(posted) = link.post(method::MUX_FILE_PUT_FINISH, params).await else {
+                    break;
+                };
+                finish = Some(posted);
+            }
+        } else if id.is_some() && id == finish {
+            if v.get("error").is_some() {
+                break;
+            }
+            let mut reference = json!({"uploadId": upload, "fileName": name});
+            if let Some(owner) = &owner {
+                reference["owned"] = json!(owner);
+            }
+            let params = json!({"sessionId": session,
+                "prompt": [{"type": "text", "text": "photo"},
+                           {"type": "image", "name": name, "_meta": {"acpmux": {"upload": reference}}}],
+                "_meta": {"acpmux": {"promptId": image_id, "steer": false, "resend": false}}});
+            let Ok(posted) = link.post(method::SESSION_PROMPT, params).await else { break };
+            finish = None;
+            referenced = Some(posted);
+            waiting = -1;
+        } else if id.is_some() && id == referenced && v.get("error").is_some() {
+            if std::env::var_os("NETCOND_DEBUG").is_some() {
+                eprintln!("netcond-debug the reference prompt was refused: {v}");
+            }
+            break;
+        }
+    }
+    (image, text)
 }
 
 // ---------------------------------------------------------------------------------------------

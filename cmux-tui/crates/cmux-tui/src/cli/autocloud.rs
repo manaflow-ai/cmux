@@ -1092,7 +1092,7 @@ pub(super) fn url_of(platform: &str, request: &Request, team: Option<&str>) -> S
     url
 }
 
-fn percent(value: &str) -> String {
+pub(super) fn percent(value: &str) -> String {
     value
         .bytes()
         .map(|b| match b {
@@ -1197,7 +1197,7 @@ async fn run(common: &Common, verb: &Verb, input: Option<Value>) -> Value {
         Ok(p) => p,
         Err(e) => return error_json("cli.invalid_args", &e),
     };
-    let http = match reqwest::Client::builder()
+    let http = match cmux_egress::client_builder("cmux_tui::cli::autocloud")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .timeout(Duration::from_secs(30))

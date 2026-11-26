@@ -219,9 +219,9 @@ and live-provider validation remain separate work.
 Every create and fork needs billing (`Entitlements`, 402) and a quota slot
 (`TenantMayCreate`, 429). A production product tenant has no machine-count
 cap: its machines are metered and cmux-platform's team spending cap is the stop.
-Dev/test tenants (every tenant off production) keep 300 live VMs (NEXT Max's
-machines kept, so a plan is the stop there), paused ones
-too; a production tenant in `DEV_TEST_TENANT_IDS` (the smoke service) keeps 20; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
+Dev/test tenants (every tenant off production) have no count cap either: idle
+pause, the agent reaper, cmux-platform's test reaper and the team's Cloud plan
+and spending cap reclaim or stop a leak; a production tenant in `DEV_TEST_TENANT_IDS` (the smoke service) keeps 20; a `TENANT_VM_QUOTAS` entry holds any one tenant to its own number.
 Snapshot captures have the same durable send boundary, with separate quota and
 public snapshot IDs. A key permanently identifies one capture: use a new key
 for a new point in time. Omitted-key requests are separate captures, and retained
