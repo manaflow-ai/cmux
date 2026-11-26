@@ -58,7 +58,7 @@ def tree_key(rev: str) -> str:
         check=False, capture_output=True, timeout=120,
     )
     out = subprocess.run(
-        [sys.executable, str(ROOT / "scripts/ci/cmux_tui_tree_key.py"), "key", "--version", "v2", rev],
+        [sys.executable, str(ROOT / "scripts/ci/cmux_tui_tree_key.py"), "--version", "v2", rev],
         check=False, capture_output=True, text=True, timeout=120,
     )
     return out.stdout.strip() if out.returncode == 0 else ""
