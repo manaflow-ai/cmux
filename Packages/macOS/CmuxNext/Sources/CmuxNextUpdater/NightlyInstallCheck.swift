@@ -243,7 +243,7 @@ nonisolated extension UpdaterStrings {
     }
     static func installCheckRollbackFailed(_ build: String, _ reason: String, _ target: String, _ failure: String) -> String {
         format("updater.installCheck.rollbackFailed",
-               "Build %1$@ could not open chats (%2$@) and going back to build %3$@ failed (%4$@); reinstall the previous NIGHTLY in Settings > Updates.",
+               "Build %1$@ could not open chats (%2$@); rolling back to %3$@ failed (%4$@). Reinstall %3$@ in Settings > Updates.",
                build, reason, target, failure)
     }
     /// The failure a held rollback shows when the app ended before saying one.
