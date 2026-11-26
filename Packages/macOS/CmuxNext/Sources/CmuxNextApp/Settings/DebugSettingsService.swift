@@ -108,11 +108,11 @@ final class DebugSettingsService: InternalPageProvider {
 
     /// What the in-tree pages switch latches from at launch (``InTreePages/latch(fileOverride:tag:environment:)``): the
     /// Debug Settings file's `browser.inTreePages`, read only with dev tools (a Release or RC build has no file), and
-    /// the build's tag.
+    /// the build's tag in every build, so a Release-compiled dev build tagged `in-tree-pages…` runs them by default as
+    /// its Debug twin does. An untagged build has no tag and keeps the default off.
     nonisolated static func launchInTreePagesInputs(devTools: Bool, file: URL?, tag: String?)
         -> (fileOverride: Bool?, tag: String?) {
-        guard devTools else { return (nil, nil) }
-        return (launchInTreePages(file), tag)
+        (devTools ? launchInTreePages(file) : nil, tag)
     }
 
     /// Debug Settings `browser.inTreePages` as the override file holds it at launch (nil without an override).
