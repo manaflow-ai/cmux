@@ -20,7 +20,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, Mutex as StdMutex};
 
 pub(super) const FEATURE: &str = "sidecars";
-/// Runs of one wait-shaped command, or of any `sleep N`, before the rule fires.
+/// Runs of one wait-shaped command before the rule fires. A shared waiter (`glaeda-gh wait`,
+/// `cmux-gh wait`) is not wait-shaped: it is the fix, and a different `sleep N` each time is
+/// not a repeat (a turn-wide sleep count fired on a `git push`, in the replay).
 const REPEATS: u32 = 3;
 const MAX_KEY: usize = 300;
 /// Call ids remembered per turn (first sight only); past it the turn stops counting.
@@ -28,11 +30,10 @@ const MAX_SEEN: usize = 512;
 
 static WAIT_SHAPED: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
-        r"(?i)\bsleep\s+#|\bwatch\b|\bgh\s+(pr|run|api|workflow)\b|\bgit\s+(fetch|status|log|ls-remote)\b|\bcurl\b|\bstatus\b|\bchecks?\b|\bwait\b|\bpoll",
+        r"(?i)\bsleep\s+#|\bwatch\b|\bgh\s+(pr|run|api|workflow)\b|\bgit\s+(fetch|status|log|ls-remote)\b|\bcurl\b|\bstatus\b|\bchecks?\b|\bpoll",
     )
     .expect("wait regex")
 });
-static SLEEP: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bsleep\s+#").expect("sleep regex"));
 static DIGITS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+").expect("digits regex"));
 
 /// The command a repeat is counted by: spaces squashed, digit runs `#` (a PR number, a sleep
@@ -56,7 +57,6 @@ pub(super) struct Rules {
     turn: String,
     seen: HashSet<String>,
     runs: HashMap<String, u32>,
-    sleeps: u32,
     fired: bool,
     /// This turn's counters, taken by the `turn_result`.
     polling: u64,
@@ -76,7 +76,6 @@ impl Rules {
         let (paths, edited) = crate::touched_files::paths_of(update);
         if edited == Some(true) && !paths.is_empty() {
             self.runs.clear();
-            self.sleeps = 0;
             return None;
         }
         let id = update.get("toolCallId").and_then(Value::as_str).unwrap_or_default();
@@ -92,22 +91,14 @@ impl Rules {
         let n = self.runs.entry(key.clone()).or_default();
         *n += 1;
         let n = *n;
-        if SLEEP.is_match(&key) {
-            self.sleeps += 1;
-        }
-        if n < REPEATS && self.sleeps < REPEATS {
+        if n < REPEATS {
             return None;
         }
         self.fired = true;
         let shown: String = command.split_whitespace().collect::<Vec<_>>().join(" ");
         let shown: String = shown.chars().take(120).collect();
-        let what = if n >= REPEATS {
-            format!("`{shown}` ran {n} times this turn with nothing edited between")
-        } else {
-            format!("{} `sleep` waits ran this turn with nothing edited between", self.sleeps)
-        };
         Some(format!(
-            "[sidecar] polling: {what}. Start the wait once in the background (a task that \
+            "[sidecar] polling: `{shown}` ran {n} times this turn with nothing edited between. Start the wait once in the background (a task that \
              notifies you when it exits, or the harness's wait tool), then end the turn; you are \
              woken when it finishes."
         ))

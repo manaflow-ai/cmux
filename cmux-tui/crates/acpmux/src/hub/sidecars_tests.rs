@@ -47,12 +47,34 @@ fn an_edit_between_resets_the_count() {
 }
 
 #[test]
-fn sleeps_of_any_shape_add_up() {
+fn the_same_sleep_poll_fires_but_different_sleeps_do_not() {
     let mut r = Rules::default();
-    r.observe("t", &bash("1", "sleep 30 && gh run view 9"));
+    r.observe("t", &bash("1", "sleep 30; gh run view 9"));
     r.observe("t", &bash("2", "sleep 60; curl -s localhost:8080/health"));
-    let text = r.observe("t", &bash("3", "sleep 10")).unwrap();
-    assert!(text.contains("3 `sleep` waits"));
+    assert!(r.observe("t", &bash("3", "sleep 10; git push origin HEAD")).is_none());
+    r.observe("t", &bash("4", "sleep 30; gh run view 9"));
+    assert!(r.observe("t", &bash("5", "sleep 45; gh run view 10")).is_some());
+}
+
+#[test]
+fn a_shared_waiter_is_the_fix_not_a_poll() {
+    let mut r = Rules::default();
+    for i in 0..5 {
+        let cmd = "glaeda-gh wait run o/r/1 --timeout 900";
+        assert!(r.observe("t", &bash(&i.to_string(), cmd)).is_none());
+    }
+}
+
+#[test]
+fn a_background_task_command_counts_too() {
+    let mut r = Rules::default();
+    let bg = |id: &str| {
+        json!({"sessionUpdate": "tool_call", "toolCallId": id,
+        "title": "mcp__acpmux__bg_start", "rawInput": {"command": "sleep 480; gh api repos/o/r/actions/runs"}})
+    };
+    r.observe("t", &bg("1"));
+    r.observe("t", &bg("2"));
+    assert!(r.observe("t", &bg("3")).is_some());
 }
 
 #[test]
