@@ -148,3 +148,31 @@ fn the_wide_scans_find_the_first_match_at_every_position() {
         }
     }
 }
+
+/// Random bytes from ESC, CSI pieces, ASCII and UTF-8 lead, continuation
+/// and invalid bytes, from every start: the escape scan ends where the byte
+/// walk ends.
+#[test]
+fn the_escape_scan_matches_the_byte_walk_on_random_bytes() {
+    const PICK: &[u8] = &[
+        b'a', 0x1b, b'[', b'0', b'm', b';', 0x80, 0xc3, 0xa9, 0xe6, 0xf0, 0x9f, 0xff, 0x9b, b'H',
+        b'h',
+    ];
+    let mut state: u64 = 99;
+    for _ in 0..50_000 {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        let len = usize::try_from(state >> 57).unwrap_or(0);
+        let mut data = Vec::with_capacity(len);
+        for _ in 0..len {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            data.push(PICK[usize::try_from(state >> 33).unwrap_or(0) % PICK.len()]);
+        }
+        for from in 0..=data.len() {
+            assert_eq!(
+                neutral_run_end(&data, from, true),
+                walk(&data, from),
+                "{data:?} from {from}"
+            );
+        }
+    }
+}
