@@ -804,6 +804,7 @@ impl Peer {
             "health": health,
             "healthAt": health_at,
             "paths": paths, "linkStats": link_stats,
+            "received": self.received.split(),
         })
     }
 
