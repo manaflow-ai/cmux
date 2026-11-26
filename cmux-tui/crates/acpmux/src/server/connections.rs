@@ -1148,8 +1148,8 @@ mod tests {
     #[test]
     fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
         let d = dirs();
-        // A `file:` secret is one line (`profile_env::file_secret`); the spaces, tab and no-break
-        // space inside it are what `delivered` takes out.
+        // A file: reference holds one line (`file_secret` refuses a line break inside); a
+        // keychain item may also carry a wrapped line's break, which `delivered` takes out too.
         let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab  cd\t\u{a0}ef \r");
         add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
         let (_, kind, _, secret) =
@@ -1158,6 +1158,7 @@ mod tests {
         assert_eq!(value, "sk-ant-oat01-abcdef");
         let env = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": value}});
         assert!(crate::agent_credentials::AgentCredential::parse(&env).is_ok());
+        assert_eq!(delivered(kind, "sk-ant-oat01-ab\n  cd".into()), "sk-ant-oat01-abcd");
         assert_eq!(delivered("api-key", "a b".into()), "a b", "only a Claude token is reshaped");
     }
 

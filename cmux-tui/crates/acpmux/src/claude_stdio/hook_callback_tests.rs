@@ -129,13 +129,11 @@ async fn session_hook_callbacks_use_the_control_stream() {
                         .flat_map(|e| e["hookCallbackIds"].as_array().unwrap().iter())
                         .map(|id| id.as_str().unwrap())
                         .collect();
-                    // Harness magic dedupe (#53842) adds its own Read|Bash callback after the
-                    // gate when it is on.
+                    // Harness magic dedupe (#53842) adds its own `Read|Bash` callback last
+                    // while its setting is on.
                     let mut want = vec![hook_callback::SYNC_CALLBACK, policy_gate::GATE_CALLBACK];
-                    if super::dedupe::enabled()
-                        && super::dedupe::DEDUPE_MATCHER.split('|').any(|p| p == tool)
-                    {
-                        want.push(super::dedupe::DEDUPE_CALLBACK);
+                    if tool == "Bash" && dedupe::enabled() {
+                        want.push(dedupe::DEDUPE_CALLBACK);
                     }
                     assert_eq!(ids, want, "{tool}: {hooks}");
                 }

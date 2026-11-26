@@ -125,10 +125,11 @@ fn derived_handle(row: &Map<String, Value>, value: &Value) -> bool {
 fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
     let mut values: Map<String, Value> = row
         .iter()
+        // A null says what a missing key says, and a row carries its extra twice (its own and
+        // its peer form) in 2 KiB: two dozen nulls cost both forms ~600 B, and the default
+        // `autoSession` record on every row (#57209) tipped an ordinary stuck row past the cap.
         .filter(|(key, value)| {
             EXTRA_KEYS.contains(&key.as_str())
-                // A null says what a missing key says, and two dozen of them (one per optional
-                // field) cost a form ~330 bytes of the 2 KiB both forms share: none rides.
                 && !value.is_null()
                 && !(key.as_str() == "handle" && derived_handle(row, value))
                 && !(key.as_str() == "icon"
@@ -441,7 +442,7 @@ mod tests {
         assert_eq!(extra["cwd"], "/work/project///");
         assert!(extra["lastPrompt"].as_str().unwrap().chars().count() <= TEXT_CHARS);
         assert!(extra["preview"].as_str().unwrap().chars().count() <= TEXT_CHARS);
-        // An unforked chat's null forkSeq rides as a missing key, like every other null.
+        // The fixture's forkSeq is null, and a null extra now stays off the row.
         assert!(extra.get("forkSeq").is_none());
         assert!(extra.get("spawnedBy").is_none());
         assert!(extra.get("queue").is_none());

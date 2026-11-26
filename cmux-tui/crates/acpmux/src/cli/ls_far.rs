@@ -529,6 +529,7 @@ fn refresh_detached(cache: &Path) {
         return;
     }
     // Not marked: start none, or two could race.
+    #[cfg_attr(test, allow(unused_variables))]
     let Some(lease) = claim_refresh(cache) else { return };
     #[cfg(not(test))]
     {
@@ -546,10 +547,15 @@ fn refresh_detached(cache: &Path) {
         }
         drop(lease);
     }
-    // In tests nothing is spawned: the lease stands for the detached refresh, held as its child
-    // would hold its own for the rest of the read, so the next caller sees a refresh running.
+    // In tests no child starts; the lease stands in for the refresh it would run (its lock and
+    // mark held for the test's life), so the next `ls` sees a refresh running, as it would.
     #[cfg(test)]
-    std::mem::forget(lease);
+    {
+        static HELD: std::sync::Mutex<Vec<RelayLease>> = std::sync::Mutex::new(Vec::new());
+        if let Ok(mut held) = HELD.lock() {
+            held.push(lease);
+        }
+    }
 }
 
 /// `ls --refresh-relay-cache`: one relay listing, by [`send_relay::LS_DEADLINE`], kept as the
