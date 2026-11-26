@@ -43,7 +43,7 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 90
     steps:
       - name: Refuse any ref but feat-cmux-next, and a malformed commit
@@ -162,6 +162,19 @@ jobs:
               echo 'No summary was written (the run stopped before the journey).'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The steps and S4's phone-send numbers (auto-journey-s4.ts), for the AutoCloud slice probe. Neither file holds a
+      # token: the journey scrubs every detail, and s4.json is ids and milliseconds.
+      - name: Keep the journey's numbers
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: auto-journey
+          path: |
+            ${{ runner.temp }}/auto-journey/auto-journey.json
+            ${{ runner.temp }}/auto-journey/s4.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Remove the run's machine and install
         if: always()
