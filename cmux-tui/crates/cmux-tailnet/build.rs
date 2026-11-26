@@ -5,7 +5,12 @@
 //!   it must be built from the pinned commit with `patches/` applied).
 //! - `LIBTAILSCALE_SRC`: a libtailscale checkout, copied into `OUT_DIR`,
 //!   patched, and built with `go build -buildmode=c-archive`.
-//! - otherwise the pinned upstream commit is fetched into `OUT_DIR`, patched and built.
+//! - otherwise the pinned upstream commit, fetched once into a shared cache
+//!   (`LIBTAILSCALE_CACHE`, else `$CARGO_HOME`, else `~/.cargo`, under
+//!   `cmux-libtailscale/<pin>`; retried 3 times), is copied into `OUT_DIR`,
+//!   patched and built. Each target and each clean build reuses that one fetch:
+//!   a fetch per fresh `OUT_DIR` made a universal build reach GitHub twice and a
+//!   proxy timeout failed it (hq run 45866961331, 2026-11-26).
 //!
 //! The pin is the only place the Tailscale version is chosen; bump it on
 //! purpose, never float it. `patches/*.patch` are applied in name order.
@@ -62,13 +67,80 @@ fn fetch_pinned(out: &Path, key: &str) -> PathBuf {
         return source;
     }
     let _ = std::fs::remove_dir_all(&source);
-    run(Command::new("git").args(["init", "-q"]).arg(&source));
-    run(Command::new("git")
-        .arg("-C")
-        .arg(&source)
-        .args(["fetch", "-q", "--depth", "1", REPO, PINNED]));
-    run(Command::new("git").arg("-C").arg(&source).args(["checkout", "-q", "FETCH_HEAD"]));
+    let pristine = pristine_source(out);
+    run(Command::new("cp").arg("-R").arg(&pristine).arg(&source));
     source
+}
+
+/// Where the unpatched pinned checkout is kept across targets and clean builds.
+fn cache_root(out: &Path) -> PathBuf {
+    let home = tracked_env("LIBTAILSCALE_CACHE")
+        .map(PathBuf::from)
+        .or_else(|| {
+            tracked_env("CARGO_HOME").map(|home| PathBuf::from(home).join("cmux-libtailscale"))
+        })
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|home| PathBuf::from(home).join(".cargo/cmux-libtailscale"))
+        });
+    match home {
+        Some(root) if std::fs::create_dir_all(&root).is_ok() => root,
+        _ => out.to_path_buf(),
+    }
+}
+
+/// The pinned commit, fetched once and never patched in place. A build script
+/// fetches into its own temporary folder and renames it in, so concurrent
+/// build scripts (one per target) never see a half-made checkout.
+fn pristine_source(out: &Path) -> PathBuf {
+    const DONE: &str = ".cmux-pristine";
+    let root = cache_root(out);
+    let cached = root.join(PINNED);
+    if cached.join(DONE).is_file() {
+        return cached;
+    }
+    let tmp = root.join(format!(".{}-{}.tmp", &PINNED[..12], std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    run(Command::new("git").args(["init", "-q"]).arg(&tmp));
+    fetch_with_retry(&tmp);
+    run(Command::new("git").arg("-C").arg(&tmp).args(["checkout", "-q", "FETCH_HEAD"]));
+    std::fs::write(tmp.join(DONE), PINNED).expect("pristine marker");
+    if std::fs::rename(&tmp, &cached).is_err() {
+        // Another build script renamed its fetch in first: use that one.
+        let _ = std::fs::remove_dir_all(&tmp);
+        assert!(
+            cached.join(DONE).is_file(),
+            "libtailscale cache {} is not a finished fetch",
+            cached.display()
+        );
+    }
+    cached
+}
+
+/// A shallow fetch of the pin, 3 tries with backoff: one proxy timeout must not
+/// fail a build. The panic names the URL and git's own words.
+fn fetch_with_retry(source: &Path) {
+    let mut last = String::new();
+    for attempt in 1..=3u64 {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(source)
+            .args(["fetch", "-q", "--depth", "1", REPO, PINNED])
+            .output()
+            .unwrap_or_else(|error| panic!("git fetch {REPO} {PINNED}: {error}"));
+        if output.status.success() {
+            return;
+        }
+        last = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        println!("cargo:warning=libtailscale fetch {attempt}/3 from {REPO} failed: {last}");
+        if attempt < 3 {
+            std::thread::sleep(std::time::Duration::from_secs(5 * attempt));
+        }
+    }
+    panic!(
+        "could not fetch libtailscale {PINNED} from {REPO} after 3 tries: {last}; \
+         set LIBTAILSCALE_SRC to a checkout or LIBTAILSCALE_A to a prebuilt archive"
+    );
 }
 
 fn copy_source(from: &Path, out: &Path) -> PathBuf {
