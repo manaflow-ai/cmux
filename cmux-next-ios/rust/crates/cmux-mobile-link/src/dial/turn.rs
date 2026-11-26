@@ -788,7 +788,8 @@ impl TurnCarrier {
                 match result {
                     Ok(Ok(carrier)) => {
                         if let Some(peer) = peer
-                            && let Some((_, relay)) = relays.iter().find(|(address, _)| *address == carrier.address)
+                            && let Some((_, relay)) =
+                                relays.iter().find(|(address, _)| *address == carrier.address)
                         {
                             super::relay_rank::note_carried(peer, relay);
                         }
