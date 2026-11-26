@@ -231,6 +231,11 @@ pub(super) fn attach_surface(
         (None, None) => None,
         _ => anyhow::bail!("attach-surface cols and rows must be supplied together"),
     };
+    // A fenced attach from another boot is refused before anything else: its surface number
+    // may name another terminal now, and looking it up would wake that parked tab.
+    if let Some(generation) = expected_generation.as_deref() {
+        anyhow::ensure!(mux.registry_identity().1 == generation, "attachment_generation_mismatch");
+    }
     let surface_id = match surface_id {
         Some(surface) => surface,
         None => {
