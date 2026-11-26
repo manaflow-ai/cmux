@@ -133,26 +133,42 @@ impl Client {
     }
 
     /// The result of one read `operation` with `params`; the read must succeed.
-    fn read(&mut self, operation: &str, mut params: Value) -> Value {
+    fn read(&mut self, operation: &str, params: Value) -> Value {
+        let (request, reply) = self.send(operation, params);
+        assert_eq!(reply["ok"], true, "{request} failed: {reply}");
+        reply["result"].clone()
+    }
+
+    /// The error of one `operation` with `params`; it must be refused.
+    fn refused(&mut self, operation: &str, params: Value) -> Value {
+        let (request, reply) = self.send(operation, params);
+        assert_eq!(reply["ok"], false, "{request} was not refused: {reply}");
+        reply["error"].clone()
+    }
+
+    /// The request sent and its reply.
+    fn send(&mut self, operation: &str, mut params: Value) -> (Value, Value) {
         self.next += 1;
         let id = format!("r{}", self.next);
         params["machine"] = json!("current");
         params["session"] = json!("current");
-        let request = json!({
+        let mut request = json!({
             "protocol": "cmux.protocol/2",
             "type": "request",
             "id": id,
             "operation": operation,
             "params": params,
         });
+        if operation == "git.commit" {
+            request["idempotency_key"] = json!(format!("ghome-{}-{id}", std::process::id()));
+        }
         writeln!(self.stream.get_mut(), "{request}").unwrap();
         loop {
             let mut line = String::new();
             assert_ne!(self.stream.read_line(&mut line).unwrap(), 0, "closed before {id}");
             let reply: Value = serde_json::from_str(&line).unwrap();
             if reply["id"] == id {
-                assert_eq!(reply["ok"], true, "{request} failed: {reply}");
-                return reply["result"].clone();
+                return (request, reply);
             }
         }
     }
@@ -254,6 +270,16 @@ fn cmux_next_git_reads_never_list_the_home_folders_untracked_files() {
         client.read("git.files.search", json!({"path": home.to_string_lossy(), "query": "photos"}));
     assert_eq!(paths(&found["results"]), Vec::<String>::new(), "{found}");
     walks_home(&fixture, "git.files.search in the home folder");
+
+    // A commit with new files would add every untracked file of the home folder, none of which a
+    // read showed: refused before git runs.
+    fixture.forget();
+    let error = client.refused(
+        "git.commit",
+        json!({"path": tools_path, "message": "m", "all": true, "include_untracked": true}),
+    );
+    assert_eq!(error["details"]["reason"], "home_repository", "{error}");
+    assert!(fixture.children("home").iter().all(|line| !line.contains(" add ")), "staged");
 
     // A repository of its own below the home folder keeps its untracked files.
     fixture.forget();

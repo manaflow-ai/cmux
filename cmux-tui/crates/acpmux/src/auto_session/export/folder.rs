@@ -253,7 +253,9 @@ fn walk(top: &Path, under: &Path, found: &mut Vec<PathBuf>) -> Result<()> {
 }
 
 /// The files of `top` a tar takes, each with whether git tracks it. In a repository: what git
-/// tracks and what is untracked and not ignored. Elsewhere: every file, none tracked.
+/// tracks and what is untracked and not ignored. In the home folder's repository (`top` is then
+/// the chat's folder): the same, below `top` only, and in the home folder itself only what the
+/// repository tracks. Elsewhere: every file, none tracked.
 fn listed(top: &Path, home: Option<&Path>) -> Result<Vec<(PathBuf, bool)>> {
     let paths = |bytes: Vec<u8>, tracked: bool| -> Vec<(PathBuf, bool)> {
         bytes
@@ -268,6 +270,19 @@ fn listed(top: &Path, home: Option<&Path>) -> Result<Vec<(PathBuf, bool)>> {
             git(top, &["ls-files", "-z", "--others", "--exclude-standard"]).unwrap_or_default();
         let mut files = paths(tracked, true);
         files.extend(paths(others, false));
+        return Ok(files);
+    }
+    let is_home =
+        |path: &Path| home.is_some_and(|home| cmux_git::home::is_home_folder_of(path, home));
+    let checkout = git(top, &["rev-parse", "--show-toplevel"]).map(line);
+    if checkout.is_some_and(|root| is_home(Path::new(&root))) {
+        // git run in `top` lists what is below it, with the repository's ignore rules.
+        let tracked = git(top, &["ls-files", "-z", "--cached", "--", "."]).unwrap_or_default();
+        let mut files = paths(tracked, true);
+        if !is_home(top) {
+            let others = ["ls-files", "-z", "--others", "--exclude-standard", "--", "."];
+            files.extend(paths(git(top, &others).unwrap_or_default(), false));
+        }
         return Ok(files);
     }
     let mut found = Vec::new();

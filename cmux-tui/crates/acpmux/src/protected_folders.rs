@@ -199,8 +199,11 @@ pub fn spare_refusal_in(cwd: &Path, home: Option<&Path>, macos: bool) -> Option<
                 .zip(std::fs::canonicalize(h).ok())
                 .is_some_and(|(c, h)| fold(&c) == fold(&h))
     };
-    // The home folder's repository counts as the home folder (module text).
-    if !macos && home.is_some_and(|h| is_home(h) || in_home_repository(cwd, Some(h)).is_some()) {
+    // The home folder's repository counts as the home folder (module text), for a folder no
+    // other rule refuses: a privacy-protected folder or another volume in it stays refused.
+    let in_repository =
+        |h: &Path| refusal_in(cwd, Some(h)).is_none() && in_home_repository(cwd, Some(h)).is_some();
+    if !macos && home.is_some_and(|h| is_home(h) || in_repository(h)) {
         return None;
     }
     Some(refusal)
@@ -210,8 +213,8 @@ pub fn spare_refusal_in(cwd: &Path, home: Option<&Path>, macos: bool) -> Option<
 /// probes at daemon start): `<acpmux home>/unattended`, owned by acpmux and
 /// empty of the person's files. Never the home folder: an agent scans its
 /// folder at start. When the acpmux home itself is guarded, or in the home
-/// folder's own repository, a folder in the per-user temp dir. Created if
-/// missing.
+/// folder's own repository, this user's own folder in the temp dir
+/// (`private_temp`). Created if missing.
 pub fn unattended_cwd() -> PathBuf {
     unattended_cwd_in(&crate::config::home(), dirs::home_dir().as_deref())
 }
@@ -222,7 +225,10 @@ pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
     let dir = if unasked_refusal_in(&own, home).is_none() {
         own
     } else {
-        std::env::temp_dir().join("acpmux-unattended")
+        private_temp("acpmux-unattended").unwrap_or_else(|| {
+            tracing::warn!("no unattended folder of this user's own in the temp dir; acpmux's own");
+            own
+        })
     };
     // Not made under a lost home (`config::mark_home_lost`): it may be another daemon's now.
     let made = crate::config::refuse_lost_home(&dir)
@@ -231,6 +237,34 @@ pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
         tracing::warn!(dir = %dir.display(), "unattended agent folder: {e}");
     }
     dir
+}
+
+/// `name` in the temp dir for this user alone, made if missing, or `None` when that folder is
+/// not this user's own owner-only folder (a link, another user's). The temp dir off macOS is the
+/// shared `/tmp`, so the name ends with the uid there, and a folder another user made first is
+/// never an agent's folder: an agent reads its folder's instructions (`CLAUDE.md`) at start.
+pub(crate) fn private_temp(name: &str) -> Option<PathBuf> {
+    #[cfg(unix)]
+    // SAFETY: getuid has no preconditions.
+    let name = format!("{name}-{}", unsafe { libc::getuid() });
+    let dir = std::env::temp_dir().join(name);
+    owner_only_dir(&dir).ok()?;
+    owns(&dir).then_some(dir)
+}
+
+/// Whether `dir` is a folder (not a link) this user owns that only this user may open.
+#[cfg(unix)]
+fn owns(dir: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    std::fs::symlink_metadata(dir)
+        .is_ok_and(|meta| meta.is_dir() && meta.uid() == uid && meta.mode() & 0o077 == 0)
+}
+
+#[cfg(not(unix))]
+fn owns(_dir: &Path) -> bool {
+    true
 }
 
 /// Makes `dir` (and missing parents) owner-only whatever the umask: under 002 it would be
@@ -348,12 +382,34 @@ mod home_repository_tests {
         assert_eq!(refusal_in(&tools, home_ref), None, "a chat the person opens there");
         assert!(spare_refusal_in(&tools, home_ref, true).is_some(), "macOS keeps the refusal");
         assert_eq!(spare_refusal_in(&tools, home_ref, false), None);
-        // The unattended folder moves to the temp dir.
-        assert_eq!(
-            unattended_cwd_in(&acpmux_home, home_ref),
-            std::env::temp_dir().join("acpmux-unattended")
-        );
+        // Off macOS too, a privacy-protected folder in the repository stays refused for a spare.
+        let downloads = home.join("Downloads/x");
+        std::fs::create_dir_all(&downloads).unwrap();
+        assert!(spare_refusal_in(&downloads, home_ref, false).is_some());
+        // The unattended folder moves to this user's own folder in the temp dir.
+        let moved = unattended_cwd_in(&acpmux_home, home_ref);
+        assert_eq!(Some(moved.clone()), private_temp("acpmux-unattended"));
+        assert!(moved.starts_with(std::env::temp_dir()) && owns(&moved), "{}", moved.display());
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// A temp folder is an agent's only when it is this user's owner-only folder, never a link.
+    #[test]
+    fn only_a_private_folder_of_this_users_own_is_used() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!("acpmux-owns-{}", uuid::Uuid::now_v7()));
+        let private = root.join("private");
+        std::fs::create_dir_all(&private).unwrap();
+        std::fs::set_permissions(&private, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let open = root.join("open");
+        std::fs::create_dir_all(&open).unwrap();
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::os::unix::fs::symlink(&private, root.join("link")).unwrap();
+        assert!(owns(&private));
+        assert!(!owns(&open), "others may open it");
+        assert!(!owns(&root.join("link")), "a link, even to a private folder");
+        assert!(!owns(&root.join("missing")));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 

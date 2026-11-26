@@ -235,7 +235,10 @@ import Testing
         func git(_ folder: URL, _ arguments: String...) throws {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            process.arguments = ["-C", folder.path, "-c", "user.name=t", "-c", "user.email=t@e.test", "-c", "commit.gpgsign=false"] + arguments
+            process.arguments = ["-C", folder.path, "-c", "user.name=t", "-c", "user.email=t@e.test", "-c", "commit.gpgsign=false",
+                                 "-c", "core.hooksPath=/dev/null"] + arguments
+            process.environment = ProcessInfo.processInfo.environment.merging(
+                ["GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"]) { _, ours in ours }
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             try process.run()

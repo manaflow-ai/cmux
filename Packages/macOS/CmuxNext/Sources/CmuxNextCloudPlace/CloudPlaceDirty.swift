@@ -4,11 +4,12 @@ import Foundation
 extension CloudPlaceFlows {
     /// Files with uncommitted changes (tracked and untracked) in `folder`, from `git status --porcelain=v1 -z`,
     /// read off the main actor and bound to 2 s. Nil when there is no folder, it is not a checkout, or git fails or is slow.
-    /// The home folder's own repository (a dotfiles `~/.git`, `homePath`'s) counts its tracked changes only: its
-    /// untracked files are the whole home folder, and listing them reads the Photos library and Desktop in cmux's
-    /// name (LAUNCH-NO-TCC-PROMPTS; cmux-git `home.rs`).
-    public nonisolated static func dirtyFiles(in folder: String?, homePath: String = NSHomeDirectory()) async -> Int? {
+    /// The home folder's own repository (a dotfiles `~/.git`; `homePath`, else the person's) counts its tracked
+    /// changes only: its untracked files are the whole home folder, and listing them reads the Photos library and
+    /// Desktop in cmux's name (LAUNCH-NO-TCC-PROMPTS; cmux-git `home.rs`).
+    public nonisolated static func dirtyFiles(in folder: String?, homePath: String? = nil) async -> Int? {
         guard let folder, !folder.isEmpty else { return nil }
+        let homePath = homePath ?? NSHomeDirectory()
         var environment = ProcessInfo.processInfo.environment
         environment["GIT_TERMINAL_PROMPT"] = "0"
         environment["GIT_OPTIONAL_LOCKS"] = "0"
