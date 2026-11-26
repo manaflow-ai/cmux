@@ -102,7 +102,7 @@ function recordingRows(raw: string, title: string, harness: string): { snapshot:
         id: `thought-${sequence++}`,
         version: 1,
         at: Number(event.at ?? Date.now()),
-        kind: "plan",
+        kind: "assistant",
         text: text || "Thinking…",
       });
     } else if (
@@ -153,7 +153,7 @@ function recordingRows(raw: string, title: string, harness: string): { snapshot:
 function syntheticSnapshot(): AcpmuxSnapshot {
   const snapshot = baseSnapshot("5,000 row fling", "codex");
   snapshot.rows = Array.from({ length: 5000 }, (_, index) => {
-    const kind = index % 9 === 0 ? "user" : index % 7 === 0 ? "activity" : index % 11 === 0 ? "plan" : "assistant";
+    const kind = index % 9 === 0 ? "user" : index % 7 === 0 ? "activity" : "assistant";
     return {
       id: `seed-${index}`,
       version: 1,
@@ -199,7 +199,7 @@ function permissionSnapshot(): AcpmuxSnapshot {
       id: "permission-plan",
       version: 1,
       at: previewStartedAt + 1000,
-      kind: "plan",
+      kind: "assistant",
       text: "I need to edit package files and run the test suite.",
     },
   ];

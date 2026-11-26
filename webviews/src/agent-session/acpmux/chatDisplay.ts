@@ -10,6 +10,7 @@
 // code size, else the default. Sizes and width never follow the viewer: the two views have their
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
+import { COMPACT_SHORT_TURNS_KEY, setCompactShortTurns } from "./conversation/compactShortTurns";
 import {
   DEFAULT_RAIL_SHOW,
   isRailShow,
@@ -20,7 +21,7 @@ import {
 import { useSyncExternalStore } from "react";
 import { configureSenderIconLook } from "./subagents/senderIconLook";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, type HarnessPlacement } from "../../ui/harnessPlacement";
-import { isArm, experimentArm } from "../../experiments/experiment";
+import { experimentArm, isArm } from "../../experiments/experiment";
 import { readingLook, readingLookValues } from "./readingLook.experiment";
 import {
   HIGH_CONTRAST_CHAT_VARIABLES,
@@ -154,11 +155,6 @@ export const HEADER_BREADCRUMB_KEY = "agentPane.display.headerBreadcrumb";
 /// 2026-11-22: "it is prob ok to somehow denote the \"subagent of\"... at the top i feel like"). Off, the
 /// header names the subagent alone. Not part of ChatDisplay: switching it measures no row again.
 export const SUBAGENT_OF_KEY = "agentPane.display.subagentOf";
-/// Settings > Agent Chat > Pin Task List in Chat, off by default: the running turn's todo list pinned
-/// under its latest message (conversation/turns.ts). Off, the composer's hat shows it
-/// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
-/// Not part of ChatDisplay: switching it measures no transcript row again.
-export const PINNED_PLAN_KEY = "agentPane.display.pinnedPlan";
 /// Settings > Agent Chat > Tuck Away Running Tray, off by default: the hat over the composer
 /// (subagents/SubagentTray.tsx) tucks away to a chevron at the top middle of the composer, shown on
 /// hover, which brings it back (subagents/TrayPullTab.tsx; Leo, 2026-11-04: "what if you wanted to
@@ -192,6 +188,12 @@ export const FEATURE_TIPS_KEY = "updates.showFeatureTips";
 /// AutoCloud (autoCloud.ts): hidden in cmux-next.json, off unless set true. The host sends it with the
 /// chat's keys (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
 export const AUTO_CLOUD_KEY = "cloud.autoCloud";
+/// Settings > Cloud > Default Image: the Cloud environment a new Cloud chat starts from, "auto" (the
+/// default) or an environment id (chatCloudEnvironment.ts). The host sends it with the chat's keys
+/// (Swift AgentPaneDisplaySetting.followedAppPaths). Not part of ChatDisplay.
+export const DEFAULT_IMAGE_KEY = "cloud.defaultImage";
+/// A Cloud environment's id, as the cmux platform makes them.
+const CLOUD_ENVIRONMENT_ID = /^d?env_[0-9a-f]{24}$/;
 /// cmux-next.json only: the command rules and presets the running tray names background commands
 /// with (session-info/commandLabelSettings.ts; Swift CommandLabelsSetting). Not part of ChatDisplay.
 export const COMMAND_LABELS_KEY = "agentPane.display.commandLabels";
@@ -219,9 +221,12 @@ export const MODEL_CHIP_ICON_KEY = "agentPane.display.modelChipIcon";
 /// Settings > Agent Chat > Queue Prompts During a Turn (queueing.ts), on unless set false; a queued
 /// row's menu and the composer's button row write it. Not part of ChatDisplay.
 export const QUEUEING_KEY = "agentPane.display.queueing";
+/// The model picker's harness tab order (modelPickerOrder.ts): a drag on the picker's rail writes it.
+/// Not part of ChatDisplay.
+export const MODEL_PICKER_ORDER_KEY = "agentPane.display.modelPickerOrder";
 /// The viewer's picks the page makes and the host keeps (`pane.setDisplay`): the modules that own
 /// them read them with `pickedDisplayValue` and follow `subscribeChatDisplay`.
-const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY] as const;
+const PICKED_KEYS = [MODEL_CHIP_ICON_KEY, QUEUEING_KEY, MODEL_PICKER_ORDER_KEY] as const;
 
 /// A font pack's families (a community typography theme from the app store; Swift
 /// AgentPaneDisplaySetting sends them with the chat's keys): a CSS family or comma stack without
@@ -495,12 +500,29 @@ export function chatMetrics(display: ChatDisplay, density: number = densityTextS
   };
 }
 
+/// The code block size and line the chat sets (`--cv-codeblock-size`, `--cv-codeblock-line-height`), or null where it
+/// sets none and code keeps the page's (`--cmux-diff-font-size`, `--cmux-diff-line-height`): at the default text size
+/// and code scale. The diff card's rows (conversation/editDiffBox.ts) are drawn and estimated with it.
+export function chatCodeBlock(
+  display: ChatDisplay = current,
+  density: number = densityTextScale,
+): { size: number; line: number } | null {
+  if (
+    drawnFontSize(display, density) === DEFAULT_CHAT_DISPLAY.fontSize &&
+    display.codeScale === DEFAULT_CHAT_DISPLAY.codeScale
+  )
+    return null;
+  const metrics = chatMetrics(display, density);
+  return { size: metrics.blockCodeSize, line: metrics.codeLineHeight };
+}
+
 /// The CSS variables for `display`; a null value removes the variable (the stylesheet's default).
 export function chatDisplayVariables(
   display: ChatDisplay,
   density: number = densityTextScale,
 ): Record<string, string | null> {
   const metrics = chatMetrics(display, density);
+  const code = chatCodeBlock(display, density);
   const fontSize = drawnFontSize(display, density);
   const isDefault = (key: keyof ChatDisplay) =>
     key === "fontSize" ? fontSize === DEFAULT_CHAT_DISPLAY.fontSize : display[key] === DEFAULT_CHAT_DISPLAY[key];
@@ -537,9 +559,8 @@ export function chatDisplayVariables(
         : `${round(display.fontSize * display.lineHeight)}px`,
     "--cv-line-height": isDefault("fontSize") && isDefault("lineHeight") ? null : `${metrics.lineHeight}px`,
     "--cv-code-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.inlineCodeSize}px`,
-    "--cv-codeblock-size": isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.blockCodeSize}px`,
-    "--cv-codeblock-line-height":
-      isDefault("fontSize") && isDefault("codeScale") ? null : `${metrics.codeLineHeight}px`,
+    "--cv-codeblock-size": code ? `${code.size}px` : null,
+    "--cv-codeblock-line-height": code ? `${code.line}px` : null,
     "--cv-mono": codeFont,
     // The stylesheet's default is the default width's column, so only another width or Full Width
     // sets it; chatWidth.ts displayColumn mirrors both for the row estimator.
@@ -562,7 +583,6 @@ let minimapOn = false;
 let statusPillsOn = false;
 let headerBreadcrumbOn = false;
 let subagentOfOn = false;
-let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
 let trayHandle: TrayHandleSide = "middle";
@@ -574,6 +594,7 @@ let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
 let featureTipsOn = false;
 let autoCloudOn = false;
+let defaultImage = "auto";
 let commandLabels = "null";
 let promptCoachOn = true;
 let environmentCardOn = false;
@@ -641,8 +662,9 @@ export function setChatDisplay(value: unknown): void {
   const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
   const subagentOf = raw[SUBAGENT_OF_KEY] === true;
-  const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
+  // Read by turns.ts at shaping time and part of each turn's cache key, so a change shapes the turns again.
+  setCompactShortTurns(raw[COMPACT_SHORT_TURNS_KEY] === true);
   // The pop's gate: written only when the setting changes, so a page that set its own
   // `data-send-pop` (the gallery's variants, the benches' arms) keeps it.
   const sendPop = raw[SEND_POP_KEY] === true;
@@ -665,6 +687,10 @@ export function setChatDisplay(value: unknown): void {
   const nextPresentation = isPresentation(storedPresentation) ? storedPresentation : "transcript";
   const tips = raw[FEATURE_TIPS_KEY] === true;
   const autoCloud = raw[AUTO_CLOUD_KEY] === true;
+  const storedImage = raw[DEFAULT_IMAGE_KEY];
+  // Only a Cloud environment id (`env_` or `denv_` and 24 hex digits, cmux-tui start_chat_cli.rs valid_environment): any
+  // other value (a typo set from the CLI) would fail every Cloud send, so it reads as Auto.
+  const image = typeof storedImage === "string" && CLOUD_ENVIRONMENT_ID.test(storedImage) ? storedImage : "auto";
   const labels = JSON.stringify(raw[COMMAND_LABELS_KEY] ?? null);
   const coach = raw[PROMPT_COACH_KEY] !== false;
   const environmentCard = raw[ENVIRONMENT_CARD_KEY] === true;
@@ -697,7 +723,6 @@ export function setChatDisplay(value: unknown): void {
     statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
     subagentOf === subagentOfOn &&
-    pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
     show === railShow &&
@@ -708,6 +733,7 @@ export function setChatDisplay(value: unknown): void {
     nextPresentation === presentation &&
     tips === featureTipsOn &&
     autoCloud === autoCloudOn &&
+    image === defaultImage &&
     labels === commandLabels &&
     coach === promptCoachOn &&
     environmentCard === environmentCardOn &&
@@ -723,7 +749,6 @@ export function setChatDisplay(value: unknown): void {
   statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
   subagentOfOn = subagentOf;
-  pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
   railShow = show;
@@ -734,6 +759,7 @@ export function setChatDisplay(value: unknown): void {
   presentation = nextPresentation;
   featureTipsOn = tips;
   autoCloudOn = autoCloud;
+  defaultImage = image;
   if (same) {
     // The faces changed what the measure stacks name until they load.
     if (facesChanged) current = { ...current };
@@ -870,6 +896,10 @@ const autoCloudSnapshot = () => autoCloudOn;
 /// Whether `cloud.autoCloud` is on in cmux-next.json (AUTO_CLOUD_KEY): the Where menu's Auto chevron
 /// and its Cloud leg (autoCloud.ts) show only with it and the plan.
 export const useAutoCloudKey = (): boolean => useSyncExternalStore(subscribe, autoCloudSnapshot, autoCloudSnapshot);
+/// Settings > Cloud > Default Image (DEFAULT_IMAGE_KEY): "auto" or the environment id a new Cloud
+/// chat starts from when it picks none (chatCloudEnvironment.ts).
+export const defaultCloudImage = (): string => defaultImage;
+export const useDefaultCloudImage = (): string => useSyncExternalStore(subscribe, defaultCloudImage, defaultCloudImage);
 /// Whether the prompt coach is on (PROMPT_COACH_KEY): the client reads it before it asks for or
 /// draws a rewrite (direct.ts), and a card already drawn hides when it goes off (rows/PromptCoachRow.tsx).
 export const promptCoachEnabled = (): boolean => promptCoachOn;
@@ -884,9 +914,6 @@ const changesPillSnapshot = () => changesPillOn;
 /// Whether the chat draws its changes pill over the composer (CHANGES_PILL_KEY).
 export const useChangesPillOn = (): boolean =>
   useSyncExternalStore(subscribe, changesPillSnapshot, changesPillSnapshot);
-const pinnedPlanSnapshot = () => pinnedPlanOn;
-/// Whether the running turn's todo list is pinned in the transcript (PINNED_PLAN_KEY) instead of the hat.
-export const useChatPinnedPlan = (): boolean => useSyncExternalStore(subscribe, pinnedPlanSnapshot, pinnedPlanSnapshot);
 const trayTuckedSnapshot = () => trayTuckedOn;
 /// Whether a sent prompt pops in, read when a row enters (VirtualTranscript.tsx): the root's gate,
 /// which SEND_POP_KEY sets and a bench's arm may set by hand, as the CSS rule reads it.

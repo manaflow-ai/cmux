@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Settle which bytes a commit's Linux cmux-tui and cmux-tui-hook have in R2, before anything names
-# them. Used by point-machine-channel-early and publish (.github/workflows/cmux-tui-artifacts.yml).
+# them. Used by cmux-machine-channel.yml's point and cmux-tui-artifacts.yml's publish.
 # The early job uploads the Cloud machine channel's thin-LTO copy to cmux-tui/<sha>/machine/;
 # publish uploads the shipped fat build to cmux-tui/<sha>/. The two never share an object, so the
 # machine channel's bytes never become the shipped ones. Each can run in several runs or attempts
