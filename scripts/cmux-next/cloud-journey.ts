@@ -507,11 +507,30 @@ const stepNotes = new AsyncLocalStorage<string[]>();
  *  (151 s, 2026-11-25), so a 60 s cut made every journey and bench fail its create and leak the machine. */
 export const CREATE_OP_TIMEOUT_MS = 300_000;
 
+/** An answer that says the bearer is no longer good (an install's access token lives ACCESS_TOKEN_TTL_SECONDS, 600 s). */
+export function bearerExpired(r: Pick<Answer, "status" | "body">): boolean {
+  return r.status === 401 && (r.body?.code === "auth.unauthenticated" || r.body?.error?.code === "auth.unauthenticated");
+}
+
 export class Api {
   bearer = "";
+  /**
+   * Mints a fresh bearer, as the app does when its install token runs out. The install token lives 600 s and a
+   * staging journey runs 11 min and more, so its connect_info read came back 401 (cloudflare-relay run 45827065539,
+   * 2026-11-26), which held the relay's production deploy. A 401 is refreshed and asked once more.
+   */
+  refresh?: () => Promise<string>;
   constructor(readonly origin: string, readonly team?: string) {}
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
+  }
+  /** Sends once; on an expired bearer with a refresher, mints a new one and sends once more. */
+  private async authed(send: () => Promise<Answer>): Promise<Answer> {
+    const r = await send();
+    if (!this.refresh || !bearerExpired(r)) return r;
+    this.bearer = await this.refresh();
+    stepNotes.getStore()?.push("the install token ran out; minted a new one and asked again");
+    return send();
   }
   /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace).
    *  `timeoutMs` is one attempt's wait; a machine create gets CREATE_OP_TIMEOUT_MS by default. */
@@ -520,7 +539,7 @@ export class Api {
     for (let attempt = 1; ; attempt++) {
       let r: Answer;
       try {
-        r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
+        r = await this.authed(() => http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key));
       } catch (error) {
         // A keyed op the client stopped waiting on: ask again under the same key, which cannot apply it twice.
         if (key && attempt < OP_ATTEMPTS && requestTimedOut(error)) { await sleep(2000 * attempt); continue; }
@@ -547,25 +566,25 @@ export class Api {
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
     const until = Date.now() + budgetMs;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000, true);
+      const r = await this.authed(() => http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000, true));
       if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
   }
   async read(op: string, params: unknown, timeoutMs = 30_000): Promise<any> {
-    let r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
+    let r = await this.authed(() => http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true));
     // A read changes nothing, so an owner reset is read once more.
     if (ownerUnreachable(r.body)) {
       stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
       await sleep(OWNER_RETRY_MS);
-      r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
+      r = await this.authed(() => http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true));
     }
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
   }
   async raw(method: string, route: string, body?: unknown, timeoutMs = 60_000, extra: Record<string, string> = {}): Promise<Answer> {
-    return http(method, `${this.origin}${route}`, body, { ...this.headers(), ...extra }, timeoutMs);
+    return this.authed(() => http(method, `${this.origin}${route}`, body, { ...this.headers(), ...extra }, timeoutMs));
   }
 }
 
@@ -5114,6 +5133,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }).catch(() => undefined);
     const installApi = new Api(backend.api, team);
     installApi.bearer = install.token;
+    // The install's token lives 600 s; the journey outlives it, so mint a new one from the install's key when it runs out.
+    installApi.refresh = async () => {
+      const userId = user.id ?? user.user?.id;
+      const ch = await http("POST", `${backend.api}/v1/auth/challenge`, { user: userId, install: install.id }, {});
+      if (ch.status !== 200) throw new Error(`refresh challenge HTTP ${ch.status} ${short(ch.body)}`);
+      const tok = await http("POST", `${backend.api}/v1/auth/token`, { user: userId, install: install.id, nonce: ch.body.nonce, signature: await sign(install.key, `${ch.body.message_prefix}${ch.body.nonce}`) }, {});
+      if (tok.status !== 200 || typeof tok.body.access_token !== "string") throw new Error(`refresh token HTTP ${tok.status} ${short(tok.body)}`);
+      J.secrets.push(tok.body.access_token);
+      install.token = tok.body.access_token;
+      return tok.body.access_token as string;
+    };
 
     if (preclaim) {
       const userId = String(user?.id ?? user?.user?.id ?? "");
