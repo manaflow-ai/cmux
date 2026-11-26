@@ -39,11 +39,10 @@ pub(crate) mod audit_log;
 mod auto_background;
 // Idle chats leave this machine on their own while it stays over budget (`autoEvacuate`).
 pub(crate) mod auto_evacuate;
-// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
-mod auto_hold;
 // A holder gives a chat the person moved: its turn stopped as a move by hand stops one.
 mod auto_give;
-pub(crate) use auto_give::TurnStop;
+// What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
+mod auto_hold;
 pub(crate) mod auto_resume;
 mod away_recap;
 mod background_cause;
@@ -79,6 +78,7 @@ mod closed_tmp;
 pub mod cmux_tools_answer;
 mod cold_archive;
 mod cold_segments;
+mod live_rows;
 // A wake onto a cold, large chat: one batch on an interval, compacted first.
 pub(crate) mod cloud_offload;
 pub(crate) mod cold_wake;
@@ -403,6 +403,7 @@ mod surge_triage;
 mod urgent_steer;
 // Mask old tool output instead of summarizing it (harness magic).
 pub(crate) mod surgery;
+mod surgery_codex;
 pub mod synced;
 mod tags;
 mod tailnet_controller;
@@ -500,6 +501,7 @@ pub use crate::build_info::{build, install_build, version_line};
 pub(crate) use crate::turn_errors;
 pub use agent_pairs::PairGuard;
 pub use auto_background::AUTO_BACKGROUND_ENV;
+pub(crate) use auto_give::TurnStop;
 pub(crate) use auto_hold::{AUTO_AWAY, AUTO_CLIENT};
 pub use bg_tasks::{BgScope, bg_owner_words};
 pub use cloud_offload::HistoryOffloadRequest;
@@ -1102,6 +1104,8 @@ pub struct Hub {
     /// row before the next list, so no list rebuilds closed-session projections, and a list
     /// page copies their bytes unparsed.
     pub(super) closed_summary_cache: StdMutex<closed_rows::ClosedRows>,
+    /// The live sessions' last rendered rows, reused while their inputs are equal (`live_rows.rs`).
+    pub(super) live_row_cache: StdMutex<live_rows::LiveRows>,
     /// The closed sessions' chat activity, built once for every chats reader (`chat_activity.rs`).
     pub(crate) chat_activity_cache: chat_activity::ActivityCache,
     /// v2's book tee (`book_tee.rs`), when the daemon writes books: with none, v1's append is
@@ -1115,6 +1119,9 @@ pub struct Hub {
     /// Closed rows parsed back from their cached bytes (tests).
     #[cfg(test)]
     pub(super) closed_summary_parses: AtomicU64,
+    /// Live rows rendered because their inputs moved or none were kept (tests).
+    #[cfg(test)]
+    pub(super) live_row_renders: AtomicU64,
     /// Session summaries built, live or closed, with tools or without (tests).
     #[cfg(test)]
     pub(crate) summaries_built: AtomicU64,
@@ -1762,6 +1769,7 @@ impl Hub {
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
+            live_row_cache: StdMutex::new(Default::default()),
             chat_activity_cache: Default::default(),
             book_tee: std::sync::OnceLock::new(),
             rows: Default::default(),
@@ -1769,6 +1777,8 @@ impl Hub {
             closed_summary_builds: AtomicU64::new(0),
             #[cfg(test)]
             closed_summary_parses: AtomicU64::new(0),
+            #[cfg(test)]
+            live_row_renders: AtomicU64::new(0),
             #[cfg(test)]
             summaries_built: AtomicU64::new(0),
             message_repairs: StdMutex::new(std::collections::HashSet::new()),
