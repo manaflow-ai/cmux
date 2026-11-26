@@ -68,16 +68,37 @@ fn fp_sig_verifies_only_for_the_peer_role_and_key() {
 }
 
 #[test]
-fn ice_servers_become_stun_and_udp_turn() {
+fn ice_servers_keep_udp_relays_first_then_tcp_and_tls() {
     let ice = json!([
-        {"urls": ["stun:stun.example", "turn:turn.example:3478?transport=udp", "turn:turn.example:443?transport=tcp"],
+        {"urls": ["turns:turn.example:443?transport=tcp", "stun:stun.example",
+                  "turn:turn.example:443?transport=tcp", "turn:turn.example:3478?transport=udp",
+                  "turns:tls.example"],
          "username": "u", "credential": "p"},
-        {"urls": "stun:stun.example:3478"}
+        {"urls": "stun:stun.example:3478"},
+        {"urls": "turn:nocreds.example"}
     ]);
     let (stun, turn) = servers(&ice);
     assert_eq!(stun, vec!["stun.example:3478"]);
+    let relay = |addr: &str, transport| Turn {
+        addr: addr.into(),
+        username: "u".into(),
+        password: "p".into(),
+        transport,
+    };
     assert_eq!(
         turn,
-        vec![Turn { addr: "turn.example:3478".into(), username: "u".into(), password: "p".into() }]
+        vec![
+            relay("turn.example:3478", TurnTransport::Udp),
+            relay("turn.example:443", TurnTransport::Tcp),
+            relay("turn.example:443", TurnTransport::Tls),
+            relay("tls.example:5349", TurnTransport::Tls),
+        ]
     );
+    assert_eq!(udp_only(&turn), vec![relay("turn.example:3478", TurnTransport::Udp)]);
+    // A UDP relay serializes exactly as before; the others name their transport.
+    assert_eq!(
+        serde_json::to_value(&turn[0]).unwrap(),
+        json!({"addr": "turn.example:3478", "username": "u", "password": "p"})
+    );
+    assert_eq!(serde_json::to_value(&turn[2]).unwrap()["transport"], "tls");
 }
