@@ -24,10 +24,11 @@ name: nightly-next launch smoke
 # Canary-only one): a pass is cached per build, so a tick with no new build stops
 # in the pick job. A build another run is already smoking (its smoke queued or
 # running) is skipped too, so a build gets one smoke at a time (nightly_next_launch_smoke.py
-# in-flight). A scheduled run takes every job to the nightly slot, never Blacksmith (Leo,
+# in-flight). A scheduled run keeps every job on our fleet, never Blacksmith (Leo,
 # 2026-10-31: "FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE RELYING ON
-# BLACKSMITH THAT CUTS OUT"); a dispatch or a pull request's run takes the side label, then
-# MACOS_RUNNER_26 or Blacksmith macOS 26. A cannot-run is cached
+# BLACKSMITH THAT CUTS OUT"): the smoke on the nightly slot (a Mac), and pick, crashed and
+# record, which need no Mac, on the one-job cmux-gcp-nightly-jit-x64 VM. A dispatch or a pull
+# request's smoke takes the side label, then MACOS_RUNNER_26 or Blacksmith macOS 26. A cannot-run is cached
 # for the rest of its UTC hour only, so a build the infrastructure could not
 # smoke is tried again at most an hour later. A crash is not cached, so it is
 # retried until its rollback lands. A schedule and a dispatch register only
@@ -74,12 +75,11 @@ env:
 jobs:
   pick:
     if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    # A scheduled run: the nightly slot (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, glaeda's one runner per mini that takes
-    # only nightly jobs; its hook ranks main's scheduled launch smoke as a nightly job, re-runs included). No
-    # secrets and no environment: GITHUB_TOKEN reads only. A dispatch or a pull request's run keeps Blacksmith,
-    # as every run does while the variable is outside glaeda-nightly-* (unset included; runner_label_policy.py
-    # holds it to the slot labels).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    # A scheduled run (re-runs included) takes the one-job cmux-gcp-nightly-jit-x64 VM: this job reads the feed
+    # and a cache, which needs no Mac (it held a nightly mini's slot ~200 min a day, mostly in checkout). No
+    # secrets and no environment: GITHUB_TOKEN reads only. A dispatch takes the same VM on its first attempt; a
+    # pull request's run, or a re-run of a dispatch, takes Blacksmith.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 8
     permissions:
       actions: read # the in-flight read of this workflow's runs
@@ -270,8 +270,8 @@ jobs:
     concurrency:
       group: nightly-next-launch-crash-${{ needs.pick.outputs.build }}
       cancel-in-progress: false
-    # A scheduled run's on the pick's nightly slot.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    # A scheduled run's on the pick's one-job VM (cmux-gcp-nightly-jit-x64).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     permissions:
       actions: write # dispatch nightly-next-rollback.yml
@@ -377,8 +377,8 @@ jobs:
   record:
     needs: [pick, smoke]
     if: always() && github.event_name == 'schedule' && (needs.smoke.outputs.verdict == 'pass' || needs.smoke.outputs.verdict == 'cannot-run')
-    # A scheduled run's on the pick's nightly slot.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
+    # A scheduled run's on the pick's one-job VM (cmux-gcp-nightly-jit-x64).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || github.event_name == 'schedule' && 'cmux-gcp-nightly-jit-x64' || github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-32vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions: {}
     steps:
