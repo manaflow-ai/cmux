@@ -148,8 +148,10 @@ if [[ -n "$shard" ]]; then
   echo "gate-notice: shard $shard (nextest --partition count:$shard)"
 fi
 # test FILTER SCOPE (a third argument) names where the filter's tests are: crate names with commas
-# (-p for each), or one CRATE:TARGET for one integration test target (cmux-tui:startup_timings is
-# cmux-tui/crates/cmux-tui/tests/startup_timings.rs: -p cmux-tui --test startup_timings; CRATE:lib is
+# (-p for each), or one CRATE:TARGET for one integration test target (acpmux:admission is
+# cmux-tui/crates/acpmux/tests/admission.rs: -p acpmux --test admission; a crate whose tests/ files
+# are modules of one `it` binary (autotests = false, tests/it/main.rs: cmux-tui, #56677) takes
+# --test it for a file that has no [[test]] of its own, and the filter picks its tests; CRATE:lib is
 # the library's unit tests, -p CRATE --lib, so a unit test of a big crate like acpmux skips its ~40
 # test binaries, whose cold build overran a 143 GiB pool slot, 2026-11-25). cargo
 # then builds the test binaries of that scope only; a filtered run of the whole workspace builds
@@ -172,7 +174,15 @@ if [[ -n "$crate_scope" ]]; then
       # CRATE:lib is the crate's library unit tests (cargo --lib); cargo has no test target named lib.
       test_scope=(-p "${BASH_REMATCH[1]}" --lib)
     else
-      test_scope=(-p "${BASH_REMATCH[1]}" --test "${BASH_REMATCH[2]}")
+      scope_crate="${BASH_REMATCH[1]}" scope_target="${BASH_REMATCH[2]}"
+      scope_manifest="cmux-tui/crates/$scope_crate/Cargo.toml"
+      if [[ -f "cmux-tui/crates/$scope_crate/tests/it/main.rs" ]] &&
+        grep -qE '^autotests *= *false' "$scope_manifest" &&
+        ! grep -qE "^name *= *\"$scope_target\"" "$scope_manifest"; then
+        echo "gate-notice: $scope_crate's tests/$scope_target.rs is a module of its one test binary: --test it"
+        scope_target=it
+      fi
+      test_scope=(-p "$scope_crate" --test "$scope_target")
     fi
   elif [[ "$crate_scope" =~ ^$scope_name(,$scope_name){0,7}$ ]]; then
     test_scope=()
@@ -1171,7 +1181,11 @@ if [[ "$mode" == clippy || "$mode" == test || "$mode" == all ]]; then
   step go ensure_go
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
-  step fmt cargo fmt --all --check
+  # A crate whose tests/ files are modules of one `it` binary (tests/it/main.rs, #56677) reaches them
+  # through a generated list cargo fmt cannot follow, so they are named to rustfmt.
+  fmt_tests=()
+  for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done
+  step fmt cargo fmt --all --check ${fmt_tests[@]+-- "${fmt_tests[@]}"}
 fi
 if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   # The frozen holder fixture (cmux-holder-v3) is an old shipped holder, never edited: no new
