@@ -63,7 +63,9 @@ public struct CaptureToChat: Sendable {
         // A control deadline cancels the capture task. If the picker finished at the same time,
         // do not attach a late result after the socket has already answered timeout.
         guard !Task.isCancelled else {
-            if case .taken(let file, _) = outcome { try? FileManager.checked.removeItem(at: file) }
+            if case .taken(let file, _) = outcome {
+                await Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: file) }.value
+            }
             return (.cancelled, nil)
         }
         guard case .taken(let file, _) = outcome else { return (outcome, nil) }
