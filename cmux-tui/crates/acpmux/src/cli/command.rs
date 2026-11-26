@@ -1072,6 +1072,12 @@ pub enum Command {
         /// never registered.
         #[arg(long)]
         renew: bool,
+        /// For cmux's own Claude Code hook (`cmux-tui-hook`, UserPromptSubmit): the first step
+        /// with no person's step, under NAME unless the chat has a name already. Nothing when
+        /// the chat is registered with this process; else a one-time code goes to the chat's
+        /// inbox, as from a send. Starts no daemon, never fails (`cli/hook_register.rs`).
+        #[arg(long, hide = true, conflicts_with_all = ["code", "renew"], requires = "name")]
+        auto: bool,
     },
     #[command(hide = true)]
     DetachParent { session: String },
