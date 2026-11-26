@@ -208,6 +208,7 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-sdk-ffi",
  "cmux-terminal-prediction",
+ "cmux-url-input",
  "cmux-wallpaper",
  "serde",
  "serde_json",
@@ -573,6 +574,7 @@ dependencies = [
  "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-remote-browser",
+ "serde",
  "serde_json",
 ]
 
@@ -661,6 +663,10 @@ version = "0.1.0"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "cmux-url-input"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-wallpaper"
