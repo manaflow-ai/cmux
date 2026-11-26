@@ -34,6 +34,9 @@
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
 //! `cloud_identity_*`: the install identity's rules;
 //! `cloud_vm_agent_key_*`: the VM agent-key mint's request and answer;
+//! `screen_*`: the WebRTC screen stream's rules (`cmux-rd-screen`: the hub
+//! ticket, signaling frames, follow mode's focus producer, viewer demand, the
+//! cursor shape delivery);
 //! `cloud_handoff_*`: the consent session handoff from cmux NIGHTLY;
 //! `cmux_keychain_bounded`, [`keychain`]: the app's calls into its own
 //! Keychain items, each on a thread of Rust's within its deadline),
@@ -95,6 +98,7 @@ mod imessage;
 pub mod input;
 pub mod keychain;
 mod pane_placement;
+mod screen;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -620,6 +624,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if pane_placement::handles(operation) => {
                 pane_placement::respond(operation, request)?
             }
+            operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
             }
