@@ -70,7 +70,10 @@
         "windows-gnu-check": {
           "name": "cargo check (x86_64-pc-windows-gnu)",
           "compile_only": true,
-          "crates": ["cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux"],
+          "crates": [
+            "cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux",
+            "cmux-tui/crates/cmux-host"
+          ],
           "inputs": [
             "ghostty-next", "scripts/install-zig-ci.sh", ".github/actions/ghostty-zig-packages/",
             "scripts/cmux-next/cargo-locks.py"
