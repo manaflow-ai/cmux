@@ -366,6 +366,78 @@ test("the attach reply of a switch back renders after the kept tail's frame pain
   }
 });
 
+test("an attach retried after the kept tail's frame painted does not wait for another frame", async () => {
+  // The switch back waits for one frame before its reply renders. A retry (the row named another
+  // machine when the reply came) asks again; its reply renders at once, not after one more frame,
+  // which a page whose frames stall holds for up to AFTER_PAINT_CAP_MS each time.
+  const daemon = new Daemon("retry-paint");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [
+    { events: [prompt("Turn one"), TURN_STARTED, reply(A, "Turn one done."), TURN_DONE] },
+    { events: [prompt("Turn ninety"), TURN_STARTED, reply(A, "Turn ninety done."), TURN_DONE], from: 900 },
+  ]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  const { client, last } = await paneOn(daemon);
+  const had = { raf: scope.requestAnimationFrame, caf: scope.cancelAnimationFrame };
+  const frames = new Map<number, () => void>();
+  let id = 0;
+  scope.requestAnimationFrame = (run: () => void) => (frames.set(++id, run), id);
+  scope.cancelAnimationFrame = (frame: number) => frames.delete(frame);
+  const paint = () => {
+    const due = [...frames.values()];
+    frames.clear();
+    for (const run of due) run();
+  };
+  const attachesOfA = () =>
+    daemon.sent.filter((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A).length;
+  // Each reply the daemon hands the client, by request id.
+  const answered = new Set<unknown>();
+  /// Waits for the daemon's answer to chat A's `nth` attach since `from`, then one task so the client's
+  /// handling of it runs.
+  const answerOfA = async (from: number, nth: number, what: string) => {
+    const asked = () =>
+      daemon.sent.filter((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A)[
+        from + nth - 1
+      ];
+    for (let turn = 0; !answered.has(asked()?.id ?? Symbol()); turn++) {
+      if (turn > 1000) throw new Error(`${what} was never answered`);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+  try {
+    await client.select(B);
+    const deliver = daemon.onmessage;
+    daemon.onmessage = (message) => {
+      answered.add((JSON.parse(message.data) as { id?: unknown }).id);
+      deliver?.(message);
+    };
+    daemon.hold = A;
+    const before = attachesOfA();
+    const back = client.select(A);
+    await daemon.asked;
+    // The row moves to another machine while the attach is out, read from a list rather than a
+    // change the attach watches: the reply is the old machine's, so the attach is asked again.
+    const rows = client as unknown as { sessions: { sessionId: string; peer?: string }[] };
+    rows.sessions = rows.sessions.map((row) => (row.sessionId === A ? { ...row, peer: "mac-two" } : row));
+    daemon.release();
+    await answerOfA(before, 1, "the first attach of chat A");
+    // The kept tail's frame paints: the first reply is read, and the retry goes out and answers.
+    paint();
+    await answerOfA(before, 2, "the retried attach of chat A");
+    expect(attachesOfA()).toBe(before + 2);
+    // The retry's page is in without another frame.
+    expect(client.sessionEvents().map((event) => event.seq)).toEqual([900, 901, 902, 903]);
+    expect(text(last())).toContain("Turn ninety done.");
+    paint();
+    await back;
+  } finally {
+    scope.requestAnimationFrame = had.raf;
+    scope.cancelAnimationFrame = had.caf;
+    client.close();
+  }
+});
+
 test("a chat that ran on past one attach page comes back without a hole in its transcript", async () => {
   const daemon = new Daemon("gap");
   const [A, B] = [daemon.sessionA, daemon.sessionB];

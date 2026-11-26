@@ -6723,6 +6723,7 @@ export class AcpmuxDirectClient {
     tries = 1,
     early?: EarlyAttach,
     forward?: ForwardAttach,
+    painted = false,
   ): Promise<EventRecord[]> {
     // A selection that moved on attaches nothing, and never takes the watch of the attach out.
     if (this.selectedSessionId !== sessionId || generation !== this.selectionGeneration) return [];
@@ -6731,7 +6732,7 @@ export class AcpmuxDirectClient {
     this.attachWatch = watch;
     const token = this.copyAttaches;
     try {
-      return await this.attachWatched(watch, sessionId, generation, keptThrough, tries, early, forward);
+      return await this.attachWatched(watch, sessionId, generation, keptThrough, tries, early, forward, painted);
     } catch (error) {
       // Failed after the row named another session or machine: what came live meanwhile may be
       // that one's, so nothing drawn stays as this chat's. The failure's handling reads the Mac's
@@ -6757,6 +6758,7 @@ export class AcpmuxDirectClient {
     tries: number,
     early?: EarlyAttach,
     forward?: ForwardAttach,
+    painted = false,
   ): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     // An attach of the chat that started after this one (`copyAttaches`: a reconnect's, a
@@ -6792,7 +6794,8 @@ export class AcpmuxDirectClient {
     const result = await sent.attaching;
     // A switch drew the chat's kept tail: its frame paints before the reply's page renders, which
     // a local daemon's reply would otherwise beat. What came live meanwhile is held (`copyLive`).
-    if (keptThrough > 0) await new Promise<void>((resolve) => afterNextPaint(resolve));
+    // A retry of it (`painted`) came after that frame: its reply renders at once.
+    if (keptThrough > 0 && !painted) await new Promise<void>((resolve) => afterNextPaint(resolve));
     this.syncView();
     if (!current()) return [];
     // The row changed while the attach was out to name another session than the reply's (another
@@ -6843,7 +6846,7 @@ export class AcpmuxDirectClient {
     if (recreated || rowNow?.peer !== askedOf) {
       // l10n-allow: an attach's internal retry bound; the pane says its own open failure.
       if (tries >= ATTACH_TRIES) throw new Error("the session changed while it was opened");
-      return this.attach(sessionId, generation, keptThrough, tries + 1);
+      return this.attach(sessionId, generation, keptThrough, tries + 1, undefined, undefined, true);
     }
     this.presence.attached(sessionId, result);
     // A hold carries no page (rows/holdKinds.ts): the store draws the chat's rows, and the page reads
@@ -6880,7 +6883,7 @@ export class AcpmuxDirectClient {
       const replyOf = result?.session?.createdAt;
       if (replyOf !== this.rowsGeneration || (lastSeq !== undefined && lastSeq < forward.afterSeq)) {
         this.wire.lifecycle("forward attach fell back", { sessionId, afterSeq: forward.afterSeq, lastSeq });
-        return this.attach(sessionId, generation, keptThrough, tries);
+        return this.attach(sessionId, generation, keptThrough, tries, undefined, undefined, true);
       }
       // A forward page that leaves more than one read (`BRIDGE_MAX_SEQS`) to the log's end, or an end
       // it does not say, is not laid: it would draw the hole's oldest stretch under the rows held, the
