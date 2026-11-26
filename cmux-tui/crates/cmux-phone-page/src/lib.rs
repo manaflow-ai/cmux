@@ -246,7 +246,11 @@ pub fn parse_request(line: &[u8]) -> Result<Request, (Option<u64>, Refusal)> {
     let method = value.get("method").and_then(Value::as_str).unwrap_or_default();
     let params = check(method, value.get("params").unwrap_or(&Value::Null))
         .map_err(|refusal| (Some(id), refusal))?;
-    let tab = params["tab"].as_str().unwrap_or_default().to_owned();
+    let tab = params
+        .get("tab")
+        .and_then(Value::as_str)
+        .ok_or_else(|| (Some(id), Refusal::new(BAD_REQUEST, "a request needs a tab")))?
+        .to_owned();
     Ok(Request { id, method: method.to_owned(), tab, params })
 }
 
