@@ -34,8 +34,11 @@ async fn held(
     triage: impl Fn(String) -> Result<bool, String> + Send + Sync + 'static,
 ) -> (Arc<Hub>, TestClient, String) {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
-    hub.config.write().await.person_hold =
-        Some(acpmux::config::PersonHoldConfig { sessions: vec!["coord".into()], ms: Some(ms) });
+    hub.config.write().await.person_hold = Some(acpmux::config::PersonHoldConfig {
+        sessions: vec!["coord".into()],
+        ms: Some(ms),
+        join_queued: None,
+    });
     hub.set_prompt_triager(Some(Arc::new(triage)));
     let id = new_session(&mut c, "coord").await;
     (hub, c, id)
@@ -114,4 +117,45 @@ async fn other_chats_never_hold() {
     assert_eq!(echoes_until(&mut c, "go").await, ["echo: go"]);
     assert!(started.elapsed() < Duration::from_secs(10));
     assert_eq!(turns(&hub, &id), 1);
+}
+
+/// Leo, 2026-11-25: "ugh our queuing of batching user messages is awkward as s***. we need to
+/// improve them". In any chat, held or not, the person's prompts queued while a turn runs go in
+/// together as the next turn, in order, as Claude Code sends what was typed meanwhile.
+#[tokio::test]
+async fn prompts_queued_behind_a_running_turn_go_in_as_one_turn() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "worker").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "slow", Some("p-slow"))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-slow").await;
+    for (text, pid) in [("two", "p-2"), ("three", "p-3")] {
+        c.send(method::SESSION_PROMPT, prompt(&id, text, Some(pid))).await;
+        let acc = c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid).await;
+        assert_eq!(acc["queued"], true, "{acc}");
+    }
+    let echoes = echoes_until(&mut c, "three").await;
+    assert_eq!(echoes.last().map(String::as_str), Some("echo: two\n\nthree"), "{echoes:?}");
+    assert_eq!(turns(&hub, &id), 2);
+}
+
+/// `personHold.joinQueued: false` keeps each queued prompt its own turn.
+#[tokio::test]
+async fn join_queued_false_keeps_one_turn_each() {
+    let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.person_hold = Some(acpmux::config::PersonHoldConfig {
+        sessions: vec![],
+        ms: None,
+        join_queued: Some(false),
+    });
+    let id = new_session(&mut c, "worker").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "slow", Some("p-slow"))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-slow").await;
+    for (text, pid) in [("two", "p-2"), ("three", "p-3")] {
+        c.send(method::SESSION_PROMPT, prompt(&id, text, Some(pid))).await;
+        c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == pid).await;
+    }
+    let echoes = echoes_until(&mut c, "three").await;
+    assert!(echoes.iter().any(|e| e == "echo: two"), "{echoes:?}");
+    assert_eq!(echoes.last().map(String::as_str), Some("echo: three"), "{echoes:?}");
+    assert_eq!(turns(&hub, &id), 3);
 }

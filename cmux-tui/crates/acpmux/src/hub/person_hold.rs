@@ -132,6 +132,14 @@ pub(in crate::hub) fn folds(session: &Session, turn_id: &str) -> bool {
     false
 }
 
+/// Whether the person's prompts queued behind the person's turn join it, in any chat: on unless
+/// `personHold.joinQueued` is false. Leo, 2026-11-25: "ugh our queuing of batching user messages is
+/// awkward as s***. we need to improve them", after one message of his went in as several turns.
+/// Claude Code sends what was typed while a turn ran as one next turn; so does this.
+pub(in crate::hub) fn joins_queued(cfg: &crate::config::Config) -> bool {
+    cfg.person_hold.as_ref().and_then(|h| h.join_queued).unwrap_or(true)
+}
+
 /// The blocks of one turn of the person's prompts a hold gathered, `parts` oldest first: each
 /// prompt's blocks as sent, a blank line between two.
 pub(in crate::hub) fn person_blocks(parts: &[super::digest::Part]) -> Vec<Value> {

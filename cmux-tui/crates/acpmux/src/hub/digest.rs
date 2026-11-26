@@ -370,9 +370,17 @@ impl Hub {
             return Vec::new();
         }
         // A review box runs each agent message as its own prompt behind the review (`inbox.rs`).
-        // The person's prompt joins none, but the one a held chat held: the person's prompts
-        // queued behind it join it (`person_hold.rs`).
-        let person = head.agent.is_none() && super::person_hold::folds(session, turn_id);
+        // The person's prompt takes the person's prompts queued behind it, in order, as one turn
+        // (`person_hold.rs` `joins_queued`), and always the ones a held chat held (`folds`, which
+        // also ends the hold). An inbox notice is acpmux's, not the person's: it leads none here.
+        let held = head.agent.is_none() && super::person_hold::folds(session, turn_id);
+        let person = held
+            || (head.agent.is_none()
+                && !super::inbox::is_notice(head.provenance.as_ref())
+                && self
+                    .config
+                    .try_read()
+                    .map_or(true, |cfg| super::person_hold::joins_queued(&cfg)));
         // A cold chat's batch (`cold_wake.rs`): its inbox notice is acpmux's, not the person's,
         // and the agent messages queued behind it (a background task's end, a lane report) go in
         // with it. Outside a batch a notice joins nothing, as before.

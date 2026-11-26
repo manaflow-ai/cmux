@@ -17,6 +17,7 @@ fn only_the_chats_the_config_names_hold_and_for_its_time() {
     cfg.person_hold = Some(crate::config::PersonHoldConfig {
         sessions: vec!["coord".into(), "other".into()],
         ms: None,
+        join_queued: None,
     });
     assert_eq!(hold_ms(&cfg, "coord"), Some(DEFAULT_HOLD_MS));
     assert_eq!(hold_ms(&cfg, "coord-old"), None);
@@ -34,4 +35,13 @@ fn the_triage_prompt_carries_the_words_cut() {
     assert!(p.contains("RUSH or WAIT"), "{p}");
     let long = "x".repeat(10_000);
     assert!(triage_prompt(&long).len() < 4096);
+}
+
+#[test]
+fn queued_prompts_join_unless_the_config_says_no() {
+    let mut cfg = crate::config::Config::default();
+    assert!(joins_queued(&cfg), "on by default");
+    cfg.person_hold =
+        Some(crate::config::PersonHoldConfig { join_queued: Some(false), ..Default::default() });
+    assert!(!joins_queued(&cfg));
 }
