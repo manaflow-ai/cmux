@@ -870,8 +870,8 @@ jobs:
     name: cmux-next path routing
     # Why: note-358
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
-    # Why: note-88
-    timeout-minutes: 8
+    # Why: note-88 (12, not 8: three checkout tries of at most 3 minutes each, below)
+    timeout-minutes: 12
     permissions:
       # Why: note-89
       actions: read
@@ -913,8 +913,15 @@ jobs:
       generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || format('{0}', vars.CI_GENERATED_FILES_LINUX) != '0' && 'generated-files' || github.event_name == 'pull_request' && startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') && 'generated-files' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(steps.route.outputs.labels, ',full-ci,')) && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
     steps:
       # Why: note-469
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
+      # A checkout that GitHub's slowness broke (2026-11-25 from 12Z: 702 path routing failures, "Operation too
+      # slow. Less than 1 bytes/sec transferred the last 60 seconds" on the lazy blob fetch, vs 8 the day before) is
+      # tried twice more after a pause: every job routed here waits on it (docs/handbook
+      # transient-transport-failure-as-hard-error.md).
+      - id: checkout
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: &path-route-checkout
           persist-credentials: false
           # Why: note-94
           fetch-depth: 2
@@ -924,6 +931,25 @@ jobs:
           sparse-checkout: |
             /scripts/ci/prefetch-sparse-checkout.sh
             /scripts/ci/path-route-sparse-checkout.txt
+            /.gitmodules
+      - name: Pause before the checkout retry
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 15
+      - id: checkout-retry
+        name: Retry the checkout after a transient fetch failure
+        if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 3
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: *path-route-checkout
+      - name: Pause before the last checkout try
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"; sleep 30
+      - name: Retry the checkout a last time
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
+        timeout-minutes: 3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with: *path-route-checkout
       - name: Widen the sparse checkout with a parallel blob fetch
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3727,7 +3753,7 @@ jobs:
   # Why: note-205
   fast-tier-cargo:
     needs: [push-head-preflight, path_route, pure-checks-coalesce]
-    if: ${{ !cancelled() && needs.pure-checks-coalesce.outputs.run != 'false' && (inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))) && (github.event_name != 'pull_request' || needs.path_route.outputs.fast_tier_cargo != 'false') && !contains(fromJSON(needs.path_route.outputs.base_red_jobs || '[]'), 'cmux-next fast tier (cargo)') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ !cancelled() && needs.pure-checks-coalesce.outputs.run != 'false' && (inputs.same_tree_sha == '' && inputs.dev_daily != true && needs.push-head-preflight.outputs.current == 'true' && ((github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') || (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next'))) && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.fast_tier_cargo != 'false') && !contains(fromJSON(needs.path_route.outputs.base_red_jobs || '[]'), 'cmux-next fast tier (cargo)') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next fast tier (cargo)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-fast-tier-cargo', github.ref) || format('cmux-next-run-{0}-fast-tier-cargo', github.run_id) }}
