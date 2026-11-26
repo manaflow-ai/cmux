@@ -158,6 +158,7 @@
     "_acpmux/btw": {"params": ["sessionId", "question", "model", "inline", "targetHarness"], "acpmux": []},
     "_acpmux/context": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/ledger": {"params": ["since", "until", "limit", "groupBy"], "acpmux": []},
+    "_acpmux/asks": {"params": ["sessionId", "limit", "before", "beforeId", "view"], "acpmux": []},
     "_acpmux/team_audit": {"params": ["since", "until", "groupBy", "format"], "acpmux": []},
     "_acpmux/review_queue": {"params": ["localOnly", "limit"], "acpmux": []},
     "_acpmux/review_verdict": {"params": ["prUrl", "sessionId", "verdict", "comment"], "acpmux": []},

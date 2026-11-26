@@ -219,7 +219,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_home_resolve": (["sessionId", "accept", "drop"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
-        "_acpmux/asks": (["sessionId", "limit", "before", "beforeId"], []),
+        "_acpmux/asks": (["sessionId", "limit", "before", "beforeId", "view"], []),
         "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
         "_acpmux/review_queue": (["localOnly", "limit"], []),
         "_acpmux/review_verdict": (["prUrl", "sessionId", "verdict", "comment"], []),
