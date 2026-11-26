@@ -140,6 +140,23 @@ public struct SidebarArrangement: Equatable, Sendable {
     /// Sets each workspace's pin and sidebar place. `workspaces` are in the
     /// daemon's order; `legacyPinned` holds the ids the daemon flags pinned.
     public func apply(to workspaces: inout [Workspace], registryID: String?, legacyPinned: Set<String>) {
+        // The rule is Rust's (`workspace_arrangement_apply`, groups by `workspace_group_slots`);
+        // Swift maps in and out.
+        #if os(iOS)
+        let places = workspaceArrangementApply(input: ArrangementInput(
+            workspaces: workspaces.map { ArrangementWorkspace(id: $0.id, resourceId: $0.resourceID) },
+            registryId: registryID, legacyPinned: Array(legacyPinned), rows: rows?.map(\.phone),
+            pins: pins?.map { ArrangementPin(itemId: $0.itemID, value: $0.value) },
+            groups: groups.map(\.phone)))
+        let byID = Dictionary(groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for (i, place) in zip(workspaces.indices, places) {
+            workspaces[i].isPinned = place.isPinned
+            workspaces[i].pinIndex = place.pinIndex.map { Int($0) }
+            workspaces[i].pinItemID = place.pinItemId
+            workspaces[i].sidebarIndex = Int(place.sidebarIndex)
+            workspaces[i].group = place.group.flatMap { byID[$0] }
+        }
+        #else
         let pinIndex: [String: (Int, String)] = Dictionary(
             (pins ?? []).enumerated().map { ($1.value, ($0, $1.itemID)) }, uniquingKeysWith: { first, _ in first })
         // Every session's rows in personal order; this session's keys by place.
@@ -168,6 +185,7 @@ public struct SidebarArrangement: Equatable, Sendable {
             workspaces[i].group = nil
         }
         if let registryID, rows != nil, !groups.isEmpty { applyGroups(to: &workspaces, registryID: registryID) }
+        #endif
     }
 
     /// Where Move Up / Down puts `workspace` among `visible` (the Mac's sidebar
@@ -224,6 +242,12 @@ public enum WorkspaceEdge: String, CaseIterable, Hashable, Sendable {
     /// The row the workspace goes next to in `order` (its container, in the Mac's order), and
     /// on which side; nil when it is already there.
     public func anchor(of workspace: Workspace, in order: [Workspace]) -> (anchor: Workspace, after: Bool)? {
+        // The rule is Rust's (`workspace_edge_anchor`); Swift maps in and out.
+        #if os(iOS)
+        guard let hit = workspaceEdgeAnchor(edge: self == .top ? .top : .bottom, workspace: workspace.id, order: order.map(\.id)),
+              let anchor = order.first(where: { $0.id == hit.anchor }) else { return nil }
+        return (anchor, hit.after)
+        #else
         guard order.contains(where: { $0.id == workspace.id }) else { return nil }
         switch self {
         case .top:
@@ -233,6 +257,7 @@ public enum WorkspaceEdge: String, CaseIterable, Hashable, Sendable {
             guard let last = order.last, last.id != workspace.id else { return nil }
             return (last, true)
         }
+        #endif
     }
 }
 
@@ -325,6 +350,20 @@ public enum WorkspaceSortKey: String, CaseIterable, Hashable, Sendable {
     /// last; `lastUsed` most recently focused first (the daemon's focus order: a phone can't
     /// see a Mac window's own recency), ties in their current order.
     public func sorted(_ workspaces: [Workspace]) -> [Workspace] {
+        // The rule is Rust's (`workspace_sorted`, Finder order by `finder_order`); Swift maps in and out.
+        #if os(iOS)
+        let by: WorkspaceSortBy = switch self {
+        case .name: .name
+        case .lastUsed: .lastUsed
+        case .directory: .directory
+        }
+        let rows = workspaces.map {
+            WorkspaceSortRow(id: $0.id, title: $0.title, directory: $0.directory,
+                             lastActivityAt: $0.hasActivityTime ? $0.lastActivityAt.timeIntervalSince1970 : nil,
+                             focusOrder: Int64($0.focusOrder))
+        }
+        return workspaceSorted(key: by, rows: rows).map { workspaces[Int($0)] }
+        #else
         let position = Dictionary(workspaces.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         func byName(_ lhs: Workspace, _ rhs: Workspace) -> Bool {
             let order = lhs.title.localizedStandardCompare(rhs.title)
@@ -351,6 +390,7 @@ public enum WorkspaceSortKey: String, CaseIterable, Hashable, Sendable {
                 return position[lhs.id, default: 0] < position[rhs.id, default: 0]
             }
         }
+        #endif
     }
 
     /// The moves that turn `order` (one container) into `sorted`, one row at a time as the Mac
@@ -542,6 +582,12 @@ extension WorkspaceCreator {
             .enumerated()
             .sorted { ($0.element.sidebarIndex ?? Int.max, $0.offset) < ($1.element.sidebarIndex ?? Int.max, $1.offset) }
             .map(\.element)
+        // The rule is Rust's (`workspace_containers`); Swift maps in and out.
+        #if os(iOS)
+        return workspaceContainers(rows: rows.map {
+            WorkspaceContainerRow(group: $0.group?.id, sidebarIndex: $0.sidebarIndex.map { Int64($0) })
+        }).map { $0.map { rows[Int($0)] } }
+        #else
         var order: [String?] = []
         var byGroup: [String?: [Workspace]] = [:]
         for row in rows {
@@ -551,6 +597,7 @@ extension WorkspaceCreator {
         }
         // The loose rows first, then the groups in the order their first rows show.
         return ([nil] + order.filter { $0 != nil }).compactMap { byGroup[$0] }
+        #endif
     }
 
     /// Move Workspace to Top / to Bottom of its container. The list shows the new place at
@@ -672,6 +719,21 @@ public enum WorkspaceBulkClose: String, CaseIterable, Hashable, Sendable {
     /// The workspaces this closes when chosen on `workspace`, in `order`. Home never closes
     /// (the Mac's `HomeRules`).
     public func targets(of workspace: Workspace, in order: [Workspace]) -> [Workspace] {
+        // The rule is Rust's (`workspace_close_targets`); Swift maps in and out.
+        #if os(iOS)
+        let kind: WorkspaceCloseKind = switch self {
+        case .others: .others
+        case .above: .above
+        case .below: .below
+        case .othersInGroup: .othersInGroup
+        case .all: .all
+        }
+        // The chosen row's own group is the one it carries (the order may be older).
+        let rows = order.map {
+            WorkspaceCloseRow(id: $0.id, group: $0.id == workspace.id ? workspace.group?.id : $0.group?.id, isHome: $0.isHome)
+        }
+        return workspaceCloseTargets(kind: kind, workspace: workspace.id, order: rows).map { order[Int($0)] }
+        #else
         guard let index = order.firstIndex(where: { $0.id == workspace.id }) else { return [] }
         let targets: [Workspace] = switch self {
         case .others: order.filter { $0.id != workspace.id }
@@ -682,11 +744,16 @@ public enum WorkspaceBulkClose: String, CaseIterable, Hashable, Sendable {
         case .all: order
         }
         return targets.filter { !$0.isHome }
+        #endif
     }
 
     /// "Close 3 workspaces?" (the phone asks first; the Mac closes at once).
     public static func question(_ count: Int) -> String {
-        count == 1 ? "Close 1 workspace?" : "Close \(count) workspaces?"
+        #if os(iOS)
+        return workspaceCloseQuestion(count: UInt32(clamping: count))
+        #else
+        return count == 1 ? "Close 1 workspace?" : "Close \(count) workspaces?"
+        #endif
     }
 }
 

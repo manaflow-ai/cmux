@@ -44,6 +44,7 @@ mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
+mod workspace_arrangement;
 mod workspace_groups;
 mod workspace_moves;
 
