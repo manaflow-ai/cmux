@@ -2,6 +2,8 @@
 // turn's end when its group row did, and every other row keeps its view rows' objects.
 import { expect, test } from "bun:test";
 import { chatRowsFeed } from "../../../../test/support/chatRowsFeed";
+import { turnView } from "../conversation/turns";
+import { bookRevision } from "./bookRevision";
 import { ChatAdapter } from "./adapter";
 import { ChatRowsHost, type ChatRowsPost } from "./host";
 import { ChatRowStore } from "./store";
@@ -19,7 +21,7 @@ const row = (id: number, extra: Partial<ChatRow> = {}): ChatRow => ({
 });
 
 /// A chat opened on `rows`, with a way to send it an op.
-async function chat(rows: ChatRow[]) {
+async function chat(rows: ChatRow[], open: ChatRow[] = []) {
   const store = new ChatRowStore();
   const post: ChatRowsPost = async (method, params) => (method === "chat.rows.open" ? { sid: params.sid } : {});
   const host = new ChatRowsHost(post, store, () => "c");
@@ -33,6 +35,7 @@ async function chat(rows: ChatRow[]) {
       sid: "c",
       cursor: 10,
       edition: 1,
+      open: open.map((row) => ({ row })),
       rows,
       hasBefore: false,
       hasAfter: false,
@@ -54,6 +57,24 @@ test("a new snapshot adapts only the rows that changed", async () => {
   expect(next[2]).toBe(first[2]!);
   expect(next[1]).not.toBe(first[1]!);
   expect(next[1]!.text).toBe("edited");
+  expect(bookRevision(next[1]!)).toBe(2);
+});
+
+test("each open text delta redraws the shaped answer at the same wire revision", async () => {
+  const { snapshot, op } = await chat([row(1, { kind: "user", body: { text: "Prompt" } })], [row(2, { open: true })]);
+  const adapter = new ChatAdapter({ sessionId: "s1" });
+  const answer = () => turnView(adapter.adapt(snapshot()).rows, new Set()).find((row) => row.kind === "assistant")!;
+  const before = answer();
+  expect(before.text).toBe("r2");
+  op({ op: "text", rowId: 2, text: " hello" });
+  const after = answer();
+  expect(after.text).toBe("r2 hello");
+  expect(after.version).toBeGreaterThan(before.version);
+  expect(bookRevision(after)).toBe(1);
+  expect(snapshot().rows.find((entry) => entry.id === 2)?.rev).toBe(1);
+  op({ op: "text", rowId: 2, text: " world" });
+  expect(answer().version).toBeGreaterThan(after.version);
+  expect(answer().text).toBe("r2 hello world");
 });
 
 test("a turn's end is adapted again when its group row changes", async () => {

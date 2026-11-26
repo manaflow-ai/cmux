@@ -49,6 +49,7 @@ type Shown = {
   chat: string;
   sid: string;
   adapter: ChatAdapter;
+  heights?: true;
   stop: () => void;
   view?: AdaptedChat;
   /// `FIRST_WINDOW_MS` running, until the first window is in.
@@ -151,6 +152,7 @@ export class ChatSource {
     const shown: Shown = {
       chat,
       sid: opened.sid,
+      heights: opened.heights,
       adapter: kept?.adapter ?? new ChatAdapter(this.hooks.context(chat)),
       stop: () => {},
     };
@@ -161,6 +163,11 @@ export class ChatSource {
     if (first?.ready) this.draw(shown, first);
     else shown.firstWindow = setTimeout(() => this.slow(shown), this.firstWindowMs);
     return true;
+  }
+
+  heightSid(chat: string | undefined): string | undefined {
+    const shown = this.shown;
+    return shown?.view && shown.heights && shown.chat === chat ? shown.sid : undefined;
   }
 
   /// The view of the chat on screen: its store's rows once its first window is in, else its kept

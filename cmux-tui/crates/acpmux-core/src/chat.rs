@@ -24,6 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub mod act;
 pub mod act_ids;
+mod approval;
 pub mod prompt_lifecycle;
 pub mod queue;
 pub mod source;
@@ -1498,6 +1499,7 @@ fn apply_changes(
 ) -> Result<bool, ChatError> {
     let mut changed = false;
     let mut lacks = BTreeMap::<u64, u64>::new();
+    let mut approved_ask = None;
     for op in ops {
         changed |= matches!(&op.change, Change::Row(row) if !row.open)
             || matches!(&op.change, Change::Patch(_) | Change::Leave(_));
@@ -1514,8 +1516,18 @@ fn apply_changes(
             len: u32::try_from(span).unwrap_or(u32::MAX),
         };
         match op.change {
-            Change::Row(row) => {
+            Change::Approve { ask, call, turn, hint } => {
+                if approval::apply(state, &call, turn, hint, raw)? {
+                    approved_ask = Some(ask);
+                } else {
+                    state.translate.permission_line();
+                }
+            }
+            Change::Row(mut row) => {
                 let id = row.id;
+                if approved_ask == Some(id) && !row.open {
+                    row.fields.insert("drawnOnTool".into(), "true".into());
+                }
                 lacks.remove(&id);
                 if settle_or_open(state, row, raw)? {
                     state.next_generation(id);

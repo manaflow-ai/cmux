@@ -9,6 +9,9 @@ use crate::page::{
     CloseRequest, DriverError, InvalidCode, ListDriver, MAX_REQUEST_BYTES, NextRequest,
     OpenRequest, PageRequest,
 };
+use crate::row_heights::{
+    ReadRequest as RowHeightReadRequest, WriteRequest as RowHeightWriteRequest,
+};
 use crate::wire::{FolderPageResult, FolderWindow, ListKey, Page, Sub};
 use crate::{Change, Client};
 use serde_json::{Value, json};
@@ -713,6 +716,100 @@ pub unsafe extern "C" fn acpmux_client_chat_blob(
             },
             Err(_) => ACPMUX_CLIENT_ERR_INVALID,
         }
+    })
+}
+
+/// Reads remembered row heights from `{ "sid", "rows": [...] }` and returns a matching
+/// `rows` array. Each result carries `height: null` when the exact row revision, view signature,
+/// and width have not been measured yet.
+///
+/// # Safety
+/// `handle`, `request`, and `out` satisfy the pointer and length contract for the duration of
+/// this call. Calls on a handle are serialized by the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_client_row_heights_read(
+    handle: *mut c_void,
+    request: *const u8,
+    request_len: usize,
+    out: *mut Bytes,
+) -> i32 {
+    guarded(|| {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
+            Ok(bytes) => bytes,
+            Err(error) => return error,
+        };
+        let mut request = match serde_json::from_slice::<RowHeightReadRequest>(bytes) {
+            Ok(request) => request,
+            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
+        };
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
+            Ok(client) => client,
+            Err(error) => return error,
+        };
+        let Some(cache_sid) = client.chat_cache_sid(&request.sid) else {
+            return ACPMUX_CLIENT_ERR_INVALID;
+        };
+        request.sid = cache_sid;
+        let response = match client.row_heights.read(request) {
+            Ok(response) => response,
+            Err(()) => return ACPMUX_CLIENT_ERR_INVALID,
+        };
+        let bytes = match serde_json::to_vec(&response) {
+            Ok(bytes) => bytes,
+            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
+        };
+        // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+        unsafe { output(out, bytes) }
+    })
+}
+
+/// Stores measured row heights from `{ "sid", "entries": [{ ..., "height" }] }`.
+/// Heights are bounded CSS-pixel values and the cache evicts its oldest entries at a fixed cap.
+/// Returns `{ "stored" }`.
+///
+/// # Safety
+/// `handle` and `request` satisfy the pointer and length contract for the duration of this call.
+/// Calls on a handle are serialized by the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn acpmux_client_row_heights_write(
+    handle: *mut c_void,
+    request: *const u8,
+    request_len: usize,
+    out: *mut Bytes,
+) -> i32 {
+    guarded(|| {
+        // SAFETY: `request` holds `request_len` readable bytes, by this function's contract.
+        let bytes = match unsafe { request_bytes(request, request_len) } {
+            Ok(bytes) => bytes,
+            Err(error) => return error,
+        };
+        let mut request = match serde_json::from_slice::<RowHeightWriteRequest>(bytes) {
+            Ok(request) => request,
+            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
+        };
+        // SAFETY: `handle` is NULL or a live client the caller owns and calls from one thread,
+        // by this function's contract, so this is the only reference to it.
+        let client = match unsafe { handle_mut(handle) } {
+            Ok(client) => client,
+            Err(error) => return error,
+        };
+        let Some(cache_sid) = client.chat_cache_sid(&request.sid) else {
+            return ACPMUX_CLIENT_ERR_INVALID;
+        };
+        request.sid = cache_sid;
+        let response = match client.row_heights.write(request) {
+            Ok(response) => response,
+            Err(()) => return ACPMUX_CLIENT_ERR_INVALID,
+        };
+        let bytes = match serde_json::to_vec(&response) {
+            Ok(bytes) => bytes,
+            Err(_) => return ACPMUX_CLIENT_ERR_INVALID,
+        };
+        // SAFETY: `out` is NULL or a writable `Bytes` slot, by this function's contract.
+        unsafe { output(out, bytes) }
     })
 }
 

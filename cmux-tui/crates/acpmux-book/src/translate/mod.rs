@@ -30,13 +30,14 @@ use crate::row::{Phase, Row, RowKind};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Version 12 writes no plan rows: an agent to-do list (`plan`) is read past, as cmux shows none
-/// (acpmux `todo_tools.rs`). Version 11 writes each row's phase (entering, live, settled, leaving) and takes rows back by
+/// Version 13 preserves event times and permission receipts for sized row consumers. Version 12
+/// writes no plan rows: an agent to-do list (`plan`) is read past, as cmux shows none (acpmux
+/// `todo_tools.rs`). Version 11 writes each row's phase (entering, live, settled, leaving) and takes rows back by
 /// the leave op; version 10 wrote the card rows, patched by their later records (decisions 253, 254); version
 /// 9 wrote what a user row says of its prompt and its sender, the ask rows and their decisions,
 /// and a turn end a prompt sent now went on under (decisions 231, 235, 236). A book of any other
 /// version rebuilds from raw.
-pub const VERSION: u32 = 12;
+pub const VERSION: u32 = 13;
 /// The translator's segment and the queue's records together.
 pub const MAX_STATE_BYTES: usize = MAX_TRANSLATOR_BYTES + 32 * MAX_QUEUE_ENTRIES;
 /// Every held state at its cap at once, with room left for the live turn: held steers 12 KB, asks
@@ -95,6 +96,9 @@ pub enum Change {
     Row(OwnedRow),
     /// Rare replacement of a settled live-message block; rev is incremented.
     Patch(OwnedRow),
+    /// Resolve a grant against the settled tool in this prompt. Its immutable output remains
+    /// in the book. A hint locates a recent call in one read.
+    Approve { ask: u64, call: String, turn: Option<u64>, hint: Option<u64> },
     /// A row taken back: a reply the harness superseded, a prompt that never ran. Its body
     /// becomes `{"hidden":true}`, its estimate zero and its phase `leaving`; its id and place stay.
     /// At rev 1 the row was open and settles so; past 1 it had settled and is patched. The page
@@ -471,6 +475,10 @@ pub struct State {
     reply: Option<Stream>,
     thought: Option<Stream>,
     tools: BTreeMap<String, OwnedRow>,
+    // The common late answer locates its tool without walking the turn. Older calls can still
+    // be found in the book when a turn outgrows this bounded checkpoint index.
+    recent_calls: std::collections::VecDeque<(u64, u64)>,
+    calls_overflowed: bool,
     subs: BTreeMap<String, OwnedRow>,
     group: Option<OwnedRow>,
     compaction: Option<OwnedRow>,
@@ -497,6 +505,10 @@ pub struct State {
     #[serde(skip)]
     line_errors: u64,
     turn_start_ms: u64,
+    /// The daemon's turn_started event, distinct from the prompt that starts elapsed time.
+    started_event_ms: Option<u64>,
+    /// v1 dates every tool in an uninterrupted activity run by its first record.
+    activity_start_ms: Option<u64>,
     at_ms: u64,
     /// A Claude turn's tokens so far, its calls counted once by message id.
     claude: ClaudeTurn,
@@ -858,6 +870,15 @@ impl State {
             self.bound_counted_rows(63, out);
         }
         self.last_id = self.last_id.checked_add(1).ok_or(Error::CounterExhausted)?;
+        let mut fields = BTreeMap::new();
+        if !self.at_ms.is_multiple_of(1000) {
+            fields.insert("atMs".into(), self.at_ms.to_string());
+        }
+        if matches!(kind, RowKind::Text | RowKind::Notice)
+            && let Some(started) = self.started_event_ms
+        {
+            fields.insert("turnStartedAtMs".into(), started.to_string());
+        }
         Ok(OwnedRow {
             id: self.last_id,
             rev: 1,
@@ -873,7 +894,7 @@ impl State {
             entering: true,
             bytes: 0,
             lines: 0,
-            fields: BTreeMap::new(),
+            fields,
         })
     }
     #[allow(
@@ -1081,6 +1102,8 @@ impl State {
             self.dropped_fold_steers.saturating_add(self.fold.dropped_steers);
         self.fold = fold::Fold::default();
         self.turn_key.clear();
+        self.started_event_ms = None;
+        self.activity_start_ms = None;
         // A turn that ended with no notice (cut off, or no end at all) leaves no tokens to the next.
         self.claude = ClaudeTurn::default();
         // Background tools may complete after this turn. Preserve their original IDs.
@@ -1512,6 +1535,8 @@ impl State {
         } else {
             row.fields.insert("steer".into(), "false".into());
             self.turn = Some(row.id);
+            self.recent_calls.clear();
+            self.calls_overflowed = false;
             self.turn_key = key.into();
             self.turn_start_ms = self.at_ms;
             row.turn = self.turn;
@@ -1654,6 +1679,11 @@ impl State {
         }
         bounded(key)?;
         bounded(message)?;
+        if thinking {
+            self.activity_start_ms.get_or_insert(self.at_ms);
+        } else {
+            self.activity_start_ms = None;
+        }
         let mut slot = if thinking { self.thought.take() } else { self.reply.take() };
         if slot.as_ref().is_some_and(|s| s.key != key) {
             if !thinking
@@ -1861,6 +1891,9 @@ impl State {
                     let mut row = self.tools.remove(&key).or_else(|| self.subs.remove(&key));
                     if let Some(mut row) = row.take() {
                         row.open = false;
+                        if row.kind == RowKind::Tool {
+                            row.field("callId", &key);
+                        }
                         self.remember_forced(&key, row.id);
                         out.row(&row);
                     }
@@ -1960,7 +1993,17 @@ impl State {
             row
         } else {
             let mut row = self.row(RowKind::Tool, out)?;
+            if self.recent_calls.len() == 64 {
+                self.recent_calls.pop_front();
+                self.calls_overflowed = true;
+            }
+            self.recent_calls.push_back((prompt_hash(key), row.id));
             row.group = self.group.as_ref().map(|g| g.id);
+            row.fields.insert("startedAt".into(), self.at_ms.to_string());
+            let activity_at = *self.activity_start_ms.get_or_insert(self.at_ms);
+            if activity_at != self.at_ms {
+                row.fields.insert("activityAt".into(), activity_at.to_string());
+            }
             if row.field("callId", key) {
                 self.cut_fields = self.cut_fields.saturating_add(1);
             }
@@ -1971,10 +2014,24 @@ impl State {
             }
             row
         };
-        for (key, value) in metadata {
+        if ended {
+            // The book may outline the bulk output. Keep its lookup key on that outline.
+            row.field("callId", key);
+            row.fields.insert("endedAt".into(), self.at_ms.to_string());
+        }
+        let mut provenance = serde_json::Map::new();
+        for &(key, value) in metadata {
+            if matches!(key, "tool" | "claudeCodeToolName") {
+                let name = if key == "tool" { "claudeTool" } else { key };
+                provenance.insert(name.into(), cut(value, MAX_KEY_BYTES).into());
+            }
             if row.field(key, value) {
                 self.cut_fields = self.cut_fields.saturating_add(1);
             }
+        }
+        if !provenance.is_empty() {
+            row.fields
+                .insert("provenance".into(), serde_json::Value::Object(provenance).to_string());
         }
         out.row(&row);
         for (field, append, raw) in parts {
@@ -1984,7 +2041,7 @@ impl State {
             row.open = false;
             out.row(&row);
         } else {
-            row.fields.clear();
+            row.fields.retain(|field, _| field == "approved");
             self.tools.insert(key.into(), row);
         }
         Ok(())

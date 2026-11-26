@@ -67,6 +67,7 @@ fn a_permission_opens_an_ask_row_its_decision_settles() {
             ("permissionId".to_owned(), "\"p1\"".to_owned()),
             ("turnId".to_owned(), "\"t1\"".to_owned()),
             ("title".to_owned(), "\"Run make\"".to_owned()),
+            ("toolCallId".to_owned(), "\"c1\"".to_owned()),
         ])
     );
     assert_eq!(body_fields(&ops, id), [BodyField::Request]);
