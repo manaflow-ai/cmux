@@ -54,7 +54,12 @@ publish = step("Publish nightly release assets")
 if "nightly-next" not in publish or "x86_64" not in publish:
     failures.append("'Publish nightly release assets' must publish only arm64 on nightly-next and all variants elsewhere")
 assemble = step("Assemble legacy nightly names")
-if "nightly-next" not in assemble:
+# The step runs scripts/ci/nightly-steps/publish-assemble-legacy-names.sh; since #56983 every track but rc
+# (nightly-next with it) builds arm64 only and skips the universal legacy names.
+assemble_script = (Path(__file__).resolve().parents[1] / "scripts/ci/nightly-steps/publish-assemble-legacy-names.sh")
+if "publish-assemble-legacy-names.sh" in assemble:
+    assemble += assemble_script.read_text()
+if "nightly-next" not in assemble and 'if [ "$NIGHTLY_TRACK" != rc ]; then' not in assemble:
     failures.append("'Assemble legacy nightly names' must skip the universal legacy names on nightly-next")
 notes = step("Prepare nightly release notes and appcast summaries")
 if "--feeds" not in notes or "$NIGHTLY_FEEDS" not in notes:
