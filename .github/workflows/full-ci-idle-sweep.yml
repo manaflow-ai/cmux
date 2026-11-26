@@ -34,14 +34,25 @@ jobs:
       contents: read
       issues: write
       pull-requests: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
+      # Under the repository GITHUB_TOKEN floor the sweep removes nothing and the next tick looks again
+      # (scripts/ci/job_token_floor.py; GET /rate_limit is free).
+      - name: Read the GITHUB_TOKEN floor
+        id: job-floor
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          JOB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/job_token_floor.py full-ci-idle-sweep/sweep
+
       - name: Clear stale full-ci
+        if: steps.job-floor.outputs.held != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
