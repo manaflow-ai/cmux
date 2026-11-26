@@ -7,7 +7,8 @@ internal import Foundation
 /// show and decide lives in Rust; the Swift views ask it through here and stay views.
 ///
 ///     let names: [String] = try HomeRules.call("ops.list", HomeRules.Empty())
-public nonisolated enum HomeRules {
+public nonisolated struct HomeRules {
+    public nonisolated init() {}
     /// An op's empty request (`{}`).
     public nonisolated struct Empty: Codable, Sendable, Equatable {
         public init() {}
