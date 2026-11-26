@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createVm, deleteLiveVms, deleteVm, Ledger, trackLiveVm, type Vm } from "../scripts/cmux-vm-image/guest";
+import { createVm, deleteLiveVms, deleteVm, isRetryableDeleteError, Ledger, trackLiveVm, type Vm } from "../scripts/cmux-vm-image/guest";
 
 const fakeVm = (deleted: string[], id: string) => ({ delete: async () => void deleted.push(id) }) as unknown as Vm;
 
@@ -96,10 +96,10 @@ describe("image VM delete retries a provider 5xx (run 44112930938: a passing smo
   });
 });
 
-describe("image VM delete retries a delete the client timed out (run 45829777164: smoke failed in vm.delete)", () => {
-  const timeout = () => Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
+describe("image VM delete retries a client timeout (run 45829777164: roll smoke failed on its cleanup's TimeoutError)", () => {
+  const timeoutError = () => Object.assign(new Error("The operation timed out."), { name: "TimeoutError" });
 
-  test("a TimeoutError on delete is retried and the VM is deleted", async () => {
+  test("a TimeoutError with no status on delete is retried and the VM is deleted", async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-delete-timeout-"));
     const ledger = new Ledger(path.join(dir, "resources.tsv"));
     const id = "vm-delete-timeout";
@@ -108,7 +108,7 @@ describe("image VM delete retries a delete the client timed out (run 45829777164
     const vm = {
       delete: async () => {
         attempts++;
-        if (attempts === 1) throw timeout();
+        if (attempts === 1) throw timeoutError();
       },
     } as unknown as Vm;
     ledger.record(id, "vm", name);
@@ -120,27 +120,13 @@ describe("image VM delete retries a delete the client timed out (run 45829777164
     expect(await deleteLiveVms()).toEqual([]);
   });
 
-  test("a delete that times out every try still fails after the bounded retries, and the VM stays tracked", async () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-guest-delete-timeout-out-"));
-    const ledger = new Ledger(path.join(dir, "resources.tsv"));
-    const id = "vm-delete-timeout-out";
-    const name = "cmuxnp-dev-vmimg-t-timeout-out";
-    let attempts = 0;
-    let down = true;
-    const vm = {
-      delete: async () => {
-        attempts++;
-        if (down) throw timeout();
-      },
-    } as unknown as Vm;
-    ledger.record(id, "vm", name);
-    trackLiveVm({ vm, vmId: id, name, ledger });
-
-    await expect(deleteVm(vm, id, name, ledger, { sleep: async () => {}, delaysMs: [1, 1] })).rejects.toThrow("timed out");
-    expect(attempts).toBe(3);
-    expect(ledger.live()).toEqual([{ id, kind: "vm", name }]);
-    down = false;
-    expect(await deleteLiveVms()).toEqual([id]);
+  test("only 5xx and client timeouts are retryable", () => {
+    expect(isRetryableDeleteError(timeoutError())).toBe(true);
+    expect(isRetryableDeleteError(Object.assign(new Error("x"), { status: 503 }))).toBe(true);
+    expect(isRetryableDeleteError(Object.assign(new Error("x"), { status: 400 }))).toBe(false);
+    expect(isRetryableDeleteError(Object.assign(new Error("x"), { name: "TimeoutError", status: 403 }))).toBe(false);
+    expect(isRetryableDeleteError(new Error("temporary provider refusal"))).toBe(false);
+    expect(isRetryableDeleteError(null)).toBe(false);
   });
 });
 

@@ -145,14 +145,25 @@ export async function createVm(fs: Freestyle, ledger: Ledger, options: { name: s
   return { vm, vmId, createMs, t0 };
 }
 
-/** Waits before each retry of a delete the provider answered 5xx, or that timed out: 4 tries over 35 s. */
+/** Waits before each retry of a delete that failed retryably (5xx or client timeout): 4 tries over 35 s. */
 export const DELETE_RETRY_DELAYS_MS: readonly number[] = [5_000, 10_000, 20_000];
 
-// A provider 5xx on delete (run 44112930938: 503 INTERNAL_ERROR after a smoke whose checks all passed) is
-// retried: a delete is idempotent, and 404 below already reads a lost success as gone. Any other error, and a
-// 5xx that outlasts the delays, goes to the caller with the VM still tracked, as before. A delete the client gave
-// up on (TimeoutError, no status: run 45829777164's smoke failed in its cleanup after its checks passed) is retried
-// the same way: the provider may have done it, and the next try reads that as 404.
+/**
+ * True when a delete failed in a way a retry can clear: a provider 5xx, or the client's own timeout waiting
+ * on the provider's background delete (run 45829777164: "TimeoutError: The operation timed out." from
+ * freestyle's pollBackgroundRequest, no status, after a roll smoke whose checks passed).
+ */
+export function isRetryableDeleteError(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  if (typeof status === "number") return status >= 500;
+  const name = (error as { name?: unknown } | null)?.name;
+  return name === "TimeoutError";
+}
+
+// A provider 5xx on delete (run 44112930938: 503 INTERNAL_ERROR after a smoke whose checks all passed) or a
+// client timeout with no status (run 45829777164) is retried: a delete is idempotent, and 404 below already
+// reads a lost success as gone. Any other error, and a retryable one that outlasts the delays, goes to the
+// caller with the VM still tracked, as before.
 export async function deleteVm(
   vm: Vm, vmId: string, name: string, ledger: Ledger,
   deps: { sleep?: (ms: number) => Promise<unknown>; delaysMs?: readonly number[] } = {},
@@ -166,8 +177,7 @@ export async function deleteVm(
       const status = (error as { status?: unknown } | null)?.status;
       // A prior delete may have succeeded before its response was lost.
       if (status === 404) break;
-      const timedOut = (error as { name?: unknown } | null)?.name === "TimeoutError";
-      if (((typeof status === "number" && status >= 500) || timedOut) && attempt < delays.length) {
+      if (isRetryableDeleteError(error) && attempt < delays.length) {
         await (deps.sleep ?? sleep)(delays[attempt]);
         continue;
       }
