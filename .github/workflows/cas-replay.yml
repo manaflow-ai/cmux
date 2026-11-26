@@ -39,6 +39,7 @@ on:
     paths:
       - "cmux-tui/crates/cmux-cas/**"
       - "scripts/cas/**"
+      - "scripts/cmux-next/web-bundle-archive.py"
       - ".github/workflows/cas-replay.yml"
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
