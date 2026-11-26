@@ -77,6 +77,12 @@ class Workflow(unittest.TestCase):
         self.assertIn("--arg=--nightly", text)
         self.assertIn("arch: [arm64, x86_64]", text)
         self.assertEqual(sorted(npb.ARCHS), ["arm64", "x86_64"])
+        # The gateway runner refuses any job whose id does not end in -fleet.
+        gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: \$\{\{ vars.CI_EVAL_STEP_GATEWAY", text, re.M)
+        self.assertTrue(gateway)
+        for job in gateway:
+            self.assertTrue(job.endswith("-fleet"), job)
+        self.assertIn("69|75|124)", text)
         for name in re.findall(r"^    name: (.*)$", text, re.M):
             self.assertIn("(advisory)", name)
 
