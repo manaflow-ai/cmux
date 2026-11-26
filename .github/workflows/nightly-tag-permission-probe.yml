@@ -39,7 +39,7 @@ jobs:
   probe:
     permissions:
       contents: write
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_SECRET_SKIP_FLEET != '1' && 'cmux-gcp-secret-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
       - name: Check out the probe target
