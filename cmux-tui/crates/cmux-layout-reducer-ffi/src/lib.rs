@@ -53,6 +53,8 @@
 //! the tab strip's commands on its tabs (`tab_strip_*`, cmux-window-rules `tabs::strip`),
 //! `cmux-cloud-machine`'s Cloud machine record and rules (the other `cloud_machine_*`) and
 //! the small Cloud API models (`cloud_model_*`),
+//! `cmux-window-rules`' right column rule and subagent pane tracker
+//! (`right_column_decide`, `right_column_beside`, `subagent_panes_step`),
 //! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
 //! `focus_child_window_key`), agent cursor visibility
 //! (`agent_cursor_visibility`) and input invariants (`focus_input_world`,
@@ -99,6 +101,7 @@ mod imessage;
 pub mod input;
 pub mod keychain;
 mod pane_focus;
+mod pane_placement;
 mod screen;
 pub mod scroll;
 pub mod shown_resize;
@@ -178,6 +181,7 @@ const MODULE_HANDLERS: &[(&str, Handles, Respond)] = &[
     ("cloud_sequence", cloud_sequence::handles, cloud_sequence::respond),
     ("cloud_task", cloud_task::handles, cloud_task::respond),
     ("pane_focus", pane_focus::handles, |_, request| pane_focus::respond(request)),
+    ("pane_placement", pane_placement::handles, pane_placement::respond),
     ("screen", screen::handles, screen::respond),
     ("tab_discard", tab_discard::handles, tab_discard::respond),
     ("tab_groups", tab_groups::handles, tab_groups::respond),
@@ -406,6 +410,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: capability::AnswerRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&capability::answer(request)).map_err(|_| ERR_INVALID)?
+            }
+            // A held create's approval: the next session call to make, or the outcome (cmux-cloud-start-core approval_answer).
+            b"cloud_approval_next" => {
+                use cmux_cloud_start_core::approval_answer;
+                let request: approval_answer::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&approval_answer::next(&request)).map_err(|_| ERR_INVALID)?
             }
             b"cloud_capability_drop" => {
                 cmux_cloud_start_core::capability::forget();
