@@ -2025,7 +2025,7 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
             "needs": {
                 "push-head-preflight": {"outputs": {"current": "true"}},
                 "fast-tier-cargo": {"result": cargo},
-                "path_route": {"outputs": {key: value for key, value in (("macos", macos), ("fast_tier", fast_tier))
+                "path_route": {"result": "success", "outputs": {key: value for key, value in (("macos", macos), ("fast_tier", fast_tier))
                                            if value is not None}},
             },
         }
@@ -3886,6 +3886,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             "needs.fast-tier-cargo.result": "success",
             "needs.path_route.outputs.mac_release": "true",
             "github.run_attempt": 1,
+            "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
         }
         if event == "pull_request":
             context.update({"github.event.pull_request.head.repo.full_name": head_repo,
