@@ -227,6 +227,28 @@ class WorkflowShape(unittest.TestCase):
                                 or any(("/" + path).startswith(p) and p.endswith("/") for p in patterns), path)
         self.assertIn("--filter=tree:0", fast_gates_source())
 
+    def test_checkout_holds_every_tests_module_a_gate_imports(self):
+        # cmux#57582 (run 45880398424): the egress gate imports tests/test_egress_gate.py, which the sparse checkout
+        # left out, so every pull request's fast gates failed on ModuleNotFoundError. A gate script's `tests/` import,
+        # followed through the modules it imports, must be on disk.
+        patterns = step_named(job(workflow())["steps"], "Checkout")["with"]["sparse-checkout"].split()
+        scripts = sorted(set(re.findall(r'"((?:scripts|tests)/[\w./-]+\.py)"', fast_gates_source())))
+        self.assertIn("scripts/ci/egress_new_sites.py", scripts)
+        seen: set[str] = set()
+        todo = [ROOT / s for s in scripts]
+        while todo:
+            path = todo.pop()
+            if not path.exists():
+                continue
+            for name in re.findall(r"^\s*(?:from|import)\s+([A-Za-z_]\w*)", path.read_text(encoding="utf-8"), re.M):
+                module = ROOT / "tests" / f"{name}.py"
+                if module.exists() and name not in seen:
+                    seen.add(name)
+                    todo.append(module)
+                    with self.subTest(gate=str(path.relative_to(ROOT)), module=name):
+                        self.assertIn(f"/tests/{name}.py", patterns, f"{path.relative_to(ROOT)} imports tests/{name}.py")
+        self.assertIn("test_egress_gate", seen)
+
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
         # A feat-cmux-next pull request runs it from pr-router.yml (scripts/ci/pr_router.json), with no path filter
