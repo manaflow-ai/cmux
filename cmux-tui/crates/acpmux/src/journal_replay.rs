@@ -209,6 +209,35 @@ mod tests {
     }
 
     #[test]
+    fn visible_preserves_unicode_at_the_preview_boundary() {
+        assert_eq!(visible(""), "");
+        let full = "🦀".repeat(640);
+        assert_eq!(visible(&full), full);
+        assert_eq!(visible(&format!("x{full}")), format!("…{full}"));
+        assert_eq!(visible(&format!("{}z", "界".repeat(640))), format!("…{}z", "界".repeat(639)));
+    }
+
+    #[test]
+    fn duplicate_only_pages_advance_by_watermark_without_reducing_twice() {
+        let mut values = Vec::new();
+        let work = read(
+            |after, _| {
+                Ok(match after {
+                    0 => page(&[1], true, 1),
+                    1 => page(&[1], true, 8),
+                    8 => page(&[9], false, 9),
+                    _ => unreachable!(),
+                })
+            },
+            |event| values.push(event.seq),
+        )
+        .unwrap();
+        assert_eq!(values, [1, 9]);
+        assert_eq!((work.pages, work.duplicates, work.reduced), (3, 1, 2));
+        assert!(read(|_, _| Ok(page(&[1], true, 0)), |_| {}).is_err());
+    }
+
+    #[test]
     fn sorts_deduplicates_and_consumes_an_empty_filtered_page() {
         let mut asks = Vec::new();
         let mut values = Vec::new();
