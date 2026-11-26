@@ -2,133 +2,133 @@
   "sourceLanguage" : "en",
   "strings" : {
     "settings.sessions.keepAwakeWhenLocked.help" : {
-      "comment" : "Settings > Sessions: help under Keep Agents Running While Locked",
+      "comment" : "Settings > Sessions > Keep Agents Running While Locked help: how long and when the Mac stays awake.",
       "extractionState" : "manual",
       "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
+          }
+        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "أثناء قفل جهاز Mac، يبقى مستيقظًا لوكيل يعمل، حتى على البطارية، لمدة تصل إلى ساعتين. إغلاق الغطاء على البطارية لا يزال يضعه في وضع السكون."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Dok je vaš Mac zaključan, ostaje budan za agenta koji radi, čak i na bateriji, do 2 sata. Zatvaranje poklopca na bateriji ga i dalje uspavljuje."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Mens din Mac er låst, forbliver den vågen for en agent, der arbejder, selv på batteri, i op til 2 timer. Lukker du låget på batteri, går den stadig i dvale."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Während dein Mac gesperrt ist, bleibt er für einen arbeitenden Agenten wach, auch im Akkubetrieb, bis zu 2 Stunden. Das Schließen des Deckels im Akkubetrieb versetzt ihn weiterhin in den Ruhezustand."
-          }
-        },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mientras tu Mac está bloqueado, permanece activo para un agente que está trabajando, incluso con batería, hasta 2 horas. Cerrar la tapa con batería lo sigue poniendo en reposo."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pendant que votre Mac est verrouillé, il reste éveillé pour un agent au travail, même sur batterie, jusqu’à 2 heures. Fermer l’écran sur batterie le met toujours en veille."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mentre il Mac è bloccato, resta attivo per un agente al lavoro, anche a batteria, fino a 2 ore. Chiudere lo schermo a batteria lo mette comunque in stop."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mac がロックされている間、作業中のエージェントのためにバッテリー駆動でも最大 2 時間スリープしません。バッテリー駆動中に蓋を閉じるとスリープします。"
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ពេល Mac របស់អ្នកត្រូវបានចាក់សោ វានៅភ្ញាក់សម្រាប់ភ្នាក់ងារដែលកំពុងធ្វើការ សូម្បីតែប្រើថ្ម រហូតដល់ 2 ម៉ោង។ ការបិទគម្របពេលប្រើថ្មនៅតែធ្វើឱ្យវាដេក។"
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mac이 잠겨 있는 동안 작업 중인 에이전트를 위해 배터리 사용 중에도 최대 2시간 동안 깨어 있습니다. 배터리 사용 중 덮개를 닫으면 여전히 잠자기 상태가 됩니다."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mens Macen er låst, holder den seg våken for en agent som jobber, også på batteri, i opptil 2 timer. Lukker du lokket på batteri, går den fortsatt i dvale."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Gdy Mac jest zablokowany, pozostaje wybudzony dla pracującego agenta, nawet na baterii, do 2 godzin. Zamknięcie pokrywy na baterii nadal go usypia."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Enquanto o Mac está bloqueado, ele fica ativo para um agente que está trabalhando, mesmo na bateria, por até 2 horas. Fechar a tampa na bateria ainda o coloca em repouso."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Пока Mac заблокирован, он не засыпает ради работающего агента, даже от батареи, до 2 часов. Если закрыть крышку при работе от батареи, Mac всё равно уснёт."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ขณะที่ Mac ถูกล็อก เครื่องจะไม่พักเครื่องเพื่อให้เอเจนต์ที่กำลังทำงานต่อได้ แม้ใช้แบตเตอรี่ นานสูงสุด 2 ชั่วโมง การปิดฝาขณะใช้แบตเตอรี่ยังคงทำให้เครื่องพัก"
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mac’iniz kilitliyken, çalışan bir ajan için pildeyken bile 2 saate kadar uyanık kalır. Pildeyken kapağı kapatmak onu yine uyutur."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Поки Mac заблоковано, він не засинає заради агента, що працює, навіть від батареї, до 2 годин. Якщо закрити кришку на батареї, Mac однаково засне."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Khi máy Mac bị khóa, máy vẫn thức cho tác nhân đang làm việc, kể cả khi dùng pin, tối đa 2 giờ. Gập nắp khi dùng pin vẫn khiến máy ngủ."
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mac 锁定时，即使使用电池，也会为正在工作的智能体保持唤醒，最长 2 小时。使用电池时合上盖子仍会进入睡眠。"
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mac 鎖定時，即使使用電池，也會為正在工作的代理程式保持喚醒，最長 2 小時。使用電池時闔上蓋子仍會進入睡眠。"
+            "value" : "While your Mac is locked, it stays awake for an agent that is working, even on battery, for up to 2 hours. Closing the lid on battery still puts it to sleep."
           }
         }
       }
