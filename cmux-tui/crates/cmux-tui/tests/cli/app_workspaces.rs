@@ -11,7 +11,7 @@ mod workspace_resource_deltas;
 #[path = "conversation_tab_once.rs"]
 mod conversation_tab_once;
 
-const APP: &str = "cmux/coderouter";
+const APP: &str = "cmux/inbox";
 
 /// The daemon's installed apps: the first-party packages of this checkout,
 /// with only [`APP`] installed by default.
@@ -122,12 +122,7 @@ fn first_workspace_added(rx: &mpsc::Receiver<String>, workspace_id: &str) -> ser
 }
 
 fn ensure_app(server: &HeadlessServer, app: &str, key: &str) -> serde_json::Value {
-    v2(
-        server,
-        "workspace.ensure_app",
-        serde_json::json!({"app": app, "name": "CodeRouter"}),
-        Some(key),
-    )
+    v2(server, "workspace.ensure_app", serde_json::json!({"app": app, "name": "Inbox"}), Some(key))
 }
 
 /// The raw tree's workspaces.
