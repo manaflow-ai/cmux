@@ -186,6 +186,32 @@ class DaemonTestsGateTests(unittest.TestCase):
                 subprocess.run(["bash", "-c", marked["run"]], env=env, check=True, capture_output=True)
                 self.assertEqual("marked=true" in output.read_text(encoding="utf-8"), want, codes)
 
+    def test_the_job_frees_its_own_build_need_before_the_caches_land(self) -> None:
+        # Six cold runs on 2026-11-26 lost their pool runner "No space left on device" in cargo test: the
+        # pool's start hook cleans only under one job's need (17 GiB) and this build writes a ~20 GiB target.
+        daemon = jobs()["cmux-next-daemon-tests"]
+        names = [s.get("name") for s in daemon["steps"]]
+        free = step(daemon, "Free this job's build need on a pool runner")
+        self.assertLess(names.index(free["name"]), names.index("Cache cargo build"))
+        self.assertLess(names.index(free["name"]), names.index("Make room for the cargo build (disk floor)"))
+        self.assertEqual(free["continue-on-error"], "true")
+        self.assertIn("steps.marked.outputs.marked != 'true'", free["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            seen = Path(tmp) / "seen"
+            hook = Path(tmp) / "cmux-disk-floor.sh"
+            hook.write_text(f'#!/usr/bin/env bash\necho "$1 $CMUX_DISK_JOB_BYTES" > {seen}\nexit 3\n', encoding="utf-8")
+            hook.chmod(0o755)
+            run = free["run"].replace("/opt/cmux-disk-floor.sh", str(hook))
+            env = dict(os.environ, GITHUB_WORKSPACE=tmp)
+            subprocess.run(["bash", "-e", "-c", run], env=env, check=True, capture_output=True)
+            phase, need = seen.read_text(encoding="utf-8").split()
+            self.assertEqual(phase, "started")
+            self.assertGreater(int(need), 17 << 30)
+            # Off the pool (no hook) the step does nothing and passes.
+            subprocess.run(["bash", "-e", "-c", free["run"].replace("/opt/cmux-disk-floor.sh", str(Path(tmp) / "absent"))],
+                           env=env, check=True, capture_output=True)
+
+
 
 TARGET_SCRIPT = ROOT / "scripts" / "ci" / "cmux-tui-test-target.sh"
 # A fake df: the target's disk shows FREE_KIB_WITH_TARGET while cmux-tui/target exists, FREE_KIB_WITHOUT after.
