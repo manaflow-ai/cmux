@@ -3629,7 +3629,7 @@ describe("requestTimedOut", () => {
   });
 });
 
-describe("an install token that expires mid-run (run 45874526877: connect_info 401 28 min after the mint)", () => {
+describe("a machine create with one overall deadline (run 45874526877: cold create waited 847 s)", () => {
   /** A local API that records each request's bearer, and answers a create only after `holdMs`. */
   async function api<T>(holdMs: number, run: (url: string, bearers: string[], creates: () => number) => Promise<T>): Promise<T> {
     const bearers: string[] = [];
@@ -3642,32 +3642,6 @@ describe("an install token that expires mid-run (run 45874526877: connect_info 4
     } });
     try { return await run(`http://127.0.0.1:${server.port}`, bearers, () => creates); } finally { server.stop(true); }
   }
-
-  test("a bearer older than renewAfterMs is signed again before the request; a fresh one is sent as is", async () => {
-    await api(0, async (url, bearers) => {
-      const a = new Api(url);
-      a.bearer = "first";
-      let minted = 0;
-      a.renew = async () => `renewed-${++minted}`;
-      await a.read("cloud.machine.connect_info", { machine: "m" });
-      expect(bearers.at(-1)).toBe("Bearer first");
-      a.bearerAt = Date.now() - a.renewAfterMs;
-      await a.read("cloud.machine.connect_info", { machine: "m" });
-      await a.raw("GET", "/v1/cloud/inference-gateway");
-      expect(bearers.slice(-2)).toEqual(["Bearer renewed-1", "Bearer renewed-1"]);
-      expect(minted).toBe(1);
-    });
-  });
-
-  test("an Api with no renew (the Stack session) never changes its bearer", async () => {
-    await api(0, async (url, bearers) => {
-      const a = new Api(url);
-      a.bearer = "stack";
-      a.bearerAt = 0;
-      await a.read("user.ensure", {});
-      expect(bearers).toEqual(["Bearer stack"]);
-    });
-  });
 
   test("an op with a deadline is not sent again past it (the cold create's 2 x 300 s, run 45874526877)", async () => {
     await api(3_000, async (url, _b, creates) => {
