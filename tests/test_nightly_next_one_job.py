@@ -317,6 +317,14 @@ class NightlyNextOneJobTests(unittest.TestCase):
         # published-build and the GitHub release start when it ends. The job needs the feed, signs the deltas with
         # the Sparkle key behind its own stray-process check, runs no bundle code, and never fails the run.
         jobs = workflow()["jobs"]
+        outputs = jobs["nightly-next-one"].get("outputs") or {}
+        for name in ("deltas_build", "deltas_dmg", "deltas_dmg_release", "deltas_appcast", "deltas_min_system"):
+            self.assertIn(name, outputs)
+        one_steps = jobs["nightly-next-one"].get("steps") or []
+        hand = next(step for step in one_steps if step.get("name") == "Hand the deltas job its inputs")
+        self.assertEqual(hand.get("id"), "deltas-inputs")
+        for name in ("build", "dmg", "dmg_release", "appcast", "min_system"):
+            self.assertIn(f'echo "{name}=', hand.get("run", ""))
         job = jobs["nightly-next-deltas"]
         self.assertIn("nightly-next-one", job.get("needs") or [])
         self.assertIn("needs.nightly-next-one.outputs.feed_written == 'true'", one_line(job.get("if")))
@@ -349,6 +357,12 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertIn("appcast-with-nearest-deltas.sh after-feed", steps[build].get("run", ""))
         self.assertIn("republish-deltas-upload-next-appcasts.sh", steps[upload].get("run", ""))
         self.assertEqual((steps[upload].get("env") or {}).get("DELTAS_ONLY_WHILE_NEWEST"), "1")
+        wipe = names.index("Wipe this job's credentials and temp files")
+        remove = names.index("Remove this job's checkout, DMG and deltas")
+        self.assertLess(wipe, remove)
+        self.assertEqual(steps[wipe].get("working-directory"), ".nightly-next-deltas")
+        self.assertIn("one-job.sh wipe", steps[wipe].get("run", ""))
+        self.assertEqual(one_line(steps[wipe].get("if")), "always()")
         prebuilt = next(s for s in steps if s.get("name") == "Point the deltas job at the keyless prebuild")
         self.assertEqual(prebuilt.get("run"), 'echo "NIGHTLY_NEXT_PREBUILT=$HOME/.cmux-nightly-next-prebuilt" >> "$GITHUB_ENV"')
         # Its own directory only: the kept build workspace beside it stays as nightly-next-one left it.

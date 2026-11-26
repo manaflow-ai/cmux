@@ -7716,6 +7716,10 @@ jobs:
           # The tail's own revise (R2 upload, merge into the live item, prune, guard, then write-feed
           # --same-build: only while the live feed still serves this build).
           bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
+      - name: Wipe this job's credentials and temp files
+        if: always()
+        working-directory: .nightly-next-deltas
+        run: bash scripts/ci/nightly-steps/one-job.sh wipe
       # Only this job's own directory: the kept build workspace beside it stays.
       - name: Remove this job's checkout, DMG and deltas
         if: always()
