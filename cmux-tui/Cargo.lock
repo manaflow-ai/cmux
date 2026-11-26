@@ -2815,6 +2815,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
+ "cmux-process",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",

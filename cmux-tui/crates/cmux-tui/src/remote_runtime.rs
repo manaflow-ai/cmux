@@ -1925,11 +1925,16 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
             // A master lost with the network authenticates again here, out of
             // the attempt budget: a person may be typing a password, and a
             // 15 s cut would kill ssh and prompt again each attempt.
-            open_shared_ssh_connection(&endpoint, &self.options.ssh).await.map_err(|error| {
-                ProviderError::Transport(format!(
-                    "SSH connection failed for reconnect route {display_endpoint}: {error:#}"
-                ))
-            })?;
+            tokio::select! {
+                result = open_shared_ssh_connection(&endpoint, &self.options.ssh) => {
+                    result.map_err(|error| ProviderError::Transport(format!(
+                        "SSH connection failed for reconnect route {display_endpoint}: {error:#}"
+                    )))?;
+                }
+                () = wait_for_shutdown_request(self.shutdown.clone()) => {
+                    return Err(ProviderError::Transport("SSH reconnect interrupted".into()));
+                }
+            }
         }
         tokio::time::timeout(
             self.options.reconnect.attempt_timeout,

@@ -303,8 +303,6 @@ impl LinkGroup for SshLinkGroup {
         if self.closed.load(Ordering::Acquire) {
             return Err(ProviderError::Transport("SSH connection group is closed".into()));
         }
-        let mut ssh_args = self.connect_timeout_args(request.generation).await;
-        ssh_args.extend(self.config.extra_args.iter().cloned());
         // With a shared connection the link is a client of its master (no
         // second authentication). Otherwise forwarding stays as configured
         // unless `extra_args` pin `ControlMaster=no`: this run can become the
@@ -320,6 +318,7 @@ impl LinkGroup for SshLinkGroup {
             })
             .await
             .map_err(|error| ProviderError::Transport(error.to_string()))?;
+        extra_args.extend(self.connect_timeout_args(request.generation).await);
         extra_args.extend(self.config.extra_args.iter().cloned());
         let mut command = Command::new(&self.config.ssh_binary);
         command
