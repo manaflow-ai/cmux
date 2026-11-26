@@ -25,8 +25,7 @@ use cmux_tui_core::terminal_host_runtime::{
     remove_stale_terminal_host_record, terminal_host_record_liveness, terminal_host_root,
 };
 
-#[path = "support/private_state.rs"]
-mod private_state;
+use crate::private_state;
 
 const ZSH: &str = "/bin/zsh";
 const PROMPT: &str = "J> ";

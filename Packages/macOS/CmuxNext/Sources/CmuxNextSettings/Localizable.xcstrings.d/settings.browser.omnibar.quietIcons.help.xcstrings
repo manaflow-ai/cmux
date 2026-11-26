@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.omnibar.quietIcons.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fades the site info icon and the bookmark star until you point at or click into the address bar."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يُخفت أيقونة معلومات الموقع ونجمة الإشارة المرجعية حتى تشير إلى شريط العنوان أو تنقر فيه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prigušuje ikonu informacija o stranici i zvjezdicu oznake dok ne pokažete na adresnu traku ili kliknete u nju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Toner ikonet for webstedsoplysninger og bogmærkestjernen ned, indtil du peger på eller klikker i adresselinjen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Blendet das Website-Info-Symbol und den Lesezeichenstern ab, bis du auf die Adressleiste zeigst oder hineinklickst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Atenúa el icono de información del sitio y la estrella de marcador hasta que señales la barra de direcciones o hagas clic en ella."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Estompe l’icône d’informations du site et l’étoile de signet jusqu’à ce que vous pointiez ou cliquiez dans la barre d’adresse."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Attenua l’icona delle informazioni sul sito e la stella dei segnalibri finché non punti o fai clic nella barra degli indirizzi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "アドレスバーにポインタを合わせるかクリックするまで、サイト情報アイコンとブックマークの星を薄く表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ធ្វើឱ្យរូបតំណាងព័ត៌មានគេហទំព័រ និងផ្កាយចំណាំស្រអាប់ រហូតដល់អ្នកចង្អុល ឬចុចក្នុងរបារអាសយដ្ឋាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "주소 막대를 가리키거나 클릭할 때까지 사이트 정보 아이콘과 북마크 별을 흐리게 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Demper ikonet for nettstedinformasjon og bokmerkestjernen til du peker på eller klikker i adressefeltet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Przyciemnia ikonę informacji o witrynie i gwiazdkę zakładki, dopóki nie wskażesz paska adresu lub go nie klikniesz."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esmaece o ícone de informações do site e a estrela de favorito até você apontar para a barra de endereços ou clicar nela."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Приглушает значок сведений о сайте и звёздочку закладки, пока вы не наведёте указатель на адресную строку или не щёлкнете в ней."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ทำให้ไอคอนข้อมูลเว็บไซต์และดาวบุ๊กมาร์กจางลงจนกว่าคุณจะชี้หรือคลิกในแถบที่อยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Adres çubuğunun üzerine gelene veya içine tıklayana kadar site bilgisi simgesini ve yer imi yıldızını soluklaştırır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Приглушує значок відомостей про сайт і зірочку закладки, доки ви не наведете вказівник на адресний рядок або не клацнете в ньому."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Làm mờ biểu tượng thông tin trang và ngôi sao dấu trang cho đến khi bạn trỏ vào hoặc nhấp vào thanh địa chỉ."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在你指向或点击地址栏之前，淡化网站信息图标和书签星标。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在你指向或點按網址列之前，淡化網站資訊圖示和書籤星號。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

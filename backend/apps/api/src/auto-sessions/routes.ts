@@ -52,8 +52,9 @@ import { SHA256_HEX } from "./snapshots.ts"
  *                                                        held by `device:<device>` at epoch 1; `{auto: false}` closes it, 409 auto.held_in_cloud while a machine holds it
  *   GET  /v1/auto-sessions/:id                  owner, machine -> {session}
  *   GET  /v1/auto-sessions/:id/wait?after=<version>&timeoutMs=  owner -> {session} once its version passes `after`, or at the deadline (at most 25 s)
- *   POST /v1/auto-sessions/:id/lease            owner, machine {holder, epoch, needsRun, standby?} -> {session, role: holder|standby|lost, leaseMs, move?};
- *                                                        `move` (cloud|local) tells the holder the person asked to move the chat
+ *   POST /v1/auto-sessions/:id/lease            owner, machine {holder, epoch, needsRun, standby?} -> {session, role: holder|standby|lost, leaseMs, move?, moveAt?};
+ *                                                        `move` (cloud|local) tells the holder the person asked to move the chat, and `moveAt` when (ms; a new
+ *                                                        time is a new ask)
  *   POST /v1/auto-sessions/:id/release          holder   {holder, epoch} -> {session}: parked, or the standby laptop's
  *   POST /v1/auto-sessions/:id/events           holder   {holder, epoch, events: [{seq, record}]} (at most 256, 1 MiB) -> {lastSeq}; 409 auto.seq_gap with lastSeq
  *   GET  /v1/auto-sessions/:id/events?after=<seq>&limit=  owner, machine -> {events, lastSeq}

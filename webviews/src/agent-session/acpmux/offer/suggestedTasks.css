@@ -309,6 +309,17 @@
 .acpmux-task-row:hover {
   background: var(--acpmux-composer-hover);
 }
+/* Started Tasks: Title Opens Chat (experiments.startedTaskTitleChip, off by default): the row is no
+   button and lights nothing; its title is the shared link chip (AgentTag.css), the one part that opens
+   the chat and lights, as the result line's is, and the chevron lights with it. A sibling rule, never a
+   `:has()` whose subject is the row (test/css-invalidation-scope.test.ts). */
+.acpmux-task-started[data-title-chip] > .acpmux-task-row > .cv-agent-tag {
+  flex: 0 1 auto;
+  max-width: 70%;
+}
+.acpmux-task-started[data-title-chip] > .acpmux-task-row > .cv-agent-tag.is-open:is([data-pointed]:hover, :focus-visible) ~ svg[data-icon] {
+  color: var(--agent-text);
+}
 .acpmux-task-elbow {
   flex: none;
   color: var(--acpmux-composer-dim);

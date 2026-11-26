@@ -170,13 +170,13 @@
         {
           "name": "--cmux-tooltip-padding-block",
           "kind": "length",
-          "for": "the space above and below a tooltip's text (the keycap's inset follows it)",
+          "for": "the space above and below a tooltip's text",
           "reads": [{ "selector": ":root", "property": "--tooltip-pad-block", "fallback": "var(--grid-base)" }]
         },
         {
           "name": "--cmux-tooltip-padding-inline",
           "kind": "length",
-          "for": "the space before a tooltip's text and after its keycap",
+          "for": "the space before a tooltip's text and after its shortcut",
           "reads": [{ "selector": ":root", "property": "--tooltip-pad-inline", "fallback": "calc(var(--grid-base) * 2)" }]
         }
       ]

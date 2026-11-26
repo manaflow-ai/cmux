@@ -31,8 +31,8 @@ test("replacing the live header leaves no fading copy of its clock beside the ac
   try {
     expect(fold).toBeDefined();
     clock.remove();
-    row("activityLine-u", 1, "activityLine", "Edit file 1m");
-    expect(playTurnFold(fold, thread, placed(["u", "activityLine-u"]), "chat", ghosts, 1)).toBe(true);
+    row("thinking-live", 1, "thinking", "Edit file 1m");
+    expect(playTurnFold(fold, thread, placed(["u", "thinking-live"]), "chat", ghosts, 1)).toBe(true);
     expect(thread.textContent).not.toContain("Working for");
     expect(thread.textContent).toContain("Edit file 1m");
   } finally {
