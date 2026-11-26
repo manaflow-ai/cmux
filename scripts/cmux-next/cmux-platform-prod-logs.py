@@ -125,6 +125,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.machine.scaler_pause_held",
     "cloud.machine.size_read_failed",
     "cloud.machine.start_overdue",
+    "cloud.machine.never_bound_diagnostic",
     "cloud.machine.turn_cancelled",
     "cloud.machine.turn_release_failed",
     "cloud.machine.turn_sleep",
@@ -301,10 +302,17 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "outcome": TOKEN, "code": TOKEN, "type": TOKEN, "step": TOKEN, "op": TOKEN, "kind": TOKEN,
                  "site": TOKEN, "phase": TOKEN, "status": INT, "attempts": INT, "fails": INT, "ms": INT,
                  "spares": INT, "wanted": INT, "live": INT, "total": INT, "failure": TOKEN, "reason": TOKEN,
-                 "mode": TOKEN}
+                 "mode": TOKEN,
+                 # cloud.machine.never_bound_diagnostic (cmux-platform NeverBoundDiagnostic.ts): what a guest that never
+                 # bound read from inside, each fact an exit code, an HTTP status, a count or a fixed word.
+                 "exec_ms": INT, "resolv": TOKEN, "nameservers": INT, "nameserver_stub": TOKEN, "resolved": TOKEN,
+                 "api_dns": INT, "api_curl": INT, "api_http": INT, "router_dns": INT, "router_curl": INT,
+                 "router_http": INT, "public_dns": INT, "bind_file": TOKEN, "units_failed": INT,
+                 "host_unit": TOKEN, "journal_dns": INT, "journal_tls": INT, "journal_timeout": INT,
+                 "journal_refused": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule).
-PUBLIC_BOOLS = ("lacks", "shared", "host")
+PUBLIC_BOOLS = ("lacks", "shared", "host", "coderouter_rule", "platform_rule")
 
 
 # cloud.idle.kept's reasons (IdleKept.ts idleKept, first match); anything else prints as "other".
