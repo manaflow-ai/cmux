@@ -252,8 +252,8 @@ fn reset_group_text(state: &State, group: &str, meta: &WriteMeta) -> Result<Stri
     let file = &state.file_root;
     let mut text = state.source.clone();
     for row in rows {
-        let replaced = replaced_by_row(&row.path)
-            .is_some_and(|replaced| value_at(file, &replaced.old).is_some());
+        let replaced =
+            replaced_by_row(&row.path).any(|replaced| value_at(file, &replaced.old).is_some());
         if value_at(file, &row.path).is_none() && !replaced {
             continue;
         }
@@ -462,15 +462,16 @@ fn record_background(state: &State, next: &State, text: String) -> Result<Record
     Ok(Recorded::Changed(jsonc::set(&text, &recents_path, &value).map_err(unreadable)?))
 }
 
-/// `text` without the retired key the row at `path` replaced, so the old key
-/// never applies behind a write or reset of the row (`schema::retired`).
-fn without_replaced(text: String, path: &[String]) -> Result<String, Refusal> {
-    let Some(replaced) = replaced_by_row(path) else { return Ok(text) };
-    let root = jsonc::parse(&text).map_err(unreadable)?;
-    if value_at(&root, &replaced.old).is_none() {
-        return Ok(text);
+/// `text` without the retired keys the row at `path` replaced, so no old key
+/// applies behind a write or reset of the row (`schema::retired`).
+fn without_replaced(mut text: String, path: &[String]) -> Result<String, Refusal> {
+    for replaced in replaced_by_row(path) {
+        let root = jsonc::parse(&text).map_err(unreadable)?;
+        if value_at(&root, &replaced.old).is_some() {
+            text = remove_pruning(text, &replaced.old)?;
+        }
     }
-    remove_pruning(text, &replaced.old)
+    Ok(text)
 }
 
 /// A non-row path may not hold or sit inside a row: writing an ancestor
