@@ -1790,6 +1790,7 @@ jobs:
     uses: ./.github/workflows/pr-red-checks-comment.yml
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+      writer: true
 
   ci-timing:
     # The run's timing readout in the job summary: the chain of jobs that set
@@ -1822,7 +1823,9 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          sparse-checkout: scripts/ci/ci_timing_readout.py
+          sparse-checkout: |
+            scripts/ci/ci_timing_readout.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Write the timing readout
