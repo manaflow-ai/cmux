@@ -108,6 +108,10 @@ Before choosing a preset, template, starter config, or known workflow pattern, r
 - Keep valid JSONC, no duplicate keys.
 - `cmux settings reload-configuration` when the app is running.
 - Confirm the exact user-facing result: action title, shortcut, or palette entry.
+- Lengths, corners, type sizes and durations in a stylesheet or view: `cmux customize tokens test 14 --as spacing`
+  (MCP `customize_tokens`) names the scale step to use, and `tokens list` every design token. Before using a web
+  kit component, `cmux customize components show NAME` (MCP `customize_components`) gives its real props;
+  `components test NAME '{"prop":1}'` names a prop that does not exist.
 - `cmux customize doctor` (MCP `customize_doctor`) before and after: a file that does not load, a key no setting
   has, a theme that overrides a setting, a file in the wrong folder, or a `pr-N` layer left on. The app shows the
   same findings as a notice; a fix (`doctor fix ID off|remove`) is the person's to choose.
