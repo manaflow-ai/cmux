@@ -1,7 +1,7 @@
 use super::*;
 use crate::client::Client;
 use crate::config::{Config, StoreMode};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
 #[test]
