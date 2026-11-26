@@ -12,7 +12,7 @@ the old fleet label) becomes:
     ${{ <owner guard> || <fork pull request> && 'ubuntu-24.04' || <pins> || 'cmux-linux' }}
 
 A fork repository and a fork pull request never reach an owned host: a fork pull request takes
-GitHub-hosted Ubuntu, a literal (cmuxterm-hq docs/design/ci-v2.md step 8; no repository variable picks it). Nightly and release pins
+GitHub-hosted Ubuntu, a literal (no repository variable picks it). Nightly and release pins
 (`cmux-gcp-nightly-*`, `cmux-gcp-lane-build-x64`, `CI_RELEASE_PIN_SLOT`, the darwin cross build lane, a
 caller's `inputs.*` override) keep their branch, after the fork branch; only the size fallback goes.
 
@@ -84,7 +84,6 @@ _SUBMODULES = ("checks out without submodules and has no stale-submodule reset; 
 FRESH_VM_JOBS = {
     **{key: _SIGNING for key in (("ios-appstore-upload.yml", "set-testflight-notes"), ("ios-appstore-upload.yml", "assign-internal"),
                                  ("ios-testflight.yml", "set-testflight-notes"), ("ios-testflight.yml", "assign-internal-group"))},
-    ("cmux-next-guards.yml", "signing-runner-variables"): "checks the runner variables, so it reads none (signing keychain rule 7)",
     ("sdk-release-cut.yml", "cut-tags"): "holds the release app's signing key (#48337); a `# ephemeral-required` tag would "
                                          "need a JIT lead (tests/test_ci_write_token_jit_label.py)",
     ("cmux-next-dev-kick.yml", "kick"): "holds a write token; tests/test_cmux_next_dev_kick.py keeps it on the ephemeral_only pool",

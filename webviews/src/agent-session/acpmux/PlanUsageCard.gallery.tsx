@@ -37,6 +37,32 @@ const codex: AcpmuxUsageLimits = {
   plan: "pro",
   credits: { balance: "56766" },
 };
+// The even-pace mark (Leo, 2026-11-23: "Settings shows each signed-in account's limits with even-pace
+// marks"): a tick where each bar would stand were its window spent evenly.
+const paceUnder: AcpmuxUsageLimits = {
+  windows: [
+    { id: "session", usedPercent: 22, resetsAt: seconds + 3 * 3600 },
+    { id: "weekly", usedPercent: 41, resetsAt: seconds + 2 * 86_400 },
+  ],
+};
+const paceAhead: AcpmuxUsageLimits = {
+  windows: [
+    { id: "session", usedPercent: 75, resetsAt: seconds + 4 * 3600 },
+    { id: "weekly", usedPercent: 60, resetsAt: seconds + 5 * 86_400 },
+  ],
+};
+const paceNoReset: AcpmuxUsageLimits = {
+  windows: [
+    { id: "session", usedPercent: 35 },
+    { id: "weekly", usedPercent: 52 },
+  ],
+};
+const paceNearReset: AcpmuxUsageLimits = {
+  windows: [
+    { id: "session", usedPercent: 90, resetsAt: seconds + 10 * 60 },
+    { id: "weekly", usedPercent: 96, resetsAt: seconds + 2 * 3600 },
+  ],
+};
 
 type Props = {
   limits?: AcpmuxUsageLimits;
@@ -134,6 +160,26 @@ export default componentEntry<Props>({
     "claude-bars-near-cap": {
       note: "Near the cap: three windows (the Opus week too); the 5-hour one resets within the hour. The ring draws the 96% one.",
       props: { limits: claudeNearCap, family: "claude", look: "claude-bars" },
+    },
+    "pace-under": {
+      note: "Even-pace marks, under pace: 5-hour 22% with 40% of the window gone, weekly 41% with 71% gone. Each bar keeps the accent; hovering one says Even pace: N%.",
+      props: { limits: paceUnder, family: "claude", look: "claude-bars" },
+    },
+    "pace-ahead": {
+      note: "Ahead of even pace by more than 5 points: 5-hour 75% with 20% gone, weekly 60% with 29% gone. Both bars take the warning color; the bar's label adds Ahead of pace.",
+      props: { limits: paceAhead, family: "claude", look: "claude-bars" },
+    },
+    "pace-ahead-compact": {
+      note: "The compact look ahead of pace: the mark sits on the short inline bar.",
+      props: { limits: paceAhead, family: "claude", look: "compact" },
+    },
+    "pace-no-reset": {
+      note: "No reset time reported: no mark is drawn, since the window's start is unknown.",
+      props: { limits: paceNoReset, family: "claude", look: "claude-bars" },
+    },
+    "pace-near-reset": {
+      note: "Near the reset: 5-hour 90% with 97% gone (under), weekly 96% with 99% gone (under); the marks sit at the bars' ends.",
+      props: { limits: paceNearReset, family: "claude", look: "claude-bars" },
     },
     "none-reported": {
       note: "Nothing reported yet (a fresh chat, or a sign-in with no plan limits): the card says so, never a 0%. The ring itself stays on the context in this state.",

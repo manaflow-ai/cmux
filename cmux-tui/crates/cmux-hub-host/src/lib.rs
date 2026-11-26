@@ -17,10 +17,7 @@ pub mod host_process;
 pub mod hub;
 pub mod identity;
 pub mod net;
-// Unix only: Windows serves no session yet (docs/device-hub/windows-host.md, step 4).
-#[cfg(unix)]
 pub mod rd_doc;
-#[cfg(unix)]
 pub mod session;
 pub mod text;
 

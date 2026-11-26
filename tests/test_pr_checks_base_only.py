@@ -13,7 +13,7 @@ branch that is not the base, a head the branch has moved past, a cut history, or
 a previous run that was cancelled, held or never ran.
 
 None of the skipped steps can fail a pull request, so a skipped one hides no
-verdict; pr-capture-check, which can, is not in this workflow (pr-body-checks.yml).
+verdict. The description lints (capture among them, advisory here) run on every push, a base-only one too.
 
 The decide step runs here as the workflow runs it, against a local origin, with
 `gh` replaced by a stub that answers the previous head's run. The "Pick the steps"
@@ -53,6 +53,8 @@ PICK = next(s for s in JOB["steps"] if s.get("id") == "pick")
 SKIPPED_ON_BASE_ONLY = ("review-link", "swift-logic", "split-plan", "ui-review")
 ALWAYS = ("pr-size",)
 EVERY = ("review-link", "swift-logic", "pr-size", "ui-review", "split-plan")
+# The description lints (CI v2 step 6, second cut: pr-body-checks.yml's push runs): every push, whatever else holds.
+BODY = ("capture", "design-spec", "perf-section", "cloud-backend")
 LINES = "".join(f"let a{i} = {i}\n" for i in range(60))
 SAME = "x\n" * 30  # identical lines: one replacement reads the same wherever it is
 
@@ -302,28 +304,28 @@ class PickTests(unittest.TestCase):
     def test_a_push_runs_every_step(self):
         for action in ("opened", "synchronize", "reopened", "ready_for_review"):
             with self.subTest(action=action):
-                self.assertEqual(sorted(pick(action)), sorted(EVERY))
-                self.assertEqual(sorted(pick(action, base_only="false")), sorted(EVERY))
+                self.assertEqual(sorted(pick(action)), sorted(EVERY + BODY))
+                self.assertEqual(sorted(pick(action, base_only="false")), sorted(EVERY + BODY))
 
     def test_a_base_only_update_runs_only_the_size_check(self):
-        self.assertEqual(pick(base_only="true"), list(ALWAYS))
-        self.assertEqual(pick(base_only="true", draft=True), [], "PR size skips drafts")
-        self.assertEqual(pick(base_only="true", hold="1"), [], "PR size is held")
+        self.assertEqual(pick(base_only="true"), list(ALWAYS + BODY))
+        self.assertEqual(pick(base_only="true", draft=True), list(BODY), "PR size skips drafts")
+        self.assertEqual(pick(base_only="true", hold="1"), list(BODY), "PR size is held")
 
     def test_a_draft_runs_only_split_plan(self):
         # A draft gets its lines and its size and UI answers when it is marked ready.
         for action in ("opened", "synchronize", "reopened"):
-            self.assertEqual(pick(action, draft=True), ["split-plan"])
+            self.assertEqual(pick(action, draft=True), ["split-plan", *BODY])
         self.assertEqual(pick("edited", draft=True, size_edit=True, ui_edit=True), [])
 
     def test_the_quota_hold_keeps_only_split_plan(self):
         # CI_QUOTA_HOLD=1 keeps the GITHUB_TOKEN budget for the nightly; split-plan reads only git.
-        self.assertEqual(pick(hold="1"), ["split-plan"])
+        self.assertEqual(pick(hold="1"), ["split-plan", *BODY])
         self.assertEqual(pick("edited", hold="1", size_edit=True, ui_edit=True), [])
-        self.assertEqual(sorted(pick(hold="0")), sorted(EVERY), "only the value 1 holds")
+        self.assertEqual(sorted(pick(hold="0")), sorted(EVERY + BODY), "only the value 1 holds")
 
     def test_a_fork_gets_no_status_lines(self):
-        self.assertEqual(sorted(pick(fork=True)), ["pr-size", "split-plan", "ui-review"])
+        self.assertEqual(sorted(pick(fork=True)), sorted(["pr-size", "split-plan", "ui-review", *BODY]))
 
     def test_an_edit_runs_only_what_it_moved(self):
         self.assertEqual(pick("edited"), [])

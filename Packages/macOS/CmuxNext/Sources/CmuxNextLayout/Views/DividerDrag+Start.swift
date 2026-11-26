@@ -43,8 +43,11 @@ extension DividerDrag {
                                         axis: band ? .vertical : .horizontal, minimumA: band ? size.height : size.width, dockEdge: edge)
             if edge == nil {
                 let scrolling = DockStripGeometry.docks(layout.columns).scrolling
-                drag.strip = StripStart(columns: scrolling.map { .init(id: $0.id, width: $0.width, minimum: $0.minimumSize(style: style).width) },
-                                        viewport: screen.geometry.stripWidth, gap: style.stripGap)
+                let strip = StripStart(columns: scrolling.map { .init(id: $0.id, width: $0.width, minimum: $0.minimumSize(style: style).width) },
+                                       viewport: screen.geometry.stripWidth, gap: style.stripGap)
+                drag.strip = strip
+                drag.tradesAtStripEnd = strip.next(after: id) != nil
+                    && Self.cameraHoldsStripEnd(maxOffset: screen.geometry.maxOffset, camera: screen.scroll.target)
             }
             return drag
         case let .rowEdge(columnID, upper):
@@ -58,5 +61,11 @@ extension DividerDrag {
                                         axis: .vertical, rows: RowDragStart(rows: column.rows, stack: stack, minimums: minimums))
             return drag
         }
+    }
+
+    /// The strip overflows its viewport and the camera rests at its end (#55403): a column edge's width change alone
+    /// cannot move that edge on screen.
+    nonisolated static func cameraHoldsStripEnd(maxOffset: CGFloat, camera: CGFloat) -> Bool {
+        maxOffset > 0.5 && camera >= maxOffset - 0.5
     }
 }

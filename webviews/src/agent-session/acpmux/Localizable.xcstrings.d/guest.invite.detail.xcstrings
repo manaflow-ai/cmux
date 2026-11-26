@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "guest.invite.detail" : {
+      "comment" : "Guest page, account invite: the join page's detail line; the visitor is signed in with their cmux account and joins as it. The role (view or talk) is known only after Join, so the approval note is conditional",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Join with your cmux account. If you can send messages, the owner approves each one."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tritt mit deinem cmux-Konto bei. Wenn du Nachrichten senden kannst, genehmigt der Besitzer jede einzelne."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rejoignez avec votre compte cmux. Si vous pouvez envoyer des messages, le propriétaire approuve chacun d’eux."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "انضم باستخدام حسابك في cmux. إذا كان بإمكانك إرسال الرسائل، فسيوافق المالك على كل رسالة منها."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Únete con tu cuenta de cmux. Si puedes enviar mensajes, el propietario aprueba cada uno."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用你的 cmux 帳號加入。如果你可以傳送訊息，擁有者會核准每一則。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "使用你的 cmux 账号加入。如果你可以发送消息，所有者会批准每一条。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 계정으로 참여하세요. 메시지를 보낼 수 있다면 소유자가 각 메시지를 승인합니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux アカウントで参加します。メッセージを送信できる場合は、オーナーが 1 件ずつ承認します。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pridruži se svojim cmux računom. Ako možeš slati poruke, vlasnik odobrava svaku."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deltag med din cmux-konto. Hvis du kan sende beskeder, godkender ejeren hver enkelt."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Partecipa con il tuo account cmux. Se puoi inviare messaggi, il proprietario li approva uno per uno."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចូលរួមដោយប្រើគណនី cmux របស់អ្នក។ ប្រសិនបើអ្នកអាចផ្ញើសារបាន ម្ចាស់អនុម័តសារនីមួយៗ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bli med med cmux-kontoen din. Hvis du kan sende meldinger, godkjenner eieren hver enkelt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dołącz za pomocą konta cmux. Jeśli możesz wysyłać wiadomości, właściciel zatwierdza każdą z nich."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Entre com sua conta do cmux. Se você puder enviar mensagens, o proprietário aprova cada uma."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Присоединяйтесь с аккаунтом cmux. Если вы можете отправлять сообщения, владелец одобряет каждое."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เข้าร่วมด้วยบัญชี cmux ของคุณ หากคุณส่งข้อความได้ เจ้าของจะอนุมัติทุกข้อความ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux hesabınla katıl. Mesaj gönderebiliyorsan, sahibi her birini onaylar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Приєднуйтеся з обліковим записом cmux. Якщо ви можете надсилати повідомлення, власник схвалює кожне."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tham gia bằng tài khoản cmux của bạn. Nếu bạn có thể gửi tin nhắn, chủ sở hữu duyệt từng tin."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,6 +1,6 @@
 import { Plugin } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
-import { FIELD_GROWTH_EVENT, TILE_SHAPE_EVENT, type FieldGrowthDetail } from "./fieldGrowthEvent";
+import { FIELD_GROWTH_EVENT, TILE_SHAPE_EVENT, markGrowthPending, type FieldGrowthDetail } from "./fieldGrowthEvent";
 import { experimentArm } from "../../../experiments/experiment";
 import { SETTLING_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { MOTION_SPRINGS, springCurve, type SpringParameters } from "../../../files-panel-motion";
@@ -183,6 +183,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
       let editWait = 0;
       const endEditWait = () => {
         editWaitingForResize = false;
+        if (scroller) markGrowthPending(scroller, false);
         if (editWait) cancelAnimationFrame(editWait);
         editWait = 0;
       };
@@ -436,6 +437,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
           // growth's motion; the wait is counted in frames instead.
           endEditWait();
           editWaitingForResize = true;
+          markGrowthPending(scroller!, true);
           editWait = requestAnimationFrame(() => {
             editWait = requestAnimationFrame(endEditWait);
           });

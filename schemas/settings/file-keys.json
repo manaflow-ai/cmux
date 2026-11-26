@@ -1,0 +1,21 @@
+{
+  "$comment": "HAND-EDITED: keys cmux-next.json holds that are not Settings rows, because something other than the Settings schema reads them (a daemon, the Chief host, a page). The customize doctor (cmux-config schema::file_key) never calls one of these, or anything under it, an unknown setting, so it never tells the person their own tools' keys are typos. Add an entry when a tool reads a key of this file that has no row; name the reader so a removal finds it. A key nothing reads does not belong here: retire it in retired-keys.json instead.",
+  "keys": [
+    {
+      "key": "actions",
+      "reader": "cmux-tui/crates/cmux-config/src/project_actions.rs (the global actions section)"
+    },
+    {
+      "key": "shortcuts.bindings",
+      "reader": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings (Keyboard Shortcuts writes and reads each binding here)"
+    },
+    {
+      "key": "chief.turnHooks",
+      "reader": "Native/OptChat/optchat-chief/src/turn_user_extras.rs (HOOKS_KEY)"
+    },
+    {
+      "key": "chief.turnSkills",
+      "reader": "Native/OptChat/optchat-chief/src/turn_user_extras.rs (the Chief's turn skills)"
+    }
+  ]
+}

@@ -16,9 +16,14 @@ public struct MacCardInfo: Codable, Equatable, Sendable {
     public var screenColumns: Int
     public var screenRows: Int
     public var capturedAtMs: Int64
+    /// The tab's durable id on the Mac (the daemon's `tab_resource_id`): the tab id names a tab
+    /// only within one epoch, this one stays the tab's across them. Empty when unknown.
+    public var tabKey: String
 
     public init(title: String, kind: String, faviconHash: String? = nil, thumbHash: String? = nil,
-                screenHash: String? = nil, screenColumns: Int = 0, screenRows: Int = 0, capturedAtMs: Int64 = 0) {
+                screenHash: String? = nil, screenColumns: Int = 0, screenRows: Int = 0, capturedAtMs: Int64 = 0,
+                tabKey: String = "") {
+        self.tabKey = tabKey
         self.title = title
         self.kind = kind
         self.faviconHash = faviconHash
@@ -27,6 +32,21 @@ public struct MacCardInfo: Codable, Equatable, Sendable {
         self.screenColumns = screenColumns
         self.screenRows = screenRows
         self.capturedAtMs = capturedAtMs
+    }
+
+    /// Rows saved before `tabKey` existed have none: they decode with an empty key, so the
+    /// cards kept on disk still open filled.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        title = try c.decode(String.self, forKey: .title)
+        kind = try c.decode(String.self, forKey: .kind)
+        faviconHash = try c.decodeIfPresent(String.self, forKey: .faviconHash)
+        thumbHash = try c.decodeIfPresent(String.self, forKey: .thumbHash)
+        screenHash = try c.decodeIfPresent(String.self, forKey: .screenHash)
+        screenColumns = try c.decode(Int.self, forKey: .screenColumns)
+        screenRows = try c.decode(Int.self, forKey: .screenRows)
+        capturedAtMs = try c.decode(Int64.self, forKey: .capturedAtMs)
+        tabKey = try c.decodeIfPresent(String.self, forKey: .tabKey) ?? ""
     }
 
     /// The blobs the card shows.
@@ -202,6 +222,7 @@ public final class MacTabCards {
         warmed = []
         arriving = [:]
         entries = [:]
+        screenWaiters = [:]
     }
 
     public func entry(_ key: TabSnapshotKey) -> MacCardEntry {
@@ -250,15 +271,18 @@ public final class MacTabCards {
         loads += 1
         guard account() == accountID else { return nil }
         held[macID, default: []].formUnion(disk.names)
-        // The link was first: its rows stand, and the file's are of an epoch it replaced.
-        guard epochs[macID] == nil else { return nil }
-        epochs[macID] = disk.epoch
+        // The link was first: its rows stand, and the file's are of an epoch it replaced. A picture
+        // the file names that the link's row does not still stands for the same tab (`keeping`).
+        let linkFirst = epochs[macID] != nil
+        let sameEpoch = !linkFirst || epochs[macID] == disk.epoch
+        if !linkFirst { epochs[macID] = disk.epoch }
         var keys: [TabSnapshotKey] = []
         for (tabID, info) in disk.cards {
             let key = TabSnapshotKey(accountID: accountID, macID: macID, tabID: tabID)
+            guard !linkFirst || entries[key]?.info != nil else { continue }
             let entry = entry(key)
             // Rows the link sent meanwhile are newer than the file.
-            if entry.info == nil { entry.info = info }
+            entry.info = entry.info.map { Self.keeping($0, over: info, sameEpoch: sameEpoch) } ?? info
             keys.append(key)
         }
         // Thumbnails come from disk through the picture cache, which bounds what is decoded
@@ -292,26 +316,65 @@ public final class MacTabCards {
         }
         let listed = Set(cards.map(\.tabID))
         for key in entries.keys where key.macID == macID && !listed.contains(key.tabID) { entries[key] = nil }
+        // A card the Mac no longer lists never gets its first screen: its waiter goes with it.
+        for key in screenWaiters.keys where key.macID == macID && !listed.contains(key.tabID) { screenWaiters[key] = nil }
         var keys: [TabSnapshotKey] = []
+        var merged: [String: MacCardInfo] = [:]
         for card in cards {
             let key = TabSnapshotKey(accountID: account, macID: macID, tabID: card.tabID)
-            entry(key).info = card.info
+            let entry = entry(key)
+            // Past a row in memory, a row still on disk that has not been read yet is kept too (below).
+            let info = Self.keeping(card.info, over: entry.info)
+            entry.info = info
+            merged[card.tabID] = info
             keys.append(key)
         }
         fill(keys, macID: macID)
         let store = store
-        let rows = Dictionary(cards.map { ($0.tabID, $0.info) }, uniquingKeysWith: { _, last in last })
+        let rows = merged
         let kept = epochs[macID] ?? ""
         Task.detached(priority: .utility) {
-            store.putMacCards(rows, accountID: account, macID: macID)
+            // The rows the file holds, when this launch has not read them: its pictures stay named.
+            let disk = store.macCards(accountID: account, macID: macID)
+            let sameEpoch = kept.isEmpty || store.macEpoch(accountID: account, macID: macID) == kept
+            var out = rows
+            for (tabID, row) in rows { out[tabID] = Self.keeping(row, over: disk[tabID], sameEpoch: sameEpoch) }
+            store.putMacCards(out, accountID: account, macID: macID)
             store.putMacEpoch(kept, accountID: account, macID: macID)
         }
     }
 
-    /// A row under a new epoch is the tab the kept row was: the same kind, and the same title
-    /// or a blob in common (a page keeps its favicon while its title changes).
-    static func sameTab(_ kept: MacCardInfo, _ now: MacCardInfo) -> Bool {
-        kept.kind == now.kind && (kept.title == now.title || !Set(kept.hashes).isDisjoint(with: now.hashes))
+    /// A row under a new epoch is the tab the kept row was. When both rows carry the Mac's
+    /// durable tab key, the key decides: the same key and kind is the same tab whatever its
+    /// title now reads, and another key is another tab even under the same title. Otherwise
+    /// (an older Mac, or rows kept before keys): the same kind, and the same title or a blob
+    /// in common (a page keeps its favicon while its title changes).
+    nonisolated static func sameTab(_ kept: MacCardInfo, _ now: MacCardInfo) -> Bool {
+        guard kept.kind == now.kind else { return false }
+        if !kept.tabKey.isEmpty, !now.tabKey.isEmpty { return kept.tabKey == now.tabKey }
+        return kept.title == now.title || !Set(kept.hashes).isDisjoint(with: now.hashes)
+    }
+
+    /// `now`, the Mac's newest row of a tab, with every picture of `kept` (the row it replaces) that
+    /// `now` no longer names: a tab the Mac hibernated, or whose capture it has not redone, sends a
+    /// row with no thumbnail, favicon or screen, and the card keeps what it showed until a newer one
+    /// replaces it (Leo, 2026-11-24: "too many empty previews in the safari grid"). `sameEpoch` or
+    /// `sameTab` says `kept` is this tab's row, not another tab's under a reused id.
+    nonisolated static func keeping(_ now: MacCardInfo, over kept: MacCardInfo?, sameEpoch: Bool = true) -> MacCardInfo {
+        guard let kept, kept.kind == now.kind, sameEpoch || sameTab(kept, now) else { return now }
+        var merged = now
+        if merged.faviconHash == nil { merged.faviconHash = kept.faviconHash }
+        if merged.screenHash == nil, kept.screenHash != nil {
+            merged.screenHash = kept.screenHash
+            merged.screenColumns = kept.screenColumns
+            merged.screenRows = kept.screenRows
+        }
+        if merged.thumbHash == nil, kept.thumbHash != nil {
+            merged.thumbHash = kept.thumbHash
+            // The picture is as old as it was: the phone's own newer capture still wins over it.
+            merged.capturedAtMs = kept.capturedAtMs
+        }
+        return merged
     }
 
     /// Every card of `macID` whose row in `rows` is not the tab it was forgets what it showed,
@@ -354,8 +417,12 @@ public final class MacTabCards {
     }
 
     /// Blobs no row names any more.
-    public func remove(blobs: [String], macID: String) {
-        guard let account = account(), !blobs.isEmpty else { return }
+    public func remove(blobs asked: [String], macID: String) {
+        guard let account = account(), !asked.isEmpty else { return }
+        // A picture a card still shows (its row dropped it, `keeping`) stays on disk for the next launch.
+        let named = Set(entries.filter { $0.key.macID == macID }.flatMap { $0.value.info?.hashes ?? [] })
+        let blobs = asked.filter { !named.contains($0) }
+        guard !blobs.isEmpty else { return }
         held[macID]?.subtract(blobs)
         for hash in blobs { arriving[hash] = nil }
         let store = store
@@ -390,8 +457,8 @@ public final class MacTabCards {
                 guard let hash, hash != shown, held.contains(hash) else { return }
                 wanted.append(Part(key: key, slot: slot, hash: hash, capturedAtMs: info.capturedAtMs, bytes: arriving[hash]))
             }
-            if info.faviconHash == nil, entry.favicon != nil { entry.favicon = nil; entry.shownFavicon = nil }
-            if info.screenHash == nil, entry.screen != nil { entry.screen = nil; entry.shownScreen = nil }
+            // A row that names no favicon or screen (a tab the Mac hibernated) leaves what the card
+            // shows: it goes only when a newer one replaces it, or its tab does (`void`).
             want(info.faviconHash, shown: entry.shownFavicon, .favicon)
             want(info.screenHash, shown: entry.shownScreen, .screen)
             want(info.thumbHash, shown: entry.shownThumb, .thumb)
@@ -407,7 +474,9 @@ public final class MacTabCards {
                     switch part.slot {
                     case .screen: return Loaded(part: part, text: bytes.map { String(decoding: $0, as: UTF8.self) })
                     case .favicon: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) })
-                    case .thumb: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) }?.preparingForDisplay())
+                    // A Mac thumbnail that is a placeholder (`CardPictureGate`) is never shown.
+                    case .thumb: return Loaded(part: part, image: bytes.flatMap { UIImage(data: $0) }
+                        .flatMap { CardPictureGate.isPlaceholder($0) ? nil : $0 }?.preparingForDisplay())
                     }
                 }
             }.value

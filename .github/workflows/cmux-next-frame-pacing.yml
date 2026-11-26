@@ -112,6 +112,7 @@ jobs:
             scripts/ci/deadline_http.py
             scripts/ci/simple_pool_picker.py
             scripts/ci/warm_distance.py
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
@@ -247,6 +248,7 @@ jobs:
             scripts/cmux-next/cmd-n-paint-e2e.py
             scripts/cmux-next/bench-startup.py
             scripts/cmux-next/bench_memory.py
+            scripts/cmux-next/macos_libs.py
             scripts/cmux-next/bench_arms.py
             scripts/cmux-next/bench_cli_storm.py
             scripts/cmux-next/bench_launch.py
@@ -263,6 +265,7 @@ jobs:
             scripts/cmux-next/tag_teardown.py
             scripts/cmux-next/window_look.py
             scripts/lib/stop-cmux-tui-owners.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
           persist-credentials: false
 

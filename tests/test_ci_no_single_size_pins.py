@@ -60,9 +60,13 @@ EXCEPTIONS: dict[re.Pattern[str], str] = {
 }
 # Whole selections that keep their literal on purpose -> why.
 SELECTIONS_KEPT_LITERAL = {
-    ("cmux-next-guards.yml", "jobs.signing-runner-variables.runs-on"): (
-        "the job checks the runner variables themselves, so its own route must not read them: with a bad value it "
-        "would queue on that value instead of going red"
+    ("relay-tls.yml", "jobs.system-keychain.runs-on"): (
+        "adds a System keychain trust root as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a "
+        "pool could name an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
+    ),
+    ("machine-vault-e2e.yml", "jobs.e2e.runs-on"): (
+        "adds a macOS user as root: it needs a one-job Mac, and no macOS pool is ephemeral_only, so a pool could name "
+        "an owned mini where its sudo fails (tests/test_ci_owned_mac_jobs_no_sudo.py)"
     ),
 }
 # A job that holds signing or release material keeps its route under its own trust rules

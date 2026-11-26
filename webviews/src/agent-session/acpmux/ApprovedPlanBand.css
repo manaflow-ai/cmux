@@ -33,7 +33,6 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: pointer;
 }
 
 .acpmux-approved-plan-toggle:focus-visible,
@@ -84,7 +83,6 @@
   border-radius: var(--ds-radius-control);
   background: none;
   color: var(--agent-muted);
-  cursor: pointer;
 }
 
 .acpmux-approved-plan-close:hover {

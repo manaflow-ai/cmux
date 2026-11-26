@@ -266,6 +266,44 @@ export function formatViewedProgress(template: string, progress: { viewed: numbe
 }
 
 /**
+ * The "..." menu's "Hide viewed files" detail ("3 of 30 viewed", `diffViewer.viewedProgressShort`):
+ * how far the review is. None while the diff has no files.
+ */
+export function viewedProgressDetail(
+  template: string,
+  progress: { viewed: number; total: number } | null,
+): string | null {
+  return progress == null || progress.total === 0 ? null : formatViewedProgress(template, progress);
+}
+
+/** The source pill's compact suffix ("3/30"), the gallery's third look; none without files. */
+export function viewedProgressSuffix(progress: { viewed: number; total: number } | null): string | null {
+  return progress == null || progress.total === 0 ? null : `${progress.viewed}/${progress.total}`;
+}
+
+/**
+ * The source pill's tooltip: the source, its line counts and the review's progress, as
+ * "Branch: +694 -683 · 3 of 30 files viewed" (`template` is `diffViewer.filesViewedProgress`).
+ * None while the counts are unknown (loading) or the diff has no files.
+ */
+export function sourcePillTooltip({
+  source,
+  stats,
+  progress,
+  template,
+}: {
+  source: string;
+  stats: { added?: string; deleted?: string } | null;
+  progress: { viewed: number; total: number } | null;
+  template: string;
+}): string | null {
+  if (progress == null || progress.total === 0) return null;
+  const counts = [stats?.added, stats?.deleted].filter(Boolean).join(" ");
+  const progressText = formatViewedProgress(template, progress);
+  return counts ? `${source}: ${counts} · ${progressText}` : `${source} · ${progressText}`;
+}
+
+/**
  * Flips the viewed state of one item. Marking viewed collapses the file and
  * records the current fingerprint (a "changed since viewed" file is re-marked
  * with its new fingerprint rather than cleared); unmarking expands it.

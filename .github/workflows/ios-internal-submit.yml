@@ -137,6 +137,10 @@ jobs:
           sparse-checkout: |
             cmux-next-ios/scripts
             cmux-next-ios/AppStoreReview
+            scripts
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
 
       - name: Install asc
         run: brew list asc >/dev/null 2>&1 || brew install asc

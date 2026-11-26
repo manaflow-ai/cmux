@@ -11,6 +11,12 @@
 //! `frame` is the author's. The assembled module is then validated with no
 //! optional capability and written as Metal Shading Language (`vs_main`,
 //! `fs_main`, `frame` in buffer 0) and as a GLSL ES 3.00 fragment shader.
+//!
+//! [`compile_scene_engine`] is the same for the one first-party scene engine
+//! (plans/cmux-next/motion-scenes.md): `scene_prelude.wgsl` follows the
+//! prelude, and the sandbox also lets it read the prelude's `scene` (binding
+//! 1), `scene_image` (binding 2) and `scene_sampler` (binding 3). Authored
+//! programs never get that prelude, so declaring or reading them stays refused.
 
 use naga::back::{glsl, msl};
 use naga::valid::{Capabilities, ValidationFlags, Validator};
@@ -24,12 +30,25 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 pub const PRELUDE: &str = include_str!("prelude.wgsl");
 /// The host's half after the program: `vs_main`, `fs_main` and the color encoding.
 pub const EPILOGUE: &str = include_str!("epilogue.wgsl");
+/// The scene engine's half, after [`PRELUDE`]: `Scene`, `scene` and the image slot.
+pub const SCENE_PRELUDE: &str = include_str!("scene_prelude.wgsl");
 /// The largest program accepted.
 pub const MAX_SOURCE_BYTES: usize = 64 * 1024;
 /// The Metal Shading Language version of the MSL (Metal 2.1, macOS 10.14 and later).
 pub const MSL_VERSION: (u8, u8) = (2, 1);
 /// The Metal buffer index of `frame` in both stages.
 pub const MSL_FRAME_BUFFER: u8 = 0;
+/// The scene engine's Metal buffer index of `scene` (fragment buffer 1).
+pub const MSL_SCENE_BUFFER: u8 = 1;
+/// The scene engine's Metal texture index of `scene_image`.
+pub const MSL_SCENE_TEXTURE: u8 = 0;
+/// The scene engine's Metal sampler index of `scene_sampler`.
+pub const MSL_SCENE_SAMPLER: u8 = 0;
+/// The host's globals: what each prelude declares, by name and binding. Only
+/// these, and only where the prelude declares them, pass the sandbox.
+const HOST_GLOBALS: &[(&str, u32)] = &[("frame", 0)];
+const SCENE_HOST_GLOBALS: &[(&str, u32)] =
+    &[("frame", 0), ("scene", 1), ("scene_image", 2), ("scene_sampler", 3)];
 /// Names the host's half uses; a program may not define them.
 const RESERVED_FUNCTIONS: &[&str] = &["vs_main", "fs_main", "main"];
 const RESERVED_PREFIX: &str = "cmux_";
@@ -163,8 +182,13 @@ fn entry_point_location(source: &str) -> Option<(u32, u32)> {
     layout.locate(Span::new(u32::try_from(at).ok()?, end))
 }
 
-/// The sandbox, on the module of prelude + source.
-fn check_sandbox(module: &Module, layout: &Layout<'_>) -> Result<(), ProgramError> {
+/// The sandbox, on the module of prelude + source. `host` names the
+/// prelude's globals: the only ones the program may read.
+fn check_sandbox(
+    module: &Module,
+    layout: &Layout<'_>,
+    host: &[(&str, u32)],
+) -> Result<(), ProgramError> {
     if let Some(ep) = module.entry_points.first() {
         return Err(error(
             ProgramErrorKind::EntryPoint,
@@ -176,11 +200,14 @@ fn check_sandbox(module: &Module, layout: &Layout<'_>) -> Result<(), ProgramErro
         ));
     }
     for (handle, global) in module.global_variables.iter() {
-        // The prelude's own `frame`: the only global a program may read.
-        if global.name.as_deref() == Some("frame")
-            && global.binding == Some(ResourceBinding { group: 0, binding: 0 })
-            && layout.locate(module.global_variables.get_span(handle)).is_none()
-        {
+        // The prelude's own globals (`frame`; the engine's `scene` and image
+        // slot): the only ones a program may read. One the source declares
+        // has a span in the source, so it never matches.
+        let is_host = host.iter().any(|&(name, binding)| {
+            global.name.as_deref() == Some(name)
+                && global.binding == Some(ResourceBinding { group: 0, binding })
+        });
+        if is_host && layout.locate(module.global_variables.get_span(handle)).is_none() {
             continue;
         }
         let name = global.name.as_deref().unwrap_or("a global");
@@ -261,7 +288,7 @@ fn check_sandbox(module: &Module, layout: &Layout<'_>) -> Result<(), ProgramErro
     Ok(())
 }
 
-fn translate(module: &Module) -> Result<Compiled, ProgramError> {
+fn translate(module: &Module, scene: bool) -> Result<Compiled, ProgramError> {
     let info = Validator::new(ValidationFlags::all(), Capabilities::empty())
         .validate(module)
         .map_err(|e| {
@@ -269,16 +296,24 @@ fn translate(module: &Module) -> Result<Compiled, ProgramError> {
             error(ProgramErrorKind::Validation, chain(&e), None)
         })?;
 
-    let frame = ResourceBinding { group: 0, binding: 0 };
-    let resources = msl::EntryPointResources {
-        resources: [(
-            frame,
-            msl::BindTarget { buffer: Some(MSL_FRAME_BUFFER), ..Default::default() },
-        )]
-        .into_iter()
-        .collect(),
-        ..Default::default()
-    };
+    let at = |binding| ResourceBinding { group: 0, binding };
+    let mut targets =
+        vec![(at(0), msl::BindTarget { buffer: Some(MSL_FRAME_BUFFER), ..Default::default() })];
+    if scene {
+        targets.extend([
+            (at(1), msl::BindTarget { buffer: Some(MSL_SCENE_BUFFER), ..Default::default() }),
+            (at(2), msl::BindTarget { texture: Some(MSL_SCENE_TEXTURE), ..Default::default() }),
+            (
+                at(3),
+                msl::BindTarget {
+                    sampler: Some(msl::BindSamplerTarget::Resource(MSL_SCENE_SAMPLER)),
+                    ..Default::default()
+                },
+            ),
+        ]);
+    }
+    let resources =
+        msl::EntryPointResources { resources: targets.into_iter().collect(), ..Default::default() };
     let msl_options = msl::Options {
         lang_version: MSL_VERSION,
         per_entry_point_map: [
@@ -325,18 +360,28 @@ fn translate(module: &Module) -> Result<Compiled, ProgramError> {
     Ok(Compiled { msl: msl_text, glsl: glsl_text })
 }
 
-fn compile_inner(source: &str) -> Result<Compiled, ProgramError> {
-    // Prelude and source first: the sandbox's module.
+fn compile_inner(source: &str, scene: bool) -> Result<Compiled, ProgramError> {
+    // Prelude (and the engine's scene prelude) and source first: the sandbox's module.
+    let extra = if scene { SCENE_PRELUDE } else { "" };
     let mut text = String::with_capacity(
-        PRELUDE.len().saturating_add(source.len()).saturating_add(EPILOGUE.len()).saturating_add(2),
+        PRELUDE
+            .len()
+            .saturating_add(extra.len())
+            .saturating_add(source.len())
+            .saturating_add(EPILOGUE.len())
+            .saturating_add(3),
     );
     text.push_str(PRELUDE);
     text.push('\n');
+    if scene {
+        text.push_str(SCENE_PRELUDE);
+        text.push('\n');
+    }
     let layout = Layout { source, start: text.len() };
     text.push_str(source);
     text.push('\n');
     let user = parse(&text, &layout)?;
-    check_sandbox(&user, &layout)?;
+    check_sandbox(&user, &layout, if scene { SCENE_HOST_GLOBALS } else { HOST_GLOBALS })?;
 
     // Then the whole program, with the host's entry points.
     text.push_str(EPILOGUE);
@@ -350,7 +395,7 @@ fn compile_inner(source: &str) -> Result<Compiled, ProgramError> {
             None,
         ));
     }
-    translate(&module).map_err(|mut e| {
+    translate(&module, scene).map_err(|mut e| {
         if e.kind == ProgramErrorKind::Validation && e.location.is_none() {
             // Re-run for the span: the error value above is consumed by `chain`.
             if let Err(v) =
@@ -368,6 +413,20 @@ fn compile_inner(source: &str) -> Result<Compiled, ProgramError> {
 /// Never panics: a panic inside naga is caught here and reported as
 /// [`ProgramErrorKind::Internal`].
 pub fn compile(source: &str) -> Result<Compiled, ProgramError> {
+    compile_checked(source, false)
+}
+
+/// [`compile`] for the first-party scene engine (`wallpapers/scene-engine/engine.wgsl`):
+/// `scene_prelude.wgsl` follows the prelude, and the program may read `scene`,
+/// `scene_image` and `scene_sampler` besides `frame`. Metal: `frame` at buffer
+/// 0, `scene` at buffer 1, `scene_image` at texture 0, `scene_sampler` at
+/// sampler 0. GLSL: two uniform blocks (named after the `Frame` and `Scene`
+/// structs) and one `sampler2D`.
+pub fn compile_scene_engine(source: &str) -> Result<Compiled, ProgramError> {
+    compile_checked(source, true)
+}
+
+fn compile_checked(source: &str, scene: bool) -> Result<Compiled, ProgramError> {
     if source.len() > MAX_SOURCE_BYTES {
         return Err(error(
             ProgramErrorKind::TooLarge,
@@ -379,7 +438,7 @@ pub fn compile(source: &str) -> Result<Compiled, ProgramError> {
             None,
         ));
     }
-    catch_unwind(AssertUnwindSafe(|| compile_inner(source))).unwrap_or_else(|_| {
+    catch_unwind(AssertUnwindSafe(|| compile_inner(source, scene))).unwrap_or_else(|_| {
         Err(error(ProgramErrorKind::Internal, "the WGSL translator failed on this program", None))
     })
 }
@@ -552,6 +611,52 @@ mod tests {
     fn a_large_program_is_refused() {
         let big = format!("{OK_FN}{}", "//".repeat(MAX_SOURCE_BYTES));
         assert_eq!(refused(&big).kind, ProgramErrorKind::TooLarge);
+    }
+
+    /// An authored program gets no `scene`: reading it is an unknown name,
+    /// and declaring it (or the image slot) at the engine's bindings is refused
+    /// like any other binding.
+    #[test]
+    fn an_authored_program_cannot_reach_the_scene() {
+        let read = "fn wallpaper(px: vec2<f32>) -> vec4<f32> { return scene.rows[0]; }\n";
+        assert_eq!(refused(read).kind, ProgramErrorKind::Parse);
+        let declared = "struct Scene { rows: array<vec4<f32>, 128> }\n\
+             @group(0) @binding(1) var<uniform> scene: Scene;\n\
+             fn wallpaper(px: vec2<f32>) -> vec4<f32> { return scene.rows[0]; }\n";
+        let e = refused(declared);
+        assert_eq!(e.kind, ProgramErrorKind::Binding);
+        assert_eq!(e.location.map(|l| l.0), Some(2), "{e}");
+        let e =
+            refused(&format!("@group(0) @binding(2) var scene_image: texture_2d<f32>;\n{OK_FN}"));
+        assert_eq!(e.kind, ProgramErrorKind::Texture);
+        let e = refused(&format!("@group(0) @binding(3) var scene_sampler: sampler;\n{OK_FN}"));
+        assert_eq!(e.kind, ProgramErrorKind::Sampler);
+    }
+
+    /// The engine's own source may add no global of its own.
+    #[test]
+    fn the_scene_engine_may_not_add_globals() {
+        let e = compile_scene_engine(&format!(
+            "@group(0) @binding(4) var extra: texture_2d<f32>;\n{OK_FN}"
+        ))
+        .unwrap_err();
+        assert_eq!(e.kind, ProgramErrorKind::Texture);
+        let e = compile_scene_engine(&format!("var<private> n: f32;\n{OK_FN}")).unwrap_err();
+        assert_eq!(e.kind, ProgramErrorKind::Private);
+    }
+
+    #[test]
+    fn the_scene_engine_compiles_with_its_bindings() {
+        let c =
+            compile_scene_engine(include_str!("../wallpapers/scene-engine/engine.wgsl")).unwrap();
+        assert!(c.msl.contains("[[buffer(0)]]"), "{}", c.msl);
+        assert!(c.msl.contains("[[buffer(1)]]"), "{}", c.msl);
+        assert!(c.msl.contains("[[texture(0)]]"), "{}", c.msl);
+        assert!(c.msl.contains("[[sampler(0)]]"), "{}", c.msl);
+        assert!(c.glsl.starts_with("#version 300 es"), "{}", c.glsl);
+        assert!(c.glsl.contains("sampler2D"), "{}", c.glsl);
+        // A plain wallpaper still translates under the engine's prelude.
+        compile_scene_engine(OK_FN).unwrap();
     }
 
     #[test]

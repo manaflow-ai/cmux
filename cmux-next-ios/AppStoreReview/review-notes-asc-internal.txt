@@ -42,7 +42,7 @@ Other screens:
 Permissions, each optional and asked only when first used:
 - Notifications: during setup or the first message to Chief.
 - Microphone: calls and audio messages.
-- Speech Recognition: voice notes to text, on device.
+- Speech Recognition: voice notes and dictation to text.
 - Camera: a photo for a message, or a Mac's pairing code.
 - Photos: attaching and saving images.
 - Face ID: only when "Require Face ID" is on in Settings.

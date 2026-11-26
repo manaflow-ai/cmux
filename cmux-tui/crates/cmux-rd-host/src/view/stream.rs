@@ -234,6 +234,8 @@ pub fn run(
     };
 
     let mut reassembler = Reassembler::new(DEADLINE_US);
+    // A gap's reorder grace counts from when the gap is first seen.
+    reassembler.set_gap_grace(true);
     // Every frame decodes into this; the newest of a batch is swapped into the mailbox.
     let mut current = I420::new(2, 2);
     let mut sender = InputSender::new();
@@ -296,6 +298,7 @@ pub fn run(
                             us as f64 / 1000.0
                         ))
                     );
+                    reassembler.set_path_rtt_us(rtt_us);
                     path_kind = Some(name);
                 }
                 NetEvent::Endpoint(EndpointEvent::Link(Event::Control(record))) => {

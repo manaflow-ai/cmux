@@ -156,9 +156,36 @@ async fn handle(
             local: super::remote_guard::control_of(conn.origin, conn.auth, params)
                 != crate::hub::Control::Web,
         };
+        // RFD 0144 piece 7: a working sub-agent on a fork of this Cloud machine, only with the
+        // hidden `cloud.autoCloud` key on (`placement/sub_fork.rs`); off, nothing here runs.
+        let sub_fork = crate::placement::sub_fork::start_plan(
+            crate::placement::sub_fork::enabled(),
+            req.worktree,
+            crate::placement::sub_fork::this_machine().as_deref(),
+        );
+        let checkout = req.cwd.clone().unwrap_or_else(|| parent.meta().cwd.clone());
+        let fork_outcome = crate::placement::sub_fork::on_start(
+            &sub_fork,
+            &req.prompt,
+            req.model.as_deref(),
+            &checkout,
+        )
+        .await;
+        // Ran on a fork: its files are back in the checkout; nothing starts here.
+        if let Some(outcome) = fork_outcome.as_ref().filter(|o| !o.runs_here()) {
+            let mut answer = serde_json::Map::new();
+            answer.insert("subFork".into(), json!(outcome));
+            if let Some(placed) = placed {
+                answer.insert("placed".into(), json!(placed));
+            }
+            return Ok(Value::Object(answer));
+        }
         let mut started = hub.start_subsession(&parent, req).await?;
         if let Some(placed) = placed {
             started.set("placed", json!(placed));
+        }
+        if let Some(outcome) = fork_outcome {
+            started.set("subFork", json!(outcome));
         }
         return Ok(started);
     }

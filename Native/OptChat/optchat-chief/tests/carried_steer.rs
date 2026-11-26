@@ -52,7 +52,7 @@ fn run_carried(answer_meta: bool, result_event: bool) -> Harness {
     h.connect();
     h.say("user_local", "what is 19 times 21?");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     // The fake records the prompt before it appends the turn's own events:
     // the carried turn comes after them, as in acpmux.
@@ -105,7 +105,7 @@ fn the_turn_follows_a_carried_turn_that_carries_again() {
     h.connect();
     h.say("user_local", "what is 19 times 21?");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     // The fake records the prompt before it appends the turn's own events:
     // the carried turn comes after them, as in acpmux.
