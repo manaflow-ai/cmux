@@ -31,6 +31,7 @@ mod machine;
 mod name_flags;
 mod notification;
 mod pane_move;
+mod project;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
@@ -115,8 +116,12 @@ impl Selectors {
     ) -> Result<(), UsageError> {
         validate_selector(scope, prefix, value)?;
         if !matches!(Selector::parse(value), Ok(Selector::Id(_))) {
+            // `focused` is the object the person looks at, so its implied
+            // parents are the focused ones too, not the caller's
+            // (resolve.rs `focused_scopes`).
+            let parent = if value == "focused" { "focused" } else { "current" };
             for ancestor in structural_ancestors(scope) {
-                self.values.entry(ancestor).or_insert_with(|| "current".into());
+                self.values.entry(ancestor).or_insert_with(|| parent.into());
             }
         }
         self.values.insert(scope, value.to_string());
@@ -210,6 +215,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "space" => parse_space(&strs(words), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
+        "project" => project::parse_project(&strs(words), &mut tokens.flags)?,
         "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
         "conversation" => conversation::parse_conversation(&strs(words), &mut tokens.flags)?,
         "notify" => parse_notify(words, &mut tokens.flags)?,
@@ -290,7 +296,7 @@ fn parse_server(
 }
 
 /// `server stop` and `session <name> stop`: `[--force] [--end-terminals]
-/// [--restore-wait-seconds <n>]`. The wait for an owner that still restores
+/// [--if-idle] [--restore-wait-seconds <n>]`. The wait for an owner that still restores
 /// defaults to the bound `server ensure` gives a restore
 /// (`local_owner::RESTORE_DEADLINE`), and is at most an hour.
 fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, UsageError> {
@@ -298,6 +304,7 @@ fn stop_action(flags: &mut Flags) -> Result<super::lifecycle::ServerAction, Usag
         restore_wait: restore_wait(flags)?,
         force: flags.boolean("force"),
         end_terminals: flags.boolean("end-terminals"),
+        if_idle: flags.boolean("if-idle"),
     })
 }
 
@@ -1026,7 +1033,9 @@ fn parse_tab_strings(
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
         ["list"] => {
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+            let created_by = list_filter::take_created_by(flags)?;
             request(ResourceOperation::TabList, selectors, flags, Map::new())
+                .map(|plan| plan.filtered(ListFilter { created_by, ..ListFilter::default() }))
         }
         ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
@@ -1040,6 +1049,7 @@ fn parse_tab_strings(
             insert_creation_command(&mut params, argv, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_size(&mut params, flags)?;
+            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateTerminal, selectors, flags, params)
         }
         ["create", "browser"] => {
@@ -1053,6 +1063,7 @@ fn parse_tab_strings(
             browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
+            insert_purpose(&mut params, flags);
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
         }
         [selector, "rename"] => {

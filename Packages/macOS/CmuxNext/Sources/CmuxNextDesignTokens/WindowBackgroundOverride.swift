@@ -16,6 +16,9 @@ public nonisolated struct WindowBackgroundOverride: Hashable, Sendable {
     public var opacity: Double?
     /// `appearance.backgroundBlur`; nil keeps Ghostty's.
     public var material: WindowMaterialChoice?
+    /// `appearance.terminalCellBackgrounds`: how a program's explicit cell backgrounds draw over
+    /// this background (`GhosttyRuntimeSurfacePolicy.cellBackgroundLines`).
+    public var cellBackgrounds: TerminalCellBackgrounds
 
     /// The opacity a chosen material (frosted or glass) gets when neither
     /// cmux.json nor the Ghostty config makes the window translucent:
@@ -32,9 +35,11 @@ public nonisolated struct WindowBackgroundOverride: Hashable, Sendable {
     ///   default) keeps the Ghostty config's.
     /// - Parameter material: `appearance.backgroundBlur`; nil (the default)
     ///   keeps the Ghostty config's.
-    public init(opacity: Double? = nil, material: WindowMaterialChoice? = nil) {
+    /// - Parameter cellBackgrounds: `appearance.terminalCellBackgrounds`; opaque by default.
+    public init(opacity: Double? = nil, material: WindowMaterialChoice? = nil, cellBackgrounds: TerminalCellBackgrounds = .opaque) {
         self.opacity = opacity.map { min(max($0, 0), 1) }
         self.material = material
+        self.cellBackgrounds = cellBackgrounds
     }
 
     /// The opacity and blur the window uses, from the Ghostty config's.

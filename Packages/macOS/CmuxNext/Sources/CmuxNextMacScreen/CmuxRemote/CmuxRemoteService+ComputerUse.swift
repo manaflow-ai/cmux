@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import AppKit
 import CmuxNextCompat
 public import CmuxNextDaemon
+package import CmuxNextSettings
 public import Foundation
 public import Observation
 import CmuxNextWakeups
@@ -72,6 +74,32 @@ public final class CmuxRemoteComputerUseState {
         if next.map(\.0) != approvals.map(\.appID) || next.map(\.1) != approvals.map(\.decision) {
             approvals = next.map { (appID: $0.0, decision: $0.1) }
         }
+    }
+}
+
+extension CmuxRemoteComputerUseState {
+    /// Adds the embedded Remote worker and its approvals to the Settings card.
+    package func addSettingsFields(to fields: inout [String: CmuxNextSettings.JSONValue]) {
+        guard embedded else { return }
+        fields["engine"] = .string("cmux Computer Use")
+        let state: String = switch workerState {
+        case "ready": "running"
+        case "starting": "starting"
+        case "unavailable": "failed"
+        default: "stopped"
+        }
+        let pid: CmuxNextSettings.JSONValue = workerPID.map { CmuxNextSettings.JSONValue.number(Double($0)) } ?? .null
+        fields["worker"] = .object(["state": .string(state), "pid": pid])
+        fields["approvals"] = .array(approvals.map { approval -> CmuxNextSettings.JSONValue in
+            .object(["app_id": .string(approval.appID), "name": .string(Self.appName(approval.appID)),
+                     "decision": .string(approval.decision)])
+        })
+    }
+
+    /// An app id's display name from Launch Services, else the id.
+    private static func appName(_ appID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: appID) else { return appID }
+        return FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
     }
 }
 
@@ -178,6 +206,7 @@ extension CmuxRemoteService {
 
     /// Restarts the Computer Use worker (a new process reads new grants; grants and sessions stay).
     public func restartComputerUse() async {
+        guard computerUse.embedded else { return }
         _ = try? await call("restart", .object(["worker": .string("computer-use")]))
         _ = await computerUseStatus()
     }
@@ -237,9 +266,26 @@ extension CmuxRemoteService {
         }
     }
 
-    /// Asks macOS for `permission` ("accessibility" or "screen-recording") in cmux Remote, so the
-    /// prompt and System Settings name cmux Remote.
+    /// The person moved, resized, hid or showed `session`'s live preview card: the daemon keeps it
+    /// (`remote-host-call computer_use.preview`, computer_use_preview_place.rs) and sends the card
+    /// back with its place. Returns at once; a refusal is logged.
+    public func sendComputerUsePreview(session: String, update: [String: CmuxNextDaemon.JSONValue]) {
+        var params = update
+        params["session"] = .string(session)
+        // task-owner: one request to the local daemon; a newer move sends its own.
+        Task { [weak self] in
+            do { _ = try await self?.call("computer_use.preview", .object(params), timeout: .seconds(5)) } catch {
+                computerUseLogger.notice("computer_use.preview refused: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// Asks for a grant in the signed host that macOS lists in System Settings.
     public func requestGrant(_ permission: String) async {
+        guard computerUse.embedded else {
+            await MacScreenHelper.requestBundledGrant(permission)
+            return
+        }
         _ = try? await call("request", .object(["permission": .string(permission)]))
     }
 

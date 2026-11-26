@@ -182,6 +182,9 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     public var launchKind: String?
     /// The workspaces the launch restored; nil when the launch did not say.
     public var workspaces: Int?
+    /// The launch started the daemon (`daemon.spawned`: true, its spawn is in the launch's time) or connected to one
+    /// already running (`daemon.reused`: false), whichever came first; nil when neither was marked.
+    public var daemonSpawned: Bool?
 
     enum CodingKeys: String, CodingKey {
         case startedAt = "started_at", version, build, commit
@@ -190,7 +193,7 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         case windowUsableMs = "window_usable_ms", firstShellLiveMs = "first_shell_live_ms", noSnapshot = "no_snapshot"
         case priorChatPaintedMs = "prior_chat_painted_ms", priorChatLiveMs = "prior_chat_live_ms"
         case prewarmed, firstLaunchOfBuild = "first_launch_of_build", phases
-        case stages, launchKind = "launch_kind", workspaces
+        case stages, launchKind = "launch_kind", workspaces, daemonSpawned = "daemon_spawned"
     }
 
     /// The record of a launch whose marks are `marks` (name to milliseconds since process start).
@@ -216,8 +219,19 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         let stages = LaunchStages.spans(marks).mapValues { ($0 * 10).rounded() / 10 }
         self.stages = stages.isEmpty ? nil : stages
         self.workspaces = workspaces
+        daemonSpawned = Self.daemonSpawned(marks)
         self.prewarmed = prewarmed
         firstLaunchOfBuild = true
+    }
+
+    /// Whether the launch's daemon was spawned (true) or reused (false): the earlier of its two marks; nil with neither.
+    static func daemonSpawned(_ marks: [String: Double]) -> Bool? {
+        switch (marks["daemon.spawned"], marks["daemon.reused"]) {
+        case let (spawned?, reused?): spawned <= reused
+        case (.some, nil): true
+        case (nil, .some): false
+        case (nil, nil): nil
+        }
     }
 
     /// The marks the record waits for before it is written: the first window frame and Home's reveal.
@@ -227,18 +241,20 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
     /// Every launch mark a stage splits into is here, so a stage's regression names its step from the file alone,
     /// outside a harness's marks pipe too (startup-tti, 2026-11-21).
     public static let phaseMarks = [
-        "main.warmup_started", "main.nsapp", "main.run", "app.did_finish_launching_entry", "app.launch_snapshot_awaited",
+        "premain.first_initializer", "main.setup_done", "main.warmup_started",
+        "main.environment", "main.state_folder", "main.reads_started", "main.crash_handlers", "main.nsapp_made", "main.delegate_made", "main.nsapp", "main.run", "app.did_finish_launching_entry", "app.launch_snapshot_awaited",
         "cloud_env.start", "cloud_env.cli_exited", "cloud_env.awaited",
         "did_finish_launching_start", "dfl.settings_read", "dfl.theme", "dfl.services", "dfl.bind", "dfl.settings", "dfl.menu",
-        "daemon.prepare_start", "daemon.binary_resolved", "daemon.prepare_end", "daemon.socket_connected", "daemon_connected",
+        "daemon.prepare_start", "daemon.binary_resolved", "daemon.spawned", "daemon.reused", "daemon.prepare_end", "daemon.socket_connected", "daemon_connected",
         "dfl.daemon_cloud_updater", "dfl.first_window_hooks", "dfl.home_history",
-        "launch_snapshot_applied", "launch_snapshot_shown", "dfl.windows", "did_finish_launching_end",
-        "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
-        "sidebar_rows_shown", "first_window_flushed", "agent_pane.launch_image_shown",
+        "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.init_done", "window.ordered_front",
+        "dfl.windows", "did_finish_launching_end", "window.restore_wait_start", "window.restore_wait_end",
+        "frame.commit_start", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
+        "sidebar_rows_shown", "first_window_flushed", "pages.deferred_until_frame", "agent_pane.launch_image_shown",
         "first_terminal_surface_created", "first_terminal_content", "first_terminal_content_applied", "first_terminal_frame",
         "cef.initialize_start", "chromium_page.make_start", "chromium_page.browser_created", "home.page_host_made",
-        "cef.ready", "agent_pane.view_created", "agent_pane.transport_open",
-        "terminal_input_accepted", "terminal_echo", "reveal.sidebar", "reveal.home",
+        "pages.created", "cef.ready", "first_page.navigation_start", "first_page.dom_content_loaded", "first_page.first_contentful_paint", "agent_pane.view_created", "agent_pane.transport_open",
+        "first_key_down", "terminal_input_accepted", "terminal_echo", "reveal.sidebar", "reveal.home",
     ]
 }
 
@@ -247,15 +263,23 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
 /// you havent already to properly measure each part of startup times." The launch harnesses compute the same stages
 /// from the same marks (scripts/ci/launch_stages.py, scripts/measure/launch-ready.swift); a test keeps the three
 /// tables equal.
-public nonisolated enum LaunchStages {
+public nonisolated struct LaunchStages {
+    public nonisolated init() {}
     /// (stage, its marks), in launch order. A stage is the earliest of its marks that came.
     public static let table: [(stage: String, marks: [String])] = [
+        // exec and dyld (every image mapped and bound, the system libraries' initializers) to the app's first initializer
+        ("dyld", ["premain.first_initializer"]),
         ("premain", ["main_start"]), // exec, dyld, static initializers
+        ("main_setup", ["main.setup_done"]), // malloc zone, signals, environment, SingleInstanceGuard
         ("did_finish_launching", ["did_finish_launching_start"]), // main to the app delegate
         ("daemon_connected", ["daemon_connected"]),
         ("first_window_shown", ["launch_snapshot_shown", "first_window_flushed", "dfl.windows"]),
         ("first_frame", ["first_window_frame_committed"]),
         ("webview_ready", ["cef.ready"]),
+        // The first cmux page's own timeline (LaunchFirstPage): its navigation start, DOMContentLoaded, first contentful paint.
+        ("first_page_navigation", ["first_page.navigation_start"]),
+        ("first_page_dom_content_loaded", ["first_page.dom_content_loaded"]),
+        ("first_page_contentful_paint", ["first_page.first_contentful_paint"]),
         ("first_chat_paint", ["agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page"]),
         // A terminal echoed a typed key, a chat composer drew one, or Home's composer has the keyboard in the key window.
         ("first_interaction", ["terminal_echo", "agent_pane.input_echoed", "window_usable"]),

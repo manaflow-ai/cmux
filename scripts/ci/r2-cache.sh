@@ -32,6 +32,14 @@ if [[ "$dir" == *$'\n'* ]]; then
   echo "r2-cache: one directory per call" >&2
   exit 2
 fi
+# Workflows pass `path: ~/.bun/install/cache` as actions/cache does, but the
+# composite action hands it over as a quoted env value, so the shell never
+# expands the tilde: saves warned "does not exist" and uploaded nothing, and
+# every restore of those keys missed (and would have unpacked into ./~).
+case "$dir" in
+  "~") dir="$HOME" ;;
+  "~/"*) dir="$HOME/${dir#\~/}" ;;
+esac
 
 # CI_CACHE_R2_NAMESPACE names a platform-independent cache (for example
 # `any` for built web bundles that a Linux job saves and a Mac restores);

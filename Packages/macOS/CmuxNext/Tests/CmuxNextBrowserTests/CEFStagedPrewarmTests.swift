@@ -26,10 +26,13 @@ import Testing
         #expect(switches.contains("use-mock-keychain"), "a release bundle read the real Chromium Safe Storage key")
         #expect(switches.contains("disable-background-networking"))
         #expect(switches.contains("disable-component-update"))
+        #expect(!switches.contains("disable-features=MacAppCodeSignClone"),
+                "the staged pre-warm keeps Chromium's clone enabled while Sparkle may replace the running bundle")
         #expect(!switches.contains { $0.hasPrefix("load-extension=") })
         #expect(!switches.contains { $0.hasPrefix("profile-directory=") })
         let app = CEFSwitches.current(forkAPIVersion: 7, bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
-        #expect(app.allSatisfy { switches.contains($0) }, "the pre-warm left out an app switch: the first launch starts a different Chromium")
+        #expect(app.filter { $0 != "disable-features=MacAppCodeSignClone" }.allSatisfy { switches.contains($0) },
+                "the pre-warm left out an app switch: the first launch starts a different Chromium")
     }
 
     @Test func outcomesAreDistinctExitStatusesWithALoadAsSuccess() {

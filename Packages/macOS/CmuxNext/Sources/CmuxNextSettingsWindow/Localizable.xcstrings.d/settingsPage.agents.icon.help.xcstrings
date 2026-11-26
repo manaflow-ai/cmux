@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.agents.icon.help" : {
+      "comment" : "Settings > Agents: a custom harness's icon (user 12922); keep SF Symbol, PNG, SVG and the examples exactly",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Type one emoji (🦊), an SF Symbol name (hammer.fill) or an agent (claude, goose), or choose or drop a PNG or SVG. Automatic shows the agent its command runs, else its initials."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "絵文字 1 つ (🦊)、SF Symbol 名 (hammer.fill)、エージェント名 (claude、goose) を入力するか、PNG か SVG を選択またはドロップします。自動では、コマンドが実行するエージェント、なければ頭文字を表示します。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "اكتب رمزًا تعبيريًا واحدًا (🦊) أو اسم SF Symbol (hammer.fill) أو وكيلًا (claude، goose)، أو اختر ملف PNG أو SVG أو أفلته. التلقائي يعرض الوكيل الذي يشغّله الأمر، وإلا الأحرف الأولى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Upišite jedan emoji (🦊), naziv SF Symbola (hammer.fill) ili agenta (claude, goose), ili odaberite ili ispustite PNG ili SVG. Automatski prikazuje agenta kojeg naredba pokreće, inače inicijale."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skriv én emoji (🦊), et SF Symbol-navn (hammer.fill) eller en agent (claude, goose), eller vælg eller slip en PNG eller SVG. Automatisk viser den agent, kommandoen kører, ellers initialerne."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gib ein Emoji (🦊), einen SF-Symbol-Namen (hammer.fill) oder einen Agenten (claude, goose) ein, oder wähle oder ziehe eine PNG- oder SVG-Datei hierher. Automatisch zeigt den Agenten, den der Befehl startet, sonst die Initialen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Escribe un emoji (🦊), un nombre de SF Symbol (hammer.fill) o un agente (claude, goose), o elige o suelta un PNG o SVG. Automático muestra el agente que ejecuta su comando o, si no, sus iniciales."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Saisissez un emoji (🦊), un nom de SF Symbol (hammer.fill) ou un agent (claude, goose), ou choisissez ou déposez un PNG ou un SVG. Automatique affiche l’agent que lance sa commande, sinon ses initiales."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Digita un’emoji (🦊), un nome SF Symbol (hammer.fill) o un agente (claude, goose), oppure scegli o trascina un PNG o SVG. Automatica mostra l’agente eseguito dal comando, altrimenti le iniziali."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "វាយ emoji មួយ (🦊) ឈ្មោះ SF Symbol (hammer.fill) ឬភ្នាក់ងារ (claude, goose) ឬជ្រើស ឬទម្លាក់ PNG ឬ SVG។ ស្វ័យប្រវត្តិបង្ហាញភ្នាក់ងារដែលពាក្យបញ្ជារត់ បើមិនដូច្នោះទេ អក្សរកាត់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이모지 하나(🦊), SF Symbol 이름(hammer.fill) 또는 에이전트(claude, goose)를 입력하거나 PNG 또는 SVG를 선택하거나 끌어다 놓으세요. 자동은 명령이 실행하는 에이전트를, 없으면 머리글자를 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skriv én emoji (🦊), et SF Symbol-navn (hammer.fill) eller en agent (claude, goose), eller velg eller slipp en PNG eller SVG. Automatisk viser agenten kommandoen kjører, ellers initialene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wpisz jedno emoji (🦊), nazwę SF Symbol (hammer.fill) lub agenta (claude, goose) albo wybierz lub upuść plik PNG lub SVG. Automatycznie pokazuje agenta uruchamianego przez polecenie, a w innym razie inicjały."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Digite um emoji (🦊), um nome de SF Symbol (hammer.fill) ou um agente (claude, goose), ou escolha ou solte um PNG ou SVG. Automático mostra o agente que o comando executa ou, se não houver, as iniciais."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Введите один эмодзи (🦊), имя SF Symbol (hammer.fill) или агента (claude, goose) либо выберите или перетащите PNG или SVG. «Автоматически» показывает агента, которого запускает команда, иначе инициалы."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "พิมพ์อีโมจิหนึ่งตัว (🦊) ชื่อ SF Symbol (hammer.fill) หรือเอเจนต์ (claude, goose) หรือเลือกหรือวางไฟล์ PNG หรือ SVG อัตโนมัติจะแสดงเอเจนต์ที่คำสั่งเรียกใช้ หากไม่มีจะแสดงอักษรย่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir emoji (🦊), bir SF Symbol adı (hammer.fill) veya bir ajan (claude, goose) yazın ya da bir PNG veya SVG seçin veya bırakın. Otomatik, komutun çalıştırdığı ajanı, yoksa baş harfleri gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Введіть один емодзі (🦊), назву SF Symbol (hammer.fill) або агента (claude, goose) чи виберіть або перетягніть PNG чи SVG. «Автоматично» показує агента, якого запускає команда, інакше ініціали."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nhập một emoji (🦊), tên SF Symbol (hammer.fill) hoặc một tác nhân (claude, goose), hoặc chọn hay thả tệp PNG hoặc SVG. Tự động hiển thị tác nhân mà lệnh chạy, nếu không thì chữ viết tắt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "输入一个表情 (🦊)、SF Symbol 名称 (hammer.fill) 或代理 (claude、goose)，或选择或拖入 PNG 或 SVG。自动显示其命令运行的代理，否则显示首字母。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "輸入一個表情符號 (🦊)、SF Symbol 名稱 (hammer.fill) 或代理 (claude、goose)，或選擇或拖入 PNG 或 SVG。自動會顯示其命令執行的代理，否則顯示首字母。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -2,9 +2,7 @@
 // AgentPageProvider): the old `agentSession` methods become `cmux.agent.*` pane-protocol calls, and
 // the scripts the old host evaluated become events of the stream `cmux.agent.host.events`.
 import { deliverHandoffFailure } from "./dictation";
-import { createPageClient, isPageError, RECEIVE_NAME, type PageClient } from "../../pages/shared/pageClient";
-import { installNativeMenu } from "../../ui/nativeMenu";
-import { NativeError } from "./nativeError";
+import type { PageClient } from "../../pages/shared/pageClient";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
 import { receiveModelCatalog } from "./modelCatalogHost";
 import { setEditedFilesSettings } from "./turnChanges/settings";
@@ -24,9 +22,10 @@ import { setTabRow } from "./header/tabRow";
 import { receiveNativeRowToolInvocation } from "./header/nativeRowTools";
 import { setFloatingState } from "./floatingState";
 import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
-import { setSessionStatus } from "./sessionStatus";
+import { setExperimentSwitches } from "../../experiments/switches";
 import { receivePromptUploadState } from "./promptUploadState";
 import { setComputerUsePreview } from "./computerUse/computerUsePreview";
+import { setComputerUseState } from "./computerUse/computerUseState";
 import { setMachineLink } from "./machineLink";
 import { setRemoteControl } from "./remoteControl";
 import { setPaneNotices } from "./paneNoticeStore";
@@ -34,71 +33,11 @@ import { runNativeSessionInfoAction, setNativeSessionInfoHost } from "./session-
 import { addCloudPreviewPort, seedCloudPreviewPorts } from "./cloudPreviewPorts";
 import { noteChatTheme, SNAPSHOT_WRITE_EVENT } from "./chatSnapshot/live";
 
+export { agentPageOp, callPageHost, pageHostClient, resetPageHostClientForTests } from "./pageHostClient";
+
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
 export const FOCUS_LOCATION = "acpmux-focus-location";
-
-const RENAMED: Record<string, string> = {
-  ready: "handshake",
-  "chat.persistSession": "session.persist",
-};
-
-/// The `cmux.agent` op of an old bridge method.
-export function agentPageOp(method: string): string {
-  return `cmux.agent.${RENAMED[method] ?? method}`;
-}
-
-let client: PageClient | null = null;
-
-/// The page host client when the page runs on the shared page host, else null (the old host).
-export function pageHostClient(): PageClient | null {
-  // Only a found client is kept: it owns the page's receive hook, so there is one per page.
-  client ??= createPageClient();
-  return client;
-}
-
-/// Tests: the page starts again with no page host client, as a new page does. A test that installs
-/// a fake `cmuxPage` handler calls it in its teardown, so a later test file's requests do not go to
-/// that fake through the kept client (its native menu and receive hook go with it).
-export function resetPageHostClientForTests(): void {
-  if (!client) return;
-  client = null;
-  installNativeMenu(null);
-  delete (globalThis as Record<string, unknown>)[RECEIVE_NAME];
-}
-
-/// Calls `method` on the page host. Rejects with a `NativeError` as the old bridge did: the host's
-/// code, message, retryable, and the `origin` and `details` the host put in the error's details. A
-/// request the host refused before it reached the pane is origin `native`, with the protocol's own
-/// code in `details.protocol` (`cmux.protocol.unknown_op`: this host has no such op); a lost link
-/// leaves code and origin unset, because nothing tells whether the request ran.
-export async function callPageHost<T>(
-  page: PageClient,
-  method: string,
-  params: Record<string, unknown> = {},
-): Promise<T> {
-  try {
-    return await page.call<T>(agentPageOp(method), params);
-  } catch (error) {
-    if (!isPageError(error)) throw new NativeError(undefined, String(error));
-    if (error.code === "cmux.protocol.unknown_op" || error.code === "cmux.protocol.invalid_params")
-      throw new NativeError({
-        code: "native.invalid_request",
-        origin: "native",
-        userMessage: error.message,
-        details: { protocol: error.code },
-      });
-    if (error.code.startsWith("cmux.protocol.")) throw new NativeError({ userMessage: error.message });
-    const details = (error as { details?: { origin?: unknown; details?: unknown } }).details;
-    throw new NativeError({
-      code: error.code,
-      userMessage: error.message,
-      retryable: error.retryable,
-      origin: details?.origin,
-      details: details?.details,
-    });
-  }
-}
 
 export type HostEvent = { kind: string; value?: unknown };
 
@@ -111,6 +50,9 @@ export function applyHostEvent(event: HostEvent): void {
   switch (event.kind) {
     case "imessage.changed":
       window.dispatchEvent(new Event("cmux-imessage-changed"));
+      return;
+    case "projectPalette":
+      window.dispatchEvent(new CustomEvent("cmux-project-palette", { detail: event.value }));
       return;
     case "github.changed":
       window.dispatchEvent(new Event("cmux-github-changed"));
@@ -140,9 +82,9 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyWorkflowLabs?.(event.value === true);
     case "sidebarPreviewVariant":
       return configureNativeSidebarPreviewVariant(event.value);
-    case "sessionStatus":
-      // Direct, like editedFiles: a push before the chat mounts is kept.
-      return setSessionStatus(event.value);
+    case "experiments":
+      // Direct: a push before a component mounts is kept.
+      return setExperimentSwitches(event.value);
     case "machineLink":
       return setMachineLink(event.value);
     case "paneNotices":
@@ -192,6 +134,9 @@ export function applyHostEvent(event: HostEvent): void {
     case "computerUsePreview":
       // Direct, like toolCards: a push before the chat mounts is kept.
       return setComputerUsePreview(event.value);
+    case "computerUseState":
+      // Computer Use on this Mac, for a send that names `@computer-use` (computerUse/computerUseState.ts).
+      return setComputerUseState(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "headerState":

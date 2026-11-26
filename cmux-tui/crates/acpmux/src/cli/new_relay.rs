@@ -75,6 +75,7 @@ pub(crate) fn should_relay(
 pub(crate) fn for_refusal(
     host: Option<&str>,
     error: &anyhow::Error,
+    promptless: bool,
 ) -> Option<(NewRelay, String, Vec<String>)> {
     let host = host?;
     let own = crate::pairing::machine_name();
@@ -83,8 +84,26 @@ pub(crate) fn for_refusal(
         return None;
     }
     let relay = configured()?;
-    let args = relay_args(crate::cli::entry::original_args()?, host);
+    let mut args = relay_args(crate::cli::entry::original_args()?, host);
+    if promptless {
+        add_detach(&mut args);
+    }
     Some((relay, host.to_owned(), args))
+}
+
+/// `-d` for a relayed `new` that has no prompt: the new session is on another machine, so there is
+/// no terminal of its own to open, and a relay (which has no terminal either) would refuse. Put
+/// before any `--`, and not added when the caller already detached.
+pub(crate) fn add_detach(args: &mut Vec<String>) {
+    let end = args.iter().position(|w| w == "--").unwrap_or(args.len());
+    let detached = args.iter().take(end).any(|w| {
+        w == "-d"
+            || w == "--detach"
+            || (w.starts_with('-') && !w.starts_with("--") && w.contains('d'))
+    });
+    if !detached {
+        args.insert(end, "-d".to_owned());
+    }
 }
 
 fn names_another_machine(host: &str, own: &[&str]) -> bool {
@@ -151,7 +170,7 @@ pub(crate) fn relay_with_deadline(
     use std::io::{Read, Seek};
     let (program, own) = relay.argv.split_first().ok_or_else(|| anyhow!("newRelay has no argv"))?;
     let mut out = if capture { Some(tempfile::tempfile().context("the new relay")?) } else { None };
-    let mut cmd = cmux_process::Command::new(program);
+    let mut cmd = cmux_process::Command::new(crate::cli::send_relay::find_relay_program(program)?);
     cmd.args(own)
         .args(args)
         .env(RELAYED_ENV, "1")
@@ -231,6 +250,22 @@ mod tests {
 
     fn refused(e: RpcError) -> anyhow::Error {
         DaemonError(e).into()
+    }
+
+    #[test]
+    fn a_promptless_relayed_new_detaches_once() {
+        let mut args = words(&["--machine", "far", "-n", "x"]);
+        add_detach(&mut args);
+        assert_eq!(args, words(&["--machine", "far", "-n", "x", "-d"]));
+        add_detach(&mut args);
+        assert_eq!(args.iter().filter(|w| *w == "-d").count(), 1);
+        let mut long = words(&["--machine", "far", "--detach"]);
+        add_detach(&mut long);
+        assert_eq!(long, words(&["--machine", "far", "--detach"]));
+        // Words after `--` are the caller's, so the flag goes before them.
+        let mut literal = words(&["--machine", "far", "--", "-d"]);
+        add_detach(&mut literal);
+        assert_eq!(literal, words(&["--machine", "far", "-d", "--", "-d"]));
     }
 
     #[test]

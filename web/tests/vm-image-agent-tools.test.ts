@@ -179,8 +179,13 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
       "agent-tools-browser-program-cmux-browser-host",
       "agent-tools-display-wm-apt-fetch",
       "agent-tools-display-wm-apt-install",
+      "agent-tools-browser-path",
       "agent-tools-browser-lists",
     ]);
+    // An agent's `chromium --headless` finds the baked Chrome on PATH.
+    const browserPath = phases.find((p) => p.name === "agent-tools-browser-path")!.command;
+    for (const name of ["chromium", "chromium-browser", "google-chrome"]) expect(browserPath).toContain(`/usr/local/bin/${name}`);
+    expect(browserPath).toContain(rolesManifest(lock).roles.browser!.env.CMUX_BROWSER_HOST_CHROMIUM!);
     // The desktop session's closure, pinned from the lock like the browser's: each .deb by its locked sha256.
     const wm = phases.find((p) => p.name === "agent-tools-display-wm-apt-fetch")!.command;
     for (const [name, version] of Object.entries(lock.apt.ubuntu.firstUse["display-wm"])) expect(wm).toContain(lock.apt.ubuntu.debs[`${name}=${version}`]!.sha256);
@@ -267,7 +272,10 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(gatewayProblems(servers)).toEqual([]);
     expect(attachedComputerUse(servers)).toBeNull();
     expect(gatewayProblems([{ ...servers[0], url: "http://10.0.0.5:41733/mcp/s-1f2e/tools" }])).toEqual(["cmux url http://10.0.0.5:41733/mcp/s-1f2e/tools is not loopback"]);
+    // Roll 44895229777: acpmux gives a harness its session endpoint itself, `/mcp/<session>` (mcp_gateway.rs).
+    for (const path of ["/mcp/s-1f2e", "/mcp/s-1f2e/tools/cmux"]) expect(gatewayProblems([{ ...servers[0], url: `http://127.0.0.1:41733${path}` }])).toEqual([]);
     expect(gatewayProblems([{ ...servers[0], url: "http://127.0.0.1:41733/other" }])).toHaveLength(1);
+    expect(gatewayProblems([{ ...servers[0], url: "http://127.0.0.1:41733/mcp/s-1f2e/admin" }])).toHaveLength(1);
     expect(gatewayProblems([{ name: "cmux", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"], env: {} }])).toEqual([]);
     expect(gatewayProblems([{ name: "cmux", command: "/tmp/cmux", args: [], env: {} }])).toHaveLength(1);
     expect(gatewayProblems([])).toEqual(["no cmux server"]);
@@ -315,6 +323,16 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     const catalog = ["status", "list_machines", "list_apps", "list_windows", "screenshot", "get_ui_tree", "click", "type_text", "press_key", "scroll", "drag", "set_value", "perform_action", "wait", "batch", "launch_app", "request_permission"];
     expect(videoToolProblems(catalog)).toEqual([]);
     expect(videoToolProblems([...catalog, "install_ffmpeg", "start_recording", "screen_video"])).toEqual(["lists install_ffmpeg", "lists start_recording", "lists screen_video"]);
+  });
+
+  test("probe: the record tool (#50070) passes only when a call to it was refused for want of an H.264 encoder", () => {
+    const tools = ["status", "screenshot", "record"];
+    expect(videoToolProblems(tools)).toEqual(["lists record"]);
+    expect(videoToolProblems(tools, { isError: true, text: "unsupported: this desktop has no H.264 encoder, so it cannot record the screen yet" })).toEqual([]);
+    expect(videoToolProblems(tools, { isError: true, text: "unsupported: the host has no H.264 encoder for recordings" })).toEqual([]);
+    expect(videoToolProblems(tools, { isError: false, text: '{"path":"/tmp/r.mp4"}' })).toEqual(["lists record"]);
+    expect(videoToolProblems(tools, { isError: true, text: "screen is locked" })).toEqual(["lists record"]);
+    expect(videoToolProblems([...tools, "start_recording"], { isError: true, text: "unsupported: no H.264 encoder" })).toEqual(["lists start_recording"]);
   });
 
   test("probe: the worker check parses and reads the worker by its hidden mode, never its own pgrep line", async () => {
@@ -431,17 +449,18 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(cua).toContain("NoNewPrivileges=yes");
     expect(cua).toMatch(new RegExp(`Environment=PATH=${CUA_REFUSE_DIR}:`));
     const files = agentToolsFiles(rdLock).filter((f) => f.path.startsWith(`${CUA_REFUSE_DIR}/`));
-    expect(files.map((f) => path.basename(f.path)).sort()).toEqual(["apt", "apt-get", "sudo"]);
+    expect(files.map((f) => path.basename(f.path)).sort()).toEqual(["apt", "apt-get", "ffmpeg", "ffprobe", "sudo"]);
     const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-cua-refuse-"));
     try {
-      for (const name of ["sudo", "apt-get"]) {
+      for (const name of ["sudo", "apt-get", "ffmpeg", "ffprobe"]) {
         writeFileSync(path.join(dir, name), cuaRefuseScript(name));
         chmodSync(path.join(dir, name), 0o755);
       }
       const env = { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` };
       const found = await runChild("sh", ["-c", "command -v apt-get"], { env, timeout: 20_000 });
       expect(found.stdout.trim()).toBe(path.join(dir, "apt-get"));
-      for (const argv of [["sudo", "-n", "apt-get", "install", "-y", "ffmpeg"], ["apt-get", "install", "-y", "ffmpeg"]]) {
+      // The image carries ffmpeg for people (graduated.json); the driver finds the refusing one first.
+      for (const argv of [["sudo", "-n", "apt-get", "install", "-y", "ffmpeg"], ["apt-get", "install", "-y", "ffmpeg"], ["ffmpeg", "-f", "x11grab", "-i", ":99", "out.mp4"], ["ffprobe", "-version"]]) {
         const r = await runChild(argv[0], argv.slice(1), { env, timeout: 20_000 });
         expect(r.status).not.toBe(0);
         expect(r.stderr).toContain("cua-video");
@@ -987,5 +1006,17 @@ describe("refusedFirstUsePackages", () => {
     expect(refused).not.toContain("xterm");
     expect(refused).toContain("ffmpeg");
     expect(refused).toEqual(all.filter((name) => !(name in closures.browser) && !(name in closures["display-wm"])));
+  });
+});
+
+describe("image tools (bc, browser on PATH)", () => {
+  test("the profile exports the baked browser and the bake links and runs it headless", async () => {
+    const m = await import("../scripts/cmux-vm-image/agent-tools");
+    expect(m.agentToolsProfileScript("/opt/x/chrome")).toContain("export CHROME_BIN=/opt/x/chrome");
+    expect(m.agentToolsProfileScript()).not.toContain("CHROME_BIN");
+    const cmd = m.browserLinkCommand("/opt/x/chrome");
+    for (const l of m.BROWSER_LINKS) expect(cmd).toContain(l);
+    expect(cmd).toContain("--headless=new");
+    expect(m.imageToolsSmokeCommand()).toContain("bc");
   });
 });

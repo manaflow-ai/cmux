@@ -15,8 +15,7 @@ import UIKit
     static func field(_ lines: Int) -> ComposerUITextView {
         let view = ComposerUITextView()
         view.font = .preferredFont(forTextStyle: .body)
-        let inset = TerminalDockMetrics.textVerticalInset
-        view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
+        view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.text = (1...lines).map { "echo \($0)" }.joined(separator: "\n")
         view.frame = CGRect(origin: .zero, size: view.fittingSize(proposedWidth: 280))
@@ -24,9 +23,40 @@ import UIKit
         return view
     }
 
+    /// Leo, 2026-11-23: typing in a long draft lagged by seconds. SwiftUI asks the field's size
+    /// at several widths, again in every pass; each answer is the settled height, measuring
+    /// nothing, and a key typed past `maxLines` settles without laying out any text.
+    @Test func sizeQuestionsAndTypingPastTheCapMeasureNothing() {
+        final class Delegate: NSObject, UITextViewDelegate {
+            var changes = 0
+            func textViewDidChange(_ textView: UITextView) {
+                changes += 1
+                (textView as? ComposerReturnTextView)?.settleAfterEdit()
+            }
+        }
+        let view = Self.field(40)
+        let delegate = Delegate()
+        view.delegate = delegate
+        let capped = view.fittingSize(proposedWidth: 280).height
+        #expect(capped == Self.field(ComposerTextView.maxLines).bounds.height)
+        #if DEBUG
+        let units = ComposerReturnTextView.measuredUnits
+        for width in [0, 120, 280, 1_000, .infinity] as [CGFloat] {
+            #expect(view.fittingSize(proposedWidth: width).height == capped)
+        }
+        view.selectedRange = NSRange(location: (view.text as NSString).length, length: 0)
+        for key in "typing more" { view.insertText(String(key)) }
+        if delegate.changes > 0 { #expect(ComposerReturnTextView.measuredUnits == units) }
+        #endif
+        // A new text (sent, or cleared) measures again: one line.
+        view.text = "echo 1"
+        #expect(view.fittingSize(proposedWidth: 280).height == Self.field(1).bounds.height)
+    }
+
     @Test func growsToMaxLinesThenScrollsWithTheCaretInside() {
         let maxLines = ComposerTextView.maxLines
-        #expect(maxLines == 14)
+        // The agent chat's six (Leo, 2026-11-23: "composer growth in terminal view on ios is most certainly too high").
+        #expect(maxLines == 6)
         let heights = (1...17).map { Self.field($0).bounds.height }
         for index in 1..<maxLines { #expect(heights[index] > heights[index - 1]) }
         for index in maxLines..<heights.count { #expect(heights[index] == heights[maxLines - 1]) }
@@ -41,7 +71,7 @@ import UIKit
         // Typing at the end shows the field's bottom inset under the last
         // line, as at rest, not the line flush against the field's edge.
         #expect(abs(visible.maxY - tall.contentSize.height) < 0.5, "scrolled to the end: \(visible) of \(tall.contentSize)")
-        #expect(tall.textContainerInset.top == TerminalDockMetrics.textVerticalInset)
+        #expect(tall.textContainerInset == .zero)
     }
 
     @Test func terminalKeyInputStaysRaw() {

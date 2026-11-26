@@ -61,7 +61,7 @@ final class GroupHeaderRowView: SidebarRowView {
     let dot = CALayer()
     /// The more button (the shared ⋮, `OverflowButton`): the group editor, as a click on the
     /// name (cx-rcby, Lawrence 2026-10-08); a right-click shows the group's flat menu.
-    let moreButton = OverflowButton(label: GroupEditorStrings.more)
+    let moreButton = OverflowButton.rowControl(label: GroupEditorStrings.more)
     /// The add button (+): a new workspace at the end of the group (cmuxterm-hq#1829,
     /// the Edge group header). Shows with the more button.
     let addButton = SidebarIconButton(plus: GroupEditorStrings.newWorkspace)
@@ -69,8 +69,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// workspace row's does; the bar's pin is only a mark, and a click there folds the group. An
     /// unpinned group shows none (Leo 2026-10-21: "no empty pin symbol by default"); Pin Group stays in
     /// its menu and editor.
-    let pinButton = SidebarIconButton(icon: .browserToolbarUnpin, pointSize: { Metrics.smallIconSize - Metrics.space2 },
-                                      label: GroupEditorStrings.unpin)
+    let pinButton = SidebarIconButton.rowControl(icon: .browserToolbarUnpin, label: GroupEditorStrings.unpin)
     private var pinned = false
     /// A remote group's machine mark (``SidebarGroup/machine``, ``SidebarHostGroupLook``).
     let machineMark = DecorativeImageView()
@@ -198,8 +197,11 @@ final class GroupHeaderRowView: SidebarRowView {
         name.stringValue = group.name
         pinned = group.isPinned
         archived = group.isArchived
-        hasIcon = group.icon != nil
-        glyph.configure(icon: group.icon)
+        // A plain folder (`sidebar.groupHeader.background` Folders) leads with the folder glyph where the group has no
+        // icon of its own and runs on no other machine (a remote group leads with that machine's mark).
+        let showsFolder = details.background.leadsWithFolder && group.icon == nil && group.machine == nil
+        hasIcon = group.icon != nil || showsFolder
+        glyph.configure(icon: showsFolder ? Self.folderIcon : group.icon)
         hostLook = group.hostLook
         configureMachine(group.machine)
         pin.image = pinned ? NSImage.icon(.statePinned, size: SidebarStyle.pinGlyphSide, style: .solid) : nil
@@ -207,7 +209,7 @@ final class GroupHeaderRowView: SidebarRowView {
         count.stringValue = details.memberCount && collapsed && row.childCount > 0 ? "\(row.childCount)" : ""
         chevronIcon = Self.disclosureIcon(collapsed: collapsed)
         // One right-pointing glyph turned a quarter turn when open: a user's fold turns it as the rows slide.
-        chevron.setImage(NSImage.icon(.disclosureCollapsed, size: .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space2)))
+        chevron.setImage(NSImage.icon(.disclosureCollapsed, size: SidebarStyle.rowSymbolSide)) // the + ⋮ and Unpin's size (#49583)
         chevron.setOpen(!collapsed, animated: animated && configuredOnce)
         configuredOnce = true
         // Lawrence 2026-10-20: "All we care about is the loading"; msg 11983: and blue, orange and red.
@@ -234,6 +236,9 @@ final class GroupHeaderRowView: SidebarRowView {
         needsLayout = true
         needsDisplay = true
     }
+
+    /// The plain folder's glyph (`SidebarGroupBackgroundStyle.folder`): the icon pack's folder, on the rows' icon column.
+    static let folderIcon = WorkspaceIcon.page(.folder)
 
     /// The disclosure convention of Finder and Edge (cx-fo2t): open points
     /// down, collapsed points right.
@@ -331,7 +336,8 @@ final class GroupHeaderRowView: SidebarRowView {
             // one opt-out (Leo 2026-11-05), draws a plain heading.
             if !backgroundStyle.drawsBackground {
                 rim.isHidden = true
-                return paintSection(tokens)
+                if backgroundStyle == .chip { return paintChip(tokens, look) }
+                return paintSection(tokens, folder: backgroundStyle != .sections, look: look)
             }
             if look.style != .band {
                 rim.isHidden = true
@@ -348,7 +354,7 @@ final class GroupHeaderRowView: SidebarRowView {
             // text contrast on every state above and the buttons' fills.
             let ink = background.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
             name.textColor = ink
-            count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+            count.textColor = ink // the name's ink on the fill, smaller: one ink per fill (Leo 2026-10-27)
             glyph.symbolInk = ink
             pin.contentTintColor = ink
             chevron.contentTintColor = ink
@@ -387,7 +393,7 @@ final class GroupHeaderRowView: SidebarRowView {
         let fill = paint.fill
         let ink = paint.ink.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
-        count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        count.textColor = ink
         glyph.symbolInk = ink
         pin.contentTintColor = ink
         chevron.contentTintColor = ink
@@ -416,17 +422,31 @@ final class GroupHeaderRowView: SidebarRowView {
     /// maybe we can also have an option to have that"): a plain section heading, the name and every glyph in the
     /// theme's quiet ink, no fill, no rim and no dot (its members draw no line, `GroupLineView`). Hover and a drop take
     /// the row's own fill, as a workspace row's do; the open editor lights its more button only.
-    private func paintSection(_ tokens: ThemeTokens) {
-        let quiet = tokens.textSecondary.nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
-        name.textColor = quiet
-        count.textColor = quiet.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
-        glyph.symbolInk = quiet
+    ///
+    /// `folder` (David Beyer 2026-11-20, "groups as plain folders"): the same plain row, its name in
+    /// the theme's primary ink as a workspace title's, and its folder glyph in the quiet ink, or in the group's color
+    /// where it has one, held readable on the sidebar: the color stays the group's mark with no band to carry it.
+    private func paintSection(_ tokens: ThemeTokens, folder: Bool = false,
+                              look: (style: SidebarGroupHeaderStyle, palette: GroupPalette)? = nil) {
+        let alpha: CGFloat = archived ? SidebarStyle.archivedAlpha : 1
+        let quiet = tokens.textSecondary.nsColor.withAlphaComponent(alpha)
+        // Text in the sidebar's three inks (`SidebarStyle.TextInk`): a folder's name as a workspace title's, a
+        // section's in the secondary, the count in the tertiary; an archived name drops to the tertiary.
+        name.textColor = SidebarStyle.nameInk(folder ? .title : .secondary, archived: archived)
+        count.textColor = SidebarStyle.TextInk.tertiary.color
+        if folder, !tint.isNone, let look {
+            let line = tint.lineRGB(palette: look.palette).withAlpha(1)
+            glyph.symbolInk = ThemeTokens.readable(line, over: tokens.sidebarBackground.withAlpha(1), minimum: ThemeTokens.minimumMarkContrast)
+                .nsColor.withAlphaComponent(alpha)
+        } else {
+            glyph.symbolInk = quiet
+        }
         pin.contentTintColor = quiet
         chevron.contentTintColor = quiet
         moreButton.tintOverride = quiet
         addButton.tintOverride = quiet
         pinButton.tintOverride = quiet
-        paintMachine(ink: quiet)
+        paintMachine(ink: quiet, words: SidebarStyle.TextInk.tertiary.color)
         ChromeHover.paint(pill, nil, animated: false)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -441,6 +461,38 @@ final class GroupHeaderRowView: SidebarRowView {
         paintFill(isDropTarget ? Palette.selectionFill : isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
     }
 
+    /// `sidebar.groupHeader.background` Chips (Leo 2026-11-22, of Chromium's tab groups: "a colored group
+    /// chip/border/rail around member tabs with NO indent"): the name, its icon and its pin sit on a slim chip in the
+    /// group's color, the solid band's fill and ink (`GroupBackground`, so a group with no color draws a neutral chip
+    /// and every ink holds its contrast on the chip); the chevron, the count, the + and more sit on the sidebar in the
+    /// quiet ink. A hover steps the chip's fill; a drop takes the row's selection fill. The chip starts at the rail's
+    /// left edge (`railReach`) and ends after the name (`layout`).
+    private func paintChip(_ tokens: ThemeTokens, _ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette)) {
+        let alpha: CGFloat = archived ? SidebarStyle.archivedAlpha : 1
+        let quiet = tokens.textSecondary.nsColor.withAlphaComponent(alpha)
+        let background = groupBackground(.band, tokens, look, glass: false)
+        let ink = background.ink.nsColor.withAlphaComponent(alpha)
+        name.textColor = ink
+        glyph.symbolInk = ink
+        pin.contentTintColor = ink
+        count.textColor = SidebarStyle.TextInk.tertiary.color // the count off the chip, in the sidebar's tertiary ink
+        chevron.contentTintColor = quiet
+        moreButton.tintOverride = quiet
+        addButton.tintOverride = quiet
+        pinButton.tintOverride = quiet
+        paintMachine(ink: quiet)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        dot.isHidden = true
+        pill.opacity = archived ? Float(SidebarStyle.archivedAlpha) : 1
+        layer?.borderColor = tokens.focusRing.nsColor.cgColor
+        layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
+        layer?.cornerRadius = SidebarStyle.rowCornerRadius
+        CATransaction.commit()
+        paintBackground(background, tokens)
+        paintFill(isDropTarget ? Palette.selectionFill : nil)
+    }
+
     /// The quieter headers (cx-7yywz): the name in primary ink (`tinted`: in the group's color) with
     /// the group's color as the dot where its line starts; `wash` adds a faint tint behind the name.
     /// Hover and a drop take the row's own fill; the open editor lights its more button only.
@@ -453,7 +505,7 @@ final class GroupHeaderRowView: SidebarRowView {
             ? ThemeTokens.readable(line.withAlpha(1), over: background.shown, minimum: ThemeTokens.minimumTextContrast)
             : background.ink).nsColor.withAlphaComponent(archived ? SidebarStyle.archivedAlpha : 1)
         name.textColor = ink
-        count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        count.textColor = ink
         glyph.symbolInk = ink
         let quiet = tokens.textSecondary.nsColor
         pin.contentTintColor = quiet
@@ -461,7 +513,7 @@ final class GroupHeaderRowView: SidebarRowView {
         moreButton.tintOverride = quiet
         addButton.tintOverride = quiet
         pinButton.tintOverride = quiet
-        paintMachine(ink: quiet)
+        paintMachine(ink: quiet, words: SidebarStyle.TextInk.tertiary.color)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         dot.isHidden = tint.isNone
@@ -565,6 +617,7 @@ final class GroupHeaderRowView: SidebarRowView {
         trailing = layoutMachineTrailing(trailing, height: b.height, showsActions: showsActions)
         if badge.state.isUnread {
             badge.isHidden = false
+            badge.alphaValue = 1 // `clearMarksMeetingIcons` below clears it again while it meets a control
             // A dot is round, the status dot's diameter; a count is the badge's height.
             let w = badge.preferredWidth, h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: w, height: h))
@@ -583,16 +636,17 @@ final class GroupHeaderRowView: SidebarRowView {
             self.activityEnding = false
             self.activity.configure(.idle)
         }
-        let glyphBox = pinned && SidebarStyle.pinnedRowLeadsWithOwnIcon
-            ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.iconColumnBox
+        // A pinned group's icon is a pinned workspace row's size, the optical glyph square, in either look, so the two
+        // kinds of pinned row draw their icons at one size on one center line (#42431).
+        let glyphBox = pinned ? SidebarStyle.rowGlyphOpticalSide : SidebarStyle.iconColumnBox
         let glyphSide = min(glyphBox, barHeight)
         glyph.isHidden = !hasIcon || leadsWithMachineMark
         // A pinned group's pin leads the bar, its ink centered on the rows' icon column, and its icon and name take the
         // one text column after it, as a pinned workspace row's do (Lawrence 2026-10-28, "home and pinned are not
         // aligned"; Leo 2026-10-28, "the alignment").
         let pinSide = SidebarStyle.pinGlyphSide // Home's glyph square, as a pinned workspace row's pin (#38061)
-        // A pinned group with its own icon (or a machine mark) draws it in the pin's place, so its name starts at Home's
-        // label x as a pinned workspace row's title does (`SidebarPinnedRowLeading`, #38061).
+        // A pinned group keeps its pin, and its own icon (or a machine mark) takes the next column, as a pinned workspace
+        // row's does (`SidebarPinnedRowLeading.pinThenIcon`, #42431). The Debug `ownIcon` look draws it in the pin's place.
         let showsPin = pinned && (!(hasIcon || leadsWithMachineMark) || !SidebarStyle.pinnedRowLeadsWithOwnIcon)
         pin.isHidden = !showsPin
         // `configure` sets the image; a density or type scale change since then moves `pinGlyphSide`.
@@ -635,7 +689,12 @@ final class GroupHeaderRowView: SidebarRowView {
         // Every look draws its background (Lawrence 2026-11-05: groups always have a visible background).
         pill.isHidden = false
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
-        pill.frame = b
+        // Chips: the bar shrinks to a chip from the header's left edge (the rail's) to just after the name.
+        if backgroundStyle == .chip, !renaming {
+            pill.frame = CGRect(x: b.minX, y: b.minY, width: min(b.width, max(0, name.frame.maxX + Metrics.space2 - b.minX)), height: b.height)
+        } else {
+            pill.frame = b
+        }
         rim.frame = b
         rim.cornerRadius = SidebarStyle.rowCornerRadius
         pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
@@ -645,6 +704,9 @@ final class GroupHeaderRowView: SidebarRowView {
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: max(0, railReach - SidebarStyle.groupRailReach), y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
+        // No two icons share a box (Leo 2026-11-22: "fucking overlapping icons"): the unread count clears while it
+        // meets the chevron or a hover control, at any width.
+        clearMarksMeetingIcons(keep: [chevron, moreButton, addButton, pinButton], marks: [badge], fades: false)
         // The members' line starts under this bar: one layer per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true
@@ -717,14 +779,14 @@ extension GroupHeaderRowView {
         machineWords.stringValue = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
         machineWords.isHidden = look != .markAndWords
         machineMark.setAccessibilityElement(false)
-        themedToolTip = machine.detail.map { "\(SectionHeaderRowView.statusWords(machine.status)): \($0)" }
-            ?? SectionHeaderRowView.statusWords(machine.status)
+        let tipWords = SectionHeaderRowView.statusWords(SectionHeaderRowView.drawn(machine).status)
+        themedToolTip = machine.detail.map { "\(tipWords): \($0)" } ?? tipWords
     }
 
     // theme-scoped: called only inside performWithTheme
-    fileprivate func paintMachine(ink: NSColor) {
+    fileprivate func paintMachine(ink: NSColor, words: NSColor? = nil) {
         machineMark.contentTintColor = ink
-        machineWords.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
+        machineWords.textColor = words ?? ink
         let color: NSColor? = switch machineTone {
         case .success: Palette.success
         case .attention: Palette.attention

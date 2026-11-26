@@ -152,3 +152,38 @@ fn a_relay_group_names_both_machines_and_its_seed() {
         .is_none()
     );
 }
+
+#[test]
+fn history_later_is_off_unless_asked() {
+    assert!(parsed(&[]).is_some_and(|a| a.history_later.is_none()));
+    assert_eq!(parsed(&["--history-later", "4"]).and_then(|a| a.history_later), Some(4));
+    assert!(parsed(&["--history-later", "many"]).is_none(), "a word is bad usage");
+    assert!(parsed(&["--history-later"]).is_none(), "the flag takes a count");
+    assert_eq!(history_later::turns(None, None), None);
+    assert_eq!(history_later::turns(None, Some("12")), Some(12));
+    assert_eq!(history_later::turns(None, Some(" 3\n")), Some(3));
+    assert_eq!(history_later::turns(None, Some("0")), None, "0 is off");
+    assert_eq!(history_later::turns(None, Some("yes")), None);
+    assert_eq!(history_later::turns(Some(2), Some("9")), Some(2), "the flag wins");
+    assert_eq!(history_later::turns(Some(0), Some("9")), None);
+}
+
+#[test]
+fn a_target_refusing_a_bundle_file_reads_as_an_outdated_machine() {
+    let refused = |message: &str| CallError::Refused {
+        code: "rpc_error".into(),
+        message: message.into(),
+        details: Value::Null,
+    };
+    let raw = r#"transfer.path: "composers.json" is not a file a guarded move takes"#;
+    let failed = Failed::call("target", &refused(raw));
+    assert_eq!(failed.code, super::super::machine_gate::OUTDATED);
+    assert_eq!(failed.side, Some("target"));
+    assert!(failed.error.contains("update the machine"), "{}", failed.error);
+    // The source refusing it is not the machine's age, and any other refusal keeps its own code.
+    assert_eq!(Failed::call("source", &refused(raw)).code, "rpc_error");
+    assert_eq!(
+        Failed::call("target", &refused("transfer.path: \"x\" is not in the manifest")).code,
+        "rpc_error"
+    );
+}

@@ -114,6 +114,8 @@ extension PageWebView {
     /// its host shows the crash notice instead (``reloadsAfterCrash``). Logged at error level
     /// either way, with what follows.
     func contentProcessTerminated() {
+        // Before anything else: the page shows nothing from here until a new document paints.
+        onDocumentWillChange?(rendererRestartPending ? .rendererRestart : .contentEnded)
         loaded = false
         router.reset()
         if rendererRestartPending {
@@ -157,6 +159,8 @@ extension PageWebView {
         guard chromiumSession == nil else { return reloadPage() }
         // Chromium ended while the notice showed: the page reopens in WebKit now.
         webKitLoadsOnReload = false
+        onDocumentWillChange?(.reload)
+        documentStarted()
         webView.load(URLRequest(url: descriptor.url(route: route)))
     }
 }
