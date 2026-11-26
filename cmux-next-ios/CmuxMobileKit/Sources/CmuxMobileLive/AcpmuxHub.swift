@@ -1562,7 +1562,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                                                    over: connection, report: report)
             }
             guard let link else { throw LinkError(code: "offline", message: "The Mac link closed.") }
-            return .path(try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName))
+            return .path(try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName,
+                                               report: { await report($0) }))
         }
         let eligible = link == nil ? attachments.filter { $0.kind == .image && connection != nil } : attachments
         prestager.sync(eligible, directory: cwd, upload: upload, promptUploads: connection != nil) { result in
@@ -1647,7 +1648,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 }
             } else {
                 guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
-                uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName)
+                uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName,
+                                                                report: progress.map { progress in { progress($0) } })
             }
         }
         // Base64 of PDFs and video frames (megabytes) is made off the main actor.
@@ -1664,6 +1666,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let waitStart = ContinuousClock.now
         progress?(AgentUploadProgress(name: attachment.name, sent: 0, total: attachment.byteCount ?? attachment.data?.count ?? 0,
                                       phase: .opening, attempt: 1))
+        // The upload began at pick: its steps so far (a video's export, its bytes) and the rest show here.
+        if let progress { early.progress.observe { progress($0) } }
         let task = early.task
         let result = await withTaskCancellationHandler {
             try? await task.value
@@ -1694,11 +1698,30 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// Uploads into the session's folder; a folder the Mac won't write to
     /// (not one of its tabs' folders) falls back to its uploads folder.
-    static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String) async throws -> String {
+    /// A video is first shrunk to HEVC 1080p when the setting asks for it (``VideoRecompressor``).
+    /// `report` hears the export and then the bytes, under the picked file's name, as one bar
+    /// on the pending message (Leo: "with visible progress and can be cancelled mid-send").
+    static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String,
+                       report: (@Sendable (AgentUploadProgress) async -> Void)? = nil) async throws -> String {
+        let shown = name
+        let exportReport: (@Sendable (Double) async -> Void)? = report.map { report in
+            { fraction in await report(AgentUploadProgress(name: shown, sent: 0, total: 0, phase: .shrinking, export: fraction)) }
+        }
+        let (payload, name, exported) = try await VideoRecompressor.prepared(payload, name: name, report: exportReport)
+        let export: Double? = exported ? 1 : nil
+        let bytes: LinkUpload.Progress? = report.map { report in
+            { sent, total in
+                await report(AgentUploadProgress(name: shown, sent: sent, total: total, phase: sent < total ? .sending : .saving,
+                                                 export: export))
+            }
+        }
+        if exported, let report {
+            await report(AgentUploadProgress(name: shown, sent: 0, total: 0, phase: .opening, export: export))
+        }
         do {
-            return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link)
+            return try await LinkUpload.upload(payload, name: name, cwd: LinkUpload.folder(cwd), over: link, progress: bytes)
         } catch let failure as LinkUpload.Failure where failure.code == "forbidden" || failure.code == "not_found" {
-            return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link)
+            return try await LinkUpload.upload(payload, name: name, cwd: nil, over: link, progress: bytes)
         } catch let failure as LinkUpload.Failure {
             throw AgentFeatureUnavailable("Couldn't send \(name) to \(macName): \(failure.message)")
         }

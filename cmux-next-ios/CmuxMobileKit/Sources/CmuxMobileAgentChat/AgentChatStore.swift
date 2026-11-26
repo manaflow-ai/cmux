@@ -1300,6 +1300,10 @@ public final class AgentChatStore {
             // Steps hop to the main actor one by one: an older one that lands late is dropped.
             if let shown = outgoing[index].progress, shown.name == progress.name, shown.attempt == progress.attempt,
                shown.sent > progress.sent, progress.phase == .sending { break }
+            // An export step that lands after its upload began (or behind a later export step) is old.
+            if let shown = outgoing[index].progress, progress.phase == .shrinking,
+               shown.phase != .shrinking && shown.export != nil
+               || shown.phase == .shrinking && (shown.export ?? 0) > (progress.export ?? 0) { break }
             outgoing[index].progress = progress
         case .pendingSends(let rows):
             let shown = Dictionary(rows.map { ($0.promptID, $0) }, uniquingKeysWith: { first, _ in first })

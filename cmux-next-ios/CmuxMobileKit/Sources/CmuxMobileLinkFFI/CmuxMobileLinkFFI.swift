@@ -14698,6 +14698,141 @@ public func FfiConverterTypeTranscriptPaint_lower(_ value: TranscriptPaint) -> R
 }
 
 
+public struct VideoRecompressPlan: Equatable, Hashable {
+    public var recompress: Bool
+    public var reason: VideoRecompressReason
+    /**
+     * The original's bitrate in bits per second (0 when unknown), for the log line.
+     */
+    public var bitrate: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(recompress: Bool, reason: VideoRecompressReason, 
+        /**
+         * The original's bitrate in bits per second (0 when unknown), for the log line.
+         */bitrate: UInt64) {
+        self.recompress = recompress
+        self.reason = reason
+        self.bitrate = bitrate
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension VideoRecompressPlan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVideoRecompressPlan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VideoRecompressPlan {
+        return
+            try VideoRecompressPlan(
+                recompress: FfiConverterBool.read(from: &buf), 
+                reason: FfiConverterTypeVideoRecompressReason.read(from: &buf), 
+                bitrate: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VideoRecompressPlan, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.recompress, into: &buf)
+        FfiConverterTypeVideoRecompressReason.write(value.reason, into: &buf)
+        FfiConverterUInt64.write(value.bitrate, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVideoRecompressPlan_lift(_ buf: RustBuffer) throws -> VideoRecompressPlan {
+    return try FfiConverterTypeVideoRecompressPlan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVideoRecompressPlan_lower(_ value: VideoRecompressPlan) -> RustBuffer {
+    return FfiConverterTypeVideoRecompressPlan.lower(value)
+}
+
+
+/**
+ * A picked video's facts, as the phone reads them.
+ */
+public struct VideoSource: Equatable, Hashable {
+    /**
+     * Displayed width and height in pixels (after the track's rotation).
+     */
+    public var width: UInt32
+    public var height: UInt32
+    public var durationMs: UInt64
+    public var bytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Displayed width and height in pixels (after the track's rotation).
+         */width: UInt32, height: UInt32, durationMs: UInt64, bytes: UInt64) {
+        self.width = width
+        self.height = height
+        self.durationMs = durationMs
+        self.bytes = bytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension VideoSource: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVideoSource: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VideoSource {
+        return
+            try VideoSource(
+                width: FfiConverterUInt32.read(from: &buf), 
+                height: FfiConverterUInt32.read(from: &buf), 
+                durationMs: FfiConverterUInt64.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: VideoSource, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.width, into: &buf)
+        FfiConverterUInt32.write(value.height, into: &buf)
+        FfiConverterUInt64.write(value.durationMs, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVideoSource_lift(_ buf: RustBuffer) throws -> VideoSource {
+    return try FfiConverterTypeVideoSource.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVideoSource_lower(_ value: VideoSource) -> RustBuffer {
+    return FfiConverterTypeVideoSource.lower(value)
+}
+
+
 /**
  * The window's layout at one size.
  */
@@ -19272,6 +19407,122 @@ public func FfiConverterTypeTransport_lower(_ value: Transport) -> RustBuffer {
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Why a picked video is or is not recompressed.
+ */
+
+public enum VideoRecompressReason: Equatable, Hashable {
+    
+    /**
+     * The setting is off: the original goes.
+     */
+    case off
+    /**
+     * Too small to be worth an export.
+     */
+    case small
+    /**
+     * Already 1080p or less at a modest bitrate.
+     */
+    case withinTarget
+    /**
+     * Larger than 1080p: export to HEVC 1920x1080.
+     */
+    case largerThanTarget
+    /**
+     * 1080p or less but at a high bitrate: export to HEVC 1920x1080.
+     */
+    case highBitrate
+    /**
+     * Facts unreadable (no size or no duration): the original goes.
+     */
+    case unknown
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension VideoRecompressReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVideoRecompressReason: FfiConverterRustBuffer {
+    typealias SwiftType = VideoRecompressReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VideoRecompressReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .off
+        
+        case 2: return .small
+        
+        case 3: return .withinTarget
+        
+        case 4: return .largerThanTarget
+        
+        case 5: return .highBitrate
+        
+        case 6: return .unknown
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: VideoRecompressReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .off:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .small:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .withinTarget:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .largerThanTarget:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .highBitrate:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVideoRecompressReason_lift(_ buf: RustBuffer) throws -> VideoRecompressReason {
+    return try FfiConverterTypeVideoRecompressReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVideoRecompressReason_lower(_ value: VideoRecompressReason) -> RustBuffer {
+    return FfiConverterTypeVideoRecompressReason.lower(value)
+}
+
+
 
 /**
  * Why [`vnc_json`] gave no answer.
@@ -22440,6 +22691,29 @@ public func terminalZoomToggle(grid: TerminalZoomGeometry, zoom: TerminalZoomSta
 })
 }
 /**
+ * Whether the export (`output_bytes`) goes instead of the original (`source_bytes`): only
+ * when it is at most [`KEEP_AT_MOST_PER_MILLE`] of it. An empty export never goes.
+ */
+public func videoRecompressKeep(sourceBytes: UInt64, outputBytes: UInt64) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_video_recompress_keep(
+        FfiConverterUInt64.lower(sourceBytes),
+        FfiConverterUInt64.lower(outputBytes),$0
+    )
+})
+}
+/**
+ * What to do with a picked video. `enabled` is the "Shrink videos before sending" setting.
+ */
+public func videoRecompressPlan(enabled: Bool, source: VideoSource) -> VideoRecompressPlan  {
+    return try!  FfiConverterTypeVideoRecompressPlan_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_video_recompress_plan(
+        FfiConverterBool.lower(enabled),
+        FfiConverterTypeVideoSource_lower(source),$0
+    )
+})
+}
+/**
  * Answers one `vnc_*` op: `request` and the answer are JSON.
  */
 public func vncJson(operation: String, request: String)throws  -> String  {
@@ -22871,6 +23145,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_toggle() != 6399) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_video_recompress_keep() != 54775) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_video_recompress_plan() != 37017) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_vnc_json() != 29563) {
