@@ -34,6 +34,8 @@ final class LandscapeUITests: XCTestCase {
         attach(app, "a1-landscape-before-menu")
 
         let menu = app.buttons["Page Menu"].firstMatch
+        let copyDirectory = app.buttons["Copy Directory"].firstMatch
+        XCTAssertFalse(copyDirectory.exists, "the page menu starts closed")
         let title = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'zsh'")).firstMatch
         if menu.waitForExistence(timeout: 5), menu.isHittable {
             menu.tap()
@@ -41,14 +43,13 @@ final class LandscapeUITests: XCTestCase {
             XCTAssertTrue(title.waitForExistence(timeout: 5), "the top bar's title\n\(app.debugDescription)")
             title.tap()
         }
-        settle(1.0)
+        XCTAssertTrue(copyDirectory.waitForExistence(timeout: 5), "the terminal page menu's Copy Directory action appears\n\(app.debugDescription)")
         attach(app, "a2-menu-open")
         XCTAssertTrue(isLandscape(app), "the page menu is open and the window stays landscape: \(size(app))")
-        XCTAssertTrue(app.collectionViews.firstMatch.exists || app.buttons.count > 0, "a menu is on screen")
 
         // Dismiss the menu (a tap outside it) and look again.
-        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
-        settle(1.0)
+        app.windows.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.15)).tap()
+        XCTAssertTrue(waitFor(5) { !copyDirectory.exists }, "dismissing the page menu removes its actions")
         attach(app, "a3-menu-closed")
         XCTAssertTrue(isLandscape(app), "the menu closed and the window stays landscape: \(size(app))")
     }
@@ -61,7 +62,8 @@ final class LandscapeUITests: XCTestCase {
 
         // ws-cmux's tabs: Claude, zsh, Swift docs. Left goes to Swift docs (a browser), right comes back.
         swipeTopBar(app, toLeft: true)
-        settle(1.5)
+        let browserAddress = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Address' OR label BEGINSWITH 'Show toolbar'")).firstMatch
+        XCTAssertTrue(browserAddress.waitForExistence(timeout: 5), "the swipe reaches the browser tab\n\(app.debugDescription)")
         attach(app, "b2-swiped-to-browser-tab")
         let onBrowser = isLandscape(app)
         XCTAssertTrue(onBrowser, "landed on the browser tab, the window stays landscape: \(size(app))")
@@ -70,7 +72,7 @@ final class LandscapeUITests: XCTestCase {
         _ = waitFor(5) { self.isLandscape(app) }
         attach(app, "b3-swiped-back-to-terminal")
         XCTAssertTrue(isLandscape(app), "swiped back to the terminal tab, the window is landscape: \(size(app))")
-        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'zsh'")).firstMatch.exists,
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'zsh'")).firstMatch.waitForExistence(timeout: 5),
                       "the terminal tab is the one on screen\n\(app.debugDescription)")
     }
 
@@ -87,10 +89,19 @@ final class LandscapeUITests: XCTestCase {
         attach(app, "c1-browser-tab-before-edit")
         let before = isLandscape(app)
         address.tap()
-        if !app.keyboards.firstMatch.waitForExistence(timeout: 3) { address.tap() }
-        let field = app.textFields.firstMatch
-        if field.waitForExistence(timeout: 5) { field.typeText("example.com") }
-        settle(1.0)
+        let field = app.textFields["Search or enter website"].firstMatch
+        if !field.waitForExistence(timeout: 3) {
+            // A collapsed toolbar's first tap only expands it.
+            let expandedAddress = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Address'")).firstMatch
+            XCTAssertTrue(expandedAddress.waitForExistence(timeout: 5), "the expanded browser address")
+            expandedAddress.tap()
+        }
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "the browser address editor appears\n\(app.debugDescription)")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "editing the address opens the keyboard")
+        XCTAssertTrue(isLandscape(app), "focusing the address stays landscape: \(size(app))")
+        field.typeText("example.com")
+        XCTAssertTrue(waitFor(5) { field.value as? String == "example.com" },
+                      "the focused address actually changes to the typed value; got \(String(describing: field.value))")
         attach(app, "c2-address-bar-editing")
         let during = isLandscape(app)
         print("LANDSCAPE c before=\(before) during=\(during) size=\(size(app))")
