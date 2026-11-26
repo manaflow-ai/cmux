@@ -20,6 +20,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
 | Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
+| Cloud machine state watch | Verified app `apps-machine-state-watch` with `apps-v1` | `apps-cloud-machine` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -46,6 +47,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `feed-reports-changed` | subscribe (owner clients) | none | capability `feed-client-v1` |
 | `stash-changed` | subscribe (page relays only) | none | capability `stash-v1` |
 | `apps-changed` | apps clients; subscribe (page relays) | `app` | capability `apps-v1`; on subscribe `page-events-v1` |
+| `apps-cloud-machine` | control (verified app's machine state watch) | `machine` | capability `apps-v1` |
 | `tasks-changed` | subscribe (page relays) | none | `page-events-v1` |
 | `computer-use-activity` | subscribe (local Unix connections, not page relays) | machine | capability `remote-host-v1` (macOS) |
 | `settings-changed` | subscribe | machine settings | protocol 12; capability `settings-v1` |
@@ -1591,7 +1593,7 @@ object{event:"device-setup-step",device:string,step:string,
 
 Meaning: One step of a `device-setup` request ([commands.md](commands.md#device-setup)), sent
 on the control queue of the connection that asked, before the request's reply. The fields are
-the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `login-item`,
+the step line `cmux device setup --json` prints; `step` is one of `reach`, `app`, `daemon`, `login-item`,
 `start`, `sign-in`, `share` and `agents`, and `fix` is empty when there is nothing to do.
 
 Example:
@@ -2214,6 +2216,16 @@ Request:
 ```
 
 Filtering applies only to events produced after the subscription is registered. Non-surface events are included only when their event name matches `events` or when `events` is absent.
+
+## apps-cloud-machine
+
+A targeted event on the verified app connection whose `apps-machine-state-watch`
+names the machine. The daemon holds that machine's Cloud state socket:
+`{event:"apps-cloud-machine", machine:"…", kind:"record", record:{…}}` carries
+the platform's machine record; `kind:"live"` says the socket is up (the app stops
+reading the machine); `kind:"lost"` says it closed (the app reads the machine
+again until a later `live`). Nothing is sent after the list replaces or drops the
+machine, or after the connection closes. No bearer or raw frame is included.
 
 ## agent-inventory-changed
 
