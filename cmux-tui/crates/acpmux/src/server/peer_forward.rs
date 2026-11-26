@@ -36,6 +36,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::AUTHENTICATE,
     method::SESSION_NEW,
     method::SESSION_LIST,
+    // A glyph is a pure function of the id: answered here for a peer's session too.
+    method::SESSION_SIGNATURE,
     method::MUX_STATUS,
     method::MUX_PERF,
     method::MUX_CALLERS,
@@ -479,7 +481,7 @@ pub(super) async fn forward(
             .map(|r| r.0.name.clone());
         fields.set("via", json!("peer"));
         fields.set("toHost", json!(peer));
-        crate::xhost_audit::record("sent", fields);
+        crate::xhost_audit::record_queued("sent", fields);
     }
     // A client waits on a peer that is down (a chat it opens): the peer reconnects within
     // seconds (`peer_wanted.rs`). A peer daemon's connection is no client waiting here. A
