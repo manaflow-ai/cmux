@@ -3099,6 +3099,8 @@ Above `pr-red-checks` in `.github/workflows/cmux-next.yml`.
 
 compared with the base's run: ci.yml and cmux-next-guards.yml call it after their own checks.
 
+It starts only when `checks` ran (not skipped). A call after a skipped `checks` has no red of its own to add, and cmux-next-guards.yml's call on every head already writes the `ran` line and clears an older head's red from all of that head's check runs. On 11-25 03Z..11Z, 1,387 runs paid this job about 1.3 min each (about 5.6k runner-min a day), almost all of them after a skipped `checks`.
+
 ## note-341
 
 Above `push-attribution: if` in `.github/workflows/cmux-next.yml`.
