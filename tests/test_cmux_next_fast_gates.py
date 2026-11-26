@@ -61,6 +61,7 @@ GATE_SCRIPTS = {
     "protocol skew": "scripts/ci/protocol_skew_check.py",
     "entry logs": "scripts/ci/entry_logs.py",
     "settings catalog keys": "scripts/ci/settings_catalog_keys.py",
+    "resource API boundary": "cmux-tui/scripts/check-resource-api-boundary.py",
 }
 # Every gate starts in the first batch except webviews checks, which waits behind web lint; derived so a new gate
 # does not leave the parallel barrier one marker short.
@@ -1487,6 +1488,10 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
         self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
+        # The protocol contract job skips feat-cmux-next PRs; this gate is where they meet the boundary check.
+        self.assertEqual(calls["resource API boundary"]["argv"][0], "--tui-root")
+        self.assertEqual(Path(calls["resource API boundary"]["argv"][1]).resolve(), (work / "cmux-tui").resolve())
+        self.assertEqual(calls["resource API boundary"]["argv"][2:], ["--base-rev", base])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
