@@ -97,10 +97,32 @@ impl Inputs<'_> {
     /// login shell sources ([`Self::model_plane_file`]). The daemon's login-env import keeps no `CMUX_` name, so on a
     /// Cloud machine the env alone never has it, and every Codex with no sign-in was put in own mode
     /// with no login ("no-team-plane"), then failed on its missing `OPENAI_API_KEY`.
+    ///
+    /// A per-home file that kept only the OpenAI pair (a shell that carried `OPENAI_BASE_URL` but not
+    /// `CMUX_CODEROUTER_URL` rewrote it) still names the image's plane when its `OPENAI_BASE_URL` is
+    /// the image's: the origin then comes from the image's file. Without that, every Claude and Codex
+    /// with no sign-in on such a machine ran in own mode with no login ("Not logged in", the
+    /// 2026-11-25 cloud-claude-matrix sr2 rows). A per-home file naming any other plane keeps none.
     pub(crate) fn team_origin(&self) -> Option<String> {
         (self.var)("CMUX_CODEROUTER_URL")
             .or_else(|| self.model_plane_var("CMUX_CODEROUTER_URL"))
+            .or_else(|| self.image_origin_for_home_plane())
             .filter(|u| u.starts_with("https://"))
+    }
+
+    /// The image's `CMUX_CODEROUTER_URL` when the per-home file has none but its `OPENAI_BASE_URL`
+    /// is the image's (the same plane, persisted without its origin).
+    fn image_origin_for_home_plane(&self) -> Option<String> {
+        let home = self.home.join(".config/cmux/model-plane.env");
+        let image = self.root.join(MODEL_PLANE_ENV);
+        if !home.is_file() || file_var(&home, "CMUX_CODEROUTER_URL").is_some() {
+            return None;
+        }
+        let ours = file_var(&home, "OPENAI_BASE_URL")?;
+        let theirs = file_var(&image, "OPENAI_BASE_URL")?;
+        (ours.trim_end_matches('/') == theirs.trim_end_matches('/'))
+            .then(|| file_var(&image, "CMUX_CODEROUTER_URL"))
+            .flatten()
     }
 
     /// `key` from the model-plane env file a login shell sources ([`Self::model_plane_file`]).
@@ -110,7 +132,7 @@ impl Inputs<'_> {
 
     /// The model-plane env file a login shell sources (`agent-config.sh`): the per-home copy when it
     /// exists, else the image's. Only one is read, so a per-home file with no (or an empty) origin
-    /// never falls through to the image's origin.
+    /// never falls through to the image's origin, except the same plane's ([`Self::team_origin`]).
     fn model_plane_file(&self) -> PathBuf {
         let home = self.home.join(".config/cmux/model-plane.env");
         if home.is_file() { home } else { self.root.join(MODEL_PLANE_ENV) }
