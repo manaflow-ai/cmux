@@ -94,6 +94,7 @@ mod cloud_hybrid;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
+mod cloud_state;
 mod cloud_task;
 pub mod drag_handle;
 pub mod focus;
@@ -624,6 +625,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if pane_focus::handles(operation) => pane_focus::respond(request)?,
             operation if cloud_sequence::handles(operation) => {
                 cloud_sequence::respond(operation, request)?
+            }
+            operation if cloud_state::handles(operation) => {
+                cloud_state::respond(operation, request)?
             }
             operation if cloud_task::handles(operation) => cloud_task::respond(operation, request)?,
             // Before `cloud_machine`: its `cloud_machine_config_` and `cloud_machine_step_` are narrower.
