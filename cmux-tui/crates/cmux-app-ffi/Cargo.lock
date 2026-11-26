@@ -207,6 +207,7 @@ dependencies = [
  "cmux-pane-pictures",
  "cmux-process",
  "cmux-rd-ffi",
+ "cmux-screenshots",
  "cmux-sdk-ffi",
  "cmux-terminal-prediction",
  "cmux-url-input",
@@ -233,6 +234,14 @@ version = "0.1.0"
 
 [[package]]
 name = "cmux-bookmarks-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-browser-rules"
 version = "0.1.0"
 dependencies = [
  "serde",
@@ -495,6 +504,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-bookmarks-core",
+ "cmux-browser-rules",
  "cmux-cloud-config",
  "cmux-cloud-handlers",
  "cmux-cloud-machine",
@@ -604,6 +614,14 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-screenshots"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]
