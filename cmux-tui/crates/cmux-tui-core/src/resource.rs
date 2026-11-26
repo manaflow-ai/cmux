@@ -678,6 +678,12 @@ pub enum ResourceOperation {
     CloudOwnerGithubRepos,
     #[serde(rename = "cloud.owner.github_connect")]
     CloudOwnerGithubConnect,
+    #[serde(rename = "cloud.owner.github_complete")]
+    CloudOwnerGithubComplete,
+    #[serde(rename = "cloud.owner.github_list")]
+    CloudOwnerGithubList,
+    #[serde(rename = "cloud.owner.github_clone_token")]
+    CloudOwnerGithubCloneToken,
     #[serde(rename = "cloud.owner.turn_checkpoint")]
     CloudOwnerTurnCheckpoint,
     #[serde(rename = "cloud.owner.turn_rewind")]
