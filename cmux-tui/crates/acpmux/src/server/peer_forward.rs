@@ -186,6 +186,27 @@ pub(super) fn target(
     hub.remote_or_moved(key).filter(|(.., moved)| !moved || MOVED_FORWARDED.contains(&m))
 }
 
+/// The peer to wake for a session request. A move tombstone already names the peer before
+/// its handshake, so apply the forwarding method and hop limits without requiring a ready link.
+pub(super) fn demand_target(
+    hub: &Hub,
+    m: &str,
+    params: &Value,
+) -> Option<(Arc<crate::peer::Peer>, String, Value, bool)> {
+    let key = session_key(params).ok()?;
+    hub.remote_or_moved_for(key, |_| {
+        MOVED_FORWARDED.contains(&m) && moved_hops(params) < crate::hub::MAX_MOVES_FOLLOWED
+    })
+}
+
+fn moved_hops(params: &Value) -> u64 {
+    params
+        .pointer("/_meta/acpmux")
+        .and_then(|meta| meta.get(crate::hub::MOVED_HOPS_FIELD))
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+}
+
 /// Whether `m` names a session that a peer's session forwards for: not one this daemon answers
 /// itself (`SESSION_SCOPED_EXCLUDED`).
 pub(super) fn names_a_session(m: &str) -> bool {
@@ -850,12 +871,7 @@ async fn forward_inner(
     {
         // A request for a chat that moved there has followed one more move: past the bound it
         // is answered here, as a chat that moved (`hub/moved_forward.rs`).
-        let moved_hops = moved.then(|| {
-            params
-                .pointer(&format!("/_meta/acpmux/{}", crate::hub::MOVED_HOPS_FIELD))
-                .and_then(Value::as_u64)
-                .unwrap_or(0)
-        });
+        let moved_hops = moved.then(|| moved_hops(params));
         if moved_hops.is_some_and(|hops| hops >= crate::hub::MAX_MOVES_FOLLOWED) {
             return Ok(None);
         }
@@ -1642,6 +1658,53 @@ pub(super) fn strip_new_meta(p: &mut Value) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_moved_chat_wakes_its_parked_destination_through_its_original_id() {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-moved-peer");
+        let hub = Hub::started_lazily_for_test(dir.path(), 1).await;
+        let id = "original-chat";
+        let meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "moved", "harness": "fake",
+            "cwd": "/work", "status": "closed", "createdAt": 1, "updatedAt": 1,
+            "movedTo": {"host": "m0", "sessionId": "m0-chat"}
+        });
+        hub.insert_test_session(serde_json::from_value(meta).unwrap());
+        let params = json!({"sessionId": id});
+        let peer = hub.peer_by_name("m0").unwrap();
+        assert!(peer.idle_parked());
+        assert!(target(&hub, method::SESSION_PROMPT, id).is_none());
+        for m in [method::SESSION_PROMPT, method::MUX_ATTACH] {
+            let (route, to, _, moved) = demand_target(&hub, m, &params).unwrap();
+            assert!(moved && Arc::ptr_eq(&peer, &route));
+            assert_eq!(to, "m0-chat");
+        }
+        assert!(demand_target(&hub, method::MUX_KILL, &params).is_none());
+        let at_limit = json!({
+            "sessionId": id, "_meta": {"acpmux": {"movedHops": crate::hub::MAX_MOVES_FOLLOWED}}
+        });
+        assert!(demand_target(&hub, method::SESSION_PROMPT, &at_limit).is_none());
+
+        // The original id's attach uses that route to start the dial. On a failed dial, the
+        // ordinary forwarding path still falls back to the local tombstone.
+        crate::peer::test_dial::refuse_all();
+        let mut settled = peer.settled();
+        let attach = super::super::peer_demand_wait::use_peer(&hub, method::MUX_ATTACH, &params);
+        tokio::pin!(attach);
+        tokio::select! {
+            biased;
+            _ = settled.changed() => {},
+            _ = &mut attach => {},
+        }
+        assert!(!crate::peer::test_dial::attempts().is_empty());
+        assert!(target(&hub, method::MUX_ATTACH, id).is_none());
+        hub.seed_peer_back(&peer, vec![]);
+        let (route, to, _, moved) = target(&hub, method::MUX_ATTACH, id).unwrap();
+        assert!(moved && Arc::ptr_eq(&peer, &route));
+        assert_eq!(to, "m0-chat");
+        hub.begin_shutdown();
+        crate::peer::test_dial::clear();
+    }
 
     /// A saved prompt's `name` is never a session's: no peer gets the library's requests.
     #[test]
