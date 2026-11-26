@@ -99,11 +99,7 @@ fn visible(text: &str) -> String {
     const COLUMNS: usize = 640;
     let tail_reversed: String = text.chars().rev().take(COLUMNS).collect();
     let tail: String = tail_reversed.chars().rev().collect();
-    if text.chars().nth(COLUMNS).is_some() {
-        format!("…{tail}")
-    } else {
-        tail
-    }
+    if text.chars().nth(COLUMNS).is_some() { format!("…{tail}") } else { tail }
 }
 
 impl Screen {
