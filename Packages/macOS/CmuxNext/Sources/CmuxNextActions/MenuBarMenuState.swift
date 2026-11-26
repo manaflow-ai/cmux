@@ -95,8 +95,13 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
             }
         }
 
-        public init(sessions: [Session] = []) {
+        /// The floating live preview panel (`computerUse.floatingPreview`, prototype): nil while the
+        /// setting is off (no row), else whether the panel shows now (the row hides or shows it).
+        public var floatingPreview: Bool?
+
+        public init(sessions: [Session] = [], floatingPreview: Bool? = nil) {
             self.sessions = sessions
+            self.floatingPreview = floatingPreview
         }
 
         public init(session: Session?) {
