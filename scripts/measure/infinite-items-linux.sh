@@ -140,7 +140,19 @@ elif [[ "$before" == ref:* ]]; then
   # --depth only in a checkout that is already shallow: a depth fetch in a full clone makes it shallow.
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-  git rev-parse --verify -q "$ref^{commit}" >/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} origin "$ref"
+  if ! git rev-parse --verify -q "$ref^{commit}" >/dev/null; then
+    if [[ "$ref" =~ ^[0-9a-f]{4,39}$ ]]; then
+      # GitHub fetches a commit only by its full SHA: an abbreviated one is looked up in the base branches'
+      # recent history instead (the usual before=ref: is the merge base).
+      git fetch -q ${depth[@]+"${depth[@]/--depth=1/--depth=500}"} origin feat-cmux-next main
+      git rev-parse --verify -q "$ref^{commit}" >/dev/null || {
+        echo "infinite-items-linux.sh: $ref is in neither feat-cmux-next's nor main's last 500 commits; give the full SHA" >&2
+        exit 2
+      }
+    else
+      git fetch -q ${depth[@]+"${depth[@]}"} origin "$ref"
+    fi
+  fi
   base_sha="$(git rev-parse --verify -q "$ref^{commit}" || git rev-parse FETCH_HEAD)"
   if [ "$(git rev-parse "$base_sha:ghostty-next")" != "$(git rev-parse HEAD:ghostty-next)" ]; then
     echo "infinite-items-linux.sh: $base_sha pins another ghostty-next; before=ref: needs the same pin" >&2

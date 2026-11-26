@@ -95,7 +95,6 @@ import {
   cmuxTuiInstallCommand,
   cmuxTuiServiceInstallCommand,
   cmuxTuiPinCheckCommand,
-  cmuxTuiManifestUrl,
   cmuxTuiRunCommand,
   requireCmuxTuiAcpmux,
   resolveCmuxTuiSource,
@@ -191,12 +190,16 @@ const keepBuilder = hasFlag("--keep-builder");
 const replaceSlug = hasFlag("--replace-slug");
 
 const preflight = bakePreflight({ desktop: withDesktop });
-// Resolved before the builder exists so a manifest outage fails the bake for free.
+// Resolved before the builder exists so an outage, or a release file no trusted key signed,
+// fails the bake for free: the daemon and hook come from the baked commit's verified
+// release.json (resolveCmuxTuiSource), never from latest/manifest.json.
 const cmuxTuiSource = await resolveCmuxTuiSource("freestyle");
 // Every Cloud machine ships acpmux (cloud-subagents-DESIGN.md B9): refuse the bake before it
-// creates a VM when the pinned manifest has no acpmux build.
-requireCmuxTuiAcpmux(cmuxTuiSource, cmuxTuiManifestUrl("freestyle"));
-console.log(`acpmux pin: sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…`);
+// creates a VM when the pinned build has no acpmux.
+requireCmuxTuiAcpmux(cmuxTuiSource, `https://files.cmux.com/cmux-tui/${cmuxTuiSource.commit}/release.json`);
+console.log(
+  `cmux-tui ${cmuxTuiSource.commit.slice(0, 12)}: signed release verified (cmux-tui ${cmuxTuiSource.size} bytes); acpmux sha256 ${cmuxTuiSource.acpmuxSha256!.slice(0, 12)}…${cmuxTuiSource.acpmuxSize ? "" : " (from manifest.json until the release file lists acpmux)"}`,
+);
 
 // The exec API caps timeoutMs at 300000 (5 minutes per step).
 const STEP_TIMEOUT_MS = 300_000;
@@ -332,7 +335,7 @@ try {
 
   await step(
     "media-apt",
-    "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg xvfb xauth x11-utils xdotool fonts-dejavu-core fonts-liberation && rm -rf /var/lib/apt/lists/* && command -v Xvfb && command -v xdpyinfo && command -v xdotool",
+    "apt-get update -q && apt-get install -y --no-install-recommends ffmpeg imagemagick poppler-utils git-lfs xvfb xauth x11-utils xdotool fonts-dejavu-core fonts-liberation && rm -rf /var/lib/apt/lists/* && git lfs install --system --skip-repo && command -v Xvfb && command -v xdpyinfo && command -v xdotool && ffprobe -hide_banner -version >/dev/null && convert -version >/dev/null && command -v pdftotext",
   );
 
   await step(

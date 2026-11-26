@@ -196,22 +196,11 @@ test("the address reads host and port, with a path only when it is not the root"
   expect(previewAddress("http://127.0.0.1:3000/admin/")).toBe("127.0.0.1:3000/admin");
 });
 
-test("the running line names the newest page after its counts, and opens it", () => {
+test("the running line names the newest page after its time, and opens it", () => {
   let opened = 0;
-  const parts = workingParts(translate, {
-    agents: 0,
-    commands: 1,
-    sessions: 0,
-    openAgents: () => {},
-    openCommands: () => {},
-    openSessions: () => {},
-    preview: { url: VITE.url, open: () => (opened += 1) },
-  });
-  expect(parts.map((part) => [part.key, part.label])).toEqual([
-    ["commands", translate("turn.working.commands", { n: 1 })],
-    ["preview", "localhost:5173"],
-  ]);
-  parts[1]!.open();
+  const parts = workingParts({ preview: { url: VITE.url, open: () => (opened += 1) } });
+  expect(parts.map((part) => [part.key, part.label])).toEqual([["preview", "localhost:5173"]]);
+  parts[0]!.open();
   expect(opened).toBe(1);
 });
 

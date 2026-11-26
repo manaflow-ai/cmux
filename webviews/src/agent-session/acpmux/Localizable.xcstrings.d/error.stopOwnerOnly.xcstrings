@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "error.stopOwnerOnly" : {
+      "comment" : "Agent pane: why a Stop was refused (after 'Not stopped:'): the chat runs on another computer and only that computer may stop it",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يمكن فقط للكمبيوتر الذي تعمل عليه هذه المحادثة إيقافها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Samo računar na kojem ovaj chat radi može ga zaustaviti."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kun den computer, chatten kører på, kan stoppe den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nur der Rechner, auf dem dieser Chat läuft, kann ihn stoppen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Only the computer this chat runs on can stop it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solo el ordenador en el que se ejecuta este chat puede detenerlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seul l’ordinateur sur lequel tourne cette conversation peut l’arrêter."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Solo il computer su cui è in esecuzione questa chat può fermarla."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このチャットを停止できるのは、実行中のコンピュータだけです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មានតែកុំព្យូទ័រដែលការជជែកនេះដំណើរការប៉ុណ្ណោះ ដែលអាចបញ្ឈប់វាបាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 채팅이 실행 중인 컴퓨터에서만 중지할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bare datamaskinen denne chatten kjører på, kan stoppe den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tylko komputer, na którym działa ten czat, może go zatrzymać."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Só o computador em que este chat está rodando pode pará-lo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Остановить этот чат может только компьютер, на котором он работает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "มีเพียงคอมพิวเตอร์ที่แชตนี้ทำงานอยู่เท่านั้นที่หยุดแชตได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu sohbeti yalnızca çalıştığı bilgisayar durdurabilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Зупинити цей чат може лише комп’ютер, на якому він працює."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chỉ máy tính đang chạy cuộc trò chuyện này mới có thể dừng nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "只有运行此聊天的电脑才能停止它。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "只有執行此聊天的電腦才能停止它。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

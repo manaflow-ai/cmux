@@ -1,5 +1,9 @@
+public import CmuxEgress
 public import CMUXAuthCore
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// The cmux team API (`<apiBaseURL>/api/teams`): the signed-in user's teams
 /// with roles, one team's detail, create, rename and delete, email invitations, and the
@@ -19,7 +23,7 @@ public struct CmuxTeamsAPI: Sendable {
     ///   - baseURL: The cmux API origin (`https://cmux.com`, or a DEV build's backend).
     ///   - session: The URL session requests go through.
     ///   - credentials: Reads the session pair for each request.
-    public init(baseURL: URL, session: URLSession = .shared, credentials: @escaping Credentials) {
+    public init(baseURL: URL, session: URLSession = CmuxEgress.shared(site: "CmuxAuthRuntime.CmuxTeamsAPI"), credentials: @escaping Credentials) {
         self.baseURL = baseURL
         self.session = session
         self.credentials = credentials

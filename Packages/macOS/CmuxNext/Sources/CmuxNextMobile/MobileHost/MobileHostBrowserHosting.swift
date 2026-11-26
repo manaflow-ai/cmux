@@ -28,6 +28,13 @@ public protocol MobileHostSurfaceHosting: Sendable {
     /// Whether phone tabs' simulators stream too (SimulatorKit loads); false: Cloud desktops only,
     /// and hostd neither says `surface-stream-v1` nor asks for an `s<surface>` tab.
     var streamsSimulators: Bool { get }
+    /// Whether this Mac's own displays stream too (`d~<CGDirectDisplayID>`, view only, while Share
+    /// This Mac is on): hostd then says `mac-display-v1` (`CMUX_MOBILE_MAC_DISPLAY=1`).
+    var streamsMacDisplays: Bool { get }
+}
+
+extension MobileHostSurfaceHosting {
+    public var streamsMacDisplays: Bool { false }
 }
 
 /// ``MobileHostSurfaceHosting`` from three closures, so the app can hand hostd its simulator
@@ -37,11 +44,13 @@ public struct MobileHostSurfaceClosures: MobileHostSurfaceHosting {
     private let stopSource: @Sendable (String) async -> Void
     private let stopSources: @Sendable () async -> Void
     public let streamsSimulators: Bool
+    public let streamsMacDisplays: Bool
 
     public init(start: @escaping @Sendable (String, @escaping @Sendable () -> Void) async throws -> (port: UInt16, secret: String),
                 stop: @escaping @Sendable (String) async -> Void, stopAll: @escaping @Sendable () async -> Void,
-                streamsSimulators: Bool = true) {
+                streamsSimulators: Bool = true, streamsMacDisplays: Bool = false) {
         self.streamsSimulators = streamsSimulators
+        self.streamsMacDisplays = streamsMacDisplays
         startSource = start
         stopSource = stop
         stopSources = stopAll

@@ -141,6 +141,11 @@ fn shrink_or_restore(mux: &Mux, store: &OutputStore, budget: u64) -> u64 {
             // Cleared before the read: an append after it asks again.
             log.state.lock().unwrap_or_else(PoisonError::into_inner).measure_due = false;
             let measured = mux.terminal_resource_surface(&log.terminal_id).and_then(|surface| {
+                // A parked mirror holds no scrollback; measuring would
+                // rebuild it.
+                if surface.mirror_parked() {
+                    return None;
+                }
                 let measured = surface.try_with_terminal(measure).ok().flatten()?;
                 Some((surface, measured))
             });

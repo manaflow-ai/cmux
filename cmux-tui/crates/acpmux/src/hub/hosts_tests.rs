@@ -888,3 +888,67 @@ async fn adoption_reads_back_the_phone_that_drove_the_turn() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// `last_host_seq_parsed` reads back from the log's end; it answers what the fold from the start
+/// did (the largest `hostSeq` under the last `host_started` of the incarnation), for logs whose
+/// hosts start, restart and hand over in every order.
+#[tokio::test]
+async fn the_parsed_host_seq_read_from_the_end_is_the_fold_from_the_start() {
+    fn forward(records: &[EventRecord], incarnation: &str) -> u64 {
+        let (mut last, mut current) = (0, false);
+        for e in records {
+            if e.dir == "mux" && e.kind == "host_started" {
+                current = e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation);
+                if current {
+                    last = 0;
+                }
+            } else if current
+                && (e.kind != "permission_withdrawn"
+                    || e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation))
+                && let Some(h) = e.host_seq
+            {
+                last = last.max(h);
+            }
+        }
+        last
+    }
+    // Each plan names the hosts started in order; each host logs `n` updates.
+    let plans: &[&[(&str, u64)]] = &[
+        &[],
+        &[("inc", 3)],
+        &[("old", 4)],
+        &[("inc", 3), ("old", 5)],
+        &[("old", 5), ("inc", 2)],
+        &[("inc", 6), ("old", 2), ("inc", 1)],
+        &[("inc", 2), ("inc", 4), ("old", 3)],
+        &[("old", 1), ("inc", 0), ("old", 7)],
+    ];
+    for plan in plans {
+        let mut log = Log { records: Vec::new(), host_seq: 0 };
+        // Records before any host start count for none.
+        log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "x"}}));
+        for (incarnation, updates) in plan.iter() {
+            log.push("mux", "host_started", json!({"incarnation": incarnation}), false);
+            for _ in 0..*updates {
+                log.update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "x"}}));
+            }
+            // A withdrawal deferred from the other host carries a later `hostSeq`.
+            let other = if *incarnation == "inc" { "old" } else { "inc" };
+            log.push("mux", "permission_withdrawn", json!({"incarnation": other}), false);
+            if let Some(marker) = log.records.last_mut() {
+                marker.host_seq = Some(10_000);
+            }
+        }
+        let (hub, root) = hub_with(1, &log).await;
+        let session = hub.resolve("chat0").unwrap();
+        for incarnation in ["inc", "old", "none"] {
+            assert_eq!(
+                hub.last_host_seq_parsed(&session, incarnation),
+                forward(&log.records, incarnation),
+                "plan {plan:?}, incarnation {incarnation}"
+            );
+        }
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
