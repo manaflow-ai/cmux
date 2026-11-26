@@ -34,6 +34,7 @@ LEAD = re.compile(r"(?:\([^()]*\) && )?vars\.(CI_[A-Z_]+_SKIP_FLEET) != '1' && '
 EXCEPTIONS = {
     "backend-migrations.yml": (4, "the required migration checks move to the gate label with their own policy PR, as on main"),
     "pr-checks.yml": (1, "the advisory comment job left the PR control label when it backed up (tests/test_ci_runner_set.py)"),
+    "pr-red-checks-comment.yml": (1, "the status comment job takes the same CI_TRUSTED_RUNNER selector as pr-checks.yml's; cmux-linux queued it 5-7 min"),
     "cmux-next.yml": (2, "the push/PR control arms (tests/test_cmux_next_pr_control_on_jit.py)"),
 }
 
