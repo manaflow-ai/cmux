@@ -95,6 +95,7 @@ export default componentEntry<Props>({
     "pages/feed/ReportsView.tsx",
     "pages/feed/AnswerControls.tsx",
     "pages/feed/parts.tsx",
+    "pages/feed/DiffLines.tsx#DiffLines",
     "pages/feed/icons.tsx",
   ],
   load: async () => FeedGallery,
@@ -107,6 +108,13 @@ export default componentEntry<Props>({
     "inbox-split": {
       note: "Default. The Inbox: groups with counts in a 330px column beside a request's detail.",
       props: { hash: "#/inbox", select: "fi_codex_question" },
+    },
+    "inbox-diff": {
+      note: "An edit request's detail: its whole patch, added lines green and removed lines red, only the lines near the view mounted.",
+      props: { hash: "#/inbox", select: "fi_codex_edit" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".feed-diff .feed-diff-line") !== null);
+      },
     },
     "inbox-compact": {
       note: "A narrower column and tighter detail for a small window.",

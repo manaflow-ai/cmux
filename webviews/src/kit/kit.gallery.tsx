@@ -4,7 +4,7 @@
 // open menu or popover takes its panel's theme. The session variants show the minimal sidebar look
 // (cmux#45143) and the default row, both from the same kit pieces. Every other export (Tooltip, Menu,
 // Card, Panel, the motion readers) shows here too; each is the app's own component, re-exported.
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode, useLayoutEffect, useRef } from "react";
 import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
 import { SHEET_THEMES, themedPanelStyle } from "../ui/TokenSheet";
@@ -12,16 +12,25 @@ import { UiProvider } from "../ui/UiProvider";
 import {
   Avatar,
   Button,
-  Card,
   DEFAULT_SESSION_LOOK,
-  EASE_STANDARD,
   Field,
   Glass,
   GlassMenu,
-  INSTRUMENT_VERSION,
   Icon,
   List,
   MINIMAL_SESSIONS_LOOK,
+  Pill,
+  PopoverButton,
+  Row,
+  SessionList,
+  StatusGlyph,
+  sessionLook,
+  type Session,
+  type SessionLook,
+  type SessionState,
+  Card,
+  EASE_STANDARD,
+  INSTRUMENT_VERSION,
   MOTION,
   Menu,
   MenuButton,
@@ -30,21 +39,12 @@ import {
   MenuPopup,
   MenuSeparator,
   Panel,
-  Pill,
-  PopoverButton,
-  Row,
-  SessionList,
-  StatusGlyph,
   Tooltip,
   TooltipProvider,
-  grid,
   motionMode,
   motionToken,
-  sessionLook,
   type MotionMode,
-  type Session,
-  type SessionLook,
-  type SessionState,
+  grid,
 } from "./index";
 
 type Scheme = "light" | "dark";
@@ -427,6 +427,7 @@ export default componentEntry<Props>({
     "kit/Pill.tsx#Pill",
     "kit/Avatar.tsx#Avatar",
     "kit/Field.tsx#Field",
+    "kit/Glass.tsx#Glass",
     "kit/GlassMenu.tsx#GlassMenu",
     "kit/PopoverButton.tsx#PopoverButton",
     "ui/Tooltip.tsx#Tooltip",

@@ -24,11 +24,12 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
-  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
+  type AllotmentSet,
+  type AllotmentView,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -39,8 +40,9 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type LibraryListing,
+  type LibraryRun,
   type SharesState,
-  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -50,11 +52,7 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
   type IntegrationsState,
-  type McpServersRun,
-  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -66,30 +64,33 @@ import {
   type ThemeOverride,
   type WorkspaceBackground,
   type CustomizeTryOn,
-  type LibraryListing,
-  type LibraryRun,
+  type KeysState,
   type ModelsRun,
   type ModelsState,
-  type LooksGallery,
-  type LooksRun,
-  type AgentMcpRun,
-  type AgentMcpState,
-  type AllotmentSet,
-  type AllotmentView,
+  type ComputerUseApproval,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
+  type McpServersRun,
+  type McpServersState,
+  type HubRun,
+  type HubState,
   type AgentSkillsRun,
   type AgentSkillsState,
+  type AgentMcpRun,
+  type AgentMcpState,
   type AgentHooksRun,
   type AgentHooksState,
+  type RowNoteData,
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
   type AccountsRunReply,
-  type AgentSkillRow,
-  type HubRun,
-  type HubState,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
+  type AgentSkillRow,
+  type LooksGallery,
+  type LooksRun,
   type AutocloudAction,
   type AutocloudState,
   type ConnectionsRun,
@@ -148,6 +149,12 @@ export type MockOptions = {
   doctorRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
+  /** Row notes the snapshot carries (theme file, Plain Backgrounds); absent: none. */
+  notes?: RowNoteData[];
+  /** Settings > Agents > Claude Code & Codex > Skills; absent: Labs off. */
+  agentSkills?: AgentSkillsState;
+  /** Settings > MCP Servers, Claude Code and Codex: turned on (Labs) over the mock's servers. */
+  agentMcp?: boolean;
   /** Updates > App Update's Go Back to Previous Build (null: nothing kept); default none. */
   previousBuild?: PreviousBuild | null;
   /** The host's refusal of that row's Go Back; default none (it runs). */
@@ -315,6 +322,7 @@ export class MockSettingsProvider {
   /** What `cmux.app.clipboard.write` last wrote. */
   clipboard: string | null = null;
   diagnostics: Diagnostic[];
+  notes: RowNoteData[];
   domains: Domains | null;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`; null: the person left it. */
   importable: GhosttyTheme | null = null;
@@ -351,6 +359,9 @@ export class MockSettingsProvider {
     );
     for (const [key, value] of Object.entries(options.values ?? {})) this.values.set(key, value);
     this.diagnostics = options.diagnostics ?? [];
+    this.notes = options.notes ?? [];
+    if (options.agentSkills) this.agentSkills = options.agentSkills;
+    if (options.agentMcp) this.agentMcp = { ...this.agentMcp, enabled: true };
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
     this.refusals = options.refusals ?? {};
@@ -2749,6 +2760,7 @@ export class MockSettingsProvider {
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),
       ),
       diagnostics: this.diagnostics,
+      notes: this.notes,
       domains: this.domains ?? {
         themes: null,
         font_families: null,

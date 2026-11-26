@@ -750,6 +750,73 @@ Object.assign(variants, {
     ],
     note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
   }),
+  // Row notes (#44894): a row the theme file sets, and one the person changed over it.
+  "appearance-row-notes": variant("appearance", {
+    options: {
+      notes: [
+        { path: "app.uiScale", kind: "setByThemeFile", file: "themes/Dusk.json" },
+        { path: "ui.animations.enabled", kind: "overThemeFile", file: "themes/Dusk.json" },
+      ],
+    },
+    note: "Two row notes, not problems: one row the theme file sets, one the person changed over the file, each with its one way to change that.",
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelectorAll("[data-row-note]").length === 2);
+    },
+  }),
+  // Labs Agent Customization on: Claude Code's and Codex's skills, each with its switch.
+  "agents-skills": variant("agents", {
+    options: {
+      agentSkills: {
+        enabled: true,
+        loading: false,
+        problem: null,
+        problems: [],
+        sources: { claude: "files", codex: "app-server" },
+        elapsedMs: 40,
+        refusal: null,
+        skills: [
+          {
+            agent: "claude",
+            kind: "skill",
+            scope: "user",
+            name: "release-notes",
+            description: "Drafts release notes from the merged pull requests",
+            path: "/Users/me/.claude/skills/release-notes/SKILL.md",
+            enabled: true,
+            switchFile: "/Users/me/.claude/settings.json",
+          },
+          {
+            agent: "claude",
+            kind: "command",
+            scope: "project",
+            name: "review",
+            description: "Reviews the current diff",
+            path: "/Users/me/src/app/.claude/commands/review.md",
+            enabled: false,
+            switchFile: "/Users/me/src/app/.claude/settings.json",
+          },
+          {
+            agent: "codex",
+            kind: "skill",
+            scope: "user",
+            name: "triage",
+            description: "Sorts new issues by area",
+            path: "/Users/me/.codex/skills/triage/SKILL.md",
+            enabled: true,
+          },
+        ],
+      },
+    },
+    note: "Agents with Labs Agent Customization on: the Skills card lists Claude Code's and Codex's skills and commands, each with its switch.",
+  }),
+  // Labs Agent Customization on: the MCP servers Claude Code and Codex start from their own files.
+  "mcp-servers-agents": variant("mcpServers", {
+    options: { agentMcp: true },
+    note: "MCP Servers with Labs Agent Customization on: cmux's servers, then each server Claude Code and Codex start from their own config files.",
+    play: async (ctx) => {
+      await ctx.waitFor(() => ctx.document.querySelector("[data-agent-mcp-enabled]"));
+    },
+  }),
   // David Beyer (Nov 20) could not find a sidebar font size: General opens on one Text Size and density pick.
   "general-text-size": variant("general", {
     note: "General's first card: Text Size (five Aa steps) and density, the pick Set Up cmux offers too.",
@@ -2194,6 +2261,11 @@ export default settingsPageEntry({
     "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/AgentToolsCard.tsx",
     "pages/settings/components/McpServersCard.tsx",
+    "pages/settings/components/AgentMcpServers.tsx#AgentMcpServers",
+    "pages/settings/components/AgentSkillsCard.tsx#AgentSkillsCard",
+    "pages/settings/components/RowNotes.tsx#RowNotes",
+    "pages/settings/components/TextSizeCard.tsx#TextSizeCard",
+    "ui/TextSizePicker.tsx#TextSizePicker",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
