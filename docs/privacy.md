@@ -123,6 +123,8 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `codeload.github.com` | connects | a GitHub repository's archive at one commit, when you install an extension from it |
 | `api.githubcopilot.com` | connects | GitHub's hosted MCP server, for the GitHub tools an agent on a Cloud machine calls |
 | `uploads.github.com` | connects | GitHub uploads, through the GitHub CLI |
+| `index.crates.io` | connects | the crates.io package index, fetched by a Cloud machine's crates cache when cargo asks for a crate it has not cached; only the crate's name is sent |
+| `static.crates.io` | connects | crates.io package downloads, fetched by a Cloud machine's crates cache for a crate version cargo asks for and it has not cached |
 | `avatars.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `camo.githubusercontent.com` | connects | images in GitHub pages and agent replies |
 | `private-user-images.githubusercontent.com` | connects | images in GitHub pages and agent replies |

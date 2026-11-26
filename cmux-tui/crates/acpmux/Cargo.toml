@@ -286,6 +286,8 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# Seeded-secret tests: the gate sends each payload path's request to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 cmux-build-space = { workspace = true, features = ["testing"] }
 # Release gates print and compare their rounds through `acpmux_book::gate_rounds`.
 acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }

@@ -98,7 +98,12 @@ impl HostedForum {
 
     /// The forum the env sets up, or the message calls answer without one.
     fn from_env() -> Slot {
-        let var = |k: &str| std::env::var(k).ok().map(|v| v.trim().to_owned());
+        Self::from_vars(&|k| std::env::var(k).ok())
+    }
+
+    /// The forum `env`'s variables set up, or the message calls answer without one.
+    fn from_vars(env: &dyn Fn(&str) -> Option<String>) -> Slot {
+        let var = |k: &str| env(k).map(|v| v.trim().to_owned());
         let team = var(TEAM_ENV).filter(|v| !v.is_empty());
         let key = var(KEY_ENV).filter(|v| !v.is_empty());
         let (Some(team), Some(key)) = (team, key) else {
@@ -111,7 +116,7 @@ impl HostedForum {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let headers = cmux_build_space::headers()
             .map_err(|_| "The hosted forum is off: this build's space is unusable.".to_owned())?;
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("acpmux::hub::forum_hosted")
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
@@ -362,3 +367,7 @@ mod tests {
         assert!(!format!("{err:?}").contains("cfk_secret_value"));
     }
 }
+
+#[cfg(test)]
+#[path = "forum_hosted_seeded_tests.rs"]
+mod seeded_tests;

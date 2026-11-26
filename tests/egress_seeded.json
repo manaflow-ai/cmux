@@ -5,8 +5,14 @@
   "acpmux::happy_dial::http_client": {
    "todo": true
   },
+  "acpmux::hub::forum_hosted": {
+   "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted_seeded_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
+  },
   "acpmux::range_fetch": {
    "todo": true
+  },
+  "acpmux::send_trace": {
+   "test": "cmux-tui/crates/acpmux/src/send_trace_seeded_tests.rs::seeded_trace_rides_only_in_the_path_and_spans_only_in_the_body"
   },
   "chatmux_relay": {
    "todo": true
@@ -37,6 +43,9 @@
   },
   "cmux_coderouter": {
    "todo": true
+  },
+  "cmux_git_cache::server": {
+   "test": "cmux-tui/crates/cmux-git-cache/src/server_seeded_tests.rs::a_callers_credential_rides_only_in_authorization"
   },
   "cmux_projection::peers": {
    "todo": true
@@ -74,6 +83,12 @@
   "cmux_tui::cli::app::web_pieces": {
    "todo": true
   },
+  "cmux_tui::cli::autocloud": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/autocloud_seeded_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
+  },
+  "cmux_tui::cli::automation_webhook_fire": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/automation_webhook_fire_seeded_tests.rs::the_signing_secret_never_rides_and_the_payload_only_in_the_body"
+  },
   "cmux_tui::cli::cloud_client_session": {
    "todo": true
   },
@@ -109,6 +124,12 @@
   },
   "cmux_tui::cli::machine_join": {
    "todo": true
+  },
+  "cmux_tui::cli::mcp_servers": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/mcp_servers_seeded_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
+  },
+  "cmux_tui::cli::runnable_link": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/runnable_link_seeded_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
   },
   "cmux_tui::cli::video": {
    "none": "a GET of the URL the person typed (cmux video open URL): it sends nothing but that URL"
@@ -148,6 +169,9 @@
   },
   "cmux_tui_core::server::agent_session_share_room": {
    "todo": true
+  },
+  "cmux_tui_core::server::forum_routed": {
+   "test": "cmux-tui/crates/cmux-tui-core/src/server/forum_routed_seeded_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
   },
   "cmux_vm_pool::http": {
    "todo": true

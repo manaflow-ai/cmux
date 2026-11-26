@@ -108,8 +108,12 @@ impl ForumOwner {
 
     /// The forum the env sets up, or none.
     fn from_env() -> Self {
-        let var =
-            |k: &str| std::env::var(k).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
+        Self::from_vars(&|k| std::env::var(k).ok())
+    }
+
+    /// The forum `env`'s variables set up, or none.
+    fn from_vars(env: &dyn Fn(&str) -> Option<String>) -> Self {
+        let var = |k: &str| env(k).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty());
         let (Some(team), Some(key)) = (var(TEAM_ENV), var(KEY_ENV)) else {
             return Self::not_set_up();
         };
@@ -118,7 +122,7 @@ impl ForumOwner {
         let Ok(headers) = cmux_build_space::headers() else {
             return Self { forum: Err("build_space"), runtime: OnceLock::new() };
         };
-        let http = reqwest::Client::builder()
+        let http = cmux_egress::client_builder("cmux_tui_core::server::forum_routed")
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
@@ -444,3 +448,7 @@ fn comment_json(comment: &Comment, thread: u64) -> Value {
 #[cfg(test)]
 #[path = "forum_routed_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "forum_routed_seeded_tests.rs"]
+mod seeded_tests;

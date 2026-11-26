@@ -66,6 +66,7 @@ herdr.dev
 home.atlassian.com
 html.duckduckgo.com
 ice2.somafm.com
+index.crates.io
 lh3.googleusercontent.com
 linear.app
 mail.google.com
@@ -86,6 +87,7 @@ share-dev.cmux.dev
 share-staging.cmux.dev
 share.cmux.dev
 somafm.com
+static.crates.io
 stun.cloudflare.com
 stun.l.google.com
 suggestqueries.google.com
