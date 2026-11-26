@@ -233,6 +233,14 @@ nonisolated enum AcpmuxPaneMethods {
         // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
         // resumes it (now, after the running turn, or at its next start).
         "_acpmux/set_tools",
+        // A chat's Sources folders (direct.ts setDirectories, #57261): acpmux keeps the list and
+        // restarts the chat's agent on the same conversation with the remaining folders.
+        "_acpmux/set_directories",
+        // A held surge's inbox threads (direct.ts inboxThreads, session-info/agentSide.ts): read only.
+        "_acpmux/inbox_threads",
+        // Each listed chat's dot signature (direct.ts signatures, #47075): read only, glyphs for
+        // chats the pane already lists (`_acpmux/sessions`).
+        "session/signature",
         // A Cloud chat's sign-in on its own machine (cloudAgentLogin.ts, CloudSignIn.tsx): acpmux runs
         // the agent's own login there (start, then finish with Claude's pasted code or after Codex's
         // approval; cancel stops it), or saves an API key there. Never this Mac's login. Each names
@@ -375,7 +383,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/seen", "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/agent_home", "_acpmux/agent_home_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/subagents", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
-        "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
+        "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools", "_acpmux/set_directories", "_acpmux/inbox_threads",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
         "_acpmux/plan/build", "_acpmux/plan/compare", "_acpmux/plan/keep",
         "_acpmux/race/start", "_acpmux/race/get", "_acpmux/race/list", "_acpmux/race/cancel", "_acpmux/race/stats",

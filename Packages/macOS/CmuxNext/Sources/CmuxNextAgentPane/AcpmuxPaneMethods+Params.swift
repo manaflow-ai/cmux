@@ -169,7 +169,7 @@ nonisolated extension AcpmuxPaneMethods {
         // the prompt's own images, so it reaches nothing the chat does not already hold.
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "images", "index"], []),
         // `_meta`: only the gesture ticket of the person's pick (cx-0q7o), never anything else.
-        "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers", "annotations", "_meta"], []),
+        "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers", "annotations", "forkCheckpoint", "_meta"], []),
         // `_meta`: only the gesture ticket of the person's Build pick, as an answer's. No
         // `harnesses`: the pane builds with the chat's own harness, or it and the other of Claude
         // and Codex for a compare.
@@ -241,6 +241,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/app_reply": (["sessionId", "to", "replyTo", "threadId", "text", "replyId"], []),
         // `id`: the chat's tool row (`mcp:<server>`); `enabled`: on or off for this chat.
         "_acpmux/set_tools": (["sessionId", "id", "enabled"], []),
+        "_acpmux/set_directories": (["sessionId", "additionalDirectories", "expectedAdditionalDirectories"], []),
+        "_acpmux/inbox_threads": (["sessionId"], []),
+        "session/signature": (["sessionIds"], []),
         // A Cloud chat's sign-in (cloudAgentLogin.ts): `agent` is `claude` or `codex`; `code` is
         // Claude's pasted code, `key` an API key, both kept out of every log; `sessionId` the chat.
         "_acpmux/agent_login/start": (["agent", "sessionId"], []),
