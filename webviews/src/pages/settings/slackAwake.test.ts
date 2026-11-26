@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { awakeDuration, spentToday, type SlackAwake } from "./slackAwake";
+import "./testCatalog";
+import { awakeDuration, parseSlackAwake, SlackAwakeController, spentToday, type SlackAwake } from "./slackAwake";
 
 const awake: SlackAwake = {
   allowance_seconds: 7200,
@@ -40,4 +41,69 @@ describe("awakeDuration", () => {
     [7200, "2 h"],
     [4800, "1 h 20 min"],
   ])("%i s -> %s", (s, text) => expect(awakeDuration(s)).toBe(text));
+});
+
+describe("parseSlackAwake", () => {
+  test("accepts the API value and rejects a bent one", () => {
+    expect(parseSlackAwake(awake)).toEqual(awake);
+    expect(parseSlackAwake({ ...awake, allowance_seconds: -1 })).toBeNull();
+    expect(parseSlackAwake({ ...awake, senders: [{ ...awake.senders[0], day: "today" }] })).toBeNull();
+    expect(parseSlackAwake(null)).toBeNull();
+    expect(parseSlackAwake({ ...awake, names: { U2: "Austin" } })?.names).toEqual({ U2: "Austin" });
+    expect(parseSlackAwake({ ...awake, names: { U2: 7 } })).toBeNull();
+  });
+});
+
+describe("SlackAwakeController", () => {
+  const client = (reply: (params: Record<string, unknown>) => unknown) => {
+    const calls: Array<[string, unknown]> = [];
+    return {
+      calls,
+      call: async <R>(op: string, params: unknown): Promise<R> => {
+        calls.push([op, params]);
+        return reply(params as Record<string, unknown>) as R;
+      },
+    };
+  };
+
+  test("reads with no allowance, then sets seconds", async () => {
+    const c = client((params) => ({ ...awake, allowance_seconds: (params.allowance_seconds as number) ?? 7200 }));
+    const controller = new SlackAwakeController(c);
+    await controller.refresh();
+    expect(controller.getSnapshot()).toMatchObject({ phase: "ready", error: null });
+    await controller.setAllowance(1800);
+    expect(controller.getSnapshot().awake?.allowance_seconds).toBe(1800);
+    expect(c.calls).toEqual([
+      ["cmux.settings.slack.awake", {}],
+      ["cmux.settings.slack.awake", { allowance_seconds: 1800 }],
+    ]);
+  });
+
+  test("no Chief and a failed save keep their own errors", async () => {
+    const noChief = new SlackAwakeController(
+      client(() => {
+        throw Object.assign(new Error("x"), { code: "cmux.slack.no_chief" });
+      }),
+    );
+    await noChief.refresh();
+    expect(noChief.getSnapshot().error).toBe("noChief");
+    let fail = false;
+    const flaky = new SlackAwakeController(
+      client(() => {
+        if (fail) throw new Error("http_500");
+        return awake;
+      }),
+    );
+    await flaky.refresh();
+    fail = true;
+    await flaky.setAllowance(0);
+    expect(flaky.getSnapshot()).toMatchObject({ phase: "ready", error: "saveFailed" });
+    expect(flaky.getSnapshot().awake?.allowance_seconds).toBe(7200);
+  });
+
+  test("a bent reply is a read failure", async () => {
+    const controller = new SlackAwakeController(client(() => ({ ok: true })));
+    await controller.refresh();
+    expect(controller.getSnapshot().error).toBe("failed");
+  });
 });

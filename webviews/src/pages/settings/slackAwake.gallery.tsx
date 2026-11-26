@@ -3,6 +3,8 @@ import { componentEntry } from "../../gallery/format";
 import { useEffect, useState } from "react";
 import { SlackAwakeCard } from "./components/SlackAwakeCard";
 import type { SlackAwake, SlackNames } from "./slackAwake";
+import { installCatalog } from "./strings";
+import table from "./generated/strings.json";
 
 const TODAY = "2026-11-26";
 const names: SlackNames = { U0OWNER: "Leo", U0AUSTIN: "Austin", U0LAWRENCE: "Lawrence", U0GUEST: "guest-contractor" };
@@ -21,6 +23,7 @@ const busyDay: SlackAwake = {
 type Props = { awake: SlackAwake; busy?: boolean };
 
 function SlackAwakeGallery({ awake, busy }: Props) {
+  installCatalog(table);
   const [value, setValue] = useState(awake);
   useEffect(() => {
     const previous = document.documentElement.dataset.settingsLook;
