@@ -1,6 +1,7 @@
 package import AppKit
 package import CmuxNextDaemon
 package import CmuxNextSettings
+import CmuxNextWindowRules
 
 /// What VoiceOver says when an agent in another chat needs the person, fails or finishes while cmux
 /// is in front and no banner shows for it: `notifications.desktop` is `whenInactive` or `never`, the
@@ -11,26 +12,44 @@ package import CmuxNextSettings
 /// decision already carries those.
 package struct AgentStatusAnnouncement {
     package init() {}
-    package enum Kind: Equatable, Sendable {
+    package nonisolated enum Kind: String, Equatable, Sendable, Decodable {
         case needsYou, failed, finished
     }
 
-    /// The kind of an agent notification by its level, nil for any other poster's.
+    /// The kind of an agent notification by its level, nil for any other poster's (cmux-window-rules
+    /// `desktop_announce`; nil when the rule does not answer).
     package static func kind(level: NotificationLevel, source: String?) -> Kind? {
-        guard source == "agent" else { return nil }
-        switch level {
-        case .info: return .finished
-        case .warning: return .needsYou
-        case .error: return .failed
+        struct Request: Encodable {
+            var level: String
+            var source: String?
         }
+        struct Reply: Decodable {
+            var kind: Kind?
+        }
+        return WindowRules().call("window_notifications_desktop_announce_kind", Request(level: level.rawValue, source: source),
+                                  as: Reply.self)?.kind
     }
 
     /// Whether an arrival the policy decided is said: it rings (not muted, not read on sight), no
     /// banner shows for it, cmux is in front, and its pane is not. `bannersDenied`: macOS refuses cmux
     /// banners (``DesktopNotifier/authorization`` is "denied"), so a decided banner never shows.
+    /// Nothing is said when the rule does not answer.
     package static func speaks(_ decision: NotificationPolicy.Decision, bannersDenied: Bool, appActive: Bool,
                                paneIsViewed: Bool) -> Bool {
-        decision.attention && !decision.acknowledge && (!decision.desktop || bannersDenied) && appActive && !paneIsViewed
+        struct Request: Encodable {
+            var attention: Bool
+            var acknowledge: Bool
+            var desktop: Bool
+            var bannersDenied: Bool
+            var appActive: Bool
+            var paneIsViewed: Bool
+        }
+        struct Reply: Decodable {
+            var speaks: Bool
+        }
+        let request = Request(attention: decision.attention, acknowledge: decision.acknowledge, desktop: decision.desktop,
+                              bannersDenied: bannersDenied, appActive: appActive, paneIsViewed: paneIsViewed)
+        return WindowRules().call("window_notifications_desktop_announce_speaks", request, as: Reply.self)?.speaks ?? false
     }
 
     /// The line: "build-fix: Needs you", or the kind alone when the chat's name is not said (an
