@@ -129,6 +129,39 @@ pub(super) struct RelayPlan {
     /// on a signal to this device (`relayTicket`); `None` from a service that
     /// stamps none, whose join is then refused.
     pub ticket: Option<String>,
+    /// A join this side started before the peer's answer, on the ticket the
+    /// service sent at once (`wg-ticket`, PROTOCOL.md "Early relay ticket");
+    /// the first join takes it instead of starting its own.
+    pub early: Option<EarlyJoin>,
+}
+
+/// A relay join already under way, taken once.
+pub(super) type EarlyJoin = Arc<
+    Mutex<
+        Option<
+            tokio::task::JoinHandle<
+                Result<super::super::relay::RelayCarrier, super::super::relay::RelayFailure>,
+            >,
+        >,
+    >,
+>;
+
+/// The early join's carrier when one was started, else a join now.
+async fn join_or_take(
+    plan: &RelayPlan,
+    session_id: &str,
+    peer: &str,
+) -> Result<super::super::relay::RelayCarrier, super::super::relay::RelayFailure> {
+    let early = plan.early.as_ref().and_then(|slot| lock(slot).take());
+    if let Some(handle) = early {
+        match handle.await {
+            Ok(joined) => return joined,
+            Err(e) => {
+                tracing::debug!(session = session_id, error = %e, "the early relay join ended; joining again");
+            }
+        }
+    }
+    super::super::relay::RelayCarrier::join(&plan.endpoint, session_id, peer, plan.ticket.as_deref()).await
 }
 
 /// How long after the tunnel starts, or this side's network changes, a
@@ -457,6 +490,29 @@ const TURN_RETRIES: [Duration; 5] = [
     Duration::from_secs(30),
 ];
 
+/// How long a dialing tunnel waits for its peer's first authenticated
+/// datagram (WireGuard's handshake) before it takes TURN over TLS: the
+/// handshake repeats at 0.25, 0.75 and 1.75 s, so a path that works answers
+/// well within it. A network whose firewall drops WireGuard (PROTOCOL.md
+/// "Corporate networks") answers STUN and grants TURN over UDP, and nothing
+/// on either carries the tunnel.
+pub(super) const SILENT_TUNNEL_DIALER: Duration = Duration::from_secs(3);
+/// The same for the answering Mac, longer: the phone's own TURN over TLS
+/// usually fixes it first, and then the Mac needs none.
+pub(super) const SILENT_TUNNEL_ANSWER: Duration = Duration::from_secs(6);
+
+/// What [`Session::escalate`] did.
+enum Escalated {
+    /// A TURN allocation over TCP or TLS came up and the peer was told.
+    Allocated,
+    /// Already on TURN over TCP or TLS.
+    NotNeeded,
+    /// None came up in time (a retry keeps asking, outside the relay's wait).
+    Failed,
+    /// A roam holds the session.
+    Roaming,
+}
+
 /// The roaming messages (JSON in one overlay UDP datagram).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "t", rename_all = "kebab-case")]
@@ -553,6 +609,9 @@ pub(super) struct Session {
     /// Takes a new TURN allocation after a roam or a dead stream (the phone;
     /// a Mac once its network blocked UDP).
     keeps_turn: AtomicBool,
+    /// This network carries no WireGuard over UDP ([`Session::escalate_when_silent`]):
+    /// a new allocation takes TCP or TLS, never UDP, until the next roam.
+    stream_only: AtomicBool,
     turn_monitor: Mutex<Option<JoinHandle<()>>>,
     /// Announcements the peer sent through signaling, for the control task.
     inject: mpsc::UnboundedSender<RoamMessage>,
@@ -658,6 +717,7 @@ impl Session {
             endpoints: Mutex::new(parts.endpoints),
             relayed: Mutex::new(parts.relayed),
             keeps_turn: AtomicBool::new(parts.keeps_turn),
+            stream_only: AtomicBool::new(false),
             turn_monitor: Mutex::new(None),
             inject,
             injected: Mutex::new(Some(injected)),
@@ -816,6 +876,102 @@ impl Session {
         stop_monitor(lock(&self.turn_monitor).replace(task));
     }
 
+    /// The options a new allocation is made with: over TCP or TLS only once
+    /// this network showed it carries no WireGuard over UDP.
+    fn allocation_options(&self) -> std::borrow::Cow<'_, DialOptions> {
+        if self.stream_only.load(Ordering::Relaxed) {
+            // `block_udp` here only skips TURN over UDP: these options reach
+            // the allocation, not the tunnel's own sends.
+            std::borrow::Cow::Owned(DialOptions { block_udp: true, ..self.options.clone() })
+        } else {
+            std::borrow::Cow::Borrowed(&self.options)
+        }
+    }
+
+    /// Watch `path` for a tunnel that hears nothing from its peer for `after`
+    /// while it has no route (from its start, or after a roam): UDP answers
+    /// (STUN, TURN's own requests) yet nothing carries WireGuard over it, as
+    /// behind a firewall that drops WireGuard. Take TURN over TLS then and
+    /// tell the peer (through signaling too, which still works), and keep to
+    /// TCP or TLS on this network. A side already on TURN over TLS, or with
+    /// no TCP or TLS server to ask, does nothing.
+    pub(super) fn escalate_when_silent(
+        self: &Arc<Self>,
+        mut path: watch::Receiver<LinkPath>,
+        after: Duration,
+    ) {
+        if super::super::turn::turn_servers(&self.options.ice_servers).1.is_none() {
+            return;
+        }
+        let weak = Arc::downgrade(self);
+        let relay_shared = Arc::clone(&self.relay_shared);
+        tokio::spawn(async move {
+            loop {
+                if path.wait_for(|path| *path == LinkPath::NoPath).await.is_err() {
+                    return;
+                }
+                // The relay (#53163) waits while this side may still take TURN
+                // over TLS: from now until a route comes, or the TLS allocation
+                // below came up and had RELAY_AFTER to carry a handshake
+                // (RelayClock::turn_window). TURN over TLS first, the relay only
+                // when that fails too.
+                let mut gather = relay_shared.gathering_turn();
+                let route = tokio::time::timeout(after, path.wait_for(|path| *path != LinkPath::NoPath))
+                    .await
+                    .map(|changed| changed.is_ok());
+                match route {
+                    Ok(true) => continue,
+                    Ok(false) => return,
+                    Err(_) => {}
+                }
+                let Some(session) = weak.upgrade() else { return };
+                if session.closed.load(Ordering::Relaxed) {
+                    return;
+                }
+                match session.escalate(after).await {
+                    Escalated::Allocated => gather.allocated(),
+                    Escalated::NotNeeded | Escalated::Failed => {}
+                    Escalated::Roaming => {
+                        // A roam is under way: its own route (and its own
+                        // allocation's window) gets the next look.
+                        continue;
+                    }
+                }
+                drop(gather);
+                drop(session);
+                // Armed again once a route came and went.
+                if path.wait_for(|path| *path != LinkPath::NoPath).await.is_err() {
+                    return;
+                }
+            }
+        });
+    }
+
+    /// [`Self::escalate_when_silent`]'s step.
+    async fn escalate(self: &Arc<Self>, after: Duration) -> Escalated {
+        if !lock(&self.relayed).1.is_empty() {
+            // Already on TURN over TCP or TLS.
+            return Escalated::NotNeeded;
+        }
+        if self.roaming.try_lock().is_err() {
+            return Escalated::Roaming;
+        }
+        tracing::info!(
+            session = self.session_id,
+            silent = ?after,
+            "nothing from the peer over UDP although UDP answers (WireGuard dropped?): taking TURN over TLS"
+        );
+        self.options.timeline.mark("wg_silent_turn_tls");
+        self.stream_only.store(true, Ordering::Relaxed);
+        self.keeps_turn.store(true, Ordering::Relaxed);
+        if self.replace_turn(self.roams.load(Ordering::Relaxed), &LateTurn::default()).await {
+            Escalated::Allocated
+        } else {
+            self.retry_turn("no TURN over TLS for a silent tunnel; taking one", async { true });
+            Escalated::Failed
+        }
+    }
+
     /// Take a new TURN allocation on the current network and tell the peer
     /// its address; `false` when none could be had. A grant landing in
     /// `late` meanwhile (from the roam numbered `since`) is taken instead.
@@ -823,9 +979,10 @@ impl Session {
         // Allocate before taking the roam lock: a roam meanwhile must not wait
         // seconds for an allocation that belongs to the old network.
         let roams = self.roams.load(Ordering::Relaxed);
+        let options = self.allocation_options();
         let (turn, roams) = tokio::select! {
             Some(turn) = late.landed() => (turn, since),
-            turn = TurnCarrier::allocate_keeping(&self.options, late) => match turn {
+            turn = TurnCarrier::allocate_keeping(&options, late) => match turn {
                 Some(turn) => (turn, roams),
                 None => return false,
             },
@@ -894,8 +1051,12 @@ impl Session {
             found
         };
         let late = LateTurn::default();
-        let (reflexive, turn) =
+        let (reflexive, allocated) =
             tokio::join!(reflexive, turn_beside_keeping(&self.options, false, turn_side, Some(&late)));
+        if let Some(refusal) = &allocated.refusal {
+            tracing::warn!(%refusal, "this Mac's proxy refused TURN over TLS; a phone may not reach it");
+        }
+        let turn = allocated.carrier;
         let blocked = asked > 0 && reflexive.is_empty();
         // A STUN answer came after all: the early allocation is dropped
         // (released) unused.
@@ -1107,6 +1268,23 @@ impl Session {
     /// addresses; `relayed_tls`: which of those ride TCP or TLS.
     /// The mapped endpoint (if any, and still among `endpoints`) is labeled
     /// so.
+    /// Announce this side's endpoints again as they stand (after a relay
+    /// join), even when none is new.
+    async fn reannounce(&self) {
+        let _one_at_a_time = self.roaming.lock().await;
+        let endpoints = lock(&self.endpoints).clone();
+        if endpoints.is_empty() || self.closed.load(Ordering::Relaxed) {
+            return;
+        }
+        let (relayed, relayed_tls) = lock(&self.relayed).clone();
+        tracing::debug!(
+            session = self.session_id,
+            count = endpoints.len(),
+            "endpoints go through cmux's relay"
+        );
+        self.announce(endpoints, relayed, relayed_tls);
+    }
+
     fn announce(&self, endpoints: Vec<String>, relayed: Vec<String>, relayed_tls: Vec<String>) {
         if !endpoints.is_empty() {
             lock(&self.endpoints).clone_from(&endpoints);
@@ -1207,6 +1385,8 @@ impl Session {
     async fn roam(self: &Arc<Self>) -> Timeline {
         let _one_at_a_time = self.roaming.lock().await;
         self.roams.fetch_add(1, Ordering::Relaxed);
+        // A new network: it may carry WireGuard over UDP again.
+        self.stream_only.store(false, Ordering::Relaxed);
         let timeline = Timeline::new();
         timeline.mark("network_changed");
         *lock(&self.last_roam) = Some(timeline.clone());
@@ -1638,6 +1818,8 @@ async fn run_control(
 /// `roam_turn_allocated`, `roam_gathered`), which keep filling in after
 /// this returns.
 pub async fn network_changed() -> Vec<(String, Timeline)> {
+    // The new network's proxy (and whether it inspects TLS) is asked afresh.
+    crate::egress::network_changed();
     let sessions = live();
     let roams =
         sessions.iter().map(|session| async move { (session.session_id.clone(), session.roam().await) });
@@ -1831,14 +2013,7 @@ async fn run_relay_watch(session: Weak<Session>) {
         let decided = Instant::now();
         tracing::info!(session = session.session_id, reason, "WireGuard joins cmux's relay");
         let host = plan.endpoint.host();
-        match super::super::relay::RelayCarrier::join(
-            &plan.endpoint,
-            &session.session_id,
-            &session.peer,
-            plan.ticket.as_deref(),
-        )
-        .await
-        {
+        match join_or_take(&plan, &session.session_id, &session.peer).await {
             Ok(carrier) => {
                 failures = 0;
                 // The peer was heard while the join ran (a slow handshake, not a
@@ -1872,6 +2047,13 @@ async fn run_relay_watch(session: Weak<Session>) {
                 // every response is refused and their fixed repeat schedule keeps them in
                 // step until the dial times out.
                 reassert_on_relay(&session, &shared).await;
+                // Disco over the relay (ledger 13h): the peer may know none of
+                // this side's direct endpoints (a signaling path that dropped
+                // them, a peer that met this one on the relay), so they go to
+                // it again through the tunnel. Its upgrade probes then find the
+                // LAN path. The message is the roam announcement older peers
+                // already take.
+                session.reannounce().await;
                 // The peer joins too unless it already does (it asked, or it said it
                 // has no other path). A plan exists only when the peer offered the
                 // relay, so `wg-relay` never reaches a build that does not know it.

@@ -272,6 +272,19 @@ public final class CloudSetup {
         return Refusal(family: family, model: model, localLogin: local)
     }
 
+    /// Which families a Cloud chat can run now, for the composer's model picker with Cloud picked (`cloud.setupState`):
+    /// true when a start would go on (``refusal(harness:model:)`` is nil), false when it would show Set up Cloud. Nil when
+    /// nothing can be read, so the picker holds nothing back.
+    public func serving() async -> [String: Bool]? {
+        guard let read else { return nil }
+        let snapshot = routed(await read()) // one read for both families
+        var families: [String: Bool] = [:]
+        for family in Self.families {
+            if case .setup = snapshot.choice(family: family, model: nil, account: nil) { families[family] = await gatewayServes(family) } else { families[family] = true }
+        }
+        return families
+    }
+
     /// The connections changed: every wait checks again.
     public func connectionsChanged() {
         changes += 1
