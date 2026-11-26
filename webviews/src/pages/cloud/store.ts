@@ -7,6 +7,7 @@ import { isPageError, type PageClient, pageError } from "../shared/pageClient";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { userMessage } from "../shared/userMessage";
 import { AccountReader } from "./account";
+import { SPEND_LIMIT_SET, spendLimitRefusal } from "./pool";
 import { connectionFailure } from "./connectionFailure";
 import { clearCachedMachines, readCachedMachines, writeCachedMachines, type CacheStorage } from "./machineCache";
 import { DetailReader, type MachineDetail } from "./detail";
@@ -169,6 +170,8 @@ export interface CloudState {
   dismissed: ReadonlySet<string>;
   /** The cleanup settings' last save. */
   retention?: RetentionEdit;
+  /** The spend limit's last save (pool.ts; the host confirms it). */
+  spendLimit?: RetentionEdit;
 }
 
 /** `machines` lists the team's machines; `get` is the storefront. */
@@ -819,6 +822,36 @@ export class CloudStore {
   /** The team's cleanup numbers (a team admin); `null` goes back to the plan's. */
   setTeamRetention(settings: RetentionOverrides | null): Promise<void> {
     return this.setRetention({ settings });
+  }
+
+  /**
+   * The monthly spend limit past the pool (RFD 0081, pool.ts): a money change, so the host confirms it as a native
+   * action and the page reads the plan again. A team admin's; anyone else is told so.
+   */
+  async setSpendLimit(usd: number): Promise<void> {
+    if (!this.canChange() || this.state.spendLimit?.saving) return;
+    const session = this.session;
+    this.set({ spendLimit: { saving: true } });
+    try {
+      // `cloud.plan.spend_limit.set {spend_limit_usd}` answers `{pool}`; the plan is read again for the rest of it.
+      const result = await this.client!.call<ActionRunResult | null>(ACTION_RUN, {
+        action: SPEND_LIMIT_SET,
+        args: { spend_limit_usd: usd },
+      });
+      if (session !== this.session) return;
+      this.set({ spendLimit: undefined });
+      if (result?.confirmed !== false) await this.account.readPlan(session);
+    } catch (error) {
+      if (session !== this.session) return;
+      const refusal = spendLimitRefusal(error);
+      if (isUnsupported(error) || refusal === "off") {
+        this.set({ spendLimit: undefined });
+        return this.markUnavailable(SPEND_LIMIT_SET);
+      }
+      this.set({
+        spendLimit: { saving: false, ...(refusal === "forbidden" ? { forbidden: true } : { error: message(error) }) },
+      });
+    }
   }
 
   private async setRetention(params: {

@@ -22,7 +22,7 @@ cmux setup remove manaflow-ai/codex-profile   # everything you had comes back
 ## Features
 
 Each feature of the reference app, and how this look matches it or which gap is left.
-Totals: 5 matched, 18 partial, 3 missing, out of 26.
+Totals: 6 matched, 18 partial, 3 missing, out of 27.
 
 | Feature | Status | In this look, or the gap |
 | --- | --- | --- |
@@ -45,7 +45,8 @@ Totals: 5 matched, 18 partial, 3 missing, out of 26.
 | Permission chip (Default permissions) | partial | Codex shows 'Default permissions' left in the composer; cmux shows 'Normal' with a shield in the same slot. |
 | Account / profile menu at the sidebar foot (invites, workspace switch) | partial | cmux has a profile menu on the sidebar-foot avatar (sidebar.profileMenu) with sign-in/out; it is cmux-account and browser-profile switching, not the reference app's workspace switching; Codex's current foot row is Settings. |
 | Settings window with left nav (General, Appearance, Configuration, Personalization, MCP servers, Git, Environments, Worktrees, Archived threads) | partial | Gap: a look cannot reorder or rename Settings sections. |
-| Appearance: theme import/copy, accent/background/foreground, UI and code font, contrast, UI font size | partial | cmux theme files cover colors and fonts and the look sets system-ui at 15 px; no contrast slider or Codex theme import. |
+| Appearance: theme import/copy, accent/background/foreground, UI and code font, contrast, UI font size | partial | cmux theme files cover colors and fonts and the look sets system-ui at 12 px; no contrast slider or Codex theme import. |
+| Proportions: type size and transcript column width | matched | The nightly capture read cmux's type about 1.3x larger than the reference in the sidebar and transcript, and the reference column wider. `agentPane.display.font.size` 12 (was 15), `appearance.metrics.chromeFontSize` 11 (was 14) and `agentPane.display.width` 1200 (was 1000). Needs a recapture to confirm. |
 | Skills and plugins | partial | Sidebar Skills row matches; cmux's App Store is the plugin surface rather than Codex's Plugins page. |
 | Threads grouped by project with ages, pinned chats | partial | The Chats section (customize/): New chat, Pinned, by project or one list, a sort; `sidebar.groupBy: folder`. |
 | Mobile control of desktop chats | partial | cmux has an iOS app and cloud machines; not the reference mobile app's flow. |
