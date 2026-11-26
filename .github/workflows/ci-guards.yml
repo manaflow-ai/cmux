@@ -1727,6 +1727,8 @@ jobs:
           python3 tests/test_nightly_next_feed_watch.py
           python3 tests/test_nightly_next_unsigned_resume.py
           python3 tests/test_nightly_next_rolling.py
+          python3 tests/test_nightly_next_precheck_scan.py
+          python3 tests/test_nightly_next_tick_request_bound.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_classic_nightly_build_runner.py
