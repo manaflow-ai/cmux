@@ -668,6 +668,28 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   fails at once. `CMUX_MOBILE_DEV_NO_RELAY=1` dials without it, and
   `CMUX_MOBILE_RELAY=0` turns it off for `cmux-mobile-host`.
 
+### Early relay ticket
+
+A dialer whose gather left it no path but the relay (`relay: "now"`) used to
+learn its ticket only from the Mac's `wg-resp`, so its join (TCP, TLS and the
+upgrade, about three round trips to the edge) waited behind the Mac's gather
+and answer. Now it asks for the ticket at once:
+
+- **Ask:** the dialer's `wg-init` carries `ticketEarly: true`, only when it
+  sends `relay: "now"`. Absent means false; an older Mac ignores the field.
+- **Answer:** a hub that forwarded that `wg-init` sends the dialer, on its
+  own signaling socket, `{"type":"signal","to":<dialer>,"from":<mac>,
+  "sessionId":...,"payload":{"kind":"wg-ticket"},"relayTicket":<the
+  dialer's ticket>}`. Only the service sends `wg-ticket`: it is not in the
+  kinds a client may send, so a client's is refused `unknown payload kind`.
+- **Join:** the dialer starts its relay join when `wg-ticket` arrives
+  (timeline `relay_early_join`) and keeps waiting for `wg-resp`; the relay
+  watch's first join takes that carrier instead of starting its own. A plan
+  that ends with no relay (the Mac offered none) aborts it.
+- **Old and new:** an older dialer never asks and never gets `wg-ticket`; a
+  new dialer with an older hub gets no `wg-ticket` and joins after `wg-resp`
+  as before. The ticket is the one `wg-resp` carries too.
+
 ### Relay placement
 
 A Durable Object stays where it is first created, so the first reach of it
