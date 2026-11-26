@@ -5,6 +5,9 @@
 # --os: fmt, clippy, test, all, terminal, api-compat and panic go to Blacksmith Linux first (as
 # cmux-tui.yml gates them) unless the step asks for macOS; a test behind cfg(target_os = "macos")
 # needs --os macos, or it runs nothing on Linux. The other modes run on macOS only.
+# duress: the manual acpmux baseline + RFD0050 round, including ignored tests, on an exclusive
+# measurement worker (Linux or Mac). Unit checks run first; artifact is
+# .build/artifacts/acpmux-duress/duress-bench.json. No TEST_FILTER or SCOPE.
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
 # failed test reruns once alone: see workspace_tests), or all [FILTER];
 # test FILTER SCOPE: SCOPE names where the filter's tests are, so cargo builds only those test
@@ -92,8 +95,8 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write|channel) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write|channel [TEST_FILTER]" >&2; exit 2 ;; esac
-if [[ ( "$mode" == api-compat* || "$mode" == panic || "$mode" == acpmux-hot || "$mode" == channel ) && -n "$filter" ]]; then
+case "$mode" in fmt|clippy|test|all|terminal|duress|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write|channel) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|duress|panic|rd-host|rd-bench|rb-testhost|vm-cli|files-host|optchat-chief|screen|acpmux-hot|api-compat|api-compat-write|channel [TEST_FILTER]" >&2; exit 2 ;; esac
+if [[ ( "$mode" == api-compat* || "$mode" == panic || "$mode" == acpmux-hot || "$mode" == channel || "$mode" == duress ) && -n "$filter" ]]; then
   echo "error: $mode takes no TEST_FILTER" >&2
   exit 2
 fi
@@ -1038,7 +1041,10 @@ if [[ "$mode" == channel ]]; then
   step go ensure_go
   channel_build_t0=$SECONDS
   channel_build_log="$channel_out/acpmux-build.txt"
-  channel_build_acpmux >"$channel_build_log" 2>&1 &
+  # Its own target dir: one cargo target dir is one lock, so a shared one would make the build wait for the
+  # tests instead of running beside them (ci-v2.md step 10b).
+  channel_musl_target="$root/.build/cmux-tui-channel-musl-target"
+  (export CARGO_TARGET_DIR="$channel_musl_target"; channel_build_acpmux) >"$channel_build_log" 2>&1 &
   channel_build_pid=$!
   step "channel daemon tests" channel_daemon_tests
   channel_build_rc=0
@@ -1177,15 +1183,12 @@ if [[ "$mode" == panic ]]; then
 fi
 # clippy, test and all build the whole cmux-tui workspace, cmux-tailnet with it (fmt only
 # formats; the terminal crates, api-compat and acpmux-hot do not depend on cmux-tailnet).
-if [[ "$mode" == clippy || "$mode" == test || "$mode" == all ]]; then
+if [[ "$mode" == clippy || "$mode" == test || "$mode" == all || "$mode" == duress ]]; then
   step go ensure_go
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
-  # A crate whose tests/ files are modules of one `it` binary (tests/it/main.rs, #56677) reaches them
-  # through a generated list cargo fmt cannot follow, so they are named to rustfmt.
-  fmt_tests=()
-  for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done
-  step fmt cargo fmt --all --check ${fmt_tests[@]+-- "${fmt_tests[@]}"}
+  # The it-binary crates' test files are checked per crate, with that crate's edition.
+  step fmt bash "$script_dir/cmux-tui-fmt.sh" --check
 fi
 if [[ "$mode" == clippy || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   # The frozen holder fixture (cmux-holder-v3) is an old shipped holder, never edited: no new
@@ -1209,6 +1212,22 @@ if [[ "$mode" == test || "$mode" == all ]]; then
   else
     echo "prune: skipped (a crate scope builds a part of the workspace)"
   fi
+fi
+if [[ "$mode" == duress ]]; then
+  [[ "$first_rc" == 0 ]] || finish
+  duress_out="$root/.build/artifacts/acpmux-duress"
+  mkdir -p "$duress_out"
+  # A skipped bench must never reuse a previous warm checkout's report.
+  FAST_CHECKS_OUT="$(mktemp -d "$duress_out/run.XXXXXXXX")"
+  export FAST_CHECKS_OUT
+  # Compile the exact target once and run its non-load tests before the explicit ignored bench.
+  # Fail directly: a failed native counter check must not proceed to a load measurement.
+  cargo test --locked --release -p acpmux --test duress_daemon
+  ACPMUX_DURESS=1 cargo test --locked --release -p acpmux --test duress_daemon -- \
+    --ignored --nocapture duress_bench legs=baseline,rfd0050
+  test -s "$FAST_CHECKS_OUT/duress-bench.json"
+  # The registered bench caller validates the report before recording measurement rows.
+  cp "$FAST_CHECKS_OUT/duress-bench.json" "$duress_out/duress-bench.json"
 fi
 if [[ "$mode" == terminal ]]; then
   step "base-red list" load_base_red

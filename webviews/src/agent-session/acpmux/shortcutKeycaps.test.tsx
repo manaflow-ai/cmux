@@ -47,18 +47,19 @@ test("the shortcut is named in aria-keyshortcuts syntax", () => {
   expect(ariaKeyshortcuts(undefined)).toBeUndefined();
 });
 
-test("each look draws the live shortcut, and none without one", () => {
+test("each look draws the live shortcut with the one key hint, and none without one", () => {
   const filled = render("⇧⌘D", "filled");
   expect(filled).toContain('data-look="filled"');
   expect(filled).toContain('aria-hidden="true"');
-  expect(filled.match(/<kbd/g)?.length).toBe(3);
-  expect(render("⇧⌘D", "outlined").match(/<kbd/g)?.length).toBe(3);
-  const compact = render("⇧⌘D", "compact");
-  expect(compact.match(/<kbd/g)?.length).toBe(1);
-  expect(compact).toContain(">⇧⌘D</kbd>");
+  for (const look of ["filled", "outlined", "compact"] as const) {
+    const html = render("⇧⌘D", look);
+    expect(html.match(/<kbd/g)?.length).toBe(1);
+    expect(html).toContain('class="ui-key-hint"');
+    expect(html).toContain('data-keys="⇧⌘D"');
+  }
   expect(render(undefined, "filled")).toBe("");
-  // A rebind is a new string from the host: the caps are the new keys.
-  expect(render("⌃⌥T", "compact")).toContain(">⌃⌥T</kbd>");
+  // A rebind is a new string from the host: the hint is the new keys.
+  expect(render("⌃⌥T", "compact")).toContain('data-keys="⌃⌥T"');
 });
 
 test("dogfood turns it on through the experiment's override", () => {
