@@ -125,9 +125,12 @@ fn derived_handle(row: &Map<String, Value>, value: &Value) -> bool {
 fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
     let mut values: Map<String, Value> = row
         .iter()
+        // A null says what a missing key says, and a row carries its extra twice (its own and
+        // its peer form) in 2 KiB: two dozen nulls cost both forms ~600 B, and the default
+        // `autoSession` record on every row (#57209) tipped an ordinary stuck row past the cap.
         .filter(|(key, value)| {
             EXTRA_KEYS.contains(&key.as_str())
-                && !(matches!(key.as_str(), "stuckError" | "stuckSince") && value.is_null())
+                && !value.is_null()
                 && !(key.as_str() == "handle" && derived_handle(row, value))
                 && !(key.as_str() == "icon"
                     && value.get("kind").and_then(Value::as_str) == Some("image"))
