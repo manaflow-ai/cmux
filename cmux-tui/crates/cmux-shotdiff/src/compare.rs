@@ -205,14 +205,14 @@ fn ssim_window(a: &[f64], b: &[f64]) -> f64 {
     const C2: f64 = (0.03 * 255.0) * (0.03 * 255.0);
     let n = a.len() as f64;
     let (mut sa, mut sb) = (0.0, 0.0);
-    for i in 0..a.len() {
-        sa += a[i];
-        sb += b[i];
+    for (&x, &y) in a.iter().zip(b) {
+        sa += x;
+        sb += y;
     }
     let (ma, mb) = (sa / n, sb / n);
     let (mut va, mut vb, mut cov) = (0.0, 0.0, 0.0);
-    for i in 0..a.len() {
-        let (da, db) = (a[i] - ma, b[i] - mb);
+    for (&x, &y) in a.iter().zip(b) {
+        let (da, db) = (x - ma, y - mb);
         va += da * da;
         vb += db * db;
         cov += da * db;
@@ -220,6 +220,29 @@ fn ssim_window(a: &[f64], b: &[f64]) -> f64 {
     let denom = if n > 1.0 { n - 1.0 } else { 1.0 };
     let (va, vb, cov) = (va / denom, vb / denom, cov / denom);
     ((2.0 * ma * mb + C1) * (2.0 * cov + C2)) / ((ma * ma + mb * mb + C1) * (va + vb + C2))
+}
+
+/// Sets `value` on every cell of a clipped rect in a row-major grid `w` cells wide.
+fn fill_rect<T: Copy>(grid: &mut [T], w: u32, rect: (u32, u32, u32, u32), value: T) {
+    let (x0, y0, x1, y1) = (rect.0 as usize, rect.1 as usize, rect.2 as usize, rect.3 as usize);
+    for row in grid.chunks_exact_mut(w as usize).skip(y0).take(y1.saturating_sub(y0)) {
+        if let Some(cells) = row.get_mut(x0..x1) {
+            cells.fill(value);
+        }
+    }
+}
+
+/// Per-region running totals for the pixel and SSIM passes.
+#[derive(Clone, Copy, Default)]
+struct RegionAcc {
+    changed: u64,
+    compared: u64,
+    ssim_sum: f64,
+    ssim_n: u64,
+}
+
+fn inside(r: &(u32, u32, u32, u32), x: u32, y: u32) -> bool {
+    x >= r.0 && x < r.2 && y >= r.1 && y < r.3
 }
 
 /// Window origins along one axis: every STRIDE, plus the last full window so the far edge is covered.
@@ -265,106 +288,93 @@ pub fn compare(base: &Rgba, head: &Rgba, spec: &Spec) -> Comparison {
 
     let (w, h) = (base.width, base.height);
     let n = w as usize * h as usize;
-    let idx = |x: u32, y: u32| y as usize * w as usize + x as usize;
 
     // Ignore mask and per-pixel tolerance (the last region covering a pixel sets its tolerance).
     let mut ignored = vec![false; n];
     for m in &spec.ignore {
-        let (x0, y0, x1, y1) = clip((m.x, m.y, m.w, m.h), spec.scale, w, h);
-        for y in y0..y1 {
-            for x in x0..x1 {
-                ignored[idx(x, y)] = true;
-            }
-        }
+        fill_rect(&mut ignored, w, clip((m.x, m.y, m.w, m.h), spec.scale, w, h), true);
     }
     let regions: Vec<(u32, u32, u32, u32)> =
         spec.regions.iter().map(|r| clip((r.x, r.y, r.w, r.h), spec.scale, w, h)).collect();
     let mut tolerance = vec![spec.channel_tolerance; n];
     for (r, rect) in spec.regions.iter().zip(&regions) {
         if let Some(t) = r.channel_tolerance {
-            for y in rect.1..rect.3 {
-                for x in rect.0..rect.2 {
-                    tolerance[idx(x, y)] = t;
-                }
-            }
+            fill_rect(&mut tolerance, w, *rect, t);
         }
     }
 
     // Pixel pass.
+    let (base_px, head_px) = (base.data.as_chunks::<4>().0, head.data.as_chunks::<4>().0);
     let mut changed = vec![false; n];
     let (mut changed_count, mut compared, mut ignored_count) = (0u64, 0u64, 0u64);
-    let mut reg_changed = vec![0u64; regions.len()];
-    let mut reg_compared = vec![0u64; regions.len()];
-    for y in 0..h {
-        for x in 0..w {
-            let i = idx(x, y);
-            if ignored[i] {
-                ignored_count += 1;
-                continue;
-            }
-            compared += 1;
-            let (a, b) = (base.pixel(x, y), head.pixel(x, y));
-            let delta = (0..4).map(|c| a[c].abs_diff(b[c])).max().unwrap_or(0);
-            let is_changed = delta > tolerance[i];
-            if is_changed {
-                changed[i] = true;
-                changed_count += 1;
-            }
-            for (k, r) in regions.iter().enumerate() {
-                if x >= r.0 && x < r.2 && y >= r.1 && y < r.3 {
-                    reg_compared[k] += 1;
-                    if is_changed {
-                        reg_changed[k] += 1;
-                    }
+    let mut acc = vec![RegionAcc::default(); regions.len()];
+    let cells = base_px.iter().zip(head_px).zip(&ignored).zip(&tolerance).zip(changed.iter_mut());
+    for (i, ((((a, b), &ign), &tol), out)) in cells.enumerate() {
+        if ign {
+            ignored_count += 1;
+            continue;
+        }
+        compared += 1;
+        let delta = a.iter().zip(b).map(|(p, q)| p.abs_diff(*q)).max().unwrap_or(0);
+        let is_changed = delta > tol;
+        if is_changed {
+            *out = true;
+            changed_count += 1;
+        }
+        let (x, y) = ((i % w as usize) as u32, (i / w as usize) as u32);
+        for (r, a) in regions.iter().zip(acc.iter_mut()) {
+            if inside(r, x, y) {
+                a.compared += 1;
+                if is_changed {
+                    a.changed += 1;
                 }
             }
         }
     }
 
     // SSIM pass over luma windows that touch no mask.
-    let la: Vec<f64> = (0..n)
-        .map(|i| luma([base.data[i * 4], base.data[i * 4 + 1], base.data[i * 4 + 2], 0]))
-        .collect();
-    let lb: Vec<f64> = (0..n)
-        .map(|i| luma([head.data[i * 4], head.data[i * 4 + 1], head.data[i * 4 + 2], 0]))
-        .collect();
+    let la: Vec<f64> = base_px.iter().map(|p| luma(*p)).collect();
+    let lb: Vec<f64> = head_px.iter().map(|p| luma(*p)).collect();
     let (ww, wh) = (WINDOW.min(w), WINDOW.min(h));
     let (mut ssim_sum, mut ssim_n) = (0.0f64, 0u64);
-    let mut reg_ssim_sum = vec![0.0f64; regions.len()];
-    let mut reg_ssim_n = vec![0u64; regions.len()];
     let mut wa = Vec::with_capacity((ww * wh) as usize);
     let mut wb = Vec::with_capacity((ww * wh) as usize);
     let tiles_x = w.div_ceil(SSIM_TILE) as usize;
-    let mut tile_sum = vec![0.0f64; tiles_x * h.div_ceil(SSIM_TILE) as usize];
-    let mut tile_n = vec![0u64; tile_sum.len()];
+    let mut tiles = vec![(0.0f64, 0u64); tiles_x * h.div_ceil(SSIM_TILE) as usize];
     let xs = origins(w, ww);
     for oy in origins(h, wh) {
         'win: for &ox in &xs {
             wa.clear();
             wb.clear();
             for y in oy..oy + wh {
-                for x in ox..ox + ww {
-                    let i = idx(x, y);
-                    if ignored[i] {
-                        continue 'win;
-                    }
-                    wa.push(la[i]);
-                    wb.push(lb[i]);
+                let s = y as usize * w as usize + ox as usize;
+                let e = s + ww as usize;
+                let (Some(ign), Some(ra), Some(rb)) =
+                    (ignored.get(s..e), la.get(s..e), lb.get(s..e))
+                else {
+                    continue 'win;
+                };
+                if ign.iter().any(|&b| b) {
+                    continue 'win;
                 }
+                wa.extend_from_slice(ra);
+                wb.extend_from_slice(rb);
             }
             let s = ssim_window(&wa, &wb);
             ssim_sum += s;
             ssim_n += 1;
-            let t = ((oy + wh / 2) / SSIM_TILE) as usize * tiles_x
-                + ((ox + ww / 2) / SSIM_TILE) as usize;
-            tile_sum[t] += s;
-            tile_n[t] += 1;
-            for (k, r) in regions.iter().enumerate() {
-                // A window counts for a region when its center lies inside it, so small regions still get windows.
-                let (cx, cy) = (ox + ww / 2, oy + wh / 2);
-                if cx >= r.0 && cx < r.2 && cy >= r.1 && cy < r.3 {
-                    reg_ssim_sum[k] += s;
-                    reg_ssim_n[k] += 1;
+            // A window counts for a tile or region when its center lies inside it, so small regions
+            // still get windows.
+            let (cx, cy) = (ox + ww / 2, oy + wh / 2);
+            let t = (cy / SSIM_TILE) as usize * tiles_x + (cx / SSIM_TILE) as usize;
+            if let Some(tile) = tiles.get_mut(t) {
+                tile.0 += s;
+                tile.1 += 1;
+            }
+            for (r, a) in regions.iter().zip(acc.iter_mut()) {
+                if inside(r, cx, cy) {
+                    a.ssim_sum += s;
+                    a.ssim_n += 1;
                 }
             }
         }
@@ -375,7 +385,7 @@ pub fn compare(base: &Rgba, head: &Rgba, spec: &Spec) -> Comparison {
     let ssim = round6(mean(ssim_sum, ssim_n));
     let changed_ratio = round6(ratio(changed_count, compared));
     let mut worst_tile: Option<Tile> = None;
-    for (t, (&sum, &k)) in tile_sum.iter().zip(&tile_n).enumerate() {
+    for (t, &(sum, k)) in tiles.iter().enumerate() {
         if k == 0 {
             continue;
         }
@@ -398,11 +408,11 @@ pub fn compare(base: &Rgba, head: &Rgba, spec: &Spec) -> Comparison {
     }
 
     let mut region_verdicts = Vec::new();
-    for (k, r) in spec.regions.iter().enumerate() {
+    for (r, a) in spec.regions.iter().zip(&acc) {
         let max_ratio = r.max_changed_ratio.unwrap_or(spec.max_changed_ratio);
         let min_ssim = r.min_ssim.unwrap_or(spec.min_ssim);
-        let cr = round6(ratio(reg_changed[k], reg_compared[k]));
-        let rs = round6(mean(reg_ssim_sum[k], reg_ssim_n[k]));
+        let cr = round6(ratio(a.changed, a.compared));
+        let rs = round6(mean(a.ssim_sum, a.ssim_n));
         let mut rr = Vec::new();
         if cr > max_ratio {
             rr.push(format!("changed_ratio {cr} > {max_ratio}"));
@@ -416,8 +426,8 @@ pub fn compare(base: &Rgba, head: &Rgba, spec: &Spec) -> Comparison {
         region_verdicts.push(RegionVerdict {
             name: r.name.clone(),
             pass: rr.is_empty(),
-            changed_pixels: reg_changed[k],
-            compared_pixels: reg_compared[k],
+            changed_pixels: a.changed,
+            compared_pixels: a.compared,
             changed_ratio: cr,
             ssim: rs,
             reasons: rr,
@@ -450,22 +460,24 @@ pub fn compare(base: &Rgba, head: &Rgba, spec: &Spec) -> Comparison {
 fn changed_boxes(changed: &[bool], w: u32, h: u32) -> Vec<Rect> {
     let (tw, th) = (w.div_ceil(TILE), h.div_ceil(TILE));
     let mut tiles = vec![false; (tw * th) as usize];
-    for y in 0..h {
-        for x in 0..w {
-            if changed[(y * w + x) as usize] {
-                tiles[((y / TILE) * tw + x / TILE) as usize] = true;
+    for (y, row) in changed.chunks_exact(w as usize).enumerate() {
+        for (x, _) in row.iter().enumerate().filter(|(_, c)| **c) {
+            let t = (y as u32 / TILE) * tw + x as u32 / TILE;
+            if let Some(tile) = tiles.get_mut(t as usize) {
+                *tile = true;
             }
         }
     }
-    let mut seen = vec![false; tiles.len()];
+    // seen[j]: tile j is changed and already in a box; starts true for unchanged tiles.
+    let mut seen: Vec<bool> = tiles.iter().map(|t| !t).collect();
     let mut boxes = Vec::new();
-    for start in 0..tiles.len() {
-        if !tiles[start] || seen[start] {
-            continue;
+    for start in 0..seen.len() {
+        match seen.get_mut(start) {
+            Some(s) if !*s => *s = true,
+            _ => continue,
         }
         let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
         let mut stack = vec![start];
-        seen[start] = true;
         while let Some(t) = stack.pop() {
             let (tx, ty) = (t as u32 % tw, t as u32 / tw);
             x0 = x0.min(tx);
@@ -474,8 +486,8 @@ fn changed_boxes(changed: &[bool], w: u32, h: u32) -> Vec<Rect> {
             y1 = y1.max(ty);
             let mut push = |nx: u32, ny: u32| {
                 let j = (ny * tw + nx) as usize;
-                if tiles[j] && !seen[j] {
-                    seen[j] = true;
+                if let Some(s) = seen.get_mut(j).filter(|s| !**s) {
+                    *s = true;
                     stack.push(j);
                 }
             };
@@ -507,20 +519,23 @@ fn changed_boxes(changed: &[bool], w: u32, h: u32) -> Vec<Rect> {
 fn render_diff(head: &Rgba, changed: &[bool], ignored: &[bool], boxes: &[Rect]) -> Rgba {
     let (w, h) = (head.width, head.height);
     let mut out = Rgba::new(w, h, [0, 0, 0, 255]);
-    for y in 0..h {
-        for x in 0..w {
-            let i = (y * w + x) as usize;
-            let l = luma(head.pixel(x, y)) as u32;
-            let gray = (170 + l / 3) as u8;
-            let p = if changed[i] {
-                [255, 0, 64, 255]
-            } else if ignored[i] {
-                [gray / 2, gray / 2 + 40, 255, 255]
-            } else {
-                [gray, gray, gray, 255]
-            };
-            out.set(x, y, p);
-        }
+    let cells = out
+        .data
+        .as_chunks_mut::<4>()
+        .0
+        .iter_mut()
+        .zip(head.data.as_chunks::<4>().0)
+        .zip(changed)
+        .zip(ignored);
+    for (((o, p), &c), &ign) in cells {
+        let gray = (170 + luma(*p) as u32 / 3) as u8;
+        *o = if c {
+            [255, 0, 64, 255]
+        } else if ign {
+            [gray / 2, gray / 2 + 40, 255, 255]
+        } else {
+            [gray, gray, gray, 255]
+        };
     }
     let outline = [255, 160, 0, 255];
     for b in boxes {

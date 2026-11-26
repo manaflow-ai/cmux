@@ -72,7 +72,7 @@ impl Store {
     }
 
     pub fn object_path(&self, hash: &str) -> PathBuf {
-        self.root.join("objects").join(&hash[..2.min(hash.len())]).join(format!("{hash}.png"))
+        self.root.join("objects").join(hash.get(..2).unwrap_or(hash)).join(format!("{hash}.png"))
     }
 
     pub fn manifest(&self) -> Result<Manifest, String> {

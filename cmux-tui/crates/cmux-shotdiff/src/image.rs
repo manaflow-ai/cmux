@@ -39,14 +39,16 @@ impl Rgba {
 
     #[inline]
     pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
-        let i = (y as usize * self.width as usize + x as usize) * 4;
-        [self.data[i], self.data[i + 1], self.data[i + 2], self.data[i + 3]]
+        let i = y as usize * self.width as usize + x as usize;
+        self.data.as_chunks::<4>().0.get(i).copied().unwrap_or([0; 4])
     }
 
     #[inline]
     pub fn set(&mut self, x: u32, y: u32, p: [u8; 4]) {
-        let i = (y as usize * self.width as usize + x as usize) * 4;
-        self.data[i..i + 4].copy_from_slice(&p);
+        let i = y as usize * self.width as usize + x as usize;
+        if let Some(px) = self.data.as_chunks_mut::<4>().0.get_mut(i) {
+            *px = p;
+        }
     }
 
     /// The content address: SHA-256 of the decoded pixels and size, so two encodings of the same pixels
@@ -62,11 +64,11 @@ impl Rgba {
 }
 
 fn hex(bytes: &[u8]) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut s = String::with_capacity(bytes.len() * 2);
     for b in bytes {
-        s.push(DIGITS[(b >> 4) as usize] as char);
-        s.push(DIGITS[(b & 15) as usize] as char);
+        for nibble in [b >> 4, b & 15] {
+            s.push(char::from_digit(u32::from(nibble), 16).unwrap_or('0'));
+        }
     }
     s
 }
@@ -85,8 +87,8 @@ pub fn decode_png(bytes: &[u8]) -> Result<Rgba, ImageError> {
         png::ColorType::Rgba => buf,
         png::ColorType::Rgb => {
             let mut out = Vec::with_capacity(n * 4);
-            for px in buf.chunks_exact(3) {
-                out.extend_from_slice(&[px[0], px[1], px[2], 255]);
+            for &[r, g, b] in buf.as_chunks::<3>().0 {
+                out.extend_from_slice(&[r, g, b, 255]);
             }
             out
         }
@@ -99,8 +101,8 @@ pub fn decode_png(bytes: &[u8]) -> Result<Rgba, ImageError> {
         }
         png::ColorType::GrayscaleAlpha => {
             let mut out = Vec::with_capacity(n * 4);
-            for px in buf.chunks_exact(2) {
-                out.extend_from_slice(&[px[0], px[0], px[0], px[1]]);
+            for &[g, a] in buf.as_chunks::<2>().0 {
+                out.extend_from_slice(&[g, g, g, a]);
             }
             out
         }
