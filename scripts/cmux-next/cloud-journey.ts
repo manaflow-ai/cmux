@@ -2011,6 +2011,37 @@ export async function runPreclaimBurst(args: {
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** A create the platform refused because the team holds its active-machine cap or its machine count (a refusal makes no machine). */
+export const ROOM_REFUSAL = /cloud\.quota\.(exceeded|vm_limit)\b/;
+/** How long a journey create that hits ROOM_REFUSAL waits for room before it fails: CLOUD_JOURNEY_ROOM_WAIT_MS, default 4 min. */
+export const ROOM_WAIT_MS = 240_000;
+const ROOM_POLL_MS = 15_000;
+
+/**
+ * Runs `create` and, while the platform answers it with ROOM_REFUSAL, asks again every ROOM_POLL_MS until `budgetMs`
+ * has passed, then throws the last refusal with the time it waited. Production's test team holds 5 active machines
+ * (plan max, ledger off), and every journey there shares it: cloud-journey-prod.yml's legs and the deploy gate's
+ * baseline and after runs, each holding its chat machine while it makes the cold one. CI run 45873634668 (cmux-platform,
+ * 2026-11-26 18:18Z): both prod runs' "cold create (asked size)" failed in 230 ms with `cloud.quota.exceeded`, "this
+ * plan allows 5 active machines" (used 6, then 5, busy: other journeys' `cloud journey auto jr-*` machines), and the
+ * deploy gate read the live commit's journey as red. Those machines are deleted within minutes, so the create waits
+ * for one to go. Each attempt gets its own number (`attempt`, from 0) for its idempotency key: a refused create made
+ * nothing, and a key reused after a refusal could answer the refusal again.
+ */
+export async function createWithRoom<T>(create: (attempt: number) => Promise<T>, budgetMs = Number(process.env.CLOUD_JOURNEY_ROOM_WAIT_MS ?? ROOM_WAIT_MS), pause: (ms: number) => Promise<unknown> = sleep, now: () => number = Date.now): Promise<{ value: T; waitedMs: number; refusals: number }> {
+  const t0 = now();
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return { value: await create(attempt), waitedMs: now() - t0, refusals: attempt };
+    } catch (e) {
+      const m = String((e as Error)?.message ?? e);
+      if (!ROOM_REFUSAL.test(m)) throw e;
+      if (now() - t0 >= budgetMs) throw new Error(`${m.slice(0, 600)} (no room after ${Math.round((now() - t0) / 1000)} s, ${attempt + 1} refusals)`);
+      await pause(ROOM_POLL_MS);
+    }
+  }
+}
+
 /**
  * Why a running machine has not paused, from its record: `last_active_at` (Idle.ts idleClockStart: null means no
  * report speaks for its activity, so the idle rule never runs; a recent time means something keeps it in use), the
@@ -2024,6 +2055,9 @@ export async function idleHeldBy(api: Api, machine: string, now = Date.now()): P
   const clock = typeof last === "number" ? `idle clock started ${Math.round((now - last) / 1000)} s ago` : "idle clock not running (last_active_at null: no report speaks for its activity)";
   const activity = m?.activity ?? m?.report?.activity;
   const bits = [clock, `idle policy ${m?.idle_seconds ?? m?.idle_policy?.idle_seconds ?? "?"} s`];
+  // The pause policy (cmux-platform PausePolicy.ts) sets the window a turn's end starts, over the idle policy above:
+  // named apart, so "idle policy 1800 s" is never read as the window an `aggressive` or `turn_end` machine runs.
+  if (typeof m?.pause_policy === "string") bits.push(`pause policy ${m.pause_policy}`);
   if (activity && typeof activity === "object") bits.push(`activity ${short(activity)}`);
   // The platform's reason (cmux-platform#2154 `idle_kept`, the cloud.idle.kept line's): sessions, or the workload's
   // process, port and timer names, so a walk that never paused names what held it.
@@ -5563,15 +5597,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       else {
         await J.step(COLD_CREATE_STEP, async () => {
           const coldName = `${machineName} cold`;
-          const deadline = Date.now() + COLD_CREATE_BOUND_MS;
-          let v: any;
+          // The test team's active-machine cap is shared with every other journey: wait for room (createWithRoom).
+          // Each attempt gets its own COLD_CREATE_BOUND_MS for create and boot; the room wait is outside it.
+          let deadline = Date.now() + COLD_CREATE_BOUND_MS;
+          let room: { value: any; waitedMs: number; refusals: number };
           try {
-            v = await api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE }, `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, deadline);
+            room = await createWithRoom((n) => api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE }, n ? `${tag}-cold-create-${n}` : `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, (deadline = Date.now() + COLD_CREATE_BOUND_MS)));
           } catch (error) {
             // No answer, so no id: cleanup finds the machine by its name and deletes it off the step's clock.
             coldDeletes.push(deleteByName(coldName, `${tag}-cold-delete`));
             throw error;
           }
+          const v = room.value;
+          const roomNote = room.refusals ? `; waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)` : "";
           const id = v.machine.id as string;
           const spare = spareFields(v);
           try {
@@ -5583,7 +5621,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             const asked = `asked ${COLD_CREATE_SIZE.cpu}/${COLD_CREATE_SIZE.memory_mb}/${COLD_CREATE_SIZE.disk_mb}`;
             const why = sizeReadingProblem(r.stdout, COLD_CREATE_SIZE);
             if (why) throw new Error(`${id} ${asked}: ${why}${listed}`);
-            return { value: null, detail: `${id} ${asked}: ${reading}${listed}; spare fallback ${spare.spare_fallback ?? "none"}` };
+            return { value: null, detail: `${id} ${asked}: ${reading}${listed}; spare fallback ${spare.spare_fallback ?? "none"}${roomNote}` };
           } finally {
             // Off the step's clock: a failed machine's delete can retry an indeterminate answer for DELETE_BUDGET_MS
             // (180 s in run 45874526877). Cleanup awaits it.

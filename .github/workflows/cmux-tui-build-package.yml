@@ -1122,6 +1122,13 @@ jobs:
             holder_binary="dist/cmux-tui-holder-${{ matrix.target }}"
             cp "cmux-tui/target/${{ matrix.target }}/release/cmux-holder" "$holder_binary"
           fi
+          # Optional until the prereader crate lands. Never stage a stale cached
+          # binary from a source tree without it; a present crate must build it.
+          rm -f "dist/cmux-tui-launch-preread-${{ matrix.target }}"
+          if [[ "$STAGE_TARGET" == *-apple-darwin && -f cmux-tui/crates/cmux-launch-preread/Cargo.toml ]]; then
+            cp "cmux-tui/target/${{ matrix.target }}/release/cmux-launch-preread" \
+              "dist/cmux-tui-launch-preread-${{ matrix.target }}"
+          fi
           # The bundled agent screen detector rides the same way as
           # cmux-tui-agent-screen-detection-<target> and installs as
           # cmux-agent-screen-detection beside cmux-tui. Required on macOS and
