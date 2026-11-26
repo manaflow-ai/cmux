@@ -273,6 +273,12 @@ public final class CreationInputBuffer {
     /// of #32148). A failed one alone is not enough: until the person acts, their claim keeps the keys.
     public var personLeftEveryCreation: Bool { !movedOnFrom.isEmpty && movedOnFrom.union(failedWorkspaces).count == nextID }
 
+    /// A key typed now makes this hold wait for the focused content still to show, in its own lane (``awaitContent(_:machine:)``):
+    /// the hold waits for no creation (a selection's hold, `holdUntilShown`: at launch it opens before the restored terminal's
+    /// surface, and its keys, with no lane, ran into no view at its bound, hq#22681), it already waits for content (a second
+    /// one gets its own lane), or the person left every creation (``personLeftEveryCreation``).
+    public var mayAwaitFocusedContent: Bool { !holdsCreation || awaitedTab != nil || personLeftEveryCreation }
+
     /// Whether a key typed now with the focus on `focusedTab` goes on to the view at once: the person moved on from every
     /// creation of this hold (new workspaces only), the key is for no creation's or surface's terminal, and no key that
     /// runs as typed waits before it (their order).
