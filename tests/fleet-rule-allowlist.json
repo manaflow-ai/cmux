@@ -126,7 +126,10 @@
     "web/scripts/cmux-vm-image/browser-probe.ts": {"count": 2, "reason": "safe: the pattern is the probe's own mktemp dir inside the VM"},
     "web/services/vms/images/devbox/Dockerfile": {"count": 3, "reason": "safe: inside the image build, stops the work user's own boot processes in the container"},
     "web/services/vms/images/devbox/desktop/start-vnc.sh": {"count": 1, "reason": "safe: -USR1 -U <own uid> -x tint2 inside the devbox VM tells its own panel to reload (not a kill)"},
-    "web/services/vms/images/workUser.ts": {"count": 1, "reason": "safe: inside a devbox VM cmux owns, stops a renamed work user's processes before removing that user"},
+    "cmux-tui/crates/cmux-tailnet-join/src/handoff.rs": {"count": 1, "reason": "safe: stops the VM's one system tailscaled (root, after systemctl stop) on a cmux VM the tailnet handoff owns, so the node state can move; no user run of tailscaled exists there"},
+    "cmux-tui/crates/cmux-tailnet-join/src/handoff_tests.rs": {"count": 2, "reason": "safe: a test asserting the handoff script stops the VM system tailscaled; it runs nothing"},
+    "cmux-tui/crates/cmux-tui/src/cli/vm_tailnet/tests.rs": {"count": 1, "reason": "safe: a test asserting the handoff script stops the VM system tailscaled; it runs nothing"},
+    "web/services/vms/workUser.ts": {"count": 1, "reason": "safe: inside a devbox VM cmux owns, stops a renamed work user's processes before removing that user"},
     "Packages/macOS/CmuxNext/CEFShim/src/helper_main.mm": {"count": 2, "reason": "safe: comments naming pkill and killall as the stray signals the helper ignores; it signals nothing"},
     "Packages/macOS/CmuxNext/CEFShim/src/helper_signal_policy.h": {"count": 2, "reason": "safe: comments naming pkill and killall as the stray signals the policy ignores; it signals nothing"},
     "Packages/macOS/CmuxNext/CEFShim/tests/helper_signal_policy_test.cpp": {"count": 4, "reason": "safe: test comments and case names describing a stranger's pkill or killall; the test signals its own child only"},
@@ -139,7 +142,7 @@
     "scripts/cmux-next/own-machine-parity.test.ts": {"count": 2, "reason": "safe: a test assertion that the cleanup command contains no pkill or killall"},
     "scripts/cmux-next/pkg/postinstall": {"count": 1, "reason": "safe: the sweep kills only processes whose command line is under the copy this postinstall pre-warmed ($1/Contents/); the ps listing filters on that path, never a name"},
     "scripts/cmux-next/side-instance.sh": {"count": 2, "reason": "safe: the pattern carries this copy's own --pid-file $dir/pid argument, unique to the park display this copy started; park_stop re-checks the recorded PID's command line"},
-    "scripts/measure/persona-walk.sh": {"count": 3, "reason": "safe: reap kills only processes whose command line is under this run's own mktemp dir ($work/), never a name or another run's copy; launch finds the pid of its own scratch copy ($work/Applications/...); probe only lists running cmux processes, killing none"},
+    "scripts/measure/persona-walk.sh": {"count": 1, "reason": "safe: reap kills only processes whose command line is under this run's own mktemp dir ($work/), never a name or another run's copy; launch finds the pid of its own scratch copy ($work/Applications/...); probe only lists running cmux processes, killing none"},
     "webviews/src/agent-session/acpmux/permissions/holdToApprove.ts": {"count": 2, "reason": "safe: a regex that recognizes kill/pkill/killall in a command an agent asks to run, to hold it for approval; it signals nothing"}
   },
   "big-red": {
