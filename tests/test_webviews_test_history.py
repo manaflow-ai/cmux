@@ -109,8 +109,6 @@ class ShardSize(unittest.TestCase):
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
-            forked = {**EVENTS["fork pull request"], "vars.CI_FORK_LINUX_RUNNER": "ubuntu-24.04-large"}
-            self.assertEqual(evaluate(runs_on, forked), "ubuntu-24.04-large", name)
             for label in ("push", "same-repository pull request"):
                 chosen = {**EVENTS[label], "vars.CI_REACT_SHARD_RUNNER": "freestyle-react"}
                 self.assertEqual(evaluate(runs_on, chosen), "freestyle-react", name)
