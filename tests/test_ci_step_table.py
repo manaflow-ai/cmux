@@ -1238,6 +1238,41 @@ class PipelineTest(unittest.TestCase):
                 runs = [s["run"] for s in wf["jobs"][job]["steps"] if "run" in s]
                 self.assertEqual(runs, [steps[step].run])
                 self.assertEqual(steps[step].job, "linux")
+        # cmux-next-pr-autofix.yml's generated-drift job keeps its docs-only fallback runs; a pull request into
+        # feat-cmux-next runs the generated-drift step, judged by the base's generated_outputs.py.
+        autofix = yaml.safe_load((ROOT / ".github/workflows/cmux-next-pr-autofix.yml").read_text())["jobs"]
+        self.assertTrue(autofix["generated-drift"]["if"].endswith(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}"))
+        drift = steps["generated-drift"]
+        self.assertEqual((drift.job, drift.inputs), ("linux", ("**",)))
+        self.assertLessEqual(drift.timeout, 360)
+        self.assertIn("git show 'HEAD^1:scripts/cmux-next/generated_outputs.py'", drift.run)
+        self.assertIn("generated-drift-ok", drift.run)
+        self.assertIn('generated_outputs.py" drift --changed', drift.run)
+        # test-ios.yml's package-conventions-lint job keeps its push, dispatch and other-base runs; a pull request
+        # into feat-cmux-next runs its tests and its gate as two steps, routed by detect-ios-changes' should_lint list.
+        ios = yaml.safe_load((ROOT / ".github/workflows/test-ios.yml").read_text())["jobs"]
+        self.assertTrue(ios["package-conventions-lint"]["if"].endswith(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') }}"))
+        lint_run = next(s["run"] for s in ios["package-conventions-lint"]["steps"] if "run" in s)
+        tests_step, gate = steps["package-conventions-tests"], steps["package-conventions-gate"]
+        for line in tests_step.run.strip().splitlines():
+            self.assertIn(line, lint_run)
+        self.assertIn("scripts/ci/package-conventions-gate.sh", gate.run)
+        self.assertIn("python3 scripts/ci/pr_added_namespace_types.py || exit 1", gate.run)
+        self.assertIn("namespace-lint-override", gate.run)
+        # --namespace-fix rewrites files: the gate runs alone, in a worktree of its own.
+        self.assertTrue(gate.alone)
+        self.assertIn('git worktree add --detach "$tree" HEAD', gate.run)
+        self.assertEqual(tests_step.inputs, gate.inputs)
+        for step in (tests_step, gate):
+            self.assertEqual(step.job, "linux")
+            self.assertLessEqual(step.timeout, 360)
+            for path in ("Packages/iOS/CmuxKit/Sources/A.swift", "ios/App.swift", "scripts/lint_swift_namespaces.py",
+                         "scripts/ci/pr_owned_findings.py", "scripts/lint-namespace-types-ratchet.txt"):
+                self.assertTrue(ci_steps.routed(step, [path]), (step.name, path))
+            for path in ("web/app/page.tsx", "cmux-tui/src/main.rs", "scripts/ci/pr_router.py"):
+                self.assertFalse(ci_steps.routed(step, [path]), (step.name, path))
 
     def test_a_step_that_runs_bun_or_node_says_so(self) -> None:
         # The tools come from [tools], only for a routed step that lists them; nothing else puts bun or node
@@ -1760,6 +1795,36 @@ class WebBrowserStepsTest(unittest.TestCase):
         self.assertEqual(has("agent_pane", None), 0)
         self.assertEqual(has("agent_pane", []), 0)
         self.assertNotEqual(has("no_such", ["web/a.ts"]), 0)
+
+    def test_the_real_daemon_lane_routes_on_acpmux_build_inputs_only(self) -> None:
+        """agent-pane-real-acpmux builds acpmux: a crate outside its build skips it, and chat-flow-shift-budget (the
+        stand-in daemon, no Rust build) skips every cmux-tui/ change."""
+        import web_subareas
+
+        built = web_subareas.acpmux_build_crates(str(ROOT))
+        self.assertIsNotNone(built)
+        self.assertLessEqual({"acpmux", "acpmux-core", "cmux-browser-host"}, built)
+        crates = sorted(p.name for p in (ROOT / "cmux-tui" / "crates").iterdir() if (p / "Cargo.toml").is_file())
+        outside = [name for name in crates if name not in built]
+        self.assertTrue(outside, "some workspace crate is outside acpmux's build")
+        for path, pane in [
+            ("cmux-tui/crates/acpmux/src/lib.rs", True),
+            ("cmux-tui/crates/acpmux-core/src/lib.rs", True),
+            ("cmux-tui/crates/cmux-browser-host/js/guide.md", True),
+            ("cmux-tui/Cargo.lock", True),
+            ("cmux-tui/crates/no-such-crate-yet/src/lib.rs", True),
+            (f"cmux-tui/crates/{outside[0]}/src/lib.rs", False),
+        ]:
+            with self.subTest(path=path):
+                areas = web_subareas.classify_paths([path], ROOT)
+                self.assertEqual(areas.agent_pane, pane)
+                self.assertFalse(areas.chat_flow)
+        areas = web_subareas.classify_paths(["webviews/src/a.ts"], ROOT)
+        self.assertTrue(areas.agent_pane and areas.chat_flow)
+        steps = ci_steps.load().steps
+        self.assertTrue(steps["chat-flow-shift-budget"].run.lstrip().startswith(
+            "python3 -I scripts/ci/web_subareas.py has chat_flow || exit 0"))
+        self.assertFalse(ci_steps.routed(steps["chat-flow-shift-budget"], ["cmux-tui/crates/acpmux/src/lib.rs"]))
 
     def test_ci_web_skips_them_only_on_a_feat_cmux_next_pull_request(self) -> None:
         wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
