@@ -234,6 +234,12 @@ pub enum Request {
     HandshakeReceive { state: handshake::Handshake, message: Value },
     #[serde(rename = "handshake.hostEnd")]
     HandshakeHostEnd { reason: String },
+    /// The viewer sent stop: the host's ended then means "stopped by viewer".
+    #[serde(rename = "handshake.viewerStopped")]
+    HandshakeViewerStopped { state: handshake::Handshake },
+    /// The carrier closed or failed.
+    #[serde(rename = "handshake.closed")]
+    HandshakeClosed { state: handshake::Handshake },
     #[serde(rename = "transport.new")]
     TransportNew {
         hello: control::Hello,
@@ -455,6 +461,14 @@ pub fn run(request: Request) -> Value {
             json!({"state": state, "parsed": parsed.is_ok(), "session": state.session_state()})
         }
         R::HandshakeHostEnd { reason } => json!(handshake::host_end(&reason)),
+        R::HandshakeViewerStopped { mut state } => {
+            state.viewer_stopped();
+            json!({"state": state, "session": state.session_state()})
+        }
+        R::HandshakeClosed { mut state } => {
+            state.connection_closed();
+            json!({"state": state, "session": state.session_state()})
+        }
         R::TransportNew { hello, start_key, control, clipboard } => {
             json!(Transport::new(hello, &start_key, control, clipboard))
         }

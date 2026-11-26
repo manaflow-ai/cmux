@@ -314,6 +314,27 @@ fn handshake_receive_op() {
     assert_eq!(out["session"], json!({"kind": "streaming"}));
 }
 
+#[test]
+fn handshake_stop_and_close_ops() {
+    // The carrier closing mid-setup is a lost connection.
+    let state = call(json!({"op": "handshake.new", "service": "desktop"}));
+    let out = call(json!({"op": "handshake.closed", "state": state}));
+    assert_eq!(out["session"], json!({"kind": "ended", "reason": {"kind": "connectionLost"}}));
+    // After the viewer's stop, the host's ended and a close are the viewer's own stop.
+    let out = call(json!({"op": "handshake.viewerStopped", "state": state}));
+    assert_eq!(out["state"]["stopSent"], json!(true));
+    assert_eq!(out["session"], json!({"kind": "connecting"}));
+    let ended = call(
+        json!({"op": "handshake.receive", "state": out["state"], "message": {"t": "ended", "reason": "failed: capture"}}),
+    );
+    assert_eq!(ended["session"], json!({"kind": "ended", "reason": {"kind": "stoppedByViewer"}}));
+    let closed = call(json!({"op": "handshake.closed", "state": out["state"]}));
+    assert_eq!(closed["session"], json!({"kind": "ended", "reason": {"kind": "stoppedByViewer"}}));
+    // A session already ended keeps its first reason.
+    let again = call(json!({"op": "handshake.closed", "state": ended["state"]}));
+    assert_eq!(again["state"], ended["state"]);
+}
+
 // MARK: - RemoteRdSessionEndReasonTests
 
 #[test]
