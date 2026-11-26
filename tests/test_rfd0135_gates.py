@@ -98,6 +98,17 @@ class Rfd0135GatesTest(unittest.TestCase):
         finally:
             os.environ.pop("PHONE_GATE_CMD")
 
+    def test_every_gate_calls_cargo_test_with_its_signature(self) -> None:
+        # A base merge once left gate_phone calling an older cargo_test(binary, name, env); nothing
+        # else runs that branch in unit tests, so call each gate's cargo path through the real signature.
+        def fake(name: str, env: dict[str, str]):
+            return mock.Mock(returncode=1, stdout="", stderr="")
+        os.environ.pop("PHONE_GATE_CMD", None)
+        with mock.patch.object(gates, "cargo_test", side_effect=fake) as run:
+            self.assertFalse(gates.gate_phone(None)["ok"])
+            gates.gate_lid_close(argparse.Namespace(runs=1, secs=1))
+        self.assertEqual(run.call_args_list[0].args[0], "phone_direct_gate::")
+
     def test_summary_adds_parallel_lid_close_jobs(self) -> None:
         one = {"gate": "lid-close", "ran": True, "runs": 1, "passed": 1, "lid_s": 1800, "each": [{"pass": True}]}
         bad = {**one, "passed": 0, "each": [{"pass": False}]}
