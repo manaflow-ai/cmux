@@ -11,6 +11,7 @@
     "RowHeight": "RowHeightValue"
   },
   "families": {
+<<<<<<< HEAD
     "Agents": {
       "requests": {
         "feed-local-handoff-abort": {
@@ -52,6 +53,8 @@
         }
       }
     },
+=======
+>>>>>>> origin/feat-cmux-next
     "Layout": {
       "$comment": "new-row stays hand-written in Layout/NewRowRequest.swift: it carries the shared SpawnOptions and moves with the Creation family.",
       "enums": {
@@ -201,6 +204,7 @@
           ]
         }
       }
+<<<<<<< HEAD
     },
     "Profiles": {
       "requests": {
@@ -618,6 +622,8 @@
           "response": "IconAssetBlob"
         }
       }
+=======
+>>>>>>> origin/feat-cmux-next
     }
   }
 }
