@@ -1,5 +1,9 @@
 //! Both dialers carry the same Link through a local fake signaling server.
 
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -403,6 +407,48 @@ async fn wireguard_falls_back_from_turn_udp_to_turn_tls() {
     assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
     assert_eq!(turn.stream_connections(), 1);
     eprintln!("UDP-blocked fallback run took {:?}", started.elapsed());
+}
+
+/// A service can advertise more than one stream TURN endpoint at the same
+/// rank. If the preferred listener is unreachable, a UDP-blocked phone tries
+/// the next TLS endpoint within the same stream allocation budget.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_falls_back_to_second_turn_stream_when_preferred_relay_is_unreachable() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    let blocked_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let blocked_port = blocked_listener.local_addr().unwrap().port();
+    let blocked_connections = Arc::new(AtomicUsize::new(0));
+    let blocked_connections_task = {
+        let blocked_connections = Arc::clone(&blocked_connections);
+        tokio::spawn(async move {
+            loop {
+                let (socket, _) = blocked_listener.accept().await.unwrap();
+                blocked_connections.fetch_add(1, Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let _socket = socket;
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                });
+            }
+        })
+    };
+    let mut ice = turn.ice.clone();
+    ice.urls.insert(1, format!("turns:127.0.0.1:{blocked_port}?transport=tcp"));
+    let phone = DialOptions {
+        ice_servers: vec![ice],
+        // Drop the phone's direct UDP packets and unsolicited replies at the
+        // test network boundary. The dialer still offers every normal route.
+        drop_outbound_udp: true,
+        restrict_inbound_udp: true,
+        turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+        ..options()
+    };
+    let run = exercise_turn(phone, options()).await;
+    assert_eq!(run.phone, LinkPath::TurnTls, "{run:?}");
+    assert_eq!(run.mac, Some(LinkPath::TurnTls), "{run:?}");
+    assert_eq!(blocked_connections.load(Ordering::SeqCst), 1, "the preferred relay was not attempted");
+    assert_eq!(turn.stream_connections(), 1, "the working TLS endpoint should be the only accepted stream");
+    blocked_connections_task.abort();
 }
 
 /// The Mac's network blocks UDP (STUN never answers, here simulated by

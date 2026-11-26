@@ -303,6 +303,10 @@ select_packages() {
     CmuxIrxTransport
     CmuxUpdater
     CmuxHomeRender
+    CmuxMobileBilling
+    CmuxMobileSupport
+    CmuxMobileTunnel
+    CmuxPushRegistration
     CmuxRemote
     CmuxScreenKit
     CmuxVNCWebRTC
@@ -650,9 +654,10 @@ run_package_tests() {
     package_args "$pkg" || return $? # 1: not found; 75: the resolve failed on the network (no verdict)
     case "$pkg" in
     # These packages have process-tree suites whose child fixtures
-    # share global process resources; run each suite in its own Swift
-    # Testing process.
-    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport)
+    # share global process resources (CmuxPushRegistration: its URLProtocol
+    # stubs, as when it was part of CmuxAuthRuntime); run each suite in its
+    # own Swift Testing process.
+    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport|CmuxPushRegistration)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
     *)
