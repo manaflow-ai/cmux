@@ -35,7 +35,7 @@ class ChatSize(Bench):
             raise BenchError("chat-size: --build SHA must name the pushed PR head")
         out = ctx.workdir / "artifact"
         sizes = ctx.arg("sizes", "1M,100M,1G,4G")
-        command = (f"set -o pipefail; {{ exec 2>&1; bash {shlex.quote(self.harness)} {shlex.quote(sizes)}; }}"
+        command = (f"set -o pipefail; {{ exec 2>&1; FAST_CHECKS_OUT_NO_TEE=1 bash {shlex.quote(self.harness)} {shlex.quote(sizes)}; }}"
                    ' | tee "$FAST_CHECKS_OUT/chat-size-sweep.log"')
         cmd = ["cmux-ci", "test", "--route", "fleet", "--at", sha,
                "--timeout", "7200", "--artifact", str(out), "--", "bash", "-c", command]

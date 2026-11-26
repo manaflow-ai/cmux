@@ -67,7 +67,7 @@ class DaemonLatency(Bench):
             ctx.args["commit"] = ctx.build.get("sha") or commits[-1]
         args = ["runs=0", "latency=1"] + [f"{k}={v}" for k, v in ctx.args.items() if k in PASS_THROUGH] + commits
         out = ctx.workdir / "artifact"
-        command = (f"set -o pipefail; {{ exec 2>&1; {HARNESS} {shlex.join(args)}; }}"
+        command = (f"set -o pipefail; {{ exec 2>&1; FAST_CHECKS_OUT_NO_TEE=1 {HARNESS} {shlex.join(args)}; }}"
                    ' | tee "$FAST_CHECKS_OUT/tui-idle-ram.log"')
         cmd = ["cmux-ci", "test", "--timeout", "9000", "--artifact", str(out), "--", "bash", "-c", command]
         if ctx.dry_run:
