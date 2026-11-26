@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use cmux_auto_session::consts::{LEASE_MS, RENEW_MS};
 
-use super::logs::{DEADLINE, log_of, log_when, prompts, send, through, times, until};
+use super::logs::{DEADLINE, log_of, log_when, prompts, send, times, until};
 use super::native::{CLAUDE, conversation, resume_failed};
 use super::steps::{TAKEOVER, answered, auto_chat, lines};
 use super::world::{World, vm};
@@ -65,6 +65,7 @@ async fn running_replica_restores_a_long_chat_mid_silent_turn() {
 
     // Losing the source's connection expires its lease. The existing fenced importer
     // restores the replica into a fresh daemon and continues the interrupted turn once.
+    let restore_started = Instant::now();
     world.laptop_net.set_offline(true);
     world.pass_while_laptop_sleeps(LEASE_MS + 1_000);
     assert_eq!(world.view(&id).holder, vm());
@@ -73,7 +74,14 @@ async fn running_replica_restores_a_long_chat_mid_silent_turn() {
             && log.iter().filter(|event| event.kind == "turn_result").count() >= 2
     })
     .await;
-    assert_eq!(through(&restored, manifest.last_seq), through(&source, manifest.last_seq));
+    let restore_ms = restore_started.elapsed().as_millis();
+    let prefix = |log: &[acpmux::store::EventRecord]| {
+        log.iter()
+            .filter(|event| event.seq <= manifest.last_seq)
+            .map(|event| (event.seq, event.kind.clone(), event.msg.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(prefix(&restored), prefix(&source), "replicated content survives too");
     assert_eq!(times(&restored, history), 1);
     assert_eq!(times(&restored, &text), 1);
     assert_eq!(prompts(&restored).iter().filter(|text| text.starts_with(TAKEOVER)).count(), 1);
@@ -88,7 +96,6 @@ async fn running_replica_restores_a_long_chat_mid_silent_turn() {
     until("the source is fenced", || laptop.record(&id).is_some_and(|r| !r.here)).await;
     eprintln!(
         "running-replica: chunks=12000 bytes=1536000 replicated_records={} restore_ms={}",
-        manifest.last_seq,
-        started.elapsed().as_millis()
+        manifest.last_seq, restore_ms
     );
 }
