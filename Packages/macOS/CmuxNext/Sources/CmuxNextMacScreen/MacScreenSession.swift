@@ -448,7 +448,7 @@ public final class MacScreenSession {
 
     /// The bridge socket closes a moment before `cmux rd connect` prints why (`ended`, on its stdout), so a
     /// lost stream waits `lostGrace` for that line: `linkEnded` ends the session with its cause and cancels this.
-    private func failLostUnlessLinkExplains(transport: RemoteRdStreamTransport) {
+    func failLostUnlessLinkExplains(transport: RemoteRdStreamTransport?) {
         let grace = lostGrace
         // task-owner: one grace wait; ends at its deadline or when disconnect() cancels `tasks`.
         tasks.append(Task { [weak self] in
