@@ -713,10 +713,13 @@ final class ComposeTextView {
 
     /// The field's frame whose width waits for the end of a live resize (nil: none waits).
     private(set) var widthWaiting: CGRect?
+    /// cmux: whether a live resize resizes the field now. Its host knows the window's and also a divider drag of the
+    /// pane it is in (HostView.isLiveResizing); without a host, the window's.
+    var liveResizing: () -> Bool = { false }
     /// Whether `place(frame)` may keep the field's width now (see `place`): it then moves the clip
     /// to the frame's origin and records the frame.
     private func deferWidth(to frame: CGRect) -> Bool {
-        guard !placingWaitingWidth, clip.window?.inLiveResize == true, clip.frame.height == frame.height, view.string.isEmpty, !view.hasMarkedText(),
+        guard !placingWaitingWidth, clip.window?.inLiveResize == true || liveResizing(), clip.frame.height == frame.height, view.string.isEmpty, !view.hasMarkedText(),
               view.userInterfaceLayoutDirection == .leftToRight else { return false }
         let style = view.typingAttributes[.paragraphStyle] as? NSParagraphStyle ?? view.defaultParagraphStyle
         if let style, style.baseWritingDirection == .rightToLeft || ![.left, .natural, .justified].contains(style.alignment) { return false }
