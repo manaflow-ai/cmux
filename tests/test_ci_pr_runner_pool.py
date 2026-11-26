@@ -660,6 +660,9 @@ class ShardSpread(unittest.TestCase):
 
 # The picker's token: the org-permission mint's, else the repository-only fallback's.
 BOTH_TOKENS = "${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}"
+# ci.yml reads the App on cmux-bot's budget on even run ids, the routing App's on odd ones.
+BOTH_TOKENS_SPLIT = ("${{ (steps.route-token-bot.outputs.token || steps.route-token.outputs.token) || "
+                     "(steps.route-token-repo-bot.outputs.token || steps.route-token-repo.outputs.token) }}")
 
 
 class OwnedPools(unittest.TestCase):
@@ -767,7 +770,7 @@ class OwnedPools(unittest.TestCase):
         # The minis are org runners (glaeda-minis), listed with the org permission.
         self.assertEqual(mint["with"]["permission-organization-self-hosted-runners"], "read")
         self.assertEqual(mint["with"]["private-key"], "${{ secrets.GLAEDA_ROUTE_APP_KEY }}")
-        self.assertEqual(steps[ids.index("macos-pool")]["env"]["ROUTE_TOKEN"], BOTH_TOKENS)
+        self.assertEqual(steps[ids.index("macos-pool")]["env"]["ROUTE_TOKEN"], BOTH_TOKENS_SPLIT)
         self.assert_repo_fallback_mint(steps, "read")
         late = yaml.safe_load((WORKFLOWS / "ci-macos.yml").read_text())
         late_jobs = [job["steps"] for job in late["jobs"].values()
@@ -790,8 +793,10 @@ class OwnedPools(unittest.TestCase):
         """A second mint, only when the first failed, with the repository permission alone."""
         ids = [step.get("id") for step in steps]
         first, fallback = steps[ids.index("route-token")], steps[ids.index("route-token-repo")]
-        self.assertEqual(ids.index("route-token-repo"), ids.index("route-token") + 1)
-        self.assertEqual(fallback["if"], "steps.route-token.outcome == 'failure'")
+        # A read-only split puts a cmux-bot mint (id ...-bot) ahead of each routing mint.
+        gap = 2 if "route-token-repo-bot" in ids else 1
+        self.assertEqual(ids.index("route-token-repo"), ids.index("route-token") + gap)
+        self.assertIn("steps.route-token.outcome == 'failure'", fallback["if"])
         self.assertIs(fallback["continue-on-error"], True)
         self.assertEqual(fallback["uses"], first["uses"])
         self.assertEqual(fallback["with"], {key: value for key, value in first["with"].items()

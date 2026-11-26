@@ -255,6 +255,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: steps.files.outputs.migrations == 'true'
         with:
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.2"
       - name: Lint head SQL with the base's parser rules
         if: steps.files.outputs.migrations == 'true'
@@ -301,6 +302,7 @@ jobs:
           path: head-migrations
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.2"
       - name: Apply to cmux-next/staging
         env:
@@ -329,6 +331,7 @@ jobs:
           path: head-migrations
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.2"
       # Expand migrations are additive (parsed-SQL lint), so the code deployed from main keeps
       # working; contract migrations only come from PRs into main that contain nothing else.
@@ -382,6 +385,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
+          no-cache: ${{ !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.2"
       - name: The tree's migrations are exactly what staging and production have
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'

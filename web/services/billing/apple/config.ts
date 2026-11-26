@@ -4,6 +4,7 @@
 
 // Type-only: pro.ts reads Apple entitlements, so a runtime import would cycle.
 import type { PersonalPlanId } from "../pro";
+import { NEXT_MAX_PLAN_ID, NEXT_PLUS_PLAN_ID, NEXT_PRO_PLAN_ID, type NextPlanId } from "../nextPlans";
 
 type Env = Record<string, string | undefined>;
 
@@ -27,17 +28,58 @@ const DEFAULT_APP_APPLE_ID = 6783338052;
 export const SIGNED_APPLE_ENVIRONMENTS = ["Production", "Sandbox"] as const;
 export type SignedAppleEnvironment = (typeof SIGNED_APPLE_ENVIRONMENTS)[number];
 
-/** Personal plans sold in the iOS app, highest first (one subscription group). */
-export const APPLE_PLAN_IDS: readonly PersonalPlanId[] = ["max", "pro", "go"];
+/**
+ * The classic App Store bundle (cmux CLASSIC TestFlight). It sells the classic
+ * plans only; every other accepted bundle is a cmux-next app and sells the
+ * NEXT plans only.
+ */
+export const CLASSIC_APPLE_BUNDLE_ID = "dev.cmux.app.beta";
+
+/** Classic personal plans sold in the classic app, highest first (one subscription group). */
+export const APPLE_CLASSIC_PLAN_IDS: readonly PersonalPlanId[] = ["max", "pro", "go"];
+
+/**
+ * cmux NEXT plans sold in the cmux-next apps (`com.cmux.app`,
+ * `dev.cmux.app.internal`), highest first: App Store levels Max 1, Pro 2,
+ * Plus 3 in the same "cmux Plans" group. Each product grants exactly its own
+ * NEXT plan (RFD 0037a); `go` never maps to `next_plus`.
+ */
+export const APPLE_NEXT_PLAN_IDS: readonly NextPlanId[] = [NEXT_MAX_PLAN_ID, NEXT_PRO_PLAN_ID, NEXT_PLUS_PLAN_ID];
+
+/** Every plan an App Store product can grant. */
+export type ApplePlanId = PersonalPlanId | NextPlanId;
+
+/** Every plan an App Store product can grant, classic first. */
+export const APPLE_PLAN_IDS: readonly ApplePlanId[] = [...APPLE_CLASSIC_PLAN_IDS, ...APPLE_NEXT_PLAN_IDS];
+
+export function isApplePlanId(value: unknown): value is ApplePlanId {
+  return typeof value === "string" && (APPLE_PLAN_IDS as readonly string[]).includes(value);
+}
+
+/** Whether a bundle is the classic app (classic plans) rather than a cmux-next app (NEXT plans). */
+export function isClassicAppleBundleId(bundleId: string): boolean {
+  return bundleId === CLASSIC_APPLE_BUNDLE_ID;
+}
+
+/** The plans one app sells, highest first: classic in the classic app, NEXT in the cmux-next apps. */
+export function applePlanIdsForBundle(bundleId: string): readonly ApplePlanId[] {
+  return isClassicAppleBundleId(bundleId) ? APPLE_CLASSIC_PLAN_IDS : APPLE_NEXT_PLAN_IDS;
+}
 
 /**
  * App Store list price in USD per plan, used only for analytics estimates
- * when a transaction is in another currency. Keep in sync with the doc table.
+ * when a transaction is in another currency. App Store Connect sets the real
+ * price; keep in sync with the doc table. The rule (RFD 0037a): the web price
+ * / 0.7, rounded up to the next .99 App Store point, so NEXT Plus $20 is
+ * $29.99 and classic Go $15 is $21.99.
  */
-export const APPLE_USD_LIST_PRICE: Readonly<Record<PersonalPlanId, number>> = {
-  go: 14.99,
+export const APPLE_USD_LIST_PRICE: Readonly<Record<ApplePlanId, number>> = {
+  go: 21.99,
   pro: 74.99,
   max: 299.99,
+  next_plus: 29.99,
+  next_pro: 74.99,
+  next_max: 299.99,
 };
 
 /** App Store billing periods, the last segment of a product ID. */
@@ -45,13 +87,17 @@ export const APPLE_BILLING_PERIODS = ["monthly", "yearly"] as const;
 export type AppleBillingPeriod = (typeof APPLE_BILLING_PERIODS)[number];
 
 /**
- * Periods each plan sells, matching the web prices (plans.ts): Pro and Max
- * monthly or yearly, Go monthly only.
+ * Periods each plan sells, matching the web prices (plans.ts, nextPlans.ts):
+ * classic Pro and Max monthly or yearly, Go monthly only, and every NEXT plan
+ * monthly only, as the web sells them.
  */
-export const APPLE_PLAN_BILLING_PERIODS: Readonly<Record<PersonalPlanId, readonly AppleBillingPeriod[]>> = {
+export const APPLE_PLAN_BILLING_PERIODS: Readonly<Record<ApplePlanId, readonly AppleBillingPeriod[]>> = {
   go: ["monthly"],
   pro: ["monthly", "yearly"],
   max: ["monthly", "yearly"],
+  next_plus: ["monthly"],
+  next_pro: ["monthly"],
+  next_max: ["monthly"],
 };
 
 /**
@@ -60,7 +106,7 @@ export const APPLE_PLAN_BILLING_PERIODS: Readonly<Record<PersonalPlanId, readonl
  * (12 months for the price of 9.6). Replace with the App Store yearly prices
  * once they are set.
  */
-export function appleUsdListPrice(planId: PersonalPlanId, period: AppleBillingPeriod): number {
+export function appleUsdListPrice(planId: ApplePlanId, period: AppleBillingPeriod): number {
   const monthly = APPLE_USD_LIST_PRICE[planId];
   return period === "yearly" ? Math.round(monthly * 9.6 * 100) / 100 : monthly;
 }
@@ -255,15 +301,20 @@ export function appleNotificationHistorySources(env: Env = process.env): readonl
 }
 
 /** `<bundleId>.<plan>.<monthly|yearly>`, the product ID for one plan and period in one app. */
-export function appleProductId(bundleId: string, planId: PersonalPlanId, period: AppleBillingPeriod = "monthly"): string {
+export function appleProductId(bundleId: string, planId: ApplePlanId, period: AppleBillingPeriod = "monthly"): string {
   return `${bundleId}.${planId}.${period}`;
 }
 
-/** The plan and period an Apple product sells, or null for a product this server does not know. */
+/**
+ * The plan and period an Apple product sells, or null for a product this
+ * server does not know. Any plan's product ID is recognized in any accepted
+ * bundle, so a product a bundle stopped selling keeps granting its own plan
+ * for the people still renewing it.
+ */
 export function appleProductFor(
   productId: unknown,
   bundleId: unknown,
-): { readonly planId: PersonalPlanId; readonly billingPeriod: AppleBillingPeriod } | null {
+): { readonly planId: ApplePlanId; readonly billingPeriod: AppleBillingPeriod } | null {
   if (typeof productId !== "string" || typeof bundleId !== "string") return null;
   for (const planId of APPLE_PLAN_IDS) {
     for (const billingPeriod of APPLE_PLAN_BILLING_PERIODS[planId]) {
@@ -274,7 +325,7 @@ export function appleProductFor(
 }
 
 /** The plan an Apple product sells, or null for a product this server does not know. */
-export function planIdForAppleProduct(productId: unknown, bundleId: unknown): PersonalPlanId | null {
+export function planIdForAppleProduct(productId: unknown, bundleId: unknown): ApplePlanId | null {
   return appleProductFor(productId, bundleId)?.planId ?? null;
 }
 
