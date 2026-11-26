@@ -153,3 +153,36 @@ test("a retired surface cannot mark a reused panel or steal the jump", () => {
   ui.set("workspaces", [w]);
   assert(!ui.labels().some((text) => text.includes("Waiting")));
 });
+
+test("empty group headers keep their model positions inside the pinned and ordinary tiers", () => {
+  const ui = mount();
+  const groups = [
+    { id: "a", name: "Empty pinned", pinned: true },
+    { id: "b", name: "Live pinned", pinned: true, anchorId: "B" },
+    { id: "c", name: "Trailing pin", pinned: true },
+    { id: "d", name: "Empty project" },
+    { id: "e", name: "Live project", anchorId: "E" },
+  ];
+  ui.set("groups", groups);
+  ui.set("workspaces", [workspace("E", "e"), workspace("Solo", undefined, true), workspace("B", "b")]);
+  assert.deepEqual(ui.labels().filter((t) => t !== "Details"), [
+    "Solo", "Empty pinned", "Live pinned", "B", "Trailing pin", "Empty project", "Live project", "E",
+  ]);
+  ui.click("Empty pinned");
+  assert.deepEqual(ui.commands.pop(), { kind: "cmux", method: "workspace.group.collapse", params: { group_id: "a" } });
+  ui.set("workspaces", []);
+  assert.deepEqual(ui.labels(), groups.map((g) => g.name));
+});
+
+test("a completed or idle session on a shared terminal cannot hide live work", () => {
+  const ui = mount();
+  const w = workspace("Shared");
+  w.tabs = [tab("Sessions")];
+  for (const states of [["ended", "working", "idle"], ["idle", "working", "ended"], ["working", "ended"]]) {
+    w.agents = states.map((status, i) => ({ id: String(i), status, surfaceId: w.tabs[0].surfaceId }));
+    ui.set("workspaces", [w]);
+    assert(ui.labels().includes("Working"));
+    assert(!ui.labels().includes("Ended"));
+    assert(!ui.labels().includes("Idle"));
+  }
+});
