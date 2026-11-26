@@ -208,5 +208,113 @@ class TreelessProbe(unittest.TestCase):
         self.assertIn("exit 1", failed["run"])
 
 
+
+class RunnerMirror(unittest.TestCase):
+    """On the gate JIT VMs every fetch from github.com stalled (run 45767986647: both 60 s base checkout attempts
+    timed out, then "Base checkout did not finish"). The plan reads the base and the head from the VM's git mirror
+    first, with no network; a runner without the mirror, or a commit it lacks, takes the fetch it took before."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        src = self.tmp / "src"
+        src.mkdir()
+        git(src, "init", "-q", "-b", "main")
+        (src / "backend/db/migrations").mkdir(parents=True)
+        (src / "backend/db/migrations/0001_init.sql").write_text("create table t (id int);\n")
+        (src / "backend/package.json").write_text("{}\n")
+        (src / "webviews").mkdir()
+        (src / "webviews/App.tsx").write_text("base\n")
+        git(src, "add", "-A")
+        git(src, "commit", "-qm", "base")
+        self.base = git(src, "rev-parse", "HEAD")
+        (src / "webviews/App.tsx").write_text("ui change\n")
+        git(src, "commit", "-qam", "ui")
+        self.head = git(src, "rev-parse", "HEAD")
+        self.src = src
+        self.mirror = self.tmp / "cmux.git"
+        subprocess.run(["git", "clone", "-q", "--bare", str(src), str(self.mirror)], check=True)
+        (self.mirror / "cmux-ready").write_text("")
+        # github.com is unreachable in these tests: any fetch fails at once instead of hanging.
+        self.offline = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": f"url.file://{self.tmp}/nowhere.insteadOf",
+                        "GIT_CONFIG_VALUE_0": "https://github.com/"}
+
+    def steps(self) -> list[dict]:
+        return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]["steps"]
+
+    def run_step(self, step_id: str, work: Path, mirror: Path | None, **extra: str) -> tuple[int, str, str]:
+        step = next(s for s in self.steps() if s.get("id") == step_id)
+        output = self.tmp / "output"
+        output.write_text("")
+        env = {**os.environ, "BASE_SHA": self.base, "HEAD_SHA": self.head, "REPO": "o/r",
+               "GITHUB_OUTPUT": str(output), **self.offline, **extra}
+        env.pop("CMUX_GIT_MIRROR", None)
+        if mirror is not None:
+            env["CMUX_GIT_MIRROR"] = str(mirror)
+        result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=work, env=env, capture_output=True, text=True)
+        return result.returncode, output.read_text(), result.stdout + result.stderr
+
+    def test_the_job_names_the_fleet_mirror(self):
+        plan = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["plan"]
+        self.assertEqual(plan["env"]["CMUX_GIT_MIRROR"], "/var/lib/cmux-git/cmux.git")
+
+    def test_the_probe_reads_both_commits_from_the_mirror_offline(self):
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        code, output, log = self.run_step("same-tree", work, self.mirror)
+        self.assertEqual(code, 0, log)
+        self.assertIn("read from the runner's mirror", log)
+        self.assertIn("same=true", output, log)
+
+    def test_the_probe_without_a_mirror_still_fetches(self):
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        code, output, log = self.run_step("same-tree", work, None)
+        self.assertEqual(code, 0, log)
+        self.assertIn("treeless fetch failed: full plan", log)
+        self.assertNotIn("same=true", output)
+
+    def test_the_base_is_checked_out_from_the_mirror_offline(self):
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        code, output, log = self.run_step("mirror-base", work, self.mirror)
+        self.assertEqual(code, 0, log)
+        self.assertIn("ok=true", output, log)
+        trusted = work / "trusted"
+        self.assertEqual(git(trusted, "rev-parse", "HEAD"), self.base)
+        self.assertTrue((trusted / "backend/db/migrations/0001_init.sql").is_file())
+        self.assertFalse((trusted / "webviews").exists(), "sparse: only backend/ is checked out")
+        self.assertEqual(git(trusted, "config", "remote.origin.url"), "https://github.com/o/r")
+
+    def test_a_base_the_mirror_lacks_falls_through_to_actions_checkout(self):
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        code, output, log = self.run_step("mirror-base", work, self.mirror, BASE_SHA="1" * 40)
+        self.assertEqual(code, 0, log)
+        self.assertNotIn("ok=true", output)
+        self.assertFalse((work / "trusted").exists(), "the step removes the repository it made")
+
+    def test_no_mirror_falls_through_to_actions_checkout(self):
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        code, output, log = self.run_step("mirror-base", work, self.tmp / "absent.git")
+        self.assertEqual(code, 0, log)
+        self.assertNotIn("ok=true", output)
+        self.assertFalse((work / "trusted").exists())
+
+    def test_the_checkout_steps_run_only_when_the_mirror_did_not(self):
+        by_id = {s.get("id"): s for s in self.steps()}
+        ids = [s.get("id") for s in self.steps()]
+        self.assertLess(ids.index("mirror-base"), ids.index("checkout"))
+        for sid in ("checkout", "checkout-retry"):
+            self.assertIn("steps.mirror-base.outputs.ok != 'true'", by_id[sid]["if"])
+        self.assertEqual(by_id["checkout"]["name"], "Checkout base (trusted tooling)")
+
+    def test_a_head_the_mirror_holds_needs_no_fetch(self):
+        work = Path(tempfile.mkdtemp(dir=self.tmp))
+        code, _, log = self.run_step("mirror-base", work, self.mirror)
+        self.assertEqual(code, 0, log)
+        code, output, log = self.run_step("trees", work, self.mirror)
+        self.assertEqual(code, 0, log)
+        self.assertIn("same=true", output, log)
+        code, output, log = self.run_step("files", work, self.mirror, EVENT="pull_request_target", PR="1",
+                                          BASE_REF="main", GH_TOKEN="t")
+        self.assertEqual(code, 0, log)
+        self.assertIn("migrations=false", output, log)
+
 if __name__ == "__main__":
     unittest.main()
