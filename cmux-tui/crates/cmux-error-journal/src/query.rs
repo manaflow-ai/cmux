@@ -83,10 +83,10 @@ impl Query {
             entries.into_iter().filter(|entry| self.matches(entry)).collect();
         match self.order {
             Order::Recent => {
-                matching.sort_by(|a, b| (b.last_ms, b.count).cmp(&(a.last_ms, a.count)))
+                matching.sort_by_key(|entry| std::cmp::Reverse((entry.last_ms, entry.count)));
             }
             Order::Count => {
-                matching.sort_by(|a, b| (b.count, b.last_ms).cmp(&(a.count, a.last_ms)))
+                matching.sort_by_key(|entry| std::cmp::Reverse((entry.count, entry.last_ms)));
             }
         }
         matching
