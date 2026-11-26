@@ -1,14 +1,14 @@
 {
   "asset": "cmux-remote-browser-host-macos-arm64",
   "arch": "arm64",
-  "sha256": "ea2c9fc16cebe43ee0b23d1c2614f191083ee16f93274519ffdc2ef3d03e993d",
+  "sha256": "0d9fd1852d0622e62a320dc03fc26bda5be99c29658b5f24f3b501ea70ac7bc8",
   "r2_bucket": "cmux-cef",
-  "r2_key": "remote-browser-host/ea2c9fc16cebe43ee0b23d1c2614f191083ee16f93274519ffdc2ef3d03e993d/cmux-remote-browser-host-macos-arm64",
+  "r2_key": "remote-browser-host/0d9fd1852d0622e62a320dc03fc26bda5be99c29658b5f24f3b501ea70ac7bc8/cmux-remote-browser-host-macos-arm64",
   "source_commit": "021efd44b8a9baef697db8e90c593044cb2f7c68",
   "crate_tree": "97fe88b6716fd00a11aa76560f91229bbda0a410",
-  "cef_version": "cef-157-in-tree-pages-36k-macos-arm64",
-  "cef_sha256": "631e08a78a0fc90741dbbfd39627bb8cd720d5b3da6bb56dd75fdbe13a7e0248",
-  "build_step": "cmux-ci step b338c89134b783e1000a3656",
+  "cef_version": "cef-157-remote-cocoa-4-macos-arm64",
+  "cef_sha256": "66f9ab8e24438a4aefdbf51e71aa3d924fc769c0ff75dca1ad9b61d46c722f7f",
+  "build_step": "cmux-ci step 61599de0b35b807f0e842946",
   "github_repo": "manaflow-ai/cef",
-  "github_tag": "cef-157-in-tree-pages-36k-macos-arm64"
+  "github_tag": "cef-157-remote-cocoa-4-macos-arm64"
 }
