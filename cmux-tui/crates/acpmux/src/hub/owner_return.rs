@@ -24,6 +24,15 @@ use cmux_host_budget::owner_return::{
 };
 use std::collections::{HashMap, HashSet};
 
+#[cfg(unix)]
+const STOP: i32 = libc::SIGSTOP;
+#[cfg(unix)]
+const CONTINUE: i32 = libc::SIGCONT;
+#[cfg(not(unix))]
+const STOP: i32 = 0;
+#[cfg(not(unix))]
+const CONTINUE: i32 = 0;
+
 /// How often the timer looks: the owner's return should free the machine within seconds.
 pub(crate) const TICK: std::time::Duration = std::time::Duration::from_secs(2);
 
@@ -80,13 +89,13 @@ impl Returner {
         for action in &plan.actions {
             match action {
                 Action::Pause { id } => {
-                    if hub.signal_placed(id, libc::SIGSTOP).await {
+                    if hub.signal_placed(id, STOP).await {
                         self.paused.insert(id.clone());
                         tracing::info!(session = %id, "autoCloud: paused a placed turn for the owner");
                     }
                 }
                 Action::Resume { id } => {
-                    hub.signal_placed(id, libc::SIGCONT).await;
+                    hub.signal_placed(id, CONTINUE).await;
                     self.paused.remove(id);
                     tracing::info!(session = %id, "autoCloud: resumed a paused placed session");
                 }
@@ -127,7 +136,7 @@ impl Hub {
         // A daemon restart may have left a placed agent stopped: continue each one.
         for s in self.live_session_handles() {
             if s.read_meta(|m| m.placed_by.is_some()) {
-                self.signal_placed(&s.id, libc::SIGCONT).await;
+                self.signal_placed(&s.id, CONTINUE).await;
             }
         }
         let weak = Arc::downgrade(self);
@@ -167,9 +176,18 @@ impl Hub {
     async fn signal_placed(&self, id: &str, signal: i32) -> bool {
         let Some(session) = self.session_get(id) else { return false };
         let child = session.child.lock().await.clone();
-        match child {
-            Some(agent) => agent.signal_harness_group(signal).await,
-            None => false,
+        #[cfg(unix)]
+        {
+            match child {
+                Some(agent) => agent.signal_harness_group(signal).await,
+                None => false,
+            }
+        }
+        // No process-group signals off Unix: nothing pauses there.
+        #[cfg(not(unix))]
+        {
+            let _ = (child, signal);
+            false
         }
     }
 
