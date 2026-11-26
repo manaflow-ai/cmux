@@ -19,6 +19,7 @@ pub mod effective;
 pub mod jsonc;
 pub mod looks;
 pub mod notifications;
+pub mod schema;
 pub mod shortcut;
 pub mod theme;
 
@@ -44,6 +45,7 @@ pub fn call(op: &str, request: &Value) -> Result<Value, OpError> {
             .or_else(|| looks::call(op, request))
             .or_else(|| notifications::call(op, request))
             .or_else(|| shortcut::call(op, request))
+            .or_else(|| schema::call(op, request))
             .unwrap_or(Err(OpError::Unknown)),
     }
 }
