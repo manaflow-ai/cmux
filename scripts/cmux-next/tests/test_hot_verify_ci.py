@@ -792,33 +792,25 @@ class Workflow(unittest.TestCase):
         summary = (scratch / "summary").read_text() if (scratch / "summary").exists() else ""
         return done, calls, summary
 
-    def test_the_web_layer_moves_past_a_rate_limit_and_tries_a_5xx_again(self) -> None:
+    def test_the_web_layer_warns_on_a_spent_hour_and_stays_red_on_a_real_refusal(self) -> None:
         # 2026-11-25: 4 of 5 sampled web layer reds were github.token's spent hour (run 45711732758), one an HTTP 500
-        # (run 45710344100). A rate limit takes the spare; a 5xx is tried again; a real refusal is still red.
-        limit = 'echo "HTTP 403: API rate limit exceeded for installation." >&2; exit 1\n'
+        # (run 45710344100). gh here is gh_budget_wait.sh (spare pools, bounded wait, 5xx dispatch retry); what
+        # still comes back rate-limited is every pool's spent hour: a warning, not red, since nothing waits for
+        # this bundle. A real refusal is still red.
         step = "Start the web layer"
-        done, calls, _ = self.fake_gh_run("web", step, f'[[ $GH_TOKEN == spare ]] && exit 0\n{limit}',
-                                          {"GH_TOKEN": "t0", "GH_TOKEN_SPARE": "spare", "PR": "7"})
+        env = {"GH_TOKEN": "t0", "PR": "7"}
+        done, calls, summary = self.fake_gh_run("web", step, "exit 0\n", env)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual([l.split()[0] for l in calls.splitlines()], ["t0", "spare"])
-        # Every token out of its hour: a warning, no retry loop, not red (nothing waits for this bundle).
-        done, calls, summary = self.fake_gh_run("web", step, limit, {"GH_TOKEN": "t0", "GH_TOKEN_SPARE": "spare", "PR": "7"})
+        self.assertIn("publishing", summary)
+        limit = 'echo "HTTP 403: API rate limit exceeded for installation." >&2; exit 1\n'
+        done, calls, summary = self.fake_gh_run("web", step, limit, env)
         self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(len(calls.splitlines()), 2)
+        self.assertEqual(len(calls.splitlines()), 1)
         self.assertIn("::warning", done.stdout)
         self.assertIn("not published", summary)
-        # A 5xx twice, then the dispatch goes out.
-        flaky = ('n=$(wc -l < "$RUNNER_TEMP/calls"); [[ $n -ge 3 ]] && exit 0\n'
-                 'echo "could not create workflow dispatch event: HTTP 500" >&2; exit 1\n')
-        done, calls, _ = self.fake_gh_run("web", step, flaky, {"GH_TOKEN": "t0", "GH_TOKEN_SPARE": "", "PR": "7"})
-        self.assertEqual(done.returncode, 0, done.stderr)
-        self.assertEqual(len(calls.splitlines()), 3)
-        # A refusal that is neither: red after 3 tries.
-        done, calls, _ = self.fake_gh_run("web", step, 'echo "HTTP 404: Not Found" >&2; exit 1\n',
-                                          {"GH_TOKEN": "t0", "GH_TOKEN_SPARE": "", "PR": "7"})
+        done, calls, _ = self.fake_gh_run("web", step, 'echo "HTTP 404: Not Found" >&2; exit 1\n', env)
         self.assertNotEqual(done.returncode, 0)
         self.assertIn("::error", done.stdout)
-        self.assertEqual(len(calls.splitlines()), 3)
 
     def test_one_more_look_tries_a_5xx_again(self) -> None:
         # Runs 45709542537 and 45710724221: the dispatch API answered HTTP 500 once and the step ended red.
@@ -955,7 +947,8 @@ class PullRequestRead(unittest.TestCase):
         web = WORKFLOW.read_text().split("\n  web:", 1)[1].split("\n  rust:", 1)[0]
         self.assertIn("- name: Mint the dispatch's spare token", web)
         self.assertIn("GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}", web)
-        self.assertIn('tokens+=("$GH_TOKEN_SPARE")', web)
+        # The budget wrapper is gh for the dispatch, so a rate limit moves to the spare and each pool.
+        self.assertLess(web.index("gh_budget_wait.sh --install"), web.index("- name: Start the web layer"))
 
     def test_rust_layer_reads_the_pull_request_only_when_it_will_dispatch(self) -> None:
         rust = WORKFLOW.read_text().split("\n  rust:", 1)[1].split("\n  request:", 1)[0]
