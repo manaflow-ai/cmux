@@ -81,6 +81,7 @@ jobs:
             scripts/ci/nightly-next-guard.py
             scripts/ci/nightly_next_ring.py
             scripts/ci/upload-r2-object.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Check the verdict and write the document
