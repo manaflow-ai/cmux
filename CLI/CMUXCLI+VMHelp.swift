@@ -312,6 +312,48 @@ extension CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
+    /// The machine id for a reference typed after an id-taking `cmux vm` verb.
+    /// `cmux vm ls` prints a display name or slug when a machine has one, and the
+    /// Cloud API looks machines up by provider id only, so a label resolves here.
+    /// A provider-shaped id skips the `vm.list` round trip; an unmatched reference,
+    /// or a list that cannot be read, goes through as typed so the id path reports
+    /// its own not-found error.
+    func resolveVMReference(_ reference: String, client: SocketClient) throws -> String {
+        guard !CloudVMReference.looksLikeMachineID(reference),
+              let response = try? client.sendV2(method: "vm.list", responseTimeout: 60) else {
+            return reference
+        }
+        return try Self.resolveVMReference(reference, listResponse: response)
+    }
+
+    /// `resolveVMReference` against an already fetched `vm.list` response.
+    static func resolveVMReference(_ reference: String, listResponse: [String: Any]) throws -> String {
+        let machines = ((listResponse["vms"] as? [[String: Any]]) ?? (listResponse["machines"] as? [[String: Any]]) ?? [])
+            .compactMap { machine -> CloudVMReference.Candidate? in
+                guard let id = machine["id"] as? String else { return nil }
+                return CloudVMReference.Candidate(
+                    id: id,
+                    displayName: machine["displayName"] as? String,
+                    slug: machine["slug"] as? String
+                )
+            }
+        switch CloudVMReference.resolve(reference, in: machines) {
+        case .id(let id):
+            return id
+        case .unmatched:
+            return reference
+        case .ambiguous(let ids):
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.vm.reference.ambiguous",
+                    defaultValue: "%1$@ matches more than one machine: %2$@. Use the machine id from `cmux vm ls`."
+                ),
+                reference,
+                ids.joined(separator: ", ")
+            ))
+        }
+    }
+
     /// Execute the CLI's one-machine resource resize contract after validating every argument.
     func runVMResizeCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
         if rest.contains("--help") || rest.contains("-h") {
@@ -353,13 +395,10 @@ extension CMUXCLI {
         let machines = (listResponse["vms"] as? [[String: Any]])
             ?? (listResponse["machines"] as? [[String: Any]])
             ?? []
-        // `vm resize` accepts either the provider id or the user-facing slug.
-        // Always forward the canonical id to the mutation when the list found
-        // a slug match; the server's resize endpoint is keyed by id.
-        let machine = machines.first {
-            ($0["id"] as? String) == vmId || ($0["slug"] as? String) == vmId
-        }
-        let machineID = (machine?["id"] as? String) ?? vmId
+        // `vm resize` accepts the provider id or the label `vm ls` prints. Always
+        // forward the canonical id; the server's resize endpoint is keyed by id.
+        let machineID = try Self.resolveVMReference(vmId, listResponse: listResponse)
+        let machine = machines.first { ($0["id"] as? String) == machineID }
         let (resizeLimits, planID) = try Self.cloudVMResizeLimits(from: limits)
         let status = (machine?["status"] as? String)?.lowercased()
         let reservation = machine?["resourceReservation"] as? [String: Any]

@@ -1040,8 +1040,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 30)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        // One request, the link-backed method, the file's exact bytes — and no exec anywhere.
-        XCTAssertEqual(log.methods, ["vm.file_put"], log.methods.description)
+        // The label lookup, then the link-backed method with the file's exact bytes — and no exec anywhere.
+        XCTAssertEqual(log.methods, ["vm.list", "vm.file_put"], log.methods.description)
         let params = log.params(ofFirst: "vm.file_put")
         XCTAssertEqual(params?["id"] as? String, "brave-otter")
         XCTAssertEqual(params?["path"] as? String, ".npmrc")

@@ -7447,9 +7447,10 @@ struct CMUXCLI {
                 // Lifecycle, not sizing: pausing parks the machine (compute stops, the volume
                 // stays); resuming brings the daemon and its terminals back.
                 let lifecycleArgs = rest.filter { $0 != "--json" }
-                guard lifecycleArgs.count == 1, let vmId = lifecycleArgs.first, !vmId.hasPrefix("-") else {
+                guard lifecycleArgs.count == 1, let vmRef = lifecycleArgs.first, !vmRef.hasPrefix("-") else {
                     throw CLIError(message: Self.vmLifecycleUsage)
                 }
+                let vmId = try resolveVMReference(vmRef, client: client)
                 let response = try client.sendV2(method: "vm.\(sub)", params: ["id": vmId], responseTimeout: sub == "restart" ? 60 : 180)
                 if jsonOutput {
                     print(jsonString(response))
@@ -7732,7 +7733,7 @@ struct CMUXCLI {
                     break
                 }
                 let (nameOpt, snapshotArgs) = parseOption(rest, name: "--name")
-                guard snapshotArgs.count == 1, let vmId = snapshotArgs.first, !vmId.hasPrefix("-") else {
+                guard snapshotArgs.count == 1, let vmRef = snapshotArgs.first, !vmRef.hasPrefix("-") else {
                     throw CLIError(message: """
                         Usage: cmux vm snapshot <id> [--name <name>]
                                cmux vm snapshot ls <id>
@@ -7742,6 +7743,7 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
+                let vmId = try resolveVMReference(vmRef, client: client)
                 var params: [String: Any] = ["id": vmId]
                 if let nameOpt { params["name"] = nameOpt }
                 let response = try client.sendV2(method: "vm.snapshot", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds)
@@ -7935,7 +7937,7 @@ struct CMUXCLI {
                 }
 
             case "rm", "destroy", "delete":
-                guard rest.count == 1, let vmId = rest.first, !Self.isFlagToken(vmId) else {
+                guard rest.count == 1, let vmRef = rest.first, !Self.isFlagToken(vmRef) else {
                     throw CLIError(message: """
                         Usage: cmux vm rm <id>
 
@@ -7943,6 +7945,7 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
+                let vmId = try resolveVMReference(vmRef, client: client)
                 _ = try client.sendV2(method: "vm.destroy", params: ["id": vmId], responseTimeout: 120)
                 if jsonOutput {
                     print("{\"ok\":true,\"id\":\"\(vmId)\"}")
@@ -7953,7 +7956,7 @@ struct CMUXCLI {
             case "ssh":
                 let (explicitFocus, focusRest) = try parseOpenFocusFlags(rest, command: "vm ssh")
                 let (windowOpt, vmArgs) = parseOption(focusRest, name: "--window")
-                guard let vmId = vmArgs.first else {
+                guard let vmRef = vmArgs.first else {
                     throw CLIError(message: """
                         Usage: cmux \(command) ssh <id> [--window <id|ref|index>] [--focus|--no-focus]
 
@@ -7963,6 +7966,7 @@ struct CMUXCLI {
                           cmux vm ls
                         """)
                 }
+                let vmId = try resolveVMReference(vmRef, client: client)
                 try vmOpenShell(
                     id: vmId,
                     workspaceName: nil,
@@ -7994,7 +7998,7 @@ struct CMUXCLI {
                 // is the command, verbatim (parseOption stops at the separator).
                 let (execTimeoutOpt, execRest) = parseOption(rest, name: "--timeout")
                 let execSeconds = try Self.vmExecTimeoutSeconds(execTimeoutOpt)
-                guard let vmId = execRest.first, !vmId.hasPrefix("-") else {
+                guard let vmRef = execRest.first, !vmRef.hasPrefix("-") else {
                     throw CLIError(message: Self.vmExecUsage)
                 }
                 var commandArgsForVM: [String] = Array(execRest.dropFirst())
@@ -8007,7 +8011,7 @@ struct CMUXCLI {
                         Usage: cmux vm exec [--timeout <seconds>] <id> -- <command...>
 
                         Example:
-                          cmux vm exec \(vmId) -- uname -a
+                          cmux vm exec \(vmRef) -- uname -a
                         """)
                 }
                 // Shell-quote each argv element before joining. Plain-space join previously
@@ -8015,6 +8019,7 @@ struct CMUXCLI {
                 // VM as `printf %s\n a b`, changing semantics for any non-trivial command
                 // (Codex P2).
                 let command = commandArgsForVM.map(shellQuote).joined(separator: " ")
+                let vmId = try resolveVMReference(vmRef, client: client)
                 let response = try client.sendV2(
                     method: "vm.exec",
                     params: ["id": vmId, "command": command, "timeout_ms": execSeconds * 1000],
@@ -8075,10 +8080,10 @@ struct CMUXCLI {
                 try runVMRunCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
             case "push", "upload":
-                try runVMPushCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+                try runVMPushCommand(rest: rest, client: client, jsonOutput: jsonOutput, resolvesMachineReference: true)
 
             case "pull", "download":
-                try runVMPullCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+                try runVMPullCommand(rest: rest, client: client, jsonOutput: jsonOutput, resolvesMachineReference: true)
 
             case "wait":
                 try runVMWaitCommand(rest: rest, client: client, jsonOutput: jsonOutput)

@@ -242,8 +242,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 30)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        // One request, the link-backed method, typed entries — and no exec anywhere.
-        XCTAssertEqual(log.methods, ["vm.env_set"], log.methods.description)
+        // The label lookup, then the link-backed method with typed entries — and no exec anywhere.
+        XCTAssertEqual(log.methods, ["vm.list", "vm.env_set"], log.methods.description)
         XCTAssertEqual(log.params(ofFirst: "vm.env_set")?["id"] as? String, "brave-otter")
         XCTAssertEqual(vmEnvSetEntryLines(log), ["A=1", "B=x y"])
         XCTAssertTrue(log.commands().isEmpty, "values must never ride vm.exec: \(log.commands())")
@@ -289,7 +289,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 30)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        XCTAssertEqual(log.methods, ["vm.env_set"], log.methods.description)
+        XCTAssertEqual(log.methods, ["vm.list", "vm.env_set"], log.methods.description)
         // dotenv rules applied on the Mac (comments, `export`, matching quotes, inline
         // comment); every value reaches the app byte for byte, quotes and padding included.
         XCTAssertEqual(vmEnvSetEntryLines(log), [
@@ -889,7 +889,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
 
         XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
-        XCTAssertEqual(log.methods, ["vm.exec"], log.methods.description)
+        XCTAssertEqual(log.methods, ["vm.list", "vm.exec"], log.methods.description)
         let params = log.params(ofFirst: "vm.exec")
         XCTAssertEqual(params?["id"] as? String, "brave-otter")
         XCTAssertEqual(params?["timeout_ms"] as? Int, 120_000)
@@ -926,7 +926,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             method == "vm.pause" ? ["id": params["id"] ?? "?", "status": "paused"] : nil
         }
         XCTAssertEqual(paused.status, 0, "stdout=\(paused.stdout) stderr=\(paused.stderr)")
-        XCTAssertEqual(pauseLog.methods, ["vm.pause"], pauseLog.methods.description)
+        XCTAssertEqual(pauseLog.methods, ["vm.list", "vm.pause"], pauseLog.methods.description)
         XCTAssertEqual(pauseLog.params(ofFirst: "vm.pause")?["id"] as? String, "brave-otter")
         XCTAssertTrue(paused.stdout.contains("OK brave-otter paused (status=paused)"), paused.stdout)
         XCTAssertTrue(paused.stdout.contains("cmux vm resume brave-otter"), paused.stdout)
@@ -938,7 +938,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             method == "vm.resume" ? ["id": params["id"] ?? "?", "status": "running"] : nil
         }
         XCTAssertEqual(resumed.status, 0, "stdout=\(resumed.stdout) stderr=\(resumed.stderr)")
-        XCTAssertEqual(resumeLog.methods, ["vm.resume"], resumeLog.methods.description)
+        XCTAssertEqual(resumeLog.methods, ["vm.list", "vm.resume"], resumeLog.methods.description)
         let payload = jsonObject(resumed.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
         XCTAssertEqual(payload?["status"] as? String, "running", resumed.stdout)
         XCTAssertEqual(payload?["id"] as? String, "brave-otter", resumed.stdout)
@@ -1019,7 +1019,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             method == "vm.restart" ? ["id": params["id"] ?? "?", "status": "running"] : nil
         }
         XCTAssertEqual(restarted.status, 0, "stdout=\(restarted.stdout) stderr=\(restarted.stderr)")
-        XCTAssertEqual(log.methods, ["vm.restart"], log.methods.description)
+        XCTAssertEqual(log.methods, ["vm.list", "vm.restart"], log.methods.description)
         XCTAssertEqual(log.params(ofFirst: "vm.restart")?["id"] as? String, "frozen-vm")
         XCTAssertTrue(restarted.stdout.contains("OK frozen-vm restarted (status=running)"), restarted.stdout)
     }

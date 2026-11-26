@@ -29,9 +29,10 @@ extension CMUXCLI {
         if let unknown = args.first(where: { $0.hasPrefix("-") }) {
             throw CLIError(message: "Unknown option \(unknown)\n\n\(Self.vmSnapshotUsage)")
         }
-        guard args.count == 1, let machine = args.first else {
+        guard args.count == 1, let reference = args.first else {
             throw CLIError(message: Self.vmSnapshotUsage)
         }
+        let machine = try resolveVMReference(reference, client: client)
         let response: [String: Any]
         do {
             response = try client.sendV2(method: "vm.snapshot_list", params: ["id": machine], responseTimeout: 70)
@@ -67,7 +68,7 @@ extension CMUXCLI {
         guard args.count == 2 else {
             throw CLIError(message: Self.vmSnapshotUsage)
         }
-        let machine = args[0]
+        let machine = try resolveVMReference(args[0], client: client)
         let snapshotID = args[1]
         let response: [String: Any]
         do {
