@@ -44,7 +44,12 @@ async function connect(hold = false, refuse = false, unreadable = false) {
           if (refuse) throw new Error("attachment test refused");
           return hold ? new Promise(() => undefined) : { stopReason: "end_turn" };
         }
-        if (method === "_acpmux/attachment") return unreadable ? {} : { mimeType: "image/png", data: "AQID" };
+        // An image acpmux has no bytes for answers not found (-32002), as the hub does; a reply
+        // without data is a failure Retry tries again (#39686), so it would wait out the retries.
+        if (method === "_acpmux/attachment") {
+          if (unreadable) throw Object.assign(new Error("attachment not found"), { rpcCode: -32002 });
+          return { mimeType: "image/png", data: "AQID" };
+        }
         return answer(method, params);
       };
     }

@@ -29,6 +29,11 @@ pub const SETTLED_ATTACH: &str = "settled-attach-v1";
 /// `_acpmux/attach {hold:true}` keeps a chat attached while reading no log records.
 pub const HOLD_ATTACH: &str = "attach-hold-v1";
 
+/// `_acpmux/paused_files`: a paused machine's file tree and search answered from its replica and
+/// write journal with no wake (`server/paused_files.rs`, RFD 0144). The same id as the cmux
+/// protocol's `RemoteCapability::PausedReadsV1`.
+pub const PAUSED_READS: &str = "paused-reads-v1";
+
 /// `_acpmux/presence` and `_acpmux/typing` (`hub/presence.rs`).
 pub const CHAT_PRESENCE: &str = "chat-presence-v1";
 
@@ -351,6 +356,9 @@ pub const CAPABILITIES: &[Capability] = &[
     // Metadata-only paths for a focused chat's config and state files. The
     // daemon serves this surface on its local Unix socket only.
     Capability { id: "session-files-v1", wire: &[method::MUX_SESSION_FILES] },
+    // A paused machine's file tree and search with no wake; the reply says when it did not
+    // answer (setting off, machine running, replica stale), and the client asks the machine.
+    Capability { id: PAUSED_READS, wire: &[method::MUX_PAUSED_FILES] },
     // Who else works on these files, topic, branch or folder, here and on peers
     // (`hub/touched.rs`).
     Capability { id: "who-else-v1", wire: &[method::MUX_WHO_ELSE] },
@@ -369,6 +377,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // Chat titles and read marks through the sync engine, pulled and pushed by version vector
     // (`hub/synced.rs`).
     Capability { id: "state-sync-v1", wire: &[method::MUX_SYNC_PULL, method::MUX_SYNC_PUSH] },
+    // A chat pinned or unpinned, kept in its record and synced as `pin/<id>` (`hub/synced.rs`).
+    Capability { id: "chat-pin-v1", wire: &[method::MUX_PIN] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).

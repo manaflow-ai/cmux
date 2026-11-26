@@ -48,6 +48,9 @@ struct TerminalComposer: View {
             card
         }
         .overlay(alignment: .topLeading) { floatingNotes }
+        #if DEBUG
+        .background(alignment: .bottomLeading) { KeyBarFiredProbe(model: model) }
+        #endif
         .padding(.horizontal, ComposerCardMetrics.horizontalInset)
         // Always its own height, never the hosting view's current one (kept
         // from #41900): the hosting view takes a taller row's height a pass
@@ -182,8 +185,14 @@ struct TerminalComposer: View {
     /// terminal theme's colors over the same Liquid Glass, so it reads as part of the pane.
     private var card: some View {
         ComposerCard(look: look.card, lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
+            // Strip and text share the cap: the field gives the strip its
+            // height, and the page's inset leaves out what reaches above the
+            // field's own height, so no row moves (Leo, 2026-11-23: "simply
+            // have it within the top part of the composer. the inner area grows
+            // at the top. no shift, nothing.").
             if !model.attachments.isEmpty {
                 AttachmentStrip(model: model)
+                    .frame(height: ComposerHeightCap.stripHeight, alignment: .top)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         } leading: {
@@ -207,23 +216,54 @@ struct TerminalComposer: View {
                 onReturn: { send() },
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
-                autocorrect: autocorrect
+                autocorrect: autocorrect,
+                stripReserve: ComposerHeightCap.stripReserve(hasAttachments: !model.attachments.isEmpty),
+                fieldRef: model.composerField
             )
         } trailing: {
-            primaryButton
+            HStack(spacing: 0) {
+                // "Beside Send": a waveform just left of send, which stays send
+                // (Claude's and ChatGPT's composers keep voice next to send).
+                if voice.placement.voiceBesideSend, let source = voiceSource {
+                    besideSendVoiceButton(source)
+                }
+                primaryButton
+            }
         }
         .foregroundStyle(look.ink)
+        // The card's own id (ComposerCard is one container element, #55113), so a test
+        // can find the card: ComposerGlassColorUITests samples its glass as the draft grows.
+        .accessibilityIdentifier("terminal.composer.card")
     }
 
     /// The pane's colors: the Mac's terminal theme, else the app default.
     private var look: TerminalPillLook { TerminalPillLook(theme: model.hostTheme) }
 
+    /// "Beside Send": a plain waveform the size of the send circle, so the
+    /// field keeps one filled circle (send); voice mode on fills it.
+    private func besideSendVoiceButton(_ source: any AgentVoiceSource) -> some View {
+        let active = voice.isActive(source.voiceSourceID)
+        return Button {
+            voice.toggle(source)
+        } label: {
+            Image(systemName: "waveform")
+                .font(.system(size: 15, weight: active ? .bold : .regular))
+                .foregroundStyle(active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(look.ink))
+                .symbolEffect(.variableColor.iterative, isActive: active)
+                .composerControlCircle(active ? AnyShapeStyle(Color.cmuxMobileAccent) : AnyShapeStyle(Color.clear))
+        }
+        .buttonStyle(.cmuxPressFillInLabel)
+        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+        .accessibilityIdentifier("terminal.composer.voice")
+    }
+
     /// Send, or with "In Send Button" and nothing to send, voice mode (the
     /// ChatGPT composer): one circle, never a disabled send beside a mic.
     @ViewBuilder private var primaryButton: some View {
         let empty = !model.composerHasText && model.attachments.isEmpty
-        if voice.placement == .sendButton, let source = voiceSource,
-           (empty && !model.isUploading) || voice.isActive(source.voiceSourceID) {
+        if let source = voiceSource,
+           voice.placement.sendCircleIsVoice(nothingToSend: empty && !model.isUploading,
+                                             voiceActive: voice.isActive(source.voiceSourceID)) {
             sendCircleVoiceButton(source)
         } else {
             sendButton
@@ -385,6 +425,34 @@ struct TerminalComposer: View {
         return UIImage(cgImage: image)
     }
 }
+
+#if DEBUG
+/// DEBUG, for TerminalComposerTapBleedUITests: which key-row keys fired ("count:id") and how
+/// many touches reached the joystick, so a test can tell that a tap on the composer reached no
+/// key. Its own view: only it reads the counters, never the composer's body.
+private struct KeyBarFiredProbe: View {
+    let model: TerminalModel
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityLabel("Key row probe")
+                .accessibilityValue("\(model.keyBarFired)|joystick:\(model.joystickEngine.touches)")
+                .accessibilityIdentifier("terminal.keyBar.fired")
+            // Where typed keys go: "terminal" while the surface has them, else "composer".
+            Color.clear
+                .frame(width: 1, height: 1)
+                .accessibilityElement()
+                .accessibilityLabel("Typing target probe")
+                .accessibilityValue(model.directTyping ? "terminal" : "composer")
+                .accessibilityIdentifier("terminal.typingTarget")
+        }
+        .allowsHitTesting(false)
+    }
+}
+#endif
 
 /// The composer's quiet chrome on the terminal theme's background.
 enum ComposerChrome {

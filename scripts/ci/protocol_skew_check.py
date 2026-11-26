@@ -95,7 +95,8 @@ def nightly_commit(feed_url: str) -> str | None:
 def reachable(ref: str) -> bool:
     if git("cat-file", "-e", f"{ref}^{{commit}}", check=False).returncode == 0:
         return True
-    git("fetch", "-q", "--depth=1", "origin", ref, check=False)
+    shallow = git("rev-parse", "--is-shallow-repository", check=False).stdout.strip() == "true"
+    git("fetch", "-q", *(["--depth=1"] if shallow else []), "origin", ref, check=False)
     return git("cat-file", "-e", f"{ref}^{{commit}}", check=False).returncode == 0
 
 

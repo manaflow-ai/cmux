@@ -284,7 +284,8 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # With the Nightly's flags (-DCMUX_BLOCKING_CHECKS, -Osize), so a change only they reject stops here.
       - name: Release compile
         run: |
           derived_data="$(scripts/cmux-next/release-derived-data-path.sh release-compile Release)"
-          scripts/cmux-next/check-release-compile.sh "$derived_data"
+          scripts/cmux-next/check-release-compile.sh --nightly "$derived_data"

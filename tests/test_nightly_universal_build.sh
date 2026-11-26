@@ -806,6 +806,21 @@ if ! awk '
 fi
 
 if ! awk '
+  /^      - name: Move channel release tag to built commit/ || /^      - name: Move the nightly-next tag to the published build/ {
+    in_move=1
+    moves++
+    next
+  }
+  in_move && /^      - name:/ { in_move=0 }
+  in_move && /GH_TOKEN: \$\{\{ steps\.release-tag-token\.outputs\.token \}\}/ { saw_app_token++ }
+  in_move && index($0, "GITHUB_TOKEN: ''") { saw_github_token_cleared++ }
+  END { exit !(moves == 2 && saw_app_token == 2 && saw_github_token_cleared == 2) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: both nightly tag moves must keep the scoped app token and intentionally clear GITHUB_TOKEN"
+  exit 1
+fi
+
+if ! awk '
   /^      - name: Mint release tag app token/ { in_token=1; next }
   in_token && /^      - name:/ { in_token=0 }
   in_token && /actions\/create-github-app-token@/ { saw_action=1 }
