@@ -37,9 +37,9 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
         }
     }
 
-    /// The media hub: observer (media world), page actions recorder, hidden sound recorder, page busy recorder, the
-    /// frozen media resume (`frozenMediaResume`) and the protected media probe (page world), protected media relay
-    /// (media world); the web notification wrapper (page world) and its relay (media world), main frame only.
+    /// The media hub: observer (media world), page actions recorder, hidden sound recorder, page busy recorder and the
+    /// protected media probe (page world), protected media relay (media world); the web notification wrapper (page
+    /// world) and its relay (media world), main frame only.
     var media: [Script]
     /// The email verification detector (its own world, main frame).
     var verification: [Script]
@@ -64,8 +64,6 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
             Script(world: "", source: BrowserMediaState.actionsScript, allFrames: true),
             Script(world: "", source: BrowserMediaState.hiddenSoundScript, allFrames: true),
             Script(world: "", source: BrowserPageBusy.recorderScript, allFrames: true),
-            // What the hidden-tab freeze paused plays again when the frame resumes (Blink stopped doing it in M140).
-            Script(world: "", source: Self.frozenMediaResume, allFrames: true),
             // A refused Widevine request reopens the tab in WebKit (BrowserProtectedMedia).
             Script(world: "", source: BrowserProtectedMedia.probeScript, allFrames: true),
             Script(world: BrowserMediaState.world,
