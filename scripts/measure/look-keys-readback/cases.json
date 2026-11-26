@@ -88,6 +88,30 @@
         "appearance.popover.progressHeight": 10,
         "appearance.popover.progressFill": "strong"
       }
+    },
+    {
+      "name": "look-proportions",
+      "pr": 46861,
+      "setup": [
+        {
+          "action": "newTab",
+          "wait": 2
+        }
+      ],
+      "theme": {
+        "appearance.metrics.sidebarRowInset": 8,
+        "appearance.metrics.sidebarRowPadding": 8,
+        "appearance.metrics.sidebarRowGap": 2,
+        "appearance.metrics.sidebarRowHeightWithSubtitle": 45,
+        "appearance.metrics.toolbarButtonActiveFill": 0.14,
+        "appearance.metrics.headerDivider": 0,
+        "appearance.metrics.toolbarButtonSize": 26,
+        "appearance.metrics.toolbarButtonGap": 8,
+        "appearance.metrics.toolbarButtonCornerRadius": 8,
+        "appearance.metrics.spacingScale": 1,
+        "appearance.metrics.composerPadding": 10,
+        "appearance.metrics.composerMinHeight": 52
+      }
     }
   ]
 }
