@@ -216,8 +216,18 @@ export function mcpNames(items: readonly AcpmuxActivity[] | undefined): McpNames
     }
     for (const [id, title] of found) if (!names.has(id)) names.set(id, title);
   }
+  // A run whose names did not change gets the same map back: a chunk streamed to one call leaves
+  // the context every MCP row reads (McpNamesContext) as it was, so no other row draws again.
+  for (const prior of recentNames) if (sameNames(prior, names)) return prior;
+  recentNames.unshift(names);
+  if (recentNames.length > RECENT_NAMES) recentNames.pop();
   return names;
 }
+
+/// The last maps `mcpNames` handed out, newest first: one per row whose calls change at a time.
+const RECENT_NAMES = 8;
+const recentNames: McpNames[] = [];
+const sameNames = (a: McpNames, b: McpNames) => a.size === b.size && [...a].every(([id, title]) => b.get(id) === title);
 
 /// What a call acts on: a name among its arguments, or an id the run's names resolve.
 export function mcpTarget(call: McpCall, names: McpNames): string | undefined {
