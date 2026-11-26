@@ -132,7 +132,7 @@ mod git_watch;
 mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
 mod cpu_pressure;
-mod github_owner;
+pub(crate) mod github_owner;
 mod goal_tools;
 mod handoff;
 mod harness_key;
