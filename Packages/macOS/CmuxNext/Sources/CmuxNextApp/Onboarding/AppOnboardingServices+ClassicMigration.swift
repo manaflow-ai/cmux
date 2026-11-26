@@ -42,15 +42,10 @@ extension AppOnboardingServices {
     /// dev builds and test hosts only with `CMUX_NEXT_CLASSIC_MIGRATION=1`;
     /// `CMUX_NEXT_CLASSIC_MIGRATION=0` turns it off anywhere.
     var classicMigrationRunsAtLaunch: Bool {
-        if let seam = owner.classicMigrationAtLaunch { return seam }
-        switch ProcessInfo.processInfo.environment["CMUX_NEXT_CLASSIC_MIGRATION"] {
-        case "0": return false
-        case "1": return true
-        default:
-            let shipping = ["com.cmuxterm.app", "com.cmuxterm.app.nightly", "com.cmuxterm.app.rc", "com.cmuxterm.app.staging",
-                            "com.cmuxterm.app.nightly.cmux-next"]
-            return services.environment.launch.bundleID.map(shipping.contains) ?? false
-        }
+        // Asked once per launch (Rust's rule and its list of shipping builds).
+        ClassicMigrationRules.runsAtLaunch(seam: owner.classicMigrationAtLaunch,
+                                           environment: ProcessInfo.processInfo.environment["CMUX_NEXT_CLASSIC_MIGRATION"],
+                                           bundleID: services.environment.launch.bundleID)
     }
 
     /// The launch's run: after restore, once per classic save. Never throws;

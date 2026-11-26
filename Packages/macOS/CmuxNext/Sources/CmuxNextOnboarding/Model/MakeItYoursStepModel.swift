@@ -230,9 +230,8 @@ public final class MakeItYoursStepModel {
     /// The window's Opacity, 0...1 (a slider step); outside it is refused.
     @discardableResult
     public func setOpacity(_ value: Double) -> Bool {
-        guard value.isFinite, (0...1).contains(value) else { return false }
-        // The slider steps by 5%: a value the page rounded differently is still the same step.
-        let stepped = (value * 100).rounded() / 100
+        // The slider steps by 5%: a value the page rounded differently is still the same step (Rust's rule).
+        guard let stepped = FirstRunRules.steppedOpacity(value) else { return false }
         update { $0.opacity = stepped }
         return true
     }

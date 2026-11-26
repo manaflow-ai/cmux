@@ -53,37 +53,25 @@ public nonisolated struct AgentProjectScan: Sendable {
         return scan
     }
 
-    /// The projects, best first.
+    /// The projects, best first. Rust groups, keeps by spelling and ranks
+    /// them (`ProjectRules`); the reads and probes are here.
     public func run(now: Date = Date()) -> [AgentProject] {
-        var byFolder: [String: AgentProject] = [:]
+        var sessions: [ProjectRules.Session] = []
         for app in AgentApp.allCases {
-            for (cwd, modified) in sessions(of: app) {
+            for (cwd, modified) in self.sessions(of: app) {
                 let path = URL(fileURLWithPath: cwd, isDirectory: true).standardizedFileURL.path
-                var project = byFolder[path] ?? AgentProject(folder: URL(fileURLWithPath: path, isDirectory: true),
-                                                             sessions: 0, lastActive: .distantPast, apps: [])
-                project.sessions += 1
-                project.lastActive = max(project.lastActive, modified)
-                if !project.apps.contains(app) { project.apps.append(app) }
-                byFolder[path] = project
+                sessions.append(.init(path: path, modified: modified.timeIntervalSinceReferenceDate, app: app.rawValue))
             }
         }
         // A project may have no surviving agent transcript yet. Repositories
         // under the conventional Projects roots are safe, useful fallbacks
         // for the first chat and keep project picking from opening a panel.
-        for folder in gitRepositories() {
-            let path = folder.standardizedFileURL.path
-            if byFolder[path] == nil {
-                byFolder[path] = AgentProject(folder: folder, sessions: 0, lastActive: fileSystem.modified(path), apps: [])
-            }
-        }
-        return byFolder.values
-            .filter(keeps)
-            .map { var p = $0; p.apps.sort(); return p }
-            .sorted {
-                if ($0.sessions > 0) != ($1.sessions > 0) { return $0.sessions > 0 }
-                return Self.score($0, now: now) == Self.score($1, now: now) ? $0.folder.path < $1.folder.path
-                    : Self.score($0, now: now) > Self.score($1, now: now)
-            }
+        let repositories = gitRepositories().map(\.standardizedFileURL.path)
+        let grouped = ProjectRules.group(sessions, repositories: repositories)
+        let kept = zip(grouped, keeps(grouped.map { URL(fileURLWithPath: $0.path, isDirectory: true) }))
+            .compactMap { project, kept in kept ? project : nil }
+            .map { ProjectRules.Project($0.agentProject(modified: fileSystem.modified)) }
+        return ProjectRules.rank(kept, now: now).map { $0.agentProject(modified: fileSystem.modified) }
     }
 
     /// Finds git repositories below the user's Projects-style roots, at
@@ -114,13 +102,6 @@ public nonisolated struct AgentProjectScan: Sendable {
     /// How deep below a Projects root a repository is looked for.
     static let maxRepositoryDepth = 3
 
-    /// Recency first, with session count as weight: a project used daily
-    /// outranks one used heavily months ago.
-    static func score(_ project: AgentProject, now: Date) -> Double {
-        let days = max(0, now.timeIntervalSince(project.lastActive) / 86_400)
-        return log2(1 + Double(project.sessions)) - days / 14
-    }
-
     /// The privacy-protected folder `folder` sits in by its spelling, if any.
     public func privacyFolder(of folder: URL) -> PrivacyFolder? {
         PrivacyFolder.of(path: folder.standardizedFileURL.path, home: home)
@@ -139,24 +120,20 @@ public nonisolated struct AgentProjectScan: Sendable {
     /// into, a privacy-protected location.
     func isLookable(_ folder: URL) -> Bool { protectedFolder(of: folder) == nil }
 
-    private func keeps(_ project: AgentProject) -> Bool { keeps(folder: project.folder) }
+    func keeps(folder: URL) -> Bool { keeps([folder]).first ?? false }
 
-    /// False for the home folder, temporary folders, an agent's own folders
+    /// Per folder, false for the home folder, temporary folders, an agent's own folders
     /// (cmux's agent-home ones too) and folders that are gone; privacy-protected folders are kept unlooked-at.
-    func keeps(folder: URL) -> Bool {
-        let path = folder.standardizedFileURL.path
-        let homePath = home.standardizedFileURL.path
-        guard path != "/", path != homePath, path.hasPrefix("/") else { return false }
-        let inHome = path.hasPrefix(homePath + "/")
-        for temporary in ["/tmp", "/private/tmp", "/private/var/folders", "/var/folders"]
-        where !inHome && (path == temporary || path.hasPrefix(temporary + "/")) {
-            return false
+    /// Rust judges the spelling; only the folders it leaves are probed, protected first.
+    func keeps(_ folders: [URL]) -> [Bool] {
+        let paths = folders.map(\.standardizedFileURL.path)
+        let agentHomes = [claude, codex, pi, opencode, cmuxAgentHome].map(\.standardizedFileURL.path)
+        let probes = ProjectRules.probes(paths, home: home.standardizedFileURL.path, agentHomes: agentHomes)
+        return zip(folders, probes).map { folder, probe in
+            guard probe else { return false }
+            if protectedFolder(of: folder) != nil { return true }
+            return fileSystem.isDirectory(folder.standardizedFileURL.path)
         }
-        for agentHome in [claude, codex, pi, opencode, cmuxAgentHome] where path.hasPrefix(agentHome.standardizedFileURL.path + "/") {
-            return false
-        }
-        if protectedFolder(of: folder) != nil { return true }
-        return fileSystem.isDirectory(path)
     }
 
     /// Each session of `app`: its recorded cwd and when it was last written.
@@ -279,32 +256,16 @@ public struct RecentProjectScan: Sendable {
     /// Returns recent projects, merging agent sessions, explicit cwd hints and
     /// bounded git repositories under the common development roots.
     public nonisolated func run(hints: [String] = [], now: Date = Date()) -> [AgentProject] {
-        var byPath = Dictionary(uniqueKeysWithValues: projects.run(now: now).map { ($0.id, $0) })
-
-        for hint in hints {
-            guard let folder = normalizedFolder(hint), projects.keeps(folder: folder) else { continue }
-            let id = folder.path
-            if byPath[id] == nil {
-                byPath[id] = AgentProject(folder: folder, sessions: 0, lastActive: now, apps: [])
-            }
+        let scanned = projects.run(now: now).map(ProjectRules.Project.init)
+        let hinted = hints.compactMap(normalizedFolder)
+        let keptHints = zip(hinted, projects.keeps(hinted)).compactMap { folder, kept in kept ? folder.path : nil }
+        let found = gitRepositories()
+        let repositories = zip(found, projects.keeps(found)).compactMap { folder, kept in
+            kept ? ProjectRules.Repository(path: folder.path,
+                                           modified: projects.fileSystem.modified(folder.path).timeIntervalSinceReferenceDate) : nil
         }
-
-        for folder in gitRepositories() where projects.keeps(folder: folder) {
-            let id = folder.path
-            let modified = projects.fileSystem.modified(folder.path)
-            if var existing = byPath[id] {
-                existing.lastActive = max(existing.lastActive, modified)
-                byPath[id] = existing
-            } else {
-                byPath[id] = AgentProject(folder: folder, sessions: 0, lastActive: modified, apps: [])
-            }
-        }
-
-        return byPath.values.sorted {
-            let lhs = AgentProjectScan.score($0, now: now)
-            let rhs = AgentProjectScan.score($1, now: now)
-            return lhs == rhs ? $0.folder.path < $1.folder.path : lhs > rhs
-        }.prefix(maxProjects).map { $0 }
+        return ProjectRules.recent(scanned, hints: keptHints, repositories: repositories, now: now, limit: maxProjects)
+            .map { $0.agentProject(modified: projects.fileSystem.modified) }
     }
 
     /// Path candidates matching an explicit prefix or substring. The full
@@ -313,14 +274,7 @@ public struct RecentProjectScan: Sendable {
         guard limit > 0 else { return [] }
         let raw = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let expanded = normalizedQuery(raw)
-        let foldedRaw = raw.lowercased()
-        let foldedExpanded = expanded.lowercased()
-        return run(hints: hints).compactMap { project in
-            let path = project.folder.path
-            let folded = path.lowercased()
-            guard raw.isEmpty || folded.hasPrefix(foldedExpanded) || folded.contains(foldedRaw) else { return nil }
-            return path
-        }.prefix(limit).map { $0 }
+        return ProjectRules.complete(run(hints: hints).map(\.folder.path), raw: raw, expanded: expanded, limit: limit)
     }
 
     public nonisolated func complete(_ query: String, hints: [String] = [], limit: Int = 20) -> [String] {
