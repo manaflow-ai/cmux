@@ -1719,6 +1719,36 @@ class WaitingBuildIsReplacedByTheNewestRun(unittest.TestCase):
         self.assertNotIn("supersede", json.dumps(placement["outputs"]))
 
 
+class PortableUnitTests(unittest.TestCase):
+    def test_native_build_requires_linux_tests_even_when_placement_fails(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertIn("portable-tests", jobs["build"]["needs"])
+        for result in ("success", "failure", "skipped", "cancelled", ""):
+            with self.subTest(result=result):
+                context = {"github": {"ref": "refs/heads/feat-cmux-next"},
+                           "needs": {"placement": {"result": "failure"},
+                                     "portable-tests": {"result": result}}}
+                self.assertEqual(condition(jobs["build"]["if"], context, failed=True), result == "success")
+                self.assertFalse(condition(jobs["build"]["if"], context, failed=True, cancelled=True))
+
+    def test_same_locked_suites_run_on_linux_and_leave_the_mac(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        job = jobs["portable-tests"]
+        for attempt in (1, 3):
+            runner = evaluate(job["runs-on"], {"github": {"repository_owner": "manaflow-ai",
+                                                        "run_attempt": attempt}})
+            self.assertIn(runner, ("cmux-linux", "cmux-gcp-nightly-x64"))
+        self.assertFalse(job.get("continue-on-error", False))
+        suites = {(step.get("working-directory"), step.get("run"))
+                  for step in job["steps"] if step.get("run", "").startswith("cargo test")}
+        self.assertEqual(suites, {
+            ("cmux-tui", "cargo test -p cmux-layout-reducer --locked"),
+            ("cmux-tui/crates/cmux-rd-ffi", "cargo test --locked"),
+            ("cmux-tui", "cargo test -p cmux-palette-ranker --locked"),
+        })
+        self.assertFalse(any("cargo test" in step.get("run", "") for step in jobs["build"]["steps"]))
+
+
 class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
     """The release build takes a Blacksmith slot ahead of the PR queue when no promote runner is idle, and the
     promote pool once CI_NEXT_PROMOTE_POOL is set (2026-11-10: run 42833220418's build queued 66 minutes on
