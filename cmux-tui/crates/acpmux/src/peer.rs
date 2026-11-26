@@ -66,6 +66,8 @@ mod list_read;
 mod runtime;
 #[path = "peer_runtime_io.rs"]
 mod runtime_io;
+#[path = "peer_runtime_requests.rs"]
+mod runtime_requests;
 pub(crate) use runtime_io::{
     ATTACH_RETRY_AFTER, lends_over, page_max_seq, refuses_attach, replayable,
 };
@@ -423,6 +425,8 @@ pub struct Peer {
     /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
+    /// `PeerConfig` `group`: the person's own placing of this machine (`own` or `agent`).
+    group_override: StdMutex<Option<String>>,
     /// The daemon's `peerWake` command, shared by every peer and swapped on a config reload
     /// (`Peer::wake` runs it once per wake window).
     wake_hook: std::sync::OnceLock<WakeHook>,
