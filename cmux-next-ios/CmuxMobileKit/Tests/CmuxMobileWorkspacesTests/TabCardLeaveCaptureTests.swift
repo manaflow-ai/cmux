@@ -92,7 +92,8 @@ import UIKit
 
         #expect(terminal.captures.contains { $0.tab == "term1" && !$0.fresh },
                 "the grid's opening keeps the page's last frame, never a capture in its zoom: \(terminal.captures)")
-        #expect(snapshots.entry(key).image != nil, "the card shows the picture at once")
+        // Kept at a card's width (`keepPicture`): shown once scaled off the main thread.
+        try await TabCardSnapshotTests.wait("the card shows the picture once scaled") { snapshots.entry(key).image != nil }
         try await TabCardSnapshotTests.wait("the picture is written") { snapshots.saves >= 1 }
         #expect(snapshots.store.record(key) != nil)
 

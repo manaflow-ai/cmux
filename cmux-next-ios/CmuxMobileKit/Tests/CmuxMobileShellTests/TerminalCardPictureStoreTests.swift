@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileModel
-import CmuxMobileWorkspaces
+// `WorkspaceTabsSource.snapshots` is internal.
+@testable import CmuxMobileWorkspaces
 import Foundation
 import SwiftUI
 import Testing
