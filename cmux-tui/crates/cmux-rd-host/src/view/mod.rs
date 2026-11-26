@@ -143,6 +143,12 @@ fn run(target: Option<&str>, scope: &str, list: bool, opts: &Opts) -> Res<()> {
         .call("POST", "/v1/sessions", Some(&json!({ "hostId": host.id, "scope": scope })))
         .map_err(|e| explain_request(e, &host.name))?;
     let session_id = request["session"]["id"].as_str().ok_or("no session id")?.to_owned();
+    let hub_approval = match request["session"]["hubApproval"].as_str() {
+        Some("permission" | "requested") => {
+            request["session"]["hubApproval"].as_str().map(str::to_owned)
+        }
+        _ => None,
+    };
     if request["session"]["state"].as_str() == Some("pending") {
         eprintln!(
             "Asked {} to {} it. Waiting for its person to allow this...",
@@ -158,7 +164,7 @@ fn run(target: Option<&str>, scope: &str, list: bool, opts: &Opts) -> Res<()> {
         }
     };
     let decoder = decoder.ok_or("no decoder")?;
-    let result = view_session(&hub, &mut user, &ticket, &host, scope, opts, decoder);
+    let result = view_session(&hub, &mut user, &ticket, &host, scope, hub_approval, opts, decoder);
     let reason = match &result {
         Ok(o) if o.connected => "viewer_disconnected",
         _ => "failed",
@@ -378,6 +384,7 @@ fn view_session(
     ticket: &Ticket,
     host: &HostDevice,
     scope: &str,
+    hub_approval: Option<String>,
     opts: &Opts,
     decoder: cmux_encode::openh264::OpenH264Decoder,
 ) -> Res<Outcome> {
@@ -452,6 +459,7 @@ fn view_session(
             control: scope == "full",
             viewer_id: hub.device.id.clone(),
             stats_file: opts.get("stats-file").map(PathBuf::from),
+            hub_approval,
         };
         let ended = stream::run(net, decoder, &config, &from_hub, &waker, &to_hub);
         drop(to_hub);
