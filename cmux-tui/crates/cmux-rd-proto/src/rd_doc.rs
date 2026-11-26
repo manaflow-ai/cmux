@@ -139,16 +139,37 @@ pub fn fingerprint_message(session: &str, role: &str, fingerprint: &str) -> Vec<
     format!("{session}|{role}|{fingerprint}").into_bytes()
 }
 
-/// One TURN relay as `cmux-rd serve` takes it.
+/// How a TURN relay is reached: `turn:` over UDP, `turn:..?transport=tcp`, or `turns:` (TLS).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TurnTransport {
+    #[default]
+    Udp,
+    Tcp,
+    Tls,
+}
+
+impl TurnTransport {
+    pub fn is_udp(&self) -> bool {
+        *self == TurnTransport::Udp
+    }
+}
+
+/// One TURN relay as `cmux-rd serve` takes it. `transport` is left out for UDP, so a
+/// UDP relay reads as it always has.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Turn {
     pub addr: String,
     pub username: String,
     pub password: String,
+    #[serde(default, skip_serializing_if = "TurnTransport::is_udp")]
+    pub transport: TurnTransport,
 }
 
-/// The ticket's ICE servers (`[{urls, username?, credential?}]`) as STUN addresses and UDP
-/// TURN relays (the Mac's `MacScreenRdServers`; TCP TURN is not a carrier of the link).
+/// The ticket's ICE servers (`[{urls, username?, credential?}]`) as STUN addresses and
+/// TURN relays: every UDP relay first, then the TCP and TLS (`turns:`) ones, which are
+/// the only way through a network that blocks UDP. The link speaks UDP TURN, so callers
+/// hand it the UDP relays ([`udp_only`]) and carry the rest separately.
 pub fn servers(ice: &Value) -> (Vec<String>, Vec<Turn>) {
     let (mut stun, mut turn) = (Vec::new(), Vec::new());
     let address = |s: &str| {
@@ -173,24 +194,40 @@ pub fn servers(ice: &Value) -> (Vec<String>, Vec<Turn>) {
                 if !a.is_empty() && !stun.contains(&a) {
                     stun.push(a);
                 }
-            } else if let Some(host) = base.strip_prefix("turn:") {
+            } else if let Some((host, transport)) = base
+                .strip_prefix("turns:")
+                .map(|h| (h, TurnTransport::Tls))
+                .or_else(|| base.strip_prefix("turn:").map(|h| (h, TurnTransport::Udp)))
+            {
                 let (Some(user), Some(pass)) =
                     (server["username"].as_str(), server["credential"].as_str())
                 else {
                     continue;
                 };
-                if query.contains("transport=tcp") {
-                    continue;
-                }
-                let relay =
-                    Turn { addr: address(host), username: user.into(), password: pass.into() };
-                if !relay.addr.is_empty() && !turn.contains(&relay) {
+                let tcp = query.split('&').any(|q| q.eq_ignore_ascii_case("transport=tcp"));
+                let transport = match transport {
+                    TurnTransport::Udp if tcp => TurnTransport::Tcp,
+                    t => t,
+                };
+                let addr = match transport {
+                    TurnTransport::Tls if !host.contains(':') => format!("{host}:5349"),
+                    _ => address(host),
+                };
+                let relay = Turn { addr, username: user.into(), password: pass.into(), transport };
+                if !host.is_empty() && !turn.contains(&relay) {
                     turn.push(relay);
                 }
             }
         }
     }
+    // UDP first, then TCP, then TLS; the ticket's order within each.
+    turn.sort_by_key(|t| t.transport as u8);
     (stun, turn)
+}
+
+/// The UDP relays of [`servers`], the ones the link can allocate on today.
+pub fn udp_only(turn: &[Turn]) -> Vec<Turn> {
+    turn.iter().filter(|t| t.transport.is_udp()).cloned().collect()
 }
 
 /// Whether a link path kind goes through a relay (the hub's `path` report).
@@ -254,21 +291,38 @@ mod tests {
     }
 
     #[test]
-    fn ice_servers_become_stun_and_udp_turn() {
+    fn ice_servers_keep_udp_relays_first_then_tcp_and_tls() {
         let ice = json!([
-            {"urls": ["stun:stun.example", "turn:turn.example:3478?transport=udp", "turn:turn.example:443?transport=tcp"],
+            {"urls": ["turns:turn.example:443?transport=tcp", "stun:stun.example",
+                      "turn:turn.example:443?transport=tcp", "turn:turn.example:3478?transport=udp",
+                      "turns:tls.example"],
              "username": "u", "credential": "p"},
-            {"urls": "stun:stun.example:3478"}
+            {"urls": "stun:stun.example:3478"},
+            {"urls": "turn:nocreds.example"}
         ]);
         let (stun, turn) = servers(&ice);
         assert_eq!(stun, vec!["stun.example:3478"]);
+        let relay = |addr: &str, transport| Turn {
+            addr: addr.into(),
+            username: "u".into(),
+            password: "p".into(),
+            transport,
+        };
         assert_eq!(
             turn,
-            vec![Turn {
-                addr: "turn.example:3478".into(),
-                username: "u".into(),
-                password: "p".into()
-            }]
+            vec![
+                relay("turn.example:3478", TurnTransport::Udp),
+                relay("turn.example:443", TurnTransport::Tcp),
+                relay("turn.example:443", TurnTransport::Tls),
+                relay("tls.example:5349", TurnTransport::Tls),
+            ]
         );
+        assert_eq!(udp_only(&turn), vec![relay("turn.example:3478", TurnTransport::Udp)]);
+        // A UDP relay serializes exactly as before; the others name their transport.
+        assert_eq!(
+            serde_json::to_value(&turn[0]).unwrap(),
+            json!({"addr": "turn.example:3478", "username": "u", "password": "p"})
+        );
+        assert_eq!(serde_json::to_value(&turn[2]).unwrap()["transport"], "tls");
     }
 }
