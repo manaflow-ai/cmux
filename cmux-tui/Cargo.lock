@@ -1717,6 +1717,7 @@ name = "cmux-cloud-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-cloud-environment",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -3366,6 +3367,7 @@ dependencies = [
  "cmux-signed-bundle",
  "cmux-stack-auth",
  "cmux-sync",
+ "cmux-tag-cache",
  "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
