@@ -213,17 +213,30 @@ publish_pointer() { # <prefix> <work dir> <archive generation>
   return 1
 }
 
+# A save that writes nothing: a warning, or with CACHE_REQUIRED=true an error that fails the step.
+# A writer whose entry pull requests compare against (the base's test log) is required: from #57363
+# (02:53Z) to #57975 (2026-11-26 15:35Z) its save had no credentials, warned "nothing saved" and went
+# green, so every red acpmux pull request found no base log and had each base red charged to it.
+not_saved() {
+  if [[ "${CACHE_REQUIRED:-}" == true ]]; then
+    echo "::error::r2-cache: $1 (a required save)"
+    return 1
+  fi
+  echo "::warning::r2-cache: $1"
+  return 0
+}
+
 save() {
   local name
   for name in CI_CACHE_R2_ENDPOINT CI_CACHE_R2_BUCKET CI_CACHE_R2_PUBLIC_URL AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
     if [[ -z "${!name:-}" ]]; then
-      echo "::warning::r2-cache: $name is not set; nothing saved"
-      return 0
+      not_saved "$name is not set; nothing saved"
+      return
     fi
   done
   if [[ ! -d "$dir" ]]; then
-    echo "::warning::r2-cache: $dir does not exist; nothing saved"
-    return 0
+    not_saved "$dir does not exist; nothing saved"
+    return
   fi
 
   local extension="tar.gz" work status generation url
@@ -232,7 +245,7 @@ save() {
   # order runs were created. Run numbers count per workflow, and nightly.yml
   # and seed-derived-data.yml write the same prefixes.
   generation="${GITHUB_RUN_ID:-0}"
-  valid_generation "$generation" || { echo "::warning::r2-cache: invalid run ID; nothing saved"; return 0; }
+  valid_generation "$generation" || { not_saved "invalid run ID; nothing saved"; return; }
   work="$(mktemp -d)"
   url="${CI_CACHE_R2_ENDPOINT%/}/$CI_CACHE_R2_BUCKET/$namespace/objects/$key.$extension"
   status="$(request --head --dump-header "$work/headers" "$url")" || status=000
@@ -255,30 +268,32 @@ save() {
     echo "r2-cache: $key already exists; not saving archive, checking pointers"
   fi
   if [[ "$status" != 200 ]]; then
-    echo "::warning::r2-cache: archive request failed (HTTP $status); nothing published"
     rm -rf "$work"
-    return 0
+    not_saved "archive request failed (HTTP $status); nothing published"
+    return
   fi
   generation="$(header x-amz-meta-generation "$work/headers")"
   generation="${generation:-0}"
   if ! valid_generation "$generation"; then
-    echo "::warning::r2-cache: invalid stored generation; nothing published"
     rm -rf "$work"
-    return 0
+    not_saved "invalid stored generation; nothing published"
+    return
   fi
 
   # One pointer per dash-terminated prefix, so any restore prefix finds the
   # newest key. Pointers go last: a reader never sees one without its object.
-  local prefix="" part rest="$key"
+  local prefix="" part rest="$key" missed=""
   printf '%s\n' "$key" > "$work/pointer"
   while [[ "$rest" == *-* ]]; do
     part="${rest%%-*}"
     rest="${rest#*-}"
     prefix="$prefix$part-"
     publish_pointer "$prefix" "$work" "$generation" \
-      || echo "::warning::r2-cache: pointer $prefix was not updated"
+      || missed="$missed $prefix"
   done
   rm -rf "$work"
+  # A reader restores by prefix through these pointers: one left behind hides this save from it.
+  [[ -z "$missed" ]] || { not_saved "pointer(s)$missed not updated"; return; }
   echo "r2-cache: saved $key"
 }
 
