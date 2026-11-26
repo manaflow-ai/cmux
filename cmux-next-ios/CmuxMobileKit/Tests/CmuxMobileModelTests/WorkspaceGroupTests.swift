@@ -52,6 +52,8 @@ import Testing
                            roomPins: SidebarArrangement.roomPins(personal: Self.personal))
     }
 
+    // The group rules are Rust's (cmux-mobile-link-ffi `workspace_groups`): only the iOS build links them.
+    #if os(iOS)
     /// The Mac's mixed order: grp_a (top_index 1) before row 1, then the loose rows,
     /// a workspace without a row, then grp_b (no top_index) at the end.
     @Test func appliesTheMacsGroupOrder() {
@@ -90,6 +92,8 @@ import Testing
         #expect(MacWorkspaceGroup.nextColor(used: ["red", "green", "yellow", "purple", "cyan", "orange", "pink"]) == .grey)
     }
 
+    #endif
+
     @Test func groupSurvivesASavedSnapshot() throws {
         var ws = workspaces(["a"])[0]
         ws.group = MacWorkspaceGroup(id: "grp_a", name: "A", color: "red")
@@ -102,6 +106,8 @@ import Testing
     }
 }
 
+// The group rules are Rust's (cmux-mobile-link-ffi `workspace_groups`): only the iOS build links them.
+#if os(iOS)
 /// The creator's group actions: at once on the phone, undone when the Mac refuses.
 @MainActor
 @Suite struct WorkspaceGroupCreatorTests {
@@ -465,3 +471,4 @@ import Testing
         #expect(ws(store, "b").group?.name == "Red" && ws(store, "c").group?.name == "Red")
     }
 }
+#endif
