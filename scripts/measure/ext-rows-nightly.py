@@ -350,6 +350,39 @@ def row_newtab(ctx: Ctx) -> dict:
 row_newtab.needs_app = True
 
 
+def row_sidebar_list(ctx: Ctx) -> dict:
+    """The whole workspace list as an extension (#43027): with `sidebar.workspaceListApp` naming a
+    `cmux.sidebar/1` app (`cmux settings set`), the window's `apps.views` holds a cmux.sidebar/1 view with
+    its words; clearing the setting drops that view, so the built-in list is back (the fallback)."""
+    word = f"{ctx.token} workspace list"
+    install = install_customize(ctx, {
+        "name": "Rows workspace list", "description": "The workspace list.", "runtime": {"main": "main.js"},
+        "implements": {"cmux.sidebar/1": {"export": "renderSidebar", "title": "Rows workspaces",
+                                          "symbol": "sidebar.left"}},
+        "activation": ["onInterface:cmux.sidebar/1"]},
+        {"main.js": ("function renderSidebar() {\n"
+                     f"  console.log({json.dumps(word)} + ' rendered')\n"
+                     f"  return VStack([Panel({{ title: 'Rows' }}, [Text({json.dumps(word)})])])\n}}\n"
+                     "globalThis.__cmuxAppExports = { renderSidebar }\n")})
+    setting = ctx.ext(["settings", "set", "sidebar.workspaceListApp", CUSTOMIZE_APP], timeout=30)
+
+    def drawn() -> list[dict]:
+        return [v for v in views(ctx, "cmux.sidebar/1") if any(word in t for t in v.get("texts") or [])]
+
+    shown = wait_for(drawn, wait=20)
+    logged = logs_with(ctx, word, wait=5)
+    cleared = ctx.ext(["settings", "set", "sidebar.workspaceListApp", ""], timeout=30)
+    gone = wait_for(lambda: not drawn(), wait=20)
+    return {"checks": {"installed": install["installed"], "setting_set": setting.get("exit") == 0,
+                       "sidebar_shows_extension": bool(shown) or bool(logged),
+                       "cleared_falls_back": cleared.get("exit") == 0 and bool(gone)},
+            "install": install, "settings_set": setting, "settings_cleared": cleared,
+            "views": shown or views(ctx), "log_lines": logged}
+
+
+row_sidebar_list.needs_app = True
+
+
 def row_web_pane(ctx: Ctx) -> dict:
     """Web panes (#41546 Rust, #43033 Mac host): a `cmux.pane/1` with `web` lists its page (`apps-list`
     `web_pages`) and `app.open` opens it as a page tab (`snapshot.get` topology holds `app:local/customize`)."""
@@ -1181,6 +1214,7 @@ ROWS = {
     "fork": (row_fork, "#43005"),
     "ext_new": (row_ext_new, "#43371 #44828 #44877"),
     "newtab": (row_newtab, "#42998"),
+    "sidebar_list": (row_sidebar_list, "#43027"),
     "web_pane": (row_web_pane, "#41546 #43033"),
     "widget": (row_widget, "#45106"),
     "settings": (row_settings, "#43022"),

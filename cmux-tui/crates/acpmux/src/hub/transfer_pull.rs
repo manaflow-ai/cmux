@@ -75,6 +75,10 @@ const MANIFEST_PAGE: u64 = 1 << 20;
 const ANSWER_WAIT: std::time::Duration = std::time::Duration::from_secs(25);
 /// How long the source's watch waits for a `move_forget` answer.
 const FORGET_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+/// How long a move's answer waits for the heartbeat that lists the chat it moved here.
+// timeout: past this the move answers unlisted (the next timed heartbeat lists it); a move never
+// fails on it.
+const MOVED_LISTED_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub(super) fn pull_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
@@ -447,15 +451,32 @@ impl Hub {
         let finishing = std::time::Instant::now();
         let moved = self.transfer_finish(&finish).await?;
         let finish_ms = finishing.elapsed().as_millis() as u64;
+        // Listed in the hub's address book before the source hears the move landed, so
+        // `HOST/NAME` resolves on the source the moment its move ends (no 30 s heartbeat lag).
+        let listing = std::time::Instant::now();
+        let listed = self.list_on_mesh_now(MOVED_LISTED_WAIT).await;
+        let listed_ms = listing.elapsed().as_millis() as u64;
         let mut moved =
             json!({"sessionId": moved.get("sessionId").cloned().unwrap_or(json!(session_id))});
         moved.set("cwd", json!(cwd));
         moved.set(
             "timings",
             json!({"dialMs": dial_ms, "pages": page_count, "pageBytes": page_bytes,
-                   "pagesMs": pages_ms, "finishMs": finish_ms, "via": via}),
+                   "pagesMs": pages_ms, "finishMs": finish_ms, "via": via,
+                   "listedMs": listed.then_some(listed_ms)}),
         );
         Ok(answer(moved))
+    }
+
+    /// A mesh heartbeat now, listing this daemon's sessions, waited for at most `within`:
+    /// false when no mesh relay runs here. The hub routes `HOST/NAME` only to a session a
+    /// heartbeat listed (`mesh.unknown_recipient` otherwise), so a chat moved in through it is
+    /// listed before the move answers, as a start through it is (`server/mesh_relay.rs`).
+    pub(crate) async fn list_on_mesh_now(&self, within: std::time::Duration) -> bool {
+        let beat = self.mesh_beat.lock().unwrap_or_else(|e| e.into_inner()).upgrade();
+        let Some(beat) = beat else { return false };
+        beat.now(within).await;
+        true
     }
 
     /// Every file `manifest` lists, read page by page from the source's `transfer_id` and
