@@ -7,11 +7,15 @@
 # checked by nightly-next-guard.py appcast, and written only while the live feed still has the
 # bytes the merge read (stable_next.py write-feed). The public feed is read back last.
 #
-# Environment: DMG_NAME, BUILD, STABLE_APPCAST, NIGHTLY_NEXT_R2_BUCKET, NIGHTLY_NEXT_R2_PREFIX
+# The new item carries cmux:sourceCommit SOURCE_COMMIT (the plan's verified compile commit), as
+# every nightly item does: install-static.sh, hot-verify and the bisect read the commit from it.
+#
+# Environment: DMG_NAME, BUILD, SOURCE_COMMIT, STABLE_APPCAST, NIGHTLY_NEXT_R2_BUCKET, NIGHTLY_NEXT_R2_PREFIX
 # (nightly-next/stable/), NIGHTLY_NEXT_FEED_BASE (the stable base), R2_ENDPOINT, AWS_* (the
 # nightly-next R2 token).
 set -euo pipefail
-: "${DMG_NAME:?}" "${BUILD:?}" "${STABLE_APPCAST:?}" "${NIGHTLY_NEXT_R2_PREFIX:?}" "${NIGHTLY_NEXT_FEED_BASE:?}"
+: "${DMG_NAME:?}" "${BUILD:?}" "${SOURCE_COMMIT:?}" "${STABLE_APPCAST:?}" "${NIGHTLY_NEXT_R2_PREFIX:?}" "${NIGHTLY_NEXT_FEED_BASE:?}"
+[[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || { echo "SOURCE_COMMIT must be a full commit, got $SOURCE_COMMIT" >&2; exit 1; }
 [ "$NIGHTLY_NEXT_R2_PREFIX" = nightly-next/stable/ ] || { echo "refusing prefix $NIGHTLY_NEXT_R2_PREFIX" >&2; exit 1; }
 [ -s "stable-signed/$STABLE_APPCAST" ] || { echo "no signed Sparkle item" >&2; exit 1; }
 
@@ -30,7 +34,7 @@ Path(sys.argv[3]).write_text("absent" if live is None else hashlib.sha256(live).
 PY
 
 python3 -I scripts/ci/stable_next.py merge-feed --new "stable-signed/$STABLE_APPCAST" --live "$work/live.xml" \
-  --out "$work/$STABLE_APPCAST"
+  --out "$work/$STABLE_APPCAST" --source-sha "$SOURCE_COMMIT"
 python3 -I scripts/ci/nightly-next-guard.py appcast "$work/$STABLE_APPCAST"
 python3 -I scripts/ci/stable_next.py write-feed --feed "$work/$STABLE_APPCAST" --expect-sha256 "$(cat "$work/live.sha256")"
 
