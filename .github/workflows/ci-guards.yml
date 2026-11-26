@@ -210,6 +210,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_app_spend_mark.py
 
+      - name: Validate every recurring github.token spender stops at a floor
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_job_token_floor.py
+
       - name: Validate fast checks take their size from the linux runner pool
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py

@@ -1880,6 +1880,10 @@ path = "tests/test_ci_app_spend_mark.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_job_token_floor.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_fast_checks_failover.py"
 lane = "linux-guard"
 
