@@ -3,7 +3,7 @@
 //! Every async function runs on one shared Tokio runtime owned by this
 //! library, so Swift may await them from any executor.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -486,6 +486,9 @@ impl LinkHandle {
         // A daemon channel asks for pseq stamps and, with the gate on and an
         // overlay, viewport sync; its receiver turns synced screens into
         // `output` lines.
+        // hostd's acpmux MessageAssembler consumes one JSON message at a time. Its data frames
+        // carry no request identifier until assembled, so two RPC writes must not interleave.
+        let message_lock = (service == "acpmux").then(|| Arc::new(tokio::sync::Mutex::new(())));
         let daemon = service == "daemon";
         if daemon {
             self.viewport.merge_daemon_args(&mut args);
@@ -498,6 +501,7 @@ impl LinkHandle {
         Ok(Arc::new(ChannelHandle {
             id,
             sender: Arc::new(sender),
+            message_lock,
             receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, hub))),
             closed: Arc::new(Mutex::new(None)),
         }))
@@ -808,7 +812,8 @@ impl LinkHandle {
 /// on the same multiplexed channel.
 #[derive(uniffi::Object)]
 pub struct ChannelWriteWatch {
-    advanced: AtomicBool,
+    accepted: AtomicU64,
+    last_observed: AtomicU64,
     cancelled: tokio::sync::watch::Sender<bool>,
 }
 
@@ -816,12 +821,17 @@ pub struct ChannelWriteWatch {
 impl ChannelWriteWatch {
     #[uniffi::constructor]
     pub fn new() -> Arc<Self> {
-        Arc::new(Self { advanced: AtomicBool::new(false), cancelled: tokio::sync::watch::channel(false).0 })
+        Arc::new(Self {
+            accepted: AtomicU64::new(0),
+            last_observed: AtomicU64::new(0),
+            cancelled: tokio::sync::watch::channel(false).0,
+        })
     }
 
     /// Whether this write queued bytes since the previous observation.
     pub fn take_progress(&self) -> bool {
-        self.advanced.swap(false, Ordering::Relaxed)
+        let accepted = self.accepted.load(Ordering::Relaxed);
+        self.last_observed.swap(accepted, Ordering::Relaxed) < accepted
     }
 
     pub fn cancel(&self) {
@@ -829,10 +839,75 @@ impl ChannelWriteWatch {
     }
 }
 
+#[cfg(test)]
+mod channel_write_tests {
+    use super::*;
+    use cmux_mobile_link::{Link, Role};
+
+    async fn open(link: &Link) -> Arc<ChannelHandle> {
+        let channel = link.open("acpmux", serde_json::json!({})).await.unwrap();
+        let id = channel.id();
+        let (sender, receiver) = channel.split();
+        Arc::new(ChannelHandle {
+            id,
+            message_lock: Some(Arc::new(tokio::sync::Mutex::new(()))),
+            sender: Arc::new(sender),
+            receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, None))),
+            closed: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_partial_rpc_retires_only_its_channel_before_the_next_write() {
+        tokio::time::timeout(Duration::from_secs(15), async {
+            let (local, peer) = tokio::io::duplex(4096);
+            let phone = Link::new(local, Role::Phone, LinkConfig::default(), None);
+            let handle = open(&phone).await;
+            let watch = ChannelWriteWatch::new();
+            let writing = tokio::spawn({
+                let handle = handle.clone();
+                let watch = watch.clone();
+                async move { handle.send_observed(vec![b'x'; 4 << 20], watch).await }
+            });
+            while !watch.take_progress() {
+                tokio::task::yield_now().await;
+            }
+            let next = tokio::spawn({
+                let handle = handle.clone();
+                async move { handle.send(b"next".to_vec()).await }
+            });
+            watch.cancel();
+            assert!(writing.await.unwrap().is_err());
+            assert!(next.await.unwrap().is_err(), "another RPC cannot append to the partial one");
+
+            let mac = Link::new(peer, Role::Mac, LinkConfig::default(), None);
+            let mut partial = mac.accept().await.unwrap().channel;
+            while let Some(event) = partial.recv().await {
+                match event {
+                    ChannelEvent::Data(bytes) => assert!(bytes.iter().all(|byte| *byte == b'x')),
+                    ChannelEvent::Closed(_) => break,
+                }
+            }
+
+            // Reopen on the very same link. Cancellation before any bytes keeps it usable.
+            let reopened = open(&phone).await;
+            let cancelled = ChannelWriteWatch::new();
+            cancelled.cancel();
+            assert!(reopened.send_observed(b"skip".to_vec(), cancelled).await.is_err());
+            reopened.send(b"next".to_vec()).await.unwrap();
+            let mut intact = mac.accept().await.unwrap().channel;
+            assert!(matches!(intact.recv().await, Some(ChannelEvent::Data(bytes)) if &bytes[..] == b"next"));
+        })
+        .await
+        .expect("write cancellation and recovery must complete");
+    }
+}
+
 /// One multiplexed channel.
 #[derive(uniffi::Object)]
 pub struct ChannelHandle {
     id: u32,
+    message_lock: Option<Arc<tokio::sync::Mutex<()>>>,
     sender: Arc<ChannelSender>,
     receiver: Arc<tokio::sync::Mutex<ViewportReceiver>>,
     closed: Arc<Mutex<Option<(String, String)>>>,
@@ -853,7 +928,15 @@ impl ChannelHandle {
 
     pub async fn send(&self, data: Vec<u8>) -> Result<(), CmuxMobileError> {
         let sender = Arc::clone(&self.sender);
-        on_runtime(async move { sender.send(data.into()).await }).await?;
+        let lock = self.message_lock.clone();
+        on_runtime(async move {
+            let _write = match &lock {
+                Some(lock) => Some(lock.lock().await),
+                None => None,
+            };
+            sender.send(data.into()).await
+        })
+        .await?;
         Ok(())
     }
 
@@ -864,12 +947,28 @@ impl ChannelHandle {
         watch: Arc<ChannelWriteWatch>,
     ) -> Result<(), CmuxMobileError> {
         let sender = Arc::clone(&self.sender);
+        let lock = self.message_lock.clone();
         on_runtime(async move {
             let mut cancelled = watch.cancelled.subscribe();
+            let _write = match &lock {
+                Some(lock) => tokio::select! {
+                    biased;
+                    _ = cancelled.wait_for(|cancelled| *cancelled) => return Err(cmux_mobile_link::LinkError::ChannelClosed),
+                    guard = lock.lock() => Some(guard),
+                },
+                None => None,
+            };
             tokio::select! {
                 biased;
-                _ = cancelled.wait_for(|cancelled| *cancelled) => Err(cmux_mobile_link::LinkError::ChannelClosed),
-                outcome = sender.send_observed(data.into(), &watch.advanced) => outcome,
+                _ = cancelled.wait_for(|cancelled| *cancelled) => {
+                    // hostd has a prefix of this JSON message. Close this channel before the
+                    // next writer can append to it; the hub opens a fresh channel on this link.
+                    if lock.is_some() && watch.accepted.load(Ordering::Relaxed) != 0 {
+                        sender.close("cancelled", "partial message").await;
+                    }
+                    Err(cmux_mobile_link::LinkError::ChannelClosed)
+                }
+                outcome = sender.send_observed(data.into(), &watch.accepted) => outcome,
             }
         })
         .await?;

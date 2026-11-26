@@ -3499,9 +3499,9 @@ impl ChannelSender {
     }
 
     /// Report a chunk only after this particular write acquired room in the transport queue.
-    /// Other writers on the same channel never touch this flag.
-    pub async fn send_observed(&self, data: Bytes, advanced: &AtomicBool) -> Result<(), LinkError> {
-        self.send_numbered(data, None, Some(advanced)).await.map(|_| ())
+    /// Other writers on the same channel never contribute to this count.
+    pub async fn send_observed(&self, data: Bytes, accepted: &AtomicU64) -> Result<(), LinkError> {
+        self.send_numbered(data, None, Some(accepted)).await.map(|_| ())
     }
 
     /// Whether this is a screen channel ([`Delivery::Screen`], agreed with
@@ -3544,7 +3544,7 @@ impl ChannelSender {
         &self,
         data: Bytes,
         mark: Option<crate::frame::FlushMark>,
-        advanced: Option<&AtomicBool>,
+        accepted: Option<&AtomicU64>,
     ) -> Result<Option<u64>, LinkError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
@@ -3606,8 +3606,8 @@ impl ChannelSender {
                 .await
             {
                 Pushed::Queued => {
-                    if let Some(advanced) = advanced {
-                        advanced.store(true, Ordering::Relaxed);
+                    if let Some(accepted) = accepted {
+                        accepted.fetch_add(size as u64, Ordering::Relaxed);
                     }
                     self.sent.fetch_add(size as u64, Ordering::Relaxed);
                     if let Some(meter) = &self.meter {
@@ -4220,15 +4220,20 @@ mod tests {
         let channel = phone.open("daemon", serde_json::json!({})).await.unwrap();
         let sender = Arc::new(channel.sender);
         let total = CHANNEL_QUEUE_BYTES * 8;
+        let accepted = Arc::new(AtomicU64::new(0));
+        sender.send(Bytes::from_static(b"other")).await.unwrap();
+        assert_eq!(accepted.load(Ordering::Relaxed), 0);
         let sending = tokio::spawn({
             let sender = Arc::clone(&sender);
-            async move { sender.send(Bytes::from(vec![0u8; total])).await }
+            let accepted = Arc::clone(&accepted);
+            async move { sender.send_observed(Bytes::from(vec![0u8; total]), &accepted).await }
         });
         tokio::time::sleep(Duration::from_millis(200)).await;
         let stuck = sender.sent_bytes();
         assert!(stuck > 0 && stuck < total as u64, "part of the write got in: {stuck}");
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(sender.sent_bytes(), stuck, "a stalled link makes no progress");
+        assert_eq!(accepted.load(Ordering::Relaxed), stuck - 5, "only the observed write");
         sender.close("cancelled", "").await;
         let _ = sending.await;
 

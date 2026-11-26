@@ -197,10 +197,27 @@ public extension ParkableMacLink {
     var resumeHedge: Duration? { nil }
 }
 
+/// A single outgoing message. A transport that reports partial writes consumes only this
+/// message's progress at each deadline; cancellation stops its remaining transport work.
+public struct LinkWrite: Sendable {
+    public let send: @Sendable () async throws -> Void
+    public let takeProgress: (@Sendable () -> Bool)?
+    public let cancel: @Sendable () -> Void
+
+    public init(send: @escaping @Sendable () async throws -> Void,
+                takeProgress: (@Sendable () -> Bool)? = nil,
+                cancel: @escaping @Sendable () -> Void = {}) {
+        self.send = send
+        self.takeProgress = takeProgress
+        self.cancel = cancel
+    }
+}
+
 /// One multiplexed channel inside a link.
 public protocol LinkChannel: AnyObject, Sendable {
     var id: UInt32 { get }
     func send(_ data: Data) async throws
+    func observedWrite(_ data: Data) -> LinkWrite
     /// The next message, or nil once the channel is closed.
     func receive() async throws -> Data?
     func close(code: String, reason: String) async
@@ -213,6 +230,7 @@ public protocol LinkChannel: AnyObject, Sendable {
 }
 
 public extension LinkChannel {
+    func observedWrite(_ data: Data) -> LinkWrite { LinkWrite(send: { try await self.send(data) }) }
     var closedBy: LinkError? { nil }
     var sentBytes: UInt64? { nil }
 }
