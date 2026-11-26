@@ -55,17 +55,19 @@ rule: one simulator per tag, addressed by UDID, deleted at the end).
 
 ## Regressions this suite covers
 
+Full rows (why each was not caught, evidence): [REGRESSIONS-2026-11.md](REGRESSIONS-2026-11.md).
+
 | Row | What broke | Root PR | Fix | Flow | Catching test |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Terminal stuck on its skeleton at first attach | cmux#53596 | cmux#56970 | terminal-first-attach | AttachWaitsForTheLinkTests, TerminalAttachFirstFrameUITests |
 | 2 | Key row floats over terminal text when the keyboard shows or hides | cmux#53325 | cmux#56673, cmux#56712 (Aziz) | terminal-key-row-layout | TerminalKeyRowOnDemandUITests (now asserts the row sits on the keyboard), TerminalComposerDockUITests |
-| 3 | Workspace row stays highlighted after going back | cmux#53590 | cmux#56970; Aziz's cmux#57347 is a different design, his call | workspace-row-selection-clears | WorkspaceRowSelectionClearsUITests |
+| 3 | Workspace row stays highlighted after going back | cmux#53590 | cmux#56970; Aziz's cmux#57347 is a different design, Aziz decides | workspace-row-selection-clears | WorkspaceRowSelectionClearsUITests |
 | 4 | App and kit tests stop compiling (7 cross-PR breaks) | several | cmux#55399 | compile-app-and-tests | build-for-testing on the merged tree |
 | 5 | UITests target, CmuxMobileLive and mobile-link Rust stop building | cmux#53596, #53746, #50638 x #54075 | cmux#55664, #55655 | compile-app-and-tests | build-for-testing, `cargo check -p cmux-mobile-link` |
 | 6 | Crash when a portrait request is refused | cmux#52610 | cmux#53529 | screen-share-portrait-refused | ScreenSharingOrientationTests |
 | 7 | CmuxMobileShellTests stop compiling | cmux#51849 x #48532 | cmux#53217 | compile-app-and-tests | build-for-testing |
 | 8 | Composer Paste key invisible, glass lost | cmux#48749 | cmux#53471, #56712 | terminal-composer-bar | TerminalComposerBarUITests |
-| 9 | Pairing fails with "Mac's identity changed" | | cmux#57771 | pairing-mac-identity | MobileHostMacIdentityKeychainTests (macOS package) |
-| 10 | Empty state says "Macs asleep" when cmux is not connected | | cmux#57792 (open) | workspaces-empty-state | WorkspaceInboxTests, OfflineWorkspaceAlertUITests; the copy test lands with cmux#57792 |
+| 9 | Pairing fails with "Mac's identity changed" | cmux#13742 | cmux#57771 | pairing-mac-identity | MobileHostMacIdentityKeychainTests (macOS package) |
+| 10 | Empty state says "Macs asleep" when cmux is not connected | pre-rename copy; cmux#53806 fixed one branch | cmux#57792 (open) | workspaces-empty-state | WorkspaceInboxTests, OfflineWorkspaceAlertUITests; the copy test lands with cmux#57792 |
 | 11 | A Mac with no workspaces shows Loading forever; the route flaps | | cmux#57410 (open) | workspaces-empty-mac-loads | WorkspaceInboxTests, NetworkPathFilterTests |
 | 12 | ChatMacLookUITests red after cmux#57773 | cmux#57773 | | chat-mac-look | ChatMacLookUITests |
