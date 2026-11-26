@@ -1466,24 +1466,32 @@ final class CatchingUpSource: AgentSessionSource {
     var summary: AgentSessionSummary { inner.summary }
 
     func events() -> AsyncStream<AgentSessionEvent> {
+        let (head, rest) = eventsWithHead()
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
-        let inner = inner, hold = hold
+        for event in head { continuation.yield(event) }
         Task { @MainActor in
-            var first = true
-            for await event in inner.events() {
-                continuation.yield(event)
-                guard first else { continue }
-                first = false
-                continuation.yield(.historyLoading(true))
-                // Demo only: stands in for a Mac that takes `hold` to answer the catch-up.
-                Task { @MainActor in
-                    try? await Task.sleep(for: hold)
-                    continuation.yield(.historyLoading(false))
-                }
-            }
+            for await event in rest { continuation.yield(event) }
             continuation.finish()
         }
         return stream
+    }
+
+    /// The mock's history is the head (``MockAgentSession/eventsWithHead()``), the catch-up right
+    /// after it: the kept transcript is in the chat's first frame.
+    func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        let (head, rest) = inner.eventsWithHead()
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        let hold = hold
+        Task { @MainActor in
+            // Demo only: stands in for a Mac that takes `hold` to answer the catch-up.
+            try? await Task.sleep(for: hold)
+            continuation.yield(.historyLoading(false))
+        }
+        Task { @MainActor in
+            for await event in rest { continuation.yield(event) }
+            continuation.finish()
+        }
+        return (head + [.historyLoading(true)], stream)
     }
 
     func send(_ intent: AgentClientIntent) { inner.send(intent) }
@@ -1501,10 +1509,23 @@ final class FailedLastTurnSource: AgentSessionSource {
     var summary: AgentSessionSummary { inner.summary }
 
     func events() -> AsyncStream<AgentSessionEvent> {
+        let (head, rest) = eventsWithHead()
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
-        let inner = inner
+        for event in head { continuation.yield(event) }
         Task { @MainActor in
-            for await event in inner.events() { continuation.yield(event) }
+            for await event in rest { continuation.yield(event) }
+            continuation.finish()
+        }
+        return stream
+    }
+
+    /// The mock's history is the head (``MockAgentSession/eventsWithHead()``); the failed turn
+    /// follows it.
+    func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        let (head, rest) = inner.eventsWithHead()
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
+        Task { @MainActor in
+            for await event in rest { continuation.yield(event) }
             continuation.finish()
         }
         Task { @MainActor in
@@ -1519,7 +1540,7 @@ final class FailedLastTurnSource: AgentSessionSource {
                             at: at),
             ]))
         }
-        return stream
+        return (head, stream)
     }
 
     func send(_ intent: AgentClientIntent) { inner.send(intent) }
