@@ -337,6 +337,11 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
             json!({"sessionId": fresh_id, "prompt": [{"type": "text", "text": "after fallback"}]}),
         )
         .await;
+    assert_eq!(
+        local.env_of(&fresh_id, "ANTHROPIC_BASE_URL").await,
+        "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a",
+        "the ordinary prompt starts the replacement on the fallback route",
+    );
 
     // A route that cannot start (the local CodeRouter is not running) is
     // refused before the binding changes: the chat stays on proxy A.

@@ -1062,6 +1062,10 @@ pub struct Hub {
     pub(super) hub_ref: std::sync::OnceLock<std::sync::Weak<Hub>>,
     pub(crate) workflow_runs: crate::workflow_runs::Service,
     pub config: RwLock<Config>,
+    /// Whether the configured retry loop is disabled (`autoResumeDelaysMs: []`).
+    /// Kept as a snapshot so synchronous idle eligibility never observes a contended,
+    /// partially updated config lock.
+    pub(super) auto_resume_disabled: AtomicBool,
     pub(crate) wireguard: Option<Arc<crate::wireguard::Transport>>,
     /// The hub carrier once it starts (`hub_carrier.rs`); every peer holds this slot.
     #[cfg(feature = "hub-carrier")]
@@ -1734,9 +1738,12 @@ impl Hub {
         #[cfg(feature = "hub-carrier")]
         let hub_carrier =
             crate::hub_carrier::HubCarrierSlot::for_daemon(&config, wireguard.as_ref());
+        let auto_resume_disabled =
+            config.auto_resume_delays_ms.as_deref().is_some_and(<[_]>::is_empty);
         let hub = Arc::new(Self {
             hub_ref: std::sync::OnceLock::new(),
             config: RwLock::new(config),
+            auto_resume_disabled: AtomicBool::new(auto_resume_disabled),
             usage_limits,
             wireguard,
             #[cfg(feature = "hub-carrier")]
