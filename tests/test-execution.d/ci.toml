@@ -297,6 +297,10 @@ path = "tests/test_ci_guard_attribution.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_guard_base_verdicts.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_guard_check_isolation.py"
 lane = "linux-guard"
 
