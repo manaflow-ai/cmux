@@ -156,15 +156,16 @@ enum TabLifecycle {
             // The docked agent chat gets no tools: a chat or page from it opens in the strip (ChatColumnPlacement),
             // except a person's New Tab page, which opens in the dock, the main pane (Leo 2026-10-30: "IF I'M
             // FOCUSED ON THE MAIN PANE OPEN IT THERE"). What is picked on it opens beside the chat (NewTabPage.replace).
-            let asTab = kind == .agent && user && controller?.plusChatIsTab == true // Option-click on the +: a tab here (user 2026-11-12)
-            if user, !asTab, let controller, !(kind == .page && ChatColumnPlacement.keepsNewTabPage(in: controller)) {
+            // Option-click on the +: a tab here (user 2026-11-12); a chat bound for the dock is not moved. Rust's (handlers_close_chat_route).
+            let route = WindowRules().chatRoute(page: kind == .page, user: user, shown: controller != nil, plusChatIsTab: controller?.plusChatIsTab == true,
+                                                keepsNewTabPage: controller.map { ChatColumnPlacement.keepsNewTabPage(in: $0) } == true, placedHere: controller.map { NewChatPlacement.resolve(from: $0) == .here } == true)
+            if route.column, let controller {
                 // Nil: Home's pinned dock alone opened the page in a new column beside it.
                 guard let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services) else { return }
                 if strip !== controller { return strip.newTabPage() }
             }
-            let docks = !asTab && kind == .agent && controller.map { NewChatPlacement.resolve(from: $0) != .here } ?? false // bound for the chat dock: not moved
-            let placed = NewTabSlot.placing(docks ? nil : slot, services: ctx.services, then: nil as (@MainActor (String) -> Void)?)
-            _ = kind == .page ? controller?.newTabPage(then: placed) : controller?.newAgentTab(placed: !asTab, then: placed)
+            let placed = NewTabSlot.placing(route.docks ? nil : slot, services: ctx.services, then: nil as (@MainActor (String) -> Void)?)
+            _ = kind == .page ? controller?.newTabPage(then: placed) : controller?.newAgentTab(placed: !route.asTab, then: placed)
         }
     }
 
@@ -195,13 +196,10 @@ enum TabLifecycle {
         let facts = WindowRules.ReopenFacts(isBrowser: tab?.kind == .browser, current: tab?.browserEngine, target: engine.rawValue,
                                             proxied: engine == .webkit && tab.map { ctx.services.cache.pageRequests.staysOffThisMacLocalhost($0.id) } == true,
                                             chromiumUnavailable: chromiumReason != nil)
-        guard let decision = WindowRules().reopen(facts), let tab else { return ctx.refuse(RefusalStrings.notABrowserTab) }
-        switch (decision.decision, decision.reason) {
-        case ("reopen", _): break
-        case ("same", _): return
-        case (_, "proxiedTabStaysInChromium"?): return ctx.refuse(RefusalStrings.proxiedTabStaysInChromium)
-        case (_, "chromiumUnavailable"?): return ctx.refuse(chromiumReason ?? RefusalStrings.notABrowserTab)
-        default: return ctx.refuse(RefusalStrings.notABrowserTab)
+        let step = WindowRules().reopenStep(WindowRules().reopen(facts), hasTab: tab != nil) // handlers_close_reopen_step
+        if step == "same" { return }
+        guard step == "reopen", let tab else {
+            return ctx.refuse(step == "proxiedTabStaysInChromium" ? RefusalStrings.proxiedTabStaysInChromium : step == "chromiumUnavailable" ? chromiumReason ?? RefusalStrings.notABrowserTab : RefusalStrings.notABrowserTab)
         }
         let live = ctx.services.cache.existingBrowser(tab.id)?.tab.state.url
         let url = live ?? tab.url.flatMap(URL.init(string:))

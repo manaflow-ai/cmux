@@ -59,18 +59,18 @@ enum DestructiveConfirmation {
     static func prompt(for id: ActionID, _ invocation: ActionInvocation, _ services: AppServices) async -> Prompt? {
         let context = AppActionContext(services: services)
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.warnBeforeClosingTabDefault
-        switch id {
-        case "cloudKillMachine":
-            return Prompt(title: CloudStrings.killMachineTitle, body: CloudStrings.killMachineBody, button: CloudStrings.kill)
-        case "palette.cloud.deleteSnapshot":
-            return Prompt(title: CloudStrings.deleteSnapshotTitle, body: CloudStrings.deleteSnapshotBody, button: CloudStrings.deleteSnapshot)
-        case "cloudFileRemove":
-            return Prompt(title: CloudStrings.removeFileTitle, body: CloudStrings.removeFileBody, button: CloudStrings.removeFile)
-        case "cloud.secret.remove": return PaletteVerbActions.secretRemovePrompt(invocation).map { Prompt(title: $0.title, body: $0.body, button: $0.button, returnConfirms: false) }
-        case "cloudFirewallDelete":
-            return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
-                          button: CloudStrings.deleteFirewallRule)
-        case "git.worktree.remove": return invocation[GitRepositoryActions.pinnedPathName] == nil ? nil : Prompt(title: GitRepositoryActions.removeTitle, body: GitRepositoryActions.removeBody(discard: invocation["discard"]?.boolValue == true), button: GitRepositoryActions.removeButton, returnConfirms: false)
+        let fixed = WindowRules().fixedPrompt(id.rawValue), confirms = fixed?.returnConfirms ?? true // handlers_close_fixed_prompt
+        switch fixed?.prompt {
+        case "killMachine"?:
+            return Prompt(title: CloudStrings.killMachineTitle, body: CloudStrings.killMachineBody, button: CloudStrings.kill, returnConfirms: confirms)
+        case "deleteSnapshot"?:
+            return Prompt(title: CloudStrings.deleteSnapshotTitle, body: CloudStrings.deleteSnapshotBody, button: CloudStrings.deleteSnapshot, returnConfirms: confirms)
+        case "removeFile"?:
+            return Prompt(title: CloudStrings.removeFileTitle, body: CloudStrings.removeFileBody, button: CloudStrings.removeFile, returnConfirms: confirms)
+        case "secretRemove"?: return PaletteVerbActions.secretRemovePrompt(invocation).map { Prompt(title: $0.title, body: $0.body, button: $0.button, returnConfirms: confirms) }
+        case "deleteFirewallRule"?:
+            return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody, button: CloudStrings.deleteFirewallRule, returnConfirms: confirms)
+        case "worktreeRemove"?: return invocation[GitRepositoryActions.pinnedPathName] == nil ? nil : Prompt(title: GitRepositoryActions.removeTitle, body: GitRepositoryActions.removeBody(discard: invocation["discard"]?.boolValue == true), button: GitRepositoryActions.removeButton, returnConfirms: confirms)
         default:
             return await question(for: id, invocation, context, warn: warn) ?? services.registry.descriptor(for: id).flatMap { CatalogRequestHandlers.confirmation(for: $0) }.map { Prompt(title: $0.title, body: $0.body, button: $0.button) } // else a destructive request row's generic question
         }

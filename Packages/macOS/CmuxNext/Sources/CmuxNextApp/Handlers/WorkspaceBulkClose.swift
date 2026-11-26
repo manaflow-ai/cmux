@@ -106,8 +106,10 @@ enum WorkspaceBulkClose {
     static func close(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let (members, window) = try plan(id, invocation, context)
         let byGroup = WindowRules().bulkClose(id.rawValue)?.byGroup == true
-        if members.isEmpty, let none = nothingToClose(id) { throw ActionFailure.invalidTarget(none) }
-        if !byGroup, invocation.origin == .user, members.count > 1, let state = rowsWindow(members, context) {
+        let none = nothingToClose(id), state = rowsWindow(members, context)
+        let run = WindowRules().bulkRun(.init(byGroup: byGroup, user: invocation.origin == .user, count: members.count, oneWindow: state != nil, survivor: window != nil, refusesEmpty: none != nil)) // handlers_close_bulk_run
+        if run == "nothingToClose", let none { throw ActionFailure.invalidTarget(none) }
+        if run == "selection", let state {
             // The selection close's path: rows stay closing until the daemon answers; the toast counts what closed.
             return WorkspaceSelectionClose.close(members.map(\.0.id), in: state, context.services, asked: true)
         }
@@ -130,7 +132,7 @@ enum WorkspaceBulkClose {
         }
         // task-owner: one cleanup per group, bounded by `GroupCloseCleanup.settleLimit` and its delete
         for cleanup in cleanups { Task { @MainActor in await cleanup.run() } }
-        guard invocation.origin == .user, members.count > 1, let window else { return }
+        guard run == "closeWithUndo", let window else { return }
         WorkspaceGroupClose.offerUndo("workspaces-closed", closedToast(members.count), groups: groups, after: seen, in: window, services,
                                       cleanups: cleanups)
     }
