@@ -14,8 +14,9 @@ name: cas/1 replay (RFD 0166)
 # Row B1 (job b1): DerivedData seed restore bytes when the runner holds seed N-1.
 # scripts/cas/derived_data_replay.py finds main's newest seeds on the public CI cache (one key
 # prefix, read from the newest seed-derived-data.yml run's log), streams each tar.zst into a tree
-# and replays them with the same `cas-replay`. Seeds land on main, not here, so it also runs on a
-# schedule. Row U2 (Mac 20 behind) joins as its input gets a fetch path.
+# and replays them with the same `cas-replay`. Seeds land on main, not here; each run takes
+# main's newest (a schedule fires only from main's copy of a workflow, so none here). Row U2
+# (Mac 20 behind) joins as its input gets a fetch path.
 #
 # Every web merge reruns it (the push paths include webviews/), so the row moves with each publish.
 
@@ -39,9 +40,6 @@ on:
       - ".github/workflows/cas-replay.yml"
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
-  schedule:
-    # B1's input (main's DerivedData seeds) moves without a feat-cmux-next push.
-    - cron: "17 */6 * * *"
   workflow_dispatch:
     inputs:
       count:
