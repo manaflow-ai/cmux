@@ -194,6 +194,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `screenshots.folders` | array | `[]` |  | More Screenshot Folders. Also shows the pictures and videos in these folders. |
 | `workspaces.autoArchive.style` | string | `"manual"` | `suggest`, `quiet`, `groups`, `manual`, `off` | Idle Workspaces. Archived workspaces stay dimmed in their group and come back when opened. |
 | `workspaces.autoArchive.idleDays` | real | `3` | 1 to 365 | Idle For. Days unopened and unchanged. Pinned, running and waiting workspaces never archive. |
+| `worktrees.location` | string | `"~/.cmux/worktrees"` |  | Worktree Folder. Where cmux makes worktrees for local chats, forks and lanes, one folder per project. |
+| `worktrees.branchPrefix` | string | `"cmux/"` |  | Worktree Branch Prefix. The start of each new worktree's branch name, such as cmux/. |
 | `worktrees.autoCleanup` | boolean | `true` |  | Clean Up Agent Worktrees. Archive and remove worktrees agents finished with, and trim the build output of idle ones. Unpushed work is kept in git and comes back when the chat reopens. |
 | `worktrees.cleanBuildCaches` | boolean | `false` |  | Clean Up Build Caches. Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full. |
 | `workspaces.hibernation.enabled` | boolean | `true` |  | Hibernate Idle Workspaces. Frees the memory of unused workspaces. Terminals and agents keep running. |
@@ -205,6 +207,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `workspaces.freeing.runningCommands` | string | `"never"` | `never`, `relaunch` | Running Commands. What happens to a command that still runs in a workspace that frees its terminals. |
 | `tasks.layout` | string | `"inbox"` | `list`, `board`, `inbox` | Tasks Layout. Inbox lists what needs you first, with the task beside it. Changes apply at once. |
 | `appearance.iconTheme` | string | `"default"` | `default`, `neko` | Icon Theme. The icon drawings used by cmux. |
+| `appearance.mode` | string | `"system"` | `system`, `light`, `dark` | Appearance. Light, Dark, or Match System to follow macOS. Terminals with a light/dark theme pair follow it too. |
 | `appearance.theme` | string |  |  | Theme. Colors for terminals. A space, workspace or terminal theme overrides it. |
 | `appearance.appTheme` | string | `"followTerminal"` |  | App Theme. Colors for the window, sidebar, tabs and pages. Terminals use Terminal Theme. |
 | `appearance.themeEdits` | dictionary | `{}` |  | Theme Edits. Your color changes to a theme, such as "Rose Pine/background": "#1f1d2e". |
@@ -560,6 +563,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.cards.tips` | boolean | `false` |  | Show Tips. A daily card shows one cmux feature you have not used yet. |
 | `sidebar.priorityView.enabled` | boolean | `false` |  | Priority View. A bell listing every agent chat, the ones waiting on you first. |
 | `sidebar.priorityView.shown` | boolean | `true` |  | Show Priority View. The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged. |
+| `sidebar.priorityView.filters` | boolean | `false` |  | Priority Filters. All, Waiting, Unread and Running chips with counts, and Mark All as Read. |
+| `sidebar.priorityView.showIdle` | boolean | `true` |  | Idle Chats in Priority. Off, Priority lists only chats that need you or are running. |
+| `sidebar.priorityView.statusWords` | boolean | `false` |  | Priority Status Words. Each Priority row says its state, such as Needs you or Done. |
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. On the right, the window buttons sit over the tab bar. |
 | `appearance.metrics.spaceButtonSpacing` | real |  | 18 to 48 | Space Button Spacing. Distance between the centers of neighboring Space buttons. The density default fits them to the sidebar. |
 | `sidebar.spacesPosition` | string | `"bottom"` | `top`, `bottom` | Spaces Position. Under the window buttons or above the Settings row. |

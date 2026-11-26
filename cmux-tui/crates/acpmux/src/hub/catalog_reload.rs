@@ -53,15 +53,18 @@ impl Hub {
                 .map(|(n, reason)| (n.clone(), reason.clone()))
                 .collect();
             // Keep cached models until fresh probes finish, invalidating only
-            // changed/removed profiles. Listeners, peers, store and policy stay put.
-            self.known_models
-                .lock()
-                .unwrap()
-                .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
+            // changed/removed profiles (`model_lists`): their ACP list, read under another
+            // profile, is dropped, and their live list turns stale until its probe answers.
+            // Listeners, peers, store and policy stay put.
             self.known_efforts
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .retain(|name, _| current.harnesses.get(name) == next.harnesses.get(name));
+            for name in current.harnesses.keys() {
+                if current.harnesses.get(name) != next.harnesses.get(name) {
+                    self.model_lists.profile_changed(name);
+                }
+            }
             // Every field of `Config` is named here, with no `..`: a field added to it does not
             // build until it is copied below or listed as kept until a restart, with why. A
             // field in neither is how `remoteDaemon` stayed at its start value, and
@@ -254,6 +257,8 @@ impl Hub {
             )
         };
         self.start_auto_evacuate().await;
+        // Enrollment turned on since: its timer starts (`owner_return.rs`).
+        self.start_owner_return().await;
         // Every row, closed ones too, reads the new usage warning thresholds.
         self.events.changed(None);
         // A new `stalledTurnEndMs` moves the stalled turns' deadlines (`stalled_turn.rs`).
