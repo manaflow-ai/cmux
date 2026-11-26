@@ -41,13 +41,16 @@ replies to show progress; the card already shows it.
 ## 3. Look or drive only when you need to
 
 - Start with the `look` MCP tool when you only need a cheap check of the latest frame. It returns
-  one JPEG (at most 512 px on its long edge) from the selected agent-driven tab and one line with
-  the tab URL and dHash movement. It does not click or type.
+  one JPEG (at most 512 px on its long edge) from the selected agent-driven tab when one is showing,
+  plus one line naming the tab, its URL when available, its dimensions and dHash movement. If no page
+  is showing, the safe fallback is a whole-window frame labelled `window`; open an agent-driven page
+  before using browser selectors or interaction. It does not click or type.
 - Use `cmux browser "$TAB" screenshot --out shot.png` (`--selector "#el"`, `--full-page`) when you
   need to judge layout or a regression in detail. Read the file to see it.
 - Use `cmux browser "$TAB" snapshot --interactive`, then `click`, `fill` and the rest on the same
-  tab, or cmux Computer Use (`cu_*`), when the flow needs interaction. The `look` result and these
-  tools use the same tab (the `cmux-browser` and `cmux-computer-use` skills).
+  tab, or cmux Computer Use (`cu_*`), when the flow needs interaction. For an agent-driven page, the
+  `look` result and these tools use the same tab; a `window` result has no page to drive, so open one
+  first (the `cmux-browser` and `cmux-computer-use` skills).
 
 ## 4. At turn end: say how to try it
 
