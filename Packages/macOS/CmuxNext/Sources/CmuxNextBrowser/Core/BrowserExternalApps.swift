@@ -67,13 +67,35 @@ public final class BrowserExternalApps {
     /// console page shows and nothing asks to reopen the app the person is in.
     public var ownReturn: (@MainActor (URL) -> URL?)?
 
-    /// `url` (a main-frame https navigation) handed to the app instead of loading when ``ownReturn`` takes it: the
-    /// app's own route, and the flow's tab closes as an own-scheme handoff's does. False: it loads.
-    func handOffReturn(_ url: URL, firstPage: URL?, close: (() -> Void)?) -> Bool {
-        guard let own = ownReturn?(url), let route = openOwnURL else { return false }
-        route(own)
-        if closesHandoffTab?(firstPage) == true { close?() }
+    /// GitHub's return to a cmux console after the person saved an installation's settings (no state, nothing to
+    /// finish): the app takes note (it reads GitHub again) and answers true; false for any other URL. Its page only
+    /// says "go back to cmux", so a cmux tab never shows it (#57470).
+    public var savedReturn: (@MainActor (URL) -> Bool)?
+
+    /// `url` (a main-frame https navigation) handed to the app instead of loading when ``ownReturn`` or
+    /// ``savedReturn`` takes it: the app's own route, and the flow's tab closes as an own-scheme handoff's does.
+    /// False: it loads.
+    func handOffReturn(_ url: URL, firstPage: URL?, requestedPage: URL? = nil, close: (() -> Void)?) -> Bool {
+        if let own = ownReturn?(url), let route = openOwnURL {
+            route(own)
+            if startedFlow(first: firstPage, requested: requestedPage) {
+                endFlow(first: firstPage, requested: requestedPage)
+                close?()
+            }
+            return true
+        }
+        guard savedReturn?(url) == true else { return false }
+        // A tab that only went to GitHub's settings page is the flow's too: the person was sent there to change access.
+        if startedFlow(first: firstPage, requested: requestedPage) || [firstPage, requestedPage].contains(where: Self.isGitHubPage) {
+            endFlow(first: firstPage, requested: requestedPage)
+            close?()
+        }
         return true
+    }
+
+    /// A github.com page over https.
+    static func isGitHubPage(_ url: URL?) -> Bool {
+        url?.scheme?.lowercased() == "https" && url?.host(percentEncoded: false)?.lowercased() == "github.com"
     }
 
     /// An own-scheme link that returns from a flow the app opened a tab for (Settings > Connections'

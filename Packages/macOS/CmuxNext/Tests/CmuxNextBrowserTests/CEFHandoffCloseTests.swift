@@ -49,6 +49,59 @@ import Testing
         #expect(ShimLog.tryCloses == 0)
     }
 
+    // MARK: GitHub's "saved" return to the console (#57470, the leftover "Go back to cmux" page)
+
+    static let saved = "https://console.cmux.dev/integrations/callback?installation_id=42&setup_action=update"
+
+    /// The shim reports it as APP_RETURN_PAGE (kind 53) after cancelling the navigation.
+    @Test func theShimsAppReturnPageEventReadsAsItsURL() {
+        let event = CEFShimEvent(kind: 53, browser: 7, request: 0, a: 1, b: 0, s1: Self.saved, s2: "")
+        guard case .appReturnPage(let browser, let url) = event else { Issue.record("read as \(event)"); return }
+        #expect(browser == 7 && url == Self.saved)
+        #expect(event.browserID == 7, "the runtime routes it to the tab")
+    }
+
+    /// In cmux's own browser the app takes GitHub's return itself: it reads GitHub again, the tab that went to GitHub for
+    /// it closes without asking its page, and the console's "go back to cmux" page never shows.
+    @Test func aSaveOnGitHubInAFlowTabEndsInTheAppAndClosesTheTab() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let tab = try rig.committedTab(at: "https://github.com/settings/installations/42")
+        var decided: [Bool] = []
+        rig.intents.onClose = { decided.append(tab.pageDecidesUserClose()) }
+
+        rig.runtime.handle(.appReturnPage(browser: Rig.browser, url: Self.saved))
+
+        #expect(rig.saved.map(\.absoluteString) == [Self.saved], "the app reads GitHub again")
+        #expect(rig.intents.closes == 1, "the flow's tab closes")
+        #expect(decided == [false], "the close does not wait for the page")
+        #expect(ShimLog.tryCloses == 0)
+        #expect(rig.routed.isEmpty, "nothing goes through a link: no deeplink round trip")
+    }
+
+    /// A tab the person was using for something else takes the save (the app reads GitHub again) and stays open.
+    @Test func aSaveOnGitHubInAnotherTabKeepsTheTab() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        _ = try rig.committedTab(at: "https://news.example/")
+        rig.runtime.handle(.appReturnPage(browser: Rig.browser, url: Self.saved))
+        #expect(rig.saved.count == 1)
+        #expect(rig.intents.closes == 0)
+    }
+
+    /// The same handler serves a WebKit tab (`WebKitTab+Delegates`): a page the app does not take loads as before.
+    @Test func aPageTheAppDoesNotTakeLoads() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let github = URL(string: "https://github.com/settings/installations/42")
+        let other = try #require(URL(string: "https://console.cmux.dev/integrations/callback?state=x&installation_id=42&setup_action=update"))
+        var closes = 0
+        #expect(!BrowserExternalApps.shared.handOffReturn(other, firstPage: github, close: { closes += 1 }))
+        #expect(closes == 0)
+        #expect(BrowserExternalApps.shared.handOffReturn(URL(string: Self.saved)!, firstPage: github, close: { closes += 1 }))
+        #expect(closes == 1)
+    }
+
     // MARK: Rig (as CEFPageClosingGroundTests')
 
     @MainActor final class Intents: BrowserTabDelegate {
@@ -67,19 +120,28 @@ import Testing
         let root: URL
         let intents = Intents()
         var routed: [URL] = []
+        var saved: [URL] = []
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
         private let apps = BrowserExternalApps.shared
-        private let saved: (schemes: Set<String>, route: (@MainActor (URL) -> Void)?, handoff: (@MainActor (URL) -> Bool)?, closes: (@MainActor (URL?) -> Bool)?)
+        private let previous: (schemes: Set<String>, route: (@MainActor (URL) -> Void)?, handoff: (@MainActor (URL) -> Bool)?, closes: (@MainActor (URL?) -> Bool)?,
+                           savedReturn: (@MainActor (URL) -> Bool)?, ownReturn: (@MainActor (URL) -> URL?)?)
 
         init() throws {
             ShimLog.tryCloses = 0
             root = FileManager.default.temporaryDirectory.appending(path: "cef-handoff-close-\(UUID().uuidString)", directoryHint: .isDirectory)
             runtime = CEFRuntime(shim: try ShimLog.library(), storage: CEFProfileStorage(root: root))
-            saved = (apps.ownSchemes, apps.openOwnURL, apps.isOwnHandoff, apps.closesHandoffTab)
+            previous = (apps.ownSchemes, apps.openOwnURL, apps.isOwnHandoff, apps.closesHandoffTab, apps.savedReturn, apps.ownReturn)
             apps.ownSchemes = ["cmux-test"]
             apps.openOwnURL = { [weak self] in self?.routed.append($0) }
             apps.isOwnHandoff = { $0.host == "integration" }
-            apps.closesHandoffTab = { $0?.host == "github.com" }
+            apps.closesHandoffTab = { $0?.host == "github.com" && $0?.path.hasPrefix("/apps/") == true }
+            apps.ownReturn = nil
+            // As the app's (GitHubInstallSheet.install): a state-less update return to the console.
+            apps.savedReturn = { [weak self] url in
+                guard url.query?.contains("setup_action=update") == true, url.query?.contains("state=") == false else { return false }
+                self?.saved.append(url)
+                return true
+            }
         }
 
         /// A shown tab whose browser exists and whose first page, `url`, committed.
@@ -100,10 +162,12 @@ import Testing
         }
 
         func close() {
-            apps.ownSchemes = saved.schemes
-            apps.openOwnURL = saved.route
-            apps.isOwnHandoff = saved.handoff
-            apps.closesHandoffTab = saved.closes
+            apps.ownSchemes = previous.schemes
+            apps.openOwnURL = previous.route
+            apps.isOwnHandoff = previous.handoff
+            apps.closesHandoffTab = previous.closes
+            apps.savedReturn = previous.savedReturn
+            apps.ownReturn = previous.ownReturn
             window.contentView?.subviews.forEach { $0.removeFromSuperview() }
             window.closeAfterTest()
             try? FileManager.default.removeItem(at: root)

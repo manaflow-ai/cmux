@@ -75,6 +75,15 @@ struct CloudGitHubSetupReturnTests {
         #expect(!CloudGitHubCompletion.isSavedOnGitHub(elsewhere))
     }
 
+    /// A Chromium tab's shim cancels the same return before it loads (`IsGitHubSavedReturn`, #57470) on its own copy of
+    /// the console hosts and path: they stay the ones this rule reads.
+    @Test func theShimTakesTheSameConsolesSavedReturn() throws {
+        let policy = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../../CEFShim/src/auth_callback_policy.h").standardizedFileURL
+        let text = try String(contentsOf: policy, encoding: .utf8)
+        for host in CloudGitHubCompletion.consoleHosts { #expect(text.contains("\"\(host)\""), "the shim knows \(host)") }
+        #expect(text.contains("\"\(CloudGitHubCompletion.consoleCallbackPath)\""))
+    }
+
     @MainActor @Test func theProgressFollowsTheConnectFromOpenToItsEnd() {
         let changes = CloudGitHubChanges()
         changes.openedGitHub()

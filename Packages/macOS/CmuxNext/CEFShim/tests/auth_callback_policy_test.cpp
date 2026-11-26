@@ -47,6 +47,42 @@ int main() {
                 << c.want << "\n";
     }
   }
+  // GitHub's return after a save on an installation's settings page (#57470): taken by the app in a cmux tab.
+  struct SavedCase {
+    const char* url;
+    bool want;
+  };
+  const SavedCase saved[] = {
+      {"https://console.cmux.dev/integrations/callback?installation_id=42&setup_action=update", true},
+      {"https://console-staging.cmux.dev/integrations/callback/?setup_action=update&installation_id=7#x", true},
+      {"https://CONSOLE.cmux.dev:443/integrations/callback?installation_id=42&setup_action=update", true},
+      // A connect with a state (the console sends it to the app's own link), an error, or another action loads.
+      {"https://console.cmux.dev/integrations/callback?state=a.b.c&installation_id=42&setup_action=update", false},
+      {"https://console.cmux.dev/integrations/callback?error=x&installation_id=42&setup_action=update", false},
+      {"https://console.cmux.dev/integrations/callback?installation_id=42&setup_action=install", false},
+      {"https://console.cmux.dev/integrations/callback?installation_id=42", false},
+      // The installation must be a number of at most 20 digits.
+      {"https://console.cmux.dev/integrations/callback?installation_id=4x&setup_action=update", false},
+      {"https://console.cmux.dev/integrations/callback?installation_id=&setup_action=update", false},
+      {"https://console.cmux.dev/integrations/callback?installation_id=123456789012345678901&setup_action=update", false},
+      // The first value counts, as on the host side.
+      {"https://console.cmux.dev/integrations/callback?setup_action=&setup_action=update&installation_id=1", false},
+      {"https://console.cmux.dev/integrations/callback?state=&installation_id=1&setup_action=update", true},
+      // Another host, path, scheme, or a user in the authority: not the console's callback.
+      {"https://evil.com/integrations/callback?installation_id=42&setup_action=update", false},
+      {"https://console.cmux.dev.evil.com/integrations/callback?installation_id=42&setup_action=update", false},
+      {"https://console.cmux.dev/integrations/other?installation_id=42&setup_action=update", false},
+      {"http://console.cmux.dev/integrations/callback?installation_id=42&setup_action=update", false},
+      {"https://u@console.cmux.dev/integrations/callback?installation_id=42&setup_action=update", false},
+      {"cmux-nightly://integration/complete?installation_id=42&setup_action=update", false},
+  };
+  for (const SavedCase& c : saved) {
+    ++count;
+    if (cmux_shim::IsGitHubSavedReturn(c.url) != c.want) {
+      ++failures;
+      std::cerr << "FAIL saved " << c.url << " want " << c.want << "\n";
+    }
+  }
   std::cout << count << " cases, " << failures << " failures\n";
   return failures == 0 ? 0 : 1;
 }

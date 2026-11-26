@@ -49,7 +49,8 @@ extension WebKitTab: WKNavigationDelegate {
             }
             return
         }
-        // GitHub's return to the App's Setup URL for this build's connect: the app finishes it, and no page loads.
+        // GitHub's return to the App's Setup URL for this build's connect, or after a save on GitHub's installation
+        // settings (#57470): the app finishes it, and no page loads.
         if navigationAction.targetFrame?.isMainFrame ?? true {
             let history = webView.backForwardList, first = (history.backList.first ?? history.currentItem)?.initialURL
             if BrowserExternalApps.shared.handOffReturn(url, firstPage: first, close: { [weak self] in self?.emit(.close) }) {

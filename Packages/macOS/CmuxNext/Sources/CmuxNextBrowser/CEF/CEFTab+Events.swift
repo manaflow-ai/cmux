@@ -137,6 +137,8 @@ extension CEFTab {
         case .navigationReroute(_, let url, _): if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .localFileHandoff(_, let url): if let url = URL(string: url) { emit(.openLocalFile(url)) }
         case .externalURL(_, let url, let userGesture): if let url = URL(string: url) { BrowserExternalApps.shared.open(url, from: committedURL, engine: engineKind, userGesture: userGesture, firstPage: firstCommittedURL ?? committedURL, requestedPage: firstRequestedURL, tab: ObjectIdentifier(self), close: { [weak self] in self?.closeAfterHandoff() }, ask: enqueuePrompt) }
+        // GitHub's "saved" return to the console (#57470): the app reads GitHub again and the flow's tab closes; no page.
+        case .appReturnPage(_, let url): if let url = URL(string: url) { _ = BrowserExternalApps.shared.handOffReturn(url, firstPage: firstCommittedURL ?? committedURL, requestedPage: firstRequestedURL, close: { [weak self] in self?.closeAfterHandoff() }) }
         case .keyUnhandled(_, let keyCode, let shift):
             if keyCode == 0x1B {
                 emit(.unhandledEscape)

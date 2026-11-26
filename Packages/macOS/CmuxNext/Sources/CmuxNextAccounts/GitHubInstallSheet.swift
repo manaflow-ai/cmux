@@ -20,6 +20,12 @@ package struct GitHubInstallSheet {
         let broker = WebAuthSessionBroker(opener: opener)
         LinkRouter.shared.openGitHubInstall = { open($0, broker: broker, auth: auth) }
         BrowserExternalApps.shared.ownReturn = { CloudGitHubCompletion.ownReturn($0, auth: auth) }
+        // A save on GitHub's installation settings in a cmux tab: read GitHub again, and no console page (#57470).
+        BrowserExternalApps.shared.savedReturn = { url in
+            guard CloudGitHubCompletion.isSavedOnGitHub(url) else { return false }
+            auth.gitHubChanges.savedOnGitHub()
+            return true
+        }
         let handler = WebAuthSessionHandler(broker: broker)
         WebAuthSessionHandler.install(handler)
         return handler

@@ -13,6 +13,7 @@
 #include "include/wrapper/cef_closure_task.h"
 #include "command_line_apply.h"
 #include "artifact_page.h"
+#include "auth_callback_policy.h"
 #include "external_url.h"
 #include "local_file_handoff.h"
 #include "local_file_scope.h"
@@ -330,6 +331,11 @@ class Client : public CefClient,
     }
     // An agent-driven tab never commits a Chromium page (passwords.md, section 2).
     if (NavigationRefusedForAgent(id, url)) return true;
+    // GitHub's "saved" return to the console never shows its "go back to cmux" page in cmux (#57470).
+    if (!BrowserIsAgentDriven(id) && cmux_shim::IsGitHubSavedReturn(url)) {
+      EmitAfterNavigationCallback(CMUX_SHIM_APP_RETURN_PAGE, id, is_redirect ? 1 : 0, url);
+      return true;
+    }
     if (cmux_shim::CEFHandsOffLocalFile(url)) {
       EmitAfterNavigationCallback(CMUX_SHIM_LOCAL_FILE_HANDOFF, id, 0, url);
       return true;
